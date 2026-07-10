@@ -1,5 +1,5 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.07.07
+.VERSION 2026.07.10
 .GUID 42d15e27-b2c3-4d4e-9f50-6b7c8d9e0f1a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -31,6 +31,21 @@
     These functions are imported with the Inner module set so a mid-run
     `git pull` refreshes them in lockstep with the rest of the cycle code.
 #>
+
+# The cycle's rename-stable identity (no .incomplete / .aborted.<UTC> suffix) so log
+# lines + URLs built mid-cycle resolve to the post-rename <base>/ location once
+# Stop-LogFile moves the folder. Get-CycleFolderIdentity lives in sibling Test.Log;
+# fall back to the raw leaf when Test.Log is not imported for this cycle.
+function Get-StableCycleBaseName {
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidGlobalVars', '',
+        Justification = '$global:__YurunaCycleFolder is the cross-module per-cycle folder handle the inner runner threads through its helpers; reading it derives the cycle''s rename-stable identity for the URLs/log lines built mid-cycle.')]
+    param()
+    if (Get-Command Get-CycleFolderIdentity -ErrorAction SilentlyContinue) {
+        Get-CycleFolderIdentity -Path $global:__YurunaCycleFolder
+    } else {
+        Split-Path -Leaf $global:__YurunaCycleFolder
+    }
+}
 
 # Sibling of the outer's Write-OuterLog (Test.RunnerOuterLoop.psm1). Lets the
 # inner record where it is in its own exit path so a hang between
@@ -417,11 +432,7 @@ function Copy-FailureArtifactsToStatusLog {
         # .aborted.<UTC> suffix) so log lines + URLs constructed here
         # resolve to the post-rename location once Stop-LogFile moves
         # the folder to <base>/.
-        $cycleBase   = if (Get-Command Get-CycleFolderIdentity -ErrorAction SilentlyContinue) {
-            Get-CycleFolderIdentity -Path $global:__YurunaCycleFolder
-        } else {
-            Split-Path -Leaf $global:__YurunaCycleFolder
-        }
+        $cycleBase   = Get-StableCycleBaseName
 
         # Three artifact sources, written by different code paths:
         #   * screens_<VM>/raw_*.png         — Wait-ForText ring buffer (GUI mode)
@@ -747,11 +758,12 @@ while ($true) {
         Write-Warning "Authentication extension init failed: $($_.Exception.Message). Continuing; per-guest credential ops will surface the underlying error."
     }
 
-    # --- Reset status.json so the dashboard stops showing the previous
-    # cycle's pass/fail + per-guest pills while the slow setup below
-    # (git pull, project clone, status-service restart, module re-imports,
-    # cycle-plan resolution) runs. Initialize-StatusDocument later
-    # populates the fully-shaped doc once the guest list is known.
+    # --- REGION: Reset status.json for cycle start
+    # The dashboard stops showing the previous cycle's pass/fail + per-guest
+    # pills while the slow setup below (git pull, project clone, status-service
+    # restart, module re-imports, cycle-plan resolution) runs.
+    # Initialize-StatusDocument later populates the fully-shaped doc once the
+    # guest list is known.
     Reset-StatusDocumentForCycleStart -StatusFilePath $StatusFile -Confirm:$false
 
     # --- REGION: Git pull
@@ -1100,8 +1112,8 @@ while ($true) {
     # own fetchAndExecute SSH path. Without this registration the cycle
     # creates the VM with the cascaded user but the harness's SSH probes
     # target the hardcoded default, which no longer exists on the VM.
-    # Test.Ssh is loaded ad-hoc later in this script (line ~939); ensure
-    # the override-registration helpers are available before we call them.
+    # Test.Ssh is loaded ad-hoc later in the cycle body; ensure the
+    # override-registration helpers are available before we call them.
     if (-not (Get-Command Set-GuestSshUserOverride -ErrorAction SilentlyContinue)) {
         Import-Module (Join-Path $ModulesDir 'Test.Ssh.psm1') -Force -Global -ErrorAction SilentlyContinue
     }
@@ -1231,8 +1243,9 @@ while ($true) {
         -Sequences      $SequenceList `
         -StepNames      $StepNames
 
-    # --- Seed per-guest provenance so the UI shows the actual ISO filename
-    # (e.g. "ubuntu-24.04.4-live-server-amd64.iso") instead of "guest.ubuntu.server.24".
+    # --- REGION: Seed per-guest provenance
+    # The UI shows the actual ISO filename (e.g.
+    # "ubuntu-24.04.4-live-server-amd64.iso") instead of "guest.ubuntu.server.24".
     # Each Get-Image.ps1 writes a two-line sidecar (filename + source URL);
     # Get-BaseImageProvenance reads it. Missing sidecar or blank URL leaves
     # provenance empty and the UI falls back to guestKey. Per-cycle, so
@@ -1245,7 +1258,7 @@ while ($true) {
         }
     }
 
-    # --- REGION: Start log file (transcript captures console output)
+    # --- REGION: Start log file (transcript captures all console output)
     # CycleNumber is read AFTER Initialize-StatusDocument so it sees the
     # incremented value (1, 2, 3, ...). Drives the 6-digit prefix in the
     # cycleFolder name; Start-LogFile also publishes the folder URL onto
@@ -1274,11 +1287,7 @@ while ($true) {
                 # Log line uses the cycle's stable identity so the
                 # URL resolves to the post-rename location once Stop-
                 # LogFile moves the folder to <base>/.
-                $cycleBaseName = if (Get-Command Get-CycleFolderIdentity -ErrorAction SilentlyContinue) {
-                    Get-CycleFolderIdentity -Path $global:__YurunaCycleFolder
-                } else {
-                    Split-Path -Leaf $global:__YurunaCycleFolder
-                }
+                $cycleBaseName = Get-StableCycleBaseName
                 Write-Output "Host diagnostic (cycle start): ./status/log/$cycleBaseName/host.diagnostic.txt"
             }
         } else {
@@ -1317,10 +1326,11 @@ while ($true) {
     $CommitLine = if ($ProjectGitCommit) { "$GitCommit, $ProjectGitCommit" } else { $GitCommit }
     Write-Output "Commit:   $CommitLine"
 
-    # --- Pre-flight: every guestSequence key needs a host/<short-host>/<guest>/
-    #     folder on this host. No hardcoded allow-list — this existence
-    #     check IS the allow-list. Missing folders fail the guest and skip
-    #     it for the rest of the cycle; shouldStopOnFailure ends the cycle now.
+    # --- REGION: Pre-flight guest-folder check
+    # Every guestSequence key needs a host/<short-host>/<guest>/ folder on this
+    # host. No hardcoded allow-list — this existence check IS the allow-list.
+    # Missing folders fail the guest and skip it for the rest of the cycle;
+    # shouldStopOnFailure ends the cycle now.
     $FailedGuests = [System.Collections.Generic.HashSet[string]]::new()
     foreach ($GuestKey in $GuestList) {
         if (Test-GuestFolder -RepoRoot $RepoRoot -HostType $HostType -GuestKey $GuestKey) { continue }
@@ -1520,11 +1530,7 @@ while ($true) {
             # status.json after Stop-LogFile updates cycleFolderUrl, but
             # the per-guest artifact URL is recorded mid-cycle and must
             # outlast the rename.
-            $cycleBaseName = if (Get-Command Get-CycleFolderIdentity -ErrorAction SilentlyContinue) {
-                Get-CycleFolderIdentity -Path $global:__YurunaCycleFolder
-            } else {
-                Split-Path -Leaf $global:__YurunaCycleFolder
-            }
+            $cycleBaseName = Get-StableCycleBaseName
             Set-GuestFailureArtifact -GuestKey $GuestKey -RelativeUrl "log/$cycleBaseName/$VMName/"
         }
 
@@ -2181,10 +2187,10 @@ while ($true) {
     # Start-Sleep. Write-Progress shows a percentage bar; Write-Output
     # emits a coarser tick (every ~5 s) so a non-progress-rendering log
     # collector still records forward motion.
-    # $CycleDelay is set inside the cycle's try block (line ~1077) once
-    # config is merged; an early throw before that line would leave it
-    # null. Fall back to the script param so the inter-cycle wait is
-    # still respected on the rare crash-before-config path.
+    # $CycleDelay is set inside the cycle's try block once config is
+    # merged; an early throw before that point would leave it null.
+    # Fall back to the script param so the inter-cycle wait is still
+    # respected on the rare crash-before-config path.
     $delayId       = 2
     $effectiveDelay = if ($null -ne $CycleDelay -and [int]$CycleDelay -gt 0) { [int]$CycleDelay } else { [int]$CycleDelaySeconds }
     if ($effectiveDelay -gt 0 -and -not $ShutdownState['Requested']) {

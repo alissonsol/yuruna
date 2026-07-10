@@ -1,5 +1,5 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.07.07
+.VERSION 2026.07.10
 .GUID 42a7b8c9-d0e1-4f23-9456-7e8f9a0b1c20
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -203,8 +203,8 @@ function Get-GuestList {
     .DESCRIPTION
     Returns verbatim — whether a guest is implemented on the current
     host is decided at runtime by Test-GuestFolder; the runner logs a
-    per-guest failure for missing folders. Replaces the old hardcoded
-    allow-list. Empty/missing guestSequence returns an empty list with a warning.
+    per-guest failure for missing folders. Empty/missing guestSequence
+    returns an empty list with a warning.
     #>
     param([System.Collections.IDictionary]$Config = @{})
 

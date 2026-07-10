@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.07
+.VERSION 2026.07.10
 .GUID 42f0a1b2-c3d4-4e56-9788-9a0b1c2d3e4f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -29,9 +29,7 @@
 # fingerprint is gathered ONCE, PRIVILEGED, at Enable-TestAutomation (sudo is
 # primed there) and cached to runtime/host.hwid.json; the drain reads the cache.
 
-# ---------------------------------------------------------------------------
-# Pure normalization helpers (no I/O) -- the testable core.
-# ---------------------------------------------------------------------------
+# --- REGION: Pure normalization helpers (no I/O) -- the testable core
 
 # Junk SMBIOS/serial values that firmware ships as placeholders. Treated as
 # "absent" so two unrelated boards that both report "Default string" never look
@@ -237,9 +235,7 @@ function ConvertFrom-HostInfoRecord {
     }
 }
 
-# ---------------------------------------------------------------------------
-# OS-touching fingerprint gather (best-effort; never throws).
-# ---------------------------------------------------------------------------
+# --- REGION: OS-touching fingerprint gather (best-effort; never throws)
 
 # Get-HostIdentityRuntimeDir resolves the runtime dir, preferring Test.YurunaDir's
 # canonical resolver (which also creates it) and falling back to the env var.
@@ -567,9 +563,7 @@ function Get-CachedHostHardwareFingerprint {
     return (Get-HostHardwareFingerprint -NoCache)
 }
 
-# ---------------------------------------------------------------------------
-# NAS-side host registry (hosts/info.<uuid>.yml).
-# ---------------------------------------------------------------------------
+# --- REGION: NAS-side host registry (hosts/info.<uuid>.yml)
 
 <#
 .SYNOPSIS
@@ -658,9 +652,7 @@ function Find-PriorHostIdentity {
     return @($results | Sort-Object -Property @{ Expression = 'score'; Descending = $true }, @{ Expression = 'lastSeenUtc'; Descending = $true })
 }
 
-# ---------------------------------------------------------------------------
-# Enable-TestAutomation orchestrator (interactive).
-# ---------------------------------------------------------------------------
+# --- REGION: Enable-TestAutomation orchestrator (interactive)
 
 # Test-HostIdentityInteractive returns $false when no operator can answer a
 # prompt (redirected stdin / non-interactive host), so the orchestrator degrades

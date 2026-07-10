@@ -141,6 +141,9 @@ main { max-width: 1100px; margin: 0 auto; padding: 1rem max(1rem, env(safe-area-
 .btn.destructive:hover { background: var(--destructive-hover-bg); }
 .btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
+/* Horizontal-scroll container: 8 columns overflow narrow phone viewports,
+   and without a wrapper the whole page scrolls sideways. */
+.table-wrap { overflow-x: auto; }
 table.stashes { width: 100%; border-collapse: collapse; background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
 table.stashes th, table.stashes td { text-align: left; padding: 0.5rem 0.6rem; border-bottom: 1px solid var(--border); font-size: 0.9rem; }
 table.stashes th { color: var(--fg-muted); font-weight: 600; }

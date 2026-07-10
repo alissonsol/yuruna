@@ -4,5 +4,6 @@
 # Anchor sections in base-file order. An empty section emits nothing at that anchor.
 # === YURUNA_OVERLAY_RUNCMD_CONSOLEBLANK ===
 # === YURUNA_OVERLAY_RUNCMD_QUIET_LOGLEVEL ===
+  # --- REGION: https://yuruna.link/vmconfig#console-quiet
   - bash -c 'command -v grubby >/dev/null 2>&1 && grubby --update-kernel=ALL --args="quiet loglevel=3 systemd.show_status=no rd.systemd.show_status=no" || true'
 # === YURUNA_OVERLAY_POWER_STATE ===

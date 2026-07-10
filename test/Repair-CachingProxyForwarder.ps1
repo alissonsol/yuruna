@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.07
+.VERSION 2026.07.10
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456771
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -84,10 +84,9 @@ Initialize-YurunaEntryPointModuleSet -For CachingProxy -ModulesDir $ModulesDir
 [void](Initialize-YurunaHost -RepoRoot $RepoRoot)
 # Re-import Test.CachingProxy -Global -Force AFTER Initialize-YurunaHost so
 # Save-/Read-CachingProxyState survive the nested-import eviction triggered
-# by Yuruna.Host.psm1's non-global Test.CachingProxy import at line 36 (which
-# takes over the "active version" slot for the module). Same shape as
-# Start-CachingProxy.ps1 / Stop-CachingProxy.ps1 use to keep the state-file
-# helpers visible.
+# when Yuruna.Host.psm1's own Test.CachingProxy import takes over the
+# "active version" slot for the module. Same shape as Start-CachingProxy.ps1
+# / Stop-CachingProxy.ps1 use to keep the state-file helpers visible.
 Import-Module (Join-Path $ModulesDir 'Test.CachingProxy.psm1') -Global -Force -Verbose:$false
 
 $StateFile = Get-CachingProxyStatePath

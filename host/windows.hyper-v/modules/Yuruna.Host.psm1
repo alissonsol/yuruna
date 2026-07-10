@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.07
+.VERSION 2026.07.10
 .GUID 42a2b3c4-d5e6-4f78-9012-3a4b5c6d7e90
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -2520,7 +2520,7 @@ function Send-Text {
         # Required when -Mechanism ssh: maps to the SSH login user via
         # Test.Ssh\Get-GuestSshUser (per-guest test user, ec2-user, root, ...).
         [string]$GuestKey,
-        [int]$CharDelayMs = 30,
+        [int]$CharDelayMs = 10,
         [switch]$Sensitive
     )
     # Sensitive is part of the contract for log redaction; current paths

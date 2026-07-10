@@ -6,6 +6,8 @@
 // a single edit covers the spec-driven values.
 package config
 
+import "time"
+
 // Listen / transport.
 const (
 	ListenAddress    = "0.0.0.0:22"
@@ -39,6 +41,16 @@ const (
 	MaxRequestBytes = 512 * 1024 * 1024
 	// MaxUploadFiles caps the file count in one multi-file UI upload.
 	MaxUploadFiles = 64
+)
+
+// Presence beacon (§4.7). The daemon self-announces to the pool-aggregator
+// so the dashboard's Extension hosts row exists without depending on the
+// owning host's status server being up. 15 minutes keeps the row alive well
+// inside the aggregator's announce TTL while staying negligible traffic; the
+// area is the extension-area name the pool dashboard groups rows by.
+const (
+	DefaultPresenceInterval = 15 * time.Minute
+	PresenceArea            = "stash-service"
 )
 
 // Stash creation source (stash-service-ui.md §10). Distinguishes an

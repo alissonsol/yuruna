@@ -6,7 +6,7 @@ See [Design overview](00-index.md) · [Yuruna Architecture](../architecture.md).
 
 Derived from `automation/Set-{Resource,Component,Workload}.ps1`,
 `test/modules/{Test.RunnerOuterLoop,Test.RunnerInnerLoop,Invoke-Sequence}.psm1`,
-and `automation/fetch-and-execute.sh`.
+`test/modules/Test.Notify.psm1`, and `automation/fetch-and-execute.sh`.
 
 ## A. Three-phase deployment
 
@@ -19,16 +19,22 @@ sequenceDiagram
     participant Registry
     participant Cluster as Helm / kubectl
 
-    Operator->>Engine: Set-Resource &lt;project&gt; &lt;cloud&gt;
+    Operator->>Engine: Set-Resource [project] [cloud]
     Engine->>Tofu: init / plan / apply (resources.yml)
     Tofu-->>Engine: resources.output.yml (cluster, registry, IPs)
-    Operator->>Engine: Set-Component &lt;project&gt; &lt;cloud&gt;
+    Operator->>Engine: Set-Component [project] [cloud]
     Engine->>Docker: build + tag (components.yml)
     Docker->>Registry: push image
-    Operator->>Engine: Set-Workload &lt;project&gt; &lt;cloud&gt;
+    Operator->>Engine: Set-Workload [project] [cloud]
     Engine->>Cluster: helm install / kubectl apply (workloads.yml)
     Cluster-->>Engine: release status
 ```
+
+The operator runs the phases one by one; nothing chains them.
+`resources.output.yml` is the hand-off: written by `Set-Resource` from
+`tofu output -json`, layered into the environment by both later phases.
+Each phase validates its YAML first (`Confirm-*List`), and `Set-Workload`
+auto-runs `Test-Runtime.ps1` as pre-flight.
 
 ## B. Test cycle (one guest)
 
@@ -47,13 +53,22 @@ sequenceDiagram
         Inner->>Host: New-VM, Start-VM
         Host->>Guest: boot + cloud-init
         Inner->>Guest: Start-GuestOS (OCR/SSH sequence steps)
-        Inner->>Guest: New-VM.Resource, Start-GuestWorkload
+        Inner->>Guest: New-VM.Resource, Screenshots
+        Inner->>Guest: Start-GuestWorkload (workload sequences)
         Guest-->>Inner: step pass/fail
         Inner->>Status: write current-action + cycle event
+        Inner->>Host: Stop-VM, Remove-VM
     end
+    Inner->>Notify: alert when failure gate reached
     Inner-->>Outer: exit code
-    Outer->>Notify: send on threshold (success/failure)
+    Note over Outer: exit 0 loops immediately, non-zero enters failure-pause
 ```
+
+Step order per guest is the base plan in
+`test/modules/Test.RunnerInnerLoop.psm1`: `New-VM` → `Start-VM` →
+`Start-GuestOS` → `New-VM.Resource` → `Screenshots`
+(`Invoke-ScreenshotTest`) → `Start-GuestWorkload` → teardown. The
+notification gate (diagram D) lives in the inner runner.
 
 ## C. Guest repo / artifact fetch
 
@@ -68,7 +83,7 @@ sequenceDiagram
     Guest->>HostEnv: read YURUNA_HOST_IP:PORT
     Guest->>StatusSrv: GET /livecheck
     alt host reachable
-        Guest->>StatusSrv: GET /yuruna-repo/&lt;path&gt;
+        Guest->>StatusSrv: GET /yuruna-repo/[path]
     else fallback
         Guest->>Upstream: GET raw.githubusercontent.com/...
     end
@@ -101,4 +116,4 @@ sequenceDiagram
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.07
+Last review: 2026.07.10

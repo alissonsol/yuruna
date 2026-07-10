@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.07.07
+# Version: 2026.07.10
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 set -euo pipefail
@@ -22,6 +22,12 @@ esac
 
 # --- REGION: https://yuruna.link/network#defining-yuruna-retry-lib
 . /usr/local/lib/yuruna/yuruna-retry.sh
+# Baked retry libs may default dnf attempts to a wall-clock bound -- the
+# wrapped-apt teardown-hang trap class (the package manager blocks at
+# end-of-transaction under a timeout(1) parent). Force unbounded regardless
+# of the image's lib vintage; remove once no image predates the lib's
+# unbounded default.
+export YURUNA_DNF_STALL_TIMEOUT=0
 
 echo ""
 echo -e "\e[1;36m==== PostgreSQL ====\e[0m"
@@ -34,7 +40,9 @@ if sudo systemctl is-active postgresql &>/dev/null; then
   done
 fi
 
-# PostgreSQL packages are available for both x86_64 and aarch64 via dnf
+# PostgreSQL packages are available for both x86_64 and aarch64 via dnf.
+# AL2023's native repos cap at PostgreSQL 17 (the Ubuntu guests get 18 via
+# the PGDG apt repo, which does not support Amazon Linux).
 dnf_retry sudo dnf install -y postgresql17-server postgresql17-contrib
 
 # Clear data directory to allow re-initialization

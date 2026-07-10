@@ -5,11 +5,13 @@
 
 See [Design overview](00-index.md) · [Yuruna Architecture](../architecture.md).
 
-Derived from `test/Invoke-TestRunner.ps1`, the status/caching/stash start
-scripts under `test/`, `automation/fetch-and-execute.sh`, the pool tier
-(`test/pool/`, `test/extension/pool-aggregator`), and `test.config.yml`
-(`statusService`, `networkStorage`, `pool`). Mermaid has no deployment-diagram
-type, so each network node is a `subgraph`.
+Derived from `test/Invoke-TestRunner.ps1`, the
+`test/Start-{StatusService,CachingProxy,StashServer,HostConfigService}.ps1`
+scripts, `host/vmconfig/caching-proxy.base.user-data`,
+`test/extension/{pool-aggregator,stash-service}`, and
+`test.config.yml.template` (`statusService`, `configService`,
+`networkStorage`, `pool`). Mermaid has no deployment-diagram type, so each
+network node is a `subgraph`.
 
 ```mermaid
 flowchart TD
@@ -18,19 +20,20 @@ flowchart TD
     end
     subgraph runnerhost[Test-Runner / Hypervisor Host]
         runner[Invoke-TestRunner]
-        statussrv[Status server :8080<br/>/yuruna-repo /livecheck]
+        statussrv[Status server :8080<br/>/yuruna-repo /livecheck /control]
+        hostcfg[Host config service :8443<br/>mTLS NAS credentials]
         provider[Host provider<br/>Hyper-V / KVM / UTM]
     end
     subgraph infravm[Infrastructure VMs]
-        squid[Caching proxy<br/>squid :3128]
-        stash[Stash service]
+        squid[Caching proxy VM<br/>squid :3128 :3129, zot :5000<br/>Grafana :3000, parser :9302]
+        stash[Stash service VM<br/>scp :22, UI :80]
     end
     subgraph guestvm[Guest VMs under test]
         guest[fetch-and-execute.sh<br/>workload scripts]
     end
     subgraph pooltier[Pool Tier]
-        aggregator[pool-aggregator + Grafana]
-        nas[networkStorage pool NAS<br/>SMB share]
+        aggregator[pool-aggregator :9400<br/>+ Loki]
+        nas[networkStorage NAS<br/>pool + stash shares]
     end
     subgraph cloud[Target Cloud and Cluster]
         k8s[Kubernetes cluster]
@@ -38,32 +41,43 @@ flowchart TD
     end
     subgraph external[External Sources]
         github[GitHub repos]
-        mirrors[apt / dnf mirrors]
+        mirrors[apt / dnf mirrors, images]
     end
 
     cli -->|deploy| cloud
     runner -->|create VM| provider
     provider --> guestvm
     guest -->|/yuruna-repo| statussrv
-    guest -->|apt/dnf, images| squid
+    guest -->|apt, image pulls| squid
     squid -->|miss| mirrors
     guest -->|large artifacts| stash
     runner -->|git pull| github
-    %% planned: pool tier — active only when pool.enabled / pool.networkReplicate
+    %% planned/optional: pool tier active only when pool.enabled / networkStorage set
+    stash -.->|presence beacon| aggregator
+    stash -.->|files| nas
+    hostcfg -.->|NAS creds for pool hosts| nas
+    runner -.->|cycle NDJSON /ingest| aggregator
     runner -.->|replicate| nas
-    runner -.->|push status| aggregator
     k8s -.- registry
 ```
 
-`%% planned` The **Pool Tier** is gated by `pool.enabled` (default `false` in
-`test.config.yml`); `pool.networkReplicate` (default `false`) governs the NAS
-`replicate` edge but only takes effect once the pool is enabled. The dashed
-edges to the pool tier and to the target cluster activate only when those tiers
-are configured. A single machine commonly hosts both **Operator Workstation**
+The caching-proxy VM co-locates squid (HTTP proxy :3128, ssl-bump :3129,
+CA cert served on :80), the zot OCI pull-through cache (:5000), Grafana
+(:3000), and the Go access-log parser (:9302); :3128 is the only port the
+runner hard-depends on. The stash VM's SSH sink is reached through an
+8022→22 port remap when NAT'd, and its presence beacon announces the host
+to the pool-aggregator. The host config service (`configService`, default
+port 8443) hands NAS credentials to pool hosts over mTLS.
+
+`%% planned` The **Pool Tier** is gated by `pool.enabled` (default `false`
+in `test.config.yml`); `pool.networkReplicate` (default `false`) governs
+the NAS `replicate` edge, and the `networkStorage` pool/stash paths are
+empty by default. The dashed edges activate only when those tiers are
+configured. A single machine commonly hosts both **Operator Workstation**
 and **Test-Runner / Hypervisor Host**.
 
 ---
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.07
+Last review: 2026.07.10

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.07
+.VERSION 2026.07.10
 .GUID 42c2a1aa-2e97-414a-9393-0d097d2e2a2c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -895,9 +895,9 @@ Backup-YurunaStatus
 # Canonical Yuruna release tags are BARE CalVer (YYYY.MM.DD, no 'v'); the
 # release tool (tools/Update-YurunaReleasePins.ps1) validates VERSION as bare
 # CalVer and refuses to create a 'v'-variant. But a human or a tool (or a
-# -YurunaBranch arg) can still ask for the wrong form -- a recommended
-# 'v2026.06.19' when only '2026.06.19' was tagged is exactly what broke a past
-# install. If the requested ref is CalVer-shaped and does NOT resolve on the
+# -YurunaBranch arg) can still ask for the wrong form -- a v-prefixed ref
+# when only the bare CalVer tag exists fails to resolve.
+# If the requested ref is CalVer-shaped and does NOT resolve on the
 # remote but its v-toggled variant DOES, switch to the variant so the mismatch
 # self-heals instead of failing the clone. Non-CalVer refs (e.g. 'main') and
 # refs that already resolve are returned unchanged.

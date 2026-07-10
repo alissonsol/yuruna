@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.07
+.VERSION 2026.07.10
 .GUID 42f3d4e5-f6a7-4b89-c012-3d4e5f6a7b81
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -16,6 +16,20 @@
 
 #requires -version 7
 
+<#
+.SYNOPSIS
+    Downloads the Ubuntu 26.04 (resolute) server cloud image (qcow2) for
+    the stash-service VM.
+
+.DESCRIPTION
+    Pulls the arch-matched resolute-server-cloudimg from
+    cloud-images.ubuntu.com, verifies it, resizes the qcow2 to 256 GB
+    (apparent size; qcow2 grows on write), and stages it under
+    ~/yuruna/image/stash-service/ as the base image for the stash-service
+    VM. libvirt-qemu boots the qcow2 natively, so no format conversion is
+    needed.
+#>
+
 # Honor logLevel from Invoke-TestRunner.ps1 via $env:YURUNA_LOG_LEVEL. See docs/loglevels.md.
 $_logLevelMod = Join-Path $PSScriptRoot '../../../test/modules/Test.LogLevel.psm1'
 if (Test-Path $_logLevelMod) { Import-Module $_logLevelMod -Global -Force; Use-LogLevelFromEnv }
@@ -26,11 +40,11 @@ if (-not $IsLinux) {
 }
 
 # --- REGION: Configuration
-# Ubuntu 26.04 LTS (Resolute Raccoon). Moved up from 24.04 LTS (Noble
-# Numbat) per the stash-service spec (section 3.1: default image
-# ubuntu.server.26), matching the caching-proxy LTS so the stash VM stays
-# in the supported-LTS window and the distro Go toolchain satisfies the
-# daemon's go.mod directive without a toolchain fetch.
+# Ubuntu 26.04 LTS (Resolute Raccoon), per the stash-service spec
+# (section 3.1: default image ubuntu.server.26), matching the
+# caching-proxy LTS so the stash VM stays in the supported-LTS window
+# and the distro Go toolchain satisfies the daemon's go.mod directive
+# without a toolchain fetch.
 $arch = (& uname -m).Trim()
 switch ($arch) {
     'x86_64'  { $imgArch = 'amd64' }
@@ -47,8 +61,9 @@ New-Item -ItemType Directory -Force -Path $downloadDir | Out-Null
 
 # The KVM host driver brings the skip-if-same-source guard + sentinel writer
 # (Test-DownloadAlreadyCurrent / Write-ImageSentinel, the shared 4-line filename +
-# URL + size + Last-Modified format) AND the cache-aware Save-CachedHttpUri
-# wrapper that routes this download through the squid cache.
+# URL + size + Last-Modified format with the noble->resolute URL-bump guard) AND
+# the cache-aware Save-CachedHttpUri wrapper that routes this download through the
+# squid cache.
 $baseImageOrigin = Join-Path $downloadDir "$baseImageName.txt"
 Import-Module -Name (Join-Path (Split-Path -Parent $PSScriptRoot) "modules/Yuruna.Host.psm1") -Force
 

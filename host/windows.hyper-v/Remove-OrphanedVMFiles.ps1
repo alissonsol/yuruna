@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.07
+.VERSION 2026.07.10
 .GUID 42b7e3a1-c8d9-4f56-ab12-3e4f5a6b7c8d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -147,7 +147,7 @@ function Add-ClaimedFilesUnderDir {
 if ($allVMs.Count -eq 0) {
     Write-CleanupMessage "No VMs found in Hyper-V Manager."
 } else {
-    Write-CleanupMessage "Currently listed VMs and their associated files:"
+    Write-CleanupMessage "Currently registered VMs and their associated files:"
     Write-CleanupMessage ""
 }
 
@@ -357,7 +357,7 @@ foreach ($scanPath in $scanPaths) {
 # --- REGION: Cleanup result
 Write-CleanupMessage ""
 if ($errors -eq 0) {
-    Write-CleanupMessage "Cleanup complete. All orphaned items deleted."
+    Write-CleanupMessage "Cleanup complete. All orphaned files deleted."
 } else {
     Write-CleanupMessage "Cleanup complete with $errors error(s). Some items could not be deleted."
 }

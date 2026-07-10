@@ -1,5 +1,5 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.07.07
+.VERSION 2026.07.10
 .GUID 42a1b2c3-d4e5-4f67-8901-bc012345677a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -106,7 +106,7 @@ function Add-CyclePrereqChainEntry {
         # sees every probed path -- a single "resolved path: <X>" naming
         # the last-attempted file would be misleading.
         $searched = Get-SequenceSearchPath -SequencesDir $SequencesDir -Name $SequenceName -HostType $HostType -RepoRoot $RepoRoot
-        $list = ($searched | ForEach-Object { "    $_" }) -join "`n"
+        $list = Format-SequenceSearchList -Item $searched
         throw "PlannerFatal: prereq sequence not found: $SequenceName (referenced by an entry in project/test/test.runner.yml)`nSearched (no match):`n$list"
     }
     $seq = Read-SequenceFile -Path $path
@@ -117,6 +117,26 @@ function Add-CyclePrereqChainEntry {
     }
     [void]$Visited.Add($SequenceName)
     [void]$Chain.Add($SequenceName)
+}
+
+<#
+.SYNOPSIS
+Merges one chain member's variables into the running cascade map in place, applying the top-of-chain-wins rules: skip a key already set (a higher level won), skip a $null value, and skip a whitespace-only string. Mutates $Target (an [ordered]@{}) by reference. $Target is NOT [Mandatory] because it is legitimately empty on the first chain member, and [Mandatory] rejects an empty collection.
+#>
+function Merge-SequenceVariableCascade {
+    [CmdletBinding()]
+    param(
+        [Parameter()][System.Collections.Specialized.OrderedDictionary]$Target,
+        [Parameter()]$Variables
+    )
+    if (-not $Variables) { return }
+    foreach ($vk in $Variables.Keys) {
+        if ($Target.Contains($vk)) { continue }   # higher level already won
+        $vv = $Variables[$vk]
+        if ($null -eq $vv) { continue }
+        if ($vv -is [string] -and -not $vv.Trim()) { continue }
+        $Target[$vk] = $vv
+    }
 }
 
 # Shared per-top-level entry builder for Resolve-CyclePlan (legacy) AND
@@ -148,7 +168,7 @@ function Add-CyclePlanEntriesForTopLevel {
     $topPath = Resolve-SequencePath -SequencesDir $SequencesDir -Name $TopName -HostType $HostType -RepoRoot $RepoRoot
     if (-not $topPath) {
         $searched = Get-SequenceSearchPath -SequencesDir $SequencesDir -Name $TopName -HostType $HostType -RepoRoot $RepoRoot
-        $list = ($searched | ForEach-Object { "    $_" }) -join "`n"
+        $list = Format-SequenceSearchList -Item $searched
         throw "PlannerFatal: missing sequence '$TopName'$(if ($SourceLabel) { " $SourceLabel" })`nSearched (no match):`n$list"
     }
     $topSeq = Read-SequenceFile -Path $topPath
@@ -191,14 +211,7 @@ function Add-CyclePlanEntriesForTopLevel {
                 Write-Warning "Cascade: chain member '$sName' ($sPath) failed to re-read ($($_.Exception.Message)); its variables are dropped from the cascade."
                 continue
             }
-            if (-not $sSeq.variables) { continue }
-            foreach ($vk in $sSeq.variables.Keys) {
-                if ($effectiveVars.Contains($vk)) { continue }   # higher level already won
-                $vv = $sSeq.variables[$vk]
-                if ($null -eq $vv) { continue }
-                if ($vv -is [string] -and -not $vv.Trim()) { continue }
-                $effectiveVars[$vk] = $vv
-            }
+            Merge-SequenceVariableCascade -Target $effectiveVars -Variables $sSeq.variables
         }
         # Per-guest overrides layer ON TOP of the cascade (override wins).
         # keystrokeMechanism is tagged on the entry (not a variable) so the runner
@@ -480,7 +493,7 @@ function Resolve-NamedSequenceChain {
     }
     if (-not $topPath -or -not (Test-Path -LiteralPath $topPath)) {
         $searched = Get-SequenceSearchPath -SequencesDir $SequencesDir -Name $SequenceName -HostType $HostType -RepoRoot $RepoRoot
-        $list = ($searched | ForEach-Object { "    $_" }) -join "`n"
+        $list = Format-SequenceSearchList -Item $searched
         throw "Sequence file not found: $SequenceName`nSearched (no match):`n$list"
     }
     $topSeq = Read-SequenceFile -Path $topPath
@@ -560,14 +573,7 @@ function Resolve-NamedSequenceChain {
         $sPath = $paths[$sName]
         if (-not $sPath) { continue }
         try { $sSeq = Read-SequenceFile -Path $sPath } catch { continue }
-        if (-not $sSeq.variables) { continue }
-        foreach ($vk in $sSeq.variables.Keys) {
-            if ($effectiveVars.Contains($vk)) { continue }
-            $vv = $sSeq.variables[$vk]
-            if ($null -eq $vv) { continue }
-            if ($vv -is [string] -and -not $vv.Trim()) { continue }
-            $effectiveVars[$vk] = $vv
-        }
+        Merge-SequenceVariableCascade -Target $effectiveVars -Variables $sSeq.variables
     }
     $effectiveUsername = if ($effectiveVars.Contains('username')) { [string]$effectiveVars['username'] } else { '' }
 

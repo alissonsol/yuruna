@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.07
+.VERSION 2026.07.10
 .GUID 42b9c0d1-e2f3-4a56-b789-0c1d2e3f4a57
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -20,7 +20,7 @@
 $_logLevelMod = Join-Path $PSScriptRoot '../../../test/modules/Test.LogLevel.psm1'
 if (Test-Path $_logLevelMod) { Import-Module $_logLevelMod -Global -Force; Use-LogLevelFromEnv }
 
-# --- REGION: Configuration (change these to customize the download)
+# --- REGION: Configuration
 $downloadDir = "$HOME/yuruna/image/windows.env"
 $baseImageName = "host.macos.utm.guest.windows.11"
 $baseImageFile = Join-Path $downloadDir "$baseImageName.iso"

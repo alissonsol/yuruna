@@ -22,7 +22,7 @@
 # See possible actions in the actions.yml file.
 
 # Perf-log identity (see https://yuruna.link/test/perf). Bump revision on step add/remove.
-sequenceGuid: 426483ed-7299-4b75-b280-ccb8c74ec993
+sequenceGuid: 42e26897-db3b-4d98-b923-5f39ad3349bb
 sequenceRevision: 1
 
 description: "Ubuntu Server 26.04 (SSH): bring up the Yuruna Stash Service daemon -- parallel path to the keystroke sequence."

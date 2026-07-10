@@ -18,7 +18,7 @@ with hyphens.
 
 This file is the network-specific sibling of [Yuruna definitions](definition.md),
 [Yuruna memory](memory.md) (historical / incident rationale), and
-[vmconfig topic reference](vmconfig.md). The same `# --- See`
+[vmconfig topic reference](vmconfig.md). The same `# --- REGION:`
 convention is used in all four.
 
 ---
@@ -143,8 +143,133 @@ Linux 2023, and macOS 26 all ship newer.
 
 ---
 
+## Guest network diagnostics and DHCP lease release
+
+### Defining yuruna network lib
+
+The guest network helper lives in
+[automation/yuruna-network.sh](../automation/yuruna-network.sh) — the
+network-specific sibling of the retry library above. cloud-init deploys
+it to `/usr/local/lib/yuruna/yuruna-network.sh` at install time. It
+targets Ubuntu Server and Amazon Linux 2023, which both ship `ip` and a
+systemd-networkd DHCP client. The file is `source`d by
+[fetch-and-execute.sh](../automation/fetch-and-execute.sh) (for
+`network_diag`) and invoked by the `networkRelease` sequence action (for
+`network_release`).
+
+### Defining network diag
+
+`network_diag` prints a connectivity diagnostic for the guest:
+per-interface addresses, IPv4 and IPv6-default routes, and the
+`/etc/resolv.conf` nameservers. It then walks the real (non-loopback,
+non-virtual) interfaces and flags any that are carrier-up yet hold no
+global IPv4 address.
+
+That "carrier up, no IPv4" state is the signal worth surfacing. A
+carrier-up interface with neither a static address nor a DHCP lease
+usually means **DHCP pool exhaustion**: on a bridged hypervisor the
+guest competes with every other LAN client for the router's finite lease
+pool, and a fast-booting guest that loses the lease race comes up with
+only an IPv6 SLAAC address and no IPv4. IPv6-via-RA needs no DHCP server,
+so its presence does not clear the flag. Other causes the banner names:
+the DHCP server is down, a VLAN/cabling fault, or the link is not
+forwarding yet.
+
+`fetch-and-execute.sh` sources the library so a failing guest step can
+attach this diagnostic to its failure output.
+
+### Defining network release
+
+`network_release` releases DHCP leases (and any other transient network
+resources) so the address returns to the pool immediately instead of
+lingering until lease expiry. It runs at end-of-sequence teardown so a
+churning test fleet does not exhaust a shared LAN's DHCP pool. It is
+best-effort across the DHCP clients a guest may run — a client that is
+not installed is simply skipped:
+
+- **systemd-networkd** (Ubuntu + Amazon Linux 2023): `networkctl down`
+  per managed link. `SendRelease` defaults to yes, so bringing a link
+  down emits a `DHCPRELEASE` for its lease.
+- **classic dhclient** stacks: `dhclient -r` releases all held leases.
+- **dhcpcd** stacks: `dhcpcd -k`.
+
+### Defining yuruna network cli
+
+The file is dual-use: `source` it to get the functions, or run it
+directly with a verb so the `networkRelease` sequence action can invoke
+it by path on the guest console
+(`bash /usr/local/lib/yuruna/yuruna-network.sh release`). The
+entrypoint dispatches `diag` → `network_diag` and `release` →
+`network_release`; any other argument prints usage and exits 2.
+
+## Guest-update network convergence before handoff
+
+The Linux guest-update scripts wait for the network to settle before
+signaling "script done". Package transactions (apt/dnf) that touch the
+network stack, kernel, or systemd can bounce the primary connection at
+the tail of the transaction, briefly dropping the DHCP lease. The
+harness's next sequence step is `saveSystemDiagnostic`, which opens the
+FIRST host->guest SSH of the run; if it fires during the bounce window
+the host's neighbor entry is stale (the Hyper-V External vSwitch
+ARP-discovery trap; UTM has the vmnet analogue) and SSH times out for
+the full 180 s `Wait-SshReady` budget.
+
+The probe MUST match whichever manager actually owns the link: server
+spins default to systemd-networkd (where `nm-online` is absent), while
+NetworkManager spins ship `nm-online`. A probe keyed on the wrong
+manager silently no-ops — skipping the settle entirely — or blocks its
+full timeout for nothing, so the scripts branch on the active manager.
+Every branch is capped at 30 s so a broken stack cannot hang the cycle,
+and non-zero exits are swallowed so `set -e` does not abort.
+
+## Caching-proxy CA cert rc60 gate
+
+The Ubuntu `New-VM.ps1` scripts fetch the caching-proxy CA certificate on
+the host and base64-embed it in the autoinstall seed
+(`CA_CERT_BASE64_PLACEHOLDER`). The installer's late-commands write the
+cert before any HTTPS apt fetch, so SSL-bump caching works from the first
+install request.
+
+An empty `$CaCertBase64` is NOT a harmless no-op: the seed still routes
+the guest's HTTPS through the bump (`:3129`) and locks direct `:443`
+egress, so a CA-less guest fails every HTTPS request with curl rc=60
+("self-signed certificate in certificate chain"). That is why the CA
+fetch is retried under the shared capped-backoff policy — one blip
+against a slow or flapping caching proxy must not strand the guest
+without the CA. See the memory capture
+`feedback_sslbump_rc60_untrusted_chain_and_ca_gate_trap` for the incident
+class.
+
+On macOS UTM the fetch has an extra reason to run host-side: guests on VZ
+shared-NAT cannot reach the cache VM directly, but the host can.
+
+## Registry rate limits disguised as 400
+
+### Defining registry rate limit 400
+
+Workload scripts that `docker run` a local registry container detect
+upstream pull throttling in the failure output before deciding whether
+to retry. Two shapes must both match:
+
+- **Docker Hub** documents its throttle responses: the strings
+  `pull rate limit`, `toomanyrequests`, and `429 Too Many Requests`.
+- **AWS ECR Public** returns **400 Bad Request** — not 429 — when its
+  anonymous-pull quota is exhausted, so a plain 429 match misses it.
+  The detector pairs `400 Bad Request` with the `public.ecr.aws` host
+  substring (in either order) to avoid treating every 400 as a
+  throttle.
+
+A rate limit is keyed to the egress IP's quota window and will not
+clear on a 10–30 s retry, so the scripts surface operator guidance
+(wait, authenticate the pull-through proxy, bake the image into the
+guest base, or check the caching proxy's zot endpoint) and exit
+immediately instead of burning the remaining retry budget on a
+foregone conclusion.
+
+---
+
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.07
+Last review: 2026.07.10
 
 Back to [Yuruna](../README.md)

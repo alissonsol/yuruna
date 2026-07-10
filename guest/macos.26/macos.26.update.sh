@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.07.07
+# Version: 2026.07.10
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 set -euo pipefail
@@ -26,10 +26,7 @@ case "$ARCH" in
     ;;
 esac
 
-# Installed as early as possible so that even if a later step in this
-# script aborts under `set -euo pipefail`, the host-side failure
-# diagnostic (which shells back into the guest as `pwsh -NoProfile ...`)
-# still has pwsh available to gather state.
+# --- REGION: https://yuruna.link/memory#why-ubuntu-guest-update-scripts-install-powershell-first
 # macOS pwsh ships as a .pkg from the PowerShell releases. Version is
 # discovered at install time by resolving the GitHub /releases/latest
 # redirect, so this stays current with what the Linux guests install
@@ -62,24 +59,28 @@ pwsh --version
 # So the in-guest sequence planner (when one exists for macOS 26) can
 # read YAML sequence files. Same contract
 # Test.HostContract.Install-PowerShellYamlIfMissing applies on the host side.
-# No || swallow: with set -e, an Install-Module failure aborts the
-# script. The trailing Import-Module check guards against the case
-# where the manifest landed but the module won't load (which
-# Install-Module reports as success).
+# macOS has no pwsh_retry library (that lives in the Linux guests'
+# yuruna-retry.sh), but Install-Module hits the same PSGallery edge that
+# flaps transiently for the Linux guests -- so ride it out with the same
+# 3-attempt / 60s loop this script already uses for git clone rather than
+# aborting the cycle on a one-shot blip. The trailing Import-Module check
+# is the real fail-fast gate: it still aborts (set -e) when the manifest
+# landed but the module won't load, which Install-Module reports as
+# success, and when all install attempts were exhausted.
 echo ""
 echo -e "\e[1;36m==== powershell-yaml ====\e[0m"
-sudo pwsh -NoProfile -Command "Install-Module -Name powershell-yaml -Scope AllUsers -Force"
+for attempt in 1 2 3; do
+  sudo pwsh -NoProfile -Command "Install-Module -Name powershell-yaml -Scope AllUsers -Force" && break
+  echo "powershell-yaml install attempt $attempt failed"
+  [ $attempt -lt 3 ] && sleep 60
+done
 sudo pwsh -NoProfile -Command "Import-Module powershell-yaml; ConvertFrom-Yaml 'k: v' | Out-Null"
 
-# The host's failure-path diagnostic shells back as
-# `pwsh -NoProfile -File $HOME/yuruna/automation/Get-SystemDiagnostic.ps1`.
-# If a later step in this script stalls the cycle watchdog fires, the
-# orchestrator captures diagnostics, and that script must already be
-# on disk -- else pwsh exits 64 and writes its usage banner instead of
-# real guest state. Tarball-only here (curl, since macOS base does not
-# ship wget); the git-clone fallback lives in the late Materialize
-# section below, which needs `git` from the Command Line Developer
-# Tools install that runs before it.
+# --- REGION: https://yuruna.link/memory#why-ubuntu-guest-update-scripts-pre-extract-the-yuruna-tarball
+# Tarball-only here (curl, since macOS base does not ship wget); the
+# git-clone fallback lives in the late Materialize section below, which
+# needs `git` from the Command Line Developer Tools install that runs
+# before it.
 echo ""
 echo -e "\e[1;36m==== yuruna framework tarball ====\e[0m"
 REAL_USER="${SUDO_USER:-$USER}"
@@ -110,7 +111,7 @@ fi
 # required. The test extension `authentication` rotates the guest
 # password at first login, so sudo works without an interactive prompt
 # inside the test sequence.
-echo "TESTHACK: Disabling display + system sleep on the guest."
+echo "TESTHACK: Disabling services that may suspend the machine."
 sudo pmset -a displaysleep 0 sleep 0 disksleep 0 || true
 
 # `softwareupdate -l` lists available updates; `-i -a` installs every
@@ -179,8 +180,13 @@ if [ ! -d "$REAL_HOME/yuruna" ]; then
       echo "yuruna: repositories.frameworkUrl missing from test.config.yml - cannot clone framework" >&2
       exit 1
     fi
+    # git ships no stall detection (http.lowSpeedLimit/Time unset), so a
+    # clone stalled mid-transfer would hang this attempt forever and the
+    # retry ladder below it would never fire (the stalled-transfer trap
+    # class); the low-speed pair aborts a <1 KB/s-for-60s transfer into
+    # the retry path instead.
     for attempt in 1 2 3; do
-      git clone "$FRAMEWORK_URL" "$REAL_HOME/yuruna" && break
+      git -c http.lowSpeedLimit=1024 -c http.lowSpeedTime=60 clone "$FRAMEWORK_URL" "$REAL_HOME/yuruna" && break
       echo "git clone attempt $attempt failed"
       rm -rf "$REAL_HOME/yuruna"
       [ $attempt -lt 3 ] && sleep 60
@@ -209,7 +215,7 @@ if [ ! -d "$REAL_HOME/yuruna/project" ]; then
   fi
   if [ "$PROJECT_HOST_OK" = "false" ] && [ -n "$PROJECT_URL" ]; then
     for attempt in 1 2 3; do
-      git clone "$PROJECT_URL" "$REAL_HOME/yuruna/project" && break
+      git -c http.lowSpeedLimit=1024 -c http.lowSpeedTime=60 clone "$PROJECT_URL" "$REAL_HOME/yuruna/project" && break
       echo "project git clone attempt $attempt failed"
       rm -rf "$REAL_HOME/yuruna/project"
       [ $attempt -lt 3 ] && sleep 60

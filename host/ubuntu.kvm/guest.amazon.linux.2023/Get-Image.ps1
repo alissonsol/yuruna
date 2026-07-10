@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.07
+.VERSION 2026.07.10
 .GUID 42a2b3c4-d5e6-4f78-9012-3a4b5c6d7e96
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -70,7 +70,18 @@ $downloadUrl = $sourceUrl + $qcow2Link
 Import-Module -Name (Join-Path (Split-Path -Parent $PSScriptRoot) "modules/Yuruna.Host.psm1") -Force
 
 if (Test-DownloadAlreadyCurrent -SourceUrl $downloadUrl -BaseImageFile $baseImageFile -OriginFile $baseImageOrigin) {
-    Write-Output "Skipping download: $downloadUrl URL and size match prior run for $baseImageFile"
+    $skipLines = @(Get-Content -LiteralPath $baseImageOrigin -ErrorAction SilentlyContinue)
+    $msg = @(
+        "Skipping download: source URL + size + Last-Modified all match the prior run for $baseImageFile."
+        "  Sentinel: $baseImageOrigin"
+        "    filename     : $($skipLines[0])"
+        "    source URL   : $($skipLines[1])"
+        "    byte count   : $($skipLines[2])"
+        "    last-modified: $($skipLines[3])"
+        "  To force a re-download, delete or rename: $baseImageFile"
+    ) -join [Environment]::NewLine
+    Write-Information $msg -InformationAction Continue
+    Write-Output $msg
     exit 0
 }
 
@@ -98,7 +109,7 @@ if (-not $downloaded) {
 }
 $downloadedSize = (Get-Item -LiteralPath $downloadFile).Length
 
-# --- REGION: Name the file as per naming convention
+# --- REGION: Preserve previous and finalize
 $previousFile = Join-Path $downloadDir "$baseImageName.previous.qcow2"
 Remove-Item $previousFile -Force -ErrorAction SilentlyContinue
 if (Test-Path -LiteralPath $baseImageFile) {

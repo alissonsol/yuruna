@@ -192,6 +192,6 @@ the values are already correct.
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.07
+Last review: 2026.07.10
 
 Back to [Yuruna](../README.md)

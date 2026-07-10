@@ -88,7 +88,7 @@ steps:
     text: "/usr/local/lib/yuruna/fetch-and-execute.sh guest/ubuntu.server.26/ubuntu.server.26.update.sh"
     description: "ubuntu.server.26.update.sh"
     waitPattern: "FETCHED AND EXECUTED:"
-    timeoutSeconds: 900
+    timeoutSeconds: 1800
 
   - action: saveSystemDiagnostic
     id: yuruna.update

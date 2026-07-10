@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.07
+.VERSION 2026.07.10
 .GUID 42f4e5f6-a7b8-4c9d-0123-4e5f6a7b8c9d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -176,21 +176,9 @@ $SshAuthorizedKey = Get-YurunaSshPublicKey
 if (-not $SshAuthorizedKey) { Write-Error "Get-YurunaSshPublicKey returned empty. Module path: $TestSshModule"; exit 1 }
 
 # --- REGION: Cache-VM yuruna password
-# Same model as the Hyper-V and macOS UTM caching-proxy New-VM.ps1: the
-# vault persists across cycles (external-auth simulation), but the
-# cache VM's yuruna password also lives in
-# <track>/yuruna-caching-proxy.yml (host-agnostic, under the
-# framework's status/runtime dir, managed by Test.CachingProxy). The
-# runtime state file is the source of truth: Set-Password rewrites the vault
-# entry from it before Get-Password reads it back. The same track
-# file is shared with the Hyper-V and UTM hosts, so a cache VM
-# rebuilt by any host hands the same credentials to the harness.
-#
-# Order of operations:
-#   1. If the runtime state file has a password, Set-Password 'yuruna' from it.
-#   2. Get-Password 'yuruna' returns either the rehydrated value or a
-#      fresh random one (first-ever install).
-#   3. Write the value back to the runtime state file (idempotent on rebuild).
+# --- REGION: https://yuruna.link/caching-proxy#cache-vm-password-persistence
+# The runtime state file <track>/yuruna-caching-proxy.yml is the source of
+# truth; Set-Password rehydrates the vault from it before Get-Password.
 Import-Module (Join-Path $repoRoot 'test/modules/Test.Extension.psm1')    -Global -Force -Verbose:$false
 Import-Module (Join-Path $repoRoot 'test/modules/Test.CachingProxy.psm1') -Global -Force -Verbose:$false
 $_authActiveName = @(Import-Extension -Area 'authentication' -RequireSingle)[0]
@@ -240,12 +228,10 @@ if (Test-Path $YurunaTestConfig) {
     } catch { Write-Verbose "test.config.yml parse failed: $_" }
 }
 
-# networkStorage pool (ypool-nas) service replication: bake the networkUser credential, the share
-# path (unix form), and this host's id so the proxy can rsync its observability data
-# to the NAS. Resolved here on the host (networkStorage pool config + vault).
-# REPLICATE stays false unless networkStorage pool is configured AND networkUser has a vault
-# password, so an empty credential is never baked. networkUser is the single NAS
-# account used for every storage connection (host drain + this guest mount alike).
+# --- REGION: networkStorage pool (ypool-nas) service replication
+# --- REGION: https://yuruna.link/caching-proxy#cache-vm-nas-and-config-service
+# Bake the networkUser credential name, share path, and host id, resolved
+# here on the host (networkStorage pool config + vault).
 Import-Module (Join-Path $repoRoot 'test/modules/Test.PoolStorage.psm1') -Force
 Import-Module (Join-Path $repoRoot 'test/modules/Test.YurunaDir.psm1')   -Force
 $ypoolNasCfg = $null
@@ -261,19 +247,14 @@ if (($ypoolNasNetPath -match "'") -or ($ypoolNasUser -match "'")) {
     Write-Warning "networkStorage pool: networkPath/networkUser contains a single quote; skipping caching-proxy service replication."
     $ypoolNasUser = ''; $ypoolNasNetPath = ''
 }
-# ypool-nas REPLICATE is enabled when pool storage is CONFIGURED (network path +
-# user). The password is NO LONGER baked -- it is served at runtime by the Host
-# Config Service (/v1/nas/pool) and written by yuruna-config-fetch, so a rotated
-# NAS password reaches a running VM without a rebuild. The service's own vault gate
-# returns 503 (no replication, self-healing) until the operator sets the password.
+# REPLICATE turns on only when pool storage is configured; the NAS password
+# is NOT baked -- the Host Config Service serves it at runtime (/v1/nas/pool).
 $ypoolNasReplicate = if ($ypoolNasCfg -and $ypoolNasUser -and $ypoolNasNetPath) { 'true' } else { 'false' }
 
-# Pool push-ingest shared bearer: resolve the operator-supplied token that
-# gates the aggregator's POST /ingest, mirroring the ypool-nas loud-fail gate. Read it ONLY
-# when the operator declared a vaultKey for 'pool-auth-token' AND populated it
-# (Test-VaultEntry) -- an empty vaultKey means push is DISABLED, so do NOT call
-# Get-Password then (it would auto-generate a per-host random token and break the
-# shared-token model). Bake EMPTY when disabled/unset -> the aggregator refuses /ingest.
+# --- REGION: Pool push-ingest shared bearer
+# --- REGION: https://yuruna.link/caching-proxy#cache-vm-nas-and-config-service
+# Empty vaultKey means push is DISABLED: do NOT call Get-Password then (it
+# would auto-generate a junk per-host token); bake EMPTY instead.
 $poolAuthToken = ''
 try {
     $paEff = Get-EffectiveUser -LogicalUser 'pool-auth-token'
@@ -288,13 +269,10 @@ if ($poolAuthToken -match '[\r\n''"]') {
     $poolAuthToken = ''
 }
 
-# Host Config Service mTLS materials. Mint a per-VM client leaf signed by THIS
-# host's Config CA and bake it (with the CA cert + the service port) so the cache
-# VM can fetch ystash-nas (and ypool-nas) credentials at boot AND hourly over
-# mutual TLS -- a rotated NAS password then reaches the running VM without a
-# rebuild (the bake-once staleness fix). The client leaf chains to this host's
-# CA, so the service serves ONLY this host's VMs. PEMs are baked base64 so they
-# survive the cloud-init write_files block scalar (encoding: b64).
+# --- REGION: Host Config Service mTLS materials
+# --- REGION: https://yuruna.link/caching-proxy#cache-vm-nas-and-config-service
+# Mint a per-VM client leaf signed by THIS host's Config CA; PEMs are baked
+# base64 so they survive the cloud-init write_files block scalar.
 Import-Module (Join-Path $repoRoot 'test/modules/Test.HostConfigCA.psm1') -Force
 $configPort = '8443'
 if ($tc -and $tc.configService -and $tc.configService.port) { $configPort = "$($tc.configService.port)" }
@@ -421,17 +399,10 @@ if ($LASTEXITCODE -eq 0) {
     }
 }
 
-# 12 GB RAM, 4 vCPU -- same sizing as the Hyper-V + macOS UTM squid-
-# cache (matched explicitly so a cache rebuilt on any host has the
-# same `cache_mem 9 GB` headroom in host/vmconfig/caching-proxy.base.user-data). This is a
-# DEDICATED cache VM (one job: serve the squid object cache); the
-# memory budget is sized around squid's `cache_mem 9 GB` (= 75 % of
-# VM RAM). Empirically a 1 GB cache_mem put squid's RSS at ~2 GB
-# during active cycles (sslcrtd children + connection buffers + in-RAM
-# hot objects = ~1 GB beyond cache_mem), so 9 GB cache_mem implies
-# ~10 GB peak squid + ~1.5 GB for the rest of the stack. 4 vCPU stays
-# -- caching is I/O- and memory-bound, not CPU-bound. Swap is masked
-# in user-data, so an OOM event is unrecoverable.
+# --- REGION: https://yuruna.link/caching-proxy#cache-vm-sizing
+# 12 GB RAM, 4 vCPU -- same sizing on all three hosts, budgeted around
+# squid's `cache_mem 9 GB`; swap is masked, so undersizing is an
+# unrecoverable OOM.
 # --- REGION: https://yuruna.link/definition#defining-the-vm-core-count-policy
 $hostCores = [int](& nproc --all)
 if ($hostCores -lt 4) {
@@ -661,7 +632,7 @@ Or dump the whole tail:
 
   sudo tail -n 300 /var/log/cloud-init-output.log
 
-Common patterns:
+Common patterns you'll see there:
   * '429 Too Many Requests'    -> Ubuntu's CDN is rate-limiting this
                                   host's public IP. Wait 15-30 min and
                                   re-run New-VM.ps1 (idempotent -- it

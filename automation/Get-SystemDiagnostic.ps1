@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.07
+.VERSION 2026.07.10
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456720
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -141,12 +141,9 @@ param(
 )
 Write-Debug "Get-SystemDiagnostic: skipDocker=$SkipDocker skipKube=$SkipKube skipProjectGaps=$SkipProjectGaps logLevel=$logLevel"
 
-$_logRank = @{ Error=1; Warning=2; Information=3; Verbose=4; Debug=5 }
-$_logEff  = $_logRank[$logLevel]
-$global:WarningPreference     = if ($_logRank.Warning     -le $_logEff) { 'Continue' } else { 'SilentlyContinue' }
-$global:InformationPreference = if ($_logRank.Information -le $_logEff) { 'Continue' } else { 'SilentlyContinue' }
-$global:VerbosePreference     = if ($_logRank.Verbose     -le $_logEff) { 'Continue' } else { 'SilentlyContinue' }
-$global:DebugPreference       = if ($_logRank.Debug       -le $_logEff) { 'Continue' } else { 'SilentlyContinue' }
+# logLevel cascade: shared by every automation entrypoint (see Yuruna.LogLevel.psm1).
+Import-Module (Join-Path $PSScriptRoot 'Yuruna.LogLevel.psm1') -Global -Force
+Set-YurunaLogLevel -LogLevel $logLevel
 
 $script:Problems = [System.Collections.Generic.List[string]]::new()
 
@@ -1043,6 +1040,68 @@ try {
             Add-Problem ("NETWORK: {0}/{1} endpoint(s) unreachable: {2}" -f `
                 $connectFailures.Count, $connectResults.Count, (($connectFailures.Target) -join ', '))
         }
+
+        # --- REGION: https://yuruna.link/system-diagnostic#probe-via-proxy-when-egress-is-locked
+        # The matrix above proves the CONNECT (tunnel) path at most. Package
+        # managers fetch their http:// origins through the proxy's GET/cache
+        # path (http_proxy), which wedges independently of CONNECT: a cache
+        # revalidation can stall after response headers, where no connect or
+        # read-gap timeout fires and the client hangs mid-body (the
+        # stalled-transfer trap class). So fetch a small body END TO END per
+        # mirror origin, with revalidation forced (Cache-Control: no-cache)
+        # to exercise the proxy's upstream fetch instead of a cache hit. A
+        # healthy CONNECT column plus failures here isolates the wedge to
+        # the GET/cache path.
+        $plainProxyUrl = $null
+        foreach ($v in 'http_proxy','HTTP_PROXY') {
+            $val = [System.Environment]::GetEnvironmentVariable($v)
+            if ($val) {
+                try {
+                    if (([Uri]$val).Host) { $plainProxyUrl = $val; break }
+                } catch { $null = $_ }
+            }
+        }
+        if ($plainProxyUrl) {
+            Write-Sub "Plain-HTTP proxy path (http_proxy GET/cache route)"
+            Write-Output ("http_proxy is {0}; fetching one small body per package-mirror origin through it (revalidation forced)." -f $plainProxyUrl)
+            $plainTargets = @(
+                'http://ports.ubuntu.com/ubuntu-ports/dists/',
+                'http://archive.ubuntu.com/ubuntu/dists/',
+                'http://security.ubuntu.com/ubuntu/dists/'
+            )
+            # One SHARED 10s budget across all targets, like the CONNECT
+            # matrix's shared deadline above: the diagnostic runs inside a
+            # per-SSH-command wall cap, and three independent 10s timeouts
+            # burning serially against a wedged proxy could push the whole
+            # capture past that cap and lose the artifact in exactly the
+            # scenario this probe exists to diagnose.
+            $plainFailures = @()
+            $plainDeadline = [System.Environment]::TickCount + 10000
+            foreach ($t in $plainTargets) {
+                $remainMs = $plainDeadline - [System.Environment]::TickCount
+                if ($remainMs -lt 1000) {
+                    Write-Output ("  {0,-48} SKIPPED (shared 10s probe budget exhausted by earlier stalls)" -f $t)
+                    $plainFailures += $t
+                    continue
+                }
+                $sw = [System.Diagnostics.Stopwatch]::StartNew()
+                try {
+                    $resp = Invoke-WebRequest -Uri $t -Proxy $plainProxyUrl -UseBasicParsing `
+                        -TimeoutSec ([int][math]::Ceiling($remainMs / 1000)) `
+                        -Headers @{ 'Cache-Control' = 'no-cache' } -ErrorAction Stop
+                    $sw.Stop()
+                    Write-Output ("  {0,-48} HTTP {1}, {2} bytes in {3} ms" -f $t, [int]$resp.StatusCode, $resp.RawContentLength, $sw.ElapsedMilliseconds)
+                } catch {
+                    $sw.Stop()
+                    Write-Output ("  {0,-48} FAILED after {1} ms: {2}" -f $t, $sw.ElapsedMilliseconds, $_.Exception.Message)
+                    $plainFailures += $t
+                }
+            }
+            if ($plainFailures.Count -gt 0) {
+                Add-Problem ("NETWORK: plain-HTTP proxy (GET/cache) path via {0} failed for {1}/{2} mirror origin(s): {3} -- package fetches use this path even when the CONNECT probes above look healthy." -f `
+                    $plainProxyUrl, $plainFailures.Count, $plainTargets.Count, ($plainFailures -join ', '))
+            }
+        }
     }
     }
 
@@ -1668,7 +1727,7 @@ try {
             return
         }
 
-        # --- REGION: Linux-specific facts (unchanged below)
+        # --- REGION: Linux-specific facts
         Write-Sub "Netplan config (/etc/netplan/*.yaml)"
         $netplanFiles = @(Get-ChildItem -Path '/etc/netplan' -Filter '*.yaml' -File -ErrorAction SilentlyContinue)
         if ($netplanFiles.Count -eq 0) {
@@ -1717,6 +1776,50 @@ try {
             Invoke-Tool -Tool 'ss' -ToolArgs @('-tulpn')
         } else {
             Write-Output "(ss not available -- install iproute2)"
+        }
+
+        Write-Sub "Established TCP sockets with timers (ss -tnpo)"
+        if (Test-CommandAvailable 'ss') {
+            # Listening sockets alone cannot show a transfer wedged mid-body:
+            # the evidence lives in the ESTABLISHED socket -- its send/recv
+            # queues and the -o retransmission timer, which separate a fetch
+            # stalled against a dead or trickling peer from an idle-but-
+            # healthy connection (the stalled-transfer trap class).
+            # Privileged so -p attributes sockets owned by other users;
+            # package managers run under sudo, and their hung fetch worker
+            # is exactly the socket this capture exists to catch.
+            Invoke-Tool -Tool 'ss' -ToolArgs @('-tnpo') -Privileged
+        }
+
+        Write-Sub "Package-manager processes (state, wchan, children, fds)"
+        # A package manager blocked at end-of-transaction looks healthy in
+        # every aggregate view above (top-N shows it idle, ss shows no
+        # sockets). The discriminating evidence is WHICH fd it is blocked
+        # reading -- a pipe/socketpair fd points at a hook child, a ptmx fd
+        # at the dpkg-pty EOF drain -- plus the kernel wait channel and any
+        # surviving children (the wrapped-apt teardown-hang trap class).
+        $pkgPids = @()
+        foreach ($n in @('apt-get','apt','dpkg','dnf','yum','unattended-upgr')) {
+            $found = & pgrep -x $n 2>$null
+            if ($found) { $pkgPids += @($found | ForEach-Object { [int]$_ }) }
+        }
+        $pkgPids = @($pkgPids | Sort-Object -Unique)
+        if ($pkgPids.Count -eq 0) {
+            Write-Output "(no package-manager processes running)"
+        } else {
+            foreach ($pkgPid in $pkgPids) {
+                Write-Output ("-- pid {0} and direct children --" -f $pkgPid)
+                Invoke-PrivProbe -Tool 'ps' -ToolArgs @('-o','pid,ppid,pgid,stat,wchan:30,etime,args','--pid',"$pkgPid",'--ppid',"$pkgPid") |
+                    ForEach-Object { Write-Output $_ }
+                $fdLines = Invoke-PrivProbe -Tool 'ls' -ToolArgs @('-l',"/proc/$pkgPid/fd")
+                $fdLines | Select-Object -First 50 | ForEach-Object { Write-Output ("   " + $_) }
+                if ($fdLines.Count -gt 50) { Write-Output ("   (... {0} more fd lines omitted)" -f ($fdLines.Count - 50)) }
+            }
+            Write-Output ""
+            Write-Output "-- full process forest (first 250 lines) --"
+            $forest = Invoke-PrivProbe -Tool 'ps' -ToolArgs @('-ef','--forest')
+            $forest | Select-Object -First 250 | ForEach-Object { Write-Output $_ }
+            if ($forest.Count -gt 250) { Write-Output ("(... {0} more lines omitted)" -f ($forest.Count - 250)) }
         }
 
         Write-Sub "Connectivity probe (ping -c 3 -W 2 1.1.1.1)"

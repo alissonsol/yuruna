@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.07
+.VERSION 2026.07.10
 .GUID 42f1b2c3-d4e5-4f67-8901-a2b3c4d5e6f8
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -70,7 +70,34 @@ if (-not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdent
 # failure that breaks first post-install runs on fresh Windows 11.
 if (-not (Assert-HyperVEnabled)) { exit 1 }
 
+# --- REGION: Seek the base image
+$downloadDir = (Get-VMHost).VirtualHardDiskPath
+$baseImageName = "host.windows.hyper-v.guest.caching-proxy"
+$baseImageFile = Join-Path $downloadDir "$baseImageName.vhdx"
+
+# Auto-run Get-Image.ps1 once if the base image is missing; recheck and
+# only error out when it's still missing afterward.
+if (!(Test-Path -Path $baseImageFile)) {
+    $getImageScript = Join-Path $PSScriptRoot 'Get-Image.ps1'
+    if (Test-Path -LiteralPath $getImageScript) {
+        Write-Output "Base image missing: $baseImageFile"
+        Write-Output "Auto-running $getImageScript to fetch it..."
+        & pwsh -NoProfile -File $getImageScript
+        $getImageExit = $LASTEXITCODE
+        if ($getImageExit -ne 0) {
+            Write-Error "Auto Get-Image.ps1 exited $getImageExit. Cannot create VM."
+            exit 1
+        }
+    }
+    if (!(Test-Path -Path $baseImageFile)) {
+        Write-Error "Base image not found at '$baseImageFile' after auto Get-Image. Run Get-Image.ps1 manually."
+        exit 1
+    }
+}
+
 # --- REGION: Remove existing VM
+# Runs AFTER the base image is confirmed so a failed image fetch never
+# destroys a working VM.
 $existingVM = Get-VM -Name $VMName -ErrorAction SilentlyContinue
 if ($existingVM) {
     Write-Output "VM '$VMName' exists. Deleting..."
@@ -92,31 +119,6 @@ if ($existingVM) {
         throw "Hyper-V\Remove-VM returned success for '$VMName' but Get-VM still finds it; aborting before re-creation."
     }
     Write-Output "VM '$VMName' deleted."
-}
-
-# --- REGION: Seek the base image
-$downloadDir = (Get-VMHost).VirtualHardDiskPath
-$baseImageName = "host.windows.hyper-v.guest.caching-proxy"
-$baseImageFile = Join-Path $downloadDir "$baseImageName.vhdx"
-
-# Auto-run Get-Image.ps1 once if the base image is missing; recheck and
-# only error out when it's still missing afterward.
-if (!(Test-Path -Path $baseImageFile)) {
-    $getImageScript = Join-Path $PSScriptRoot 'Get-Image.ps1'
-    if (Test-Path -LiteralPath $getImageScript) {
-        Write-Output "Base image missing: $baseImageFile"
-        Write-Output "Auto-running $getImageScript to fetch it..."
-        & pwsh -NoProfile -File $getImageScript
-        $getImageExit = $LASTEXITCODE
-        if ($getImageExit -ne 0) {
-            Write-Error "Auto Get-Image.ps1 exited $getImageExit. Cannot create VM."
-            exit 1
-        }
-    }
-    if (!(Test-Path -Path $baseImageFile)) {
-        Write-Output "Base image not found at '$baseImageFile' after auto Get-Image. Run Get-Image.ps1 manually."
-        exit 1
-    }
 }
 
 # --- REGION: Copy base image -> per-VM disk
@@ -151,33 +153,13 @@ $SshAuthorizedKey = Get-YurunaSshPublicKey
 if (-not $SshAuthorizedKey) { Write-Error "Get-YurunaSshPublicKey returned empty. Module path: $TestSshModule"; exit 1 }
 
 # --- REGION: Cache-VM yuruna password
-# Squid-cache 'yuruna' user password.
-#
-# The vault now simulates an external auth provider and persists
-# across cycles, but the caching-proxy password also lives in
-# <track>/yuruna-caching-proxy.yml (host-agnostic, under the
-# framework's status/runtime dir, managed by Test.CachingProxy). The
-# runtime state file is treated as the source of truth: if it has a value,
-# Set-Password rewrites the vault entry from it before Get-Password
-# reads it back. This keeps the runtime state file and vault aligned even if
-# they ever diverge (e.g. the vault is rebuilt from scratch or the
-# runtime state file is restored from a backup). Keeps the authentication
-# extension generic (it never sees the runtime state path); the host-specific
-# New-VM.ps1 is the one that bridges the two.
-#
-# Order of operations:
-#   1. If the runtime state file has a password, Set-Password 'yuruna' from it.
-#   2. Get-Password 'yuruna' returns either the rehydrated value or a
-#      fresh random one (first-ever install).
-#   3. Write the value back to the runtime state file (idempotent on rebuild).
+# --- REGION: https://yuruna.link/caching-proxy#cache-vm-password-persistence
+# The runtime state file <track>/yuruna-caching-proxy.yml is the source of
+# truth; Set-Password rehydrates the vault from it before Get-Password.
 $_repoRootForExt = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))
 Import-Module (Join-Path $_repoRootForExt 'test/modules/Test.Extension.psm1')    -Global -Force -Verbose:$false
 Import-Module (Join-Path $_repoRootForExt 'test/modules/Test.CachingProxy.psm1') -Global -Force -Verbose:$false
 $_authActiveName = @(Import-Extension -Area 'authentication' -RequireSingle)[0]
-# Re-align the vault with <track>/yuruna-caching-proxy.yml. The track
-# file is the source of truth for the cache VM's yuruna user, so
-# Set-Password rewrites the vault entry from it before Get-Password
-# reads it back. Idempotent on every cycle.
 $persisted = (Read-CachingProxyState).password
 if ($persisted) { Set-Password -Username 'yuruna' -NewPassword $persisted }
 $YurunaPassword = Get-Password -Username 'yuruna'
@@ -221,12 +203,10 @@ if (Test-Path $YurunaTestConfig) {
     } catch { Write-Verbose "test.config.yml parse failed: $_" }
 }
 
-# networkStorage pool (ypool-nas) service replication: bake the networkUser credential, the share
-# path (unix form), and this host's id so the proxy can rsync its observability data
-# to the NAS. Resolved here on the host (networkStorage pool config + vault).
-# REPLICATE stays false unless networkStorage pool is configured AND networkUser has a vault
-# password, so an empty credential is never baked. networkUser is the single NAS
-# account used for every storage connection (host drain + this guest mount alike).
+# --- REGION: networkStorage pool (ypool-nas) service replication
+# --- REGION: https://yuruna.link/caching-proxy#cache-vm-nas-and-config-service
+# Bake the networkUser credential name, share path, and host id, resolved
+# here on the host (networkStorage pool config + vault).
 Import-Module (Join-Path $_repoRootForExt 'test/modules/Test.PoolStorage.psm1') -Force
 Import-Module (Join-Path $_repoRootForExt 'test/modules/Test.YurunaDir.psm1')   -Force
 $ypoolNasCfg = $null
@@ -242,19 +222,14 @@ if (($ypoolNasNetPath -match "'") -or ($ypoolNasUser -match "'")) {
     Write-Warning "networkStorage pool: networkPath/networkUser contains a single quote; skipping caching-proxy service replication."
     $ypoolNasUser = ''; $ypoolNasNetPath = ''
 }
-# ypool-nas REPLICATE is enabled when pool storage is CONFIGURED (network path +
-# user). The password is NO LONGER baked -- it is served at runtime by the Host
-# Config Service (/v1/nas/pool) and written by yuruna-config-fetch, so a rotated
-# NAS password reaches a running VM without a rebuild. The service's own vault gate
-# returns 503 (no replication, self-healing) until the operator sets the password.
+# REPLICATE turns on only when pool storage is configured; the NAS password
+# is NOT baked -- the Host Config Service serves it at runtime (/v1/nas/pool).
 $ypoolNasReplicate = if ($ypoolNasCfg -and $ypoolNasUser -and $ypoolNasNetPath) { 'true' } else { 'false' }
 
-# Pool push-ingest shared bearer: resolve the operator-supplied token that
-# gates the aggregator's POST /ingest, mirroring the ypool-nas loud-fail gate. Read it ONLY
-# when the operator declared a vaultKey for 'pool-auth-token' AND populated it
-# (Test-VaultEntry) -- an empty vaultKey means push is DISABLED, so do NOT call
-# Get-Password then (it would auto-generate a per-host random token and break the
-# shared-token model). Bake EMPTY when disabled/unset -> the aggregator refuses /ingest.
+# --- REGION: Pool push-ingest shared bearer
+# --- REGION: https://yuruna.link/caching-proxy#cache-vm-nas-and-config-service
+# Empty vaultKey means push is DISABLED: do NOT call Get-Password then (it
+# would auto-generate a junk per-host token); bake EMPTY instead.
 $poolAuthToken = ''
 try {
     $paEff = Get-EffectiveUser -LogicalUser 'pool-auth-token'
@@ -269,13 +244,10 @@ if ($poolAuthToken -match '[\r\n''"]') {
     $poolAuthToken = ''
 }
 
-# Host Config Service mTLS materials. Mint a per-VM client leaf signed by THIS
-# host's Config CA and bake it (with the CA cert + the service port) so the cache
-# VM can fetch ystash-nas (and ypool-nas) credentials at boot AND hourly over
-# mutual TLS -- a rotated NAS password then reaches the running VM without a
-# rebuild (the bake-once staleness fix). The client leaf chains to this host's
-# CA, so the service serves ONLY this host's VMs. PEMs are baked base64 so they
-# survive the cloud-init write_files block scalar (encoding: b64).
+# --- REGION: Host Config Service mTLS materials
+# --- REGION: https://yuruna.link/caching-proxy#cache-vm-nas-and-config-service
+# Mint a per-VM client leaf signed by THIS host's Config CA; PEMs are baked
+# base64 so they survive the cloud-init write_files block scalar.
 Import-Module (Join-Path $_repoRootForExt 'test/modules/Test.HostConfigCA.psm1') -Force
 $configPort = '8443'
 if ($tc -and $tc.configService -and $tc.configService.port) { $configPort = "$($tc.configService.port)" }
@@ -338,20 +310,10 @@ Write-Output "  and log in with the credentials above to inspect cloud-init stat
 Write-Output ""
 
 # --- REGION: Create and configure Hyper-V VM
-# 12 GB RAM, 4 vCPU. This is a DEDICATED cache VM (one job: serve the
-# squid object cache to every guest), so the memory budget is sized
-# around squid's `cache_mem 9 GB` (= 75 % of VM RAM, per the
-# host/vmconfig/caching-proxy.base.user-data tuning). Empirically a 1 GB cache_mem on this
-# VM put squid's RSS at ~2 GB during active cycles (sslcrtd children +
-# connection buffers + in-RAM hot objects = ~1 GB beyond cache_mem),
-# so 9 GB cache_mem implies ~10 GB peak squid + ~1.5 GB for the rest
-# of the stack (apache, grafana, prometheus, loki, promtail,
-# squid-exporter, caching-proxy-parser, systemd, page cache). 12 GB
-# leaves ~500 MB of OS headroom. 4 vCPU stays -- caching is I/O- and
-# memory-bound, not CPU-bound; raising vCPU count without raising RAM
-# wouldn't help. Swap is masked in user-data, so an OOM event is
-# unrecoverable; if you tune cache_mem upward, raise the VM total
-# proportionally.
+# --- REGION: https://yuruna.link/caching-proxy#cache-vm-sizing
+# 12 GB RAM, 4 vCPU -- same sizing on all three hosts, budgeted around
+# squid's `cache_mem 9 GB`; swap is masked, so undersizing is an
+# unrecoverable OOM.
 Write-Output "Creating new VM '$VMName' on switch '$switchName'..."
 Hyper-V\New-VM -Name $VMName -Generation 2 -MemoryStartupBytes 12GB -SwitchName $switchName -VHDPath $vhdxFile | Out-Null
 Set-VM -Name $VMName -MemoryStartupBytes 12GB -MemoryMinimumBytes 12GB -MemoryMaximumBytes 12GB -AutomaticCheckpointsEnabled $false | Out-Null

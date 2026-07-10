@@ -267,6 +267,49 @@ systemctl start loki prometheus grafana-server
 (Grafana also self-rebuilds its datasources + dashboards from the seed's provisioning,
 so a restore mainly recovers retained metrics/logs + any runtime dashboard edits.)
 
+## Syncing a new host's config from a reference host
+
+`host/<type>/Sync-HostConfiguration.ps1 -ReferenceHost <name-or-ip>` copies a
+working pool host's `test.config.yml` onto this host — reference host of ANY
+host type — so a new or reimaged host doesn't have to be configured by hand.
+The heavy lifting lives in `test/modules/Test.HostConfigSync.psm1`; the three
+per-host-type scripts are thin shells (run the one matching this host's OS;
+the Windows variant needs an elevated session for the hosts-file write).
+
+What it does, in order:
+
+1. **Copy + convert.** Fetches the reference config over its status server
+   (`GET /control/test-config`, JSON) and converts the host-type-specific
+   values: share paths get the local slash style (`\\server\share` vs
+   `//server/share`), and an EMPTY local mount path gets the local
+   convention — `y:`/`z:` (Windows), `/mnt/<server>` (Ubuntu),
+   `~/Shares/<server>` (macOS). An already-populated local mount path is
+   kept (it reflects a working mount). The local `secrets` node survives;
+   the reference's is never adopted. Non-portable reference values
+   (`file://` projectUrl, absolute `pool.localClonePath`) are kept local
+   with a warning. The write is atomic and the previous file lands in
+   `test.config.yml.backup`.
+2. **Hosts-file alias.** A networkStorage server name (e.g. `ypool-nas`)
+   that does not resolve locally is looked up on the reference host
+   (`GET /control/host-aliases` — the reference's own resolution of the
+   names its config uses) and written via `automation/Set-HostAlias.ps1`
+   (sudo on Linux/macOS). Prompt as fallback when the reference can't
+   supply it.
+3. **Vault credential.** A networkStorage user with no local vault entry is
+   fetched from the reference's `GET /control/vault-credential`. That route
+   is gated by the operator-set shared `pool-auth-token` (the same one that
+   gates the aggregator's push ingest, and 503 until it is configured):
+   the request proves token knowledge via an HMAC (the token never crosses
+   the wire) and the response password is AES-GCM encrypted with a key
+   derived from the token, so nothing crosses the plain-HTTP LAN in
+   cleartext. Prompt as fallback; the value is stored with `Set-Password`.
+4. **Validate.** Runs `pwsh test/Test-Config.ps1` (skippable with
+   `-SkipValidation`) so a wrong password / share typo / missing sudo rule
+   surfaces immediately — the same gate described below.
+
+`-NonInteractive` never prompts (skips with warnings instead);
+`-WhatIf` previews. A repeat run with nothing to change writes nothing.
+
 ## Operating & troubleshooting
 
 `pwsh test/Test-Config.ps1` is the pre-flight check — it validates the
@@ -368,6 +411,6 @@ ever routed through it.
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.07
+Last review: 2026.07.10
 
 Back to [Yuruna](../README.md)

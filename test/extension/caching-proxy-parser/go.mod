@@ -1,3 +1,3 @@
 module yuruna.com/test/extension/caching-proxy-parser
 
-go 1.22
+go 1.25

@@ -46,6 +46,36 @@ Image source by host:
   ISO for ubuntu.server.\<N\>. The script resizes the qcow2 to the
   target size with `qemu-img resize`.
 
+#### Skip-if-same-source guard
+
+`Test-DownloadAlreadyCurrent` (host/modules/Yuruna.HostDownload.psm1) returns
+`$true` — and `Get-Image.ps1` exits without downloading — only when ALL of
+the following match the on-disk state:
+
+- the base image file exists, and
+- the 4-line sentinel (`<baseImageName>.txt`: filename, source URL, byte
+  count, Last-Modified) records the same filename, URL, byte count, AND
+  Last-Modified date as a fresh HEAD probe of the source URL.
+
+Any mismatch — including a legacy 3-line sentinel that lacks the
+Last-Modified field — forces a re-download. The only way to force a
+re-download manually is to delete or rename the base image (or the
+sentinel).
+
+The 4-line sentinel guards against the silent-skip regression class where a
+release-codename URL bump (e.g. noble -> resolute) matches the previous byte
+count by coincidence: the sentinel filename is derived from the URL the same
+way the reader re-derives it, so a URL change can never be mistaken for
+"already current".
+
+`Write-ImageSentinel` (same module) is the one writer for every
+`Get-Image.ps1`, keeping the sentinel shape in lockstep with the reader. It
+captures the upstream Last-Modified header after the download finishes so
+the sentinel records what the server said at the moment of fetch. Some CDNs
+strip the header; a missing header records an empty 4th line and the reader
+skips the date comparison in that direction (URL + size still gate the
+skip).
+
 ### 2. Checksum verification
 
 When the upstream publisher provides a `SHA256SUMS` (or equivalent)
@@ -202,6 +232,6 @@ across deletes so the next `New-VM.ps1` doesn't have to re-download.
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.07
+Last review: 2026.07.10
 
 Back to [Yuruna](../README.md)

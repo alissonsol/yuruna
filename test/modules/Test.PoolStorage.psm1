@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.07
+.VERSION 2026.07.10
 .GUID 42c5e8a1-9b3d-4f27-8a6c-1d2e3f4a5b6c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -121,6 +121,24 @@ function Invoke-PoolStorageBoundedScript {
 
 <#
 .SYNOPSIS
+Canonicalizes a share path to its bare 'server/share[/sub]' form: collapse every run of / or \ to one /, strip leading slashes, then optionally strip a leading 'user@' and/or a trailing slash. The single definition of 'the same share', so every mount/identity check derives from one place. Pure.
+#>
+function Get-PoolStorageBareShare {
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        [Parameter()][AllowNull()][string]$Path,
+        [switch]$WithoutUser,
+        [switch]$TrimTrailing
+    )
+    $bare = ($Path -replace '[\\/]+', '/') -replace '^/+', ''
+    if ($WithoutUser) { $bare = $bare -replace '^[^/@]*@', '' }
+    if ($TrimTrailing) { $bare = $bare.TrimEnd('/') }
+    return $bare
+}
+
+<#
+.SYNOPSIS
 Normalizes a share path to one platform's UNC form, accepting either '\\srv\share' or '//srv/share' on input. Pure + testable.
 #>
 function Get-PoolStorageUncPath {
@@ -130,7 +148,7 @@ function Get-PoolStorageUncPath {
         [Parameter(Mandatory)][string]$Path,
         [Parameter(Mandatory)][ValidateSet('windows', 'unix')][string]$Style
     )
-    $bare = ($Path -replace '[\\/]+', '/') -replace '^/+', ''   # 'srv/share[/sub]'
+    $bare = Get-PoolStorageBareShare -Path $Path   # 'srv/share[/sub]'
     if ($Style -eq 'windows') { return '\\' + ($bare -replace '/', '\') }
     return '//' + $bare
 }
@@ -148,31 +166,21 @@ function Test-PoolStorageMountMatch {
         [Parameter(Mandatory)][string]$NetworkPath
     )
     if (-not $MountLines) { return $false }
-    $wantShare = (($NetworkPath -replace '[\\/]+', '/') -replace '^/+', '').TrimEnd('/')   # 'server/share'
+    $wantShare = Get-PoolStorageBareShare -Path $NetworkPath -TrimTrailing   # 'server/share'
     foreach ($line in $MountLines) {
-        $s = [string]$line
-        $sep = $s.IndexOf(' on ')
-        if ($sep -lt 0) { continue }
-        $remote = $s.Substring(0, $sep)
-        $tail   = $s.Substring($sep + 4)
-        $tIdx = $tail.IndexOf(' type ')                 # Linux: "/mnt/x type cifs (...)"
-        if ($tIdx -ge 0) {
-            $point = $tail.Substring(0, $tIdx)
-        } else {
-            $pIdx = $tail.LastIndexOf(' (')             # macOS: "/Users/x (smbfs, ...)"
-            $point = if ($pIdx -ge 0) { $tail.Substring(0, $pIdx) } else { $tail }
-        }
-        if ($point.Trim() -ne $LocalPath) { continue }
-        # Normalize the mounted remote the same way: 'server/share', minus 'user@'.
-        $remoteBare = ((($remote -replace '[\\/]+', '/') -replace '^/+', '') -replace '^[^/@]*@', '').TrimEnd('/')
-        if ($remoteBare -ieq $wantShare) { return $true }
+        # Parse each line with the one general mount-line parser so a format quirk
+        # fixed there cannot silently diverge from the live-mount detection here.
+        $parsed = ConvertFrom-PoolStorageMountLine -MountLine ([string]$line)
+        if (-not $parsed) { continue }
+        if ($parsed.MountPoint -ne $LocalPath) { continue }
+        if ($parsed.RemoteBare -ieq $wantShare) { return $true }
     }
     return $false
 }
 
 <#
 .SYNOPSIS
-Parses ONE `mount` output line (or a synthesized "<remote> on <point>" line for Windows mappings) into its remote + mount-point + host/share-sub parts, normalized the same way Test-PoolStorageMountMatch does (scheme, leading slashes, optional 'user@', trailing slash all stripped); returns $null for a line that isn't a recognizable mount. Pure.
+Parses ONE `mount` output line (or a synthesized "<remote> on <point>" line for Windows mappings) into its remote + mount-point + host/share-sub parts, with the remote normalized to a bare 'server/share' (scheme, leading slashes, optional 'user@', trailing slash all stripped); returns $null for a line that isn't a recognizable mount. Pure. The shared parser Test-PoolStorageMountMatch uses to detect a live mount.
 #>
 function ConvertFrom-PoolStorageMountLine {
     [CmdletBinding()]
@@ -191,7 +199,7 @@ function ConvertFrom-PoolStorageMountLine {
         $pIdx = $tail.LastIndexOf(' (')             # macOS: "/Users/x (smbfs, ...)"
         $point = if ($pIdx -ge 0) { $tail.Substring(0, $pIdx) } else { $tail }
     }
-    $remoteBare = ((($remote -replace '[\\/]+', '/') -replace '^/+', '') -replace '^[^/@]*@', '').TrimEnd('/')
+    $remoteBare = Get-PoolStorageBareShare -Path $remote -WithoutUser -TrimTrailing
     $slash = $remoteBare.IndexOf('/')
     if ($slash -lt 0) { $srvHost = $remoteBare; $shareSub = '' }
     else { $srvHost = $remoteBare.Substring(0, $slash); $shareSub = $remoteBare.Substring($slash + 1) }
@@ -221,7 +229,7 @@ function Find-PoolStorageConflictingMount {
     # single empty-array element.
     $out = [System.Collections.Generic.List[pscustomobject]]::new()
     if (-not $MountLines) { return $out.ToArray() }
-    $wantBare = (($NetworkPath -replace '[\\/]+', '/') -replace '^/+', '').TrimEnd('/')
+    $wantBare = Get-PoolStorageBareShare -Path $NetworkPath -TrimTrailing
     $slash = $wantBare.IndexOf('/')
     if ($slash -lt 0) { return $out.ToArray() }    # no share component -> nothing to anchor on
     $wantHost     = $wantBare.Substring(0, $slash)
@@ -385,20 +393,27 @@ function Get-YurunaPoolStorageConfig {
         }
         return $null
     }
-    $localPath = $localPath.Trim()
-    # Expand a leading '~' here, once, so EVERY downstream use (mount target, mount
-    # idempotency check, copy destination) sees a real path. '~' is a shell
-    # expansion; passed straight to mount_smbfs / mount it would create a literal
-    # '~' directory and the mount check would never match.
-    if ($localPath -match '^~(?=[\\/]|$)') {
-        $localPath = Join-Path $HOME ($localPath.Substring(1).TrimStart('/', '\'))
-    }
+    $localPath = Expand-YurunaLocalPath -Path $localPath
     return [pscustomobject]@{
         Replicate   = $replicate
         NetworkPath = $networkPath.Trim()
         NetworkUser = $networkUser.Trim()
         LocalPath   = $localPath
     }
+}
+
+# Normalize a networkStorage localPath config value: trim it, then expand a leading
+# '~' once, here, so EVERY downstream use (mount target, mount idempotency check, copy
+# destination) sees a real path. '~' is a shell expansion; passed straight to
+# mount_smbfs / mount it would create a literal '~' directory and the mount check would
+# never match. One helper so the pool and stash tiers cannot drift on the '~' rule.
+function Expand-YurunaLocalPath {
+    param([string]$Path)
+    $p = $Path.Trim()
+    if ($p -match '^~(?=[\\/]|$)') {
+        $p = Join-Path $HOME ($p.Substring(1).TrimStart('/', '\'))
+    }
+    return $p
 }
 
 <#
@@ -430,10 +445,7 @@ function Get-YurunaStashStorageConfig {
         [string]::IsNullOrWhiteSpace($localPath)) {
         return $null
     }
-    $localPath = $localPath.Trim()
-    if ($localPath -match '^~(?=[\\/]|$)') {
-        $localPath = Join-Path $HOME ($localPath.Substring(1).TrimStart('/', '\'))
-    }
+    $localPath = Expand-YurunaLocalPath -Path $localPath
     return [pscustomobject]@{
         Replicate   = $false
         NetworkPath = $networkPath.Trim()
@@ -512,7 +524,7 @@ function Connect-YurunaPoolStorage {
             if ($r.TimedOut) { throw "New-SmbMapping timed out after ${script:PoolStorageMountTimeoutSec}s" }
             if ($r.Error) { throw $r.Error }
         } elseif ($IsMacOS) {
-            $bare = ($Config.NetworkPath -replace '[\\/]+', '/') -replace '^/+', ''
+            $bare = Get-PoolStorageBareShare -Path $Config.NetworkPath
             if (-not (Test-Path -LiteralPath $Config.LocalPath)) { New-Item -ItemType Directory -Force -Path $Config.LocalPath | Out-Null }
             # mount_smbfs takes the credentials only inside a URL. URL-encode both
             # fields: the vault alphabet legitimately includes @ # % & + =, any of
@@ -693,7 +705,7 @@ function Get-PoolStorageServerName {
     [CmdletBinding()]
     [OutputType([string])]
     param([Parameter(Mandatory)][string]$NetworkPath)
-    $bare = (($NetworkPath -replace '[\\/]+', '/') -replace '^/+', '') -replace '^[^/@]*@', ''
+    $bare = Get-PoolStorageBareShare -Path $NetworkPath -WithoutUser
     return (($bare -split '/', 2)[0]).Trim()
 }
 
@@ -1224,7 +1236,7 @@ function Initialize-PoolStorageTargetFolder {
     [OutputType([hashtable])]
     param([Parameter(Mandatory)][pscustomobject]$Config)
     $result = @{ ok = $false; created = $false; folder = $Config.NetworkPath; error = '' }
-    $bare  = (($Config.NetworkPath -replace '[\\/]+', '/') -replace '^/+', '').TrimEnd('/')
+    $bare  = Get-PoolStorageBareShare -Path $Config.NetworkPath -TrimTrailing
     $parts = @($bare -split '/')
     if ($parts.Count -lt 3) {
         # server-only or a bare share root -- there is no subfolder to create, and a

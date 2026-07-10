@@ -15,9 +15,7 @@ resource "azurerm_kubernetes_cluster" "default" {
     os_disk_size_gb = 30
   }
 
-  role_based_access_control {
-    enabled = true
-  }
+  role_based_access_control_enabled = true
 
   tags = {
     environment = var.resourceTags
@@ -27,11 +25,7 @@ resource "azurerm_kubernetes_cluster" "default" {
     type = "SystemAssigned"
   }
 
-  addon_profile {
-    http_application_routing {
-      enabled = false
-    }
-  }  
+  http_application_routing_enabled = false
 
   # Imports the cluster context to local .kube/config. Bash + az/kubectl
   # instead of pwsh; matches the localhost-registry-check.sh pattern that

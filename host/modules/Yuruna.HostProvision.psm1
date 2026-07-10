@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.07
+.VERSION 2026.07.10
 .GUID 42b8e6a4-3d17-4c92-8f05-6a1b9d2e7c40
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -232,15 +232,29 @@ function Invoke-CachingProxyAvailableProbe {
     .DESCRIPTION
         -VerifyHint is the platform-specific operator command template embedded
         in the final unreachable-cache warning (Test-NetConnection on Windows,
-        nc on macOS); it is a {0}/{1} format string filled with the cache IP and
-        HTTP port. The kvm driver keeps its own probe (it omits the
-        Format-IpUrlHost IPv6-bracketing the guests rely on), so this shared
-        body covers win + mac only.
+        nc on macOS/kvm); it is a {0}/{1} format string filled with the cache IP
+        and HTTP port.
+
+        -NoBracketHost returns bare-IP proxy URLs (skips the Format-IpUrlHost
+        IPv6 bracketing). The kvm driver sets it so returned URLs keep the
+        bare-IP shape its guests/consumers parse; win/mac use the default
+        bracketed shape. For IPv4 the two are identical (Format-IpUrlHost only
+        brackets IPv6), so this only affects a would-be IPv6 cache.
+
+        -ConnectAttempts / -ConnectBackoffMs add a bounded connect retry for a
+        cache reached over an extra hop (the kvm host's systemd socket-proxy
+        forwarder into libvirt NAT, used when the 'yuruna-external' bridge could
+        not be built). Default 1 (single shot) preserves the win/mac probe
+        exactly; the kvm driver passes 3. A healthy cache answers on the first
+        attempt, so the extra attempts run only on failure.
     #>
     [CmdletBinding()]
     [OutputType([string])]
     param(
-        [Parameter(Mandatory)][string]$VerifyHint
+        [Parameter(Mandatory)][string]$VerifyHint,
+        [switch]$NoBracketHost,
+        [int]$ConnectAttempts = 1,
+        [int]$ConnectBackoffMs = 200
     )
     $httpPort = Get-CachingProxyPort -Scheme http
     # External cache override -- $Env:YURUNA_CACHING_PROXY_IP short-circuits
@@ -253,22 +267,26 @@ function Invoke-CachingProxyAvailableProbe {
             Write-Warning "YURUNA_CACHING_PROXY_IP='$externIp' is not a valid IPv4 or IPv6 address -- ignoring."
             return $null
         }
-        $tcp = New-Object System.Net.Sockets.TcpClient
-        try {
-            $async = $tcp.BeginConnect($externIp, $httpPort, $null, $null)
-            # 3s cap, not 1s: this is the EXTERNAL/remote proxy path. A cross-host
-            # cache (e.g. a UTM/macOS-hosted squid over bridged networking) routinely
-            # takes 600ms-1s+ to ACCEPT a TCP connection, so a 1s cap false-negatives
-            # and the runner reports a healthy remote cache as "did not answer." The
-            # cap is free for a fast cache (connect returns on accept); it only delays
-            # the verdict for a genuinely-down one.
-            if ($async.AsyncWaitHandle.WaitOne(3000) -and $tcp.Connected) {
-                return "http://$(Format-IpUrlHost $externIp):${httpPort}"
+        # 3s/attempt cap, not 1s: this is the EXTERNAL/remote proxy path. A
+        # cross-host cache (e.g. a UTM/macOS squid over bridged networking, or a
+        # kvm cache reached over the host's systemd socket-proxy forwarder into
+        # libvirt NAT) routinely takes 600ms-1s+ to ACCEPT a TCP connection, so a
+        # 1s cap false-negatives and the runner reports a healthy remote cache as
+        # "did not answer." The cap is free for a fast cache (connect returns on
+        # accept); it only delays the verdict for a genuinely-down one.
+        for ($attempt = 1; $attempt -le $ConnectAttempts; $attempt++) {
+            if ($attempt -gt 1) { Start-Sleep -Milliseconds $ConnectBackoffMs }
+            $tcp = New-Object System.Net.Sockets.TcpClient
+            try {
+                $async = $tcp.BeginConnect($externIp, $httpPort, $null, $null)
+                if ($async.AsyncWaitHandle.WaitOne(3000) -and $tcp.Connected) {
+                    return "http://$(if ($NoBracketHost) { $externIp } else { Format-IpUrlHost $externIp }):${httpPort}"
+                }
+            } catch {
+                Write-Verbose "external caching proxy probe to ${externIp}:${httpPort} failed: $($_.Exception.Message)"
+            } finally {
+                $tcp.Close()
             }
-        } catch {
-            Write-Verbose "external caching proxy probe to ${externIp}:${httpPort} failed: $($_.Exception.Message)"
-        } finally {
-            $tcp.Close()
         }
         Write-Warning "YURUNA_CACHING_PROXY_IP=${externIp} set but ${externIp}:${httpPort} did not answer within 3s."
         return $null
@@ -292,19 +310,91 @@ function Invoke-CachingProxyAvailableProbe {
     # Tighter timeouts (~500 ms) leave a window where a momentarily
     # busy squid (cold start, big cidata fetch) misses the runner's
     # single bootstrap probe and silently strands the whole inner cycle.
-    $tcp = New-Object System.Net.Sockets.TcpClient
-    try {
-        $async = $tcp.BeginConnect($stateIp, $httpPort, $null, $null)
-        if ($async.AsyncWaitHandle.WaitOne(1500) -and $tcp.Connected) {
-            return "http://$(Format-IpUrlHost $stateIp):${httpPort}"
+    for ($attempt = 1; $attempt -le $ConnectAttempts; $attempt++) {
+        if ($attempt -gt 1) { Start-Sleep -Milliseconds $ConnectBackoffMs }
+        $tcp = New-Object System.Net.Sockets.TcpClient
+        try {
+            $async = $tcp.BeginConnect($stateIp, $httpPort, $null, $null)
+            if ($async.AsyncWaitHandle.WaitOne(1500) -and $tcp.Connected) {
+                return "http://$(if ($NoBracketHost) { $stateIp } else { Format-IpUrlHost $stateIp }):${httpPort}"
+            }
+        } catch {
+            Write-Verbose "cache probe ${stateIp}:${httpPort} failed: $($_.Exception.Message)"
+        } finally {
+            $tcp.Close()
         }
-    } catch {
-        Write-Verbose "cache probe ${stateIp}:${httpPort} failed: $($_.Exception.Message)"
-    } finally {
-        $tcp.Close()
     }
     Write-Warning "Test-CachingProxyAvailable: state.ipAddress=${stateIp} did not answer :${httpPort} within 1500 ms; treating cache as unavailable. Verify with '$($VerifyHint -f $stateIp, $httpPort)'; if it answers, the cache is running and the next runner cycle will pick it up. If not, re-run Start-CachingProxy.ps1 (the VM may have restarted with a new DHCP lease)."
     return $null
 }
 
-Export-ModuleMember -Function Invoke-PerGuestNewVm, Write-GetImageLine, Invoke-WaitVmIp, Invoke-GetImage, Invoke-CachingProxyAvailableProbe
+<#
+.SYNOPSIS
+    True when the given IP literal is one of THIS host's own addresses
+    (loopback, or assigned to any local network interface).
+.DESCRIPTION
+    Lets the caching-proxy port-map dispatchers recognize a
+    $Env:YURUNA_CACHING_PROXY_IP that names the local host itself. On the
+    NAT-fallback topology the host's own LAN IP fronts the cache VM through
+    host-managed forwarders, so treating that IP as an external cache --
+    whose handling tears the local port map down as a stale leftover --
+    would sever the very path the probe just validated. Read-only: no sudo,
+    no platform commands; System.Net.NetworkInformation works on Windows,
+    macOS, and Linux alike.
+#>
+function Test-HostOwnIpAddress {
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param([Parameter(Mandatory)][string]$IpAddress)
+    return ((Get-HostOwnIpVerdict -IpAddress $IpAddress) -eq 'local')
+}
+
+<#
+.SYNOPSIS
+    Tri-state ownership verdict for an IP literal: 'local', 'nonlocal',
+    or 'unknown' when NIC enumeration could not give a complete answer.
+.DESCRIPTION
+    The boolean Test-HostOwnIpAddress collapses "definitely not one of
+    this host's addresses" and "could not enumerate every NIC" into the
+    same $false -- and on hosts that start/stop guest VMs each cycle,
+    interface churn makes transient enumeration failures routine. A
+    caller deciding whether to TEAR DOWN this host's own port forwarders
+    must not act on that ambiguity: a wrong 'nonlocal' severs the
+    guest-facing proxy ports (self-teardown), while a wrong 'local'
+    merely re-asserts a port map. 'unknown' lets teardown decisions land
+    on the safe side. An unparseable literal is also 'unknown' for the
+    same reason.
+#>
+function Get-HostOwnIpVerdict {
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([Parameter(Mandatory)][string]$IpAddress)
+    $parsed = $null
+    if (-not [System.Net.IPAddress]::TryParse($IpAddress.Trim(), [ref]$parsed)) { return 'unknown' }
+    if ([System.Net.IPAddress]::IsLoopback($parsed)) { return 'local' }
+    $enumerationIncomplete = $false
+    $nics = $null
+    try {
+        $nics = [System.Net.NetworkInformation.NetworkInterface]::GetAllNetworkInterfaces()
+    } catch {
+        Write-Debug "Get-HostOwnIpVerdict: NIC enumeration failed: $($_.Exception.Message)"
+        return 'unknown'
+    }
+    foreach ($nic in $nics) {
+        try {
+            foreach ($unicast in $nic.GetIPProperties().UnicastAddresses) {
+                if ($unicast.Address.Equals($parsed)) { return 'local' }
+            }
+        } catch {
+            # A NIC that cannot report its addresses (driver quirk, hot
+            # unplug race) might be the one owning the probed IP, so the
+            # negative answer below is no longer trustworthy.
+            Write-Debug "Get-HostOwnIpVerdict: $($nic.Name): $($_.Exception.Message)"
+            $enumerationIncomplete = $true
+        }
+    }
+    if ($enumerationIncomplete) { return 'unknown' }
+    return 'nonlocal'
+}
+
+Export-ModuleMember -Function Invoke-PerGuestNewVm, Write-GetImageLine, Invoke-WaitVmIp, Invoke-GetImage, Invoke-CachingProxyAvailableProbe, Test-HostOwnIpAddress, Get-HostOwnIpVerdict

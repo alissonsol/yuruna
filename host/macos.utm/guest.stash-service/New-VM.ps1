@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.07
+.VERSION 2026.07.10
 .GUID 42f1b2c3-d4e5-4f67-8901-a2b3c4d5e681
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -85,10 +85,11 @@ $_repoRoot = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScrip
 Import-Module (Join-Path $_repoRoot 'test/modules/Test.Provenance.psm1') -Force
 Write-BaseImageProvenance -BaseImagePath $baseImageFile
 
-# --- REGION: Create UTM bundle
+# --- REGION: Create copies and files for VM
 if (Test-Path -LiteralPath $UtmDir) { Remove-Item -LiteralPath $UtmDir -Recurse -Force }
 New-Item -ItemType Directory -Force -Path $DataDir | Out-Null
 
+# --- REGION: Copy base image -> per-VM disk
 # Copy the pre-built qcow2 cloud image into the bundle as the boot disk.
 # qcow2 (not raw) is deliberate: UTM's QEMU backend boots it directly and
 # it sidesteps the macOS F_PUNCHHOLE-alignment EINVAL a raw disk hits
@@ -128,9 +129,10 @@ Write-Output "See configuration at: $(Resolve-ExtensionAreaDir -Area 'authentica
 # default route -> UTM Shared NAT (VZ gateway, Get-GuestReachableHostIp).
 # $env:YURUNA_GUEST_REACHABLE_HOST_IP overrides.
 Import-Module (Join-Path (Split-Path -Parent $ScriptDir) 'modules/Yuruna.Host.psm1') -Force
-Import-Module (Join-Path $_repoRoot 'test/modules/Test.PoolStorage.psm1') -Global -Force
-Import-Module (Join-Path $_repoRoot 'test/modules/Test.YurunaDir.psm1')   -Global -Force
-Import-Module (Join-Path $_repoRoot 'test/modules/Test.Config.psm1')      -Global -Force
+Import-Module (Join-Path $_repoRoot 'test/modules/Test.PoolStorage.psm1')  -Global -Force
+Import-Module (Join-Path $_repoRoot 'test/modules/Test.YurunaDir.psm1')    -Global -Force
+Import-Module (Join-Path $_repoRoot 'test/modules/Test.Config.psm1')       -Global -Force
+Import-Module (Join-Path $_repoRoot 'test/modules/Test.CachingProxy.psm1') -Global -Force
 if ($env:YURUNA_GUEST_REACHABLE_HOST_IP) {
     $YurunaHostIp = $env:YURUNA_GUEST_REACHABLE_HOST_IP
 } elseif (Test-MacDefaultRouteIsWiFi) {
@@ -147,6 +149,9 @@ if (Test-Path -LiteralPath $YurunaTestConfig) {
     if ($tc -and $tc.statusService -and $tc.statusService.port) { $YurunaHostPort = "$($tc.statusService.port)" }
 }
 $ystashNas = Get-YurunaStashSeedValue -Config $tc
+# Pool-aggregator base URL for the guest's presence beacon + remote-host
+# resolution; '' (no caching proxy known) leaves those features off in-guest.
+$aggregatorSeedUrl = Get-PoolAggregatorSeedUrl
 
 # Render user-data from the shared base + UTM overlay (host/vmconfig/
 # stash-service.*). Build-CloudInitUserData resolves placeholders with literal
@@ -166,6 +171,7 @@ $UserData = Build-CloudInitUserData `
         YSTASH_NAS_NETWORK_USER_PLACEHOLDER  = $ystashNas.NetworkUser
         YSTASH_NAS_PASSWORD_PLACEHOLDER      = $ystashNas.Password
         YSTASH_NAS_HOST_ID_PLACEHOLDER       = $ystashNas.HostId
+        YURUNA_AGGREGATOR_URL_PLACEHOLDER    = $aggregatorSeedUrl
     } -Confirm:$false
 Set-Content -Path "$SeedDir/user-data" -Value $UserData -NoNewline
 
@@ -246,8 +252,10 @@ if ($LASTEXITCODE -ne 0) {
 }
 Write-Verbose "config.plist validated OK (VNC on 127.0.0.1:$(5900 + $VncDisplay))."
 
+# --- REGION: Cleanup temporary folders
 Remove-Item -LiteralPath $SeedDir -Recurse -Force -ErrorAction SilentlyContinue
 
+# --- REGION: Guidance
 Write-Output ""
 Write-Output "== stash-service VM bundle created =="
 Write-Output "  Path:      $UtmDir"

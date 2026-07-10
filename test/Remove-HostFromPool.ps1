@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.07
+.VERSION 2026.07.10
 .GUID 42f3a4b5-c6d7-4e89-9f01-3a4b5c6d7e8f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -49,6 +49,11 @@ Initialize-YurunaEntryPointModuleSet -For PoolAdmin -ModulesDir $ModulesDir
 $ExitOk      = Get-EntryPointExitCode -Outcome Ok
 $ExitFailure = Get-EntryPointExitCode -Outcome Failure
 Import-Module powershell-yaml -ErrorAction Stop
+
+if ($HostId -notmatch '^42[0-9a-fA-F]{30}$') {
+    Write-Error "HostId '$HostId' is invalid (expected the host's runtime/host.uuid: '42' + 30 hex)."
+    exit $ExitFailure
+}
 
 $t = Resolve-YurunaPoolAdminTarget -IntentGitUrl $IntentGitUrl -IntentDir $IntentDir
 if ([string]::IsNullOrWhiteSpace($t.IntentGitUrl)) {

@@ -1,5 +1,5 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.07.07
+.VERSION 2026.07.10
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456725
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -29,8 +29,8 @@ Import-Module (Join-Path $PSScriptRoot 'Test.SequenceAction.psm1')  -Global -For
 # registry. Get-CapabilityActionRequirement below is a thin façade
 # over Get-SequenceActionRequirementMap so existing callers don't
 # have to migrate immediately. The registry is populated at
-# Invoke-Sequence.psm1 load time; see the Register-SequenceAction
-# block at the bottom of that file.
+# Invoke-Sequence.psm1 load time, which imports Test.SequenceHandler.psm1;
+# that module's Register-SequenceAction blocks fill the registry.
 
 function Get-CapabilityActionRequirement {
     <#

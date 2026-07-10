@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.07
+.VERSION 2026.07.10
 .GUID 42c9d0e1-b3a4-4f56-9b67-78c2e3f4d5a6
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -169,7 +169,7 @@ function Get-YurunaGuestScriptBase64 {
         Centralises the `[Convert]::ToBase64String([File]::ReadAllBytes(...))`
         read otherwise duplicated across all six New-VM.ps1 scripts
         (3 platforms x {24, 26}) for the same files, so the eventual
-        swap to a signed-bundle distribution (or a third guest-side
+        swap to a signed-bundle distribution (or another guest-side
         script) is one edit.
     .PARAMETER RepoRoot
         Absolute path to the repository root. The scripts live under
@@ -263,9 +263,9 @@ function Build-CloudInitUserData {
     <#
     .SYNOPSIS
         End-to-end cloud-init user-data render: merge the shared base
-        with the per-host overlay, populate the two guest-script
-        base64 placeholders from $RepoRoot/automation/, then resolve
-        every other placeholder from -Replacement.
+        with the per-host overlay, populate the guest-script base64
+        placeholders from $RepoRoot/automation/, then resolve every
+        other placeholder from -Replacement.
     .DESCRIPTION
         High-level helper every per-guest New-VM.ps1 calls. Wraps
         Merge-CloudInitUserData + Get-YurunaGuestScriptBase64 +
@@ -283,7 +283,7 @@ function Build-CloudInitUserData {
     .PARAMETER OverlayPath
         Absolute path to the per-host overlay (e.g. ubuntu.server.hyperv.overlay.yml).
     .PARAMETER RepoRoot
-        Absolute path to the repository root. Used to locate the two
+        Absolute path to the repository root. Used to locate the
         guest-side shell scripts under $RepoRoot/automation/.
     .PARAMETER Replacement
         Hashtable keyed by placeholder name. The caller spells out
@@ -317,7 +317,7 @@ function Build-CloudInitUserData {
     $merged = Merge-CloudInitUserData -BasePath $BasePath -OverlayPath $OverlayPath
     $b64    = Get-YurunaGuestScriptBase64 -RepoRoot $RepoRoot
     # Clone the caller's hashtable so we do not mutate it; auto-populate
-    # the two base64 placeholders only when the caller did not supply them.
+    # the base64 placeholders only when the caller did not supply them.
     $fullReplacement = @{}
     foreach ($key in $Replacement.Keys) { $fullReplacement[$key] = $Replacement[$key] }
     if (-not $fullReplacement.ContainsKey('YURUNA_RETRY_LIB_BASE64_PLACEHOLDER')) {

@@ -20,6 +20,89 @@ contacts the CDN, so the test guests stay network-isolated and the
 upstream rate limit applies once per cache miss rather than once per
 guest install.
 
+## Cache VM sizing
+
+Every host's caching-proxy `New-VM.ps1` creates the cache VM with **12 GB
+RAM, 4 vCPU** — matched explicitly across Hyper-V, macOS UTM, and Ubuntu
+KVM so a cache rebuilt on any host has the same headroom.
+
+This is a DEDICATED cache VM (one job: serve the squid object cache to
+every guest), so the memory budget is sized around squid's `cache_mem 9 GB`
+(= 75 % of VM RAM, per the `host/vmconfig/caching-proxy.base.user-data`
+tuning). Empirically a 1 GB `cache_mem` on this VM put squid's RSS at
+~2 GB during active cycles (sslcrtd children + connection buffers + in-RAM
+hot objects = ~1 GB beyond `cache_mem`), so 9 GB `cache_mem` implies
+~10 GB peak squid + ~1.5 GB for the rest of the stack (apache, grafana,
+prometheus, loki, promtail, squid-exporter, caching-proxy-parser, systemd,
+page cache). 12 GB leaves ~500 MB of OS headroom.
+
+4 vCPU stays — caching is I/O- and memory-bound, not CPU-bound; raising
+the vCPU count without raising RAM wouldn't help. Swap is masked in
+user-data, so an OOM event is unrecoverable; if you tune `cache_mem`
+upward, raise the VM total proportionally.
+
+## Cache-VM password persistence
+
+The squid-cache VM's `yuruna` user password must survive cache-VM rebuilds
+on any host. The vault (external-auth simulation) persists across cycles,
+but the password also lives in `<track>/yuruna-caching-proxy.yml`
+(host-agnostic, under the framework's status/runtime dir, managed by
+`Test.CachingProxy` / `Read-`/`Save-CachingProxyState`). The runtime state
+file is the source of truth: if it has a value, `Set-Password` rewrites the
+vault entry from it before `Get-Password` reads it back. This keeps the
+runtime state file and vault aligned even if they ever diverge (e.g. the
+vault is rebuilt from scratch or the state file is restored from a backup),
+and keeps the authentication extension generic — it never sees the runtime
+state path; the host-specific `New-VM.ps1` bridges the two. The same track
+file is shared by all hosts, so a cache VM rebuilt by any host hands the
+same credentials to the harness.
+
+Order of operations in every caching-proxy `New-VM.ps1`:
+
+1. If the runtime state file has a password, `Set-Password 'yuruna'` from it.
+2. `Get-Password 'yuruna'` returns either the rehydrated value or a fresh
+   random one (first-ever install).
+3. Write the value back to the runtime state file (idempotent on rebuild).
+
+## Cache-VM NAS and config service
+
+Every caching-proxy `New-VM.ps1` bakes the same three credential surfaces
+into the seed, resolved on the host at VM-creation time:
+
+- **networkStorage pool (ypool-nas) service replication** — the
+  `networkUser` credential name, the share path (unix form), and this
+  host's id, so the proxy can rsync its observability data to the NAS.
+  `REPLICATE` stays `false` unless the networkStorage pool is configured
+  AND `networkUser` has a vault password, so an empty credential is never
+  baked. `networkUser` is the single NAS account used for every storage
+  connection (host drain + guest mount alike). The NAS password itself is
+  NOT baked — it is served at runtime by the Host Config Service
+  (`/v1/nas/pool`) and written by `yuruna-config-fetch`, so a rotated NAS
+  password reaches a running VM without a rebuild; the service's own
+  vault gate returns 503 (no replication, self-healing) until the
+  operator sets the password.
+- **Pool push-ingest shared bearer** — the operator-supplied token gating
+  the aggregator's `POST /ingest`, mirroring the ypool-nas loud-fail
+  gate. It is read ONLY when the operator declared a vaultKey for
+  `pool-auth-token` AND populated it (`Test-VaultEntry`); an empty
+  vaultKey means push is DISABLED, and calling `Get-Password` then would
+  auto-generate a per-host random token and break the shared-token
+  model. Baked EMPTY when disabled/unset — the aggregator refuses
+  `/ingest`.
+- **Host Config Service mTLS materials** — a per-VM client leaf minted by
+  THIS host's Config CA, baked with the CA cert + service port so the
+  cache VM can fetch ystash-nas (and ypool-nas) credentials at boot AND
+  hourly over mutual TLS. A rotated NAS password then reaches the running
+  VM without a rebuild (the bake-once staleness fix). The client leaf
+  chains to this host's CA, so the service serves ONLY this host's VMs.
+  PEMs are baked base64 so they survive the cloud-init `write_files`
+  block scalar (`encoding: b64`).
+
+Values containing a single quote (share path / user) or a newline / quote
+(token) are refused with a warning instead of baked — they would
+unbalance the guest's single-quoted, sourced `/etc/yuruna/ypool-nas.env`
+or corrupt the baked token file and the runner's bearer header.
+
 ## Severity policy
 
 Preflight severity — WARNING when no cache VM is registered/running,
@@ -211,6 +294,6 @@ ubuntu.kvm / windows.hyper-v / macos.utm — all three run the same
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.07
+Last review: 2026.07.10
 
 Back to [Yuruna](../README.md)

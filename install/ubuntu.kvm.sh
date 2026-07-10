@@ -1,7 +1,7 @@
 #!/bin/bash
 # Yuruna Ubuntu KVM/libvirt bootstrap installer.
 # LICENSEURI https://yuruna.link/license
-# Version: 2026.07.07  Copyright (c) 2019-2026 by Alisson Sol et al.
+# Version: 2026.07.10  Copyright (c) 2019-2026 by Alisson Sol et al.
 # --- REGION: https://yuruna.link/install/explained
 # One-liner: bash <(curl -fsSL https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/install/ubuntu.kvm.sh)
 # Supported target: Ubuntu 26.04 (Resolute) or newer on x86_64 (aarch64 supported but UNTESTED -- see preflight).
@@ -746,8 +746,8 @@ restore_test_status() {
 # --- REGION: Tolerate a v / no-v tag mismatch
 # Canonical Yuruna release tags are BARE CalVer (YYYY.MM.DD, no 'v'); the
 # release tool refuses to create a 'v'-variant. But a human or a tool (or a
-# YURUNA_BRANCH=... arg) can ask for the wrong form -- a recommended
-# 'v2026.06.19' when only '2026.06.19' was tagged broke a past install. If the
+# YURUNA_BRANCH=... arg) can ask for the wrong form -- a v-prefixed ref when
+# only the bare CalVer tag exists fails to resolve. If the
 # requested ref is CalVer-shaped and does NOT resolve on the remote but its
 # v-toggled variant DOES, echo the variant so the mismatch self-heals; else
 # echo the requested ref unchanged. (warn -> stderr, so it never pollutes the

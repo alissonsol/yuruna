@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.07
+.VERSION 2026.07.10
 .GUID 42c4d5e6-f7a8-4b9c-8d01-2e3f4a5b6c7d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -21,11 +21,11 @@
     Behavioral guard on Test.Output.psm1's Get-OutputState copy-safety contract.
 .DESCRIPTION
     Get-OutputState documents that the returned snapshot is a copy so a caller
-    mutating it does not corrupt the live counter state. WarningsBySection used
-    to be returned by live reference, so mutating the snapshot (adding a section,
-    or .Add()-ing to a section's list) corrupted the live state. These tests
+    mutating it does not corrupt the live counter state. A WarningsBySection
+    returned by live reference lets a snapshot mutation (adding a section, or
+    .Add()-ing to a section's list) corrupt the live state. These tests
     populate warnings, snapshot, mutate the snapshot, and assert the live state
-    is unchanged -- they fail against the pre-fix live-reference return.
+    is unchanged -- they fail against a live-reference return.
 
     The throw-based Assert-* helpers are defined at script scope and referenced
     from It blocks, so this runs under Pester 4.10.1 (Pester 5's scope split

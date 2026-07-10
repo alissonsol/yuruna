@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.07
+.VERSION 2026.07.10
 .GUID 42d7b5c1-8293-44a5-9fb6-2b3c4d5e6f70
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -18,10 +18,10 @@
 
 <#
 .SYNOPSIS
-    Pester coverage for the chain-convergence seams added to Invoke-Sequence.psm1:
-    Select-SequenceStepWindow (the -StartStep/-StopStep slice that replaced
-    Test-Sequence's temp-YAML files) and Get-SequenceFinishedVMName (the shared
-    mid-chain rename surface both chain paths now read).
+    Pester coverage for the chain-convergence seams in Invoke-Sequence.psm1:
+    Select-SequenceStepWindow (the in-memory -StartStep/-StopStep slice, so
+    Test-Sequence needs no temp-YAML step files) and Get-SequenceFinishedVMName
+    (the shared mid-chain rename surface both chain paths read).
 .DESCRIPTION
     Throw-based assertions for OS-bundled Pester 3.4 / Pester 5+ compatibility.
     The window helper is pure and fully covered here; the rename surface's value

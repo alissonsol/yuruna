@@ -242,7 +242,7 @@ func TestPoolIncidentStickyResolve(t *testing.T) {
 	}
 
 	// Only host 'a' keeps failing the SAME class (every 10m). The pinned class's
-	// distinct-host count stays 1 -- never 0 -- so the old `nh == 0` resolve would
+	// distinct-host count stays 1 -- never 0 -- so an `nh == 0` resolve would
 	// stick forever; it must resolve once it drops below crossFloor.
 	resolved := false
 	tcur := now
@@ -568,7 +568,7 @@ func TestCommitCells(t *testing.T) {
 // two deep-links resolve.
 func TestHostInfoCommitLabels(t *testing.T) {
 	s := newPoolState("default", 8080)
-	hv := &hostView{HostId: "4253419c", BaseURL: "http://192.168.7.13:8080", Reachable: true, Version: "2026.07.07"}
+	hv := &hostView{HostId: "4253419c", BaseURL: "http://192.168.7.13:8080", Reachable: true, Version: "2026.07.10"}
 	hv.Status = &hostStatus{HostId: "4253419c", Host: "host.windows.hyper-v", CycleId: "c1", OverallStatus: "pass"}
 	hv.Status.GitCommits = append(hv.Status.GitCommits,
 		struct {
@@ -595,8 +595,7 @@ func TestHostInfoCommitLabels(t *testing.T) {
 // TestHostViewJSONHostnameFree guards the unauthenticated /api/v1/pool-status
 // surface (which serializes []*hostView): even when a host's parsed status
 // carries a hostname, it must never be emitted -- hostStatus.Hostname is
-// json:"-". A reviewer caught this endpoint leaking the raw hostname; this is the
-// regression guard.
+// json:"-". Guards the hostname-leak regression class on this endpoint.
 func TestHostViewJSONHostnameFree(t *testing.T) {
 	hv := &hostView{
 		HostId: "4253419c", BaseURL: "http://192.168.7.13:8080", Reachable: true,
@@ -1011,7 +1010,7 @@ func TestPickFolderFromListing(t *testing.T) {
 		`<a href="000001.2026-06-13.04-00-00.42ffffffffffffffffffffffffffffff/">other host</a>`
 	// (a) click inside the failed cycle's persisted block (06:46) -> 001593 (the
 	// latest cycle that had started at/before the click). This is the real-world
-	// case that previously fell back to the host root.
+	// case that would otherwise fall back to the host root.
 	if got := pickFolderFromListing(body, hid, at("2026-06-13T06:46:00Z")); got != "log/001593.2026-06-13.05-31-44."+hid+"/" {
 		t.Fatalf("(a) got %q", got)
 	}

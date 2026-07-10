@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.07
+.VERSION 2026.07.10
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456791
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -41,6 +41,22 @@ param()
     here -- they belong in the other two.
 #>
 
+# Append one already-stringified line to the per-cycle transcript. AppendAllText
+# preserves Out-File's open/write/close per-call durability without paying the
+# PowerShell pipeline + Out-File cmdlet overhead -- the thousands of Write-* calls
+# per cycle add up. A failed append is non-fatal (swallowed to Verbose) so logging
+# never breaks the caller. The catch uses the fully-qualified
+# Microsoft.PowerShell.Utility\Write-Verbose to bypass this module's own override.
+function Add-YurunaLogLine {
+    param([Parameter(Mandatory)][AllowEmptyString()][string]$Text)
+    if (-not $global:__YurunaLogFile) { return }
+    try {
+        [System.IO.File]::AppendAllText(
+            $global:__YurunaLogFile,
+            [System.Net.WebUtility]::HtmlEncode($Text) + [Environment]::NewLine)
+    } catch { Microsoft.PowerShell.Utility\Write-Verbose "Yuruna.Log append failed (non-fatal): $($_.Exception.Message)" }
+}
+
 function Write-Output {
     <#
     .SYNOPSIS
@@ -65,15 +81,8 @@ function Write-Output {
     )
     process {
         if ($global:__YurunaLogFile) {
-            # AppendAllText preserves Out-File's open/write/close per-call
-            # durability without paying the PowerShell pipeline + Out-File
-            # cmdlet overhead. The thousands of Write-* calls per cycle add up.
             foreach ($item in $InputObject) {
-                try {
-                    [System.IO.File]::AppendAllText(
-                        $global:__YurunaLogFile,
-                        [System.Net.WebUtility]::HtmlEncode("$item") + [Environment]::NewLine)
-                } catch { Microsoft.PowerShell.Utility\Write-Verbose "Yuruna.Log append failed (non-fatal): $($_.Exception.Message)" }
+                Add-YurunaLogLine "$item"
             }
         }
         Microsoft.PowerShell.Utility\Write-Output -InputObject $InputObject -NoEnumerate:$NoEnumerate
@@ -126,11 +135,7 @@ function Write-Error {
     process {
         if ($global:__YurunaLogFile) {
             $text = if ($Message) { $Message } elseif ($Exception) { $Exception.Message } else { '' }
-            try {
-                [System.IO.File]::AppendAllText(
-                    $global:__YurunaLogFile,
-                    [System.Net.WebUtility]::HtmlEncode($text) + [Environment]::NewLine)
-            } catch { Microsoft.PowerShell.Utility\Write-Verbose "Yuruna.Log append failed (non-fatal): $($_.Exception.Message)" }
+            Add-YurunaLogLine $text
         }
         # Splat the caller's own bound parameters straight through. This proxy's
         # parameter sets mirror Write-Error's (NoException = Message,
@@ -164,11 +169,7 @@ function Write-Warning {
     )
     process {
         if ($global:__YurunaLogFile -and $global:WarningPreference -ne 'SilentlyContinue') {
-            try {
-                [System.IO.File]::AppendAllText(
-                    $global:__YurunaLogFile,
-                    [System.Net.WebUtility]::HtmlEncode($Message) + [Environment]::NewLine)
-            } catch { Microsoft.PowerShell.Utility\Write-Verbose "Yuruna.Log append failed (non-fatal): $($_.Exception.Message)" }
+            Add-YurunaLogLine $Message
         }
         Microsoft.PowerShell.Utility\Write-Warning -Message $Message
     }
@@ -192,11 +193,7 @@ function Write-Debug {
     )
     process {
         if ($global:__YurunaLogFile -and $global:DebugPreference -ne 'SilentlyContinue') {
-            try {
-                [System.IO.File]::AppendAllText(
-                    $global:__YurunaLogFile,
-                    [System.Net.WebUtility]::HtmlEncode($Message) + [Environment]::NewLine)
-            } catch { Microsoft.PowerShell.Utility\Write-Verbose "Yuruna.Log append failed (non-fatal): $($_.Exception.Message)" }
+            Add-YurunaLogLine $Message
         }
         Microsoft.PowerShell.Utility\Write-Debug -Message $Message
     }
@@ -220,11 +217,7 @@ function Write-Verbose {
     )
     process {
         if ($global:__YurunaLogFile -and $global:VerbosePreference -ne 'SilentlyContinue') {
-            try {
-                [System.IO.File]::AppendAllText(
-                    $global:__YurunaLogFile,
-                    [System.Net.WebUtility]::HtmlEncode($Message) + [Environment]::NewLine)
-            } catch { Microsoft.PowerShell.Utility\Write-Verbose "Yuruna.Log append failed (non-fatal): $($_.Exception.Message)" }
+            Add-YurunaLogLine $Message
         }
         Microsoft.PowerShell.Utility\Write-Verbose -Message $Message
     }
@@ -252,11 +245,7 @@ function Write-Information {
     )
     process {
         if ($global:__YurunaLogFile -and $global:InformationPreference -ne 'SilentlyContinue') {
-            try {
-                [System.IO.File]::AppendAllText(
-                    $global:__YurunaLogFile,
-                    [System.Net.WebUtility]::HtmlEncode("$MessageData") + [Environment]::NewLine)
-            } catch { Microsoft.PowerShell.Utility\Write-Verbose "Yuruna.Log append failed (non-fatal): $($_.Exception.Message)" }
+            Add-YurunaLogLine "$MessageData"
         }
         $params = @{ MessageData = $MessageData }
         if ($Tags) { $params['Tags'] = $Tags }

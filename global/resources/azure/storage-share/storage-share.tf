@@ -9,9 +9,11 @@ resource "azurerm_storage_account" "default" {
 }
 
 resource "azurerm_storage_share" "default" {
-  name                 = var.storageShareName
-  storage_account_name = azurerm_storage_account.default.name
-  quota                = var.storageQuota
+  name               = var.storageShareName
+  # storage_account_name is deprecated in azurerm 4.x; the id form also
+  # switches share management to the Resource Manager API.
+  storage_account_id = azurerm_storage_account.default.id
+  quota              = var.storageQuota
 }
 
 data "azurerm_storage_account" "default" {

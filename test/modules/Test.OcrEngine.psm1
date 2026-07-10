@@ -1,5 +1,5 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.07.07
+.VERSION 2026.07.10
 .GUID 42b8c9d0-e1f2-4a34-b5c6-7d8e9f0a1b2c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -15,6 +15,9 @@
 #>
 
 #requires -version 7
+
+# ConvertTo-LowerHex (SHA-256 -> lowercase-hex) is the shared leaf converter.
+Import-Module (Join-Path $PSScriptRoot 'Test.Hash.psm1') -Global -Force
 
 <#
 .SYNOPSIS
@@ -123,6 +126,28 @@ function Clear-EnabledOcrProviderCache {
     $script:EnabledOcrProviderCacheKey = $null
 }
 
+# Emit one best-effort soft-instrumentation event: stamp a UTC timestamp, default
+# failureClass/severity, merge the caller's extra fields, and route through
+# Send-CycleEventSafely. Guard: Test.OcrEngine does not import Test.Log, so in a
+# degraded context where the logger is absent this returns quietly and never throws
+# -- telemetry must never fail the cycle.
+function Send-SoftCycleEvent {
+    param(
+        [Parameter(Mandatory)][string]$EventName,
+        [hashtable]$Fields = @{},
+        [string]$FailureClass = 'instrumentation_failure'
+    )
+    if (-not (Get-Command Send-CycleEventSafely -ErrorAction SilentlyContinue)) { return }
+    $record = @{
+        timestamp    = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
+        event        = $EventName
+        failureClass = $FailureClass
+        severity     = 'soft'
+    }
+    foreach ($key in $Fields.Keys) { $record[$key] = $Fields[$key] }
+    Send-CycleEventSafely -EventRecord $record
+}
+
 function Get-EnabledOcrProvider {
     <#
     .SYNOPSIS
@@ -148,9 +173,9 @@ function Get-EnabledOcrProvider {
         $envVal -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ }
     } elseif ($IsMacOS) {
         # host.macos.utm — Apple Vision is the native engine, fastest path
-        # to a match. After the x-axis crop fix in Invoke-MacVisionOcr the
-        # silent-empty case has gone away for the framebuffer captures the
-        # runner actually feeds it. Tesseract sits behind as a fallback
+        # to a match. Invoke-MacVisionOcr's x-axis crop handles the
+        # silent-empty case for the framebuffer captures the runner
+        # actually feeds it. Tesseract sits behind as a fallback
         # for the few cases Vision still returns nothing (sparse glyphs in
         # unusual fonts, very low contrast bands). With combine mode 'Or'
         # tesseract only runs when Vision did NOT match the search
@@ -185,17 +210,9 @@ function Get-EnabledOcrProvider {
             # Structured drop signal so a remediator notices the OCR
             # surface is degraded (e.g. tesseract uninstalled by an OS
             # update) without having to diff -Verbose logs.
-            # Guard: Test.OcrEngine does not import Test.Log, so in a degraded
-            # context where the logger is absent this event must not throw.
-            if (Get-Command Send-CycleEventSafely -ErrorAction SilentlyContinue) {
-                Send-CycleEventSafely -EventRecord @{
-                    timestamp    = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
-                    event        = 'ocr_provider_unavailable'
-                    provider     = [string]$name
-                    requested    = @($requested)
-                    failureClass = 'instrumentation_failure'
-                    severity     = 'soft'
-                }
+            Send-SoftCycleEvent -EventName 'ocr_provider_unavailable' -Fields @{
+                provider  = [string]$name
+                requested = @($requested)
             }
         }
     }
@@ -230,18 +247,10 @@ function Invoke-AllEnabledOcr {
             # Structured failure signal so a remediator routes on
             # `event=ocr_provider_failed` (vs the silent empty-string
             # results entry that downstream waitForText consumers see).
-            # Guard: Test.OcrEngine does not import Test.Log, so in a degraded
-            # context where the logger is absent this event must not throw.
-            if (Get-Command Send-CycleEventSafely -ErrorAction SilentlyContinue) {
-                Send-CycleEventSafely -EventRecord @{
-                    timestamp    = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
-                    event        = 'ocr_provider_failed'
-                    provider     = [string]$name
-                    imagePath    = [string]$ImagePath
-                    error        = $ocrErr.Exception.Message
-                    failureClass = 'instrumentation_failure'
-                    severity     = 'soft'
-                }
+            Send-SoftCycleEvent -EventName 'ocr_provider_failed' -Fields @{
+                provider  = [string]$name
+                imagePath = [string]$ImagePath
+                error     = $ocrErr.Exception.Message
             }
         }
     }
@@ -327,21 +336,43 @@ foreach ($line in $ocrResult.Lines) {
 # silently re-using stale content.
 $script:WinRtOcrScriptPath = $null
 
-function Get-WinRtOcrScriptPath {
-    if ($script:WinRtOcrScriptPath -and (Test-Path $script:WinRtOcrScriptPath)) {
-        return $script:WinRtOcrScriptPath
-    }
-    $hash = [BitConverter]::ToString(
+# Content-addressed source-hash key: the first 16 hex chars of the lowercase SHA-256
+# of a source string. Deriving temp filenames from this makes a source edit land at a
+# fresh path instead of silently reusing stale on-disk content.
+function Get-OcrSourceHashKey {
+    param([Parameter(Mandatory)][AllowEmptyString()][string]$Source)
+    return (ConvertTo-LowerHex (
         [System.Security.Cryptography.SHA256]::HashData(
-            [System.Text.Encoding]::UTF8.GetBytes($script:WinRtOcrScript)
+            [System.Text.Encoding]::UTF8.GetBytes($Source)
         )
-    ).Replace('-','').Substring(0, 16).ToLowerInvariant()
-    $scriptFile = Join-Path ([System.IO.Path]::GetTempPath()) "yuruna-winrt-ocr-$hash.ps1"
-    if (-not (Test-Path $scriptFile)) {
-        $script:WinRtOcrScript | Set-Content -Path $scriptFile -Encoding UTF8
+    )).Substring(0, 16)
+}
+
+# Lazy content-addressed temp-file cache for a helper source string: reuse the memoized
+# path when it still exists, else write "<prefix><hash>.<ext>" (UTF8) under the temp dir
+# and return it. The caller owns the $script: memo variable -- it passes the current
+# value as -Cached and reassigns from the return -- so memoization lands on the right slot.
+function Resolve-CachedHashedScriptPath {
+    param(
+        [AllowEmptyString()][string]$Cached = '',
+        [Parameter(Mandatory)][AllowEmptyString()][string]$Source,
+        [Parameter(Mandatory)][string]$FilePrefix,
+        [string]$Extension = 'ps1'
+    )
+    if ($Cached -and (Test-Path $Cached)) {
+        return $Cached
     }
-    $script:WinRtOcrScriptPath = $scriptFile
+    $hash = Get-OcrSourceHashKey -Source $Source
+    $scriptFile = Join-Path ([System.IO.Path]::GetTempPath()) "$FilePrefix$hash.$Extension"
+    if (-not (Test-Path $scriptFile)) {
+        $Source | Set-Content -Path $scriptFile -Encoding UTF8
+    }
     return $scriptFile
+}
+
+function Get-WinRtOcrScriptPath {
+    $script:WinRtOcrScriptPath = Resolve-CachedHashedScriptPath -Cached $script:WinRtOcrScriptPath -Source $script:WinRtOcrScript -FilePrefix 'yuruna-winrt-ocr-'
+    return $script:WinRtOcrScriptPath
 }
 
 # Persistent WinRT worker (default on; YURUNA_OCR_WORKER=0 disables it).
@@ -516,20 +547,8 @@ public static class YurunaWinRtOcrJob
 }
 
 function Get-WinRtOcrWorkerScriptPath {
-    if ($script:WinRtOcrWorkerScriptPath -and (Test-Path $script:WinRtOcrWorkerScriptPath)) {
-        return $script:WinRtOcrWorkerScriptPath
-    }
-    $hash = [BitConverter]::ToString(
-        [System.Security.Cryptography.SHA256]::HashData(
-            [System.Text.Encoding]::UTF8.GetBytes($script:WinRtOcrWorkerScript)
-        )
-    ).Replace('-','').Substring(0, 16).ToLowerInvariant()
-    $scriptFile = Join-Path ([System.IO.Path]::GetTempPath()) "yuruna-winrt-ocr-worker-$hash.ps1"
-    if (-not (Test-Path $scriptFile)) {
-        $script:WinRtOcrWorkerScript | Set-Content -Path $scriptFile -Encoding UTF8
-    }
-    $script:WinRtOcrWorkerScriptPath = $scriptFile
-    return $scriptFile
+    $script:WinRtOcrWorkerScriptPath = Resolve-CachedHashedScriptPath -Cached $script:WinRtOcrWorkerScriptPath -Source $script:WinRtOcrWorkerScript -FilePrefix 'yuruna-winrt-ocr-worker-'
+    return $script:WinRtOcrWorkerScriptPath
 }
 
 # Read deadline for the persistent worker. StandardOutput.ReadLine() has no
@@ -763,17 +782,11 @@ function Invoke-WinRtOcr {
             # Structured, rate-limited fallback signal (first occurrence, then
             # every 10th) so chronic worker breakage surfaces in the cycle event
             # stream instead of only under -Verbose -- without one event per poll
-            # when the worker is permanently broken. Guard: Test.OcrEngine does
-            # not import Test.Log, so this must not throw when the logger is absent.
-            if ((($script:WinRtOcrWorkerFallbackCount -eq 1) -or ($script:WinRtOcrWorkerFallbackCount % 10 -eq 0)) -and
-                (Get-Command Send-CycleEventSafely -ErrorAction SilentlyContinue)) {
-                Send-CycleEventSafely -EventRecord @{
-                    timestamp     = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
-                    event         = 'ocr_worker_fallback'
+            # when the worker is permanently broken.
+            if (($script:WinRtOcrWorkerFallbackCount -eq 1) -or ($script:WinRtOcrWorkerFallbackCount % 10 -eq 0)) {
+                Send-SoftCycleEvent -EventName 'ocr_worker_fallback' -Fields @{
                     fallbackCount = $script:WinRtOcrWorkerFallbackCount
                     error         = $workerErr.Exception.Message
-                    failureClass  = 'instrumentation_failure'
-                    severity      = 'soft'
                 }
             }
             # fall through to the one-shot path
@@ -1031,19 +1044,12 @@ function Write-VisionOcrSlowPathEvent {
     # Latch the negative cache and emit a ONE-TIME structured event so a
     # remediator sees macOS OCR has dropped to the slow `swift script.swift`
     # interpreter path. Idempotent: the flag both suppresses repeat events and
-    # short-circuits future probes. Guard: Test.OcrEngine does not import
-    # Test.Log, so this must not throw when the logger is absent.
+    # short-circuits future probes.
     param([Parameter(Mandatory)][string]$Reason)
     if ($script:VisionOcrBinaryProbeFailed) { return }
     $script:VisionOcrBinaryProbeFailed = $true
-    if (Get-Command Send-CycleEventSafely -ErrorAction SilentlyContinue) {
-        Send-CycleEventSafely -EventRecord @{
-            timestamp    = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
-            event        = 'ocr_vision_slowpath'
-            reason       = [string]$Reason
-            failureClass = 'instrumentation_failure'
-            severity     = 'soft'
-        }
+    Send-SoftCycleEvent -EventName 'ocr_vision_slowpath' -Fields @{
+        reason = [string]$Reason
     }
 }
 
@@ -1062,11 +1068,7 @@ function Get-VisionOcrBinaryPath {
     # slow path on a transient compile failure can still recover the fast native
     # binary. Hashing the few-KB source is microseconds; the expensive swiftc -O
     # recompile below is still skipped once the negative cache is latched.
-    $hash = [BitConverter]::ToString(
-        [System.Security.Cryptography.SHA256]::HashData(
-            [System.Text.Encoding]::UTF8.GetBytes($script:VisionOcrSwift)
-        )
-    ).Replace('-','').Substring(0, 16).ToLowerInvariant()
+    $hash = Get-OcrSourceHashKey -Source $script:VisionOcrSwift
     $binPath = Join-Path ([System.IO.Path]::GetTempPath()) "yuruna-vision-ocr-$hash.bin"
     if (Test-Path $binPath) {
         $script:VisionOcrBinaryPath = $binPath

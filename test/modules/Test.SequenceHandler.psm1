@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.07
+.VERSION 2026.07.10
 .GUID 42a1b2c3-d4e5-4f67-8901-bc012345672a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -38,7 +38,7 @@ $script:Fail = Get-SequenceFailureState
 
 # OCR-tolerant matching: sshWaitReady's slow path scans the console for
 # installer-failure patterns via Test-CombinedOcrMatch. It lives in
-# Test.OcrMatch (extracted from the engine) and is imported -Global here so
+# Test.OcrMatch and is imported -Global here so
 # the handler scope resolves it instead of an unexported engine function.
 Import-Module (Join-Path $PSScriptRoot 'Test.OcrMatch.psm1') -Force -Global
 
@@ -47,10 +47,9 @@ Import-Module (Join-Path $PSScriptRoot 'Test.OcrMatch.psm1') -Force -Global
 # it by bare name. Test.Backoff is stateless, so a -Force reimport wipes nothing.
 Import-Module (Join-Path $PSScriptRoot 'Test.Backoff.psm1') -Force -Global
 
-# ----------------------------------------------------------------------------
-# Helpers shared by the pattern-bearing verbs (waitForText, waitForAndEnter,
-# passwdPrompt). Kept private to this module -- the engine never calls them.
-# ----------------------------------------------------------------------------
+# --- REGION: Helpers shared by the pattern-bearing verbs
+# (waitForText, waitForAndEnter, passwdPrompt). Kept private to this module --
+# the engine never calls them.
 
 function Format-SequencePatternLabel {
     # Shared helper for the four pattern-bearing actions (waitForText,
@@ -95,8 +94,8 @@ function Resolve-WaitForTextStepParam {
     }
 }
 
-# ----------------------------------------------------------------------------
-# Verb registrations. Each Register-SequenceAction binds (Name -> Handler).
+# --- REGION: Verb registrations
+# Each Register-SequenceAction binds (Name -> Handler).
 # Handlers communicate with the engine via $Context:
 #   $Context.Step             -- parsed YAML step (IDictionary)
 #   $Context.StepNum/StepCount-- 1-based position in the sequence
@@ -112,7 +111,23 @@ function Resolve-WaitForTextStepParam {
 #   $Context.WriteCurrentAction, WaitWhilePaused, InvokeStepBlock -- engine
 #                                callbacks (used by break / retry-style verbs)
 #   $Context.Description      -- the engine-expanded description string
-# ----------------------------------------------------------------------------
+
+# Send the optional Tab-navigation prefix a keyboard-input verb uses to reach the
+# target field before typing: read $Context.Step.tabCount, press Tab that many times
+# (300ms between presses so the guest UI keeps up), then a 500ms settle. Shared by
+# waitForAndEnter and passwdPrompt so the Tab cadence cannot drift between them.
+function Send-TabNavigation {
+    param([Parameter(Mandatory)][hashtable]$Context)
+    $tabCount = $Context.Step.tabCount ? [int]$Context.Step.tabCount : 0
+    if ($tabCount -gt 0) {
+        Write-Debug "      Sending $tabCount Tab(s) to reach the target element"
+        for ($t = 0; $t -lt $tabCount; $t++) {
+            Invoke-Sequence\Send-Key -HostType $Context.HostType -VMName $Context.VMName -KeyName 'Tab' | Out-Null
+            Start-Sleep -Milliseconds 300
+        }
+        Start-Sleep -Milliseconds 500
+    }
+}
 
 Register-SequenceAction -Name 'waitForSeconds' -HostIORequirement @() -OcrRequired $false `
     -FailureClass 'wait_timeout' -Severity 'soft' -SuggestedRecoveries @('retry_immediately') `
@@ -687,15 +702,7 @@ Register-SequenceAction -Name 'waitForAndEnter' -HostIORequirement @('Send-Text'
             -TimeoutSeconds $p.timeout -PollSeconds $p.poll -FreshMatch $p.fresh `
             -FreshMatchTailLines $p.tailLines -FailurePattern $p.failurePatterns
         if ($ok -eq $false) { return $false }
-        $tabCount = $c.Step.tabCount ? [int]$c.Step.tabCount : 0
-        if ($tabCount -gt 0) {
-            Write-Debug "      Sending $tabCount Tab(s) to reach the target element"
-            for ($t = 0; $t -lt $tabCount; $t++) {
-                Invoke-Sequence\Send-Key -HostType $c.HostType -VMName $c.VMName -KeyName 'Tab' | Out-Null
-                Start-Sleep -Milliseconds 300
-            }
-            Start-Sleep -Milliseconds 500
-        }
+        Send-TabNavigation -Context $c
         $text = & $c.ExpandVariable $c.Step.text $c.Vars
         $masked = ($c.Step.sensitive -and -not $c.ShowSensitive) ? '***' : $text
         $delaySeconds = $c.Step.delaySeconds ? [double]$c.Step.delaySeconds : 2
@@ -730,15 +737,7 @@ Register-SequenceAction -Name 'passwdPrompt' -HostIORequirement @('Send-Text', '
             -TimeoutSeconds $p.timeout -PollSeconds $p.poll -FreshMatch $p.fresh `
             -FreshMatchTailLines $p.tailLines -FailurePattern $p.failurePatterns
         if ($ok -eq $false) { return $false }
-        $tabCount = $c.Step.tabCount ? [int]$c.Step.tabCount : 0
-        if ($tabCount -gt 0) {
-            Write-Debug "      Sending $tabCount Tab(s) to reach the target element"
-            for ($t = 0; $t -lt $tabCount; $t++) {
-                Invoke-Sequence\Send-Key -HostType $c.HostType -VMName $c.VMName -KeyName 'Tab' | Out-Null
-                Start-Sleep -Milliseconds 300
-            }
-            Start-Sleep -Milliseconds 500
-        }
+        Send-TabNavigation -Context $c
         $text = & $c.ExpandVariable $c.Step.text $c.Vars
         $masked = $c.ShowSensitive ? $text : '***'
         $delaySeconds = $c.Step.delaySeconds ? [double]$c.Step.delaySeconds : 2
@@ -1007,13 +1006,11 @@ Register-SequenceAction -Name 'sshFetchAndExecute' -HostIORequirement @() -OcrRe
         return $true
     }
 
-# ---------------------------------------------------------------------------
-# retry / recoverFromSnapshot: these coordinate the cross-module failure state
-# in Test.SequenceFailureState ($script:Fail, bound above). retry re-runs an
-# inner steps block; recoverFromSnapshot restores a snapshot after a prior step
-# failed. They live here with the rest of the verb catalog so the engine stays
-# a pure executor.
-# ---------------------------------------------------------------------------
+# --- REGION: retry / recoverFromSnapshot
+# These coordinate the cross-module failure state in Test.SequenceFailureState
+# ($script:Fail, bound above). retry re-runs an inner steps block;
+# recoverFromSnapshot restores a snapshot after a prior step failed. They live
+# here with the rest of the verb catalog so the engine stays a pure executor.
 Register-SequenceAction -Name 'retry' -HostIORequirement @() -OcrRequired $false `
     -FailureClass 'retry_exhausted' -Severity 'hard' -SuggestedRecoveries @('restart_from_snapshot','pause_and_inspect') `
     -Description 'Wrap inner steps with restart-on-failure semantics.' `

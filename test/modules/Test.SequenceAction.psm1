@@ -1,5 +1,5 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.07.07
+.VERSION 2026.07.10
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456726
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -151,7 +151,7 @@ function Test-SequenceActionHasHandler {
     .SYNOPSIS
         $true when (Name) is registered AND has a Handler scriptblock.
         Used by the engine to decide between the registry dispatch and
-        the legacy switch arm during the phase-B migration.
+        the legacy switch arm.
     #>
     [CmdletBinding()]
     [OutputType([bool])]
@@ -262,8 +262,7 @@ function Get-SequenceActionRequirementMap {
     <#
     .SYNOPSIS
         Verb -> @{ HostIO; OcrRequired } map consumed by
-        Test-CyclePlanCapability. Replaces Test.Capability's standalone
-        $script:ActionRequirements table.
+        Test-CyclePlanCapability.
     .OUTPUTS
         System.Collections.Specialized.OrderedDictionary
     #>

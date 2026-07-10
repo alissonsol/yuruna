@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.07
+.VERSION 2026.07.10
 .GUID 42e6f7a8-b9c0-4d12-9345-6e7f8a9b0c1d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -18,7 +18,7 @@
 
 <#
 .SYNOPSIS
-    Pester coverage for Phase 4 (test-set execution): the pool planner's pure
+    Pester coverage for test-set execution: the pool planner's pure
     compat/selection logic, HostId-scoped VM naming, the per-guest keystroke
     merge, manifest I/O, and the end-to-end test-set / pool plan resolution
     (incl. Resolve-CyclePlan parity) against a minimal sequence fixture.

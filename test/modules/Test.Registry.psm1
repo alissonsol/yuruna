@@ -1,5 +1,5 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.07.07
+.VERSION 2026.07.10
 .GUID 42e1b4d3-a8f9-4256-bc04-3d5e8a2b1c40
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -41,8 +41,8 @@ param()
 
 # Cross-domain directory. Every New-YurunaRegistry call records its
 # (Name, AnchorVar, Store) here so an introspection caller can list ALL
-# Yuruna registries through a single API -- replaces the prior need
-# for callers to know each module's private $script:* anchor.
+# Yuruna registries through a single API, with no need for callers
+# to know each module's private $script:* anchor.
 # Anchored under a stable $global: name so a -Force re-import of this
 # module does NOT lose the cross-domain index.
 if (-not (Get-Variable -Name '__YurunaRegistryDirectory' -Scope Global -ErrorAction SilentlyContinue)) {

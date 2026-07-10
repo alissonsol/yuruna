@@ -1,5 +1,5 @@
-﻿<#PSScriptInfo
-.VERSION 2026.07.07
+<#PSScriptInfo
+.VERSION 2026.07.10
 .GUID 42d2f4a5-b6c7-4890-1234-5d6e7f809102
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -145,7 +145,7 @@ function Confirm-ResourceList {
         }
     }
 
-    # Non-empty secrets are informational for resources — creation proceeds.
+    # Non-empty secrets are informational for resources -- creation proceeds.
     $secrets_folder = Join-Path -Path $project_root -ChildPath "config/$config_subfolder/secrets"
     $null = Invoke-SecretFolderValidation -SecretsFolder $secrets_folder
 
@@ -288,7 +288,7 @@ function Confirm-WorkloadList {
         }
     }
 
-    # Non-empty secrets are required — missing content blocks workload execution.
+    # Non-empty secrets are required -- missing content blocks workload execution.
     $secrets_folder = Join-Path -Path $project_root -ChildPath "config/$config_subfolder/secrets"
     if (-not (Invoke-SecretFolderValidation -SecretsFolder $secrets_folder -RequireNonEmpty)) { return $false }
     # Peer folder accommodates workloads that share a parent-level vault

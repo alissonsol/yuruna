@@ -83,6 +83,16 @@ const (
 	defaultIncidentWin = 2 * time.Hour         // trailing window for the N-failures-in-M-minutes rule
 	defaultCrossN      = 3                     // distinct hosts failing within crossWin to open a pool-wide incident
 	defaultCrossWin    = 15 * time.Minute      // window for cross-host "failing together" correlation
+	// Extension-presence announce (POST /announce): a service VM (e.g. the
+	// stash server) self-reports the extension it runs, independent of the
+	// owning host's status server. The TTL tolerates two missed beacons of the
+	// stash server's default 15-minute period before the row is reaped.
+	defaultAnnounceTTL = 45 * time.Minute
+	maxAnnounce        = 512     // distinct (hostId,area) announce entries kept in memory
+	maxAnnounceBody    = 4 << 10 // bytes read from one announce POST
+	// stashArea is the extension area of the stash service -- the default for
+	// /go/stash and the area whose target rides as pool-status stashBaseUrl.
+	stashArea = "stash-service"
 	// Pool gating defaults (mirror test/schemas/pools.schema.yml gating.*): the
 	// advisory degraded/alert policy a pool inherits when it authors a partial (or
 	// no) gating block. degradedAfter is the sustained-below-threshold window;
@@ -241,6 +251,51 @@ type hostView struct {
 	ExtensionTargets map[string]string `json:"extensionTargets,omitempty"`
 }
 
+// announceView is one extension service's SELF-ANNOUNCED presence (POST
+// /announce): the service VM itself reports "hostId X actively runs area Y at
+// target Z", refreshed every beacon period. It complements the registration
+// path (activeExtensions, read through the owning host's status server): when
+// that server is down -- the state a host reboot routinely leaves behind --
+// the announce is the only live signal, and it keeps the dashboard's
+// Extension hosts row (and the /go/stash redirect) alive. Entries are reaped
+// after announceTTL without a refresh, or immediately on an active=false
+// goodbye. Serialized into /api/v1/pool-status (announcedExtensions);
+// sourceIP stays unexported so the snapshot exposes no requester address.
+type announceView struct {
+	HostId         string `json:"hostId"`
+	Area           string `json:"area"`
+	Target         string `json:"target,omitempty"`
+	LastSeenUnixMs int64  `json:"lastSeenUnixMs"`
+	// sourceIP is the announcing connection's address, kept so only the same
+	// sender (the service's current IP) can goodbye the entry. "" when the
+	// entry was rehydrated from a target-less Loki line, which then accepts
+	// any goodbye rather than pinning a stale address.
+	sourceIP string
+}
+
+// announceKey is the s.announce map key: one entry per (hostId, area).
+func announceKey(hostID, area string) string { return hostID + "|" + area }
+
+// poolStatusEntry is one host in the /api/v1/pool-status snapshot: the
+// hostView plus stashBaseUrl, the resolved stash-UI base the stash UI's
+// hostId->URL lookup reads (stash-service-ui.md §3.4). Resolved at
+// serialization time from the host's registration-advertised extensionTargets,
+// with the service's own announce as fallback, so the resolution survives a
+// host whose status server is down.
+type poolStatusEntry struct {
+	*hostView
+	StashBaseURL string `json:"stashBaseUrl,omitempty"`
+}
+
+// announceHostIDRE / announceAreaRE gate what an unauthenticated announce may
+// inject into metric labels and Loki lines: an opaque host identifier
+// (existing hostIds are 32 hex chars; dashes tolerate GUID formatting) and a
+// lowercase extension-area slug.
+var (
+	announceHostIDRE = regexp.MustCompile(`^[A-Za-z0-9-]{8,64}$`)
+	announceAreaRE   = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,63}$`)
+)
+
 // eventCursor tracks how far a host's current-cycle NDJSON event file has been
 // shipped to Loki, so a poll only forwards new lines. Reset when the cycleId
 // changes (a new cycle = a new file).
@@ -348,6 +403,8 @@ type poolState struct {
 	poolIncident *poolIncidentState        // single active pool-wide incident (nil = none)
 	gating       map[string]gatingPolicy   // pool -> authored gating policy (key present = authored)
 	poolGate     map[string]*poolGateState // pool -> advisory degraded/alert latch
+	announce     map[string]*announceView  // hostId|area -> self-announced extension presence
+	announceTTL  time.Duration             // reap an announce entry not refreshed within this window (0 disables /announce)
 	last         time.Time
 	// Push-ingest: the shared bearer token gating POST /ingest (empty ->
 	// ingest disabled, never an unauthenticated write route), plus the Loki push URL
@@ -370,6 +427,7 @@ func newPoolState(pool string, statusPort int) *poolState {
 		counted: map[string]bool{}, pass: map[string]int64{}, fail: map[string]int64{},
 		failWindow: map[string][]failRec{}, incident: map[string]*incidentState{},
 		gating: map[string]gatingPolicy{}, poolGate: map[string]*poolGateState{},
+		announce: map[string]*announceView{}, announceTTL: defaultAnnounceTTL,
 		eventCur: map[string]*eventCursor{},
 	}
 }
@@ -637,6 +695,14 @@ func (s *poolState) pollOnce(client *http.Client, squidLog, lokiURL string, now 
 			delete(s.counted, k)
 		}
 	}
+	// Reap self-announced extensions whose beacon stopped refreshing (the
+	// service died without a goodbye); a live service re-announces well inside
+	// the TTL, so a reaped entry is genuinely gone, not merely between beacons.
+	for k, av := range s.announce {
+		if s.announceTTL > 0 && now.UnixMilli()-av.LastSeenUnixMs > s.announceTTL.Milliseconds() {
+			delete(s.announce, k)
+		}
+	}
 	// Snapshot the event-tail targets while holding the lock; the fetch+push
 	// itself runs unlocked below so a slow host can't stall the handlers.
 	type evTarget struct{ hostID, baseURL, cycleID, cycleFolderURL, poolLabel string }
@@ -709,7 +775,7 @@ func fetchStatus(client *http.Client, base string) (*hostStatus, error) {
 // served by the status server at /yuruna-repo/VERSION -- the SAME source the
 // host's own status pages read for their header (their getHostInfo() fetches
 // yuruna-repo/VERSION via JS, so the version is not embedded in the HTML). A tiny
-// plain-text file (one CalVer line, e.g. "2026.07.07"), so it is lighter than any
+// plain-text file (one CalVer line, e.g. "2026.07.10"), so it is lighter than any
 // status HTML page and fetchable server-side without a JS engine. Returns
 // ("", err) on any failure; the caller keeps the prior version on a transient
 // miss (the version is stable across polls). The value is capped + first-line
@@ -862,6 +928,38 @@ func pushLoki(client *http.Client, lokiURL, pool string, st *hostStatus, baseURL
 	}
 }
 
+// pushLokiStream POSTs one line to Loki under the given stream labels --
+// the shared body of the single-line beacon pushes (presence, announce).
+// Best-effort: any error is logged under `what` and dropped.
+func pushLokiStream(client *http.Client, lokiURL, what string, stream map[string]string, line []byte, now time.Time) {
+	if client == nil || lokiURL == "" {
+		return
+	}
+	payload := map[string]any{"streams": []map[string]any{{
+		"stream": stream,
+		"values": [][]string{{fmt.Sprintf("%d", now.UnixNano()), string(line)}},
+	}}}
+	buf, _ := json.Marshal(payload)
+	ctx, cancel := context.WithTimeout(context.Background(), pushTimeout)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, lokiURL, bytes.NewReader(buf))
+	if err != nil {
+		log.Printf("%s push build: %v", what, err)
+		return
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := client.Do(req)
+	if err != nil {
+		log.Printf("%s push: %v", what, err)
+		return
+	}
+	defer resp.Body.Close()
+	_, _ = io.Copy(io.Discard, resp.Body)
+	if resp.StatusCode/100 != 2 {
+		log.Printf("%s push HTTP %d", what, resp.StatusCode)
+	}
+}
+
 // pushPresence records a host's last-known address in Loki under {pool,hostId,
 // src=presence} when it is first discovered or its IP changes -- a low-volume,
 // on-change beacon (NOT per-poll) so the collector can re-seed its VOLATILE host
@@ -877,29 +975,25 @@ func pushPresence(client *http.Client, lokiURL, pool, hostID, baseURL string, no
 		return
 	}
 	line, _ := json.Marshal(map[string]string{"hostId": hostID, "baseUrl": baseURL})
-	payload := map[string]any{"streams": []map[string]any{{
-		"stream": map[string]string{"pool": pool, "hostId": hostID, "src": "presence"},
-		"values": [][]string{{fmt.Sprintf("%d", now.UnixNano()), string(line)}},
-	}}}
-	buf, _ := json.Marshal(payload)
-	ctx, cancel := context.WithTimeout(context.Background(), pushTimeout)
-	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, lokiURL, bytes.NewReader(buf))
-	if err != nil {
-		log.Printf("presence push build: %v", err)
+	pushLokiStream(client, lokiURL, "presence",
+		map[string]string{"pool": pool, "hostId": hostID, "src": "presence"}, line, now)
+}
+
+// pushAnnounce records one accepted extension-presence announce in Loki under
+// {pool,hostId,src=announce} -- EVERY accepted hello (not on-change), so the
+// freshest line's age is the entry's age and a restart can restore exactly the
+// entries still inside announceTTL (rehydrateAnnouncesFromLoki). Volume is one
+// tiny line per service per beacon period. Streamed under s.pool (the
+// aggregator's -pool default) so the rehydrate, which queries that same pool
+// label, finds it -- the same label coupling pushPresence documents. Goodbyes
+// (active=false) are pushed too so the latest line decides restart state.
+func pushAnnounce(client *http.Client, lokiURL, pool, hostID, area, target string, active bool, now time.Time) {
+	if lokiURL == "" || hostID == "" {
 		return
 	}
-	req.Header.Set("Content-Type", "application/json")
-	resp, err := client.Do(req)
-	if err != nil {
-		log.Printf("presence push: %v", err)
-		return
-	}
-	defer resp.Body.Close()
-	_, _ = io.Copy(io.Discard, resp.Body)
-	if resp.StatusCode/100 != 2 {
-		log.Printf("presence push HTTP %d", resp.StatusCode)
-	}
+	line, _ := json.Marshal(map[string]any{"hostId": hostID, "area": area, "target": target, "active": active})
+	pushLokiStream(client, lokiURL, "announce",
+		map[string]string{"pool": pool, "hostId": hostID, "src": "announce"}, line, now)
 }
 
 // hostIPFromBaseURL extracts the bare host (IP) from a status base URL like
@@ -1315,6 +1409,114 @@ func (s *poolState) applyPresenceLines(streams [][][2]string, now time.Time) int
 		}
 	}
 	return seeded
+}
+
+// rehydrateAnnouncesFromLoki restores self-announced extensions from the
+// {src=announce} feed on startup, so a collector restart keeps the Extension
+// hosts rows of services whose beacons are alive -- WITHOUT waiting up to one
+// beacon period for the next hello. The query window is announceTTL, not the
+// full rehydrate window: any line older than the TTL is stale by definition.
+// Best-effort: on any Loki error the entries rebuild from live beacons.
+func (s *poolState) rehydrateAnnouncesFromLoki(lokiPushURL, pool string, now time.Time) {
+	if s.announceTTL <= 0 {
+		return
+	}
+	queryURL := strings.TrimSuffix(lokiPushURL, "push") + "query_range"
+	params := url.Values{}
+	params.Set("query", fmt.Sprintf(`{pool=%q, src="announce"} | json`, pool))
+	params.Set("start", strconv.FormatInt(now.Add(-s.announceTTL).UnixNano(), 10))
+	params.Set("end", strconv.FormatInt(now.UnixNano(), 10))
+	params.Set("limit", "5000")
+	params.Set("direction", "backward") // newest-first: the first line per (hostId,area) is the latest
+
+	client := &http.Client{Timeout: pushTimeout}
+	ctx, cancel := context.WithTimeout(context.Background(), pushTimeout)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, queryURL+"?"+params.Encode(), nil)
+	if err != nil {
+		return
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		log.Printf("rehydrate announces: Loki query: %v", err)
+		return
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return
+	}
+	var lr struct {
+		Data struct {
+			Result []struct {
+				Values [][2]string `json:"values"`
+			} `json:"result"`
+		} `json:"data"`
+	}
+	if json.NewDecoder(io.LimitReader(resp.Body, 16<<20)).Decode(&lr) != nil {
+		return
+	}
+	streams := make([][][2]string, 0, len(lr.Data.Result))
+	for _, st := range lr.Data.Result {
+		streams = append(streams, st.Values)
+	}
+	if n := s.applyAnnounceLines(streams, now); n > 0 {
+		log.Printf("rehydrate: restored %d self-announced extension(s) from Loki", n)
+	}
+}
+
+// applyAnnounceLines restores announce entries from {src=announce} streams --
+// each element one Loki stream's [ts,line] values, newest-first. The newest
+// line per (hostId, area) decides: active restores the entry with the LINE's
+// timestamp as its freshness (so the TTL reap stays truthful), a goodbye
+// leaves it absent. Values are re-validated with the same gates as a live
+// announce -- Loki retention is not a trust boundary. Split from the HTTP
+// fetch so it is unit-testable without a live Loki. Takes s.mu.
+func (s *poolState) applyAnnounceLines(streams [][][2]string, now time.Time) int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	restored := 0
+	decided := map[string]bool{}
+	for _, values := range streams {
+		for _, v := range values { // newest-first within a stream
+			var e struct {
+				HostId string `json:"hostId"`
+				Area   string `json:"area"`
+				Target string `json:"target"`
+				Active bool   `json:"active"`
+			}
+			if json.Unmarshal([]byte(v[1]), &e) != nil ||
+				!announceHostIDRE.MatchString(e.HostId) || !announceAreaRE.MatchString(e.Area) {
+				continue
+			}
+			key := announceKey(e.HostId, e.Area)
+			if decided[key] {
+				continue
+			}
+			decided[key] = true
+			if !e.Active || s.announce[key] != nil || len(s.announce) >= maxAnnounce {
+				continue
+			}
+			// Only a parseable http(s) URL may ride into the /go/stash redirect;
+			// anything else restores as presence-only (no link).
+			target := strings.TrimRight(strings.TrimSpace(e.Target), "/")
+			if u, perr := url.Parse(target); perr != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Hostname() == "" {
+				target = ""
+			}
+			ts := now
+			if ns, perr := strconv.ParseInt(v[0], 10, 64); perr == nil {
+				ts = time.Unix(0, ns)
+			}
+			s.announce[key] = &announceView{
+				HostId: e.HostId, Area: e.Area, Target: target,
+				LastSeenUnixMs: ts.UnixMilli(),
+				// The next live announce (target host == its source) re-binds the
+				// address; until then the target's own host is the best owner guess.
+				sourceIP: hostIPFromBaseURL(target),
+			}
+			restored++
+		}
+	}
+	return restored
 }
 
 // tailEvents pulls a host's current-cycle NDJSON event file
@@ -1878,9 +2080,13 @@ func (s *poolState) handleHealth(w http.ResponseWriter, _ *http.Request) {
 func (s *poolState) handlePoolStatus(w http.ResponseWriter, _ *http.Request) {
 	s.mu.Lock()
 	out := struct {
-		Pool        string      `json:"pool"`
-		LastPollUTC string      `json:"lastPollUtc"`
-		Hosts       []*hostView `json:"hosts"`
+		Pool        string            `json:"pool"`
+		LastPollUTC string            `json:"lastPollUtc"`
+		Hosts       []poolStatusEntry `json:"hosts"`
+		// AnnouncedExtensions lists every live self-announce (POST /announce),
+		// including ones whose hostId is not in the host view at all -- the
+		// observable a service-only signal leaves when its host is dark.
+		AnnouncedExtensions []*announceView `json:"announcedExtensions,omitempty"`
 	}{Pool: s.pool}
 	if !s.last.IsZero() {
 		out.LastPollUTC = s.last.UTC().Format(time.RFC3339)
@@ -1891,7 +2097,26 @@ func (s *poolState) handlePoolStatus(w http.ResponseWriter, _ *http.Request) {
 	}
 	sort.Strings(ids)
 	for _, id := range ids {
-		out.Hosts = append(out.Hosts, s.hosts[id])
+		hv := s.hosts[id]
+		// stashBaseUrl: the stash UI's hostId->URL lookup key
+		// (stash-service-ui.md §3.4). Registration-advertised target first, the
+		// service's own announce as the fallback that survives a down status
+		// server on the owning host.
+		stash := hv.ExtensionTargets[stashArea]
+		if stash == "" {
+			if av := s.announce[announceKey(id, stashArea)]; av != nil {
+				stash = av.Target
+			}
+		}
+		out.Hosts = append(out.Hosts, poolStatusEntry{hostView: hv, StashBaseURL: stash})
+	}
+	annKeys := make([]string, 0, len(s.announce))
+	for k := range s.announce {
+		annKeys = append(annKeys, k)
+	}
+	sort.Strings(annKeys)
+	for _, k := range annKeys {
+		out.AnnouncedExtensions = append(out.AnnouncedExtensions, s.announce[k])
 	}
 	// Marshal while still holding s.mu: out.Hosts holds *hostView/*hostStatus pointers that the
 	// poll goroutine mutates, so encoding them after Unlock is a data race (torn JSON / crash
@@ -2135,12 +2360,20 @@ func (s *poolState) handleGoStash(w http.ResponseWriter, r *http.Request) {
 	}
 	area := strings.TrimSpace(q.Get("area"))
 	if area == "" {
-		area = "stash-service"
+		area = stashArea
 	}
 	s.mu.Lock()
 	target := ""
 	if hv := s.hosts[hostID]; hv != nil {
 		target = hv.ExtensionTargets[area] // nil map indexes to "" -- no panic
+	}
+	// Registration silent (the owning host's status server is down, or the host
+	// aged out of the view) -> the service's self-announced target still
+	// resolves the redirect; the service keeps announcing as long as it lives.
+	if target == "" {
+		if av := s.announce[announceKey(hostID, area)]; av != nil {
+			target = av.Target
+		}
 	}
 	s.mu.Unlock()
 	if target == "" {
@@ -2372,13 +2605,14 @@ func (s *poolState) handleMetrics(w http.ResponseWriter, _ *http.Request) {
 	}
 
 	// Extension hosts: hosts ACTIVELY running an extension function (e.g. a
-	// stash-server VM), learned from each host's registration record
-	// (activeExtensions) -- the SAME source + hostId namespace as the pool table, so
-	// the Extension hosts panel formats Host ID identically. No ystash-nas mount /
-	// Config Service: a host self-reports the service it runs, and the aggregator
-	// already polls its registration. area maps to a friendly label
-	// ("stash-service" -> "Stash service") in the dashboard; _last_seen_seconds is
-	// the host's last successful probe. One row per (hostId, area).
+	// stash-server VM), learned from TWO sources sharing the pool table's hostId
+	// namespace: each host's registration record (activeExtensions, read through
+	// that host's status server) and the service's own presence announce (POST
+	// /announce, sent by the service VM itself) -- so the row survives the owning
+	// host's status server being down. No ystash-nas mount / Config Service:
+	// a host (or its service) self-reports what runs, and the aggregator already
+	// polls registrations. area maps to a friendly label ("stash-service" ->
+	// "Stash service") in the dashboard. One row per (hostId, area).
 	//
 	// baseUrl (the host's status page) and target (the service UI the host advertised
 	// in extensionTargets, e.g. the stash VM) ride as labels so the dashboard can deep-
@@ -2395,8 +2629,13 @@ func (s *poolState) handleMetrics(w http.ResponseWriter, _ *http.Request) {
 		area    string
 		baseURL string
 		target  string
+		// lastSeen is the row's own freshness in unix seconds: the host's last
+		// successful probe for a registration-sourced row, the last accepted
+		// hello for an announce-sourced one.
+		lastSeen int64
 	}
 	extRows := []extRow{}
+	covered := map[string]bool{}
 	for _, h := range ids {
 		hv := s.hosts[h]
 		if hv == nil {
@@ -2406,21 +2645,41 @@ func (s *poolState) handleMetrics(w http.ResponseWriter, _ *http.Request) {
 			if area == "" {
 				continue
 			}
-			extRows = append(extRows, extRow{host: h, area: area, baseURL: hv.BaseURL, target: hv.ExtensionTargets[area]})
+			extRows = append(extRows, extRow{host: h, area: area, baseURL: hv.BaseURL, target: hv.ExtensionTargets[area], lastSeen: hv.LastSeenUnixMs / 1000})
+			covered[announceKey(h, area)] = true
 		}
+	}
+	// Self-announced services (POST /announce) fill the rows the registration
+	// path cannot see right now -- e.g. the stash VM of a host whose status
+	// server is down. When both sources cover one (hostId, area), the
+	// registration row wins: it is the owning host's own advertisement and
+	// carries the host's status baseUrl. An announce-only row still resolves
+	// baseUrl from the view when the host is at least known (a stub or an
+	// unreachable entry); "" otherwise, and the table's Host ID cell simply
+	// carries no link until the host returns.
+	annKeys := make([]string, 0, len(s.announce))
+	for k := range s.announce {
+		if !covered[k] {
+			annKeys = append(annKeys, k)
+		}
+	}
+	sort.Strings(annKeys)
+	for _, k := range annKeys {
+		av := s.announce[k]
+		baseURL := ""
+		if hv := s.hosts[av.HostId]; hv != nil {
+			baseURL = hv.BaseURL
+		}
+		extRows = append(extRows, extRow{host: av.HostId, area: av.Area, baseURL: baseURL, target: av.Target, lastSeen: av.LastSeenUnixMs / 1000})
 	}
 	if len(extRows) > 0 {
 		b.WriteString("# HELP yuruna_pool_host_extension Per-host actively-running extension area (value always 1).\n# TYPE yuruna_pool_host_extension gauge\n")
 		for _, e := range extRows {
 			fmt.Fprintf(&b, "yuruna_pool_host_extension{pool=%q,hostId=%q,area=%q,baseUrl=%q,target=%q} 1\n", s.poolFor(e.host), e.host, e.area, e.baseURL, e.target)
 		}
-		b.WriteString("# HELP yuruna_pool_host_extension_last_seen_seconds Unix time of the last successful probe of this extension host.\n# TYPE yuruna_pool_host_extension_last_seen_seconds gauge\n")
+		b.WriteString("# HELP yuruna_pool_host_extension_last_seen_seconds Unix time this extension host was last confirmed (host probe or service announce).\n# TYPE yuruna_pool_host_extension_last_seen_seconds gauge\n")
 		for _, e := range extRows {
-			lastSeen := int64(0)
-			if hv := s.hosts[e.host]; hv != nil {
-				lastSeen = hv.LastSeenUnixMs / 1000
-			}
-			fmt.Fprintf(&b, "yuruna_pool_host_extension_last_seen_seconds{pool=%q,hostId=%q,area=%q} %d\n", s.poolFor(e.host), e.host, e.area, lastSeen)
+			fmt.Fprintf(&b, "yuruna_pool_host_extension_last_seen_seconds{pool=%q,hostId=%q,area=%q} %d\n", s.poolFor(e.host), e.host, e.area, e.lastSeen)
 		}
 	}
 
@@ -2705,6 +2964,123 @@ func (s *poolState) handleIngest(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusAccepted)
 }
 
+// handleAnnounce is the extension-presence write surface: a service VM (e.g.
+// the stash server's presence beacon) POSTs {hostId, area, targetPort, active}
+// on boot, every beacon period, and (active=false) at shutdown, so the
+// dashboard's Extension hosts row exists WITHOUT the owning host's status
+// server -- the registration path goes silent the moment that server is down
+// (the state a host reboot routinely leaves behind), while the service VM
+// itself keeps running and announcing.
+//
+// Security posture -- deliberately OPEN (no bearer), unlike /ingest, because
+// requiring the default-off shared token would leave the beacon dead exactly
+// in the deployments it was built for. The write is contained instead:
+// (1) SELF-IDENTITY BINDING -- the advertised service URL is DERIVED from the
+// connection's source IP (or, when sent explicitly, must match it), so an
+// announcer can only ever advertise itself, the same trust squid-log discovery
+// already extends to any LAN client; (2) telemetry-only -- it paints a
+// dashboard row and a redirect target, and reaches no control plane, host
+// probing, or cycle accounting; (3) bounded -- tiny body cap, strict
+// hostId/area charsets (they become metric labels), at most maxAnnounce
+// entries, and a TTL reap; (4) goodbyes only remove an entry the same source
+// (or an address-less rehydrated entry) owns. -announce-ttl 0 disables the
+// route entirely.
+func (s *poolState) handleAnnounce(w http.ResponseWriter, r *http.Request) {
+	if s.announceTTL <= 0 {
+		http.Error(w, "announce disabled", http.StatusServiceUnavailable)
+		return
+	}
+	if r.Method != http.MethodPost {
+		w.Header().Set("Allow", http.MethodPost)
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	srcIP := requestSourceIP(r)
+	if srcIP == "" {
+		http.Error(w, "no source address", http.StatusForbidden)
+		return
+	}
+	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxAnnounceBody))
+	if err != nil {
+		http.Error(w, "payload too large or unreadable", http.StatusRequestEntityTooLarge)
+		return
+	}
+	var a struct {
+		HostId     string `json:"hostId"`
+		Area       string `json:"area"`
+		Target     string `json:"target"`
+		TargetPort int    `json:"targetPort"`
+		Active     *bool  `json:"active"`
+	}
+	if err := json.Unmarshal(body, &a); err != nil {
+		http.Error(w, "malformed announce", http.StatusBadRequest)
+		return
+	}
+	if a.Area == "" {
+		a.Area = stashArea
+	}
+	if !announceHostIDRE.MatchString(a.HostId) || !announceAreaRE.MatchString(a.Area) {
+		http.Error(w, "invalid hostId or area", http.StatusBadRequest)
+		return
+	}
+	// Resolve the advertised service URL. An explicit target must point at the
+	// SENDER (URL host == source IP) -- the announcer advertises itself, never a
+	// third party; otherwise the URL is derived from the source IP + the
+	// announced UI port (no port advertised -> presence only, no link).
+	target := ""
+	switch {
+	case strings.TrimSpace(a.Target) != "":
+		target = strings.TrimRight(strings.TrimSpace(a.Target), "/")
+		u, perr := url.Parse(target)
+		if perr != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Hostname() == "" {
+			http.Error(w, "invalid target URL", http.StatusBadRequest)
+			return
+		}
+		if u.Hostname() != srcIP {
+			http.Error(w, "target host must be the announcing address", http.StatusForbidden)
+			return
+		}
+	case a.TargetPort == 80:
+		target = "http://" + srcIP
+	case a.TargetPort > 0 && a.TargetPort < 65536:
+		target = "http://" + net.JoinHostPort(srcIP, strconv.Itoa(a.TargetPort))
+	}
+	active := a.Active == nil || *a.Active
+	key := announceKey(a.HostId, a.Area)
+	s.mu.Lock()
+	poolLabel := s.pool
+	accepted := true
+	if !active {
+		// Only the entry's own source (or an address-less rehydrated entry)
+		// may remove it; anyone else's goodbye is a silent no-op.
+		if av := s.announce[key]; av != nil && (av.sourceIP == "" || av.sourceIP == srcIP) {
+			delete(s.announce, key)
+		}
+	} else {
+		av := s.announce[key]
+		if av == nil {
+			if len(s.announce) >= maxAnnounce {
+				accepted = false
+			} else {
+				av = &announceView{HostId: a.HostId, Area: a.Area}
+				s.announce[key] = av
+			}
+		}
+		if av != nil {
+			av.Target, av.sourceIP, av.LastSeenUnixMs = target, srcIP, time.Now().UTC().UnixMilli()
+		}
+	}
+	s.mu.Unlock()
+	if !accepted {
+		http.Error(w, "too many announced extensions", http.StatusTooManyRequests)
+		return
+	}
+	// Push after the unlock so a slow Loki never stalls the handler; goodbyes
+	// are pushed too so the latest line decides restart state.
+	pushAnnounce(s.httpClient, s.lokiURL, poolLabel, a.HostId, a.Area, target, active, time.Now().UTC())
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func main() {
 	addr := flag.String("listen", defaultListenAddr, "address to listen on")
 	squidLog := flag.String("squid-log", defaultSquidLog, "squid access log to discover pool client IPs from")
@@ -2717,6 +3093,7 @@ func main() {
 	incidentWin := flag.Duration("incident-window", defaultIncidentWin, "trailing window for the N-failures-in-M-minutes incident rule")
 	crossN := flag.Int("cross-host-fails", defaultCrossN, "distinct hosts that must fail within -cross-host-window to open a pool-wide incident")
 	crossWin := flag.Duration("cross-host-window", defaultCrossWin, "window for cross-host (pool-wide) incident correlation")
+	announceTTL := flag.Duration("announce-ttl", defaultAnnounceTTL, "reap a self-announced extension (POST /announce) not refreshed within this window; 0 disables the announce route")
 	tlsCert := flag.String("tls-cert", "", "TLS certificate file (PEM); when both -tls-cert and -tls-key name readable files the listener is HTTPS, else plain HTTP")
 	tlsKey := flag.String("tls-key", "", "TLS private-key file (PEM); see -tls-cert")
 	authTokenFile := flag.String("auth-token-file", "", "file holding the shared bearer token that gates POST /ingest; empty/absent/empty-file -> /ingest disabled (never an unauthenticated write route)")
@@ -2732,6 +3109,7 @@ func main() {
 	state.incidentWin = *incidentWin
 	state.crossN = *crossN
 	state.crossWin = *crossWin
+	state.announceTTL = *announceTTL
 	client := &http.Client{Timeout: probeTimeout}
 	state.lokiURL = *lokiURL
 	state.httpClient = client
@@ -2756,6 +3134,9 @@ func main() {
 			// through the proxy. Runs before the first pollOnce so its seeds are
 			// candidates immediately.
 			state.rehydrateHostPresenceFromLoki(*lokiURL, *pool, *rehydrateWin, now)
+			// Restore live self-announced extensions so their dashboard rows do
+			// not wait up to one beacon period after a restart.
+			state.rehydrateAnnouncesFromLoki(*lokiURL, *pool, now)
 		}
 		state.pollOnce(client, *squidLog, *lokiURL, now)
 		t := time.NewTicker(*interval)
@@ -2791,6 +3172,10 @@ func main() {
 	// parseable so Prometheus, the host-side pool notifier, and the hostname-free
 	// dashboard keep working without credentials.
 	mux.HandleFunc("/ingest", state.handleIngest)
+	// /announce: extension-presence beacon target (stash server et al). Open by
+	// design with self-identity binding -- see handleAnnounce; self-gates on
+	// -announce-ttl (503 when 0).
+	mux.HandleFunc("/announce", state.handleAnnounce)
 
 	srv := &http.Server{Addr: *addr, Handler: mux, ReadTimeout: 5 * time.Second, WriteTimeout: 15 * time.Second, IdleTimeout: 30 * time.Second}
 	go func() {

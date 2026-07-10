@@ -1,5 +1,5 @@
-﻿<#PSScriptInfo
-.VERSION 2026.07.07
+<#PSScriptInfo
+.VERSION 2026.07.10
 .GUID 42a7b8c9-d0e1-4f23-4567-8a9b0c112435
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -49,17 +49,13 @@ param (
     [string]$logLevel='Error'
 )
 
-# logLevel cascade -- see Invoke-Clear.ps1 for rationale.
-$_logRank = @{ Error=1; Warning=2; Information=3; Verbose=4; Debug=5 }
-$_logEff  = $_logRank[$logLevel]
-$global:WarningPreference     = if ($_logRank.Warning     -le $_logEff) { 'Continue' } else { 'SilentlyContinue' }
-$global:InformationPreference = if ($_logRank.Information -le $_logEff) { 'Continue' } else { 'SilentlyContinue' }
-$global:VerbosePreference     = if ($_logRank.Verbose     -le $_logEff) { 'Continue' } else { 'SilentlyContinue' }
-$global:DebugPreference       = if ($_logRank.Debug       -le $_logEff) { 'Continue' } else { 'SilentlyContinue' }
+# logLevel cascade: shared by every automation entrypoint (see Yuruna.LogLevel.psm1).
+Import-Module (Join-Path $PSScriptRoot 'Yuruna.LogLevel.psm1') -Global -Force
+Set-YurunaLogLevel -LogLevel $logLevel
 
 $problems = [System.Collections.Generic.List[string]]::new()
 
-# 1. Docker — running and healthy
+# 1. Docker -- running and healthy
 Write-Verbose "Checking Docker..."
 # Confirm the binary exists before trusting $LASTEXITCODE: a missing native command raises
 # CommandNotFound without updating $LASTEXITCODE, so a stale exit code from an earlier step
@@ -103,7 +99,7 @@ if ($dockerExit -ne 0) {
     Write-Verbose "Docker is running and healthy."
 }
 
-# 2. Kubectl — available and able to connect to the cluster
+# 2. Kubectl -- available and able to connect to the cluster
 Write-Verbose "Checking kubectl..."
 if ($null -eq (Get-Command kubectl -ErrorAction SilentlyContinue)) {
     $kubectlVersionExit = 127
@@ -142,7 +138,7 @@ if ($kubectlVersionExit -ne 0) {
     }
 }
 
-# 3. Kubernetes cluster — healthy nodes
+# 3. Kubernetes cluster -- healthy nodes
 Write-Verbose "Checking Kubernetes cluster health..."
 if ($problems | Where-Object { $_ -like "KUBECTL:*" }) {
     Write-Verbose "Skipping cluster health check because kubectl is not connected."
@@ -172,7 +168,7 @@ if ($problems | Where-Object { $_ -like "KUBECTL:*" }) {
     }
 }
 
-# 4. mkcert — local CA installed
+# 4. mkcert -- local CA installed
 Write-Verbose "Checking mkcert local CA..."
 $mkcertAvailable = $null -ne (Get-Command mkcert -ErrorAction SilentlyContinue)
 if (-not $mkcertAvailable) {

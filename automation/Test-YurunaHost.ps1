@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.07
+.VERSION 2026.07.10
 .GUID 42d4e5f6-a7b8-4c90-1d23-4e5f6a7b8c91
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -174,9 +174,10 @@ if ($payload.service -ne 'yuruna-status-service') {
     exit 1
 }
 
-# --- 5. Exercise the name->IP path so a broken /etc/hosts mapping surfaces
-#        (the IP probe above bypasses name resolution). Advisory: the IP path is
-#        authoritative, so a name-path problem is a WARN, not a failure. ---
+# --- REGION: 5. Exercise the name->IP path
+# A broken /etc/hosts mapping surfaces here (the IP probe above bypasses name
+# resolution). Advisory: the IP path is authoritative, so a name-path problem
+# is a WARN, not a failure.
 if ($hostsNameMapsHostIp) {
     $nameUrl = "http://yuruna-host:${hostPort}/livecheck"
     try {

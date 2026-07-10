@@ -37,6 +37,22 @@ Pick `GitHub.com` → `HTTPS` → browser (recommended) or a Personal Access
 Token with at minimum the `repo` scope. The token `gh` stores is the same
 one accepted by `raw.githubusercontent.com` for private repo reads.
 
+#### Personal Access Token (PAT)
+
+Likely the best path for those using the command line and environments like Linux.
+
+- Go to GitHub -> Settings -> Developer Settings -> Personal Access Tokens -> Tokens (classic).
+- Generate a token with repo, workflow, and read:org scope
+- Linux environment
+  - Edit the file `~/.bashrc` to add the following line:
+    ```
+    export GH_TOKEN="ghp_YourGeneratedTokenGoesHere"
+    ``` 
+  - This command appends it to the file from the Bash shell.
+    ```
+    echo 'export GH_TOKEN="ghp_YourGeneratedTokenGoesHere"' >> ~/.bashrc && source ~/.bashrc
+    ```
+
 ### c. Get the "dev" repositories mapped locally
 
   - Assuming "`git`" is your base folder.
@@ -44,6 +60,18 @@ one accepted by `raw.githubusercontent.com` for private repo reads.
        git% git clone https://github.com/alissonsol/yurunadev yuruna
        git% git clone https://github.com/alissonsol/yurunadev-project yuruna-project
      ```
+
+  - Configure local Git variables to ease committing and pushing changes later
+    ```
+    git config --global user.name "Your Name"
+    git config --global user.email "Your@email.address"
+    git config --global core.autocrlf input
+    ```
+
+  - Go to the `install` folder and run the script for your host type:
+    - For macOS, run under a Bash shell: `macos.utm.sh`
+    - For Ubuntu, run under a Bash shell: `ubuntu.kvm.sh`
+    - For Windows, run under a PowerShell: `windows.hyper-v.ps1`
 
 ## Workflow
 
@@ -116,6 +144,29 @@ No assistance will be provided to help migrate changes you made in the public re
 
   - As long as your local `frameworkUrl` configuration points to the "`yurunadev`" branch, it is business as usual with git, with the bonus of **all committed changes** being served to your guests via the "status server interceptor".
 
+### 5. **Running Tests**
+
+If you are going to run tests, mainly continuously, run these commands under PowerShell (Administrator mode in Windows).
+
+  - Under the `host` folder, find the host type (macos.utm, ubuntu.kvm, windows.hyper-v) and run:
+    ```
+    Sync-HostConfiguration
+    ```
+
+  - After configuring the host, change the settings to enable continuous test running without interruptions like screen savers, etc.
+    ```
+    Enable-TestAutomation
+    ```
+
+  - If not using a local caching proxy, set the address of that server.
+    ```
+    $env:YURUNA_CACHING_PROXY_IP = 'x.y.z.a'
+    ```
+  
+  - Test your configuration and address errors and understanding of the warnings.
+    - Test just the caching proxy: `test/Test-CachingProxy.ps1`
+    - Check the configuration: `test/Test-Config.ps1`
+
 #### **Ensuring local changes are used in tests**
 
   - Working on a project, including the framework sample project, requires a deeper understanding of "git details". If the projectUrl points to an external site (like `GitHub.com`), then the "status server interceptor" doesn't serve its local commits. Why? Because you can clone that remote repository into multiple local folders. Which one would contain the code you want "intercepted"?
@@ -135,7 +186,7 @@ No assistance will be provided to help migrate changes you made in the public re
         ```
         Remember to commit changes!
 
-### 5. **Testing your project**
+### 6. **Testing your project**
 
   Test steps assume a PowerShell terminal (with Administrator permissions in Windows)
 
@@ -146,7 +197,7 @@ No assistance will be provided to help migrate changes you made in the public re
   - Single test loop: `test/Test-Project.ps1`
   - For running unattended tests, see the [Test Runner](docs/test-runner.md) documentation.
 
-### 6. **Debug a specific step**
+### 7. **Debug a specific step**
   - `Test-Sequence.ps1` re-runs a
    single sequence from (or stopping at) a chosen step without VM
    re-creation:
@@ -216,6 +267,6 @@ the branch and use `EXEC_BASE_URL` with `fetch-and-execute.sh`:
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.07
+Last review: 2026.07.10
 
 Back to [Yuruna](README.md)

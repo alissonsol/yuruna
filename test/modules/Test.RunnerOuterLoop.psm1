@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.07
+.VERSION 2026.07.10
 .GUID 42e5f6a7-b8c9-4d12-9345-6e7f8a9b0c1d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -552,7 +552,26 @@ function Invoke-RunnerOuterLoop {
                 $innerSpawnFailed = $true
             }
         } finally {
+            # A watchdog job that ENDED in Failed crashed mid-cycle -- the
+            # inner ran some or all of the cycle unguarded. The job object
+            # is about to be removed, so this is the last chance to say so.
+            if ($watchdogJob -and $watchdogJob.State -eq 'Failed') {
+                $wdReason = try { [string]$watchdogJob.ChildJobs[0].JobStateInfo.Reason.Message } catch { '(reason unavailable)' }
+                Write-Warning "[outer cycle $cycle] watchdog job ended in state Failed -- hang protection lapsed mid-cycle: $wdReason"
+                Write-OuterLog "[outer cycle $cycle] WARNING: watchdog job ended Failed (hang protection lapsed mid-cycle): $wdReason"
+            }
             Stop-Watchdog -Job $watchdogJob
+        }
+        # The watchdog leaves a durable sentinel when it gives up before
+        # arming (inner.pid missing/unreadable, identity unprovable): the
+        # outer is blocked on the call-op while that happens, so this is
+        # where an unguarded cycle becomes visible.
+        $wdLapseFile = Join-Path $env:YURUNA_RUNTIME_DIR 'runner.watchdog.lapsed'
+        if (Test-Path -LiteralPath $wdLapseFile) {
+            $wdLapse = try { (Get-Content -LiteralPath $wdLapseFile -Raw).Trim() } catch { '(unreadable)' }
+            Write-Warning "[outer cycle $cycle] watchdog lapsed during this cycle (ran unguarded): $wdLapse"
+            Write-OuterLog "[outer cycle $cycle] WARNING: watchdog lapsed during this cycle (ran unguarded): $wdLapse"
+            Remove-Item -LiteralPath $wdLapseFile -Force -ErrorAction SilentlyContinue
         }
         if ($innerSpawnFailed) {
             Start-Sleep -Seconds $State.InnerSpawnErrorSleepSec

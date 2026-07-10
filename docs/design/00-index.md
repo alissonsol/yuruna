@@ -29,6 +29,7 @@ not regenerated — hand-maintained):
 |----------|--------|
 | [Stash Service](stash-service.md) | The `scp`/`sftp` file-receiving daemon: storage layout, metadata, IDs. |
 | [Stash Service UI](stash-service-ui.md) | The browser UI + JSON API on top of the daemon. |
+| [Host Config Service & Extension Hosts](host-config-service-and-extension-hosts.md) | The mTLS NAS-credential endpoint and the Extension hosts panel. |
 
 For end-user instructions (not design), see the
 [Stash guide](../stash-guide.md).
@@ -47,11 +48,11 @@ For end-user instructions (not design), see the
 | Document | Primary sources |
 |----------|-----------------|
 | 1 | Repo layout: `automation/ host/ guest/ install/ test/ global/`, `yuruna-project/` |
-| 2 | `automation/Yuruna.*.psm1`, `host/modules/`, `host/Yuruna.Host.Contract.psm1`, `test/modules/`, `install/`, `global/resources/`, `yuruna-project/{example,template}` |
-| 3 | `automation/Set-*.ps1`, `automation/fetch-and-execute.sh`, `test/modules/{Test.RunnerOuterLoop,Test.RunnerInnerLoop,Invoke-Sequence}.psm1` |
-| 4 | `test/modules/Test.RunnerState.psm1`, `Test.RunnerInnerLoop.psm1`; [runner-state.md](../runner-state.md) |
-| 5 | `yuruna-project/.../config/<cloud>/*.yml`, `test/test.config.yml`, `test/extension/{authentication,notification}` |
-| 6 | `test/Invoke-TestRunner.ps1`, `test/Start-{StatusService,CachingProxy,StashServer}.ps1`, `test/pool/`, `test/extension/pool-aggregator` |
+| 2 | `automation/Yuruna.*.psm1`, `automation/yuruna.ps1`, `host/modules/`, `host/Yuruna.Host.Contract.psm1`, `test/modules/`, `install/`, `global/resources/`, `yuruna-project/{example,template}` |
+| 3 | `automation/Set-*.ps1`, `automation/fetch-and-execute.sh`, `test/modules/{Test.RunnerOuterLoop,Test.RunnerInnerLoop,Invoke-Sequence,Test.Notify}.psm1` |
+| 4 | `test/modules/Test.RunnerState.psm1`, `Test.RunnerInnerLoop.psm1`, `Test.RunnerWatchdog.psm1`; [runner-state.md](../runner-state.md) |
+| 5 | `yuruna-project/.../config/<cloud>/*.yml`, `automation/Yuruna.{Resource,Component,Workload,Validation,DeploymentKind}.psm1`, `test/test.config.yml.template`, `test/extension/{authentication,notification}` |
+| 6 | `test/Invoke-TestRunner.ps1`, `test/Start-{StatusService,CachingProxy,StashServer,HostConfigService}.ps1`, `host/vmconfig/caching-proxy.base.user-data`, `test/extension/{pool-aggregator,stash-service}` |
 
 ## The ≤7 rule — grouping decisions
 
@@ -64,9 +65,11 @@ Where reality exceeds seven, siblings are grouped under a named aggregate:
   **modules** box; the two infra guests (`guest.caching-proxy`,
   `guest.stash-service`) share one box.
 - **Doc 5**: the data model is split into **two** erDiagrams (project deploy
-  vs. harness runtime) so neither exceeds seven entities.
-- **Doc 6**: ~12 deployed processes are grouped into seven `subgraph`
-  network nodes.
+  vs. harness runtime) so neither exceeds seven entities; the deploy view's
+  seventh entity is the generated `resources.output.yml`.
+- **Doc 6**: ~14 deployed processes are grouped into seven `subgraph`
+  network nodes; the caching-proxy VM box aggregates squid, zot, Grafana,
+  and the log parser.
 
 Anything planned/optional is drawn with dashed edges and a `%% planned`
 note (e.g. the pool tier in doc 6).
@@ -75,4 +78,4 @@ note (e.g. the pool tier in doc 6).
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.07
+Last review: 2026.07.10

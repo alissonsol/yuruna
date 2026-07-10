@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.07
+.VERSION 2026.07.10
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456821
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -384,4 +384,45 @@ function Invoke-CachingProxyProbe {
     }
 }
 
-Export-ModuleMember -Function Get-CachingProxyStatePath, Read-CachingProxyState, Save-CachingProxyState, Invoke-CachingProxyProbe
+function Get-PoolAggregatorSeedUrl {
+<#
+.SYNOPSIS
+    Resolves the pool-aggregator base URL (https://<proxy-ip>:9400) to bake
+    into a guest seed, e.g. the stash VM's presence-beacon destination.
+.DESCRIPTION
+    The aggregator runs inside the caching-proxy VM, so its address is the
+    proxy's IP from the persisted caching-proxy state (the same resolution the
+    host-side pool notifier uses), with the YURUNA_CACHING_PROXY_IP environment
+    override as fallback. https because a provisioned proxy mints the
+    aggregator's TLS leaf in cloud-init; a consumer facing an older plain-HTTP
+    proxy downgrades per attempt (the beacon's https-then-http candidate
+    order), so the baked scheme never strands it.
+
+    Returns '' when no proxy IP is known -- the caller bakes an empty value and
+    the consuming service leaves its aggregator-dependent features off. The
+    value lands inside a single-quoted env line in the seed, so any resolved
+    value carrying a quote or whitespace is refused (returns '') rather than
+    corrupting the seed file.
+.OUTPUTS
+    [string] aggregator base URL, or ''.
+#>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param()
+    $ip = ''
+    try {
+        $state = Read-CachingProxyState
+        if ($state -and $state.ipAddress) { $ip = [string]$state.ipAddress }
+    } catch { $null = $_ }
+    if ([string]::IsNullOrWhiteSpace($ip) -and $env:YURUNA_CACHING_PROXY_IP) {
+        $ip = $env:YURUNA_CACHING_PROXY_IP.Trim()
+    }
+    if ([string]::IsNullOrWhiteSpace($ip)) { return '' }
+    if ($ip -match "['\s]") { return '' }
+    # Format-IpUrlHost (Test.VMUtility) brackets an IPv6 literal; callers that
+    # haven't loaded that module still get a correct IPv4 URL from the raw IP.
+    $urlHost = if (Get-Command Format-IpUrlHost -ErrorAction SilentlyContinue) { Format-IpUrlHost $ip } else { $ip }
+    return "https://${urlHost}:9400"
+}
+
+Export-ModuleMember -Function Get-CachingProxyStatePath, Read-CachingProxyState, Save-CachingProxyState, Invoke-CachingProxyProbe, Get-PoolAggregatorSeedUrl

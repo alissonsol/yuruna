@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.07
+.VERSION 2026.07.10
 .GUID 42d6f5e4-b3a2-4c91-8076-2e3f4a5b6c92
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -25,10 +25,10 @@
 
 .DESCRIPTION
     The FailureClass enum (Test.SequenceAction.psm1) classifies every
-    handler's failure mode. Before this module nothing consumed the
-    enum -- an operator (or a future autonomous loop) had to grep the
-    free-text error and guess what to do. This dispatcher closes the
-    loop:
+    handler's failure mode. Without this dispatcher nothing consumes
+    the enum -- an operator (or a future autonomous loop) has to grep
+    the free-text error and guess what to do. This dispatcher closes
+    the loop:
 
       1. Invoke-Remediation reads last_failure.json from $YURUNA_LOG_DIR
          (or an explicit path).
@@ -373,7 +373,7 @@ function Invoke-Remediation {
     # When the dispatcher routed past a retry wrapper to the inner cause, keep
     # the outer class visible so the audit trail shows what was masked.
     if ($routedFromClass) { $result['RoutedFromFailureClass'] = $routedFromClass }
-    # Emit a NDJSON breadcrumb so a stream consumer follows the
+    # Emit an NDJSON breadcrumb so a stream consumer follows the
     # dispatcher's decision. Schema-validated through Send-CycleEventSafely.
     # Optional context fields (vmName / guestKey / hostType / actionVerb)
     # are only attached when the originating failure carried them; null

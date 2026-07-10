@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.07
+.VERSION 2026.07.10
 .GUID 42a8b3c4-d5e6-4f78-9a0b-1c2d3e4f5a6b
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -20,7 +20,7 @@
 $_logLevelMod = Join-Path $PSScriptRoot '../../../test/modules/Test.LogLevel.psm1'
 if (Test-Path $_logLevelMod) { Import-Module $_logLevelMod -Global -Force; Use-LogLevelFromEnv }
 
-# --- REGION: Configuration (change these to customize the download)
+# --- REGION: Configuration
 $baseImageName      = "host.windows.hyper-v.guest.windows.11"
 $defaultDownloadDir = "C:\ProgramData\Microsoft\Windows\Virtual Hard Disks"
 

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.07
+.VERSION 2026.07.10
 .GUID 42f2a3b4-c5d6-4e78-9012-3f4a5b6c7d81
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -327,6 +327,7 @@ To intentionally skip the cache:
 $AptProxyBlock = Build-AptProxyBlock -PrimaryUri 'http://ports.ubuntu.com/ubuntu-ports' -CachingProxyUrl $CachingProxyUrl
 
 # --- REGION: Fetch caching-proxy CA cert (base64-embedded in seed)
+# --- REGION: https://yuruna.link/network#caching-proxy-ca-cert-rc60-gate
 # Fetch the caching-proxy CA on the host so it can be base64-embedded in
 # the autoinstall seed. Guests on VZ shared-NAT cannot reach the cache
 # VM directly, but this script runs on the host which can. Any failure

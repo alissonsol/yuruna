@@ -1,10 +1,9 @@
 #!/bin/bash
-# Version: 2026.07.07
+# Version: 2026.07.10
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 set -euo pipefail
 
-# Non-interactive mode for all installations
 export DEBIAN_FRONTEND=noninteractive
 export NONINTERACTIVE=1
 
@@ -29,6 +28,11 @@ esac
 
 # --- REGION: https://yuruna.link/network#defining-yuruna-retry-lib
 . /usr/local/lib/yuruna/yuruna-retry.sh
+# Baked retry libs may default apt attempts to a wall-clock bound -- the
+# wrapped-apt teardown-hang trap class (apt blocks at end-of-transaction
+# under a timeout(1) parent). Force unbounded regardless of the image's
+# lib vintage; remove once no image predates the lib's unbounded default.
+export YURUNA_APT_STALL_TIMEOUT=0
 
 echo "== Installing Kubernetes requirements for Ubuntu =="
 
@@ -59,15 +63,7 @@ Components: stable
 Signed-By: /etc/apt/keyrings/docker.asc
 EOF
 
-# Write /etc/docker/daemon.json BEFORE installing docker-ce. The package
-# postinst auto-starts dockerd, and dockerd only reads daemon.json at
-# startup -- inserting the file later would require a service restart
-# and races with workloads. registry-mirrors here routes ALL docker.io
-# pulls through the yuruna-caching-proxy's zot pull-through cache,
-# which has stale-on-error semantics that mask upstream rate-limit
-# blips (e.g. AWS ECR Public returning 400 for library/registry:2
-# manifest HEADs -- a class of incident that has taken out multiple
-# test hosts simultaneously).
+# --- REGION: https://yuruna.link/memory#why-the-k8s-guest-configures-the-docker-registry-mirror-before-installing-docker-ce
 # CACHE_HOST is parsed from $http_proxy (set system-wide by the
 # guest's cloud-init late-commands). Fallback: the well-known cache
 # VM hostname, resolvable on the LAN where Start-CachingProxy ran.
@@ -255,10 +251,9 @@ sudo sysctl --system
 sudo systemctl enable --now kubelet 2>/dev/null || echo "Note: kubelet enable attempted"
 
 # kubeadm init is the most failure-prone step (control-plane image pulls, etcd
-# bring-up, kubelet handshake) and, unlike every other network-touching step in
-# this script, was unretried -- a single transient blip on a shared-NAT guest
-# left a half-initialized control plane and aborted the whole sequence. Retry
-# with a full reset between attempts so a transient failure self-heals.
+# bring-up, kubelet handshake): a single transient blip on a shared-NAT guest
+# can leave a half-initialized control plane and abort the whole sequence.
+# Retry with a full reset between attempts so a transient failure self-heals.
 kubeadm_init_ok=false
 for kubeadm_attempt in 1 2 3; do
     if sudo kubeadm init --pod-network-cidr=10.244.0.0/16; then
@@ -289,16 +284,7 @@ sudo chown "$REAL_USER:$REAL_USER" "${REAL_HOME}/.kube/config"
 export KUBECONFIG="${REAL_HOME}/.kube/config"
 
 FLANNEL_MANIFEST=/tmp/kube-flannel.yml
-# Track the newest flannel release, but fetch the in-tree manifest at that tag
-# instead of releases/latest/download/kube-flannel.yml. That download URL relies
-# on the maintainers attaching a kube-flannel.yml *release asset*, and a release
-# can ship without one (v0.28.6 did) -- releases/latest then 302s to an assetless
-# tag and the download 404s, aborting the whole install under `set -euo pipefail`.
-# Documentation/kube-flannel.yml is generated from the repo tree, so it is present
-# at every tag and is byte-for-byte equivalent to the release asset. Resolve the
-# tag from the releases/latest web redirect, NOT the api.github.com "latest"
-# endpoint, which 403s once many guests share one NAT egress IP (the same
-# constraint documented for the OpenTofu install below).
+# --- REGION: https://yuruna.link/memory#why-the-k8s-guest-fetches-the-flannel-manifest-from-the-in-tree-path-at-the-latest-release-tag
 FLANNEL_TAG="$(curl_retry -fsSI "https://github.com/flannel-io/flannel/releases/latest${YurunaCacheContent:+?nocache=${YurunaCacheContent}}" \
     | tr -d '\r' | awk 'tolower($1)=="location:"{n=split($2,a,"/"); print a[n]}')"
 if [ -z "$FLANNEL_TAG" ]; then
@@ -352,19 +338,7 @@ if ! command -v helm >/dev/null 2>&1; then
     exit 1
 fi
 
-# OpenTofu: deb install (primary) with standalone fallback, then verify.
-# The deb method fetches the signing key from get.opentofu.org and the
-# standalone method the binary release; both can blip, and the third-party
-# install-opentofu.sh runs those inner fetches with no retry, so a single
-# transient blip is otherwise fatal even on a healthy host. Each invocation
-# is wrapped in _yuruna_retry to give it the same backoff every other fetch
-# in this script gets. Both paths pass --opentofu-version "$YURUNA_OPENTOFU_VERSION" so neither
-# asks the GitHub releases API for "latest" -- that is an unauthenticated
-# api.github.com call that 403s on rate limits once many guests share one
-# NAT egress IP, which would leave the standalone fallback as fragile as the
-# deb path it backs up. The post-install `command -v tofu` guard aborts when
-# both fail, because every downstream Set-Resource step needs tofu and a
-# missing binary otherwise surfaces far away as an HTTP 503 at the ingress.
+# --- REGION: https://yuruna.link/memory#why-the-k8s-guest-wraps-the-opentofu-install-in-a-retry-with-a-pinned-version
 echo ""
 echo -e "\e[1;36m==== OpenTofu ====\e[0m"
 curl_retry --proto '=https' --tlsv1.2 -fsSL "https://get.opentofu.org/install-opentofu.sh${YurunaCacheContent:+?nocache=${YurunaCacheContent}}" -o /tmp/install-opentofu.sh

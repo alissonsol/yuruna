@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.07
+.VERSION 2026.07.10
 .GUID 42a7b8c9-d0e1-4f23-4567-809102132435
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -54,36 +54,19 @@ param (
     [string]$logLevel='Error'
 )
 
-# logLevel cascade: each level enables itself + all higher-priority streams.
-# Error is highest; default 'Error' silences Warning/Info/Verbose/Debug.
-# $ErrorActionPreference is left at its inherited default ('Continue') so
-# errors stay visible at every level -- lowering it would silence them too.
-$_logRank = @{ Error=1; Warning=2; Information=3; Verbose=4; Debug=5 }
-$_logEff  = $_logRank[$logLevel]
-$global:WarningPreference     = if ($_logRank.Warning     -le $_logEff) { 'Continue' } else { 'SilentlyContinue' }
-$global:InformationPreference = if ($_logRank.Information -le $_logEff) { 'Continue' } else { 'SilentlyContinue' }
-$global:VerbosePreference     = if ($_logRank.Verbose     -le $_logEff) { 'Continue' } else { 'SilentlyContinue' }
-$global:DebugPreference       = if ($_logRank.Debug       -le $_logEff) { 'Continue' } else { 'SilentlyContinue' }
+# logLevel cascade: shared by every automation entrypoint (see Yuruna.LogLevel.psm1).
+Import-Module (Join-Path $PSScriptRoot 'Yuruna.LogLevel.psm1') -Global -Force
+Set-YurunaLogLevel -LogLevel $logLevel
 
-$yuruna_root = Resolve-Path -Path (Join-Path -Path $PSScriptRoot -ChildPath "..")
-Set-Item -Path Env:yuruna_root -Value ${yuruna_root}
-Write-Debug "yuruna_root is $yuruna_root"
+# Resolve yuruna/project/config roots (+ Env:) before evicting Yuruna.* -- the resolver
+# lives in the Yuruna.LogLevel leaf imported above, which the eviction then sweeps up.
+$roots = Resolve-YurunaRootSet -ScriptRoot $PSScriptRoot -ProjectRoot $project_root -ConfigSubfolder $config_subfolder
+if (-not $roots) { return $false }
+$yuruna_root = $roots.YurunaRoot
+$project_root = $roots.ProjectRoot
 Get-Module Yuruna.* | Remove-Module *>&1 | Write-Verbose
 $clearModulePath = Join-Path -Path $yuruna_root -ChildPath "automation/Yuruna.Clear.psm1"
 Import-Module -Name $clearModulePath -Force
-
-if ([string]::IsNullOrEmpty($project_root)) { $project_root = Get-Location; }
-$resolved_root = Resolve-Path -LiteralPath $project_root -ErrorAction SilentlyContinue
-if ($null -eq $resolved_root -or @($resolved_root).Count -ne 1) { Write-Information "Project folder not found or ambiguous: $project_root"; return $false; }
-$project_root = $resolved_root
-Set-Item -Path Env:project_root -Value ${project_root}
-Write-Debug "project_root is $project_root"
-
-$config_relative = Join-Path -Path $project_root -ChildPath "config/$config_subfolder"
-$config_root = Resolve-Path -LiteralPath $config_relative -ErrorAction SilentlyContinue
-if ($null -eq $config_root -or @($config_root).Count -ne 1) { Write-Information "Configuration folder not found or ambiguous: $config_relative"; return $false; }
-Set-Item -Path Env:config_root -Value ${config_root}
-Write-Debug "config_root is $config_root"
 
 $transcriptFileName = [System.IO.Path]::GetTempFileName()
 $null = Start-Transcript $transcriptFileName
@@ -94,6 +77,10 @@ $null = Stop-Transcript
 if (-Not $result) {
     Write-Output $result
     Write-Output $(Get-Content -Path $transcriptFileName)
+    # Propagate the failure as a non-zero process exit so bash `set -e` wrappers see a
+    # Clear-Configuration failure instead of marching on -- matching `yuruna.ps1 clear`
+    # (its bool-or-manifest tail exits 1) and the Set-Component/Resource/Workload wrappers.
+    exit 1
 }
 else {
     Write-Debug "`n-- See transcript with command: Write-Output `$(Get-Content -Path $transcriptFileName)"

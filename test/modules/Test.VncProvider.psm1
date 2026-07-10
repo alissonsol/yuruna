@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.07
+.VERSION 2026.07.10
 .GUID 4295730e-1cff-47df-b4d6-b3fd3578c818
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -105,7 +105,7 @@ function Repair-VncConnection {
         $script:CachedVncVM; this primitive clears those globals via
         the corresponding Disconnect-VNC contract function exported by
         Test.Transport. If a per-host provider is registered, it runs
-        afterward (for cleanup of platform-specific state -- e.g, a
+        afterward (for cleanup of platform-specific state -- e.g., a
         Windows port forward or an AppleScript window-focus reset).
     #>
     [CmdletBinding(SupportsShouldProcess)]

@@ -5,7 +5,7 @@
   (exit 0 = pass). There is no JS test runner in the repo, so this uses the Node
   built-in assert + vm modules with a minimal shim.
 
-  Covers the three web-stash changes:
+  Covers:
     - pathTail guards a missing/non-string permalink and rawURL/downloadURL propagate
       the null, so a malformed row drops its link instead of crashing every row's render;
     - Y.api bounds the fetch with an AbortController + timeout and clears it in finally;
@@ -79,7 +79,7 @@ assert.ok(Y && typeof Y.api === 'function', 'Y with api should be exposed after 
   assert.strictEqual(timersSet - setBefore, 1, 'api arms exactly one timeout');
   assert.strictEqual(timersCleared - clearBefore, 1, 'api clears its timeout on success');
 
-  // (4) Source-structure guards (non-tautological -- these fail on the pre-change file).
+  // (4) Source-structure guards (non-tautological -- each fails if its guard is removed from common.js).
   assert.match(source, /function pathTail\(view\)[\s\S]*?typeof view\.permalink !== 'string'/, 'pathTail guards a non-string permalink');
   assert.match(source, /rawURL\(view\)[\s\S]*?tail === null \? null/, 'rawURL propagates pathTail null');
   assert.match(source, /async api\(path, opts\)[\s\S]*?new AbortController\(\)/, 'api bounds the fetch with an AbortController');

@@ -1,14 +1,14 @@
 /*
   LICENSEURI https://yuruna.link/license
   Copyright (c) 2019-2026 by Alisson Sol et al.
-  Version: 2026.07.07
+  Version: 2026.07.10
 
   Framework-free checks for test/status/yuruna.common.js. Run: node yuruna.common.test.js
   (exit 0 = pass). No package.json / test runner in the repo, so this uses the Node
   built-in assert + vm modules and a minimal document/window shim -- enough to load the
   browser IIFE and exercise its exported surface plus source-structure guards.
 
-  Covers the two web-common-js changes:
+  Covers two yuruna.common.js invariants:
     - renderStatus guards banner/noData (matching applyBanner) so an id drift degrades
       gracefully instead of throwing out of the poll loop;
     - bootIndex reuses the shared BANNER_TEXT via Object.assign instead of a duplicate
@@ -70,7 +70,7 @@ var Y = sandbox.window.Yuruna;
 assert.ok(Y, 'window.Yuruna should be mounted after load');
 
 // (1) Defensive contract: applyBanner tolerates a missing #banner (getElementById -> null).
-//     renderStatus now mirrors this contract for banner + noData.
+//     renderStatus mirrors this contract for banner + noData.
 assert.doesNotThrow(function () {
   Y.applyBanner({ overallStatus: 'pass', guests: [{}] }, null, null);
 }, 'applyBanner must not throw when #banner is absent');
@@ -94,7 +94,7 @@ var expected = {
 };
 assert.deepStrictEqual(rebuilt, expected, 'Object.assign over BANNER_TEXT must reproduce the index BANNER table');
 
-// (4) Source-structure guards (non-tautological -- these fail on the pre-change file).
+// (4) Source-structure guards (non-tautological -- they fail if the guards are removed from the source).
 //     renderStatus is loop-internal (not exported), so its guard is verified here
 //     structurally and behaviorally via the applyBanner contract it mirrors (see 1).
 assert.match(src, /function renderStatus[\s\S]*?if \(!banner \|\| !noData \|\| !headerMachine\)/,

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.07
+.VERSION 2026.07.10
 .GUID 42a3b4c5-d6e7-4f89-8a01-2b3c4d5e6f70
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -32,9 +32,12 @@
         The bounded start-RETRY loop ($attempt -le 3) is a count, not a timer, and
         is intentionally left as a for loop.
       * The exit-code gates after & $GetImageScript / & $NewVMScript reset
-        $LASTEXITCODE to $null before the call and test $null -ne $LASTEXITCODE,
-        so a child .ps1 that ends on a cmdlet (no native command) does not
-        false-fail on stale/absent $LASTEXITCODE.
+        $global:LASTEXITCODE to $null before the call and test
+        $null -ne $LASTEXITCODE, so a child .ps1 that ends on a cmdlet (no native
+        command) does not false-fail on stale/absent $LASTEXITCODE. The reset must
+        be $global:-qualified -- a bare assignment creates a script-scoped shadow
+        that freezes every later read (here and in child scopes) at $null while
+        the engine writes real exit codes to the global.
 
     The throw-based Assert-* helpers live at script scope and are referenced from
     It blocks, so this runs under Pester 4.10.1.
@@ -77,13 +80,26 @@ function Get-IfConditionText {
     $texts
 }
 
-# Count of `$LASTEXITCODE = $null` assignments (AssignmentStatementAst).
+# Count of `$global:LASTEXITCODE = $null` resets (AssignmentStatementAst). The
+# $global: qualifier is load-bearing: a bare `$LASTEXITCODE = $null` creates a
+# script-scoped copy that shadows the engine's global for the rest of the script
+# and inside every child scope, so successful natives read back as failures.
 function Get-LastExitResetCount {
     param($Ast)
     @($Ast.FindAll({ param($n)
         $n -is [System.Management.Automation.Language.AssignmentStatementAst] -and
-        $n.Left.Extent.Text -eq '$LASTEXITCODE' -and
+        $n.Left.Extent.Text -eq '$global:LASTEXITCODE' -and
         $n.Right.Extent.Text -eq '$null'
+    }, $true)).Count
+}
+
+# Count of bare (unqualified) `$LASTEXITCODE = ...` assignments -- the scope-shadow
+# trap above. Must stay zero.
+function Get-LastExitShadowCount {
+    param($Ast)
+    @($Ast.FindAll({ param($n)
+        $n -is [System.Management.Automation.Language.AssignmentStatementAst] -and
+        $n.Left.Extent.Text -eq '$LASTEXITCODE'
     }, $true)).Count
 }
 
@@ -102,10 +118,14 @@ Describe 'Start-CachingProxy.ps1 bounds the UTM waits by wall-clock' {
 }
 
 Describe 'Start-CachingProxy.ps1 gates child scripts on a reset $LASTEXITCODE' {
-    It 'resets $LASTEXITCODE to $null before the child call and tests it null-safely' {
+    It 'resets $global:LASTEXITCODE to $null before the child call and tests it null-safely' {
         $ast = Get-Ast $startCp
-        Assert-True ((Get-LastExitResetCount -Ast $ast) -ge 2) 'both & $GetImageScript / & $NewVMScript are preceded by $LASTEXITCODE = $null'
+        Assert-True ((Get-LastExitResetCount -Ast $ast) -ge 2) 'both & $GetImageScript / & $NewVMScript are preceded by $global:LASTEXITCODE = $null'
         $nullSafe = @(Get-IfConditionText -Ast $ast | Where-Object { $_ -match '\$null -ne \$LASTEXITCODE' })
         Assert-True ($nullSafe.Count -ge 2) "both child-script gates use a null-safe `$null -ne `$LASTEXITCODE test; found $($nullSafe.Count)"
+    }
+    It 'has no bare $LASTEXITCODE assignment (script-scope shadow of the engine global)' {
+        $ast = Get-Ast $startCp
+        Assert-True ((Get-LastExitShadowCount -Ast $ast) -eq 0) 'a bare $LASTEXITCODE assignment shadows the engine global; qualify with $global:'
     }
 }

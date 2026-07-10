@@ -1,5 +1,5 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.07.07
+.VERSION 2026.07.10
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456810
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -353,8 +353,8 @@ function New-RandomPassword {
 # Internal: vault lookup keyed by an explicit vault key (NOT the
 # logical user name). Used by Get-Password and Get-LocalOsPassword
 # after they've resolved the right key via users.yml. AutoGenerate
-# controls whether a missing vault entry is filled in: $true (the
-# today's default for the logical/local-OS path) creates a fresh
+# controls whether a missing vault entry is filled in: $true (today's
+# default for the logical/local-OS path) creates a fresh
 # random password and stores it; $false (the corporate / operator-
 # supplied path) throws so Test-Config.ps1 can surface "you forgot
 # to populate vault[corp.alisson.sol]" instead of the cycle silently

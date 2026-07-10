@@ -11,7 +11,7 @@ import (
 	"time"
 )
 
-// Extension hosts are now discovered from each host's registration record
+// Extension hosts are discovered from each host's registration record
 // (activeExtensions) -- no ystash-nas mount/scan. These cover the parse + the
 // metric emit.
 

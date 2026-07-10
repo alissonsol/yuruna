@@ -1,5 +1,5 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.07.07
+.VERSION 2026.07.10
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456706
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -462,6 +462,22 @@ $cachingProxyUrl = Test-CachingProxyAvailable
 if ($cachingProxyUrl) {
     $vmIp = if ($cachingProxyUrl -match '^http://([0-9.]+):') { $matches[1] } else { $null }
     $isExternal = [bool]$Env:YURUNA_CACHING_PROXY_IP
+    if ($isExternal -and $vmIp) {
+        # External handling below Remove-PortMaps this host's forwarders,
+        # so it may only run when the endpoint is POSITIVELY not this
+        # host. 'local': the "external" endpoint is this host's own
+        # forwarder set fronting its NAT'd cache VM -- removing it severs
+        # the very listeners that just answered the probe (self-teardown).
+        # 'unknown': NIC churn from per-cycle VM start/stop can blank the
+        # enumeration for a moment, and a wrong 'external' verdict tears
+        # the forwarders down while a wrong 'local' verdict merely
+        # re-asserts a port map -- so unknown must land on the local side.
+        $ownVerdict = Get-HostOwnIpVerdict -IpAddress $vmIp
+        if ($ownVerdict -ne 'nonlocal') {
+            Write-Output "Caching proxy: YURUNA_CACHING_PROXY_IP ($vmIp) is not positively external (verdict: $ownVerdict) -- treating the cache as locally owned."
+            $isExternal = $false
+        }
+    }
     $mapOk  = $false
     $bestIp = $null
     if ($isExternal) {
@@ -482,10 +498,23 @@ if ($cachingProxyUrl) {
             [void](Remove-PortMap -Confirm:$false)
             $mapOk  = $true
             $bestIp = $vmIp
+        } elseif (Test-HostOwnIpAddress -IpAddress $portMapIp) {
+            # The target resolved no further than one of this host's own
+            # addresses (no recorded cache-VM IP to tunnel to): a forwarder
+            # aimed there would loop each port back onto its own listener.
+            # Keep the port map that is currently serving traffic instead
+            # of replacing it with a loop.
+            $mapOk  = $true
+            $bestIp = Get-BestHostIp
+            if (-not $bestIp) { $bestIp = $vmIp }
         } else {
             $cacheHttpPort  = Get-CachingProxyPort -Scheme http
             $cacheHttpsPort = Get-CachingProxyPort -Scheme https
-            $CachingProxyExposedPorts = if ($IsMacOS) { @(3000) } else { @(80, 3000, $cacheHttpPort, $cacheHttpsPort) }
+            # 9302 (caching-proxy-parser live tail) must stay in lockstep
+            # with Start-CachingProxy.ps1's install list: Add-PortMap is
+            # clear-all-first, so any port omitted here goes dark on
+            # reinstall.
+            $CachingProxyExposedPorts = if ($IsMacOS) { @(3000) } else { @(80, 3000, 9302, $cacheHttpPort, $cacheHttpsPort) }
             $portMapArgs = @{
                 VMIp      = $portMapIp
                 Port      = $CachingProxyExposedPorts
@@ -513,7 +542,18 @@ if ($cachingProxyUrl) {
     }
 } else {
     Write-Output "Caching proxy: not detected (guests will download directly from Ubuntu mirrors)"
-    [void](Remove-PortMap -Confirm:$false)
+    # A probe can miss for one cycle (cold socket-activated forwarder,
+    # momentary host contention) while the cache behind this host's own
+    # forwarders is perfectly healthy. When the operator's env still
+    # names this host (or the ownership can't be positively ruled out),
+    # removing the port map here strands guests on refused proxy ports
+    # until a later cycle rebuilds it -- keep the forwarders instead.
+    $envCacheIp = [string]$Env:YURUNA_CACHING_PROXY_IP
+    if ($envCacheIp -and ((Get-HostOwnIpVerdict -IpAddress $envCacheIp) -ne 'nonlocal')) {
+        Write-Output "Caching proxy: keeping existing port maps (YURUNA_CACHING_PROXY_IP '$envCacheIp' is not positively external; treating the probe miss as transient)."
+    } else {
+        [void](Remove-PortMap -Confirm:$false)
+    }
 }
 
 $savedVerbose = $global:VerbosePreference

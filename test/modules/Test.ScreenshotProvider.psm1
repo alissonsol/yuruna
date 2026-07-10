@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.07
+.VERSION 2026.07.10
 .GUID 429eb9ac-a948-4c0b-b4f9-fc1974431076
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -21,8 +21,8 @@
 # register, and Wait-ForText / saveDebugScreenshot dispatch through
 # Invoke-ScreenshotProvider. The legacy Yuruna.Host\Get-VMScreenshot
 # contract still works -- this registry is the seam for adding a
-# fast-path capturer (e.g, a delta-only frame grabber) or a fallback
-# (e.g, when WMI / virsh screenshot times out).
+# fast-path capturer (e.g., a delta-only frame grabber) or a fallback
+# (e.g., when WMI / virsh screenshot times out).
 #
 # Storage is delegated to the shared Test.Registry primitive
 # (New-YurunaRegistry) so there is one registry mechanism across the

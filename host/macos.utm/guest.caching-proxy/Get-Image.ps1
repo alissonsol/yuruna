@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.07
+.VERSION 2026.07.10
 .GUID 42f2c3d4-e5f6-4a78-b901-c2d3e4f5a6b8
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -44,17 +44,7 @@ $baseImageFile = Join-Path $downloadDir "$baseImageName.qcow2"
 
 New-Item -ItemType Directory -Force -Path $downloadDir | Out-Null
 
-# Skip-if-same-source guard. Test-DownloadAlreadyCurrent (Yuruna.Host.psm1)
-# returns $true only when ALL of the following match the on-disk state:
-#   * $baseImageFile exists
-#   * the sentinel records the same filename, URL, byte count, AND
-#     Last-Modified date as a fresh HEAD probe of $sourceUrl
-# Any mismatch -- including a legacy 3-line sentinel that lacks the
-# Last-Modified field -- forces a re-download. The only way to force a
-# re-download manually is to delete or rename $baseImageFile (or
-# $baseImageOrigin). The 4-line sentinel guards against the silent-skip
-# regression class where a noble->resolute style URL bump matches the
-# byte count by coincidence.
+# --- REGION: https://yuruna.link/guest-image-setup#skip-if-same-source-guard
 $baseImageOrigin = Join-Path $downloadDir "$baseImageName.txt"
 Import-Module -Name (Join-Path (Split-Path -Parent $PSScriptRoot) "modules/Yuruna.Host.psm1") -Force
 if (Test-DownloadAlreadyCurrent -SourceUrl $sourceUrl -BaseImageFile $baseImageFile -OriginFile $baseImageOrigin -Verbose:($VerbosePreference -ne 'SilentlyContinue')) {
@@ -126,7 +116,7 @@ Copy-Item -LiteralPath $downloadFile -Destination $convertedFile
 # that lets the proxy cache files like the macOS install image (~18 GB)
 # and other multi-GB blobs end-to-end instead of bypassing them direct to
 # CDN.
-Write-Output "Resizing qcow2 image to 512GB..."
+Write-Output "Resizing qcow2 to 512GB..."
 & qemu-img resize -f qcow2 $convertedFile 512G
 if ($LASTEXITCODE -ne 0) {
     Write-Warning "qemu-img resize failed -- continuing with original size."
@@ -144,27 +134,10 @@ if (Test-Path $baseImageFile) {
 }
 Move-Item -Path $convertedFile -Destination $baseImageFile
 
-$sourceFileName = [System.IO.Path]::GetFileName(([System.Uri]$sourceUrl).LocalPath)
-# Capture the upstream Last-Modified header after the download finishes so
-# the sentinel records WHAT THE SERVER SAID at the moment we fetched it.
-# A subsequent Test-DownloadAlreadyCurrent compares the new HEAD's
-# Last-Modified against this string. cloud-images.ubuntu.com exposes
-# Last-Modified consistently; some CDNs strip it. Missing header -> empty
-# string, and Test-DownloadAlreadyCurrent skips the date check in that
-# direction (URL + size still gate the skip).
-$sourceLastModified = ''
-try {
-    $head = Invoke-WebRequest -Uri $sourceUrl -Method Head -ErrorAction Stop
-    $lm = $head.Headers['Last-Modified']
-    if ($lm -is [System.Array]) { $lm = $lm[0] }
-    $sourceLastModified = [string]$lm
-} catch {
-    Write-Verbose "Last-Modified HEAD probe failed (sentinel will record empty): $($_.Exception.Message)"
-}
-Set-Content -Path $baseImageOrigin -Value @($sourceFileName, $sourceUrl, "$downloadedSize", $sourceLastModified)
+# --- REGION: https://yuruna.link/guest-image-setup#skip-if-same-source-guard
+Write-ImageSentinel -SourceUrl $sourceUrl -OriginFile $baseImageOrigin -SizeBytes $downloadedSize -Confirm:$false
 Write-Output "Recorded source filename, URL, byte count, and Last-Modified to: $baseImageOrigin"
 
-# Only the raw is needed now.
 Remove-Item $downloadFile -Force -ErrorAction SilentlyContinue
 
 Write-Output "Download complete: $baseImageFile"

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.07
+.VERSION 2026.07.10
 .GUID 42a2b3c4-d5e6-4f78-9012-3a4b5c6d7e91
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -253,7 +253,7 @@ function Start-CachingProxyForwarder {
         [int]$VMPort = 0,
         [switch]$PrependProxyV1
     )
-    # 0 sentinel ? when unspecified, host port == VM port (the common case;
+    # 0 sentinel -- when unspecified, host port == VM port (the common case;
     # proxy/Grafana/etc.). Split ports kick in for SSH (8022 -> 22) and any
     # other future host:VM remap. Pidfile name uses HOST port (predictable;
     # what `lsof -i :<host>` would show).
@@ -285,7 +285,7 @@ function Start-CachingProxyForwarder {
     [void](Stop-CachingProxyForwarder -Port $Port -Quiet)
 
     $proxyTag = if ($PrependProxyV1) { ' [PROXY v1]' } else { '' }
-    Write-Information "  Launching host-side forwarder: 0.0.0.0:${Port} ? ${CacheIp}:${VMPort}${proxyTag}" -InformationAction Continue
+    Write-Information "  Launching host-side forwarder: 0.0.0.0:${Port} -> ${CacheIp}:${VMPort}${proxyTag}" -InformationAction Continue
     # RedirectStandard* is required: without them pwsh inherits the
     # parent TTY and dies when Start-CachingProxy.ps1 exits. The
     # forwarder's own log gets live traffic; stdout/stderr go to files.
@@ -309,7 +309,7 @@ function Start-CachingProxyForwarder {
     # If the privileged forwarder is already running (root-owned, started by
     # Start-CachingProxy.ps1 which called `sudo -v` first), leave it alone.
     # Killing a root process requires sudo credentials that the caller
-    # (e.g. Invoke-TestRunner) may not have cached ? and the correct CacheIp
+    # (e.g. Invoke-TestRunner) may not have cached -- and the correct CacheIp
     # is already baked into the running process. Only restart if crashed.
     if ($needsSudo -and (Get-CachingProxyForwarder -Port $Port)) {
         Write-Information "  Port ${Port} forwarder already running (root-owned); skipping restart." -InformationAction Continue
@@ -366,7 +366,7 @@ function Start-CachingProxyForwarder {
 .DESCRIPTION
     Reads $HOME/yuruna/image/caching-proxy/forwarder.<Port>.pid and verifies the
     PID belongs to Start-CachingProxyForwarder.ps1 (via /bin/ps -o
-    command=) before signalling ? a stale pidfile pointing at an
+    command=) before signalling -- a stale pidfile pointing at an
     unrelated process must NOT be killed. Sends SIGTERM and waits up to
     2s; escalates to SIGKILL if no response. The pidfile is removed on
     every success path and on stale-pidfile detection so the next Start
@@ -391,12 +391,12 @@ function Stop-CachingProxyForwarder {
     )
     $pidFile = Join-Path $HOME "yuruna/image/caching-proxy/forwarder.$Port.pid"
     if (-not (Test-Path $pidFile)) {
-        if (-not $Quiet) { Write-Output "  No forwarder pidfile ? nothing to stop." }
+        if (-not $Quiet) { Write-Output "  No forwarder pidfile -- nothing to stop." }
         return $true
     }
     $forwarderPid = (Get-Content $pidFile -Raw).Trim()
     if (-not ($forwarderPid -as [int])) {
-        if (-not $Quiet) { Write-Warning "Pidfile '$pidFile' contents invalid: '$forwarderPid' ? removing." }
+        if (-not $Quiet) { Write-Warning "Pidfile '$pidFile' contents invalid: '$forwarderPid' -- removing." }
         Remove-Item -LiteralPath $pidFile -Force -ErrorAction SilentlyContinue
         return $true
     }
@@ -407,12 +407,12 @@ function Stop-CachingProxyForwarder {
     # avoid killing an unrelated pid that matches a stale pidfile.
     $cmd = (& '/bin/ps' -p $forwarderPid -o command= 2>$null) -join ""
     if ($LASTEXITCODE -ne 0 -or -not $cmd) {
-        if (-not $Quiet) { Write-Output "  Forwarder pid $forwarderPid not running ? cleaning pidfile." }
+        if (-not $Quiet) { Write-Output "  Forwarder pid $forwarderPid not running -- cleaning pidfile." }
         Remove-Item -LiteralPath $pidFile -Force -ErrorAction SilentlyContinue
         return $true
     }
     if ($cmd -notmatch 'Start-CachingProxyForwarder\.ps1') {
-        if (-not $Quiet) { Write-Warning "Pid $forwarderPid is not Start-CachingProxyForwarder.ps1 (is: $cmd) ? leaving alone, removing stale pidfile." }
+        if (-not $Quiet) { Write-Warning "Pid $forwarderPid is not Start-CachingProxyForwarder.ps1 (is: $cmd) -- leaving alone, removing stale pidfile." }
         Remove-Item -LiteralPath $pidFile -Force -ErrorAction SilentlyContinue
         return $true
     }
@@ -422,9 +422,9 @@ function Stop-CachingProxyForwarder {
     if (-not $Quiet) { Write-Output "  Stopping forwarder (pid $forwarderPid)..." }
     # /bin/kill sends SIGTERM (default). PowerShell 7's Stop-Process on
     # Unix maps to Process.Kill() == SIGKILL unconditionally, bypassing
-    # graceful shutdown ? hence the external binary for TERM-then-KILL.
+    # graceful shutdown -- hence the external binary for TERM-then-KILL.
     # Port 80's forwarder is root-owned (spawned via sudo); a regular user
-    # cannot signal it ? detect and escalate via sudo kill if needed.
+    # cannot signal it -- detect and escalate via sudo kill if needed.
     $procOwner = "$( & '/bin/ps' -p $forwarderPid -o 'user=' 2>$null )".Trim()
     $meIsRoot  = $false
     try { $meIsRoot = ((& '/usr/bin/id' -u) -eq '0') } catch { Write-Verbose "id -u check failed, assuming non-root: $_" }
@@ -442,7 +442,7 @@ function Stop-CachingProxyForwarder {
             return $true
         }
     }
-    if (-not $Quiet) { Write-Warning "Forwarder $forwarderPid did not exit after SIGTERM ? sending SIGKILL." }
+    if (-not $Quiet) { Write-Warning "Forwarder $forwarderPid did not exit after SIGTERM -- sending SIGKILL." }
     if ($useSudo) {
         & sudo '/bin/kill' -9 $forwarderPid 2>$null | Out-Null
     } else {
@@ -458,7 +458,7 @@ function Stop-CachingProxyForwarder {
     Reports whether the host-side caching-proxy TCP forwarder is running.
 
 .DESCRIPTION
-    Pure observer ? never signals, never removes files. Returns $true
+    Pure observer -- never signals, never removes files. Returns $true
     iff $HOME/yuruna/image/caching-proxy/forwarder.<Port>.pid exists, parses as
     an int, and refers to a live process (via /bin/ps). Does NOT verify
     the process is actually our forwarder; Stop-CachingProxyForwarder
@@ -496,7 +496,7 @@ function Get-CachingProxyForwarder {
     symbols live there; only platform primitives stay here.
 
 .OUTPUTS
-    [int[]] ? ports whose forwarder was stopped (may be empty).
+    [int[]] -- ports whose forwarder was stopped (may be empty).
 #>
 function Stop-AllCachingProxyForwarder {
     [CmdletBinding(SupportsShouldProcess)]
@@ -2185,7 +2185,7 @@ function Send-Text {
         # Required when -Mechanism ssh: maps to the SSH login user via
         # Test.Ssh\Get-GuestSshUser (per-guest test user, ec2-user, root, ...).
         [string]$GuestKey,
-        [int]$CharDelayMs = 30,
+        [int]$CharDelayMs = 10,
         [switch]$Sensitive
     )
     # Sensitive is part of the contract for log redaction; current paths

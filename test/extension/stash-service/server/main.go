@@ -13,12 +13,15 @@ import (
 	"context"
 	"flag"
 	"log"
+	"net"
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"syscall"
 	"time"
 
+	"stash-server/internal/beacon"
 	"stash-server/internal/config"
 	"stash-server/internal/httpsrv"
 	"stash-server/internal/id"
@@ -41,7 +44,9 @@ func main() {
 	poolWindowDays := flag.Int("pool-window-days", config.DefaultPoolWindowDays, "days of cross-host sidecars the pool index holds in memory (stash-service-ui.md §3.2)")
 	poolRefreshSecs := flag.Int("pool-refresh-secs", 60, "pool-index rescan interval in seconds (stash-service-ui.md §11)")
 	listLimit := flag.Int("list-default-limit", config.DefaultListLimit, "default page size for the recent-stash list (stash-service-ui.md §11)")
-	aggregatorURL := flag.String("aggregator-url", "", "pool-aggregator base URL for hostId→stash-UI resolution (stash-service-ui.md §3.4); empty disables the remote-host link (best-effort)")
+	aggregatorURL := flag.String("aggregator-url", "", "pool-aggregator base URL for hostId→stash-UI resolution (stash-service-ui.md §3.4) and the presence beacon (§4.7); empty disables both (best-effort)")
+	hostID := flag.String("host-id", "", "owning HOST's hostId (the pool-table identity) the presence beacon announces under (§4.7); empty disables the beacon")
+	presenceInterval := flag.Duration("presence-interval", config.DefaultPresenceInterval, "presence re-announce period to the pool-aggregator (§4.7); 0 disables the beacon")
 	flag.Parse()
 
 	log.SetFlags(log.LstdFlags | log.LUTC | log.Lmicroseconds)
@@ -136,6 +141,22 @@ func main() {
 		log.Printf("stash-server UI disabled (--http-addr empty)")
 	}
 
+	// Presence beacon (§4.7): self-announce to the pool-aggregator on boot,
+	// every --presence-interval, and (best-effort) at shutdown, so the
+	// dashboard's Extension hosts row exists WITHOUT the owning host's status
+	// server. The announce carries only the UI PORT; the aggregator derives the
+	// service URL from the connection's source address, so the daemon never has
+	// to know its own IP.
+	bcn := beacon.New(*aggregatorURL, *hostID, config.PresenceArea, uiPort(*httpAddr), *presenceInterval)
+	beaconDone := make(chan struct{})
+	if bcn.Enabled() {
+		log.Printf("presence beacon: %s/%s -> %s every %s", bcn.HostID, bcn.Area, bcn.AggregatorURL, bcn.Interval)
+		go func() { bcn.Run(ctx); close(beaconDone) }()
+	} else {
+		log.Printf("presence beacon disabled (needs --aggregator-url, --host-id, and --presence-interval > 0)")
+		close(beaconDone)
+	}
+
 	// Block until the OS signals shutdown (ctx.Done) or a listener returns
 	// early. pending tracks how many listener results still owe a send to
 	// errCh so the drain below can surface every one; the select consumes at
@@ -175,5 +196,31 @@ func main() {
 			log.Printf("listen (shutdown): %v", err)
 		}
 	}
+	// Give the beacon's bounded goodbye announce its window so a deliberate
+	// stop drops the dashboard row immediately instead of aging out; the
+	// timeout backstops a hung network (the goodbye itself is best-effort).
+	select {
+	case <-beaconDone:
+	case <-time.After(8 * time.Second):
+	}
 	log.Printf("stash-server stopped")
+}
+
+// uiPort extracts the port from an --http-addr value like "0.0.0.0:80" for
+// the presence announce's targetPort. 0 (no port to advertise) for an empty
+// or unparseable address -- the beacon still announces presence; the row just
+// carries no service link.
+func uiPort(httpAddr string) int {
+	if httpAddr == "" {
+		return 0
+	}
+	_, portStr, err := net.SplitHostPort(httpAddr)
+	if err != nil {
+		return 0
+	}
+	port, err := strconv.Atoi(portStr)
+	if err != nil || port < 1 || port > 65535 {
+		return 0
+	}
+	return port
 }

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.07
+.VERSION 2026.07.10
 .GUID 42a2b3c4-d5e6-4f78-9012-3a4b5c6d7e92
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -45,10 +45,9 @@ function Wait-VMRunning {
     boot delay. Host-agnostic; relies entirely on the host driver's
     Get-VMState contract.
 .DESCRIPTION
-    Replaces the legacy Confirm-VMStarted -HostType ... pattern. The
-    polling itself is identical on every host -- only the underlying
-    state probe differs, and that difference now lives behind
-    Get-VMState in host/<host-tag>/modules/Yuruna.Host.psm1.
+    The polling is identical on every host -- only the underlying
+    state probe differs, and that difference lives behind Get-VMState
+    in host/<host-tag>/modules/Yuruna.Host.psm1.
 .PARAMETER VMName
     Guest VM name as registered with the host hypervisor.
 .PARAMETER TimeoutSeconds

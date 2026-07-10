@@ -1,6 +1,7 @@
 #cloud-config
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
+#vim:syntax=yaml
 # --- REGION: https://yuruna.link/vmconfig and https://yuruna.link/stash-service
 # Cloud-init for the stash-service VM: ssh + console login, mount the stash
 # share (ystash-nas), fetch the framework, then run the bring-up script that
@@ -63,6 +64,16 @@ write_files:
     content: |
       YURUNA_HOST_IP=YURUNA_HOST_IP_PLACEHOLDER
       YURUNA_HOST_PORT=YURUNA_HOST_PORT_PLACEHOLDER
+  # Pool services coordinates: the pool-aggregator base URL the stash daemon
+  # announces its presence to (and resolves remote hosts through). Single-
+  # quoted like ystash-nas.env; the host bake refuses a value carrying a
+  # quote. Empty (no caching proxy known at bake time) leaves the daemon's
+  # aggregator-dependent features off.
+  - path: /etc/yuruna/pool.env
+    permissions: '0644'
+    owner: root:root
+    content: |
+      YURUNA_AGGREGATOR_URL='YURUNA_AGGREGATOR_URL_PLACEHOLDER'
 runcmd:
   # 1) Mount the stash share (persistent via fstab so it survives reboot and
   #    systemd exposes a mnt-ystash\x2dnas.mount unit the daemon orders After=).

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.07
+.VERSION 2026.07.10
 .GUID 42ab19c1-07c0-4d84-be69-80c4f1c780a8
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -422,7 +422,7 @@ function Initialize-SequenceEngineRegistry {
         "Unknown action 'retry' -- treating as failure." on the first
         verb of the chain.
         Host I/O providers are re-registered later via
-        Initialize-YurunaHost (per-host Test.HostIO.&lt;Host&gt;.psm1 loads
+        Initialize-YurunaHost (per-host Test.HostIO.<Host>.psm1 loads
         there), so Clear-HostIOProvider does not need a matching
         refresh here.
     .PARAMETER ModulesDir

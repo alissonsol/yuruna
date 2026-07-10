@@ -39,7 +39,7 @@ requirements:
     releases: "https://opentofu.org/docs/intro/install/"
   - tool: "Helm"
     command: "helm version --short"
-    version: "v4.2.2"
+    version: "v4.2.3"
     releases: "https://github.com/helm/helm/releases"
   - tool: "Docker"
     # `docker --version` is local (no daemon roundtrip) -- avoids the
@@ -59,7 +59,7 @@ requirements:
     # the third whitespace token is the version.
     command: |-
       ((containerd --version) -split '\s+')[2]
-    version: "v2.3.2"
+    version: "v2.3.3"
     releases: "https://github.com/containerd/containerd/releases"
   - tool: "Kubernetes"
     command: "($(kubectl version --client -o json) | ConvertFrom-Json).clientVersion.gitVersion"
@@ -69,7 +69,7 @@ requirements:
     # `code -v` prints three lines (version / commit / arch); first line
     # is the version.
     command: "(code -v | Select-Object -First 1)"
-    version: "1.127.0"
+    version: "1.128.0"
     releases: "https://code.visualstudio.com/Download"
   - tool: "mkcert"
     # mkcert writes its version banner to stderr -- the `2>&1` redirect
@@ -112,7 +112,7 @@ requirements:
     # the first whitespace is environment context, not version.
     command: |-
       ((aws --version) -replace '\s.*$','')
-    version: "aws-cli/2.35.16"
+    version: "aws-cli/2.35.21"
     releases: "https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html"
   - tool: "Azure cli"
     command: "($(az version) | ConvertFrom-Json).\"azure-cli\""
@@ -122,5 +122,5 @@ requirements:
     # No `-q` and no 2>&1 capture: a broken bundled-python install fails
     # silently rather than dumping a traceback into the version column.
     command: "(gcloud -v | Select-Object -First 1)"
-    version: "Google Cloud SDK 575.0.0"
+    version: "Google Cloud SDK 575.0.1"
     releases: "https://cloud.google.com/sdk/docs/install-sdk"

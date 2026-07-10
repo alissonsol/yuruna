@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.07
+.VERSION 2026.07.10
 .GUID 42d9e0f1-a2b3-4c45-d678-9e0f1a2b3c46
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -88,6 +88,7 @@ Write-Verbose "Creating VM '$VMName' using image: $baseImageFile"
 Import-Module (Join-Path (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))) 'test/modules/Test.Provenance.psm1') -Force
 Write-BaseImageProvenance -BaseImagePath $baseImageFile
 
+# --- REGION: Remove existing VM
 $existingVM = Get-VM -Name $VMName -ErrorAction SilentlyContinue
 if ($existingVM) {
     Write-Output "VM '$VMName' exists. Deleting..."

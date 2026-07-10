@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.07
+.VERSION 2026.07.10
 .GUID 42a2b3c4-d5e6-4f78-9012-3a4b5c6d7e94
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -24,8 +24,8 @@
     Mirrors host/macos.utm/guest.ubuntu.server.24/Get-Image.ps1 and
     host/windows.hyper-v/guest.ubuntu.server.24/Get-Image.ps1 so all three
     hosts boot the same live-server ISO and run subiquity autoinstall.
-    The earlier KVM revision used the pre-baked cloud image (.img) +
-    NoCloud cloud-init seed, which boots in seconds but DOES NOT show
+    The pre-baked cloud image (.img) + NoCloud cloud-init seed
+    alternative boots in seconds but DOES NOT show
     the "Continue with autoinstall?" prompt or fire subiquity's
     late-commands -- making the boot sequence non-comparable across
     hosts (the GUI test sequence step that waits for that prompt would
@@ -35,9 +35,9 @@
     release is preferred; falls back to the rolling daily build.
 
 .PARAMETER daily
-    If set, pulls the rolling daily ISO instead of the latest stable
-    point release. Useful for catching regressions before yuruna
-    pins to a specific point release.
+    If set, pulls the rolling daily ISO instead of the latest stable point
+    release. Useful for catching regressions before a yuruna release commits
+    to a specific point release.
 #>
 
 param(
@@ -62,10 +62,9 @@ switch ($arch) {
 
 $downloadDir = "$HOME/yuruna/image/ubuntu.env"
 
-# The KVM host driver ships Save-CachedHttpUri + Test-DownloadAlreadyCurrent;
-# Save-UbuntuServerImage feature-detects them and routes the ISO download
-# through the squid cache (with the shared 4-line same-source guard) when a
-# cache is reachable, else downloads direct.
+# Yuruna.Host.psm1 supplies Save-CachedHttpUri / Test-DownloadAlreadyCurrent;
+# Yuruna.UbuntuImage.psm1 will pick those up via Get-Command when present so
+# downloads route through the squid cache transparently.
 Import-Module -Name (Join-Path (Split-Path -Parent $PSScriptRoot) 'modules/Yuruna.Host.psm1') -Force
 Import-Module -Name (Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) 'modules/Yuruna.UbuntuImage.psm1') -Force
 
@@ -75,7 +74,8 @@ try {
         -Arch $cloudArch `
         -DownloadDir $downloadDir `
         -BaseImageName 'host.ubuntu.kvm.guest.ubuntu.server.24' `
-        -PreferDaily:$daily
+        -PreferDaily:$daily `
+        -EmitProxyDiagnosticOnFailure
 } catch {
     Write-Error $_.Exception.Message
     exit 1

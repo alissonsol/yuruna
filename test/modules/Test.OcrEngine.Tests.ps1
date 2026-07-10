@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.07
+.VERSION 2026.07.10
 .GUID 421e2a7b-3d84-4f61-9a05-8e6d2b9c4f17
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -25,7 +25,7 @@
     comment that merely names a token cannot keep a guard green after the code is
     removed:
       1. The WinRT worker->one-shot fallback increments a module-scoped counter
-         and emits a rate-limited 'ocr_worker_fallback' event (was Verbose-only).
+         and emits a rate-limited 'ocr_worker_fallback' event (not just Verbose-logged).
       2. Get-VisionOcrBinaryPath carries a process-lifetime negative cache
          ($script:VisionOcrBinaryProbeFailed): it short-circuits on that flag,
          latches it via Write-VisionOcrSlowPathEvent (one-time 'ocr_vision_slowpath'
@@ -231,5 +231,55 @@ Describe 'cap-ocr-engine item 3 -- WinRT one-shot is EAP-guarded and diagnosable
     It 'the one-shot failure detail includes stdout strings, not ErrorRecord only' {
         Assert-True (Test-FunctionThrowsWithVar -FuncAst $invokeWin -VarName 'detail') `
             'a failing powershell.exe often writes its diagnostic to stdout; an ErrorRecord-only filter throws with an empty detail'
+    }
+}
+
+Describe 'ocr-hash-cache -- content-addressed temp-path hashing is centralized' {
+    It 'defines a single shared source-hash-key helper' {
+        Assert-True ([bool](Get-FunctionAst -RootAst $rootAst -FunctionName 'Get-OcrSourceHashKey')) `
+            'the SHA-256 -> 16-hex source-hash slice must live in one shared helper, not be inlined per call site'
+    }
+    It 'defines a single shared content-addressed cache helper' {
+        Assert-True ([bool](Get-FunctionAst -RootAst $rootAst -FunctionName 'Resolve-CachedHashedScriptPath')) `
+            'the write-if-missing + memoize temp-file cache must be shared, not copied per helper'
+    }
+    It 'the WinRT script-path and worker-path caches both delegate to the shared cache helper' {
+        $win = Get-FunctionAst -RootAst $rootAst -FunctionName 'Get-WinRtOcrScriptPath'
+        $wrk = Get-FunctionAst -RootAst $rootAst -FunctionName 'Get-WinRtOcrWorkerScriptPath'
+        Assert-True (Test-AstCallsCommand -Ast $win -CommandName 'Resolve-CachedHashedScriptPath') 'Get-WinRtOcrScriptPath must delegate, not inline the cache'
+        Assert-True (Test-AstCallsCommand -Ast $wrk -CommandName 'Resolve-CachedHashedScriptPath') 'Get-WinRtOcrWorkerScriptPath must delegate, not inline the cache'
+    }
+    It 'the shared cache helper derives its key via the shared hash helper' {
+        $res = Get-FunctionAst -RootAst $rootAst -FunctionName 'Resolve-CachedHashedScriptPath'
+        Assert-True (Test-AstCallsCommand -Ast $res -CommandName 'Get-OcrSourceHashKey') 'the cache helper hashes via the shared slice helper'
+    }
+    It 'Get-VisionOcrBinaryPath reuses the shared hash-key helper for its third copy' {
+        Assert-True (Test-AstCallsCommand -Ast $getVision -CommandName 'Get-OcrSourceHashKey') `
+            'the third inline hash-slice copy must reuse the shared helper'
+    }
+    It 'the raw SHA-256 HashData invocation appears exactly once (inside the helper)' {
+        $hashCalls = $rootAst.FindAll({
+            param($n)
+            $n -is [System.Management.Automation.Language.InvokeMemberExpressionAst] -and
+            $n.Member -is [System.Management.Automation.Language.StringConstantExpressionAst] -and
+            $n.Member.Value -eq 'HashData'
+        }, $true)
+        Assert-True (@($hashCalls).Count -eq 1) "expected exactly one SHA256::HashData call, found $(@($hashCalls).Count)"
+    }
+    It 'preserves the two distinct temp-file prefixes so on-disk filenames are unchanged' {
+        $win = Get-FunctionAst -RootAst $rootAst -FunctionName 'Get-WinRtOcrScriptPath'
+        $wrk = Get-FunctionAst -RootAst $rootAst -FunctionName 'Get-WinRtOcrWorkerScriptPath'
+        Assert-True (Test-AstContainsString -Ast $win -Value 'yuruna-winrt-ocr-') 'the script path keeps its filename prefix'
+        Assert-True (Test-AstContainsString -Ast $wrk -Value 'yuruna-winrt-ocr-worker-') 'the worker path keeps its filename prefix'
+    }
+    It 'each WinRT cache hashes its OWN source string (guards a cross-wired -Source)' {
+        $win = Get-FunctionAst -RootAst $rootAst -FunctionName 'Get-WinRtOcrScriptPath'
+        $wrk = Get-FunctionAst -RootAst $rootAst -FunctionName 'Get-WinRtOcrWorkerScriptPath'
+        Assert-True (Test-AstReferencesVar -Ast $win -VarName 'WinRtOcrScript') 'Get-WinRtOcrScriptPath must hash $script:WinRtOcrScript'
+        Assert-True (Test-AstReferencesVar -Ast $wrk -VarName 'WinRtOcrWorkerScript') 'Get-WinRtOcrWorkerScriptPath must hash $script:WinRtOcrWorkerScript'
+    }
+    It 'the shared cache helper keeps the .ps1 extension default so the emitted script stays -File runnable' {
+        $res = Get-FunctionAst -RootAst $rootAst -FunctionName 'Resolve-CachedHashedScriptPath'
+        Assert-True (Test-AstContainsString -Ast $res -Value 'ps1') 'the cached temp scripts must stay .ps1 (powershell.exe -File runs them)'
     }
 }

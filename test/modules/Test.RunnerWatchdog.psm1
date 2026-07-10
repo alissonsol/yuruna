@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.07
+.VERSION 2026.07.10
 .GUID 42d4e5f6-a7b8-4c91-9234-5d6e7f8a9b0c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -115,33 +115,66 @@ function Start-Watchdog {
         $stepHbFile = Join-Path $runtimeDir 'runner.stepHeartbeat'
         $pidFile    = Join-Path $runtimeDir 'inner.pid'
         $outerLog   = Join-Path $runtimeDir 'outer.log'
-        # Wait briefly for the inner to publish inner.pid + the first
-        # heartbeat. 60 s upper bound: if neither file appears, log and
-        # exit without killing anything -- preferable to picking a PID
-        # blindly. The outer wipes both files before spawning the inner
-        # so a stale copy from the previous cycle can't short-circuit
-        # this wait.
-        $waitUntil = (Get-Date).AddSeconds(60)
+        # Any early exit below leaves the cycle running UNGUARDED, and the
+        # outer is already blocked on the call-op with no live view of this
+        # job -- so every lapse must leave a durable sentinel the outer
+        # surfaces when it regains control, in addition to the log line.
+        $lapseFile = Join-Path $runtimeDir 'runner.watchdog.lapsed'
+        $reportLapse = {
+            param([string]$Why)
+            Add-Content -LiteralPath $outerLog -Value "$((Get-Date).ToString('o')) [watchdog] $Why; exiting watchdog without action -- CYCLE RUNS UNGUARDED."
+            Set-Content -LiteralPath $lapseFile -Value "$((Get-Date).ToString('o')) $Why" -ErrorAction SilentlyContinue
+        }
+        # Wait for the inner to publish inner.pid + the first heartbeat.
+        # 180 s upper bound: a loaded host can take well past a minute to
+        # spawn pwsh and import the runner modules, and a premature
+        # give-up here runs the whole cycle unguarded, while a longer
+        # wait costs nothing (the job just idles). If the file still
+        # never appears, log and exit without killing anything --
+        # preferable to picking a PID blindly. The outer wipes both files
+        # before spawning the inner so a stale copy from the previous
+        # cycle can't short-circuit this wait.
+        $waitUntil = (Get-Date).AddSeconds(180)
         while (-not (Test-Path $pidFile) -and (Get-Date) -lt $waitUntil) {
             Start-Sleep -Seconds 2
         }
         if (-not (Test-Path $pidFile)) {
-            Add-Content -LiteralPath $outerLog -Value "$((Get-Date).ToString('o')) [watchdog] inner.pid never appeared in 60s; exiting watchdog without action."
+            & $reportLapse 'inner.pid never appeared in 180s'
             return
         }
         $innerPid = 0
         try { $innerPid = [int]((Get-Content -LiteralPath $pidFile -Raw).Trim()) } catch { $innerPid = 0 }
         if (-not $innerPid) {
-            Add-Content -LiteralPath $outerLog -Value "$((Get-Date).ToString('o')) [watchdog] inner.pid present but unreadable; exiting watchdog without action."
+            & $reportLapse 'inner.pid present but unreadable'
             return
         }
         # Capture the inner's identity (PID + StartTime) at arm so a later PID reuse
-        # can't fool the disarm/kill decisions below. If the process is already gone
-        # or its start is unreadable here there is nothing valid to guard -> exit.
-        $innerStartUtc = try { (Get-Process -Id $innerPid -ErrorAction Stop).StartTime.ToUniversalTime().ToString('o') } catch { $null }
+        # can't fool the disarm/kill decisions below. Get-Process can fail
+        # transiently on a loaded host for reasons other than process-gone,
+        # so probe a few times before concluding there is nothing to guard.
+        $innerStartUtc = $null
+        for ($armProbe = 0; $armProbe -lt 3 -and -not $innerStartUtc; $armProbe++) {
+            $innerStartUtc = try { (Get-Process -Id $innerPid -ErrorAction Stop).StartTime.ToUniversalTime().ToString('o') } catch { $null }
+            if (-not $innerStartUtc) { Start-Sleep -Seconds 2 }
+        }
         if (-not $innerStartUtc) {
-            Add-Content -LiteralPath $outerLog -Value "$((Get-Date).ToString('o')) [watchdog] inner pid $innerPid not present/readable at arm; exiting watchdog without action."
+            & $reportLapse "inner pid $innerPid not present/readable at arm (3 probes)"
             return
+        }
+        # Confirmation wrapper around the identity predicate for the
+        # NEGATIVE direction only: the predicate reports a transient
+        # Get-Process failure and a genuinely gone/reused PID identically
+        # (both false), and acting on a single false reading permanently
+        # disarms hang protection for the rest of the cycle. Require the
+        # negative to hold across three spaced probes before treating the
+        # inner as gone; a single positive reading short-circuits.
+        $sameInnerConfirmedGone = {
+            param([int]$ProcId, [string]$ExpectedStartUtc)
+            for ($goneProbe = 0; $goneProbe -lt 3; $goneProbe++) {
+                if (& $sameInner $ProcId $ExpectedStartUtc) { return $false }
+                Start-Sleep -Seconds 5
+            }
+            return $true
         }
         Add-Content -LiteralPath $outerLog -Value "$((Get-Date).ToString('o')) [watchdog] armed: innerPid=$innerPid startUtc=$innerStartUtc thresholdSec=$thresholdSec pollSec=$pollSec signal=runner.stepHeartbeat"
         # Arm timestamp: when no step heartbeat has been published yet, staleness is aged from
@@ -149,30 +182,76 @@ function Start-Watchdog {
         $armedAt = Get-Date
         while ($true) {
             Start-Sleep -Seconds $pollSec
-            if (-not (& $sameInner $innerPid $innerStartUtc)) {
-                # PID gone, or a different process now holds it (reused): either way the
-                # armed inner is no longer running, so disarm without touching the PID.
-                Add-Content -LiteralPath $outerLog -Value "$((Get-Date).ToString('o')) [watchdog] inner pid $innerPid no longer matches the armed identity (exited or PID reused); watchdog disarming."
+            if (& $sameInnerConfirmedGone $innerPid $innerStartUtc) {
+                # PID gone, or a different process now holds it (reused), confirmed
+                # across spaced probes: either way the armed inner is no longer
+                # running, so disarm without touching the PID.
+                Add-Content -LiteralPath $outerLog -Value "$((Get-Date).ToString('o')) [watchdog] inner pid $innerPid no longer matches the armed identity (exited or PID reused; confirmed); watchdog disarming."
                 return
             }
-            if (Test-Path $stepHbFile) {
-                $age = ((Get-Date) - (Get-Item -LiteralPath $stepHbFile).LastWriteTime).TotalSeconds
-            } else {
-                # No step heartbeat file yet -> age from arm time so a never-published heartbeat
-                # (inner wedged before its first step write) is treated as stale past the threshold.
-                $age = ((Get-Date) - $armedAt).TotalSeconds
+            try {
+                if (Test-Path $stepHbFile) {
+                    $age = ((Get-Date) - (Get-Item -LiteralPath $stepHbFile).LastWriteTime).TotalSeconds
+                } else {
+                    # No step heartbeat file yet -> age from arm time so a never-published heartbeat
+                    # (inner wedged before its first step write) is treated as stale past the threshold.
+                    $age = ((Get-Date) - $armedAt).TotalSeconds
+                }
+            } catch {
+                # A transient read failure (file replaced between Test-Path and
+                # Get-Item, AV lock) must not crash the job -- a dead watchdog
+                # is a silent unguarded cycle. Treat as not-stale this poll.
+                continue
             }
             if ($age -gt $thresholdSec) {
                 # Re-verify identity immediately before the kill: between the disarm
                 # check above and here the inner could have exited and its PID been
                 # reused, and killing the wrong process is worse than a missed kill.
                 if (& $sameInner $innerPid $innerStartUtc) {
-                    Add-Content -LiteralPath $outerLog -Value "$((Get-Date).ToString('o')) [watchdog] step heartbeat stale $([int]$age)s > $thresholdSec s; killing inner PID $innerPid"
-                    Stop-Process -Id $innerPid -Force -ErrorAction SilentlyContinue
-                } else {
-                    Add-Content -LiteralPath $outerLog -Value "$((Get-Date).ToString('o')) [watchdog] step heartbeat stale but inner PID $innerPid no longer matches the armed identity (exited or PID reused); disarming without kill."
+                    Add-Content -LiteralPath $outerLog -Value "$((Get-Date).ToString('o')) [watchdog] step heartbeat stale $([int]$age)s > $thresholdSec s; killing inner PID $innerPid and its descendants"
+                    # Kill the whole tree, not just the inner pwsh: a wedged
+                    # step usually has live children (console capture, OCR,
+                    # ssh) that would otherwise orphan, keep handles open,
+                    # and confuse the next cycle's process discovery.
+                    if ($IsWindows) {
+                        & taskkill /PID $innerPid /T /F 2>$null | Out-Null
+                        # Backstop when taskkill is unavailable or failed;
+                        # a still-live root is worse than orphaned leaves.
+                        Stop-Process -Id $innerPid -Force -ErrorAction SilentlyContinue
+                    } else {
+                        $childrenOf = @{}
+                        foreach ($row in @(& /bin/ps -eo pid=,ppid= 2>$null)) {
+                            $parts = -split "$row"
+                            if ($parts.Count -eq 2) {
+                                $childrenOf[[int]$parts[1]] = @($childrenOf[[int]$parts[1]]) + [int]$parts[0]
+                            }
+                        }
+                        $doomed = [System.Collections.Generic.List[int]]::new()
+                        $queue  = [System.Collections.Generic.Queue[int]]::new()
+                        $queue.Enqueue($innerPid)
+                        while ($queue.Count -gt 0) {
+                            $cur = $queue.Dequeue()
+                            $doomed.Add($cur)
+                            foreach ($kid in @($childrenOf[$cur])) {
+                                if ($kid) { $queue.Enqueue($kid) }
+                            }
+                        }
+                        # Leaves first so a dying parent can't respawn or
+                        # reparent work mid-sweep; the root goes last.
+                        for ($di = $doomed.Count - 1; $di -ge 0; $di--) {
+                            Stop-Process -Id $doomed[$di] -Force -ErrorAction SilentlyContinue
+                        }
+                    }
+                    return
                 }
-                return
+                if (& $sameInnerConfirmedGone $innerPid $innerStartUtc) {
+                    Add-Content -LiteralPath $outerLog -Value "$((Get-Date).ToString('o')) [watchdog] step heartbeat stale but inner PID $innerPid no longer matches the armed identity (exited or PID reused; confirmed); disarming without kill."
+                    return
+                }
+                # Identity probe failed transiently while the heartbeat is
+                # stale: neither kill (might not be our process) nor disarm
+                # (might still be our wedged inner). Keep polling.
+                Add-Content -LiteralPath $outerLog -Value "$((Get-Date).ToString('o')) [watchdog] step heartbeat stale $([int]$age)s but identity probe is transiently failing; retrying next poll."
             }
         }
     }

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.07
+.VERSION 2026.07.10
 .GUID 42d9e0f1-a2b3-4c45-d678-9e0f1a2b3c47
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -137,6 +137,7 @@ Write-Verbose "Creating VM '$VMName' using image: $baseImageFile"
 Import-Module (Join-Path (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))) 'test/modules/Test.Provenance.psm1') -Force
 Write-BaseImageProvenance -BaseImagePath $baseImageFile
 
+# --- REGION: Remove existing VM
 $existingVM = Get-VM -Name $VMName -ErrorAction SilentlyContinue
 if ($existingVM) {
     Write-Output "VM '$VMName' exists. Deleting..."
@@ -274,7 +275,7 @@ To intentionally skip the cache:
 }
 
 # --- REGION: Build the autoinstall apt block
-# Build the autoinstall apt block: always emit `geoip: false` + a pinned
+# Always emit `geoip: false` + a pinned
 # `primary:` mirror (deterministic election; `primary:` not `sources_list:`,
 # see feedback_macos_utm_apt_block_resolute_curtin_trap.md).
 # --- REGION: https://yuruna.link/vmconfig#apt-proxy-block
@@ -328,16 +329,9 @@ if (Test-Path $YurunaTestConfig) {
 }
 
 # --- REGION: Fetch caching-proxy CA cert (base64-embedded in seed)
-# Mirrors host/macos.utm/guest.ubuntu.server.24/New-VM.ps1. The installer's
-# late-commands write the cert from CA_CERT_BASE64_PLACEHOLDER before
-# any HTTPS apt fetch, so SSL-bump caching works from the first install
-# request. An empty $CaCertBase64 is NOT a harmless no-op: the seed still
-# routes the guest's HTTPS through the bump (:3129) and locks direct :443
-# egress, so a CA-less guest fails every HTTPS with curl rc=60 ("self-signed
-# certificate in certificate chain"). Retry the fetch under the shared
-# capped-backoff policy so one blip against a slow or flapping caching proxy
-# does not strand the guest without the CA. See
-# feedback_sslbump_rc60_untrusted_chain_and_ca_gate_trap.
+# --- REGION: https://yuruna.link/network#caching-proxy-ca-cert-rc60-gate
+# An empty $CaCertBase64 is NOT a harmless no-op (curl rc=60 SSL-bump gate);
+# see feedback_sslbump_rc60_untrusted_chain_and_ca_gate_trap.
 $CaCertBase64 = ""
 if ($CachingProxyUrl) {
     Import-Module -Name (Join-Path $PSScriptRoot '../../../automation/Yuruna.Retry.psm1') -Force

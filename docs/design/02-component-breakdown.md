@@ -14,7 +14,7 @@ flowchart TD
     set-workload[Set-Workload.ps1<br/>Yuruna.Workload]
     validation[Test-Runtime / Test-Requirement<br/>Test-Configuration]
     config-parse[Import.Yaml + VariableExpansion<br/>Invoke-DynamicExpression]
-    cross-cutting[Retry / Result / Log<br/>cross-cutting psm1]
+    cross-cutting[Retry / Result / Log<br/>DeploymentKind psm1]
     diagnostic[Get-SystemDiagnostic.ps1<br/>post-phase verify]
 
     config-parse --> set-resource --> set-component --> set-workload
@@ -24,6 +24,15 @@ flowchart TD
     cross-cutting -.-> set-workload
     set-workload --> diagnostic
 ```
+
+`automation/yuruna.ps1` dispatches the same functions one operation per
+call (`requirements | clear | validate | resources | components |
+workloads`); it does not chain phases. Each `Publish-*List` re-runs its
+matching `Confirm-*List` (`Yuruna.Validation.psm1`) before deploying, and
+`Set-Workload.ps1` auto-runs `Test-Runtime.ps1` first. `Invoke-Clear.ps1`
+(`Yuruna.Clear`) tears down via `tofu destroy`. The host-provisioning
+helpers (`Yuruna.HostSetup`, `Yuruna.GuestSeed`, `Yuruna.CloudInitTemplate`)
+also live in `automation/` but serve the Host Provisioning layer.
 
 ## Host Provisioning — `host/`
 
@@ -45,6 +54,10 @@ flowchart TD
     infra-guests -.-> host-contract
 ```
 
+Each provider ships the same surface: a driver `modules/Yuruna.Host.psm1`
+(verb set enforced by `Yuruna.Host.Contract.psm1`) plus one `guest.<key>/`
+folder per supported guest holding `Get-Image.ps1` + `New-VM.ps1`;
+`macos.utm/` additionally has `guest.macos.26`, absent elsewhere.
 `infra-guests` (`guest.caching-proxy`, `guest.stash-service`) is a logical
 aggregate: these directories live nested under each provider
 (`windows.hyper-v/`, `ubuntu.kvm/`, `macos.utm/`), not at the `host/` root
@@ -63,8 +76,10 @@ flowchart TD
     amazon-linux -.- ubuntu-24 -.- ubuntu-26 -.- windows-11 -.- macos-26
 ```
 
-Each holds the in-guest workload scripts fetched and run via
-`automation/fetch-and-execute.sh` once the guest is booted.
+Each holds the in-guest workload scripts, named
+`<guest>.<workload>.sh|ps1`, fetched and run via
+`automation/fetch-and-execute.sh` (Linux) or `irm | iex` (Windows) once
+the guest is booted.
 
 ## Test Harness — `test/`
 
@@ -73,9 +88,9 @@ flowchart TD
     runner[Invoke-TestRunner.ps1<br/>outer/inner loop, watchdog, state]
     sequences[sequences/ gui+ssh<br/>Invoke-Sequence + OCR]
     status[status/<br/>HTTP UI + runtime state]
-    extensions[extension/<br/>auth, notify, parser, pool, stash]
-    pool[pool/<br/>multi-host pool admin]
-    cache-stash[caching proxy + stash<br/>Start/Stop scripts]
+    extensions[extension/<br/>auth, notify, parser, pool-aggregator, stash]
+    pool[pool admin CLIs<br/>New-Pool, Set-PoolDesiredState, pool/]
+    cache-stash[caching proxy / stash / host-config<br/>Start-Stop scripts]
     schemas[schemas/<br/>YAML validation schemas]
 
     runner --> sequences
@@ -107,10 +122,10 @@ flowchart TD
     examples[yuruna-project/example<br/>website, text-to-sql]
     template[yuruna-project/template<br/>placeholder scaffold]
     cloud-config[config/&lt;cloud&gt;<br/>resources/components/workloads.yml]
-    components-dir[components/&lt;project&gt;<br/>Dockerfiles + build context]
-    workloads-dir[workloads/&lt;project&gt;<br/>Helm charts]
+    components-dir[components/&lt;buildPath&gt;<br/>Dockerfiles + build context]
+    workloads-dir[workloads/&lt;chart&gt;<br/>Helm charts]
     global-resources[global/resources<br/>OpenTofu templates per cloud]
-    vault[vault<br/>users.yml, transports.yml]
+    vault[vault.yml runtime +<br/>users.yml, transports.yml]
 
     examples --> cloud-config
     template --> cloud-config
@@ -120,23 +135,35 @@ flowchart TD
     vault -.-> cloud-config
 ```
 
+Project `resources/` folders in the examples hold only placeholders, so
+resource templates resolve to `global/resources/<template>` (the fallback
+in `Yuruna.Resource.psm1`). `global/config/gcp/` holds only a credential
+stub — no `global/resources/gcp` templates exist, so `gcp` remains
+planned. `vault.yml` is runtime-generated and git-ignored (under
+`test/status/extension/authentication/`); `users.yml` / `transports.yml`
+are its operator-edited companions.
+
 ## External Services
 
 ```mermaid
 flowchart TD
-    clouds[Cloud providers<br/>AWS / Azure / GCP]
-    registries[Registries<br/>ECR / ACR / zot / localhost]
-    clusters[Kubernetes<br/>EKS / AKS / GKE / docker-desktop]
+    clouds[Cloud providers<br/>AWS / Azure]
+    registries[Registries<br/>ECR / ACR / localhost]
+    clusters[Kubernetes<br/>EKS / AKS / docker-desktop]
     github[GitHub<br/>framework + project repos]
     mirrors[Upstream mirrors<br/>apt / dnf, images]
-    ocr[OCR engines<br/>Tesseract / WinRT]
+    ocr[OCR engines<br/>Tesseract / WinRT / macOS Vision]
 
     clouds -.- registries -.- clusters
     github -.- mirrors -.- ocr
 ```
 
+GCP/GKE are planned, not available (`global/config/gcp/` is a credential
+stub only). OCR engines are the built-ins registered by
+`test/modules/Test.OcrEngine.psm1`: `tesseract`, `winrt`, `macos-vision`.
+
 ---
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.07
+Last review: 2026.07.10

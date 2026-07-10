@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.07
+.VERSION 2026.07.10
 .GUID 42f1b2c3-d4e5-4f67-8901-a2b3c4d5e680
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -59,7 +59,34 @@ if (-not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdent
 # failure that breaks first post-install runs on fresh Windows 11.
 if (-not (Assert-HyperVEnabled)) { exit 1 }
 
+# --- REGION: Seek the base image
+$downloadDir = (Get-VMHost).VirtualHardDiskPath
+$baseImageName = "host.windows.hyper-v.guest.stash-service"
+$baseImageFile = Join-Path $downloadDir "$baseImageName.vhdx"
+
+# Auto-run Get-Image.ps1 once if the base image is missing; recheck and
+# only error out when it's still missing afterward.
+if (!(Test-Path -Path $baseImageFile)) {
+    $getImageScript = Join-Path $PSScriptRoot 'Get-Image.ps1'
+    if (Test-Path -LiteralPath $getImageScript) {
+        Write-Output "Base image missing: $baseImageFile"
+        Write-Output "Auto-running $getImageScript to fetch it..."
+        & pwsh -NoProfile -File $getImageScript
+        $getImageExit = $LASTEXITCODE
+        if ($getImageExit -ne 0) {
+            Write-Error "Auto Get-Image.ps1 exited $getImageExit. Cannot create VM."
+            exit 1
+        }
+    }
+    if (!(Test-Path -Path $baseImageFile)) {
+        Write-Error "Base image not found at '$baseImageFile' after auto Get-Image. Run Get-Image.ps1 manually."
+        exit 1
+    }
+}
+
 # --- REGION: Remove existing VM
+# Runs AFTER the base image is confirmed so a failed image fetch never
+# destroys a working VM.
 $existingVM = Get-VM -Name $VMName -ErrorAction SilentlyContinue
 if ($existingVM) {
     Write-Output "VM '$VMName' exists. Deleting..."
@@ -81,31 +108,6 @@ if ($existingVM) {
         throw "Hyper-V\Remove-VM returned success for '$VMName' but Get-VM still finds it; aborting before re-creation."
     }
     Write-Output "VM '$VMName' deleted."
-}
-
-# --- REGION: Seek the base image
-$downloadDir = (Get-VMHost).VirtualHardDiskPath
-$baseImageName = "host.windows.hyper-v.guest.stash-service"
-$baseImageFile = Join-Path $downloadDir "$baseImageName.vhdx"
-
-# Auto-run Get-Image.ps1 once if the base image is missing; recheck and
-# only error out when it's still missing afterward.
-if (!(Test-Path -Path $baseImageFile)) {
-    $getImageScript = Join-Path $PSScriptRoot 'Get-Image.ps1'
-    if (Test-Path -LiteralPath $getImageScript) {
-        Write-Output "Base image missing: $baseImageFile"
-        Write-Output "Auto-running $getImageScript to fetch it..."
-        & pwsh -NoProfile -File $getImageScript
-        $getImageExit = $LASTEXITCODE
-        if ($getImageExit -ne 0) {
-            Write-Error "Auto Get-Image.ps1 exited $getImageExit. Cannot create VM."
-            exit 1
-        }
-    }
-    if (!(Test-Path -Path $baseImageFile)) {
-        Write-Output "Base image not found at '$baseImageFile' after auto Get-Image. Run Get-Image.ps1 manually."
-        exit 1
-    }
 }
 
 # --- REGION: Copy base image -> per-VM disk
@@ -160,9 +162,10 @@ if (-not $switchName) {
 
 # Host coordinates (status server, for the in-VM source fetch) + stash storage
 # coordinates (the share the daemon writes to), baked into the seed.
-Import-Module (Join-Path $_repoRoot 'test/modules/Test.PoolStorage.psm1') -Global -Force
-Import-Module (Join-Path $_repoRoot 'test/modules/Test.YurunaDir.psm1')   -Global -Force
-Import-Module (Join-Path $_repoRoot 'test/modules/Test.Config.psm1')      -Global -Force
+Import-Module (Join-Path $_repoRoot 'test/modules/Test.PoolStorage.psm1')  -Global -Force
+Import-Module (Join-Path $_repoRoot 'test/modules/Test.YurunaDir.psm1')    -Global -Force
+Import-Module (Join-Path $_repoRoot 'test/modules/Test.Config.psm1')       -Global -Force
+Import-Module (Join-Path $_repoRoot 'test/modules/Test.CachingProxy.psm1') -Global -Force
 $YurunaHostIp = Get-GuestReachableHostIp -SwitchName $switchName
 if (-not $YurunaHostIp) { $YurunaHostIp = '' }
 $YurunaHostPort = '8080'
@@ -173,6 +176,9 @@ if (Test-Path -LiteralPath $YurunaTestConfig) {
     if ($tc -and $tc.statusService -and $tc.statusService.port) { $YurunaHostPort = "$($tc.statusService.port)" }
 }
 $ystashNas = Get-YurunaStashSeedValue -Config $tc
+# Pool-aggregator base URL for the guest's presence beacon + remote-host
+# resolution; '' (no caching proxy known) leaves those features off in-guest.
+$aggregatorSeedUrl = Get-PoolAggregatorSeedUrl
 
 # Render user-data from the shared base + Hyper-V overlay (host/vmconfig/
 # stash-service.*). Build-CloudInitUserData resolves placeholders with literal
@@ -192,6 +198,7 @@ $UserData = Build-CloudInitUserData `
         YSTASH_NAS_NETWORK_USER_PLACEHOLDER  = $ystashNas.NetworkUser
         YSTASH_NAS_PASSWORD_PLACEHOLDER      = $ystashNas.Password
         YSTASH_NAS_HOST_ID_PLACEHOLDER       = $ystashNas.HostId
+        YURUNA_AGGREGATOR_URL_PLACEHOLDER    = $aggregatorSeedUrl
     } -Confirm:$false
 Set-Content -Path "$SeedDir/user-data" -Value $UserData -NoNewline
 
@@ -227,6 +234,7 @@ if ($hostCores -lt 4) {
 $vmCores = [math]::Max(4, [math]::Floor($hostCores / 2))
 Set-VMProcessor -VMName $VMName -Count $vmCores | Out-Null
 
+# --- REGION: Cleanup temporary folders
 Remove-Item -LiteralPath $SeedDir -Recurse -Force -ErrorAction SilentlyContinue
 
 # --- REGION: Start VM and wait for IP

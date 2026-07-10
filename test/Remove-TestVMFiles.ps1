@@ -1,5 +1,5 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.07.07
+.VERSION 2026.07.10
 .GUID 42c3d4e5-f6a7-4b89-0c12-de3f4a5b6c7d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -16,17 +16,31 @@
 
 #requires -version 7
 
+<#
+.SYNOPSIS
+    Stop and remove test VMs (by name prefix) and their leftover files.
+.DESCRIPTION
+    Operator entry point, also invoked by the cycle-start sweep in
+    Invoke-TestInnerRunner. Resolves the VM-name prefix from -Prefix, then
+    test.config.yml's vmStart.testVmNamePrefix, then the "test-" fallback,
+    and removes the matching VMs and their orphaned files.
+.PARAMETER Prefix
+    VM-name prefix selecting which VMs to remove. When omitted, the prefix
+    is read from test.config.yml (vmStart.testVmNamePrefix) so a manual
+    invocation matches what the runner used; falls back to "test-".
+.PARAMETER Quiet
+    Suppress per-step "Stopping ... Removed ..." chatter and the
+    host-recommendation block so an automated caller gets a single visible
+    line: "Running orphaned VM file cleanup: <path>". Routine status lines
+    flip to Write-Verbose; Write-Warning and Write-Error remain visible
+    because they always represent an actual problem the operator needs to
+    see. -Quiet alone DOES NOT bypass any destructive confirmation.
+.EXAMPLE
+    ./Remove-TestVMFiles.ps1 -Prefix test-
+#>
+
 param(
     [string]$Prefix,
-    # Quiet mode: suppress per-step "Stopping ... Removed ..." chatter and
-    # the host-recommendation block so an automated caller (the cycle-start
-    # sweep in Invoke-TestInnerRunner) gets a single visible line:
-    #   "Running orphaned VM file cleanup: <path>"
-    # Routine status lines flip to Write-Verbose; Write-Warning and
-    # Write-Error remain visible because they always represent an actual
-    # problem the operator needs to see. The Force flag below is the only
-    # destructive-confirmation suppression; -Quiet alone DOES NOT bypass
-    # any confirmation. Direct invocation (no -Quiet) prints the full log.
     [switch]$Quiet
 )
 

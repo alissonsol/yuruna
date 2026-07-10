@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.07
+.VERSION 2026.07.10
 .GUID 42c1d2e3-f4a5-4678-9012-3c4d5e6f7a8b
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -31,7 +31,7 @@
     walk the same two structures -- a flat `variables` hashtable and
     the nested `resources.output.yml` shape with its `globalVariables`
     special case -- and both push every key to env so subsequent
-    `${env:...}` references resolved against the merged state. Hoisting
+    `${env:...}` references resolve against the merged state. Hoisting
     the walk here, with an opt-in `-NoExpand` switch, means a future
     schema tweak (a new sentinel resource type, a new debug pattern)
     lands in one place rather than three.

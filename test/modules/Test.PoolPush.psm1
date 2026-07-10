@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.07
+.VERSION 2026.07.10
 .GUID 429b1c74-2a6d-4f38-91c0-7b3e8d2a4f16
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -18,7 +18,7 @@
 
 <#
 .SYNOPSIS
-    Runner-side push forwarder for the pool aggregator's POST /ingest (Phase 6): ships a
+    Runner-side push forwarder for the pool aggregator's POST /ingest: ships a
     cycle's NDJSON events to the aggregator so they reach Loki without waiting for the next
     pull (closes the between-poll trailing-event gap). SUPPLEMENTS pull; pull stays the
     discovery + backfill authority, and Loki dedups the overlap by the event's own

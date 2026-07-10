@@ -1,10 +1,9 @@
 #!/bin/bash
-# Version: 2026.07.07
+# Version: 2026.07.10
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 set -euo pipefail
 
-# Non-interactive mode for all installations
 export DEBIAN_FRONTEND=noninteractive
 export NONINTERACTIVE=1
 
@@ -26,6 +25,11 @@ esac
 
 # --- REGION: https://yuruna.link/network#defining-yuruna-retry-lib
 . /usr/local/lib/yuruna/yuruna-retry.sh
+# Baked retry libs may default apt attempts to a wall-clock bound -- the
+# wrapped-apt teardown-hang trap class (apt blocks at end-of-transaction
+# under a timeout(1) parent). Force unbounded regardless of the image's
+# lib vintage; remove once no image predates the lib's unbounded default.
+export YURUNA_APT_STALL_TIMEOUT=0
 
 # --- REGION: https://yuruna.link/memory#why-ubuntu-guest-update-scripts-install-powershell-first
 echo ""
@@ -126,6 +130,7 @@ fi
 echo "TESTHACK: Disabling services that may suspend the machine."
 sudo systemctl mask sleep.target suspend.target hibernate.target hybrid-sleep.target
 
+echo "TESTHACK: Disabling update notifier popups that steal focus from the Terminal during tests."
 sudo sed -i 's/^Prompt=.*/Prompt=never/' /etc/update-manager/release-upgrades 2>/dev/null || true
 sudo tee /etc/apt/apt.conf.d/10periodic >/dev/null <<'EOF'
 APT::Periodic::Update-Package-Lists "0";
@@ -200,8 +205,13 @@ if [ ! -d "$REAL_HOME/yuruna" ]; then
       echo "yuruna: repositories.frameworkUrl missing from test.config.yml - cannot clone framework" >&2
       exit 1
     fi
+    # git ships no stall detection (http.lowSpeedLimit/Time unset), so a
+    # clone stalled mid-transfer would hang this attempt forever and the
+    # retry ladder below it would never fire (the stalled-transfer trap
+    # class); the low-speed pair aborts a <1 KB/s-for-60s transfer into
+    # the retry path instead.
     for attempt in 1 2 3; do
-      git clone "$FRAMEWORK_URL" "$REAL_HOME/yuruna" && break
+      git -c http.lowSpeedLimit=1024 -c http.lowSpeedTime=60 clone "$FRAMEWORK_URL" "$REAL_HOME/yuruna" && break
       echo "git clone attempt $attempt failed"
       rm -rf "$REAL_HOME/yuruna"
       [ $attempt -lt 3 ] && sleep 60
@@ -234,7 +244,7 @@ if [ ! -d "$REAL_HOME/yuruna/project" ]; then
   fi
   if [ "$PROJECT_HOST_OK" = "false" ] && [ -n "$PROJECT_URL" ]; then
     for attempt in 1 2 3; do
-      git clone "$PROJECT_URL" "$REAL_HOME/yuruna/project" && break
+      git -c http.lowSpeedLimit=1024 -c http.lowSpeedTime=60 clone "$PROJECT_URL" "$REAL_HOME/yuruna/project" && break
       echo "project git clone attempt $attempt failed"
       rm -rf "$REAL_HOME/yuruna/project"
       [ $attempt -lt 3 ] && sleep 60
@@ -248,3 +258,36 @@ fi
 
 # Tarball extraction and any sudo'd cleanup may have left root-owned files.
 sudo chown -R "$REAL_USER:$REAL_USER" "$REAL_HOME/yuruna" 2>/dev/null || true
+
+# --- REGION: https://yuruna.link/network#guest-update-network-convergence-before-handoff
+# apt transactions can bounce the DHCP lease at the transaction tail;
+# settle the link (max 30 s, never fatal) before the first host->guest SSH.
+echo ""
+echo -e "\e[1;36m==== Network convergence ====\e[0m"
+if systemctl is-active --quiet NetworkManager && command -v nm-online >/dev/null 2>&1; then
+  nm-online -q -t 30 || echo "WARNING: nm-online did not report 'online' within 30s; continuing."
+elif systemctl is-active --quiet systemd-networkd; then
+  # systemd-networkd-wait-online lives outside PATH; resolve it explicitly.
+  # --any: succeed once at least one link is online (single-NIC guests have
+  # no second link to wait on).
+  networkd_wait=""
+  for cand in /usr/lib/systemd/systemd-networkd-wait-online /lib/systemd/systemd-networkd-wait-online; do
+    if [ -x "$cand" ]; then
+      networkd_wait="$cand"
+      break
+    fi
+  done
+  if [ -n "$networkd_wait" ]; then
+    "$networkd_wait" --any --timeout=30 || echo "WARNING: systemd-networkd-wait-online did not report 'online' within 30s; continuing."
+  else
+    echo "WARNING: systemd-networkd active but systemd-networkd-wait-online not found; continuing."
+  fi
+else
+  echo "WARNING: no active NetworkManager/systemd-networkd to wait on; continuing."
+fi
+
+# A definite end-of-script line keeps the console repainting up to the
+# handoff, so the FETCHED AND EXECUTED marker lands adjacent to real output
+# instead of after a silent gap a headless capture surface would freeze on.
+# See feedback_frozen_capture_feed_idle_tail.
+echo -e "\e[1;32m==== Network ready. ====\e[0m"

@@ -92,6 +92,43 @@ kubectl get pods -A
 kubectl config current-context
 ```
 
+## Test-sequence notes
+
+### Why the website readiness check waits on Deployment availability, not Endpoints
+
+The website workload's GUI test waits on **Deployment availability**,
+not on Endpoints addresses:
+
+```
+kubectl wait --for=condition=available deployment/website -n website --timeout=240s
+```
+
+The old check looked at `endpoints/website-service`, which was wrong on
+two counts:
+
+1. **Wrong name.** The helm chart's Service is `website`, not
+   `website-service` — that name is on the standalone manifest in
+   `components/frontend/website/` used for ad-hoc `kubectl apply`, not
+   in-cluster.
+2. **Wrong signal.** It reported `NotFound` instantly when the
+   Deployment was 0/1 ready, masking the real fault (a pod Evicted by
+   ephemeral-storage pressure, its replacement stuck on the
+   disk-pressure taint).
+
+`--for=condition=available` blocks on the actual
+`Deployment.status.conditions` readiness signal, so the test waits the
+full 240 s and the diagnostic captures a useful pod state.
+
+### Reclaim build-cache disk before deploy
+
+The dotnet SDK build leaves ~1.3 GiB in `docker buildx prune` territory
+and another ~0.5 GiB of dangling intermediate images. On a 14 GiB node
+disk that was enough to trip kubelet's 85% ephemeral-storage watermark,
+get the workload + nginx-ingress pods Evicted, and leave their
+replacements stuck on the disk-pressure taint. The workload scripts
+prune both caches before the cluster deploys; failure there is
+non-fatal — only the side effect matters.
+
 ## See also
 
 - [Yuruna Syntax](syntax.md) — CLI reference for the three phases
@@ -102,6 +139,6 @@ kubectl config current-context
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.07
+Last review: 2026.07.10
 
 Back to [Yuruna](../README.md)

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.07
+.VERSION 2026.07.10
 .GUID 42c9d0e1-f2a3-4b45-9678-9a0b1c2d3e42
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -494,6 +494,35 @@ function Update-ProjectClone {
     return @{ success = $true; skipped = $false; errorMessage = $null }
 }
 
+# Shared PSGallery module-install policy for the two dependency bootstrappers below:
+# return $true when already discoverable, honor -WhatIf via ShouldProcess, else
+# Install-Module at CurrentUser scope with -Force -AllowClobber (-Force suppresses the
+# untrusted-repository prompt that would otherwise hang an unattended run), and warn +
+# return $false on failure. Every message derives from $Name, so the two public
+# wrappers below need no message text of their own.
+function Install-YurunaGalleryModuleIfMissing {
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([bool])]
+    param([Parameter(Mandatory)][string]$Name)
+
+    if (Get-Module -ListAvailable -Name $Name -ErrorAction SilentlyContinue) {
+        Write-Verbose "$Name already installed."
+        return $true
+    }
+    if (-not $PSCmdlet.ShouldProcess($Name, 'Install-Module (CurrentUser scope)')) {
+        Write-Information "WhatIf: Install-Module $Name -Scope CurrentUser" -InformationAction Continue
+        return $false
+    }
+    try {
+        Install-Module -Name $Name -Scope CurrentUser -Force -AllowClobber -ErrorAction Stop
+        Write-Information "Installed module: $Name (CurrentUser scope)." -InformationAction Continue
+        return $true
+    } catch {
+        Write-Warning "Failed to install ${Name}: $($_.Exception.Message). Install manually with: Install-Module $Name -Scope CurrentUser"
+        return $false
+    }
+}
+
 function Install-PowerShellYamlIfMissing {
 <#
 .SYNOPSIS
@@ -521,23 +550,7 @@ function Install-PowerShellYamlIfMissing {
     [CmdletBinding(SupportsShouldProcess)]
     [OutputType([bool])]
     param()
-
-    if (Get-Module -ListAvailable -Name powershell-yaml -ErrorAction SilentlyContinue) {
-        Write-Verbose "powershell-yaml already installed."
-        return $true
-    }
-    if (-not $PSCmdlet.ShouldProcess('powershell-yaml', 'Install-Module (CurrentUser scope)')) {
-        Write-Information "WhatIf: Install-Module powershell-yaml -Scope CurrentUser" -InformationAction Continue
-        return $false
-    }
-    try {
-        Install-Module -Name powershell-yaml -Scope CurrentUser -Force -AllowClobber -ErrorAction Stop
-        Write-Information "Installed module: powershell-yaml (CurrentUser scope)." -InformationAction Continue
-        return $true
-    } catch {
-        Write-Warning "Failed to install powershell-yaml: $($_.Exception.Message). Install manually with: Install-Module powershell-yaml -Scope CurrentUser"
-        return $false
-    }
+    return Install-YurunaGalleryModuleIfMissing -Name 'powershell-yaml' @PSBoundParameters
 }
 
 function Install-PSScriptAnalyzerIfMissing {
@@ -564,23 +577,7 @@ function Install-PSScriptAnalyzerIfMissing {
     [CmdletBinding(SupportsShouldProcess)]
     [OutputType([bool])]
     param()
-
-    if (Get-Module -ListAvailable -Name PSScriptAnalyzer -ErrorAction SilentlyContinue) {
-        Write-Verbose "PSScriptAnalyzer already installed."
-        return $true
-    }
-    if (-not $PSCmdlet.ShouldProcess('PSScriptAnalyzer', 'Install-Module (CurrentUser scope)')) {
-        Write-Information "WhatIf: Install-Module PSScriptAnalyzer -Scope CurrentUser" -InformationAction Continue
-        return $false
-    }
-    try {
-        Install-Module -Name PSScriptAnalyzer -Scope CurrentUser -Force -AllowClobber -ErrorAction Stop
-        Write-Information "Installed module: PSScriptAnalyzer (CurrentUser scope)." -InformationAction Continue
-        return $true
-    } catch {
-        Write-Warning "Failed to install PSScriptAnalyzer: $($_.Exception.Message). Install manually with: Install-Module PSScriptAnalyzer -Scope CurrentUser"
-        return $false
-    }
+    return Install-YurunaGalleryModuleIfMissing -Name 'PSScriptAnalyzer' @PSBoundParameters
 }
 
 Export-ModuleMember -Function Invoke-GitPull, Get-GitUpstreamStatus, Get-CurrentGitCommit, Get-FileLockingProcess, Update-ProjectClone, Install-PowerShellYamlIfMissing, Install-PSScriptAnalyzerIfMissing

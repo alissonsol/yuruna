@@ -1,10 +1,9 @@
 #!/bin/bash
-# Version: 2026.07.07
+# Version: 2026.07.10
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 set -euo pipefail
 
-# Non-interactive mode for all installations
 export DEBIAN_FRONTEND=noninteractive
 export NONINTERACTIVE=1
 
@@ -26,6 +25,11 @@ esac
 
 # --- REGION: https://yuruna.link/network#defining-yuruna-retry-lib
 . /usr/local/lib/yuruna/yuruna-retry.sh
+# Baked retry libs may default apt attempts to a wall-clock bound -- the
+# wrapped-apt teardown-hang trap class (apt blocks at end-of-transaction
+# under a timeout(1) parent). Force unbounded regardless of the image's
+# lib vintage; remove once no image predates the lib's unbounded default.
+export YURUNA_APT_STALL_TIMEOUT=0
 
 echo ""
 echo -e "\e[1;36m==== PostgreSQL ====\e[0m"

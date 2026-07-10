@@ -3,32 +3,28 @@
 # https://registry.terraform.io/providers/hashicorp/azurerm/latest
 
 terraform {
-  required_version = ">= 1.1.5"
+  required_version = ">= 1.12.3"
 
   required_providers {
     azurerm = {
-      version = "~> 2.95.0"
+      version = "~> 4.80"
       source = "hashicorp/azurerm"
     }
     kubernetes = {
-      version = "~> 2.8.0"
+      version = "~> 3.2"
       source = "hashicorp/kubernetes"
     }
     local = {
-      version = "~> 2.1.0"
+      version = "~> 2.9"
       source = "hashicorp/local"
     }
     null = {
-      version = "~> 3.1.0"
+      version = "~> 3.3"
       source = "hashicorp/null"
     }
     random = {
-      version = "~> 3.1.0"
+      version = "~> 3.9"
       source = "hashicorp/random"
     }
-    template = {
-      version = "~> 2.2.0"
-      source = "hashicorp/template"
-    }
-  }  
+  }
 }

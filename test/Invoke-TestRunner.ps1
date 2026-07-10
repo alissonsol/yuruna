@@ -1,5 +1,5 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.07.07
+.VERSION 2026.07.10
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456707
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -34,12 +34,11 @@
     inner -- is just another failure that the outer absorbs and retries.
 
 .DESCRIPTION
-    Splits the previous monolithic Invoke-TestRunner.ps1 into a thin
-    outer (this file) and a single-cycle inner
-    (modules/Invoke-TestInnerRunner.ps1 -- intentionally placed under
-    modules/ so it's not mistaken for an entry-point script in the test/
-    folder; the operator never invokes it directly).
-    Benefits over the prior in-process loop:
+    Two-process design: a thin outer (this file) and a single-cycle
+    inner (modules/Invoke-TestInnerRunner.ps1 -- intentionally placed
+    under modules/ so it's not mistaken for an entry-point script in the
+    test/ folder; the operator never invokes it directly).
+    Why the split:
       * fresh pwsh per cycle on every host -- one code path, no platform-
         specific in-process / spawn fork
       * O(1) resident memory; outer is the only resident process and
@@ -120,11 +119,10 @@ if (-not (Test-Path -LiteralPath $InnerScript)) {
     exit (Get-EntryPointExitCode -Outcome Failure)
 }
 
-# Outer entry-point's canonical module set: shared bootstrap helper in
-# Test.Prelude collapses the prior 8 inline Import-Module calls (Test.
-# Host, RuntimeDir, LogDir, Config, InnerSpawn, ConfigGate, Capability,
-# SingleInstance) into a single call. See Initialize-YurunaEntryPoint
-# ModuleSet for the per-kind module lists.
+# Outer entry-point's canonical module set: one Test.Prelude bootstrap
+# call loads Test.Host, RuntimeDir, LogDir, Config, InnerSpawn,
+# ConfigGate, Capability, and SingleInstance. See
+# Initialize-YurunaEntryPointModuleSet for the per-kind module lists.
 Initialize-YurunaEntryPointModuleSet -For Outer -ModulesDir $ModulesDir
 
 # Auto-relaunch under `sg libvirt -c "..."` on host.ubuntu.kvm when this

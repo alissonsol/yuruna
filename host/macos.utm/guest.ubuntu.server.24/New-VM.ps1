@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.07
+.VERSION 2026.07.10
 .GUID 42b5c6d7-e8f9-4a01-b234-5c6d7e8f9a02
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -23,7 +23,7 @@
 .DESCRIPTION
     Uses the Server live ISO. The Server ISO's cdrom has linux-generic
     and a network-configured ubuntu.sources, so subiquity's
-    install_kernel step always succeeds. First boot lands at a
+    install_kernel step always succeeds. First boot lands at the
     text-mode login prompt; the test harness's Test-Start sequence
     drives that prompt directly.
 #>
@@ -319,7 +319,7 @@ To intentionally skip the cache:
 }
 
 # --- REGION: Build the autoinstall apt block
-# Build the autoinstall apt block: always emit `geoip: false` + a pinned
+# Always emit `geoip: false` + a pinned
 # `primary:` mirror (deterministic election; `primary:` not `sources_list:`,
 # see feedback_macos_utm_apt_block_resolute_curtin_trap.md).
 # --- REGION: https://yuruna.link/vmconfig#apt-proxy-block
@@ -339,6 +339,7 @@ $AptProxyBlock = @"
 "@
 
 # --- REGION: Fetch caching-proxy CA cert (base64-embedded in seed)
+# --- REGION: https://yuruna.link/network#caching-proxy-ca-cert-rc60-gate
 # Fetch the caching-proxy CA on the host so it can be base64-embedded in
 # the autoinstall seed. Guests on VZ shared-NAT cannot reach the cache
 # VM directly, but this script runs on the host which can. Any failure

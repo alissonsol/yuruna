@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.07.07
+# Version: 2026.07.10
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 #
@@ -45,6 +45,11 @@ esac
 if [ -r /usr/local/lib/yuruna/yuruna-retry.sh ]; then
   # --- REGION: https://yuruna.link/network#defining-yuruna-retry-lib
   . /usr/local/lib/yuruna/yuruna-retry.sh
+  # Baked retry libs may default apt attempts to a wall-clock bound -- the
+  # wrapped-apt teardown-hang trap class (apt blocks at end-of-transaction
+  # under a timeout(1) parent). Force unbounded regardless of the image's
+  # lib vintage; remove once no image predates the lib's unbounded default.
+  export YURUNA_APT_STALL_TIMEOUT=0
 fi
 
 # --- REGION: Service user
@@ -82,13 +87,22 @@ LOCAL_FALLBACK=/var/lib/stash-server/share-local
 # HTTP_ADDR binds :80 (the unprivileged service user holds
 # CAP_NET_BIND_SERVICE, set below, which covers any port <1024).
 # AGGREGATOR_URL is the pool-aggregator base (e.g. https://<proxy>:9400) for
-# the remote-host deep-link; empty leaves resolution best-effort/off (§3.4).
+# the remote-host deep-link (§3.4) and the presence beacon (§4.7). The
+# operator export wins; otherwise the host-baked seed value from
+# /etc/yuruna/pool.env; empty leaves both best-effort/off.
 # '-' (not ':-') so an operator who exports STASH_HTTP_ADDR='' to DISABLE the
 # UI gets an empty value (the daemon treats empty --http-addr as off); ':-'
 # would re-substitute the default on empty and force the UI back on.
 HTTP_ADDR="${STASH_HTTP_ADDR-0.0.0.0:80}"
 POOL_WINDOW_DAYS="${STASH_POOL_WINDOW_DAYS:-30}"
-AGGREGATOR_URL="${STASH_AGGREGATOR_URL:-}"
+AGGREGATOR_URL_SEED=$(sed -nE "s/^YURUNA_AGGREGATOR_URL='(.*)'\$/\1/p" /etc/yuruna/pool.env 2>/dev/null | head -n1)
+AGGREGATOR_URL="${STASH_AGGREGATOR_URL:-$AGGREGATOR_URL_SEED}"
+# Presence beacon (§4.7): the daemon self-announces to the aggregator on
+# boot, every PRESENCE_INTERVAL, and at shutdown, so the pool dashboard's
+# Extension hosts row exists without the owning host's status server. The
+# announce runs under the HOST's identity (HOST_ID, extracted above from the
+# stash storage env); no stash storage -> no host identity -> beacon off.
+PRESENCE_INTERVAL="${STASH_PRESENCE_INTERVAL:-15m}"
 # STASH_BUILD_TAGS lets the VM image opt into the magika detection backend
 # (`-tags magika`); that build also needs ONNX Runtime + the model assets
 # vendored (stash-service-ui.md §6.1, §14). Default empty = pure-Go heuristic.
@@ -221,6 +235,8 @@ BUFFER_DIR=$BUFFER_DIR
 HTTP_ADDR=$HTTP_ADDR
 POOL_WINDOW_DAYS=$POOL_WINDOW_DAYS
 AGGREGATOR_URL=$AGGREGATOR_URL
+HOST_ID=$HOST_ID
+PRESENCE_INTERVAL=$PRESENCE_INTERVAL
 ENV
 
 # --- REGION: systemd unit
@@ -242,7 +258,7 @@ Wants=network-online.target
 Type=simple
 User=$SERVICE_USER
 EnvironmentFile=/etc/yuruna/stash.env
-ExecStart=/usr/local/bin/stash-server --share-folder \${SHARE_FOLDER} --metadata-dir \${METADATA_DIR} --buffer-dir \${BUFFER_DIR} --http-addr=\${HTTP_ADDR} --pool-window-days=\${POOL_WINDOW_DAYS} --aggregator-url=\${AGGREGATOR_URL}
+ExecStart=/usr/local/bin/stash-server --share-folder \${SHARE_FOLDER} --metadata-dir \${METADATA_DIR} --buffer-dir \${BUFFER_DIR} --http-addr=\${HTTP_ADDR} --pool-window-days=\${POOL_WINDOW_DAYS} --aggregator-url=\${AGGREGATOR_URL} --host-id=\${HOST_ID} --presence-interval=\${PRESENCE_INTERVAL}
 Restart=on-failure
 RestartSec=5
 StandardOutput=journal

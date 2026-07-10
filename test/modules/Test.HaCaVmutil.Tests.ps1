@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.07
+.VERSION 2026.07.10
 .GUID 42a1b2c3-d4e5-4f67-8901-ac0d1e2f3a62
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -19,8 +19,8 @@
 <#
 .SYNOPSIS
     Compare-Screenshot (Test.VMUtility) releases its GDI+ source bitmaps on every path,
-    including when image load / LockBits / Marshal.Copy throws, and returns the same
-    verdict as before.
+    including when image load / LockBits / Marshal.Copy throws, without altering the
+    similarity verdict.
 .DESCRIPTION
     AST guards (comment-proof, run on every platform) assert the two source bitmaps are
     disposed inside a finally, null-guarded, with no duplicate happy-path dispose of the
@@ -84,7 +84,7 @@ function Test-DisposeNullGuarded {
 $script:vmUtilPath = Join-Path $here 'Test.VMUtility.psm1'
 $script:cmpAst     = Get-CompareScreenshotAst -Path $script:vmUtilPath
 
-# --- Windows-only image factory (System.Drawing.Bitmap is Windows-supported) --
+# --- REGION: Windows-only image factory (System.Drawing.Bitmap is Windows-supported)
 function Get-TestPng {
     param([string]$Path, [int]$Width = 40, [int]$Height = 40, [int]$R = 0, [int]$G = 0, [int]$B = 0)
     Add-Type -AssemblyName System.Drawing

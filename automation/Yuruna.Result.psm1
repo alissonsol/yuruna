@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.07
+.VERSION 2026.07.10
 .GUID 42f6c5d4-e3b2-4a0b-7890-1c2d3e4f5a62
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -79,4 +79,41 @@ function Test-YurunaResultManifestOk {
     return [bool]$Manifest['success']
 }
 
-Export-ModuleMember -Function New-YurunaResultManifest, Test-YurunaResultManifestOk
+function Complete-YurunaRun {
+    <#
+    .SYNOPSIS
+        Shared failure-reporting tail for the Set-Resource / Set-Component /
+        Set-Workload entrypoints: report the result manifest and exit non-zero on
+        failure.
+    .DESCRIPTION
+        A non-empty result-manifest hashtable coerces to $true, so a bare
+        `if (-Not $result)` would silently take the success branch on a failure
+        manifest; this tests the `.success` key via Test-YurunaResultManifestOk. On
+        failure it writes the compact result JSON and the transcript to the success
+        stream (stdout) and exits 1, so bash wrappers using `set -e` observe the
+        non-zero process exit instead of marching on with a missing image / failed
+        deploy (a failed Publish-*List that printed the transcript but exited 0 would
+        surface only later as a `kubectl wait` timeout). On success it writes only a
+        Write-Debug pointer to the transcript.
+
+        CALL AS A STATEMENT (not `$x = Complete-YurunaRun`): it streams the report to
+        stdout and may terminate the process. $Result is intentionally not
+        [Mandatory] so a $null / $false / non-hashtable result still routes through
+        Test-YurunaResultManifestOk (which treats all of those as a failure).
+    #>
+    [CmdletBinding()]
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+        Justification = 'Reporting tail: emits the manifest/transcript and exits the process. Not a resource mutation; ShouldProcess would not fit an exit-on-failure contract.')]
+    param(
+        [Parameter(Position = 0)]$Result,
+        [Parameter(Position = 1)][string]$TranscriptFile
+    )
+    if (-Not (Test-YurunaResultManifestOk $Result)) {
+        Write-Output ($Result | ConvertTo-Json -Depth 4 -Compress)
+        Write-Output $(Get-Content -Path $TranscriptFile)
+        exit 1
+    }
+    Write-Debug "`n-- See transcript with command: Write-Output `$(Get-Content -Path $TranscriptFile)"
+}
+
+Export-ModuleMember -Function New-YurunaResultManifest, Test-YurunaResultManifestOk, Complete-YurunaRun

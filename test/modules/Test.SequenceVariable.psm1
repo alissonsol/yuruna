@@ -1,5 +1,5 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.07.07
+.VERSION 2026.07.10
 .GUID 42b8e1f4-7c2a-4d09-8e3b-1a5c9f0d2e64
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -17,7 +17,7 @@
 #requires -version 7
 
 # Variable substitution for sequence step text: ${var} placeholders and
-# ${ext:area.Method(args)} extension expressions. Extracted from the engine so
+# ${ext:area.Method(args)} extension expressions. Kept outside the engine so
 # the engine's by-name calls AND the verb Handlers -- which receive
 # Expand-Variable as the ${function:Expand-Variable} scriptblock ref through the
 # step Context -- share one definition. Test.Extension is imported lazily inside
@@ -101,14 +101,7 @@ function Expand-ExtensionExpression {
                 $a = $raw.Trim()
                 # Expand inner ${var} so e.g. ${ext:authentication.GetPassword(${username})}
                 # resolves to GetPassword('yauser1') before the call.
-                # Single regex pass so a value containing "${other}" is not re-expanded and the
-                # result is order-independent; the MatchEvaluator also returns the value literally
-                # (no -replace $1 backreference surprise). Unknown names are left verbatim.
-                $a = [regex]::Replace($a, '\$\{([^}]+)\}', {
-                        param($m)
-                        $name = $m.Groups[1].Value
-                        if ($vars.ContainsKey($name)) { [string]$vars[$name] } else { $m.Value }
-                    })
+                $a = Expand-VarPlaceholder -Text $a -Variables $vars
                 # Restore any $$ escapes the caller had in the arg text
                 # so the extension sees the user's intended literal `$`,
                 # not the internal sentinel.
@@ -117,6 +110,23 @@ function Expand-ExtensionExpression {
         }
         return [string](Invoke-ExtensionExpression -Area $area -Method $method -ArgList $argList)
     })
+}
+
+# Resolve each ${name} placeholder against $Variables in a single regex pass: the
+# MatchEvaluator returns the value literally (no -replace $1-backreference surprise)
+# and substituted text is not re-scanned, so a value containing "${other}" is never
+# re-expanded and the result is order-independent. Unknown names are left verbatim.
+# Shared by Expand-Variable and the ${ext:...} argument expansion in Expand-ExtensionExpression.
+function Expand-VarPlaceholder {
+    param([string]$Text, [hashtable]$Variables)
+    # Bind to a local the MatchEvaluator closure below captures; the analyzer cannot
+    # see references through [regex]::Replace's scriptblock, so this keeps $Variables used.
+    $vars = $Variables
+    return [regex]::Replace($Text, '\$\{([^}]+)\}', {
+            param($m)
+            $name = $m.Groups[1].Value
+            if ($vars.ContainsKey($name)) { [string]$vars[$name] } else { $m.Value }
+        })
 }
 
 function Expand-Variable {
@@ -140,17 +150,7 @@ function Expand-Variable {
     # ${ext:...} expressions are resolved first so any ${var} placeholders
     # inside their args see the current Variables table.
     $result = Expand-ExtensionExpression -Text $result -Variables $Variables
-    # [string]::Replace is literal substitution -- no regex compile, no
-    # [regex]::Escape needed for $key, no $1-backreference surprise from
-    # -replace if a Variables value contained dollar-digit text.
-    # Single regex pass: resolve each ${name} against $Variables WITHOUT feeding substituted text
-    # back into the scan, so a value that itself contains "${other}" is never re-expanded and the
-    # result is order-independent. Unknown names are left verbatim.
-    $result = [regex]::Replace($result, '\$\{([^}]+)\}', {
-            param($m)
-            $name = $m.Groups[1].Value
-            if ($Variables.ContainsKey($name)) { [string]$Variables[$name] } else { $m.Value }
-        })
+    $result = Expand-VarPlaceholder -Text $result -Variables $Variables
     # Restore $$ escapes.
     return $result.Replace($script:DollarSentinel, '$')
 }

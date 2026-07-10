@@ -1,5 +1,5 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.07.07
+.VERSION 2026.07.10
 .GUID 42634a21-7352-4663-b6f4-cff499ce7a2b
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -18,7 +18,7 @@
 
 # Per-host I/O backends consumed by Test.HostIO's registry.
 # Backend inventory and registry contract: https://yuruna.link/host-io
-$script:DefaultCharDelayMs = 20
+$script:DefaultCharDelayMs = 10
 # Settle window applied after Send-TextHyperV's batched scancode emit
 # (and after the JXA UTM CGEvent path). The guest's PS/2 buffer drains
 # asynchronously; without a settle the next action (an Enter press,
@@ -43,9 +43,8 @@ function Update-TransportDefault {
         Refresh transport-layer defaults from test.config.yml at most
         once per step boundary.
     .DESCRIPTION
-        Module-load callers and step-boundary callers (the engine, in
-        a future block) both go through this function. The mtime-keyed
-        cache in Read-TestConfig and the
+        Module-load callers and step-boundary callers both go through
+        this function. The mtime-keyed cache in Read-TestConfig and the
         $script:TransportConfigRefreshMinSeconds throttle below keep the
         cost flat regardless of how many -Force imports a step issues.
         Race-tolerant: a mid-write file that parses to $null is retried
@@ -90,8 +89,8 @@ function Update-TransportDefault {
     $script:TransportConfigLastRefreshUtc = $now
 }
 
-# Initial load: drop -Force here because the throttle now genuinely
-# detects the first load via $TransportConfigLastRefreshUtc == MinValue.
+# Initial load: no -Force needed -- the throttle detects the first load
+# via $TransportConfigLastRefreshUtc == MinValue.
 Update-TransportDefault
 # ── Key code maps (owned by Test.KeyCodeRegistry) ────────────────────────────
 # The Get-KeyCodeMap accessor returns a reference, so the $script:*
@@ -579,16 +578,16 @@ function Send-KeyUTM {
     .SYNOPSIS
         Press one named key in a UTM VM via AppleScript `key code`.
     .DESCRIPTION
-        Uses `key code` for every key (including Enter, code 36).
-        Earlier code used `keystroke return` for Enter which sometimes
-        fired twice when chained after Send-Text left the System
-        Events keystroke buffer warm -- submitting an empty password
-        and bouncing the guest back to the login prompt.
+        Uses `key code` for every key (including Enter, code 36):
+        `keystroke return` for Enter sometimes fired twice when chained
+        after Send-Text left the System Events keystroke buffer warm --
+        submitting an empty password and bouncing the guest back to the
+        login prompt.
     #>
     param([string]$VMName, [string]$KeyName)
     $code = $script:UTMKeyMap[$KeyName]
     if (-not $code) { Write-Warning "Unknown key '$KeyName' for UTM"; return $false }
-    # Use `key code` for everything (including Enter, code 36). The previous
+    # Use `key code` for everything (including Enter, code 36). The
     # `keystroke return` form for Enter sometimes fired twice when chained
     # after a Send-Text run that left System Events' keystroke buffer warm —
     # which submitted an empty password and bounced the guest back to the
@@ -640,7 +639,7 @@ return "window_not_found"
 # (all pressed simultaneously, then released). For text typing we send
 # one chord per character; shifted characters become a 2-key chord
 # (KEY_LEFTSHIFT + KEY_X).
-# KVM key maps now live in Test.KeyCodeRegistry (KVM-Char / KVM-Named).
+# KVM key maps live in Test.KeyCodeRegistry (KVM-Char / KVM-Named).
 $script:KvmCharKeyMap = Get-KeyCodeMap -Kind 'KVM-Char'
 
 function Send-KeyKvm {

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.07
+.VERSION 2026.07.10
 .GUID 42a2b3c4-d5e6-4f78-9012-3a4b5c6d7e99
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -40,6 +40,10 @@
 param(
     [string]$VMName = "windows-11-01"
 )
+
+# Honor logLevel from Invoke-TestRunner.ps1 via $env:YURUNA_LOG_LEVEL. See docs/loglevels.md.
+$_logLevelMod = Join-Path $PSScriptRoot '../../../test/modules/Test.LogLevel.psm1'
+if (Test-Path $_logLevelMod) { Import-Module $_logLevelMod -Global -Force; Use-LogLevelFromEnv }
 
 if ($VMName -notmatch '^[a-zA-Z0-9._-]+$') {
     Write-Error "Invalid VMName '$VMName'."
@@ -90,6 +94,12 @@ if ($missingImages.Count -gt 0) {
         exit 1
     }
 }
+
+Write-Verbose "Creating VM '$VMName' using image: $winIso"
+# Provenance side-channel for operators reading the transcript. Emits
+# "Provenance: <url>" when the sidecar is healthy; warns otherwise.
+Import-Module (Join-Path (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))) 'test/modules/Test.Provenance.psm1') -Force
+Write-BaseImageProvenance -BaseImagePath $winIso
 
 # --- REGION: VM directory + new disk
 $vmDir   = Join-Path $HOME "yuruna/vms/$VMName"

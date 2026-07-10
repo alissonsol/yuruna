@@ -1,5 +1,5 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.07.07
+.VERSION 2026.07.10
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456770
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -75,7 +75,7 @@ try {
 
 # ── Load global defaults from test.config.yml ──────────────────────────────
 # The config file lives one level up from this module (test/test.config.yml).
-$script:DefaultCharDelayMs      = 20
+$script:DefaultCharDelayMs      = 10
 $script:DefaultVncPort          = 5900
 $script:DefaultKeystrokeMechanism = "GUI"
 # Independence default: under keystrokeMechanism=SSH, a missing ssh/ sequence is
@@ -150,12 +150,11 @@ Import-Module (Join-Path $PSScriptRoot 'Test.HostIO.HyperV.psm1') -Global -Force
 Import-Module (Join-Path $PSScriptRoot 'Test.HostIO.Utm.psm1')    -Global -Force
 Import-Module (Join-Path $PSScriptRoot 'Test.HostIO.Kvm.psm1')    -Global -Force
 # Built-in verb Handlers (Register-SequenceAction blocks) live in
-# Test.SequenceHandler.psm1. retry and recoverFromSnapshot still sit in
-# this module, but no longer because of scope: the failure slots they
-# coordinate now live in the shared Test.SequenceFailureState store
-# ($script:Fail), reachable from either module. They remain here pending
-# their own migration; the rest of the verb catalog is local to
-# Test.SequenceHandler so adding a verb does not collide with engine edits.
+# Test.SequenceHandler.psm1 -- including retry and recoverFromSnapshot,
+# whose failure slots live in the shared Test.SequenceFailureState store
+# ($script:Fail), reachable from either module. Keeping the verb catalog
+# local to Test.SequenceHandler means adding a verb does not collide with
+# engine edits.
 Import-Module (Join-Path $PSScriptRoot 'Test.SequenceHandler.psm1') -Global -Force
 $_configPath = Join-Path (Split-Path -Parent $PSScriptRoot) "test.config.yml"
 $_cfg = Read-TestConfig -Path $_configPath
@@ -853,7 +852,7 @@ function Wait-ForText {
                         $snippet = $er.Text.Length -le 120 ? $er.Text : ("..." + $er.Text.Substring($er.Text.Length - 120))
                         $status = $er.Matched ? "MATCH '$($er.MatchedPattern)'" : "no match"
                         Write-Verbose "      [$eName] $status | $snippet"
-                        $ocrSections.Add("== $eName ($status) ===")
+                        $ocrSections.Add("== $eName ($status) ==")
                         $ocrSections.Add($er.Text)
                         $ocrSections.Add('')
                     }
@@ -1112,7 +1111,7 @@ function Invoke-SequenceByName {
         # (Get-SequenceSearchPath enumerates the same tier order) so the
         # operator can see the locations that were probed.
         $searched = Get-SequenceSearchPath -SequencesDir $SequencesDir -Name $Name -HostType $HostType -RepoRoot $RepoRoot
-        $list = ($searched | ForEach-Object { "    $_" }) -join "`n"
+        $list = Format-SequenceSearchList -Item $searched
         Write-Warning "[$GuestKey] Sequence file not found: $Name`nSearched (no match):`n$list"
         return $false
     }
@@ -1700,7 +1699,7 @@ function Invoke-Sequence {
             }
 
             # `retry` is dispatched through the registry like every other
-            # verb; the Handler lives at the bottom of this module next
+            # verb; its Handler lives in Test.SequenceHandler.psm1 next
             # to its Register-SequenceAction.
 
         # Current-step visibility is intentionally driven by Write-Progress
@@ -1879,7 +1878,7 @@ function Invoke-Sequence {
             # Build a human-readable failed-step label (e.g. 'waitForText: "login prompt"').
             # Canonical builder: Test.SequenceAction\Get-SequenceActionFailureLabel.
             # Each verb's FailureLabel scriptblock lives next to its capability
-            # requirements at the bottom of this module — search for
+            # requirements in Test.SequenceHandler.psm1 — search for
             # Register-SequenceAction. The OUTER call site reads $script:Fail.Last-
             # Failure* below to write last_failure.json + the failure screen-
             # shot. Capturing here (and only returning $false) keeps transient
@@ -1912,9 +1911,9 @@ function Invoke-Sequence {
     $script:Fail.LastFailureDescription = $null
     $script:Fail.LastFailedAction       = $null
     $script:Fail.LastFailedStepNumber   = 0
-    # Inner-verb capture for retry-exhausted failures. The outer per-step
-    # block at line ~2063 overwrites $script:Fail.LastFailedAction with the
-    # OUTER step's action name (= 'retry') whenever a Handler returns
+    # Inner-verb capture for retry-exhausted failures. The per-step failure
+    # branch in $invokeStepBlock overwrites $script:Fail.LastFailedAction with
+    # the OUTER step's action name (= 'retry') whenever a Handler returns
     # $false; that collapses the deepest inner verb's classification
     # into 'retry_exhausted'. The retry Handler captures the inner verb
     # into these slots BEFORE returning so the v2 emitter below can
@@ -2013,13 +2012,13 @@ function Invoke-Sequence {
         }
     }
     # Preserve diagnostics for the crash, in the SAME schema-v2 shape
-    # the normal failure path emits at line ~2195. Without this, a
+    # the normal failure path emits above. Without this, a
     # throw from any verb Handler (or from infrastructure between
     # steps) silently downgrades last_failure.json from v2 to a v0
     # crash payload, stripping failureClass/severity/suggested
     # Recoveries -- the exact fields a downstream remediator routes
     # on. When $script:Fail.LastFailedAction was already captured by the
-    # foreach at L~2162 we resolve its registry entry; otherwise we
+    # per-step failure branch we resolve its registry entry; otherwise we
     # fall back to the canonical 'unknown' classification (the same
     # fallback the per-step paths above use when a verb is unresolved)
     # so the record stays schema-v2 AND passes the failureClass/severity

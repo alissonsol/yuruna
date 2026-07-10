@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.07
+.VERSION 2026.07.10
 .GUID 42a2b3c4-d5e6-4f78-9012-3a4b5c6d7e8f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -53,15 +53,15 @@ $script:PortMapDir     = Join-Path $HOME 'yuruna/portmap'
 Import-Module (Join-Path $script:TestModulesDir 'Test.VMUtility.psm1')    -Force -DisableNameChecking -Global
 Import-Module (Join-Path $script:TestModulesDir 'Test.Ssh.psm1')          -Force -DisableNameChecking -Global
 Import-Module (Join-Path $script:TestModulesDir 'Test.CachingProxy.psm1') -Force -DisableNameChecking -Global
-# Shared per-guest provisioning helper (the New-VM.ps1 child-runner) that
-# all three drivers carried in duplicate.
-Import-Module (Join-Path $script:RepoRoot 'host/modules/Yuruna.HostProvision.psm1') -Force -DisableNameChecking -Global
 # Shared squid download / TLS-bump stack -- single source of truth across host
 # drivers. The X509 chain-validation callback lives there verbatim; this driver's
 # cache-host discovery is injected via the -ResolveCacheHostIp scriptblock (see the
 # Save-CachedHttpUri wrapper below). This also puts Test-DownloadAlreadyCurrent /
 # Write-ImageSentinel on the table for the per-guest Get-Image.ps1 scripts.
 Import-Module (Join-Path $script:RepoRoot 'host/modules/Yuruna.HostDownload.psm1') -Force -DisableNameChecking -Global
+# Shared per-guest provisioning helper (the New-VM.ps1 child-runner) that
+# all three drivers carried in duplicate.
+Import-Module (Join-Path $script:RepoRoot 'host/modules/Yuruna.HostProvision.psm1') -Force -DisableNameChecking -Global
 
 # Per-guest base image paths -- single table keeps Get-ImagePath, Get-Image,
 # and the per-guest Get-Image.ps1 scripts in agreement. A typo or new guest
@@ -573,7 +573,7 @@ function Send-Text {
         # Required when -Mechanism ssh: maps to the SSH login user via
         # Test.Ssh\Get-GuestSshUser (per-guest test user, ec2-user, root, ...).
         [string]$GuestKey,
-        [int]$CharDelayMs = 30,
+        [int]$CharDelayMs = 10,
         [switch]$Sensitive
     )
     # Sensitive is part of the contract for log redaction; current paths
@@ -1899,65 +1899,18 @@ function Test-CachingProxyAvailable {
     [CmdletBinding()]
     [OutputType([string])]
     param()
-    $httpPort = Get-CachingProxyPort -Scheme http
-    # External cache override (same shape as macOS / Hyper-V).
-    if ($Env:YURUNA_CACHING_PROXY_IP) {
-        $externIp = $Env:YURUNA_CACHING_PROXY_IP.Trim()
-        if (-not (Test-IpAddress $externIp)) {
-            Write-Warning "YURUNA_CACHING_PROXY_IP='$externIp' is not a valid IPv4 or IPv6 address -- ignoring."
-            return $null
-        }
-        if (Test-TcpReachable -TargetHost $externIp -Port $httpPort -TimeoutMs 1000) {
-            return "http://${externIp}:${httpPort}"
-        }
-        Write-Warning "YURUNA_CACHING_PROXY_IP=${externIp} set but ${externIp}:${httpPort} did not answer."
-        return $null
-    }
-
-    # Local cache: probe only the IP we recorded ourselves at the last
-    # Start-CachingProxy.ps1. Empty state -> no cache (the explicit
-    # contract after Stop-CachingProxy.ps1). State-set-but-unreachable
-    # is loud (Write-Warning) because the inner runner's bootstrap
-    # detection runs ONCE per cycle -- a silently-failed probe means
-    # the whole cycle's guests download direct from the internet, and
-    # we want the operator to see "why" alongside the headline
-    # "Caching proxy: not detected" line in Invoke-TestRunner output.
-    $stateIp = (Read-CachingProxyState).ipAddress
-    if (-not $stateIp -or -not (Test-IpAddress $stateIp)) {
-        Write-Warning "Test-CachingProxyAvailable: state.ipAddress is empty -- no locally-owned cache. Set `$Env:YURUNA_CACHING_PROXY_IP to point at a remote cache, or run Start-CachingProxy.ps1."
-        return $null
-    }
-    # 1500 ms matches test/Test-CachingProxy.ps1's CLI probe so a
-    # cache that answers the standalone smoke test also answers here.
-    # Tighter timeouts (~500 ms) leave a window where a momentarily
-    # busy squid misses the runner's single bootstrap probe and
-    # silently strands the whole inner cycle.
-    if (Test-TcpReachable -TargetHost $stateIp -Port $httpPort -TimeoutMs 1500) {
-        return "http://${stateIp}:${httpPort}"
-    }
-    Write-Warning "Test-CachingProxyAvailable: state.ipAddress=${stateIp} did not answer :${httpPort} within 1500 ms; treating cache as unavailable. Verify with 'nc -z ${stateIp} ${httpPort}'; if it answers, the cache is running and the next runner cycle will pick it up. If not, re-run Start-CachingProxy.ps1 (the VM may have restarted with a new DHCP lease)."
-    return $null
-}
-
-<#
-.SYNOPSIS
-    TCP-reachable probe with a bounded timeout (no exception escapes).
-#>
-function Test-TcpReachable {
-    [CmdletBinding()]
-    [OutputType([bool])]
-    param(
-        [Parameter(Mandatory)][string]$TargetHost,
-        [Parameter(Mandatory)][int]$Port,
-        [int]$TimeoutMs = 500
-    )
-    $tcp = New-Object System.Net.Sockets.TcpClient
-    try {
-        $async = $tcp.BeginConnect($TargetHost, $Port, $null, $null)
-        if ($async.AsyncWaitHandle.WaitOne($TimeoutMs) -and $tcp.Connected) { return $true }
-    } catch { Write-Debug "Test-TcpReachable ${TargetHost}:${Port}: $($_.Exception.Message)" }
-    finally { $tcp.Close() }
-    return $false
+    # Thin wrapper over the shared probe (same as the win/mac drivers).
+    #   -NoBracketHost      return bare-IP URLs -- KVM guests/consumers parse the
+    #                       unbracketed form (no Format-IpUrlHost IPv6 bracketing).
+    #   -ConnectAttempts 3  a cache reached over the host's systemd socket-proxy
+    #                       forwarder into libvirt NAT (the 'yuruna-external'
+    #                       bridge fallback) can take >1s to ACCEPT while it is
+    #                       busy pre-warming or the local runner contends for
+    #                       host CPU/IO; retries keep that healthy cache from
+    #                       being false-negatived, which would otherwise drop the
+    #                       whole inner cycle's guests to direct-from-internet
+    #                       downloads.
+    Invoke-CachingProxyAvailableProbe -VerifyHint 'nc -z {0} {1}' -NoBracketHost -ConnectAttempts 3
 }
 
 <#

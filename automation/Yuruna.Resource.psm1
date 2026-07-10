@@ -1,5 +1,5 @@
-﻿<#PSScriptInfo
-.VERSION 2026.07.07
+<#PSScriptInfo
+.VERSION 2026.07.10
 .GUID 42e3a5b6-c7d8-4901-2345-6e7f80910213
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -227,6 +227,24 @@ function Publish-ResourceListHelper {
             $tofuRcFile = Join-Path -Path $workFolder -ChildPath "tofu.rc"
             Remove-Item -LiteralPath $tofuRcFile -Force -ErrorAction SilentlyContinue
 
+            # azurerm 4.x no longer inherits the subscription from the Azure
+            # CLI's active context (az login + az account set): the provider
+            # requires an explicit subscription_id or ARM_SUBSCRIPTION_ID and
+            # otherwise fails at plan time. Derive it from the CLI context so
+            # the documented az-login flow keeps working; an operator who
+            # exports ARM_SUBSCRIPTION_ID beforehand takes precedence.
+            if (($resourceTemplate -like 'azure/*') -and [string]::IsNullOrEmpty($env:ARM_SUBSCRIPTION_ID)) {
+                $azSubscriptionId = ''
+                try { $azSubscriptionId = [string](& az account show --query id --output tsv 2>$null | Select-Object -First 1) } catch { $azSubscriptionId = '' }
+                if ([string]::IsNullOrWhiteSpace($azSubscriptionId)) {
+                    Write-Information "-- WARNING: ARM_SUBSCRIPTION_ID is not set and 'az account show' returned no subscription; the azurerm provider will fail at plan time until one is provided."
+                }
+                else {
+                    Set-Item -Path Env:ARM_SUBSCRIPTION_ID -Value $azSubscriptionId.Trim()
+                    Write-Verbose "ARM_SUBSCRIPTION_ID derived from the Azure CLI active subscription."
+                }
+            }
+
             Write-Debug "OpenTofu init"
             # Exponential backoff with jitter shared with the guest-side
             # automation/yuruna-retry.sh (Yuruna.Retry.psm1). Defaults
@@ -355,7 +373,7 @@ function Publish-ResourceList {
 
     # On-disk provider cache shared across resources and cycles. Once
     # `tofu init` has fetched a provider, subsequent inits reuse the
-    # cached plugin instead of round-tripping to github.com — guards
+    # cached plugin instead of round-tripping to github.com -- guards
     # against the registry-5xx-burst class where releases.github.com /
     # registry.opentofu.org returns the same 5xx within a tight retry
     # window, so a per-attempt retry loop cannot survive the burst but

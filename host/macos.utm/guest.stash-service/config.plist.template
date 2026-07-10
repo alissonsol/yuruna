@@ -4,7 +4,7 @@
 <!-- Copyright (c) 2019-2026 by Alisson Sol et al. -->
 <!-- Yuruna VM config · https://yuruna.link/vmconfig -->
 <!-- QEMU backend (not Apple Virtualization) so we can pass -vnc to QEMU.
-     QEMU's built-in RFB server gives the harness focus-independent
+     QEMU's built-in RFB server gives the test harness focus-independent
      screen capture (Get-VncScreenshot) AND keystroke injection
      (Send-TextVNC / Send-KeyVNC) over a localhost TCP port. Same
      pattern as the caching-proxy UTM template. -->

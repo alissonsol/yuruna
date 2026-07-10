@@ -11,10 +11,11 @@
 // proxy-traffic-driven), yields no URL and the UI shows the hostId alone.
 //
 // The resolver reads the aggregator's read-only /api/v1/pool-status snapshot
-// and looks for the host's stashBaseUrl. That field is the §13 amendment the
-// aggregator must carry; until it ships, resolution simply returns "" and
-// the UI degrades gracefully (the wiring is in place, the link just doesn't
-// appear yet).
+// and looks for the host's stashBaseUrl (the §13 amendment): the aggregator
+// fills it from the host's registration-advertised extensionTargets, falling
+// back to the stash server's own presence announce, so resolution works even
+// while a host's status server is down. A host with neither yields "" and
+// the UI degrades gracefully.
 package httpsrv
 
 import (

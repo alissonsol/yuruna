@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.07
+.VERSION 2026.07.10
 .GUID 42b0d2e3-f4a5-4678-9012-3b4c5d6e7f80
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -98,9 +98,9 @@ function Invoke-WorkloadChartDeployment {
     Write-Debug "Helm execute from: $workFolder"
     Push-Location $workFolder
 
-    # Per-chart helm stderr/stdout log + final-rc sidecar. Mirrors
-    # the tofu.stderr.log pattern from Set-Resource so Get-System
-    # Diagnostic.ps1's *.stderr.log glob picks it up on failure.
+    # Per-chart helm stderr/stdout log + final-rc sidecar. Mirrors the
+    # tofu.stderr.log pattern from Set-Resource so
+    # Get-SystemDiagnostic.ps1's *.stderr.log glob picks it up on failure.
     # Truncate at chart entry; per-helm-command output is appended
     # with a "== <cmd> (exit=N) ==" header. helm.rc is rewritten
     # after each helm call so the LAST observed exit code is what

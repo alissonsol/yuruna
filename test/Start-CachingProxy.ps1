@@ -1,5 +1,5 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.07.07
+.VERSION 2026.07.10
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456742
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -405,13 +405,19 @@ if ($IsMacOS) {
 # the decision doesn't cost fast-path observability.
 Write-Output ""
 Write-Output "== Step 2: base image (Get-Image.ps1 decides cache vs refetch) =="
-$LASTEXITCODE = $null
+$global:LASTEXITCODE = $null
 & $GetImageScript
 # $LASTEXITCODE is unreliable for a child .ps1 that ends on a cmdlet -- a cache-hit
 # Get-Image runs no native command, so $LASTEXITCODE still holds whatever a prior
 # native command left set. Reset it first and treat only a REAL non-zero as failure
 # ($null = "the child set none"); the $ImageFile artifact check below is the
 # reliable secondary gate. feedback_lastexitcode_null_pure_ps_chain.
+# The reset MUST be $global:-qualified. A bare `$LASTEXITCODE = $null` creates a
+# script-scoped copy that shadows the engine's global for the rest of this script
+# AND inside every child scope (dynamic scoping): the engine keeps writing real
+# exit codes to the global while every read here and in Get-Image/New-VM sees the
+# frozen $null -- so their `-ne 0` checks report SUCCESSFUL natives as failures.
+# feedback_lastexitcode_global_scope_shadow.
 if ($null -ne $LASTEXITCODE -and $LASTEXITCODE -ne 0) {
     Write-Error "Get-Image.ps1 failed (exit $LASTEXITCODE)."
     exit 1
@@ -499,7 +505,7 @@ if ($cpConfigDecision.ShouldStart) {
 
 Write-Output ""
 Write-Output "== Step 3: create VM '$VMName' =="
-$LASTEXITCODE = $null
+$global:LASTEXITCODE = $null
 & $NewVMScript $VMName
 # Same $LASTEXITCODE-reliability guard as Get-Image above: a child .ps1 that ends
 # on a cmdlet leaves it unset, so only a REAL non-zero is a failure. New-VM.ps1 is
@@ -749,11 +755,11 @@ if ($IsMacOS) {
         # `curl http://<cacheIp>/yuruna-squid-ca.crt` from the host.
         #
         # Re-import Test.CachingProxy with -Global -Force *here*, even
-        # though line 67 already did it once: Initialize-YurunaHost
-        # (called in Step 5 via Test.HostContract.psm1) cascades into Yuruna.-
-        # Host.psm1's nested non-global import of Test.CachingProxy.psm1
-        # at line 36, and PowerShell's "one active version per module"
-        # rule then evicts the script's view of Save-CachingProxyState.
+        # though this script already imported it once: Initialize-YurunaHost
+        # (called in Step 5 via Test.HostContract.psm1) cascades into
+        # Yuruna.Host.psm1's nested non-global import of Test.CachingProxy.psm1,
+        # and PowerShell's "one active version per module" rule then
+        # evicts the script's view of Save-CachingProxyState.
         # Without this re-import the next line errors with "The term
         # 'Save-CachingProxyState' is not recognized." Same pattern is
         # used in Stop-CachingProxy.ps1 just above its Save call.
@@ -826,7 +832,7 @@ if ($IsMacOS) {
     # Use the same KVP+ARP+:3128-probe discovery the guest consumers
     # (guest.ubuntu.server.24/desktop/New-VM.ps1) use, so the summary line
     # below matches what a subsequent guest install will actually see.
-    # Prior code used KVP-only and printed "(discovery failed)" whenever
+    # KVP-only discovery would print "(discovery failed)" whenever
     # hv_kvp_daemon wasn't warm, even though the inner New-VM.ps1's ARP
     # path had already found the cache and the cache was serving :3128.
     $vmCommon = Join-Path $RepoRoot "host/windows.hyper-v/modules/Yuruna.Host.psm1"
@@ -965,9 +971,11 @@ if ($cacheIp) {
         Write-Output "  cachemgr:    ssh to the VM, then 'squidclient mgr:info'  (web UI dropped in Ubuntu 26.04)"
         if ($cacheForwarded -and $cacheLanIp -ne $cacheIp) {
             Write-Output ""
-            Write-Output "  Remote LAN clients (other hosts on this network):"
-            Write-Output "    export YURUNA_CACHING_PROXY_IP=${lanIp}    # before Invoke-TestRunner.ps1"
+            Write-Output "  Remote LAN clients (OTHER physical hosts only):"
+            Write-Output "    export YURUNA_CACHING_PROXY_IP=${lanIp}    # remote host, before Invoke-TestRunner.ps1"
             Write-Output "    quick check:  curl -x http://${lanIp}:${summaryHttpPort} http://cdimage.ubuntu.com/ -I"
+            Write-Output "  This host needs no env var: the runner auto-detects its own cache, and a"
+            Write-Output "  YURUNA_CACHING_PROXY_IP naming this host's own IP is treated as local."
         }
     }
 } else {

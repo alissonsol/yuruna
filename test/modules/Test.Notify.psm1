@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.07
+.VERSION 2026.07.10
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456703
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -24,7 +24,7 @@
     Justification = 'global:__YurunaCycleFolder is the cross-module cycle folder handle set by Test.Log.psm1''s Start-LogFile and read here as a fallback when no -CycleFolder is supplied; intentionally process-wide.')]
 param()
 
-# Send-Notification is now a thin dispatcher to the active extensions
+# Send-Notification is a thin dispatcher to the active extensions
 # under test/extension/notification/. The contract is:
 #   Send-Notification -EventCode <string> -EventMessage <string> -EventNote <string>
 # Format-FailureMessage stays here so callers can build the EventNote

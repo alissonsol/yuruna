@@ -4,9 +4,10 @@
 # Anchor sections in base-file order. An empty section emits nothing at that anchor.
 # === YURUNA_OVERLAY_RUNCMD_CONSOLEBLANK ===
   # --- REGION: https://yuruna.link/vmconfig#hyperv_fb-framebuffer-pin
-  - grubby --update-kernel=ALL --args="video=hyperv_fb:1024x768" || true
+  - bash -c 'command -v grubby >/dev/null 2>&1 && grubby --update-kernel=ALL --args="video=hyperv_fb:1024x768" || true'
 # === YURUNA_OVERLAY_RUNCMD_QUIET_LOGLEVEL ===
-  - grubby --update-kernel=ALL --args="quiet loglevel=3 systemd.show_status=no rd.systemd.show_status=no" || true
+  # --- REGION: https://yuruna.link/vmconfig#console-quiet
+  - bash -c 'command -v grubby >/dev/null 2>&1 && grubby --update-kernel=ALL --args="quiet loglevel=3 systemd.show_status=no rd.systemd.show_status=no" || true'
   # --- REGION: https://yuruna.link/vmconfig#headless-host-reboot-on-framebuffer-collapse
   - |
     if [ -r /sys/class/graphics/fb0/virtual_size ]; then

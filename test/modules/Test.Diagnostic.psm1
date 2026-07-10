@@ -1,5 +1,5 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.07.07
+.VERSION 2026.07.10
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456712
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -552,11 +552,10 @@ function Invoke-RemoteDiagnosticsConsole {
 
     # Multi-segment relative folder. The per-guest data folder lives at
     # <logDir>/<cycleBase>/<VMName>/, so the URL path mirrors the disk
-    # path: /diagnostics/<cycleBase>/<VMName>/<file>. Older code passed
-    # just <VMName>, which resolved to <logDir>/<VMName>/ on the server
-    # (non-existent) and was also rejected by the now-obsolete
-    # *.failure-screens-* pattern check. Forward slash is required so
-    # bash leaves it intact in the URL; we never embed Windows paths.
+    # path: /diagnostics/<cycleBase>/<VMName>/<file> -- a bare <VMName>
+    # would resolve to the non-existent <logDir>/<VMName>/ on the
+    # server. Forward slash is required so bash leaves it intact in
+    # the URL; we never embed Windows paths.
     $cycleBase  = Split-Path -Leaf (Split-Path -Parent $FailureFolderPath)
     $vmFolder   = Split-Path -Leaf $FailureFolderPath
     $folderName = if ($cycleBase) { "$cycleBase/$vmFolder" } else { $vmFolder }
@@ -733,10 +732,9 @@ function Save-GuestDiagnostic {
             return @{ success=$false; outPath=$null; mechanism='none'; attempted=$attempted; exitCode=0; bytes=0L; skipped=$true; reason="could not create output folder '$OutputFolder': $($_.Exception.Message)" }
         }
     }
-    # Local alias retained so the rest of the function (and the shared
-    # console-fallback helpers) keep using FailureFolderPath -- this
-    # minimizes the diff and avoids renaming a parameter on every
-    # private helper called below.
+    # Local alias: the shared console-fallback helpers below take
+    # -FailureFolderPath, so map the OutputFolder parameter onto that
+    # name once here instead of renaming it on every private helper.
     $FailureFolderPath = $OutputFolder
 
     # Module-qualified Test.Ssh calls below: when Save-GuestDiagnostic
@@ -821,15 +819,14 @@ function Save-GuestDiagnostic {
     $pwReason    = $pwLookup.reason
 
     # Resolve the host status-service URL once and feed it to BOTH SSH
-    # rungs as their curl-bootstrap fallback. The previous chain treated
-    # the curl bootstrap as a console-rung-only concern; that left a gap
-    # when SSH was healthy but the guest had not yet extracted the yuruna
-    # tarball (e.g. cycle watchdog fired mid-update.sh during the apt-get
-    # phase). The SSH command then exited 64 from pwsh's usage banner and
-    # the diagnostic file ended up containing that banner instead of real
-    # state. Soft-fail to $null if the endpoint can't be resolved -- the
-    # rungs degrade to the bare `pwsh -File` command and the console rung
-    # is still the final fallback.
+    # rungs as their curl-bootstrap fallback -- a console-rung-only
+    # bootstrap leaves a gap when SSH is healthy but the guest has not
+    # yet extracted the yuruna tarball (e.g. cycle watchdog fired
+    # mid-update.sh during the apt-get phase): the SSH command exits 64
+    # from pwsh's usage banner and the diagnostic file captures that
+    # banner instead of real state. Soft-fail to $null if the endpoint
+    # can't be resolved -- the rungs degrade to the bare `pwsh -File`
+    # command and the console rung is still the final fallback.
     $bootstrapUrl = $null
     try {
         $endpoint = Resolve-StatusServiceEndpoint -VMName $VMName

@@ -1,9 +1,9 @@
 <#PSScriptInfo
-.VERSION 2026.07.07
+.VERSION 2026.07.10
 .GUID 42e8b3c5-7f1a-4d62-9c40-6b2d3e4f5a61
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
-.TAGS yuruna host config service mtls nas
+.TAGS
 .LICENSEURI https://yuruna.link/license
 .PROJECTURI https://yuruna.com
 .ICONURI

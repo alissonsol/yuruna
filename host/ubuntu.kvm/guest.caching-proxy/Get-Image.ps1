@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.07
+.VERSION 2026.07.10
 .GUID 42f3d4e5-f6a7-4b89-c012-3d4e5f6a7b8c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -15,6 +15,20 @@
 #>
 
 #requires -version 7
+
+<#
+.SYNOPSIS
+    Downloads the Ubuntu 26.04 (resolute) server cloud image (qcow2) for
+    the caching-proxy VM.
+
+.DESCRIPTION
+    Pulls the arch-matched resolute-server-cloudimg from
+    cloud-images.ubuntu.com, verifies it, resizes the qcow2 to 512 GB
+    (apparent size; qcow2 grows on write), and stages it under
+    ~/yuruna/image/caching-proxy/ as the base image for the long-lived
+    Squid caching-proxy VM. libvirt-qemu boots the qcow2 natively, so no
+    format conversion is needed.
+#>
 
 # Honor logLevel from Invoke-TestRunner.ps1 via $env:YURUNA_LOG_LEVEL. See docs/loglevels.md.
 $_logLevelMod = Join-Path $PSScriptRoot '../../../test/modules/Test.LogLevel.psm1'

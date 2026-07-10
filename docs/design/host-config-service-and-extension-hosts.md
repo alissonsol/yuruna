@@ -266,6 +266,36 @@ applied in the **dashboard** via Grafana value-mappings (`stash-service` →
 series is general, so future extension hosts (other `area`s, discovered by other
 means) slot in without a schema change.
 
+### 5.2b Second source: the service's own presence announce
+
+The registration path above has a structural blind spot: it is read **through
+the owning host's status server**, so the moment that process is down — the
+state a host reboot routinely leaves behind, since the service VM auto-starts
+under the hypervisor but the harness does not — the row vanishes even though
+the stash service is up and serving. And because the aggregator's own host
+view is volatile, an aggregator restart in the same window (e.g. a whole-lab
+reboot) erases the row instantly rather than after `hostTTL`.
+
+The **service VM therefore announces itself**: the stash server POSTs
+`{hostId, area, targetPort}` to the aggregator's **`POST /announce`** at boot,
+every beacon period (default **15 minutes**, configurable), and `active:false`
+at shutdown ([stash-service.md](stash-service.md) §4.7). The aggregator keeps
+one entry per `(hostId, area)`, reaps it after `-announce-ttl` (default 45m)
+without a refresh, journals every accepted announce to Loki
+(`{pool,hostId,src=announce}`) and restores live entries on startup — so the
+row survives host reboots, status-server outages, and aggregator restarts, in
+any combination, as long as the service itself lives.
+
+Identity + containment (the route is open, unlike the bearer-gated `/ingest`):
+the advertised URL is **derived from the announce's source address** (or must
+match it when sent explicitly), so an announcer can only ever advertise
+itself; hostId/area are strictly validated (they become metric labels); the
+entry count is bounded; and the signal is telemetry-only — it paints the
+dashboard row, backs `/go/stash`, and fills pool-status `stashBaseUrl` when
+the registration path has nothing, but never feeds host probing or cycle
+accounting. When BOTH sources cover one `(hostId, area)`, the registration
+row wins (it carries the host's status `baseUrl`).
+
 ### 5.3 Dashboard panel
 
 - New **full-width table** (`w=24, x=0`) titled **Extension hosts**, inserted

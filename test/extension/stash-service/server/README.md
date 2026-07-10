@@ -31,6 +31,7 @@ server/
 │   ├── sshsrv/{sshsrv,sftp,flush}.go     # crypto/ssh server, SFTP backend, NAS-offline flush (§4, §4.1, §8.4)
 │   ├── sshsrv/ingest.go                  # UI-facing ingest (paste/upload) + local delete (ui §5, §8)
 │   ├── detect/                           # content-type detection: pure-Go heuristic + magika build-tag adapter (ui §6.1)
+│   ├── beacon/                           # presence beacon: self-announce to the pool-aggregator (§4.7)
 │   └── httpsrv/                          # UI/API HTTP server, pool-wide index, host resolution, embedded web/ (ui §2–§9)
 └── *_test.go                             # unit tests for the pure-logic bits
 ```
@@ -143,9 +144,24 @@ view, delete). The JSON API it consumes
 Flags (defaults): `--http-addr` (`0.0.0.0:80`, empty disables the UI),
 `--pool-window-days` (`30`), `--pool-refresh-secs` (`60`),
 `--list-default-limit` (`50`), `--aggregator-url` (empty), `--listen-addr`
-(`0.0.0.0:22`, dev override when the OS sshd holds :22). The bring-up stamps
-the framework version via `-ldflags "-X main.version=<v>"` (shown in the UI
-header); ad-hoc dev builds show `vdev`.
+(`0.0.0.0:22`, dev override when the OS sshd holds :22), `--host-id` (empty)
+and `--presence-interval` (`15m`, `0` disables) for the presence beacon
+(§4.7). The bring-up stamps the framework version via
+`-ldflags "-X main.version=<v>"` (shown in the UI header); ad-hoc dev builds
+show `vdev`.
+
+## Presence beacon (§4.7)
+
+With `--aggregator-url` + `--host-id` set (the bring-up bakes both from the
+host seed), the daemon POSTs `<aggregator>/announce` at startup, every
+`--presence-interval`, and (best-effort, `active:false`) at shutdown. This
+keeps the pool dashboard's **Extension hosts** row alive **without the owning
+host's status server**: the registration path goes dark whenever that server
+is down (routinely, after a host reboot), while this VM auto-restarts and
+keeps serving. The announce carries only the host's `hostId` + this UI's
+port; the aggregator derives the URL from the connection's source address,
+so an announcer can only advertise itself. Best-effort throughout — an
+unreachable aggregator never affects stash operation.
 
 The UI is pool-wide: this host's live index merged with every other host's
 on-share sidecars (bounded to the recent window in memory, with an
@@ -171,6 +187,9 @@ Coverage focuses on the spec-driven pure-logic bits:
   truncation, offline buffering, §4.1).
 - `internal/detect/` — heuristic classification (extension/sniff/text,
   SVG+HTML→download-only) (ui §6.1, §7.4).
+- `internal/beacon/` — hello/periodic/goodbye lifecycle, catch-up retry
+  until the first success, https→http downgrade only on transport errors
+  (§4.7).
 - `internal/httpsrv/` — create→list→get→raw→delete round-trip, remote-host
   delete 403, pool-wide remote-sidecar aggregation, html-served-as-text,
   multi-file archive + listing, static pages (ui §3–§9).
@@ -185,11 +204,6 @@ typically taken by sshd, so a local daemon can't bind it; use
 - The magika detection backend is built only with `-tags magika` (the
   default is the pure-Go heuristic); ONNX Runtime + model vendoring is a
   VM-image-build concern (ui §6.1, §14).
-- The pool-aggregator's `stashBaseUrl` field (ui §3.4, §13) — until it
-  ships, the remote-host delete link is absent (resolution returns empty,
-  the UI degrades to showing the hostId). The consumer side (resolve.go)
-  is fully wired and validates the scheme; only the producer
-  (host status server + pool-aggregator) is outstanding.
 - **Cross-day ID reuse vs the global SQLite PRIMARY KEY** (pre-existing):
   the allocator's uniqueness scope is per-UTC-day (SS§7/§12, IDs may repeat
   across days), but `uploads.id` is a global `PRIMARY KEY`, so a 4-char ID
@@ -211,6 +225,6 @@ from outside this directory. Internal packages live under
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.07
+Last review: 2026.07.10
 
 Back to [Yuruna](../../../../README.md)

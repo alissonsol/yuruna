@@ -1,7 +1,7 @@
 /*
   LICENSEURI https://yuruna.link/license
   Copyright (c) 2019-2026 by Alisson Sol et al.
-  Version: 2026.07.07
+  Version: 2026.07.10
 
   Shared helpers for the Yuruna status pages. Mounted on window.Yuruna.
   --- REGION: https://yuruna.link/definition#defining-the-status-page-browser-baseline
@@ -10,7 +10,7 @@
 (function() {
   'use strict';
 
-  var VERSION = '2026.07.07';
+  var VERSION = '2026.07.10';
 
   // fetch shim for Safari iOS 9.x. (Target support for Yuruna UI).
   if (!window.fetch) {
@@ -955,7 +955,8 @@
     loadCachingProxyText();
     loadStatus();
 
-    // Footer refresh link (was inline onclick="location.reload();return false").
+    // Footer refresh link. Wired via addEventListener rather than an inline
+    // onclick attribute so the page stays CSP script-src 'self' compatible.
     var refreshLink = document.getElementById('footer-refresh');
     if (refreshLink) {
       refreshLink.addEventListener('click', function(e) {

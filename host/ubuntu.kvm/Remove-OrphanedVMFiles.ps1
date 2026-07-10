@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.07
+.VERSION 2026.07.10
 .GUID 42a2b3c4-d5e6-4f78-9012-3a4b5c6d7e98
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -147,6 +147,7 @@ foreach ($d in $dirs) {
     $orphanedItems.Add(@{ Name = $d.Name; Path = $d.FullName; Size = $size })
 }
 
+# --- REGION: Delete orphaned directories
 if ($orphanedItems.Count -eq 0) {
     Write-CleanupMessage "No orphaned VM directories found. Nothing to clean up."
     exit 0

@@ -1,5 +1,5 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.07.07
+.VERSION 2026.07.10
 .GUID 42a1b2c3-d4e5-4f67-8901-bc012345674a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -155,7 +155,7 @@ $script:FailCount += $probe.FailCount
 $httpPort  = $probe.HttpPort
 
 # === Host system-proxy check ===========================================
-# A stale system proxy (e.g. a previous Start-CachingProxy.ps1 -PromoteToHost
+# A stale system proxy (e.g. a previous -SetHostProxy promotion
 # against an IP that has since moved) will silently redirect every
 # Invoke-WebRequest / curl in Invoke-TestRunner. .NET on macOS reads
 # networksetup; .NET on Windows reads WinINet per-user (what the

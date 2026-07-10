@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.07
+.VERSION 2026.07.10
 .GUID 42f0a1b2-c3d4-4e56-f789-0a1b2c3d4e11
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -36,6 +36,7 @@ if (-not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdent
 
 Write-Output "== Installing Kubernetes requirements for Windows 11 =="
 
+# --- REGION: Install Basic Tools (Git, OpenSSH)
 Write-Output ""
 Write-Output ">>> Installing Basic Tools (Git, OpenSSH)..."
 winget install --id Git.Git --accept-source-agreements --accept-package-agreements --silent
@@ -45,6 +46,7 @@ Start-Service sshd -ErrorAction SilentlyContinue
 Set-Service -Name sshd -StartupType Automatic -ErrorAction SilentlyContinue
 Write-Output "<<< Basic Tools installation complete."
 
+# --- REGION: Ensure PowerShell is installed
 Write-Output ""
 Write-Output ">>> Checking for PowerShell 7..."
 $pwshPath = Get-Command pwsh -ErrorAction SilentlyContinue
@@ -52,13 +54,14 @@ if (-not $pwshPath) {
     Write-Output ""
     Write-Output "=============================================================="
     Write-Output "|  PowerShell 7 is required but not installed.              |"
-    Write-Output "|  Run windows.11.update.ps1 first to install it.          |"
+    Write-Output "|  Run windows.11.update.ps1 first to install it.           |"
     Write-Output "=============================================================="
     Write-Output ""
     exit 1
 }
 Write-Output "PowerShell 7 found at $($pwshPath.Source)"
 
+# --- REGION: Install powershell-yaml module
 Write-Output ""
 Write-Output ">>> Installing PowerShell module: powershell-yaml..."
 $yamlInstall = "if (-not (Get-PackageProvider -Name NuGet -ErrorAction SilentlyContinue)) { Install-PackageProvider -Name NuGet -MinimumVersion 2.8.5.201 -Force -Scope AllUsers | Out-Null }; Set-PSRepository -Name PSGallery -InstallationPolicy Trusted; Install-Module -Name powershell-yaml -Scope AllUsers -Force -Confirm:`$false"
@@ -129,7 +132,7 @@ Write-Output ">>> Installing Graphviz..."
 winget install --id Graphviz.Graphviz --accept-source-agreements --accept-package-agreements --silent
 Write-Output "<<< Graphviz installation complete."
 
-# --- REGION: GitHub CLI
+# --- REGION: Install GitHub CLI
 Write-Output ""
 Write-Output ">>> Installing GitHub CLI..."
 winget install --id GitHub.cli --accept-source-agreements --accept-package-agreements --silent
@@ -189,6 +192,7 @@ Write-Output "<<< mkcert installation complete."
 
 $env:Path = [System.Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path", "User")
 
+# --- REGION: Show installed versions
 Write-Output ""
 Write-Output "== Installation Summary =="
 try { git --version } catch { Write-Output "Git: restart terminal to verify" }

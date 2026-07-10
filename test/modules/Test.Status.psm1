@@ -1,5 +1,5 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.07.07
+.VERSION 2026.07.10
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456702
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -566,9 +566,9 @@ function Complete-Run {
     than deriving it from the status.json path (Split-Path -Parent
     $script:File) so every consumer of the pause flags -- status
     server, runner, sequence interpreter, this module -- uses the same
-    single source of truth. An earlier revision derived it from the
-    file path and was correct by coincidence; a caller that ever moved
-    status.json outside the runtime dir would have silently desynced.
+    single source of truth. Deriving it from the file path is correct
+    only by coincidence; a caller that ever moved status.json outside
+    the runtime dir would silently desync.
 #>
 function Write-StatusJson {
     $runtimeDir = $env:YURUNA_RUNTIME_DIR

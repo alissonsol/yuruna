@@ -3,7 +3,9 @@
 # KVM/libvirt overlay for amazon.linux.2023.base.user-data.
 # Anchor sections in base-file order. An empty section emits nothing at that anchor.
 # === YURUNA_OVERLAY_RUNCMD_CONSOLEBLANK ===
+  # --- REGION: https://yuruna.link/vmconfig#consoleblank-kernel-cmdline
   - bash -c 'command -v grubby >/dev/null 2>&1 && grubby --update-kernel=ALL --args="consoleblank=0" || true'
 # === YURUNA_OVERLAY_RUNCMD_QUIET_LOGLEVEL ===
+  # --- REGION: https://yuruna.link/vmconfig#console-quiet
   - bash -c 'command -v grubby >/dev/null 2>&1 && grubby --update-kernel=ALL --args="quiet loglevel=3 systemd.show_status=no rd.systemd.show_status=no" || true'
 # === YURUNA_OVERLAY_POWER_STATE ===

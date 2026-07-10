@@ -941,8 +941,83 @@ Source:
 
 ---
 
+## Kubernetes guest bootstrap
+
+### Why the k8s guest configures the docker registry mirror before installing docker-ce?
+
+`/etc/docker/daemon.json` is written **before** `docker-ce` is installed.
+The package `postinst` auto-starts `dockerd`, and `dockerd` reads
+`daemon.json` only at startup — inserting the file afterward would
+require a service restart and races with workloads that may already be
+pulling.
+
+`registry-mirrors` routes every `docker.io` pull through the
+yuruna-caching-proxy's zot pull-through cache. The cache's
+stale-on-error semantics mask upstream rate-limit blips (e.g. AWS ECR
+Public returning HTTP 400 for `library/registry:2` manifest HEADs — a
+class of incident that has taken out multiple test hosts
+simultaneously). `CACHE_HOST` is parsed from the guest's system-wide
+`$http_proxy`, falling back to the well-known `yuruna-caching-proxy`
+hostname.
+
+Source:
+[`guest/ubuntu.server.24/ubuntu.server.24.k8s.sh`](../guest/ubuntu.server.24/ubuntu.server.24.k8s.sh)
+(and its `ubuntu.server.26` sibling).
+
+---
+
+### Why the k8s guest fetches the Flannel manifest from the in-tree path at the latest-release tag?
+
+The install tracks the newest Flannel release but fetches the in-tree
+`Documentation/kube-flannel.yml` at that tag instead of
+`releases/latest/download/kube-flannel.yml`.
+
+That download URL relies on the maintainers attaching a
+`kube-flannel.yml` *release asset*, and a release can ship without one
+(v0.28.6 did) — `releases/latest` then 302s to an assetless tag and the
+download 404s, aborting the whole install under `set -euo pipefail`.
+`Documentation/kube-flannel.yml` is generated from the repo tree, so it
+is present at every tag and is byte-for-byte equivalent to the release
+asset.
+
+The tag is resolved from the `releases/latest` web redirect, **not** the
+`api.github.com` "latest" endpoint, which 403s once many guests share
+one NAT egress IP (the same constraint as the OpenTofu install below).
+
+Source:
+[`guest/ubuntu.server.24/ubuntu.server.24.k8s.sh`](../guest/ubuntu.server.24/ubuntu.server.24.k8s.sh)
+(and its `ubuntu.server.26` sibling).
+
+---
+
+### Why the k8s guest wraps the OpenTofu install in a retry with a pinned version?
+
+OpenTofu is installed via the deb method (primary) with a standalone
+fallback, then verified. The deb method fetches the signing key from
+`get.opentofu.org` and the standalone method the binary release; both
+can blip, and the third-party `install-opentofu.sh` runs those inner
+fetches with no retry, so a single transient blip is otherwise fatal
+even on a healthy host. Each invocation is wrapped in `_yuruna_retry` to
+give it the same backoff every other fetch in the script gets.
+
+Both paths pass `--opentofu-version "$YURUNA_OPENTOFU_VERSION"` so
+neither asks the GitHub releases API for "latest" — an unauthenticated
+`api.github.com` call that 403s on rate limits once many guests share
+one NAT egress IP, which would leave the standalone fallback as fragile
+as the deb path it backs up.
+
+The post-install `command -v tofu` guard aborts when both fail, because
+every downstream `Set-Resource` step needs `tofu`; a missing binary
+otherwise surfaces far away as an HTTP 503 at the ingress.
+
+Source:
+[`guest/ubuntu.server.24/ubuntu.server.24.k8s.sh`](../guest/ubuntu.server.24/ubuntu.server.24.k8s.sh)
+(and its `ubuntu.server.26` sibling).
+
+---
+
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.07
+Last review: 2026.07.10
 
 Back to [Yuruna](../README.md)

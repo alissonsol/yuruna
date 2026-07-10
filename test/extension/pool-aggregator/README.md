@@ -68,6 +68,21 @@ Every `-interval` (default 30s) it:
    field labels, so a `${__field.labels.hostId}` redirect would resolve empty). The
    `extensionTargets` map is also exposed in `/api/v1/pool-status` for the stash UI's
    `hostId → stashBaseUrl` lookup, and `/go/stash` resolves it for IP-free consumers.
+5c. **Accepts extension self-announces (`POST /announce`).** The registration path
+   above goes silent whenever the owning host's status server is down — routinely,
+   after a host reboot — while the service VM auto-restarts and keeps serving. So the
+   service announces ITSELF: the stash server POSTs `{hostId, area, targetPort}` at
+   startup, every beacon period (default 15 min), and `active:false` at shutdown
+   (stash-service.md §4.7). The advertised URL is derived from the announce's SOURCE
+   address (an announcer can only advertise itself — the same trust squid-log
+   discovery extends to any LAN client), the row's `baseUrl` fills from the host view
+   when the host is known, and a registration row for the same `(hostId, area)` wins.
+   Entries reap after `-announce-ttl` (default 45m, two missed beacons) or on a
+   goodbye; every accepted announce is pushed to Loki (`{pool,hostId,src=announce}`)
+   so a collector restart restores live rows instantly instead of waiting a period.
+   Announce-fed targets also back `/go/stash` and pool-status `stashBaseUrl` when the
+   registration has nothing. Open-by-design write route (no bearer): telemetry-only,
+   tightly validated, bounded, self-identity-bound; `-announce-ttl 0` disables it.
 6. **Survives its own restart:** on startup it rehydrates the cycle counters (and
    the seen/counted dedup state) from Loki — the durable transition record —
    over the trailing `-rehydrate-window`. The counter resumes at its prior value
@@ -152,7 +167,8 @@ unaffected (graceful degradation).
 (default `30s`) · `-listen` (default `:9400`) · `-rehydrate-window` (default
 `168h`; `0` disables — see above) · `-incident-fails` (default `3`) ·
 `-incident-window` (default `2h`) · `-cross-host-fails` (default `3`) ·
-`-cross-host-window` (default `15m`).
+`-cross-host-window` (default `15m`) · `-announce-ttl` (default `45m`; `0`
+disables `POST /announce`).
 
 ## Endpoints (`:9400`)
 
@@ -169,6 +185,7 @@ the leaf is absent.
 | `/go/host?host=<hostId>` | GET | none | dashboard timeline click → 302 to that host's status-page **root**. Same `host` uuid → **current** IP resolution as `/go/cycle` (survives a host IP change), but always lands on the status page rather than a cycle folder — the IP-free state-timeline rows can't carry the IP, so the link resolves it here |
 | `/go/stash?host=<hostId>&area=<area>` | GET | none | 302 to that host's extension-service UI (default `area=stash-service`, the stash VM), resolved from the URL the host **advertised** in `extensionTargets` (refreshed each cycle / on `Start-StashServer` via `Get-VMIp`). For IP-free, hostId-only consumers — the dashboard table itself links directly via the `target` label. Unknown host/target → 404 |
 | `/ingest` | POST | Bearer | runner-side push of NDJSON events (supplements pull); disabled (503) until a shared bearer token is configured |
+| `/announce` | POST | none (self-identity-bound) | extension-presence beacon (stash server et al., point 5c): the advertised URL derives from / must match the sender's address, so an announcer can only advertise itself; telemetry-only, bounded, disabled (503) when `-announce-ttl` is `0` |
 
 ## Deploy + verify
 
@@ -214,7 +231,10 @@ curl -sk https://localhost:9400/metrics            # -> yuruna_pool_* lines
   discovery). Once discovered, though, a host is remembered — re-probed at its
   last-known IP while idle (`hostTTL`) and re-seeded from Loki's presence beacon
   across a collector restart — so an idle / stash-only host stays on the dashboard
-  without fresh proxy traffic.
+  without fresh proxy traffic. The **Extension hosts** row additionally has a
+  discovery-independent path: the service VM's own `/announce` beacon (point 5c)
+  keeps that row (and `/go/stash`) alive even when the owning host is neither
+  probeable nor generating proxy traffic.
 - Per-step NDJSON events are tailed into Loki (Phase 2, done) for the
   step-failure / event-stream drill-down, surfaced as Loki logs panels.
 - Incident correlation covers **per-host** (N-failures-in-M-minutes) and
@@ -277,4 +297,4 @@ curl -sk https://localhost:9400/metrics            # -> yuruna_pool_* lines
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.07
+Last review: 2026.07.10

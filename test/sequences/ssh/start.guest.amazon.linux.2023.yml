@@ -15,7 +15,7 @@
 # See possible actions in the actions.yml file.
 
 # Perf-log identity (see https://yuruna.link/test/perf). Bump revision on step add/remove.
-sequenceGuid: 427653e6-932c-486a-b33f-0957edaa0ffa
+sequenceGuid: 4224b44c-5e04-47e8-a61b-865d2a191b84
 sequenceRevision: 1
 
 description: "Amazon Linux 2023 (SSH): drive everything over SSH once cloud-init has brought up sshd -- no console password dance (key auth bypasses the forced first-login change)."

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.07
+.VERSION 2026.07.10
 .GUID 42a2b3c4-d5e6-4f78-9012-3a4b5c6d7e95
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -39,14 +39,14 @@
          harness's Restart-VMConsole launches virt-viewer separately
          (and detached, so the harness pipe still EOFs cleanly).
 
-    The earlier KVM revision used the pre-baked Ubuntu cloud image (.img,
-    qcow2-format) + NoCloud cloud-init seed. That boots in ~30s but
+    The pre-baked Ubuntu cloud image (.img, qcow2-format) + NoCloud
+    cloud-init seed is deliberately NOT used: it boots in ~30s but
     DOES NOT show the "Continue with autoinstall?" prompt, does not run
     subiquity's late-commands, and lands at the login prompt without
     expiring the password -- making the GUI test sequence's first three
-    steps non-comparable across hosts. The new flow is slower (~5-10 min
-    install) but produces the same boot sequence and end state as
-    macos.utm and hyper-v.
+    steps non-comparable across hosts. The live-server flow is slower
+    (~5-10 min install) but produces the same boot sequence and end
+    state as macos.utm and hyper-v.
 #>
 
 param(
@@ -116,7 +116,7 @@ if (-not (Test-Path -LiteralPath $baseImageFile)) {
         }
     }
     if (-not (Test-Path -LiteralPath $baseImageFile)) {
-        Write-Error "Base image missing after auto Get-Image: $baseImageFile. Run Get-Image.ps1 manually."
+        Write-Error "Base image not found at '$baseImageFile' after auto Get-Image. Run Get-Image.ps1 manually."
         exit 1
     }
 }
@@ -214,16 +214,9 @@ $AptProxyBlock = @"
 "@
 
 # --- REGION: Fetch caching-proxy CA cert (base64-embedded in seed)
-# Mirrors host/macos.utm/guest.ubuntu.server.24/New-VM.ps1. The installer's
-# late-commands write the cert from CA_CERT_BASE64_PLACEHOLDER before
-# any HTTPS apt fetch, so SSL-bump caching works from the first install
-# request. An empty $CaCertBase64 is NOT a harmless no-op: the seed still
-# routes the guest's HTTPS through the bump (:3129) and locks direct :443
-# egress, so a CA-less guest fails every HTTPS with curl rc=60 ("self-signed
-# certificate in certificate chain"). Retry the fetch under the shared
-# capped-backoff policy so one blip against a slow or flapping caching proxy
-# does not strand the guest without the CA. See
-# feedback_sslbump_rc60_untrusted_chain_and_ca_gate_trap.
+# --- REGION: https://yuruna.link/network#caching-proxy-ca-cert-rc60-gate
+# An empty $CaCertBase64 is NOT a harmless no-op (curl rc=60 SSL-bump gate);
+# see feedback_sslbump_rc60_untrusted_chain_and_ca_gate_trap.
 $CaCertBase64 = ""
 if ($CachingProxyUrl) {
     Import-Module -Name (Join-Path $PSScriptRoot '../../../automation/Yuruna.Retry.psm1') -Force
@@ -293,7 +286,7 @@ New-Item -ItemType Directory -Force -Path $seedDir | Out-Null
 Set-Content -LiteralPath (Join-Path $seedDir 'user-data') -Value $userData -NoNewline
 Set-Content -LiteralPath (Join-Path $seedDir 'meta-data') -Value $metaData -NoNewline
 
-# --- REGION: Build the seed ISO
+# --- REGION: Generate cloud-init seed ISO
 # CIDATA volume label is what cloud-init's NoCloud datasource scans for.
 & genisoimage -output $seedImg -volid cidata -joliet -rock `
     (Join-Path $seedDir 'user-data') (Join-Path $seedDir 'meta-data') 2>&1 | Out-Null

@@ -1,5 +1,5 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.07.07
+.VERSION 2026.07.10
 .GUID 42c04f16-a1b2-4c3d-8e4f-5a6b7c8d9e0f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -130,6 +130,16 @@ function Copy-HashtableWithoutSecretNode {
         $copy[$key] = $Config[$key]
     }
     return $copy
+}
+
+# True when the merged/canonical config differs from the on-disk config OUTSIDE the
+# 'secrets' subtree: strip the secrets node from both, serialize each to YAML, and
+# compare the strings. One predicate so the two reconciliation write gates cannot drift.
+function Test-ConfigDiffersOutsideSecretNode {
+    param($A, $B)
+    $aYaml = (Copy-HashtableWithoutSecretNode $A) | ConvertTo-Yaml
+    $bYaml = (Copy-HashtableWithoutSecretNode $B) | ConvertTo-Yaml
+    return ($aYaml -ne $bYaml)
 }
 
 <#
@@ -382,12 +392,7 @@ The run is stopping so you can review. Restarting will then proceed normally.
         return $merged
     }
 
-    $mergedForDiff  = Copy-HashtableWithoutSecretNode $merged
-    $currentForDiff = Copy-HashtableWithoutSecretNode $current
-    $mergedYaml  = $mergedForDiff  | ConvertTo-Yaml
-    $currentYaml = $currentForDiff | ConvertTo-Yaml
-
-    if ($mergedYaml -ne $currentYaml) {
+    if (Test-ConfigDiffersOutsideSecretNode -A $merged -B $current) {
         if ($PSCmdlet.ShouldProcess($ConfigPath, "Rewrite with template overlay")) {
             Write-Information "test.config.yml: applying template overlay to pick up schema changes." -InformationAction Continue
             # Atomic temp+rename: the status server serves this working tree, so a
@@ -462,8 +467,7 @@ function Sync-TestConfigToTemplate {
     $removed   = @(Get-DroppedConfigField -Current (Copy-HashtableWithoutSecretNode $Current) -Merged $canonical)
 
     # Rewrite only when the canonical form differs from disk outside 'secrets'.
-    $changed = (((Copy-HashtableWithoutSecretNode $canonical) | ConvertTo-Yaml) -ne `
-               ((Copy-HashtableWithoutSecretNode $Current)   | ConvertTo-Yaml))
+    $changed = Test-ConfigDiffersOutsideSecretNode -A $canonical -B $Current
     $wrote      = $false
     $backupPath = $null
     if ($changed -and $PSCmdlet.ShouldProcess($ConfigPath, "Reconcile to template (add missing, drop orphans, sort)")) {

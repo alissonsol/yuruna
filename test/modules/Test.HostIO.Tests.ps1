@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.07
+.VERSION 2026.07.10
 .GUID 422f3b8c-4e95-4a72-9b16-7f8e3c0d5a29
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -32,7 +32,8 @@
         actions;
       * an unknown host throws with the '<host not registered>' marker.
     The AST guards pin the optimisation itself (exactly one registry Get; no
-    Test-HostIOActionAvailable call) -- both fail against the pre-fix module.
+    Test-HostIOActionAvailable call) -- both fail if the dispatch path
+    regresses to the double-lookup shape.
 
     The throw-based Assert-* helpers are defined at script scope and referenced
     from It blocks, so this runs under Pester 4.10.1 (Pester 5's scope split

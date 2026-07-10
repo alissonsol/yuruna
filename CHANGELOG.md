@@ -4,6 +4,32 @@ Yuruna uses [Calendar Versioning](https://calver.org/): `YYYY.MM.DD`.
 Tags are cut from the `main` branch; entries below summarize each
 tagged release.
 
+## 2026.07.10
+
+- **Sync-HostConfiguration.** New per-host-type operator script
+  (`host/<type>/Sync-HostConfiguration.ps1 -ReferenceHost <host>`) that copies a
+  working pool host's `test.config.yml` onto this host — converting the
+  networkStorage values across host types (UNC slash style; `y:`/`z:` vs
+  `/mnt/<server>` vs `~/Shares/<server>` local-mount conventions), preserving the
+  local `secrets` node, adding a missing NAS hosts-file alias from the reference
+  host's resolution, and fetching missing vault credentials over the status
+  server's new `pool-auth-token`-gated, encrypted `/control/vault-credential`
+  route (with `/control/host-aliases` supplying the name→IP mappings). Shared
+  logic in `test/modules/Test.HostConfigSync.psm1`. See
+  [pool-storage.md](docs/pool-storage.md) (Syncing a new host's config from a
+  reference host).
+- **Stash presence beacon.** The stash server now self-announces to the
+  pool-aggregator (`POST /announce`) on boot, every 15 minutes
+  (configurable via `--presence-interval` / `STASH_PRESENCE_INTERVAL`), and
+  at shutdown, so the *Yuruna hosts* dashboard's **Extension hosts** row no
+  longer depends on the owning host's status server being up — the row now
+  survives host reboots and aggregator restarts (announces are journaled to
+  Loki and rehydrated on startup). The aggregator also serves pool-status
+  `stashBaseUrl` (registration target with announce fallback), completing
+  the stash UI's remote-host resolution. See
+  [stash-service.md](docs/design/stash-service.md) (§4.7) and the
+  [pool-aggregator README](test/extension/pool-aggregator/README.md).
+
 ## 2026.07.07
 
 - **Reliability & self-healing hardening sweep.** Ended the code sweep. Mid-week test release to verify automated scripts and hardening.
@@ -124,6 +150,6 @@ tagged release.
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.07
+Last review: 2026.07.10
 
 Back to [Yuruna](README.md)

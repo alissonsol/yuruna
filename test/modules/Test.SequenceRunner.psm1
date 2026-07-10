@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.07
+.VERSION 2026.07.10
 .GUID 42f2c5e4-b9a0-4367-cd15-4e6f9b3c2d51
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -16,7 +16,7 @@
 
 #requires -version 7
 
-# Chain planning + chain execution lifted out of Test-Sequence.ps1.
+# Chain planning + chain execution helpers for Test-Sequence.ps1.
 # Two functions:
 #
 #   Resolve-TestSequencePlan  -- Build the $ChainEntries list (name,
@@ -32,10 +32,10 @@
 #                                $VMName when a mid-chain saveDiskSnapshot
 #                                renamed the VM.
 #
-# Sized for unit-testable extraction: each function takes its inputs by
-# parameter (no script-scope reads) so a future test harness can call
-# them with fixture data. The host-driver-resolved $VMName and Invoke-
-# Sequence's $ShowSensitive switch are passed through verbatim.
+# Each function takes its inputs by parameter (no script-scope reads)
+# so a test harness can call them with fixture data. The host-driver-
+# resolved $VMName and Invoke-Sequence's $ShowSensitive switch are
+# passed through verbatim.
 
 function Resolve-TestSequencePlan {
     <#
@@ -43,9 +43,8 @@ function Resolve-TestSequencePlan {
         Build the chain plan + entries for Test-Sequence and detect a
         warm-path requiresSnapshot.
     .DESCRIPTION
-        Mirror of the inline "Build chain plan" + "requiresSnapshot warm-
-        path probe" blocks from Test-Sequence.ps1. Walks the named
-        sequence's baseline chain via Resolve-NamedSequenceChain, reads
+        Walks the named sequence's baseline chain via
+        Resolve-NamedSequenceChain, reads
         each entry's YAML, computes per-entry stepCount + globalStart,
         and -- when the top-level declares requiresSnapshot.id with a
         persisted snapshot already on the host -- drops every prereq so
@@ -263,12 +262,10 @@ function Invoke-TestSequenceChain {
         [Parameter(Mandatory=$true)]
         [System.Collections.IList]$ChainEntries,
 
-        # Resolve-NamedSequenceChain returns a [pscustomobject]; older
-        # call sites typed this parameter as [hashtable] and never tripped
-        # the coercion because the older filename-based GuestKey path
-        # bailed out before this function was reached. [psobject] accepts
-        # both shapes, and all access below is via `.` member access which
-        # works equivalently for either.
+        # Resolve-NamedSequenceChain returns a [pscustomobject], which a
+        # [hashtable] constraint here would reject at coercion. [psobject]
+        # accepts both shapes, and all access below is via `.` member
+        # access which works equivalently for either.
         [Parameter(Mandatory=$true)]
         [psobject]$ChainPlan,
 

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.07
+.VERSION 2026.07.10
 .GUID 42a2b3c4-d5e6-4f78-9012-3a4b5c6d7e97
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -87,7 +87,7 @@ if (-not (Test-Path -LiteralPath $baseImageFile)) {
         }
     }
     if (-not (Test-Path -LiteralPath $baseImageFile)) {
-        Write-Error "Base image missing after auto Get-Image: $baseImageFile. Run Get-Image.ps1 manually."
+        Write-Error "Base image not found at '$baseImageFile' after auto Get-Image. Run Get-Image.ps1 manually."
         exit 1
     }
 }
@@ -183,12 +183,12 @@ if (Test-Path -LiteralPath $diskImg) { Remove-Item -Force -LiteralPath $diskImg 
 # qemu-img create -b accepts a SIZE smaller than the backing file's virtual
 # size, but the resulting overlay only exposes the first SIZE bytes of the
 # backing chain to the guest. AL2023's KVM cloud image ships a ~25 GiB
-# virtual disk (sparse, so the qcow2 file itself is far smaller), so the
-# previous hardcoded 16G silently truncated the rootfs partition and the
-# guest stalled at `dracut-initqueue: starting timeout scripts` waiting for
-# a device that the kernel could never finish enumerating. Probe the base
-# virtual size and pick max(base, 16 GiB) -- preserves the original
-# at-least-16G intent without ever shrinking below the backing size.
+# virtual disk (sparse, so the qcow2 file itself is far smaller), so a
+# hardcoded 16G silently truncates the rootfs partition and the guest
+# stalls at `dracut-initqueue: starting timeout scripts` waiting for
+# a device that the kernel can never finish enumerating. Probe the base
+# virtual size and pick max(base, 16 GiB) -- keeps the at-least-16G
+# floor without ever shrinking below the backing size.
 $baseInfo = (& qemu-img info --output=json -- $baseImageFile | ConvertFrom-Json)
 if ($LASTEXITCODE -ne 0) { Write-Error "qemu-img info on '$baseImageFile' failed"; exit 1 }
 $baseVirtualBytes = [int64]$baseInfo.'virtual-size'

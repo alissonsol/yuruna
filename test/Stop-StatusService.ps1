@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.07
+.VERSION 2026.07.10
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456741
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -22,7 +22,7 @@
 
 .DESCRIPTION
     Reads the PID from $env:YURUNA_RUNTIME_DIR/server.pid and terminates
-    the process.
+    the detached serve process.
 #>
 
 Import-Module (Join-Path -Path $PSScriptRoot -ChildPath "modules" -AdditionalChildPath "Test.YurunaDir.psm1") -Force

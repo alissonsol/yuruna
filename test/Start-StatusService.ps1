@@ -1,5 +1,5 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.07.07
+.VERSION 2026.07.10
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456740
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -69,7 +69,7 @@ $LogDir     = $env:YURUNA_LOG_DIR
 
 $PidFile = Join-Path $RuntimeDir "server.pid"
 
-if ($Port -eq 0) {
+if ($Port -le 0) {
     $configPath = Join-Path $TestRoot "test.config.yml"
     if (Test-Path $configPath) {
         try {
@@ -77,7 +77,7 @@ if ($Port -eq 0) {
             if ($config.statusService.port) { $Port = [int]$config.statusService.port }
         } catch { Write-Warning "Could not read port from config: $_" }
     }
-    if ($Port -eq 0) { $Port = 8080 }
+    if ($Port -le 0) { $Port = 8080 }
 }
 
 if ($Restart -and (Test-Path $PidFile)) {
@@ -325,7 +325,8 @@ try {
         Import-Module (Join-Path $ModulesDir 'Test.HostContract.psm1') -Force -Global
         [void](Initialize-YurunaHost -RepoRoot (Split-Path -Parent $TestRoot) -HostType $detectedHost)
         # Re-import Test.CachingProxy with -Global -Force here even though
-        # line 55 already imported it once: Initialize-YurunaHost cascades
+        # the StatusService module set at file top already imported it
+        # once: Initialize-YurunaHost cascades
         # into Yuruna.Host.psm1, whose own top-level non-global import of
         # Test.CachingProxy takes over the "one active version per module"
         # slot and evicts this script's view of Read-CachingProxyState.
@@ -363,6 +364,21 @@ try {
             $mapOk = $false
             $bestIp = $null
             $isExternal = [bool]$Env:YURUNA_CACHING_PROXY_IP
+            if ($isExternal) {
+                $externUrlIp = if ($cachingProxyUrl -match '^http://([0-9.]+):') { $matches[1] } else { $null }
+                # External handling below Remove-PortMaps this host's
+                # forwarders, so it may only run when the endpoint is
+                # POSITIVELY not this host. 'local': the endpoint is this
+                # host's own forwarder set fronting its NAT'd cache VM --
+                # removing it severs the listeners that just answered the
+                # probe (self-teardown). 'unknown': transient NIC-
+                # enumeration gaps must land on the local side, because a
+                # wrong 'external' verdict tears the forwarders down while
+                # a wrong 'local' verdict merely re-asserts a port map.
+                if ($externUrlIp -and ((Get-HostOwnIpVerdict -IpAddress $externUrlIp) -ne 'nonlocal')) {
+                    $isExternal = $false
+                }
+            }
             # Initialize-YurunaHost was already called above; Add-PortMap /
             # Remove-PortMap / Get-BestHostIp are now resolvable via Yuruna.Host.
             if ($true) {
@@ -393,6 +409,14 @@ try {
                         if ($candidate -and (Test-IpAddress $candidate)) { $vmIp = $candidate }
                     } else {
                         $vmIp = if ($cachingProxyUrl -match '^http://([0-9.]+):') { $matches[1] } else { $null }
+                        if ($vmIp -and (Test-HostOwnIpAddress -IpAddress $vmIp)) {
+                            # Own-address URL (locally-owned cache fronted
+                            # by this host's forwarders): the port-map
+                            # target must be the cache VM's real IP, never
+                            # the host address fronting it (self-loop).
+                            $stateVmIp = Get-CachingProxyVMIp
+                            if ($stateVmIp) { $vmIp = $stateVmIp }
+                        }
                     }
                     # macOS: port 80 (<1024) is managed exclusively by
                     # Start-CachingProxy.ps1 (it calls `sudo -v` first). Including
@@ -419,6 +443,15 @@ try {
                         [void](Remove-PortMap -Confirm:$false)
                         $mapOk = $true
                         $bestIp = $vmIp
+                    } elseif ($vmIp -and (Test-HostOwnIpAddress -IpAddress $vmIp)) {
+                        # The target resolved no further than one of this
+                        # host's own addresses: a forwarder aimed there
+                        # would loop each port back onto its own listener.
+                        # Keep the port map that is currently serving
+                        # traffic instead of replacing it with a loop.
+                        $mapOk = $true
+                        $bestIp = Get-BestHostIp
+                        if (-not $bestIp) { $bestIp = $vmIp }
                     } else {
                         # HTTP/HTTPS port mapping is platform-divergent on the
                         # Default-Switch fallback (see Invoke-TestRunner.ps1
@@ -433,7 +466,11 @@ try {
                         # env vars (defaults 3128 / 3129).
                         $cacheHttpPort  = Get-CachingProxyPort -Scheme http
                         $cacheHttpsPort = Get-CachingProxyPort -Scheme https
-                        $squidPorts = if ($IsMacOS) { @(3000) } else { @(80, 3000, $cacheHttpPort, $cacheHttpsPort) }
+                        # 9302 (caching-proxy-parser live tail) must stay in
+                        # lockstep with Start-CachingProxy.ps1's install list:
+                        # Add-PortMap is clear-all-first, so any port omitted
+                        # here goes dark on reinstall.
+                        $squidPorts = if ($IsMacOS) { @(3000) } else { @(80, 3000, 9302, $cacheHttpPort, $cacheHttpsPort) }
                         if ($vmIp) {
                             $portMapArgs = @{
                                 VMIp = $vmIp
@@ -495,14 +532,25 @@ $serverScript = @"
 # server runspace is fresh -- import the module that exports them.
 Import-Module (Join-Path `$repoRoot 'test/modules/Test.VMUtility.psm1') -Force -DisableNameChecking -Verbose:`$false -ErrorAction SilentlyContinue
 # Invoke-CachingProxyProbe (used by /control/test-caching-proxy) lives in
-# Test.CachingProxy.psm1. The parent process imports it for the startup
-# probe at line 555, but the detached child has its own fresh runspace.
+# Test.CachingProxy.psm1. The parent process imports it for its startup
+# probe, but the detached child has its own fresh runspace.
 Import-Module (Join-Path `$repoRoot 'test/modules/Test.CachingProxy.psm1') -Force -DisableNameChecking -Verbose:`$false -ErrorAction SilentlyContinue
 # Read-TestConfig (mtime+hash cached YAML parse) for the test-config GET
 # and perf-aggregates handlers. Same cache the runner uses, so an
 # operator edit to test.config.yml is observed on the very next handler
 # call without restarting the server.
 Import-Module (Join-Path `$repoRoot 'test/modules/Test.Config.psm1')      -Force -DisableNameChecking -Verbose:`$false -ErrorAction SilentlyContinue
+# Get-PoolStorageServerName (used by /control/host-aliases) shares the
+# networkStorage path grammar with the mount code, so the alias endpoint
+# and the mount can never disagree on which token is the server name.
+Import-Module (Join-Path `$repoRoot 'test/modules/Test.PoolStorage.psm1') -Force -DisableNameChecking -Verbose:`$false -ErrorAction SilentlyContinue
+# Test-ConfigSyncProof / Protect-ConfigSyncCredential (used by
+# /control/vault-credential) live with their client-side counterparts in
+# one module so the two ends of the shared-token envelope cannot drift.
+# Test.Extension supplies Import-Extension for the lazy authentication-
+# extension load inside that route.
+Import-Module (Join-Path `$repoRoot 'test/modules/Test.HostConfigSync.psm1') -Force -DisableNameChecking -Verbose:`$false -ErrorAction SilentlyContinue
+Import-Module (Join-Path `$repoRoot 'test/modules/Test.Extension.psm1')      -Force -DisableNameChecking -Verbose:`$false -ErrorAction SilentlyContinue
 `$stepPauseFile  = Join-Path `$runtimeDir 'control.step-pause'
 `$cyclePauseFile = Join-Path `$runtimeDir 'control.cycle-pause'
 `$statusJsonFile = Join-Path `$runtimeDir 'status.json'
@@ -511,8 +559,8 @@ Import-Module (Join-Path `$repoRoot 'test/modules/Test.Config.psm1')      -Force
 # detached server's here-string. Used by /control/guest-folders to list
 # guests under host/<short>/.
 `$serverHostType = '$detectedHost'
-# NOTE: server used to self-exit on stale server.heartbeat. Removed
-# because legitimate runner states outlast ANY threshold — a
+# NOTE: deliberately NO self-exit on a stale server.heartbeat —
+# legitimate runner states outlast ANY threshold: a
 # prompt-for-confirmation pausing the runner for hours, or a single
 # waitForText with timeoutSeconds:3600. UI must stay up, so the ONLY
 # stop path is Stop-StatusService.ps1 (kills server.pid). A truly
@@ -1318,6 +1366,159 @@ try {
                 continue
             }
 
+            # --- REGION: /control/host-aliases: networkStorage server names -> IPs as THIS host resolves them
+            # Read-only GET. Serves the name->IP resolutions for the server
+            # names referenced by this host's networkStorage config (and
+            # nothing else -- a full hosts-file dump stays in the diagnostic
+            # report). A peer host syncing its config from this one uses it
+            # to adopt the alias for a NAS name that does not resolve there
+            # (host/<type>/Sync-HostConfiguration.ps1). Names + LAN IPs are
+            # not secrets, so the route stays unauthenticated like the rest
+            # of the status surface.
+            if (`$path -eq 'control/host-aliases') {
+                `$res.ContentType = 'application/json; charset=utf-8'
+                `$res.Headers.Add('Cache-Control', 'no-store')
+                if (`$req.HttpMethod -ne 'GET' -and `$req.HttpMethod -ne 'HEAD') {
+                    `$res.StatusCode = 405
+                    `$res.Headers.Add('Allow', 'GET')
+                    `$bytes = [System.Text.Encoding]::UTF8.GetBytes('{"ok":false,"error":"method not allowed"}')
+                } elseif (-not (Get-Command Get-PoolStorageServerName -ErrorAction SilentlyContinue) -or
+                          -not (Get-Command Read-TestConfig -ErrorAction SilentlyContinue)) {
+                    `$res.StatusCode = 500
+                    `$bytes = [System.Text.Encoding]::UTF8.GetBytes('{"ok":false,"error":"Test.PoolStorage / Test.Config not loaded in the server runspace"}')
+                } else {
+                    try {
+                        `$doc = Read-TestConfig -Path (Join-Path `$repoRoot 'test/test.config.yml') -ThrowOnError
+                        `$ns  = if (`$doc -is [System.Collections.IDictionary]) { `$doc['networkStorage'] } else { `$null }
+                        `$aliases    = [ordered]@{}
+                        `$unresolved = [System.Collections.Generic.List[string]]::new()
+                        if (`$ns -is [System.Collections.IDictionary]) {
+                            foreach (`$npKey in @('poolNetworkPath', 'stashNetworkPath')) {
+                                `$np = if (`$ns.Contains(`$npKey)) { "`$(`$ns[`$npKey])".Trim() } else { '' }
+                                if (-not `$np) { continue }
+                                `$server = Get-PoolStorageServerName -NetworkPath `$np
+                                if (-not `$server -or `$aliases.Contains(`$server) -or `$unresolved.Contains(`$server)) { continue }
+                                try {
+                                    `$addrs = [System.Net.Dns]::GetHostAddresses(`$server)
+                                    `$pick = `$addrs | Where-Object { `$_.AddressFamily -eq 'InterNetwork' } | Select-Object -First 1
+                                    if (-not `$pick) { `$pick = `$addrs | Select-Object -First 1 }
+                                    if (`$pick) { `$aliases[`$server] = `$pick.ToString() } else { [void]`$unresolved.Add(`$server) }
+                                } catch {
+                                    [void]`$unresolved.Add(`$server)
+                                }
+                            }
+                        }
+                        `$payload = @{ ok = `$true; aliases = `$aliases; unresolved = @(`$unresolved) } | ConvertTo-Json -Compress -Depth 5
+                        `$bytes = [System.Text.Encoding]::UTF8.GetBytes(`$payload)
+                    } catch {
+                        `$res.StatusCode = 500
+                        `$errMsg = (`$_.Exception.Message -replace '\\','\\' -replace '"','\"' -replace '[\r\n]+',' ')
+                        `$bytes = [System.Text.Encoding]::UTF8.GetBytes('{"ok":false,"error":"' + `$errMsg + '"}')
+                    }
+                }
+                `$res.ContentLength64 = `$bytes.Length
+                if (`$req.HttpMethod -ne 'HEAD') {
+                    `$res.OutputStream.Write(`$bytes, 0, `$bytes.Length)
+                }
+                `$res.OutputStream.Close()
+                continue
+            }
+
+            # --- REGION: /control/vault-credential: token-gated networkStorage credential for a peer host
+            # GET ?user=<logicalUser>&nonce=<b64>&proof=<b64>. Serves ONE
+            # vault password -- and only for a user this host's own
+            # networkStorage config references -- to a peer that proves it
+            # holds the operator-set shared pool-auth-token (HMAC proof; the
+            # token itself never crosses the wire). The response password is
+            # AES-GCM encrypted with a key derived from token + user + the
+            # client's nonce (Protect-ConfigSyncCredential), so the secret
+            # stays confidential over this plain-HTTP listener. Replaying a
+            # captured request only re-fetches ciphertext the replayer still
+            # cannot decrypt. 503 until the operator configures the shared
+            # token (mirrors the aggregator's default-off /ingest gate);
+            # never auto-generates a vault entry to serve.
+            if (`$path -eq 'control/vault-credential') {
+                `$res.ContentType = 'application/json; charset=utf-8'
+                `$res.Headers.Add('Cache-Control', 'no-store')
+                `$vcStatus = 200
+                `$vcError  = `$null
+                `$qUser  = `$req.QueryString['user']
+                `$qNonce = `$req.QueryString['nonce']
+                `$qProof = `$req.QueryString['proof']
+                if (`$req.HttpMethod -ne 'GET') {
+                    `$vcStatus = 405; `$vcError = 'method not allowed'
+                    `$res.Headers.Add('Allow', 'GET')
+                } elseif (-not `$qUser -or -not `$qNonce -or -not `$qProof) {
+                    `$vcStatus = 400; `$vcError = 'user, nonce and proof query parameters are required'
+                } elseif (-not (Get-Command Test-ConfigSyncProof -ErrorAction SilentlyContinue) -or
+                          -not (Get-Command Read-TestConfig -ErrorAction SilentlyContinue)) {
+                    `$vcStatus = 500; `$vcError = 'Test.HostConfigSync / Test.Config not loaded in the server runspace'
+                }
+                if (-not `$vcError) {
+                    # Lazy authentication-extension load: the vault only has
+                    # to be readable when a peer actually asks.
+                    if (Get-Command Import-Extension -ErrorAction SilentlyContinue) {
+                        try { `$null = Import-Extension -Area 'authentication' -RequireSingle } catch { `$null = `$_ }
+                    }
+                    if (-not (Get-Command Get-EffectiveUser -ErrorAction SilentlyContinue) -or
+                        -not (Get-Command Test-VaultEntry -ErrorAction SilentlyContinue)) {
+                        `$vcStatus = 503; `$vcError = 'authentication extension unavailable'
+                    }
+                }
+                if (-not `$vcError) {
+                    try {
+                        `$doc = Read-TestConfig -Path (Join-Path `$repoRoot 'test/test.config.yml') -ThrowOnError
+                        `$ns  = if (`$doc -is [System.Collections.IDictionary]) { `$doc['networkStorage'] } else { `$null }
+                        `$allowed = [System.Collections.Generic.List[string]]::new()
+                        if (`$ns -is [System.Collections.IDictionary]) {
+                            foreach (`$nuKey in @('poolNetworkUser', 'stashNetworkUser')) {
+                                `$nu = if (`$ns.Contains(`$nuKey)) { "`$(`$ns[`$nuKey])".Trim() } else { '' }
+                                if (`$nu) { [void]`$allowed.Add(`$nu) }
+                            }
+                        }
+                        if (-not `$allowed.Contains([string]`$qUser)) {
+                            `$vcStatus = 404; `$vcError = 'user not referenced by this host''s networkStorage config'
+                        } else {
+                            `$tm = Get-EffectiveUser -LogicalUser 'pool-auth-token'
+                            if (-not `$tm.vaultKey -or -not (Test-VaultEntry -VaultKey `$tm.vaultKey)) {
+                                `$vcStatus = 503; `$vcError = 'shared pool-auth-token not configured on this host'
+                            } else {
+                                `$vcToken = Get-Password -Username 'pool-auth-token'
+                                if (-not (Test-ConfigSyncProof -Token `$vcToken -User `$qUser -Nonce `$qNonce -Proof `$qProof)) {
+                                    `$vcStatus = 403; `$vcError = 'proof mismatch (wrong or stale shared token)'
+                                } else {
+                                    `$um = Get-EffectiveUser -LogicalUser `$qUser
+                                    `$vcKey = if (`$um.vaultKey) { `$um.vaultKey } else { [string]`$qUser }
+                                    if (-not (Test-VaultEntry -VaultKey `$vcKey)) {
+                                        `$vcStatus = 404; `$vcError = 'no stored credential for that user on this host'
+                                    } else {
+                                        `$pw = Get-Password -Username `$qUser
+                                        `$envelope = Protect-ConfigSyncCredential -Token `$vcToken -User `$qUser -ClientNonce `$qNonce -Password `$pw
+                                        `$envelope['ok'] = `$true
+                                        `$payload = `$envelope | ConvertTo-Json -Compress -Depth 3
+                                    }
+                                }
+                            }
+                        }
+                    } catch {
+                        `$vcStatus = 500
+                        `$vcError = (`$_.Exception.Message -replace '\\','\\' -replace '"','\"' -replace '[\r\n]+',' ')
+                        Write-ServerErr "vault-credential failed: `$vcError"
+                    }
+                }
+                if (`$vcError) {
+                    `$res.StatusCode = `$vcStatus
+                    `$errMsg = (`$vcError -replace '\\','\\' -replace '"','\"' -replace '[\r\n]+',' ')
+                    `$bytes = [System.Text.Encoding]::UTF8.GetBytes('{"ok":false,"error":"' + `$errMsg + '"}')
+                } else {
+                    `$bytes = [System.Text.Encoding]::UTF8.GetBytes(`$payload)
+                }
+                `$res.ContentLength64 = `$bytes.Length
+                `$res.OutputStream.Write(`$bytes, 0, `$bytes.Length)
+                `$res.OutputStream.Close()
+                continue
+            }
+
             # --- REGION: Control endpoints: Pause/Continue back-channel from UI
             # Two pause switches, each backed by a flag file, mirrored
             # into status.json so the next UI poll flips the banner:
@@ -1662,7 +1863,7 @@ try {
             # writing into one cannot be initiated by an attacker that
             # hasn't already caused the cycle to enter that guest's
             # loop). The filename has to match `*.system.diagnostic.*.txt`
-            # so it lines up with Test.Diagnostic' Get-DiagnosticsFileName
+            # so it lines up with Test.Diagnostic's Get-DiagnosticsFileName
             # output (yyyy-MM-dd.HH-mm.system.diagnostic.<Id>.txt). Body
             # cap is 5 MB; a real dump is ~30-60 kB, so anything larger
             # is an upload pathology, not a legit capture.

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.07
+.VERSION 2026.07.10
 .GUID 42e9f0a1-b2c3-4d45-e678-9f0a1b2c3d45
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -55,29 +55,6 @@ if (-not (Assert-HyperVEnabled)) {
 	exit 1
 }
 
-$existingVM = Get-VM -Name $VMName -ErrorAction SilentlyContinue
-if ($existingVM) {
-	Write-Output "VM '$VMName' exists. Deleting..."
-	Hyper-V\Stop-VM -Name $VMName -Force -ErrorAction SilentlyContinue -WarningAction SilentlyContinue
-	try {
-		Hyper-V\Remove-VM -Name $VMName -Force -ErrorAction Stop
-	} catch {
-		# A half-removed VM (locked vhdx, permission, etc.) would trip
-		# the next New-VM call with "already exists" and the outer loop
-		# has no signal to recover. Dump live Hyper-V state so the
-		# operator can clean orphan disks before retrying.
-		$diag = Get-VM -Name $VMName -ErrorAction SilentlyContinue |
-			Format-List Name, State, Status, Generation, Path | Out-String
-		throw "Hyper-V\Remove-VM failed for '$VMName': $($_.Exception.Message)`nLive Hyper-V state:`n$diag"
-	}
-	# Hyper-V can return Remove-VM success while leaving a ghost entry;
-	# a second Get-VM is the only reliable post-condition.
-	if (Get-VM -Name $VMName -ErrorAction SilentlyContinue) {
-		throw "Hyper-V\Remove-VM returned success for '$VMName' but Get-VM still finds it; aborting before re-creation."
-	}
-	Write-Output "VM '$VMName' deleted."
-}
-
 # --- REGION: Seek the base image
 $downloadDir = (Get-VMHost).VirtualHardDiskPath
 $baseImageName = "host.windows.hyper-v.guest.amazon.linux.2023"
@@ -104,9 +81,35 @@ if (!(Test-Path -Path $baseImageFile)) {
         }
     }
     if (!(Test-Path -Path $baseImageFile)) {
-        Write-Output "Base image not found at '$baseImageFile' after auto Get-Image. Run Get-Image.ps1 manually."
+        Write-Error "Base image not found at '$baseImageFile' after auto Get-Image. Run Get-Image.ps1 manually."
         exit 1
     }
+}
+
+# --- REGION: Remove existing VM
+# Runs AFTER the base image is confirmed so a failed image fetch never
+# destroys a working VM.
+$existingVM = Get-VM -Name $VMName -ErrorAction SilentlyContinue
+if ($existingVM) {
+	Write-Output "VM '$VMName' exists. Deleting..."
+	Hyper-V\Stop-VM -Name $VMName -Force -ErrorAction SilentlyContinue -WarningAction SilentlyContinue
+	try {
+		Hyper-V\Remove-VM -Name $VMName -Force -ErrorAction Stop
+	} catch {
+		# A half-removed VM (locked vhdx, permission, etc.) would trip
+		# the next New-VM call with "already exists" and the outer loop
+		# has no signal to recover. Dump live Hyper-V state so the
+		# operator can clean orphan disks before retrying.
+		$diag = Get-VM -Name $VMName -ErrorAction SilentlyContinue |
+			Format-List Name, State, Status, Generation, Path | Out-String
+		throw "Hyper-V\Remove-VM failed for '$VMName': $($_.Exception.Message)`nLive Hyper-V state:`n$diag"
+	}
+	# Hyper-V can return Remove-VM success while leaving a ghost entry;
+	# a second Get-VM is the only reliable post-condition.
+	if (Get-VM -Name $VMName -ErrorAction SilentlyContinue) {
+		throw "Hyper-V\Remove-VM returned success for '$VMName' but Get-VM still finds it; aborting before re-creation."
+	}
+	Write-Output "VM '$VMName' deleted."
 }
 
 Write-Verbose "Creating VM '$VMName' using image: $baseImageFile"

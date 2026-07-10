@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.07
+.VERSION 2026.07.10
 .GUID 42e1f2a3-b4c5-4d67-e890-1f2a3b4c5d68
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -270,7 +270,7 @@ if ($LASTEXITCODE -ne 0) {
 }
 Write-Output ($vOut -join "`n")
 
-# --- REGION: Name the file as per naming convention
+# --- REGION: Preserve previous and finalize
 $previousFile = Join-Path $downloadDir "$baseImageName.previous.ipsw"
 Remove-Item $previousFile -Force -ErrorAction SilentlyContinue
 if (Test-Path $baseImageFile) {

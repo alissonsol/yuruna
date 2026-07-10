@@ -172,6 +172,38 @@ the cifs mount of the StashFolder so the daemon does not start before
 the share is available. Operational logs are written to stderr,
 captured by journald (`journalctl -u stash-server`).
 
+### 4.7 Presence Beacon
+
+The daemon **self-announces** to the pool-aggregator (`POST
+<aggregator>/announce`) so the pool dashboard's **Extension hosts** row
+exists **without depending on the owning host's status server**. The
+registration path (`host.registration.json`, read by the aggregator
+through that status server) goes silent whenever the status server is
+down — the state a host reboot routinely leaves behind — while the
+stash VM auto-restarts and keeps serving; the beacon is the service's
+own liveness signal for exactly that gap.
+
+Behavior:
+
+- **hello** at daemon startup (retried on a short catch-up cadence
+  until the aggregator first answers, covering whole-lab boot ordering);
+- **re-announce** every `--presence-interval` (default **15 minutes**,
+  `0` disables) so the aggregator's announce TTL never expires while
+  the service lives;
+- **goodbye** (`active: false`) at shutdown, best-effort, so a
+  deliberately stopped service leaves the panel immediately instead of
+  aging out.
+
+The announce carries the **owning host's** `hostId` (`--host-id`, baked
+from the stash storage seed at bring-up — the same identity the pool
+table keys on) and the daemon's UI **port**; the aggregator derives the
+service URL from the connection's **source address**, so the daemon
+never needs to know its own IP and an announcer can only advertise
+itself. The aggregator reaps an entry not refreshed within its
+`-announce-ttl` (default 45 minutes — tolerant of two missed beacons).
+Best-effort throughout: an unreachable aggregator never affects stash
+operation.
+
 ## 5. SCP Protocol Behavior
 
 The service accepts files from clients invoking the standard syntax:
@@ -468,6 +500,9 @@ operator who needs the ID at upload time can use `scp -O` (legacy).
 | StashFolder path | `<stashNetworkPath>/<hostId>` (mounted at `<stashLocalPath>/<hostId>`) | VM-side service config |
 | VM-local metadata path | `/var/lib/stash-server/metadata/` | VM-side service config |
 | VM-local buffer path | `/var/lib/stash-server/buffer/` | VM-side service config |
+| Presence re-announce period (§4.7) | `15m` (`0` disables) | `--presence-interval` (`STASH_PRESENCE_INTERVAL` at bring-up) |
+| Presence identity (§4.7) | owning host's `hostId` from the stash storage seed | `--host-id` (baked at bring-up) |
+| Aggregator base URL (§4.7, UI §3.4) | baked from the host's caching-proxy state | `--aggregator-url` (`STASH_AGGREGATOR_URL` overrides) |
 
 **Dependency:** `networkStorage.stashNetworkPath` + `stashNetworkUser`
 + `stashLocalPath` (+ a stored vault password for `stashNetworkUser`)
@@ -543,6 +578,6 @@ These items were left open in earlier drafts and are now resolved:
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.07
+Last review: 2026.07.10
 
 Back to [Yuruna](../../README.md)

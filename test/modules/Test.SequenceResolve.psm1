@@ -1,5 +1,5 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.07.07
+.VERSION 2026.07.10
 .GUID 42c7d3a9-5e1b-4f80-9a2c-6d8e3f1b0a47
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -19,8 +19,8 @@
 # Sequence-file reading and search-path resolution. Read-SequenceFile parses a
 # YAML sequence into an OrderedDictionary; Resolve-SequencePath /
 # Get-SequenceSearchPath / Get-SequenceMode(Path) / Get-ProjectTestSearchDir /
-# Find-ProjectSequenceFile build the gui/ssh-aware candidate paths. Extracted
-# from the engine. Read-SequenceFile imports powershell-yaml on demand, and
+# Find-ProjectSequenceFile build the gui/ssh-aware candidate paths.
+# Read-SequenceFile imports powershell-yaml on demand, and
 # Get-SequenceMode reads the keystroke mechanism from
 # $env:YURUNA_KEYSTROKE_MECHANISM (the engine mirrors its config value there),
 # so this module carries no engine $script: state.
@@ -235,7 +235,7 @@ function Find-ProjectSequenceFile {
         }
     )
     if ($hits.Count -gt 1) {
-        $list = ($hits | ForEach-Object { "    $_" }) -join "`n"
+        $list = Format-SequenceSearchList -Item $hits
         throw "PlannerFatal: $($hits.Count) project sequence files named '$FileName' found under test/$Mode/ folders:`n$list`nKeep only one so the planner can resolve a single sequence file."
     }
     if ($hits.Count -eq 1) { return $hits[0] }
@@ -610,4 +610,23 @@ function Expand-SequenceSnippet {
     return $out
 }
 
-Export-ModuleMember -Function Read-SequenceFile, Get-SequenceMode, Get-SequenceModePath, Test-GuiFallbackAllowed, Get-ProjectTestSearchDir, Find-ProjectSequenceFile, Resolve-SequencePath, Get-SequenceSearchPath, Expand-SequenceSnippet, Get-SnippetMap
+function Format-SequenceSearchList {
+    <#
+    .SYNOPSIS
+        Format a list of candidate/found sequence-file paths for a not-found or
+        ambiguity diagnostic message.
+    .DESCRIPTION
+        Indents each entry four spaces and joins them with newlines. One formatter
+        so the resolution-miss diagnostics stay uniform across the planner, the
+        resolver, and the sequence engine. Exported because the sibling modules
+        import Test.SequenceResolve -Global and call it directly.
+    .PARAMETER Item
+        The list of paths (or string-coercible values) to render, one per line.
+    .OUTPUTS
+        [string] the indented, newline-joined list (empty string for an empty list).
+    #>
+    param($Item)
+    return ($Item | ForEach-Object { "    $_" }) -join "`n"
+}
+
+Export-ModuleMember -Function Read-SequenceFile, Get-SequenceMode, Get-SequenceModePath, Test-GuiFallbackAllowed, Get-ProjectTestSearchDir, Find-ProjectSequenceFile, Resolve-SequencePath, Get-SequenceSearchPath, Expand-SequenceSnippet, Get-SnippetMap, Format-SequenceSearchList

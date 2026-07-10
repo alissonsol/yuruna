@@ -320,7 +320,7 @@ Confirm the timers that drive the 24-hour cadence are actually armed. If the apt
 
 ### zot install binary and activation
 
-zot install (binary fetch + systemd activation) ZOT_VERSION is pinned for reproducibility. To bump: read https://github.com/project-zot/zot/releases, verify the asset names still match `zot-linux-{amd64,arm64}` (NOT `-minimal` -- the sync extension is required for on-demand pull-through caching), then change ZOT_VERSION here. The binary download goes DIRECT to GitHub (not through this VM's own squid -- chicken-and-egg) and is a one- shot per VM build, so the 25 MB transfer doesn't recur.
+zot install (binary fetch + systemd activation) ZOT_VERSION is pinned for reproducibility. To bump: read https://github.com/project-zot/zot/releases, verify the asset names still match `zot-linux-{amd64,arm64}` (NOT `-minimal` -- the sync extension is required for on-demand pull-through caching), then change ZOT_VERSION here. The binary download goes DIRECT to GitHub (not through this VM's own squid -- chicken-and-egg) and is a one- shot per VM build, so the ~220 MB transfer doesn't recur.
 
 ### Ready banner YAML mapping trap
 
@@ -344,6 +344,6 @@ Single-quoted: the bare `: ` after "ready" makes YAML parse the scalar as a mapp
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.07
+Last review: 2026.07.10
 
 Back to [Yuruna](../README.md)

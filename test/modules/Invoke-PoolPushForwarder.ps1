@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.07
+.VERSION 2026.07.10
 .GUID 424f2c91-6d3b-4e75-9012-3c7a1e5b8d6f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -46,9 +46,10 @@ if ([string]::IsNullOrWhiteSpace($runtimeDir) -or [string]::IsNullOrWhiteSpace($
 }
 if (-not (Test-Path -LiteralPath $runtimeDir)) { New-Item -ItemType Directory -Force -Path $runtimeDir | Out-Null }
 
-# --- Push opt-in gate: the shared bearer token. Resolve ONLY when the operator declared a
-# vaultKey for 'pool-auth-token' AND populated it (Test-VaultEntry); an empty vaultKey means
-# push is DISABLED, and calling Get-Password then would auto-generate a junk per-host token.
+# --- REGION: Push opt-in gate (shared bearer token)
+# Resolve ONLY when the operator declared a vaultKey for 'pool-auth-token' AND
+# populated it (Test-VaultEntry); an empty vaultKey means push is DISABLED, and
+# calling Get-Password then would auto-generate a junk per-host token.
 $token = ''
 try {
     if ((Get-Command Get-EffectiveUser -ErrorAction SilentlyContinue) -and (Get-Command Test-VaultEntry -ErrorAction SilentlyContinue)) {

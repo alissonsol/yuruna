@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.07
+.VERSION 2026.07.10
 .GUID 42e1f2a3-b4c5-4d67-8901-aabbccddee01
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -165,8 +165,9 @@ if ($version -notmatch '^\d{4}\.\d{2}\.\d{2}(\.\d+)?$') {
 }
 Write-Information "Release version (from VERSION): $version" -InformationAction Continue
 
-# --- Hard gate FIRST: a BOM/non-ASCII byte in a byte-parsed bootstrap script
-# must never reach a published release. ---
+# --- REGION: ASCII/no-BOM hard gate
+# Runs FIRST: a BOM/non-ASCII byte in a byte-parsed bootstrap script must
+# never reach a published release.
 if (Test-Path -LiteralPath $asciiGate) {
     & (Get-Process -Id $PID).Path -NoProfile -ExecutionPolicy Bypass -File $asciiGate -Quiet
     if ($LASTEXITCODE -ne 0) { throw "ASCII/no-BOM gate failed (test/Test-AsciiNoBom.ps1). Release aborted." }
@@ -175,8 +176,8 @@ if (Test-Path -LiteralPath $asciiGate) {
     Write-Warning "Test-AsciiNoBom.ps1 not found at $asciiGate; ASCII gate SKIPPED."
 }
 
-# --- Pin the README verified-download path to the release tag. Run by default;
-# -SkipPins regenerates the manifest without touching it. The installers read
+# --- REGION: Pin the README verified-download path to the release tag
+# Run by default; -SkipPins regenerates the manifest without touching it. The installers read
 # the release from the repo's VERSION file at install time and their clone
 # DEFAULT stays on `main`, so nothing in the installer scripts needs repinning.
 # The per-release work is: bump VERSION, then run this with `-Commit -Tag -Push`
@@ -189,8 +190,9 @@ if (-not $SkipPins) {
     Write-Information "-SkipPins: installer/one-liner refs left unchanged." -InformationAction Continue
 }
 
-# --- Regenerate install.sha256 (lowercase hex, two-space GNU text format so
-# `sha256sum -c install.sha256` works on the host). ---
+# --- REGION: Regenerate install.sha256
+# Lowercase hex, two-space GNU text format so `sha256sum -c install.sha256`
+# works on the host.
 $lines = foreach ($rel in $installers) {
     $full = Join-Path $RepoRoot $rel
     if (-not (Test-Path -LiteralPath $full)) { throw "Installer not found: $full" }
@@ -201,9 +203,10 @@ $content = ($lines -join "`n") + "`n"
 [System.IO.File]::WriteAllText($sha256File, $content, [System.Text.UTF8Encoding]::new($false))
 Write-Information "Wrote $sha256File ($($installers.Count) installers)" -InformationAction Continue
 
-# --- Sign install.sha256 -> install.sha256.sig (detached PKCS#1 v1.5/SHA-256).
-# openssl is the release-machine signer; the verify side uses openssl
-# (macOS/Linux) or .NET RSACryptoServiceProvider (Windows PS 5.1). ---
+# --- REGION: Sign install.sha256 -> install.sha256.sig
+# Detached PKCS#1 v1.5/SHA-256. openssl is the release-machine signer; the
+# verify side uses openssl (macOS/Linux) or .NET RSACryptoServiceProvider
+# (Windows PS 5.1).
 if ($SkipSign) {
     Write-Warning "-SkipSign: install.sha256 regenerated but NOT signed; $sigFile is now stale."
     return 0
@@ -234,10 +237,10 @@ Write-Information "Signed + self-verified: $sigFile" -InformationAction Continue
 
 # --- REGION: Publish: commit, tag, push, validate (all opt-in).
 # Slip-proofing for the release tag. The tag name is ALWAYS the bare CalVer
-# read+validated from VERSION, never typed by hand -- so the 2026.06.19 break
-# (a 'v2026.06.19' tag while every installer pinned bare '2026.06.19') cannot
-# recur. -Commit/-Tag/-Push are opt-in; with none set the script behaves
-# exactly as before (prep only). -Push implies -Tag (set near the top).
+# read+validated from VERSION, never typed by hand -- guards against the
+# v-prefixed-tag regression class (a 'v' tag while every installer pins the
+# bare CalVer). -Commit/-Tag/-Push are opt-in; with none set the script only
+# preps the manifest. -Push implies -Tag (set near the top).
 if ($Commit -or $Tag -or $Push) {
     $git = (Get-Command git -ErrorAction SilentlyContinue)?.Source
     if (-not $git) { throw "git not found on PATH; required for -Commit/-Tag/-Push." }

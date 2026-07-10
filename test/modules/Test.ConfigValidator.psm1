@@ -1,5 +1,5 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.07.07
+.VERSION 2026.07.10
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456728
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -16,10 +16,9 @@
 
 #requires -version 7
 
-# Validation primitives lifted out of Test-Config.ps1. These are the
-# reusable pieces — schema validation, emptiness check, git-tree
-# freshness — that any future check script can call without
-# re-implementing.
+# Reusable validation primitives — schema validation, emptiness check,
+# git-tree freshness — that any check script (Test-Config.ps1 included)
+# can call without re-implementing.
 #
 # All callers reach Write-Pass / Write-Fail / Write-Warn / Write-Info
 # from Test.Output.psm1, which this module imports at load time. The

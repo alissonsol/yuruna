@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.07
+.VERSION 2026.07.10
 .GUID 42d8e9f0-a1b2-4c34-d567-8e9f0a1b2c34
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -15,6 +15,18 @@
 #>
 
 #requires -version 7
+
+<#
+.SYNOPSIS
+    Downloads the Amazon Linux 2023 KVM cloud image (qcow2) for UTM.
+
+.DESCRIPTION
+    AL2023 ships native qcow2 images under cdn.amazonlinux.com keyed by
+    platform; UTM on Apple Silicon uses kvm-arm64. The directory listing
+    on the HTTPS endpoint exposes a single qcow2 plus a matching sha256
+    sidecar per release; this script picks both, verifies, and stages the
+    file under ~/yuruna/image/amazon.linux.2023/.
+#>
 
 # Honor logLevel from Invoke-TestRunner.ps1 via $env:YURUNA_LOG_LEVEL. See docs/loglevels.md.
 $_logLevelMod = Join-Path $PSScriptRoot '../../../test/modules/Test.LogLevel.psm1'
@@ -33,15 +45,20 @@ $html = Invoke-WebRequest -Uri $sourceUrl
 $qcow2Link = ($html.Links | Where-Object { $_.href -match "\.qcow2$" })[0].href
 $downloadUrl = $sourceUrl + $qcow2Link
 
-# Skip-if-same-source guard. Test-DownloadAlreadyCurrent (Yuruna.Host.psm1)
-# returns $true only when $baseImageFile is on disk, the sentinel records
-# the same URL we just resolved, and a HEAD probe's Content-Length matches
-# the recorded byte count. The only way to force a re-download is to
-# delete or rename $baseImageFile.
+# --- REGION: https://yuruna.link/guest-image-setup#skip-if-same-source-guard
 $baseImageOrigin = Join-Path $downloadDir "$baseImageName.txt"
 Import-Module -Name (Join-Path (Split-Path -Parent $PSScriptRoot) "modules/Yuruna.Host.psm1") -Force
 if (Test-DownloadAlreadyCurrent -SourceUrl $downloadUrl -BaseImageFile $baseImageFile -OriginFile $baseImageOrigin) {
-    $msg = "Skipping download: $downloadUrl URL and expected size match the prior run for $baseImageFile. To force a re-download, delete or rename: $baseImageFile"
+    $skipLines = @(Get-Content -LiteralPath $baseImageOrigin -ErrorAction SilentlyContinue)
+    $msg = @(
+        "Skipping download: source URL + size + Last-Modified all match the prior run for $baseImageFile."
+        "  Sentinel: $baseImageOrigin"
+        "    filename     : $($skipLines[0])"
+        "    source URL   : $($skipLines[1])"
+        "    byte count   : $($skipLines[2])"
+        "    last-modified: $($skipLines[3])"
+        "  To force a re-download, delete or rename: $baseImageFile"
+    ) -join [Environment]::NewLine
     Write-Information $msg -InformationAction Continue
     Write-Output $msg
     exit 0
@@ -72,7 +89,7 @@ if (-not $downloaded) {
 }
 $downloadedSize = (Get-Item -LiteralPath $downloadFile).Length
 
-# --- REGION: Name the file as per naming convention
+# --- REGION: Preserve previous and finalize
 $previousFile = Join-Path $downloadDir "$baseImageName.previous.qcow2"
 Remove-Item $previousFile -Force -ErrorAction SilentlyContinue
 if (Test-Path $baseImageFile) {
@@ -81,7 +98,11 @@ if (Test-Path $baseImageFile) {
 }
 Move-Item -Path $downloadFile -Destination $baseImageFile
 
-Set-Content -Path $baseImageOrigin -Value @($qcow2Link, $downloadUrl, "$downloadedSize")
-Write-Output "Recorded source filename, URL, and byte count to: $baseImageOrigin"
+# --- REGION: https://yuruna.link/guest-image-setup#skip-if-same-source-guard
+# Write-ImageSentinel writes the 4-line sentinel Test-DownloadAlreadyCurrent
+# requires; a legacy 3-line sentinel never matches and silently defeats the
+# skip guard (every run re-downloads).
+Write-ImageSentinel -SourceUrl $downloadUrl -OriginFile $baseImageOrigin -SizeBytes $downloadedSize -Confirm:$false
+Write-Output "Recorded source filename, URL, byte count, and Last-Modified to: $baseImageOrigin"
 
 Write-Output "Download complete: $baseImageFile"

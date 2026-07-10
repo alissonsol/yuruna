@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.07
+.VERSION 2026.07.10
 .GUID 42e2607c-3d4e-4f50-8a61-7c8d9e0f1a2b
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -19,10 +19,9 @@
 <#
 .SYNOPSIS
     Pester smoke harness for the inner runner's config-reload seam and the
-    cycle helpers extracted into Test.RunnerInnerLoop.psm1 / Test.ConfigSync.psm1.
+    cycle helpers in Test.RunnerInnerLoop.psm1 / Test.ConfigSync.psm1.
 .DESCRIPTION
-    Guards the regression-prone mechanics the inner runner depends on before
-    the rest of the per-cycle body is decomposed into a module function:
+    Guards the regression-prone mechanics the inner runner depends on:
       * the reloadable-knob resolution rules (defaults, int coercion, the
         0/absent-falls-back-to-default behavior, the -CycleDelaySeconds fallback);
       * Sync-RunnerCycleConfig's mtime parse-cache, its keep-previous-on-failure

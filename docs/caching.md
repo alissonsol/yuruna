@@ -299,6 +299,46 @@ rm -rf ~/yuruna/guest.nosync/yuruna-caching-proxy.utm
 pwsh ./New-VM.ps1
 ```
 
+## Workload registry pulls
+
+### Workload registry pull-through
+
+The example workload scripts start a local Docker registry by pulling
+`registry:2` (Docker Hub canonical, i.e. `docker.io/library/registry:2`).
+Dockerd's `registry-mirrors` in `/etc/docker/daemon.json` (set by
+`guest/<GUEST>/<GUEST>.k8s.sh` at provision time) routes this through the
+yuruna-caching-proxy's zot pull-through cache — zot serves the manifest
+from cache with stale-on-error semantics, so upstream rate-limit blips
+don't break the test. Pinning `public.ecr.aws/docker/library/registry:2`
+to dodge Docker Hub's anonymous limit is unreliable — that mirror has
+itself returned 400 across multiple test hosts simultaneously; the zot
+pull-through is the durable fix.
+
+Transient egress blips surface here as `network is unreachable`,
+connection resets, or DNS hiccups while pulling `registry:2` — e.g. a
+host-side DHCP re-lease that momentarily blackholes the guest's NAT
+route, or TLS jitter to the cache. These are not rate limits and clear
+within seconds, so the scripts retry with backoff (mirroring the
+`docker build` retry) instead of aborting the whole run under
+`set -euo pipefail`.
+
+### Workload registry probe
+
+Before building, the workload scripts probe registry candidates in
+priority order and pick the first that can serve every base-image
+manifest the Dockerfile needs:
+
+1. `${CACHE_HOST}:5000/` — zot pull-through cache (fastest, also absorbs
+   MCR TLS jitter)
+2. `mcr.microsoft.com/` — direct upstream; the survival path when the
+   cache VM is absent, unreachable, has an old config that doesn't know
+   mcr, or is otherwise unable to serve the tag
+
+The probe is a Docker Registry v2 manifest GET. On zot it also triggers
+the onDemand sync, so a cache that simply hasn't pulled the image yet
+warms up here — not mid-`docker build` where a failure is harder to
+diagnose.
+
 ## Monitoring
 
 The VM runs these services alongside squid:
@@ -849,6 +889,6 @@ these at deploy time rather than after a restart that fails to bind.
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.07
+Last review: 2026.07.10
 
 Back to [Yuruna](../README.md)

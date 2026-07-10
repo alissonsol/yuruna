@@ -36,6 +36,10 @@
     Defaults can be overridden per call OR via the same env vars the
     bash side honors (YURUNA_RETRY_MAX_ATTEMPTS, YURUNA_RETRY_DELAY),
     so an operator can tune both halves of the system from one place.
+    Parity covers those two vars only: the bash side's per-attempt
+    stall bound and heal hook (YURUNA_RETRY_STALL_TIMEOUT,
+    YURUNA_*_STALL_TIMEOUT, YURUNA_RETRY_HEAL) are guest-side knobs
+    built on timeout(1) with no counterpart here.
 
     Callers that should retry only a subset of failures pass a
     -ShouldRetry predicate. It receives a hashtable

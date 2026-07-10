@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.07
+.VERSION 2026.07.10
 .GUID 42c1a7e9-5b62-4d38-9a04-7e2f1c6b8d90
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -19,7 +19,7 @@
 <#
 .SYNOPSIS
     Pester coverage for Read-VncBuffer in Test.Transport.psm1: the fixed-size
-    RFB read now honors an optional wall-clock deadline that bounds the whole
+    RFB read honors an optional wall-clock deadline that bounds the whole
     multi-read handshake, independent of the per-read socket ReceiveTimeout.
 .DESCRIPTION
     Read-VncBuffer is pure over a System.IO.Stream, so a MemoryStream drives it

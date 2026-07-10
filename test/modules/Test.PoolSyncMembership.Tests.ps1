@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.07
+.VERSION 2026.07.10
 .GUID 42b8c9d0-e1f2-4a34-9678-9b0c1d2e3f40
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -18,7 +18,7 @@
 
 <#
 .SYNOPSIS
-    Guards on the pool-sync fixes: Resolve-YurunaPoolForHost normalizes members[] and
+    Guards on pool-sync invariants: Resolve-YurunaPoolForHost normalizes members[] and
     matches ordinal-exact, a no-match-with-members warning is wired in, and the
     fetch+reset pull is bounded by one wall-clock deadline.
 .DESCRIPTION

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.07
+.VERSION 2026.07.10
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456721
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -15,6 +15,11 @@
 #>
 
 #requires -version 7
+
+# ConvertTo-LowerHex (SHA-256 -> lowercase-hex) lives in the leaf Test.Hash module
+# so every hashing caller shares one definition; import it -Global so the bare-name
+# calls below resolve wherever Test.Config is loaded (including its ad-hoc importers).
+Import-Module (Join-Path $PSScriptRoot 'Test.Hash.psm1') -Global -Force
 
 # Single source of truth for reading test.config.yml. Centralises the
 # `Get-Content -Raw $cfg | ConvertFrom-Yaml -Ordered` flow so error
@@ -66,7 +71,7 @@ function Get-TestConfigContentHash {
             $sha   = [System.Security.Cryptography.SHA256]::Create()
             try {
                 $hash = $sha.ComputeHash($buf, 0, $read)
-                return ([System.BitConverter]::ToString($hash) -replace '-', '').ToLowerInvariant()
+                return (ConvertTo-LowerHex $hash)
             } finally { $sha.Dispose() }
         } finally { $fs.Dispose() }
     } catch {
@@ -202,8 +207,8 @@ function Get-TestConfigSnapshotPath {
     # distinct slots.
     $sha = [System.Security.Cryptography.SHA256]::Create()
     try {
-        $tag = ([System.BitConverter]::ToString(
-            $sha.ComputeHash([System.Text.Encoding]::UTF8.GetBytes($SourcePath))) -replace '-', '').Substring(0, 12).ToLowerInvariant()
+        $tag = (ConvertTo-LowerHex (
+            $sha.ComputeHash([System.Text.Encoding]::UTF8.GetBytes($SourcePath)))).Substring(0, 12)
     } finally { $sha.Dispose() }
     # $env:TEMP is Windows-only ($null on macOS/Linux); [IO.Path]::GetTempPath() resolves
     # the temp dir on every platform.
@@ -238,8 +243,7 @@ function Publish-TestConfigSnapshot {
 
         Failure modes are logged Verbose; the publisher's main flow
         never raises because the worst case is the consumer falls back
-        to its own YAML parse (current behavior before the snapshot
-        landed). Pair with Read-TestConfigOrSnapshot.
+        to its own YAML parse. Pair with Read-TestConfigOrSnapshot.
     .PARAMETER Config
         Already-parsed configuration (the dictionary returned by Read-
         TestConfig).

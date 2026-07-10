@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.07
+.VERSION 2026.07.10
 .GUID 4203b4c5-d6e7-4f89-a012-3b4c5d6e7f95
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -24,8 +24,8 @@
     Mirrors host/macos.utm/guest.ubuntu.server.26/Get-Image.ps1 and
     host/windows.hyper-v/guest.ubuntu.server.26/Get-Image.ps1 so all three
     hosts boot the same live-server ISO and run subiquity autoinstall.
-    The earlier KVM revision used the pre-baked cloud image (.img) +
-    NoCloud cloud-init seed, which boots in seconds but DOES NOT show
+    The pre-baked cloud image (.img) + NoCloud cloud-init seed is
+    deliberately NOT used: it boots in seconds but DOES NOT show
     the "Continue with autoinstall?" prompt or fire subiquity's
     late-commands -- making the boot sequence non-comparable across
     hosts (the GUI test sequence step that waits for that prompt would
@@ -79,7 +79,8 @@ try {
         -Arch $cloudArch `
         -DownloadDir $downloadDir `
         -BaseImageName 'host.ubuntu.kvm.guest.ubuntu.server.26' `
-        -PreferDaily:$daily
+        -PreferDaily:$daily `
+        -EmitProxyDiagnosticOnFailure
 } catch {
     Write-Error $_.Exception.Message
     exit 1

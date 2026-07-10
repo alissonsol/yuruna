@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.07.07
+# Version: 2026.07.10
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 set -euo pipefail
@@ -22,12 +22,12 @@ esac
 
 # --- REGION: https://yuruna.link/network#defining-yuruna-retry-lib
 . /usr/local/lib/yuruna/yuruna-retry.sh
-
-echo ""
-echo -e "\e[1;36m==== GUI Desktop ====\e[0m"
-dnf_retry sudo dnf update -y
-dnf_retry sudo dnf upgrade -y
-dnf_retry sudo dnf groupinstall -y "Desktop"
+# Baked retry libs may default dnf attempts to a wall-clock bound -- the
+# wrapped-apt teardown-hang trap class (the package manager blocks at
+# end-of-transaction under a timeout(1) parent). Force unbounded regardless
+# of the image's lib vintage; remove once no image predates the lib's
+# unbounded default.
+export YURUNA_DNF_STALL_TIMEOUT=0
 
 echo ""
 echo -e "\e[1;36m==== Git ====\e[0m"

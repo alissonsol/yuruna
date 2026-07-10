@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.07
+.VERSION 2026.07.10
 .GUID 422c9a3d-41bb-4e8c-9b64-5f7a1d0c9a12
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -256,9 +256,9 @@ System.String. An IPv4 address if one was discovered, otherwise the VMName.
             try {
                 $content = Get-Content $leaseFile -Raw -ErrorAction Stop
                 $blocks = [regex]::Matches($content, '\{[^}]*\}')
-                # Escape the VMName once; the original interpolated
+                # Escape the VMName once; interpolating
                 # $([regex]::Escape($VMName)) into the -match pattern on
-                # every block, forcing a fresh regex compile per block.
+                # every block would force a fresh regex compile per block.
                 $vmNameEscaped = [regex]::Escape($VMName)
                 $namePattern = "(?m)^\s*name=$vmNameEscaped\s*$"
                 # A rebuilt VM reuses its hostname, so dhcpd_leases can hold
@@ -492,8 +492,9 @@ System.Boolean. $true if SSH became ready, $false on timeout.
     # (~200-500 ms cold-start per iteration; ~18 iterations on a 90 s
     # boot is 4-9 s of pure overhead). On timeout the child ssh is
     # killed directly via Process.Kill($true) (entire process tree),
-    # which also closes the leaked OS-level ssh that the prior Start-Job
-    # implementation left behind. The ServerAlive options below shorten
+    # which also closes the OS-level ssh that a Start-Job implementation
+    # leaks (Stop-Job cannot terminate the native child). The
+    # ServerAlive options below shorten
     # the in-flight detection of a half-dead session to ~6 s so most
     # probes complete well under the cap on a healthy guest.
     $probeCapSeconds = 15

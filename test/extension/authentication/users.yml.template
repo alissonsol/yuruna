@@ -83,9 +83,8 @@ users:
     vaultKey:           ""
     localOsPasswordRef: ""
 
-  # ----------------------------------------------------------------
-  # Example: a workload-defined logical user mapped to a corporate AD
-  # identity. Uncomment and adapt when a `workload.*.yml` declares
+  # --- REGION: Example: a workload-defined logical user mapped to a corporate AD identity
+  # Uncomment and adapt when a `workload.*.yml` declares
   # `variables.username: webuser`.
   #
   # webuser:
@@ -98,4 +97,3 @@ users:
   #   localOsPasswordRef: ""                         # decoupled: local
   #                                                  # OS account gets
   #                                                  # auto-gen secret
-  # ----------------------------------------------------------------

@@ -1,5 +1,5 @@
 ﻿<#PSScriptInfo
-.VERSION 2026.07.07
+.VERSION 2026.07.10
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456708
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -134,9 +134,9 @@ $yurunaLogModule = Join-Path -Path $RepoRoot -ChildPath "automation" -Additional
 if (Test-Path $yurunaLogModule) {
     Import-Module $yurunaLogModule -Global -Force
 }
-# Test.SequenceRunner.psm1 holds the chain-planning + chain-execution
-# blocks extracted out of this script so they can be unit-tested with
-# fixture data (see test/modules/Test.SequenceRunner.psm1 header).
+# Test.SequenceRunner.psm1 holds this script's chain-planning +
+# chain-execution logic so it can be unit-tested with fixture data
+# (see test/modules/Test.SequenceRunner.psm1 header).
 Import-Module (Join-Path $ModulesDir 'Test.SequenceRunner.psm1') -Global -Force
 $global:VerbosePreference = $savedVerbose
 
@@ -207,7 +207,7 @@ $null = Start-YurunaStatusServiceIfEnabled -Config $Config -StartScript $startSc
 # The Host Config Service is a caching-proxy companion (owned by Start-CachingProxy.ps1),
 # not a test-entry-point concern, so it is intentionally not started here.
 
-# --- REGION: Detect host
+# --- REGION: Detect host type
 # HostType is resolved BEFORE sequence resolution so Resolve-SequencePath can
 # prefer a per-host sequence variant (e.g. <Name>.ubuntu.kvm.yml) over the
 # generic <Name>.yml -- needed because KVM cloud-image guests skip the
@@ -442,7 +442,7 @@ if ($HostType -eq 'host.macos.utm') {
 # --- REGION: Build chain plan
 # Chain planning + warm-path requiresSnapshot probe live in
 # Test.SequenceRunner.psm1 so they can be unit-tested with fixture
-# data. Behavior identical to the previous inline blocks: walk the
+# data. Behavior: walk the
 # baseline chain, build (name,path,sequence,stepCount,globalStart) per
 # entry, and -- when the top-level declares requiresSnapshot.id and
 # the snapshot is already on disk -- drop every prereq and run only
@@ -590,7 +590,7 @@ if ($firstStepAction -eq 'loadDiskSnapshot') {
 # --- REGION: Validate StartStep / StopStep against the chain's TOTAL step count
 # $ChainTotalSteps was computed by the chain-plan block above. With a
 # single-sequence chain (no baseline OR path-override) this is exactly
-# the old single-sequence step count; with prereqs it covers the whole
+# that sequence's own step count; with prereqs it covers the whole
 # concatenated execution.
 $totalSteps = $ChainTotalSteps
 

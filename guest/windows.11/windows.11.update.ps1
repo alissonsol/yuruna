@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.07
+.VERSION 2026.07.10
 .GUID 42f0a1b2-c3d4-4e56-f789-0a1b2c3d4e10
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -90,14 +90,10 @@ if (-not $yamlOk) {
 Write-Output "<<< PowerShell module: powershell-yaml installation complete."
 
 # --- REGION: Early yuruna framework extraction (host-side diagnostic prereq)
-# The host's failure-path diagnostic shells back as
-# `pwsh -NoProfile -File $HOME/yuruna/automation/Get-SystemDiagnostic.ps1`.
-# If a later step in this script stalls the cycle watchdog fires, the
-# orchestrator captures diagnostics, and that script must already be
-# on disk -- else pwsh exits 64 and writes its usage banner instead of
-# real guest state. Tarball-only here; the git-clone fallback lives in
-# the late Materialize section below (which needs `git`, which winget
-# may install in the Update system packages stage that follows).
+# --- REGION: https://yuruna.link/memory#why-ubuntu-guest-update-scripts-pre-extract-the-yuruna-tarball
+# Tarball-only here; the git-clone fallback lives in the late Materialize
+# section below (which needs `git`, which winget may install in the Update
+# system packages stage that follows).
 # YURUNA_HOST_IP / YURUNA_HOST_PORT come from the host.env injection
 # mechanism the Linux guests use, mapped to a Windows-side equivalent
 # (C:\ProgramData\yuruna\host.env) when the host driver supports it;

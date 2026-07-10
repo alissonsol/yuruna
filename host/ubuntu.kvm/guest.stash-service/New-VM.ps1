@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.07
+.VERSION 2026.07.10
 .GUID 42f4e5f6-a7b8-4c9d-0123-4e5f6a7b8c81
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -53,6 +53,7 @@ if (-not $IsLinux) {
 $ErrorActionPreference = 'Stop'
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 
+# --- REGION: libvirt-qemu search ACL on $HOME (self-heal)
 # Self-heal libvirt-qemu's search ACL on $HOME (Ubuntu 24.04+ default 0750).
 if (Get-Command -Name 'setfacl' -ErrorAction SilentlyContinue) {
     & getent passwd libvirt-qemu *>$null
@@ -156,9 +157,10 @@ if ($networkName -eq 'default') {
 
 # Host coordinates (status server, for the in-VM source fetch) + stash storage
 # coordinates (the share), baked into the seed. Honor an explicit override.
-Import-Module (Join-Path $repoRoot 'test/modules/Test.PoolStorage.psm1') -Global -Force
-Import-Module (Join-Path $repoRoot 'test/modules/Test.YurunaDir.psm1')   -Global -Force
-Import-Module (Join-Path $repoRoot 'test/modules/Test.Config.psm1')      -Global -Force
+Import-Module (Join-Path $repoRoot 'test/modules/Test.PoolStorage.psm1')  -Global -Force
+Import-Module (Join-Path $repoRoot 'test/modules/Test.YurunaDir.psm1')    -Global -Force
+Import-Module (Join-Path $repoRoot 'test/modules/Test.Config.psm1')       -Global -Force
+Import-Module (Join-Path $repoRoot 'test/modules/Test.CachingProxy.psm1') -Global -Force
 if ($env:YURUNA_GUEST_REACHABLE_HOST_IP) {
     $YurunaHostIp = $env:YURUNA_GUEST_REACHABLE_HOST_IP
 } elseif ($networkName -eq 'default') {
@@ -175,6 +177,9 @@ if (Test-Path -LiteralPath $YurunaTestConfig) {
     if ($tc -and $tc.statusService -and $tc.statusService.port) { $YurunaHostPort = "$($tc.statusService.port)" }
 }
 $ystashNas = Get-YurunaStashSeedValue -Config $tc
+# Pool-aggregator base URL for the guest's presence beacon + remote-host
+# resolution; '' (no caching proxy known) leaves those features off in-guest.
+$aggregatorSeedUrl = Get-PoolAggregatorSeedUrl
 
 # Render user-data from the shared base + KVM overlay (host/vmconfig/
 # stash-service.*). Build-CloudInitUserData resolves placeholders with literal
@@ -194,6 +199,7 @@ $userData = Build-CloudInitUserData `
         YSTASH_NAS_NETWORK_USER_PLACEHOLDER  = $ystashNas.NetworkUser
         YSTASH_NAS_PASSWORD_PLACEHOLDER      = $ystashNas.Password
         YSTASH_NAS_HOST_ID_PLACEHOLDER       = $ystashNas.HostId
+        YURUNA_AGGREGATOR_URL_PLACEHOLDER    = $aggregatorSeedUrl
     } -Confirm:$false
 $metaData = (Get-Content -Raw -LiteralPath $metaDataTemplate)
 

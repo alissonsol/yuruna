@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.07.07
+# Version: 2026.07.10
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 set -euo pipefail
@@ -22,11 +22,14 @@ esac
 
 # --- REGION: https://yuruna.link/network#defining-yuruna-retry-lib
 . /usr/local/lib/yuruna/yuruna-retry.sh
+# Baked retry libs may default dnf attempts to a wall-clock bound -- the
+# wrapped-apt teardown-hang trap class (the package manager blocks at
+# end-of-transaction under a timeout(1) parent). Force unbounded regardless
+# of the image's lib vintage; remove once no image predates the lib's
+# unbounded default.
+export YURUNA_DNF_STALL_TIMEOUT=0
 
-# Installed as early as possible so that even if a later step in this
-# script aborts under `set -euo pipefail`, the host-side failure
-# diagnostic (which shells back into the guest as `pwsh -NoProfile ...`)
-# still has pwsh available to gather state.
+# --- REGION: https://yuruna.link/memory#why-ubuntu-guest-update-scripts-install-powershell-first
 # AL2023 has no first-party pwsh package; tarball install matches what
 # ubuntu.server.24.code.sh does and works on both x86_64 and aarch64.
 # Version is discovered at install time by resolving the GitHub
@@ -112,11 +115,7 @@ $null = ConvertFrom-Yaml 'k: v'
 "OK"
 PSEOF
 
-# The host's failure-path diagnostic shells back as
-# `pwsh -NoProfile -File $HOME/yuruna/automation/Get-SystemDiagnostic.ps1`.
-# If the dnf block below stalls the cycle watchdog fires, the orchestrator
-# captures diagnostics, and that script must already be on disk -- else
-# pwsh exits 64 and writes its usage banner instead of real guest state.
+# --- REGION: https://yuruna.link/memory#why-ubuntu-guest-update-scripts-pre-extract-the-yuruna-tarball
 # Tarball-only here: the git-clone fallback at the original position
 # below stays put because it needs `git`, which requires dnf to work,
 # which is exactly what may be stuck.
@@ -204,8 +203,13 @@ if [ ! -d "$REAL_HOME/yuruna" ]; then
       echo "yuruna: repositories.frameworkUrl missing from test.config.yml - cannot clone framework" >&2
       exit 1
     fi
+    # git ships no stall detection (http.lowSpeedLimit/Time unset), so a
+    # clone stalled mid-transfer would hang this attempt forever and the
+    # retry ladder below it would never fire (the stalled-transfer trap
+    # class); the low-speed pair aborts a <1 KB/s-for-60s transfer into
+    # the retry path instead.
     for attempt in 1 2 3; do
-      git clone "$FRAMEWORK_URL" "$REAL_HOME/yuruna" && break
+      git -c http.lowSpeedLimit=1024 -c http.lowSpeedTime=60 clone "$FRAMEWORK_URL" "$REAL_HOME/yuruna" && break
       echo "git clone attempt $attempt failed"
       rm -rf "$REAL_HOME/yuruna"
       [ $attempt -lt 3 ] && sleep 60
@@ -238,7 +242,7 @@ if [ ! -d "$REAL_HOME/yuruna/project" ]; then
   fi
   if [ "$PROJECT_HOST_OK" = "false" ] && [ -n "$PROJECT_URL" ]; then
     for attempt in 1 2 3; do
-      git clone "$PROJECT_URL" "$REAL_HOME/yuruna/project" && break
+      git -c http.lowSpeedLimit=1024 -c http.lowSpeedTime=60 clone "$PROJECT_URL" "$REAL_HOME/yuruna/project" && break
       echo "project git clone attempt $attempt failed"
       rm -rf "$REAL_HOME/yuruna/project"
       [ $attempt -lt 3 ] && sleep 60
@@ -253,21 +257,9 @@ fi
 # Tarball extraction and any sudo'd cleanup may have left root-owned files.
 sudo chown -R "$REAL_USER:$REAL_USER" "$REAL_HOME/yuruna" 2>/dev/null || true
 
-# Wait before signaling "script done": dnf transactions that touch the
-# network stack / kernel / systemd can bounce the primary connection at
-# the tail of the transaction, briefly dropping the DHCP lease. The
-# harness's next sequence step is saveSystemDiagnostic, which opens the
-# FIRST host->guest SSH of the run; if it fires during the bounce window
-# the host's neighbor entry is stale (the Hyper-V External vSwitch
-# ARP-discovery trap; UTM has the vmnet analogue) and SSH times out for
-# the full 180 s Wait-SshReady budget. The probe MUST match whichever
-# manager actually owns the link: AL2023 defaults to systemd-networkd
-# (where nm-online is absent), while some desktop spins use
-# NetworkManager. A probe keyed on the wrong manager silently no-ops --
-# skipping the settle entirely -- or blocks its full timeout for nothing,
-# so branch on the active manager. Cap every branch at 30 s so a broken
-# stack cannot hang the cycle, and swallow non-zero so set -e does not
-# abort.
+# --- REGION: https://yuruna.link/network#guest-update-network-convergence-before-handoff
+# dnf transactions can bounce the DHCP lease at the transaction tail;
+# settle the link (max 30 s, never fatal) before the first host->guest SSH.
 echo ""
 echo -e "\e[1;36m==== Network convergence ====\e[0m"
 if systemctl is-active --quiet NetworkManager && command -v nm-online >/dev/null 2>&1; then
@@ -292,12 +284,8 @@ else
   echo "WARNING: no active NetworkManager/systemd-networkd to wait on; continuing."
 fi
 
-# A definite end-of-script line keeps the guest console actively repainting
-# right up to the handoff back to fetch-and-execute.sh. The convergence wait
-# above can run silently for up to 30s, and on a headless Hyper-V host the
-# screen-capture surface stops updating moments after the console goes idle --
-# so the FETCHED AND EXECUTED marker that fetch-and-execute.sh prints next must
-# land adjacent to real output rather than after a silent gap, or the host's
-# waitForText OCRs a stale frame until the step times out.
+# A definite end-of-script line keeps the console repainting up to the
+# handoff, so the FETCHED AND EXECUTED marker lands adjacent to real output
+# instead of after a silent gap a headless capture surface would freeze on.
 # See feedback_frozen_capture_feed_idle_tail.
 echo -e "\e[1;32m==== Network ready. ====\e[0m"

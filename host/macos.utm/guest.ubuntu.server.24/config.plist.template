@@ -62,7 +62,8 @@
 		     plain strings (one per argv token). The dict-with-
 		     "Argument"-key form used by some older UTM templates
 		     made `import virtual machine` AND in-place plist edits
-		     silently fail validation (the .utm bundle dropped out of UTM's registry on next launch). Probed empirically against
+		     silently fail validation (the .utm bundle dropped out of
+		     UTM's registry on next launch). Probed empirically against
 		     UTM v118 / macOS 26.4.1.
 
 		     SCHEMA: Display.Hardware must be virtio-gpu-pci (NOT

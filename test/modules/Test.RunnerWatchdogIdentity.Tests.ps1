@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.07
+.VERSION 2026.07.10
 .GUID 42e5f6a7-b8c9-4d02-9345-6e7f8a9b0c1d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -32,7 +32,7 @@
     inner StartTime at arm ($innerStartUtc), both the disarm and the kill decisions
     are gated on the identity predicate (& $sameInner), and Stop-Process fires only
     inside an identity-gated branch -- so a reused PID is neither mistaken for a live
-    inner nor killed. Keyed on AST nodes; all fail against the pre-change module.
+    inner nor killed. Keyed on AST nodes; all fail if the identity gating is removed.
 
     The throw-free Should assertions run under Pester 4.10.1.
 #>

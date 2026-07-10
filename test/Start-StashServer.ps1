@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.07
+.VERSION 2026.07.10
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456760
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -246,7 +246,7 @@ try {
             if ($accepting) {
                 Write-Output "  Status server accepting on :$statusPort -- this host will appear under Extension hosts."
             } else {
-                Write-Warning "Status server is not accepting on :$statusPort -- this host will NOT appear under Extension hosts (the pool aggregator reads host.registration.json over HTTP). Run test/Start-StatusService.ps1 to diagnose."
+                Write-Warning "Status server is not accepting on :$statusPort -- the pool aggregator cannot read host.registration.json over HTTP, so the Extension hosts row depends solely on the stash VM's own presence beacon (which the aggregator shows without the host's status baseUrl link). Run test/Start-StatusService.ps1 to diagnose."
             }
         }
     }

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.07
+.VERSION 2026.07.10
 .GUID 42d4e5f6-a7b8-4c90-9123-4d5e6f7a8b9c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -24,7 +24,7 @@
 # input degrades to $null so the inner runner falls back to its single-host
 # test.runner.yml plan (it never throws or halts the loop). cycleStrategy=all and
 # provisioning.betweenSets=none are the runtime-active values; other enum values
-# are validated then run as all/none with a warning (deferred to a later phase).
+# are validated then run as all/none with a warning (not yet implemented).
 
 # Map a host type to its hypervisor token (host.windows.hyper-v -> hyper-v,
 # host.ubuntu.kvm -> kvm, host.macos.utm -> utm) -- the same derivation the host

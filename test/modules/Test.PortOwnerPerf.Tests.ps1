@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.07
+.VERSION 2026.07.10
 .GUID 42a7b8c9-d0e1-4f23-9567-8a9b0c1d2e3f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -18,7 +18,7 @@
 
 <#
 .SYNOPSIS
-    Guards on the perf/port-owner fixes: Resolve-PortOrphan classifies every port
+    Guards on perf/port-owner invariants: Resolve-PortOrphan classifies every port
     holder before stopping any (no partial kill), Get-PerfHostUuid creates its id
     atomically (one uuid per machine under concurrent first use), and
     Get-PortHolderServiceInfo requires a Yuruna field combination.

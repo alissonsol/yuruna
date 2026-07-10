@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.07
+.VERSION 2026.07.10
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456783
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -15,6 +15,9 @@
 #>
 
 #requires -version 7
+
+# ConvertTo-LowerHex (SHA-256 -> lowercase-hex) is the shared leaf converter.
+Import-Module (Join-Path $PSScriptRoot 'Test.Hash.psm1') -Global -Force
 
 <#
 .SYNOPSIS
@@ -195,7 +198,7 @@ function Get-PerfContentHash {
     try {
         $bytes  = [System.Text.Encoding]::UTF8.GetBytes($Body)
         $hash   = $sha.ComputeHash($bytes)
-        $hexStr = -join ($hash | ForEach-Object { $_.ToString('x2') })
+        $hexStr = ConvertTo-LowerHex $hash
     } finally { $sha.Dispose() }
     $tag    = "sha256-$hexStr"
     $dir    = Join-Path $root $Folder

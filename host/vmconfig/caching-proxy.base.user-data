@@ -117,9 +117,8 @@ write_files:
       APT::Periodic::Update-Package-Lists "1";
       APT::Periodic::Unattended-Upgrade "1";
       APT::Periodic::AutocleanInterval "7";
-  # No yuruna-cachemgr.conf: the cachemgr.cgi binary it guarded came from
-  # squid-cgi, which Ubuntu 26.04 no longer ships (see packages above). Use
-  # `squidclient mgr:<page>` on the VM for cache-manager data.
+  # No yuruna-cachemgr.conf: squid-cgi (cachemgr.cgi) is gone in Ubuntu 26.04
+  # -- see the packages note above.
   # --- REGION: https://yuruna.link/vmconfig/caching-proxy#pool-intent-store-over-read-only-http
   - path: /etc/apache2/conf-available/yuruna-pool-intent.conf
     permissions: '0644'
@@ -418,12 +417,12 @@ write_files:
     permissions: '0644'
     owner: root:root
     content: |
-      # 30d retention (was the implicit 15d default) so the dashboard's
+      # 30d retention (Prometheus defaults to 15d) so the dashboard's
       # metric-driven panels (the host x time timeline + tiles) span a month;
       # the 2GB size cap is a disk safety net (evicts oldest first if metric
-      # cardinality ever grows). NOTE: /var/lib/prometheus is on the VM root
-      # fs, so a VM REBUILD still resets history -- surviving rebuilds needs a
-      # persistent data volume (a separate follow-up).
+      # cardinality ever grows). /var/lib/prometheus is on the VM root fs, so a
+      # VM REBUILD still resets history -- surviving rebuilds needs a persistent
+      # data volume.
       ARGS="--web.listen-address=127.0.0.1:9090 --storage.tsdb.retention.time=30d --storage.tsdb.retention.size=2GB"
   - path: /etc/prometheus/prometheus.yml
     permissions: '0644'
@@ -602,7 +601,7 @@ write_files:
     owner: root:root
     content: |
       #!/bin/bash
-      # Yuruna: squid meta exporter (config-file probe).
+      # Yuruna: squid meta exporter (runtime-config probe).
       # Run periodically via squid-meta-exporter.timer; writes a Prom-
       # format file at /var/www/html/squid-meta.
       set +e
@@ -809,19 +808,18 @@ write_files:
       inline_var(d, 'storageName="$storageName"', 'storageName=~".+"')
       d['templating']['list'] = [v for v in d['templating']['list']
           if v.get('name') != 'storageName']
-      # The upstream "Storage lock latency" heatmap (panel 47) refused
-      # to render under Grafana 13 across three attempted fixes:
-      # stripping its `repeat: "storageName"`, normalizing target.format
-      # to heatmap, and cloning legacy-heatmap render fields from a
-      # sibling working heatmap (panel 30). The Prometheus data path
-      # always returned valid `le`-labeled frames, yet the legacy
-      # heatmap migration left this specific panel blank. Rather than
-      # chase the migration bug, REPLACE the panel with a timeseries
-      # showing P50/P90/P99 of the same metric via histogram_quantile,
-      # split by lockType. Strictly more informative (you can read the
-      # numbers off the legend) and timeseries is Grafana's most-
-      # battle-tested panel type. Match by query content, not panel id,
-      # so a future upstream re-numbering doesn't break this.
+      # The upstream "Storage lock latency" heatmap (panel 47) does not
+      # render under Grafana 13: the Prometheus data path returns valid
+      # `le`-labeled frames, but the legacy-heatmap migration leaves this
+      # panel blank, and none of stripping its `repeat: "storageName"`,
+      # normalizing target.format to heatmap, or cloning render fields
+      # from a working sibling heatmap (panel 30) fixes it. REPLACE the
+      # panel with a timeseries showing P50/P90/P99 of the same metric
+      # via histogram_quantile, split by lockType: strictly more
+      # informative (you can read the numbers off the legend) and
+      # timeseries is Grafana's most-battle-tested panel type. Match by
+      # query content, not panel id, so an upstream re-numbering doesn't
+      # break this.
       def panel_targets_lock_latency(p):
           for t in p.get('targets', []) or []:
               if 'zot_storage_lock_latency_seconds_bucket' in (t.get('expr','') or ''):
@@ -1235,8 +1233,8 @@ write_files:
             "id": 17,
             "type": "table",
             "title": "Extension hosts",
-            "description": "Hosts running an extension function, learned from each host's registration record (activeExtensions) -- the same opaque Host ID namespace as the Pool hosts table, so a host that both runs cycles and hosts a stash server shows the same Host ID in both. No ystash-nas mount or Config Service: a host self-reports the service it runs and the aggregator already polls its registration. Driven by yuruna_pool_host_extension. Host ID links to that host's status page; Extension names the function (e.g. Stash service) and links to that service's UI -- the stash VM -- via the aggregator's /go/stash redirect (resolved to the host-advertised address server-side).",
-            "gridPos": { "h": 8, "w": 24, "x": 0, "y": 23 },
+            "description": "Hosts running an extension function, learned from each host's registration record (activeExtensions) -- the same opaque Host ID namespace as the Pool hosts table, so a host that both runs cycles and hosts a stash server shows the same Host ID in both. No ystash-nas mount or Config Service: a host self-reports the service it runs and the aggregator already polls its registration. Driven by yuruna_pool_host_extension. Host ID links to that host's status page; Extension names the function (e.g. Stash service) and links to that service's UI -- the stash VM -- via the aggregator's /go/stash redirect (resolved to the host-advertised address server-side). Panel height tracks the extension-host count (yuruna-fit-pool-dashboard.timer) -- gridPos.h below is only the pre-collector default.",
+            "gridPos": { "h": 4, "w": 24, "x": 0, "y": 22 },
             "datasource": { "type": "prometheus", "uid": "yuruna-prometheus" },
             "targets": [
               { "refId": "A", "expr": "yuruna_pool_host_extension{pool=~\"$pool\"}", "instant": true, "format": "table", "datasource": { "type": "prometheus", "uid": "yuruna-prometheus" } }
@@ -1281,8 +1279,8 @@ write_files:
             "id": 6,
             "type": "table",
             "title": "Pool hosts",
-            "description": "One row per discovered host, identified by its opaque Host ID (the stable per-host UUID, shown GUID-formatted) -- no hostname is disclosed, so this summary stays safe to expose unauthenticated. Status folds in reachability. Pass/Fail count terminal cycles within the dashboard's selected time range (top-right) -- e.g. Last 3h shows only cycles finished in the last 3h -- counted from the Loki transition log (exact; reaches back to Loki retention), with a per-host zero baseline so they always show (0 included). Host ID links to that host's own status page; Last cycle links to the cycle folder. Artifacts never leave the generating host.",
-            "gridPos": { "h": 10, "w": 24, "x": 0, "y": 13 },
+            "description": "One row per discovered host, identified by its opaque Host ID (the stable per-host UUID, shown GUID-formatted) -- no hostname is disclosed, so this summary stays safe to expose unauthenticated. Status folds in reachability. Pass/Fail count terminal cycles within the dashboard's selected time range (top-right) -- e.g. Last 3h shows only cycles finished in the last 3h -- counted from the Loki transition log (exact; reaches back to Loki retention), with a per-host zero baseline so they always show (0 included). Host ID links to that host's own status page; Last cycle links to the cycle folder. Artifacts never leave the generating host. Panel height tracks the host count (yuruna-fit-pool-dashboard.timer) so the table never scrolls -- gridPos.h below is only the pre-collector default.",
+            "gridPos": { "h": 9, "w": 24, "x": 0, "y": 13 },
             "datasource": { "type": "datasource", "uid": "-- Mixed --" },
             "targets": [
               { "refId": "A", "expr": "yuruna_pool_host_info{pool=~\"$pool\"}", "instant": true, "format": "table", "datasource": { "type": "prometheus", "uid": "yuruna-prometheus" } },
@@ -1417,7 +1415,7 @@ write_files:
             "id": 7,
             "type": "state-timeline",
             "title": "Cycle outcome over time (host × UTC time)",
-            "description": "Each row is a host (by Host ID); color is the cycle status the pool-aggregator observed at that time. Times are UTC (dashboard timezone), so a block lines up with the UTC log times below. Click a block to open that host's cycle results: the link resolves the host's CURRENT IP server-side (it survives a host IP change) and the cycle covering that time. Selects the hostname-free series (hostname=\"\") so a host shows ONE row -- a legacy hostname-bearing series, retained until it ages out, would otherwise add a duplicate row for the same Host ID.",
+            "description": "Each row is a host (by Host ID); color is the cycle status the pool-aggregator observed at that time. Times are UTC (dashboard timezone), so a block lines up with the UTC log times below. Click a block to open that host's cycle results: the link resolves the host's CURRENT IP server-side (it survives a host IP change) and the cycle covering that time. Selects the hostname-free series (hostname=\"\") so a host shows ONE row -- a legacy hostname-bearing series, retained until it ages out, would otherwise add a duplicate row for the same Host ID. Panel height tracks the host count (yuruna-fit-pool-dashboard.timer) so rows keep a legible height instead of being squeezed -- gridPos.h below is only the pre-collector default.",
             "gridPos": { "h": 9, "w": 24, "x": 0, "y": 4 },
             "datasource": { "type": "prometheus", "uid": "yuruna-prometheus" },
             "targets": [
@@ -1462,7 +1460,7 @@ write_files:
             "type": "row",
             "title": "Drill-down: incidents & cycle events",
             "collapsed": true,
-            "gridPos": { "h": 1, "w": 24, "x": 0, "y": 31 },
+            "gridPos": { "h": 1, "w": 24, "x": 0, "y": 26 },
             "panels": [
               {
                 "id": 13,
@@ -1546,6 +1544,252 @@ write_files:
           }
         ]
       }
+  # --- REGION: https://yuruna.link/vmconfig/caching-proxy#yuruna-hosts-dashboard-panel-autofit
+  - path: /usr/local/bin/yuruna-fit-pool-dashboard.py
+    permissions: '0755'
+    owner: root:root
+    content: |
+      #!/usr/bin/env python3
+      """Size the Yuruna hosts dashboard's per-host panels to the live host count.
+
+      Grafana panel heights are fixed in the dashboard JSON (gridPos.h) -- a table
+      sized for 8 hosts scrolls once a 9th host joins the pool, and a panel sized
+      for a large pool shows dead whitespace on a small one. Grafana has no
+      "fit to content" height, so this recomputes gridPos.h for the three per-host
+      panels from the host count the collector is actually reporting and rewrites
+      the provisioned dashboard in place. The dashboard provider re-reads that
+      directory (updateIntervalSeconds: 30), so the resize lands without a Grafana
+      restart.
+
+      Geometry: the dashboard grid is a 30px cell plus an 8px vertical margin, so a
+      panel of h units is (38h - 8) px tall, of which the chrome (title bar +
+      padding), the table header row, and -- on the timeline -- the x-axis and the
+      value legend are unavailable to content. Heights round UP: a panel a few px
+      too tall shows blank space, one a few px too short shows a scrollbar, and only
+      the scrollbar is a defect.
+
+      Counts come from Prometheus (the collector's own metrics) and Loki. The Pool
+      hosts table merges a Prometheus frame with two Loki frames, so a host with
+      cycles in the window but no live Prometheus series still lands a row: the row
+      count is the union, not the Prometheus count. Rows track the dashboard's
+      DEFAULT 24h window; a wider range picked in the time picker can still surface
+      an older host and scroll.
+
+      A collector that is down reports no hosts, which is indistinguishable from an
+      empty pool here, so a zero/unavailable count leaves the file untouched rather
+      than collapsing every panel to its header.
+      """
+
+      import json
+      import os
+      import sys
+      import tempfile
+      import urllib.error
+      import urllib.parse
+      import urllib.request
+
+      DASHBOARD = os.environ.get(
+          "YURUNA_POOL_DASHBOARD", "/var/lib/grafana/dashboards/pool.json"
+      )
+      PROMETHEUS = "http://127.0.0.1:9090/api/v1/query"
+      LOKI = "http://127.0.0.1:3100/loki/api/v1/query"
+      POOL = os.environ.get("YURUNA_POOL", "default")
+      WINDOW = "24h"  # the dashboard's default time range
+      TIMEOUT = 10
+
+      # Panel ids in the dashboard JSON.
+      PANEL_TIMELINE = 7    # state-timeline: one row per host
+      PANEL_POOL = 6        # table: one row per host
+      PANEL_EXTENSION = 17  # table: one row per extension host
+
+      CELL_PX = 30          # dashboard grid cell
+      MARGIN_PX = 8         # vertical margin between cells
+      CHROME_PX = 52        # panel title bar + content padding
+      TABLE_HEADER_PX = 36  # table column-header row
+      TABLE_ROW_PX = 36     # one table row at cellHeight "sm"
+      TABLE_PAD_PX = 8      # bottom padding inside the table viewport
+      TIMELINE_OVERHEAD_PX = 119  # chrome + x-axis band + value legend
+      TIMELINE_ROW_PX = 32  # per-host row; below ~22px the timeline squeezes rows
+      MAX_ROWS = 60         # a runaway count must not mint a 3000px panel
+
+      STAT_ROW_H = 4  # the stat tiles across the top; the panels below stack under it
+
+
+      def units(px):
+          """Grid units needed to give a panel `px` of content."""
+          return max(3, -(-(px + MARGIN_PX) // (CELL_PX + MARGIN_PX)))
+
+
+      def table_units(rows):
+          return units(CHROME_PX + TABLE_HEADER_PX + TABLE_ROW_PX * rows + TABLE_PAD_PX)
+
+
+      def timeline_units(rows):
+          return units(TIMELINE_OVERHEAD_PX + TIMELINE_ROW_PX * rows)
+
+
+      def query(url, expr):
+          """Instant query; returns the scalar of the first sample, or None."""
+          try:
+              req = urllib.request.Request(
+                  url + "?" + urllib.parse.urlencode({"query": expr}),
+                  headers={"Accept": "application/json"},
+              )
+              with urllib.request.urlopen(req, timeout=TIMEOUT) as resp:
+                  body = json.load(resp)
+          except (urllib.error.URLError, OSError, ValueError, TimeoutError):
+              return None
+          result = (body.get("data") or {}).get("result") or []
+          if not result:
+              return 0
+          try:
+              return int(float(result[0]["value"][1]))
+          except (KeyError, IndexError, TypeError, ValueError):
+              return None
+
+
+      def clamp(rows):
+          return max(0, min(MAX_ROWS, rows))
+
+
+      def main():
+          prom_hosts = query(PROMETHEUS, 'count(yuruna_pool_host_info{pool="%s"})' % POOL)
+          if not prom_hosts:
+              # No collector, no hosts, or Prometheus not up yet: keep the last layout.
+              return 0
+
+          loki_hosts = query(
+              LOKI,
+              'count(sum by (hostId) (count_over_time({pool="%s"} | json '
+              '| overallStatus=~"pass|fail" [%s])))' % (POOL, WINDOW),
+          )
+          extensions = query(
+              PROMETHEUS, 'count(yuruna_pool_host_extension{pool="%s"})' % POOL
+          )
+          timeline = query(
+              PROMETHEUS,
+              'count(count_over_time(yuruna_pool_host_status{pool="%s", hostname=""}[%s]))'
+              % (POOL, WINDOW),
+          )
+
+          pool_rows = clamp(max(prom_hosts, loki_hosts or 0))
+          ext_rows = clamp(extensions if extensions is not None else 0)
+          timeline_rows = clamp(timeline if timeline else prom_hosts)
+
+          heights = {
+              PANEL_TIMELINE: timeline_units(timeline_rows),
+              PANEL_POOL: table_units(pool_rows),
+              PANEL_EXTENSION: table_units(ext_rows),
+          }
+
+          try:
+              with open(DASHBOARD, "r", encoding="utf-8") as fh:
+                  dashboard = json.load(fh)
+          except (OSError, ValueError) as err:
+              print("yuruna-fit-pool-dashboard: cannot read %s: %s" % (DASHBOARD, err),
+                    file=sys.stderr)
+              return 1
+
+          panels = {p.get("id"): p for p in dashboard.get("panels", [])}
+          if not set(heights) <= set(panels):
+              print("yuruna-fit-pool-dashboard: dashboard has no per-host panels to size",
+                    file=sys.stderr)
+              return 0
+
+          changed = False
+          for panel_id, height in heights.items():
+              if panels[panel_id].get("gridPos", {}).get("h") != height:
+                  panels[panel_id]["gridPos"]["h"] = height
+                  changed = True
+
+          # Re-stack every top-level panel below the stat tiles, so a resize never
+          # leaves a gap or an overlap behind it.
+          y = STAT_ROW_H
+          for panel_id in (PANEL_TIMELINE, PANEL_POOL, PANEL_EXTENSION):
+              if panels[panel_id]["gridPos"].get("y") != y:
+                  panels[panel_id]["gridPos"]["y"] = y
+                  changed = True
+              y += panels[panel_id]["gridPos"]["h"]
+          for panel in dashboard["panels"]:
+              if panel.get("type") == "row":
+                  if panel.get("gridPos", {}).get("y") != y:
+                      panel["gridPos"]["y"] = y
+                      changed = True
+                  y += panel["gridPos"].get("h", 1)
+
+          if not changed:
+              return 0
+
+          directory = os.path.dirname(DASHBOARD)
+          tmp = None
+          try:
+              fd, tmp = tempfile.mkstemp(dir=directory, prefix=".pool.json.")
+              with os.fdopen(fd, "w", encoding="utf-8") as fh:
+                  json.dump(dashboard, fh, indent=2)
+                  fh.write("\n")
+              os.chmod(tmp, 0o644)
+              os.replace(tmp, DASHBOARD)  # atomic: Grafana never reads a partial file
+              tmp = None
+          except OSError as err:
+              print("yuruna-fit-pool-dashboard: cannot write %s: %s" % (DASHBOARD, err),
+                    file=sys.stderr)
+              return 1
+          finally:
+              if tmp and os.path.exists(tmp):
+                  os.unlink(tmp)
+
+          print(
+              "yuruna-fit-pool-dashboard: hosts=%d extensions=%d timeline=%d -> "
+              "timeline h=%d, pool h=%d, extension h=%d"
+              % (pool_rows, ext_rows, timeline_rows, heights[PANEL_TIMELINE],
+                 heights[PANEL_POOL], heights[PANEL_EXTENSION])
+          )
+          return 0
+
+
+      if __name__ == "__main__":
+          sys.exit(main())
+  - path: /etc/systemd/system/yuruna-fit-pool-dashboard.service
+    permissions: '0644'
+    owner: root:root
+    content: |
+      [Unit]
+      Description=Fit the Yuruna hosts dashboard panels to the live host count
+      Documentation=https://yuruna.link/vmconfig/caching-proxy
+      After=grafana-server.service prometheus.service loki.service pool-aggregator.service
+
+      [Service]
+      Type=oneshot
+      ExecStart=/usr/local/bin/yuruna-fit-pool-dashboard.py
+      # Reads host counts from Prometheus + Loki on loopback and rewrites the
+      # provisioned dashboard in place, so the dashboard directory is the only
+      # writable path.
+      ProtectSystem=strict
+      ReadWritePaths=/var/lib/grafana/dashboards
+      ProtectHome=true
+      PrivateTmp=true
+      PrivateDevices=true
+      NoNewPrivileges=true
+      ProtectKernelTunables=true
+      ProtectKernelModules=true
+      ProtectControlGroups=true
+      RestrictAddressFamilies=AF_INET AF_INET6
+      LockPersonality=true
+      RestrictRealtime=true
+      SystemCallArchitectures=native
+  - path: /etc/systemd/system/yuruna-fit-pool-dashboard.timer
+    permissions: '0644'
+    owner: root:root
+    content: |
+      [Unit]
+      Description=Refit the Yuruna hosts dashboard panels as hosts join or leave the pool
+      [Timer]
+      OnBootSec=3min
+      OnUnitActiveSec=5min
+      AccuracySec=30s
+      Unit=yuruna-fit-pool-dashboard.service
+      [Install]
+      WantedBy=timers.target
   # --- REGION: https://yuruna.link/vmconfig/caching-proxy#squid-dashboard-inlined
   - path: /var/lib/grafana/dashboards/squid.json
     permissions: '0644'
@@ -1958,10 +2202,10 @@ write_files:
       YPOOL_NAS_NETWORK_USER='YPOOL_NAS_NETWORK_USER_PLACEHOLDER'
       YPOOL_NAS_HOST_ID='YPOOL_NAS_HOST_ID_PLACEHOLDER'
       YPOOL_NAS_MOUNT='/mnt/ypool-nas'
-  # /etc/yuruna/ypool-nas.cifs.cred is NO LONGER baked: the password is served at
-  # runtime by the Host Config Service (/v1/nas/pool) and written (0600) by
-  # yuruna-config-fetch.sh, so a rotated NAS password reaches this VM without a
-  # rebuild. The plaintext pool password therefore never ships in the seed.iso.
+  # /etc/yuruna/ypool-nas.cifs.cred is deliberately NOT baked: the password is
+  # served at runtime by the Host Config Service (/v1/nas/pool) and written (0600)
+  # by yuruna-config-fetch.sh, so a rotated NAS password reaches this VM without a
+  # rebuild -- and the plaintext pool password never ships in the seed.iso.
   # --- REGION: https://yuruna.link/vmconfig/caching-proxy#pool-auth-token
   - path: /etc/yuruna/pool-auth.token
     permissions: '0640'
@@ -2124,9 +2368,8 @@ runcmd:
   - systemctl enable squid
   - systemctl start squid
   # === YURUNA_OVERLAY_RUNCMD_HOST_AGENT ===
-  # No `a2enmod cgi` / `a2enconf yuruna-cachemgr`: the cachemgr.cgi web UI
-  # was removed (squid-cgi is gone in Ubuntu 26.04). Apache still serves the
-  # CA cert + pool-intent; cache-manager data is via `squidclient mgr:`.
+  # No `a2enmod cgi` / `a2enconf yuruna-cachemgr`: squid-cgi (cachemgr.cgi) is
+  # gone in Ubuntu 26.04. Apache still serves the CA cert + pool-intent.
   # --- REGION: https://yuruna.link/vmconfig/caching-proxy#publish-squid-ca-cert
   - install -m 0644 /etc/squid/ssl_cert/ca.pem /var/www/html/yuruna-squid-ca.crt
   # --- REGION: https://yuruna.link/vmconfig/caching-proxy#publish-pool-ca-cert
@@ -2231,7 +2474,7 @@ runcmd:
     else
         echo "== YURUNA: caching-proxy-parser build failed -- Recent 100 requests view will be unavailable =="
     fi
-    # pool-aggregator: read-only multi-host pool view (Phase 1). Source under
+    # pool-aggregator: read-only multi-host pool view. Source under
     # test/extension/pool-aggregator/ in the yuruna repo. The Grafana dashboard
     # ships inline via write_files (does NOT depend on this build).
     mkdir -p /opt/pool-aggregator
@@ -2306,6 +2549,8 @@ runcmd:
       systemctl --no-pager -l status grafana-server.service || true
       journalctl --no-pager -u grafana-server.service -n 80 || true
     fi
+  # --- REGION: https://yuruna.link/vmconfig/caching-proxy#enable-yuruna-hosts-dashboard-panel-autofit
+  - systemctl enable --now yuruna-fit-pool-dashboard.timer
   # --- REGION: https://yuruna.link/vmconfig/caching-proxy#install-community-zot-dashboard
   - |
     if curl -fsSL --retry 3 --retry-delay 5 --max-time 30 \

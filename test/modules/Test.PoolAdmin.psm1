@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.10
+.VERSION 2026.07.14
 .GUID 42c2d3e4-f5a6-4b78-9c01-2d3e4f5a6b7c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -175,6 +175,27 @@ function Open-YurunaPoolIntent {
     if (Test-Path -LiteralPath $gitDir) {
         $rc = Invoke-PoolAdminGitWithRetry -ArgumentList @('-C', $IntentDir, 'fetch', '--quiet', 'origin') -Label 'git fetch'
         if ($rc -ne 0) { return @{ Ok = $false; Error = "git fetch failed (exit $rc) from $IntentGitUrl" } }
+        # A clone left mid-rebase (an interrupted Publish rebase-retry) holds an
+        # in-flight unpushed commit while its branch tip has already moved onto the
+        # remote's -- so the merge-base probe below would read it as a safe
+        # fast-forward and reset --hard would discard it. Detect the
+        # rebase-in-progress state first and refuse.
+        if ((Test-Path -LiteralPath (Join-Path $gitDir 'rebase-merge')) -or (Test-Path -LiteralPath (Join-Path $gitDir 'rebase-apply'))) {
+            return @{ Ok = $false; Error = "the admin clone at $IntentDir has an unfinished rebase (unpushed pool intent in flight); refusing to reset --hard. Finish or abort it (git -C '$IntentDir' rebase --abort) and push from a writable location, or delete $IntentDir to discard and re-clone from $IntentGitUrl." }
+        }
+        # Refuse to reset --hard unless the remote provably contains our HEAD: a
+        # local commit the remote lacks is committed-but-unpushed pool intent (a
+        # prior Publish reached the commit but not the push), and a silent reset
+        # would erase it with no trace. merge-base --is-ancestor: rc==0 means HEAD
+        # IS contained in FETCH_HEAD (a safe fast-forward -- reset only adds
+        # commits); rc==128 is an unborn HEAD / missing ref where reset IS the
+        # recovery. Any other rc -- 1 (local-ahead / diverged), 124 (timeout), -1
+        # (git unrunnable) -- cannot prove containment, so refuse rather than
+        # green-light a destructive reset.
+        $rcAncestor = Invoke-PoolSyncGit -ArgumentList @('-C', $IntentDir, 'merge-base', '--is-ancestor', 'HEAD', 'FETCH_HEAD') -TimeoutSeconds $script:PoolAdminGitTimeoutSec
+        if ($rcAncestor -ne 0 -and $rcAncestor -ne 128) {
+            return @{ Ok = $false; Error = "cannot confirm the admin clone at $IntentDir is safe to reset (merge-base rc=$rcAncestor; likely local commit(s) the remote does not have); refusing to reset --hard. Push them from a writable location, or delete $IntentDir to discard and re-clone from $IntentGitUrl." }
+        }
         # Reset to FETCH_HEAD (origin's default branch) rather than the origin/HEAD
         # symbolic ref, which a plain clone does not always populate.
         $rc = Invoke-PoolSyncGit -ArgumentList @('-C', $IntentDir, 'reset', '--hard', '--quiet', 'FETCH_HEAD') -TimeoutSeconds $script:PoolAdminGitTimeoutSec
@@ -246,7 +267,9 @@ Commits everything under $IntentDir and pushes to the writable origin (bounded).
 .DESCRIPTION
 A commit identity is passed inline so a fresh proxy clone with no configured user.name/email still
 commits. Returns @{ Ok; Pushed; Error }: Ok=committed locally, Pushed=reached the remote (a
-read-only/offline remote leaves Pushed=$false with a hint, not a hard failure).
+read-only/offline remote leaves Pushed=$false with a hint -- the function itself does not throw).
+The admin CLIs, however, treat Pushed=$false as a command failure (exit non-zero): a committed-but-
+unpushed intent is not durable and is discarded by the next Open-YurunaPoolIntent.
 #>
 function Publish-YurunaPoolIntent {
     [CmdletBinding(SupportsShouldProcess)]
@@ -273,6 +296,24 @@ function Publish-YurunaPoolIntent {
     # the bare repo's HEAD (main) always sees the pushed commit.
     $rc = Invoke-PoolAdminGitWithRetry -ArgumentList @('-C', $IntentDir, 'push', '--quiet', 'origin', 'HEAD:main') -Label 'git push'
     if ($rc -ne 0) {
+        # A reachable remote that rejects the push is most likely a non-fast-
+        # forward: a concurrent admin pushed between our Open and here. Fetch,
+        # rebase our commit onto the new tip, and retry the push once. A content
+        # conflict (both edited pools.yml) aborts the rebase and leaves the local
+        # commit intact for the caller to surface (Open refuses to reset over it).
+        # A fetch that also fails means the remote is offline/read-only -- surface
+        # Pushed=$false without disturbing the clone.
+        $rcFetch = Invoke-PoolAdminGitWithRetry -ArgumentList @('-C', $IntentDir, 'fetch', '--quiet', 'origin') -Label 'git fetch (rebase retry)'
+        if ($rcFetch -eq 0) {
+            $rcRebase = Invoke-PoolSyncGit -ArgumentList @('-C', $IntentDir, '-c', 'user.name=yuruna-pool-admin', '-c', 'user.email=pool-admin@yuruna.local', 'rebase', 'FETCH_HEAD') -TimeoutSeconds $script:PoolAdminGitTimeoutSec
+            if ($rcRebase -eq 0) {
+                $rc2 = Invoke-PoolAdminGitWithRetry -ArgumentList @('-C', $IntentDir, 'push', '--quiet', 'origin', 'HEAD:main') -Label 'git push (after rebase)'
+                if ($rc2 -eq 0) { return @{ Ok = $true; Pushed = $true; Error = '' } }
+                $rc = $rc2
+            } else {
+                $null = Invoke-PoolSyncGit -ArgumentList @('-C', $IntentDir, 'rebase', '--abort') -TimeoutSeconds $script:PoolAdminGitTimeoutSec
+            }
+        }
         return @{ Ok = $true; Pushed = $false; Error = "committed locally but push failed (exit $rc) -- push from a writable location (e.g. on the proxy: a file:// or local path to the bare repo)" }
     }
     return @{ Ok = $true; Pushed = $true; Error = '' }

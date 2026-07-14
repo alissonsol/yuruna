@@ -1,5 +1,5 @@
-﻿<#PSScriptInfo
-.VERSION 2026.07.10
+<#PSScriptInfo
+.VERSION 2026.07.14
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456725
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -26,7 +26,7 @@ Import-Module (Join-Path $PSScriptRoot 'Test.OcrEngine.psm1')       -Global -For
 Import-Module (Join-Path $PSScriptRoot 'Test.SequenceAction.psm1')  -Global -Force
 
 # Per-action capability requirements live in Test.SequenceAction's
-# registry. Get-CapabilityActionRequirement below is a thin façade
+# registry. Get-CapabilityActionRequirement below is a thin facade
 # over Get-SequenceActionRequirementMap so existing callers don't
 # have to migrate immediately. The registry is populated at
 # Invoke-Sequence.psm1 load time, which imports Test.SequenceHandler.psm1;
@@ -37,7 +37,7 @@ function Get-CapabilityActionRequirement {
     .SYNOPSIS
         Return the action -> required-capability map. Sources from
         Test.SequenceAction's registry, which is the single source
-        of truth for the verb → required-capability mapping.
+        of truth for the verb -> required-capability mapping.
     #>
     if (Get-Command Get-SequenceActionRequirementMap -ErrorAction SilentlyContinue) {
         return Get-SequenceActionRequirementMap
@@ -55,7 +55,7 @@ function Get-CapabilityExtensionArea {
         partially-configured operator setup.
     .DESCRIPTION
         Areas are discovered by directory presence under test/extension/
-        rather than hardcoded — adding a new area automatically appears
+        rather than hardcoded -- adding a new area automatically appears
         in the matrix.
     #>
     [CmdletBinding()]
@@ -94,7 +94,7 @@ function Get-HostCapabilityMatrix {
         Test-CyclePlanCapability.
     .PARAMETER HostType
         Target host identifier ('host.windows.hyper-v', 'host.macos.utm',
-        'host.ubuntu.kvm'). Defaults to the value of Get-HostType — the
+        'host.ubuntu.kvm'). Defaults to the value of Get-HostType -- the
         live local host.
     .PARAMETER RepoRoot
         Repo root used to find test/extension/. Defaults to two levels
@@ -155,7 +155,7 @@ function Write-HostCapabilityBanner {
         [hashtable]$Matrix
     )
     if (-not $Matrix) { $Matrix = Get-HostCapabilityMatrix }
-    $sep = '─────────────────────────────────────────────────────────'
+    $sep = '---------------------------------------------------------'
     Write-Information ''
     Write-Information $sep
     Write-Information "Yuruna capability matrix ($($Matrix.hostType))"
@@ -321,7 +321,7 @@ function Get-CyclePlanSequencePath {
     .DESCRIPTION
         Walks each plan entry's fullChain and calls Resolve-SequencePath
         (from Invoke-Sequence.psm1) per name. Missing names are logged
-        Verbose and skipped — the planner already throws PlannerFatal for
+        Verbose and skipped -- the planner already throws PlannerFatal for
         true misses, so missing here means a transient file-system race.
     .OUTPUTS
         [string[]] of absolute paths, deduplicated, in plan order.

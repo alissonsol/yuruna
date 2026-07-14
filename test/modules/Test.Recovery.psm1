@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.10
+.VERSION 2026.07.14
 .GUID 42fa7b6c-d5e4-4a83-9170-2f3a4b5c6d94
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -270,7 +270,12 @@ function Clear-StalePidFile {
     [OutputType([hashtable])]
     param(
         [Parameter(Mandatory)][string]$PidFile,
-        [string]$CompanionPath
+        [string]$CompanionPath,
+        # Service pidfiles (server.pid / config-server.pid) have no .start
+        # companion; opt into using the pidfile's own mtime as the launch
+        # reference so a live PID recycled onto an unrelated process is still
+        # cleared (a genuine owner started at/before the mtime it then wrote).
+        [switch]$MtimeIdentity
     )
     if (-not (Test-Path -LiteralPath $PidFile)) { return $null }
     if (-not $PSCmdlet.ShouldProcess($PidFile, 'Clear stale pidfile')) { return $null }
@@ -310,14 +315,30 @@ function Clear-StalePidFile {
                 Write-Verbose "Clear-StalePidFile: companion StartTime parse failed at $CompanionPath ($($_.Exception.Message))."
             }
         }
-        if ($null -eq $recordedStart) { return $null }
         $liveStart = $null
         try { $liveStart = $proc.StartTime.ToUniversalTime() }
         catch { Write-Verbose "Clear-StalePidFile: live StartTime unreadable for pid $filePid ($($_.Exception.Message))." }
-        if ($null -eq $liveStart) { return $null }
-        if ([Math]::Abs(($recordedStart - $liveStart).TotalSeconds) -le 2) { return $null }
-        # StartTime mismatch -> the PID was recycled; fall through to clear.
-        $recycled = $true
+        if ($null -ne $recordedStart) {
+            # Companion StartTime recorded: it is the exact launch time, so a
+            # match within 2s is the genuine owner; a mismatch is a recycle.
+            if ($null -eq $liveStart) { return $null }
+            if ([Math]::Abs(($recordedStart - $liveStart).TotalSeconds) -le 2) { return $null }
+            $recycled = $true
+        } elseif ($MtimeIdentity) {
+            # No companion, but the caller opted into pidfile-mtime identity: a
+            # genuine owner started at/before the mtime it then wrote; a PID that
+            # started later is a recycle. Keep on start<=mtime, clear otherwise.
+            if ($null -eq $liveStart) { return $null }
+            $mtimeUtc = $null
+            try { $mtimeUtc = (Get-Item -LiteralPath $PidFile -ErrorAction Stop).LastWriteTime.ToUniversalTime() }
+            catch { return $null }
+            if ($liveStart -le $mtimeUtc.AddSeconds(2)) { return $null }
+            $recycled = $true
+        } else {
+            # Live PID that cannot be disproven (no companion, no mtime opt-in)
+            # -> stay conservative and treat it as live.
+            return $null
+        }
     }
     Remove-Item -LiteralPath $PidFile -Force -ErrorAction SilentlyContinue
     if ($CompanionPath -and (Test-Path -LiteralPath $CompanionPath)) {
@@ -407,6 +428,113 @@ function Clear-StalePauseFlag {
     return $null
 }
 
+function Clear-StaleControlState {
+    <#
+    .SYNOPSIS
+        Sweep the stale inter-cycle control-state flags a starting entry
+        point must not inherit, for a given lifecycle scope.
+    .DESCRIPTION
+        The status server writes control flags into $RuntimeDir to steer
+        a running cycle: control.cycle-restart (rewind to step 1),
+        control.step-pause / control.cycle-pause / control.pause (hold),
+        and break-active.json (a parked breakpoint). A session killed
+        before consuming a flag leaves it behind, and the NEXT session
+        would then wake to a request the operator never made for it.
+
+        This is the single place the three flag-classes are swept, keyed
+        by -Scope so a caller cannot hand-pick an inconsistent subset:
+
+          Startup  -- a fresh top-level entry point that IS the restart
+                      the operator just asked for: consume
+                      control.cycle-restart. Interactive parked state
+                      (break-active + pause flags) is also cleared unless
+                      -SkipInteractiveState is passed.
+          PreSpawn -- an entry point about to hand off to a child cycle
+                      it spawns: clear the interactive parked state so
+                      the child does not inherit it, but leave
+                      control.cycle-restart for the child to consume as
+                      ITS own restart.
+
+        -SkipInteractiveState narrows Startup to control.cycle-restart
+        only. It exists for the spawned inner, whose interactive parked
+        state is already swept by its parent (the outer's boot recovery
+        or a PreSpawn caller); re-sweeping it would clear a pause the
+        operator set on a direct-invoke inner.
+
+        Best-effort: a failed removal is recorded, not thrown, so a
+        single locked/permission-denied flag can never block the launch.
+    .PARAMETER Scope
+        Startup | PreSpawn (see above).
+    .PARAMETER SkipInteractiveState
+        Startup-only: consume control.cycle-restart but leave break-active
+        and pause flags untouched.
+    .PARAMETER RuntimeDir
+        test/status/runtime/. Defaults to $env:YURUNA_RUNTIME_DIR.
+    .OUTPUTS
+        [hashtable] {
+            cycleRestartCleared = [bool]
+            cycleRestartAgeSeconds = [int] or $null  (age of the consumed flag)
+            breakActive = archive result or $null
+            pauseFlags = string[] basenames cleared
+            warnings = string[]
+        }
+    #>
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([hashtable])]
+    param(
+        [Parameter(Mandatory)][ValidateSet('Startup','PreSpawn')][string]$Scope,
+        [switch]$SkipInteractiveState,
+        [string]$RuntimeDir = $env:YURUNA_RUNTIME_DIR
+    )
+    $summary = @{
+        cycleRestartCleared    = $false
+        cycleRestartAgeSeconds = $null
+        breakActive            = $null
+        pauseFlags             = @()
+        warnings               = @()
+    }
+    if (-not $RuntimeDir -or -not (Test-Path -LiteralPath $RuntimeDir)) { return $summary }
+    if (-not $PSCmdlet.ShouldProcess($RuntimeDir, "Clear stale control state ($Scope)")) { return $summary }
+
+    # control.cycle-restart: only a Startup caller IS the restart, so only
+    # Startup consumes it. A PreSpawn caller leaves it for the child cycle.
+    if ($Scope -eq 'Startup') {
+        $restartFlag = Join-Path $RuntimeDir 'control.cycle-restart'
+        if (Test-Path -LiteralPath $restartFlag) {
+            try {
+                $age = (Get-Date) - (Get-Item -LiteralPath $restartFlag).LastWriteTime
+                $summary.cycleRestartAgeSeconds = [int]$age.TotalSeconds
+            } catch { $summary.cycleRestartAgeSeconds = $null }
+            try {
+                Remove-Item -LiteralPath $restartFlag -Force -ErrorAction Stop
+                $summary.cycleRestartCleared = $true
+            } catch {
+                $summary.warnings += "control.cycle-restart clear failed: $($_.Exception.Message)"
+            }
+        }
+    }
+
+    # Interactive parked state (break-active + pause flags). Swept for
+    # PreSpawn always, and for Startup unless the caller opts out.
+    $sweepInteractive = ($Scope -eq 'PreSpawn') -or (-not $SkipInteractiveState)
+    if ($sweepInteractive) {
+        try {
+            $archivedBreak = Resolve-StaleBreakActive -RuntimeDir $RuntimeDir -Confirm:$false
+            if ($archivedBreak) { $summary.breakActive = $archivedBreak }
+        } catch {
+            $summary.warnings += "Resolve-StaleBreakActive failed: $($_.Exception.Message)"
+        }
+        try {
+            $clearedPause = Clear-StalePauseFlag -RuntimeDir $RuntimeDir -Confirm:$false
+            if ($clearedPause -and $clearedPause.cleared) { $summary.pauseFlags = @($clearedPause.cleared) }
+        } catch {
+            $summary.warnings += "Clear-StalePauseFlag failed: $($_.Exception.Message)"
+        }
+    }
+
+    return $summary
+}
+
 function Invoke-YurunaBootRecovery {
     <#
     .SYNOPSIS
@@ -420,7 +548,10 @@ function Invoke-YurunaBootRecovery {
         (already-resolved markers no longer have `.incomplete`).
 
         Order:
-          1. Stale pidfiles (delete; pid is provably dead)
+          1. Stale pidfiles (delete; pid is dead, or -- for the service
+             pidfiles that carry no .start companion -- a live PID that
+             provably recycled onto an unrelated process, judged by the
+             pidfile's own mtime)
           2. Stale break-active.json (archive)
           3. Stale pause flags (delete; a fresh launch never inherits
              a prior session's pause request)
@@ -461,12 +592,18 @@ function Invoke-YurunaBootRecovery {
         # Pidfiles. inner.pid has no companion sidecar; runner.pid pairs
         # with runner.start (StartTime sidecar from Write-RunnerPidFile).
         foreach ($entry in @(
-            @{ pid = 'inner.pid';  companion = $null },
-            @{ pid = 'runner.pid'; companion = 'runner.start' }
+            @{ pid = 'inner.pid';         companion = $null;          mtimeIdentity = $false },
+            @{ pid = 'runner.pid';        companion = 'runner.start';  mtimeIdentity = $false },
+            # Service pidfiles have no .start sidecar, so use pidfile-mtime
+            # identity: a stale server.pid / config-server.pid must not survive a
+            # reboot, where the OS can recycle the old PID onto the freshly
+            # launched runner and a kill path would otherwise take it down.
+            @{ pid = 'server.pid';        companion = $null;          mtimeIdentity = $true },
+            @{ pid = 'config-server.pid'; companion = $null;          mtimeIdentity = $true }
         )) {
             try {
                 $companion = if ($entry.companion) { Join-Path $RuntimeDir $entry.companion } else { $null }
-                $cleared = Clear-StalePidFile -PidFile (Join-Path $RuntimeDir $entry.pid) -CompanionPath $companion -Confirm:$false
+                $cleared = Clear-StalePidFile -PidFile (Join-Path $RuntimeDir $entry.pid) -CompanionPath $companion -MtimeIdentity:$entry.mtimeIdentity -Confirm:$false
                 if ($cleared) { $summary.ClearedPidFiles += $cleared }
             } catch {
                 $summary.Warnings += "Clear-StalePidFile failed for $($entry.pid): $($_.Exception.Message)"
@@ -532,4 +669,4 @@ function Invoke-YurunaBootRecovery {
     return $summary
 }
 
-Export-ModuleMember -Function Invoke-YurunaBootRecovery, Find-OrphanIncompleteCycle, Resolve-OrphanIncompleteCycle, Clear-StalePidFile, Resolve-StaleBreakActive, Clear-StalePauseFlag
+Export-ModuleMember -Function Invoke-YurunaBootRecovery, Find-OrphanIncompleteCycle, Resolve-OrphanIncompleteCycle, Clear-StalePidFile, Resolve-StaleBreakActive, Clear-StalePauseFlag, Clear-StaleControlState

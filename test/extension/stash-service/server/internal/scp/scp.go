@@ -218,7 +218,7 @@ func parseCLine(line string) (mode string, size int64, name string, err error) {
 // When clipped, the function still drains the remaining payload bytes
 // from br so the wire stays in sync for the trailing \x00.
 func streamFile(br *bufio.Reader, target string, size int64) (int64, bool, error) {
-	f, err := os.Create(target)
+	f, err := os.OpenFile(target, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
 	if err != nil {
 		return 0, false, err
 	}

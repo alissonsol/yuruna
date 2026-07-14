@@ -52,13 +52,50 @@ base URL for `curl`-style fetches in this priority order:
 
 1. **`$EXEC_BASE_URL`** — explicit override, used verbatim. Highest
    priority so a per-call override always wins over auto-discovery.
+   Classified by scheme: an `http://` override is treated as a host
+   status server (`--no-proxy`, eligible for the perf-checkpoint POST);
+   anything else is treated as remote and gets neither.
 2. **`/etc/yuruna/host.env`** — written by `New-VM.ps1` at provision
    time. Holds `YURUNA_HOST_IP` / `YURUNA_HOST_PORT` for the dev
    iteration loop. We probe `/livecheck` with a short timeout; on
    success the host status server takes precedence over GitHub. On
-   failure we fall through silently — no `/etc/yuruna/host.env` (CI,
-   fresh demo) or a stopped server lands transparently on GitHub.
-3. **`https://raw.githubusercontent.com/...`** — final fallback.
+   failure we fall through — no `/etc/yuruna/host.env` (CI,
+   fresh demo) or a stopped server lands on the GitHub fallback below.
+3. **GitHub, same repository, pinned commit** — the final fallback.
+
+**The fallback is not a fixed public URL.** It is built from a repo slug
+and an exact commit supplied by the host: `EXEC_FALLBACK_REPO` /
+`EXEC_FALLBACK_REF`, typed into the guest console alongside `EXEC_SHA256`
+(see the integrity gate), or `YURUNA_GITHUB_REPO` / `YURUNA_GITHUB_REF`
+baked into `host.env` at New-VM time. The typed pair wins, because it
+names the commit the host is serving *now* rather than whenever this VM
+was provisioned.
+
+Two properties make this the only sound fallback, and both come straight
+from the integrity gate — the host digests *its* copy of the file, and the
+guest refuses bytes that don't match that digest:
+
+- **Same repository.** A fallback aimed anywhere else — a public mirror of
+  a private repo being the obvious case — serves bytes the digest was never
+  taken from. The guest then refuses to run them, and the run dies with an
+  `INTEGRITY MISMATCH` whose real meaning is *wrong repository*.
+- **Pinned commit, never a branch.** `main` moves on every push; the digest
+  does not.
+
+With no repo+ref available, there is **no** fallback: the fetch fails with
+`NO FETCH SOURCE` rather than guessing at another repository.
+
+**Private repositories.** When `repositories.GH_TOKEN` is configured, the
+guest receives it on the cloud-init seed (never over the console, which the
+host screenshots and OCRs into the published run log, and never over HTTP).
+With a token present the fetch goes through the GitHub Contents API, which
+serves a file body verbatim under the raw media type whether the repo is
+public or private; without one it uses `raw.githubusercontent.com`, which
+can only ever read a public repo. Both are pinned to the same commit, so
+either shape satisfies the digest. The token is passed to `wget` through a
+`0600` wgetrc (`--config`), never `--header`, so it never appears in the
+process list — where any `ps` snapshot in a diagnostic dump would carry it
+into the published log.
 
 Cache-busting via environment variables (priority order):
 
@@ -116,15 +153,21 @@ doesn't answer in 2 s, that's an UNEXPECTED failure: this guest was
 provisioned to talk to that host, so silently falling through to
 GitHub would hide the real problem. Common causes:
 
-- Host Wi-Fi roamed to a different SSID / subnet.
+- The host's IP changed since this VM was provisioned — a DHCP lease
+  renewed across a host reboot, or Wi-Fi roamed to another subnet. The
+  address in `host.env` is baked at New-VM time and never re-resolved,
+  so a reused VM outlives it.
 - Host status server crashed.
 - Host firewall change.
 - Default Switch / VZ shared NAT gateway changed.
 
-The cycle will still complete via GitHub, but the dev iteration loop
-is broken until the host is reachable again. `fetch-and-execute.sh`
-warns loudly on stderr — stdout is captured by
-`$(resolve_base_url)` and must stay clean.
+The cycle can still complete via the GitHub fallback, but only if the
+commit the host is serving is actually *on* the remote: the fallback
+fetches a pinned commit, so a commit that exists only in the host's
+working tree (uncommitted, or committed but unpushed) cannot be fetched,
+and the integrity gate refuses whatever else it finds. Either way the dev
+iteration loop is broken until the host is reachable again.
+`fetch-and-execute.sh` warns loudly on stderr.
 
 Source: [`automation/fetch-and-execute.sh`](../automation/fetch-and-execute.sh).
 
@@ -267,13 +310,45 @@ scripts:
    (cloud-init-populated).
 2. Pull `repositories.frameworkUrl` / `repositories.projectUrl` from
    the host status server's `/control/test-config` endpoint.
-3. **Framework**: prefer the host's `/yuruna-archive.tar.gz` (committed
+3. Fall back to `YURUNA_FRAMEWORK_URL` / `YURUNA_PROJECT_URL` in
+   `host.env` when step 2 returned nothing. That endpoint lives *on* the
+   host, so a guest cut off from the host gets nothing from it — which is
+   exactly the moment it most needs a URL to clone from. The same two URLs
+   are baked into the seed at New-VM time for that case.
+4. **Framework**: prefer the host's `/yuruna-archive.tar.gz` (committed
    working tree, no `.git/`), fall back to `git clone $FRAMEWORK_URL`
    with retries.
-4. **Project**: `git clone $PROJECT_URL` into
+5. **Project**: `git clone $PROJECT_URL` into
    `$REAL_HOME/yuruna/project`. Skipped silently when
    `repositories.projectUrl` is empty (in-tree `project/` stop-gap path
    used by older configs).
+
+**Private repositories: `repositories.GH_TOKEN`.** git does **not** read
+`GH_TOKEN` — that name is a `gh(1)` convention, not a git one. A bare
+`git clone https://github.com/owner/private-repo` therefore prompts for a
+username, which hangs an unattended guest (or fails outright under
+`GIT_TERMINAL_PROMPT=0`). What makes the clone work is `GIT_ASKPASS`: the
+seed installs a shim at `/usr/local/lib/yuruna/git-askpass.sh` (Windows:
+`C:\ProgramData\yuruna\git-askpass.cmd`) that answers git's credential
+prompts from `$GH_TOKEN`, and exports `GH_TOKEN` + `GIT_ASKPASS` +
+`GIT_TERMINAL_PROMPT=0` into the guest's shell environment. Every
+`clone` / `fetch` / `pull` then authenticates with no change at any call
+site. The token stays in the environment — it never reaches `~/.gitconfig`
+or a remote URL, so it cannot leak through `git remote -v` or the process
+list. Leave `GH_TOKEN` empty for public repositories and none of this is
+installed.
+
+**Scope it read-only.** The guests only ever pull, but the token is copied
+onto every test VM and is served on `/control/test-config`, so it should be
+the least-privileged credential that works: a fine-grained token, scoped to
+the `frameworkUrl` and `projectUrl` repositories only, with **Contents:
+Read-only** — which covers both the `git clone` and the Contents API fetch
+above. A classic PAT's smallest useful scope (`repo`) is read-write across
+every repository the account can see, which is a far larger blast radius
+than this job needs. See
+[CONTRIBUTING](../CONTRIBUTING.md#repositoriesgh_token--reading-a-private-frameworkproject-repo)
+for the exact settings, and note that one fine-grained token can only cover
+repositories under a single owner.
 
 **`--no-proxy` on host probes.** The host server lives on a private
 NAT IP that any inherited `http_proxy` (e.g. caching-proxy) cannot route
@@ -643,7 +718,7 @@ rules out:
 browsers that lack it; native fetch on every other browser is left
 untouched.
 
-### Defining the status-page mobile + dark-mode hardening
+### Defining the status-page mobile and dark-mode hardening
 
 Every status page reads its color tokens from CSS custom properties
 declared in `:root` of [`test/status/yuruna.common.css`](../test/status/yuruna.common.css);
@@ -789,7 +864,7 @@ seconds; making the request asynchronous (trigger + poll) would
 double the moving parts for no real benefit at Yuruna's
 single-operator scale. The endpoint blocks the server's request loop
 for the duration of the run, which is acceptable because the polling
-dashboard re-tries on the next 30 s tick.
+dashboard re-tries on the next 60 s tick.
 
 **Why the hostname is the click target.** It is the same string the
 operator reads at the top right of every page, so the affordance
@@ -804,8 +879,9 @@ of every test cycle by `Start-StatusService.ps1` (run with `-Restart`
 from `Invoke-TestRunner.ps1` on each cycle; its
 `Test-CachingProxyAvailable` probe re-runs then). The file contains
 trusted server-generated HTML — possibly an `<a href>` to the
-`cachemgr` URL — and the dashboard renders it inside the "Latest
-Cycle" section title via `innerHTML`. The dashboard re-fetches the
+`cachemgr` URL — and the dashboard extracts its href and applies it to the "Latest
+Cycle" Dashboards link via `setAttribute` (not `innerHTML`, so the
+fetched markup is never injected). The dashboard re-fetches the
 file on every `loadStatus()` poll so a page left open sees the new
 cycle's cache state within one poll interval, even across cycles.
 
@@ -895,7 +971,7 @@ Page-specific behavior:
 
 - **60 s poll with visible countdown.** `setInterval` ticks every
   second and decrements a `#countdown` badge; reaching zero re-fires
-  `loadStatus()` which sequences three soft fetches —
+  `loadStatus()` which sequences four soft fetches —
   `runtime/status.json`, `runtime/current-action.json`, and
   `control/runner-status` — before re-rendering. 404s are tolerated
   (`null` propagates and the renderer falls through to "no data" /
@@ -1620,8 +1696,10 @@ back from memory.
 
 ---
 
+LICENSEURI https://yuruna.link/license
+
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.10
+Last review: 2026.07.14
 
 Back to [Yuruna](../README.md)

@@ -1,5 +1,5 @@
-﻿<#PSScriptInfo
-.VERSION 2026.07.10
+<#PSScriptInfo
+.VERSION 2026.07.14
 .GUID 42a7b8c9-d0e1-4f23-9456-7e8f9a0b1c20
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -27,17 +27,19 @@
 # (Initialize-YurunaHost lives in Test.HostBootstrap.psm1).
 
 # Module-level self-healing: re-import Test.VMUtility.psm1 with -Global
-# every time Test.HostContract is loaded. The runner's cycle re-import block
-# reloads Test.HostContract every cycle; doing the -Global import here keeps
-# Wait-VMRunning / Test-IpAddress / Format-IpUrlHost (and the other
-# cross-host helpers) in the runner's session even when something
-# mid-cycle has wiped the global module table -- e.g. a sequence step
-# calling `Get-Module | Remove-Module`, or a transitive Import-Module
-# without -Global. Without this, a long-running macOS in-process runner
-# could lose Wait-VMRunning at an unrelated moment and crash at the
-# next New-VM.Resource step. -ErrorAction SilentlyContinue: a missing sibling
-# is non-fatal here; Initialize-YurunaHost still fails loudly later if
-# truly broken.
+# every time this module is loaded. The runner's cycle re-import block
+# reloads Test.HostContract every cycle, which re-imports this sibling;
+# the -Global import here keeps Wait-VMRunning / Test-IpAddress /
+# Format-IpUrlHost (and the other cross-host helpers) in the runner's
+# session even when something mid-cycle has wiped the global module table
+# -- e.g. a sequence step calling `Get-Module | Remove-Module`, or a
+# transitive Import-Module without -Global. Without this, a long-running
+# macOS in-process runner could lose Wait-VMRunning at an unrelated moment
+# and crash at the next New-VM.Resource step. This module (not the
+# Test.HostContract facade) owns the self-heal so it also fires for the
+# callers that import Test.HostDetection directly. -ErrorAction
+# SilentlyContinue: a missing sibling is non-fatal here;
+# Initialize-YurunaHost still fails loudly later if truly broken.
 $vmCommonPath = Join-Path $PSScriptRoot 'Test.VMUtility.psm1'
 if (Test-Path $vmCommonPath) {
     Import-Module $vmCommonPath -Force -DisableNameChecking -Global -ErrorAction SilentlyContinue
@@ -201,7 +203,7 @@ function Get-GuestList {
     .SYNOPSIS
     Returns the ordered list of guest keys from $Config.guestSequence.
     .DESCRIPTION
-    Returns verbatim — whether a guest is implemented on the current
+    Returns verbatim -- whether a guest is implemented on the current
     host is decided at runtime by Test-GuestFolder; the runner logs a
     per-guest failure for missing folders. Empty/missing guestSequence
     returns an empty list with a warning.
@@ -212,7 +214,7 @@ function Get-GuestList {
         return @($Config.guestSequence)
     }
 
-    Write-Warning "test.config.yml has no 'guestSequence' entries — nothing to run."
+    Write-Warning "test.config.yml has no 'guestSequence' entries -- nothing to run."
     return @()
 }
 
@@ -243,9 +245,9 @@ function Get-TestVMName {
     .DESCRIPTION
     Strip "guest.", replace remaining dots with hyphens, append "-01",
     add the prefix. Examples with prefix "test-":
-        guest.ubuntu.server.24  →  test-ubuntu-server-01
-        guest.amazon.linux.2023   →  test-amazon-linux-01
-        guest.windows.11     →  test-windows-11-01
+        guest.ubuntu.server.24  ->  test-ubuntu-server-01
+        guest.amazon.linux.2023   ->  test-amazon-linux-01
+        guest.windows.11     ->  test-windows-11-01
     Any guest key produces a deterministic VM name without code changes.
     Migration note: pre-2026-04 harness used "test-amazon-linux01",
     "test-windows11-01". VMs from the old convention are orphaned

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.10
+.VERSION 2026.07.14
 .GUID 42b8c9d0-e1f2-4a34-9678-9b0c1d2e3f40
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -31,9 +31,12 @@ $here    = Split-Path -Parent $PSCommandPath
 $modPath = Join-Path $here 'Test.PoolSync.psm1'
 Import-Module $modPath -Force
 
-$script:HostId = '42abcdef0123456789abcdef01234567'.Substring(0, 32)
+# Unqualified and above the first Describe: an It block resolves a plain file-scope
+# name through its parent scope chain, but a $script:-qualified one binds to the test
+# framework's own script scope and reads back $null once the run phase starts.
+$TestHostId = '42abcdef0123456789abcdef01234567'.Substring(0, 32)
 
-# --- REGION: AST helpers (script scope; referenced from It blocks -> Pester 4)
+# --- REGION: AST helpers (file scope; referenced from It blocks)
 function Get-ModuleAst {
     $errs = $null
     $ast = [System.Management.Automation.Language.Parser]::ParseFile($modPath, [ref]$null, [ref]$errs)
@@ -64,24 +67,24 @@ function Get-MemberAccessCount {
 
 Describe 'Resolve-YurunaPoolForHost normalizes members and matches ordinal-exact' {
     It 'matches a bare-string member' {
-        $intent = @{ pools = @(@{ poolId = 'p1'; members = @($script:HostId, '42other') }) }
-        (Resolve-YurunaPoolForHost -Intent $intent -HostId $script:HostId).poolId | Should -Be 'p1'
+        $intent = @{ pools = @(@{ poolId = 'p1'; members = @($TestHostId, '42other') }) }
+        (Resolve-YurunaPoolForHost -Intent $intent -HostId $TestHostId).poolId | Should -Be 'p1'
     }
     It 'matches a structured member carrying a hostId key' {
-        $intent = @{ pools = @(@{ poolId = 'p2'; members = @(@{ hostId = $script:HostId; name = 'n' }) }) }
-        (Resolve-YurunaPoolForHost -Intent $intent -HostId $script:HostId).poolId | Should -Be 'p2'
+        $intent = @{ pools = @(@{ poolId = 'p2'; members = @(@{ hostId = $TestHostId; name = 'n' }) }) }
+        (Resolve-YurunaPoolForHost -Intent $intent -HostId $TestHostId).poolId | Should -Be 'p2'
     }
     It 'matches a structured member carrying a name key' {
-        $intent = @{ pools = @(@{ poolId = 'p3'; members = @(@{ name = $script:HostId }) }) }
-        (Resolve-YurunaPoolForHost -Intent $intent -HostId $script:HostId).poolId | Should -Be 'p3'
+        $intent = @{ pools = @(@{ poolId = 'p3'; members = @(@{ name = $TestHostId }) }) }
+        (Resolve-YurunaPoolForHost -Intent $intent -HostId $TestHostId).poolId | Should -Be 'p3'
     }
     It 'does NOT match a differently-cased member (ordinal-exact identity)' {
-        $intent = @{ pools = @(@{ poolId = 'p4'; members = @($script:HostId.ToUpper()) }) }
-        Resolve-YurunaPoolForHost -Intent $intent -HostId $script:HostId | Should -BeNullOrEmpty
+        $intent = @{ pools = @(@{ poolId = 'p4'; members = @($TestHostId.ToUpper()) }) }
+        Resolve-YurunaPoolForHost -Intent $intent -HostId $TestHostId | Should -BeNullOrEmpty
     }
     It 'returns $null when no member matches' {
         $intent = @{ pools = @(@{ poolId = 'p5'; members = @('42someoneelse') }) }
-        Resolve-YurunaPoolForHost -Intent $intent -HostId $script:HostId | Should -BeNullOrEmpty
+        Resolve-YurunaPoolForHost -Intent $intent -HostId $TestHostId | Should -BeNullOrEmpty
     }
 }
 

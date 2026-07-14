@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.10
+.VERSION 2026.07.14
 .GUID 42b8c9d0-e1f2-4a34-9567-89b0c1d2e3f4
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -23,12 +23,13 @@
     The three platform scripts ([host/windows.hyper-v/Remove-OrphanedVMFiles.ps1](../windows.hyper-v/Remove-OrphanedVMFiles.ps1),
     [host/macos.utm/Remove-OrphanedVMFiles.ps1](../macos.utm/Remove-OrphanedVMFiles.ps1),
     [host/ubuntu.kvm/Remove-OrphanedVMFiles.ps1](../ubuntu.kvm/Remove-OrphanedVMFiles.ps1))
-    need the same Write-Status routing function and (on Hyper-V + UTM)
-    the same base-image-name discovery loop. All three route -Quiet
-    through Set-VMCleanupQuiet here so the quiet contract stays in one
-    place; the scripts never touch the module-internal $script:QuietOutput
-    flag directly. Both helpers live here so the routing + naming stay in
-    lockstep.
+    need the same Write-Status routing function, the same [int64] folder
+    sizing (Get-VMFolderSize), and (on Hyper-V + UTM) the same
+    base-image-name discovery loop. All three route -Quiet through
+    Set-VMCleanupQuiet here so the quiet contract stays in one place; the
+    scripts never touch the module-internal $script:QuietOutput flag
+    directly. The helpers live here so the routing, sizing, and naming
+    stay in lockstep.
 #>
 
 $script:QuietOutput = $false
@@ -78,6 +79,39 @@ function Write-CleanupMessage {
     }
 }
 
+function Get-VMFolderSize {
+    <#
+    .SYNOPSIS
+        Recursively sum the byte length of every file under a directory,
+        returning a consistent [int64].
+    .DESCRIPTION
+        The per-platform cleanup scripts each size an orphaned VM's on-disk
+        footprint the same way -- enumerate files recursively and add up
+        their lengths. Measure-Object -Sum yields a [double] .Sum and is
+        [double]::NaN/$null when the enumeration is empty, so ad-hoc call
+        sites diverged (one cast to [int64], another null-coalesced the
+        [double]). Centralizing the enumeration + aggregation keeps the
+        result type [int64] everywhere, so the "{0:N2} GB" totals and any
+        arithmetic on Size stay identical across KVM, UTM, and Hyper-V.
+        An unreadable or missing path sizes as 0 rather than throwing --
+        the callers treat a folder they cannot read as contributing no
+        reclaimable bytes.
+    .PARAMETER Path
+        Directory to size. Enumerated with -Recurse -File.
+    .OUTPUTS
+        [int64] total bytes; 0 when the directory is empty or unreadable.
+    #>
+    [CmdletBinding()]
+    [OutputType([int64])]
+    param(
+        [Parameter(Mandatory)][string]$Path
+    )
+    $sum = (Get-ChildItem -Path $Path -Recurse -File -ErrorAction SilentlyContinue |
+        Measure-Object -Property Length -Sum).Sum
+    if ($null -eq $sum) { return [int64]0 }
+    return [int64]$sum
+}
+
 function Resolve-BaseImageName {
     <#
     .SYNOPSIS
@@ -111,4 +145,4 @@ function Resolve-BaseImageName {
     return @{ HostFolder = $hostFolder; BaseImageNames = $names.ToArray() }
 }
 
-Export-ModuleMember -Function Set-VMCleanupQuiet, Write-CleanupMessage, Resolve-BaseImageName
+Export-ModuleMember -Function Set-VMCleanupQuiet, Write-CleanupMessage, Get-VMFolderSize, Resolve-BaseImageName

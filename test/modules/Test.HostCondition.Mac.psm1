@@ -1,5 +1,5 @@
-﻿<#PSScriptInfo
-.VERSION 2026.07.10
+<#PSScriptInfo
+.VERSION 2026.07.14
 .GUID 42d4a3b2-c1f0-4e89-5678-9a0b1c2d3e40
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -51,6 +51,100 @@ function Get-MacPmsetGuardList {
     )
 }
 
+function Confirm-MacDefaultWrite {
+    <#
+    .SYNOPSIS
+    Write a `defaults` key, then re-read it and confirm it took. A bare
+    `defaults write ... 2>$null | Out-Null` swallows the exit code, so a
+    failed write (locked domain, MDM-reverted key, typo) reads back as
+    silent success. This writes, re-reads, and Write-Warnings when the value
+    doesn't match -- callers gate $changed on the returned [bool] so a phantom
+    success can't claim the host was configured when it wasn't.
+    .PARAMETER DefaultsArgs
+    The arguments that select the domain + key, in `defaults` order, WITHOUT
+    the leading verb -- e.g. @('com.apple.dock','wvous-tl-corner') or
+    @('-currentHost','com.apple.screensaver','askForPasswordDelay'). The verb
+    (write / read) is prepended internally.
+    .PARAMETER WriteType
+    The value-type flag for the write, e.g. '-int' or '-bool'.
+    .PARAMETER WriteValue
+    The value to write, e.g. '0', '2147483647', 'YES', 'false'.
+    .PARAMETER ExpectRead
+    What `defaults read` returns for that written value once stored (defaults
+    normalizes -bool YES/true->1, NO/false->0, and echoes -int values). The
+    re-read is trimmed and compared ordinally against this.
+    .OUTPUTS
+    [bool] $true when the re-read matches ExpectRead; $false (with a warning)
+    otherwise.
+    #>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param(
+        [string[]]$DefaultsArgs,
+        [string]$WriteType,
+        [string]$WriteValue,
+        [string]$ExpectRead
+    )
+    & defaults write @DefaultsArgs $WriteType $WriteValue 2>$null | Out-Null
+    $readBack = & defaults read @DefaultsArgs 2>$null
+    $readOk = ($LASTEXITCODE -eq 0)
+    if ($readOk -and "$readBack".Trim() -eq $ExpectRead) { return $true }
+    $actual = if ($readOk) { "$readBack".Trim() } else { '<unset>' }
+    Write-Warning ("defaults write {0} {1} {2} did not take (read back '{3}', wanted '{4}'). The domain may be locked or MDM-managed." -f ($DefaultsArgs -join ' '), $WriteType, $WriteValue, $actual, $ExpectRead)
+    return $false
+}
+
+function Get-MacDangerousHotCornerMap {
+    <#
+    .SYNOPSIS
+    The canonical map of hot-corner action codes (as they appear in
+    `defaults read com.apple.dock wvous-<corner>-corner`) that blank or lock
+    the display during an unattended run and drop the UTM window from the CG
+    window list. Shared by BOTH Assert-ScreenLock (to flag a dangerous
+    binding) and Set-MacHostConditionSet (to neutralize it), so the asserted
+    set is exactly the applied set -- a code added to one path can't silently
+    be missed by the other. Safe codes (0=none, 2=Mission Control,
+    3=Show App Windows, 4=Desktop, 11=Launchpad, 12=Notification Center,
+    14=Quick Note) are intentionally absent and left untouched.
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param()
+    # Keys are digit strings ('5'/'10'/'13') matched against trimmed
+    # `defaults read` output, so the default case-insensitive @{} is safe --
+    # digits have no case to collide.
+    return @{
+        '5'  = 'Start Screen Saver'
+        '10' = 'Put Display to Sleep'
+        '13' = 'Lock Screen'
+    }
+}
+
+function Get-MacScreenLockDisabled {
+    <#
+    .SYNOPSIS
+    Parse `sysadminctl -screenLock status` output: strip the macOS NSLog
+    prefix ("YYYY-MM-DD ... sysadminctl[pid:tid] ") and decide whether the
+    unified screen lock is disabled. Shared by Assert-ScreenLock and
+    Set-MacHostConditionSet so the strip regex and the accepted "off" forms
+    ("screenLock is off" OR "delay is -1") can't diverge between the gate and
+    the apply path.
+    .PARAMETER Raw
+    The raw first line captured from `sysadminctl -screenLock status 2>&1`.
+    .OUTPUTS
+    [pscustomobject] with .Status (NSLog-stripped text for messages) and
+    .Disabled ([bool] $true when the lock is off / delay is -1).
+    #>
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param([string]$Raw)
+    $status = "$Raw" -replace '^\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}\.\d+\s+sysadminctl\[\d+:\w+\]\s+', ''
+    return [pscustomobject]@{
+        Status   = $status
+        Disabled = ($status -match 'screenLock\s+(is\s+off|delay\s+is\s+-1)')
+    }
+}
+
 function Assert-ScreenLock {
     <#
     .SYNOPSIS
@@ -64,7 +158,7 @@ function Assert-ScreenLock {
 
     $issues = @()
 
-    # 1. Display sleep idle time (pmset -g custom → displaysleep).
+    # 1. Display sleep idle time (pmset -g custom -> displaysleep).
     #    0 = never sleep (good); > 0 means display will blank.
     try {
         $pmsetLine = & pmset -g custom 2>$null | Select-String '^\s*displaysleep\s+(\d+)' | Select-Object -First 1
@@ -77,7 +171,7 @@ function Assert-ScreenLock {
     }
 
     # 2. Screen saver idleTime (defaults read com.apple.screensaver idleTime).
-    #    0 = disabled. A MISSING key is NOT safe — macOS falls back to
+    #    0 = disabled. A MISSING key is NOT safe -- macOS falls back to
     #    a built-in default (~1200s), which lets the screensaver engage
     #    after 20 min despite the script reporting "already disabled".
     #    Flag both missing AND non-zero. Check per-host domain too;
@@ -88,12 +182,12 @@ function Assert-ScreenLock {
         $idleTimeHost = & defaults -currentHost read com.apple.screensaver idleTime 2>$null
         $idleTimeHostHead = $LASTEXITCODE
         if ($idleTimeHead -ne 0) {
-            $issues += "Screen saver idleTime is unset (user domain) — macOS default applies (~20 min)."
+            $issues += "Screen saver idleTime is unset (user domain) -- macOS default applies (~20 min)."
         } elseif ("$idleTime".Trim() -ne "0") {
             $issues += "Screen saver activates after $($idleTime.Trim()) second(s) (user domain)."
         }
         if ($idleTimeHostHead -ne 0) {
-            $issues += "Screen saver idleTime is unset (currentHost) — macOS default applies (~20 min)."
+            $issues += "Screen saver idleTime is unset (currentHost) -- macOS default applies (~20 min)."
         } elseif ("$idleTimeHost".Trim() -ne "0") {
             $issues += "Screen saver activates after $($idleTimeHost.Trim()) second(s) (currentHost)."
         }
@@ -102,7 +196,7 @@ function Assert-ScreenLock {
     }
 
     # 3. Password after screen saver (askForPassword). Missing key on
-    #    some macOS versions defaults to 1 (on) — flag missing AND
+    #    some macOS versions defaults to 1 (on) -- flag missing AND
     #    explicit 1. Check both domains.
     try {
         $askPw     = & defaults read              com.apple.screensaver askForPassword 2>$null
@@ -110,12 +204,12 @@ function Assert-ScreenLock {
         $askPwHost = & defaults -currentHost read com.apple.screensaver askForPassword 2>$null
         $askPwHostHead = $LASTEXITCODE
         if ($askPwHead -ne 0) {
-            $issues += "Screen lock askForPassword is unset (user domain) — macOS default may be 1."
+            $issues += "Screen lock askForPassword is unset (user domain) -- macOS default may be 1."
         } elseif ("$askPw".Trim() -eq "1") {
             $issues += "Screen lock (password after screen saver) is enabled (user domain)."
         }
         if ($askPwHostHead -ne 0) {
-            $issues += "Screen lock askForPassword is unset (currentHost) — macOS default may be 1."
+            $issues += "Screen lock askForPassword is unset (currentHost) -- macOS default may be 1."
         } elseif ("$askPwHost".Trim() -eq "1") {
             $issues += "Screen lock (password after screen saver) is enabled (currentHost)."
         }
@@ -127,7 +221,7 @@ function Assert-ScreenLock {
     #    Screen. A drifting cursor during an unattended run can trigger
     #    these and drop the UTM window from CGWindowList.
     try {
-        $dangerousCorners = @{ '5' = 'Start Screen Saver'; '10' = 'Put Display to Sleep'; '13' = 'Lock Screen' }
+        $dangerousCorners = Get-MacDangerousHotCornerMap
         foreach ($corner in @('tl','tr','bl','br')) {
             $val = & defaults read com.apple.dock "wvous-$corner-corner" 2>$null
             if ($LASTEXITCODE -eq 0) {
@@ -141,7 +235,7 @@ function Assert-ScreenLock {
         Write-Debug "Hot-corner check failed: $_"
     }
 
-    # 5. App Nap suppressed for UTM.app — else macOS throttles UTM's UI
+    # 5. App Nap suppressed for UTM.app -- else macOS throttles UTM's UI
     #    thread and drops its window from CGWindowList even while the VM
     #    runs. Matches "UTM window for '<vm>' not found" symptom.
     try {
@@ -154,26 +248,23 @@ function Assert-ScreenLock {
     }
 
     # 6. sysadminctl unified screen lock (Ventura+). Overrides legacy
-    #    askForPassword* keys — the machine can still lock even when
+    #    askForPassword* keys -- the machine can still lock even when
     #    every individual defaults key is "safe". Accepted "disabled"
     #    forms from sysadminctl -screenLock status:
-    #      • "screenLock delay is -1(.000000) seconds"
-    #      • "screenLock is off"
+    #      * "screenLock delay is -1(.000000) seconds"
+    #      * "screenLock is off"
     #    Anything else (e.g. "delay is 300 seconds") means a lock delay is active.
     try {
-        # Strip macOS NSLog prefix ("YYYY-MM-DD ... sysadminctl[pid:tid] ")
-        # so the match and user-facing message are clean.
-        $slStatus = (& sysadminctl -screenLock status 2>&1 | Select-Object -First 1) -replace '^\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}\.\d+\s+sysadminctl\[\d+:\w+\]\s+', ''
-        $slDisabled = ("$slStatus" -match 'screenLock\s+(is\s+off|delay\s+is\s+-1)')
-        if (-not $slDisabled) {
-            $issues += "sysadminctl $slStatus"
+        $slParsed = Get-MacScreenLockDisabled -Raw (& sysadminctl -screenLock status 2>&1 | Select-Object -First 1)
+        if (-not $slParsed.Disabled) {
+            $issues += "sysadminctl $($slParsed.Status)"
         }
     } catch {
         Write-Debug "sysadminctl -screenLock check failed: $_"
     }
 
     # 7. Auto-logout after inactivity ("Log out after N minutes" in
-    #    Security / Advanced). Kicks user to loginwindow — same
+    #    Security / Advanced). Kicks user to loginwindow -- same
     #    password-demand symptom as a lock. System-level pref;
     #    world-readable, no sudo.
     try {
@@ -185,7 +276,7 @@ function Assert-ScreenLock {
         Write-Debug "AutoLogOutDelay check failed: $_"
     }
 
-    # 8. System sleep + disk sleep -> Never. Display-sleep alone (§1) isn't
+    # 8. System sleep + disk sleep -> Never. Display-sleep alone (sec 1) isn't
     #    enough: a system/disk-sleep wake re-locks the screen on Ventura+
     #    regardless of screensaver settings. Set-MacHostConditionSet disables
     #    both, so the gate must re-verify them.
@@ -215,28 +306,28 @@ function Assert-ScreenLock {
 
     if ($issues.Count -eq 0) { return $true }
 
-    Write-Warning "═══════════════════════════════════════════════════════════════════"
+    Write-Warning "==================================================================="
     Write-Warning " Screen lock / display sleep settings will blank the VM display."
     Write-Warning ""
     foreach ($issue in $issues) {
-        Write-Warning "  • $issue"
+        Write-Warning "  * $issue"
     }
     Write-Warning ""
     Write-Warning " When the display blanks, UTM screen captures return a black"
     Write-Warning " image and OCR-based waitForText steps will time out."
     Write-Warning ""
-    Write-Warning " Quick fix — run from the repo root:"
+    Write-Warning " Quick fix -- run from the repo root:"
     Write-Warning "   pwsh ./host/macos.utm/Enable-TestAutomation.ps1"
     Write-Warning ""
     Write-Warning " Or manually in System Settings:"
     Write-Warning "   1. Displays > Advanced > Prevent automatic sleeping when"
-    Write-Warning "      the display is off  → ON"
-    Write-Warning "   2. Lock Screen > Start Screen Saver when inactive → Never"
-    Write-Warning "   3. Lock Screen > Require password after screen saver → OFF"
-    Write-Warning "   4. Energy > Turn display off → Never  (or run:"
+    Write-Warning "      the display is off  -> ON"
+    Write-Warning "   2. Lock Screen > Start Screen Saver when inactive -> Never"
+    Write-Warning "   3. Lock Screen > Require password after screen saver -> OFF"
+    Write-Warning "   4. Energy > Turn display off -> Never  (or run:"
     Write-Warning "        sudo pmset -c displaysleep 0"
     Write-Warning "        sudo pmset -b displaysleep 0 )"
-    Write-Warning "═══════════════════════════════════════════════════════════════════"
+    Write-Warning "==================================================================="
     return $false
 }
 
@@ -336,7 +427,7 @@ function Set-MacHostConditionSet {
     Configures macOS host settings needed for unattended VM testing:
     disables display sleep, screen saver idle, and screen lock password;
     triggers first-run prompts for the Accessibility and Screen Recording
-    TCC permissions (both required — keystroke injection + per-window
+    TCC permissions (both required -- keystroke injection + per-window
     capture). Requires sudo for pmset. Idempotent.
     .EXAMPLE
     Set-MacHostConditionSet          # apply all settings
@@ -350,7 +441,7 @@ function Set-MacHostConditionSet {
         return
     }
 
-    # ── 0. Sudo cache + wrapper-primed contract ─────────────────────────
+    # -- 0. Sudo cache + wrapper-primed contract -------------------------
     # When invoked from install/macos.utm.sh, $env:YURUNA_SUDO_PRIMED='1'
     # signals that the bash wrapper already ran a "sudo prelude" -- one
     # batched `sudo bash -c '...'` covering every pmset / defaults write
@@ -377,13 +468,11 @@ function Set-MacHostConditionSet {
         ))
     }
 
-    # ── 1. Display sleep → Never (requires sudo) ─────────────────────────
+    # -- 1. Display sleep -> Never (requires sudo) -------------------------
+    # `pmset -g custom` reports the active profile; the writes below cover
+    # both AC (-c) and battery (-b) unconditionally, so a single read of the
+    # current value is enough to decide whether a write is needed.
     $changed = $false
-    foreach ($source in @("-c", "-b")) {   # -c charger, -b battery
-        $pmLine = & pmset -g custom 2>$null | Select-String '^\s*displaysleep\s+(\d+)' | Select-Object -First 1
-        # pmset -g custom shows the active profile; set both unconditionally —
-        # harmless if -b doesn't exist.
-    }
     $currentSleep = "unknown"
     $pmLine = & pmset -g custom 2>$null | Select-String '^\s*displaysleep\s+(\d+)' | Select-Object -First 1
     if ($pmLine) { $currentSleep = $pmLine.Matches[0].Groups[1].Value }
@@ -401,7 +490,7 @@ function Set-MacHostConditionSet {
         Write-Information "Display sleep is already set to Never."
     }
 
-    # ── 2. Screen saver idle time → 0 (disabled) ─────────────────────────
+    # -- 2. Screen saver idle time -> 0 (disabled) -------------------------
     # MISSING idleTime key is NOT the same as 0: macOS falls back to
     # ~1200s built-in default. Skip write only when the key EXISTS and is
     # exactly "0"; any other case (missing, empty, other number) triggers
@@ -411,7 +500,7 @@ function Set-MacHostConditionSet {
     if ($ssIdleRead -and "$ssIdle".Trim() -eq "0") {
         Write-Information "Screen saver idle activation is already disabled."
     } else {
-        $label = if (-not $ssIdleRead) { 'unset — macOS default applies' } else { "$($ssIdle.Trim())s" }
+        $label = if (-not $ssIdleRead) { 'unset -- macOS default applies' } else { "$($ssIdle.Trim())s" }
         if ($PSCmdlet.ShouldProcess("Screen saver idle time (currently $label)", "Set to 0 (disabled)")) {
             Write-Information "Disabling screen saver idle activation (was $label)..."
             & defaults write com.apple.screensaver idleTime -int 0
@@ -419,32 +508,32 @@ function Set-MacHostConditionSet {
         }
     }
 
-    # ── 3. Screen lock (password after screen saver) → OFF ───────────────
-    # Same "missing key != safe" as §2: some macOS versions default
+    # -- 3. Screen lock (password after screen saver) -> OFF ---------------
+    # Same "missing key != safe" as sec 2: some macOS versions default
     # askForPassword to 1. Write 0 unless the key is explicitly "0".
     $askPw = & defaults read com.apple.screensaver askForPassword 2>$null
     $askPwRead = ($LASTEXITCODE -eq 0)
     if ($askPwRead -and "$askPw".Trim() -eq "0") {
         Write-Information "Screen lock password is already disabled."
     } else {
-        $label = if (-not $askPwRead) { 'unset — macOS default applies' } else { "$($askPw.Trim())" }
-        if ($PSCmdlet.ShouldProcess("Screen lock password (currently $label)", "Disable (askForPassword → 0)")) {
+        $label = if (-not $askPwRead) { 'unset -- macOS default applies' } else { "$($askPw.Trim())" }
+        if ($PSCmdlet.ShouldProcess("Screen lock password (currently $label)", "Disable (askForPassword -> 0)")) {
             Write-Information "Disabling screen lock password requirement (was $label)..."
             & defaults write com.apple.screensaver askForPassword -int 0
             $changed = $true
         }
     }
 
-    # ── 2b. Screen saver idle — per-host variant (Ventura+) ──────────────
+    # -- 2b. Screen saver idle -- per-host variant (Ventura+) --------------
     # Modern macOS stores screensaver prefs in the ByHost domain. Without
-    # this, System Settings still shows non-zero idle time after §2 and
-    # the saver still kicks in. Same missing-key-is-unsafe logic as §2.
+    # this, System Settings still shows non-zero idle time after sec 2 and
+    # the saver still kicks in. Same missing-key-is-unsafe logic as sec 2.
     $ssIdleHost = & defaults -currentHost read com.apple.screensaver idleTime 2>$null
     $ssIdleHostRead = ($LASTEXITCODE -eq 0)
     if ($ssIdleHostRead -and "$ssIdleHost".Trim() -eq "0") {
         Write-Information "Screen saver idle activation (currentHost) is already disabled."
     } else {
-        $label = if (-not $ssIdleHostRead) { 'unset — macOS default applies' } else { "$($ssIdleHost.Trim())s" }
+        $label = if (-not $ssIdleHostRead) { 'unset -- macOS default applies' } else { "$($ssIdleHost.Trim())s" }
         if ($PSCmdlet.ShouldProcess("Screen saver idle time [currentHost] (currently $label)", "Set to 0 (disabled)")) {
             Write-Information "Disabling screen saver idle activation, currentHost (was $label)..."
             & defaults -currentHost write com.apple.screensaver idleTime -int 0
@@ -452,29 +541,29 @@ function Set-MacHostConditionSet {
         }
     }
 
-    # ── 3b. Screen lock password — per-host variant ─────────────────────
-    # Same missing-key-is-unsafe logic as §3.
+    # -- 3b. Screen lock password -- per-host variant ---------------------
+    # Same missing-key-is-unsafe logic as sec 3.
     $askPwHost = & defaults -currentHost read com.apple.screensaver askForPassword 2>$null
     $askPwHostRead = ($LASTEXITCODE -eq 0)
     if ($askPwHostRead -and "$askPwHost".Trim() -eq "0") {
         Write-Information "Screen lock password (currentHost) is already disabled."
     } else {
-        $label = if (-not $askPwHostRead) { 'unset — macOS default applies' } else { "$($askPwHost.Trim())" }
-        if ($PSCmdlet.ShouldProcess("Screen lock password [currentHost] (currently $label)", "Disable (askForPassword → 0)")) {
+        $label = if (-not $askPwHostRead) { 'unset -- macOS default applies' } else { "$($askPwHost.Trim())" }
+        if ($PSCmdlet.ShouldProcess("Screen lock password [currentHost] (currently $label)", "Disable (askForPassword -> 0)")) {
             Write-Information "Disabling screen lock password requirement, currentHost (was $label)..."
             & defaults -currentHost write com.apple.screensaver askForPassword -int 0
             $changed = $true
         }
     }
 
-    # ── 3c. "Require password after sleep/screen saver begins" delay ─────
+    # -- 3c. "Require password after sleep/screen saver begins" delay -----
     # Sonoma+ lock-screen pane. A very large delay prevents lock from
     # engaging even if something re-enables askForPassword.
-    & defaults write com.apple.screensaver askForPasswordDelay -int 2147483647 2>$null | Out-Null
-    & defaults -currentHost write com.apple.screensaver askForPasswordDelay -int 2147483647 2>$null | Out-Null
+    [void](Confirm-MacDefaultWrite -DefaultsArgs @('com.apple.screensaver', 'askForPasswordDelay') -WriteType '-int' -WriteValue '2147483647' -ExpectRead '2147483647')
+    [void](Confirm-MacDefaultWrite -DefaultsArgs @('-currentHost', 'com.apple.screensaver', 'askForPasswordDelay') -WriteType '-int' -WriteValue '2147483647' -ExpectRead '2147483647')
 
-    # ── 3d. System sleep → Never (requires sudo) ─────────────────────────
-    # Display-sleep alone isn't enough: system sleep → display locks on
+    # -- 3d. System sleep -> Never (requires sudo) -------------------------
+    # Display-sleep alone isn't enough: system sleep -> display locks on
     # wake regardless of screensaver settings.
     $currentSysSleep = "unknown"
     $sysLine = & pmset -g custom 2>$null | Select-String '^\s*[^d]\s*sleep\s+(\d+)' | Select-Object -First 1
@@ -522,17 +611,15 @@ function Set-MacHostConditionSet {
         $changed = $true
     }
 
-    # ── 3g. Hot corners — neutralize screen-saver / sleep / lock triggers ──
+    # -- 3g. Hot corners -- neutralize screen-saver / sleep / lock triggers --
     # Dock stores hot-corner actions under wvous-{tl,tr,bl,br}-corner.
     # A drifting mouse during an unattended test can land in a corner
-    # and trigger screensaver / display-sleep / lock — making the UTM
-    # window vanish from the CG window list. Dangerous codes neutralized:
-    #   5  = Start Screen Saver
-    #   10 = Put Display to Sleep
-    #   13 = Lock Screen   (Sonoma+)
-    # Safe codes (0=none, 2=Mission Control, 3=Show App Windows, 4=Desktop,
-    # 11=Launchpad, 12=Notification Center, 14=Quick Note) are left alone.
-    $dangerousCorners = @{ '5' = 'Start Screen Saver'; '10' = 'Put Display to Sleep'; '13' = 'Lock Screen' }
+    # and trigger screensaver / display-sleep / lock -- making the UTM
+    # window vanish from the CG window list. The dangerous-code map is
+    # shared with Assert-ScreenLock (Get-MacDangerousHotCorners) so the
+    # gate flags exactly the bindings this path neutralizes; safe codes
+    # (0=none, Mission Control, Launchpad, ...) are absent and left alone.
+    $dangerousCorners = Get-MacDangerousHotCornerMap
     $dockReloadNeeded = $false
     foreach ($corner in @('tl','tr','bl','br')) {
         $key = "wvous-$corner-corner"
@@ -542,14 +629,16 @@ function Set-MacHostConditionSet {
             if ($dangerousCorners.ContainsKey($valTrim)) {
                 $action = $dangerousCorners[$valTrim]
                 if ($PSCmdlet.ShouldProcess("Hot corner $corner (currently '$action' = $valTrim)", "Set to 0 (none)")) {
-                    Write-Information "Neutralizing hot corner '$corner' ($action → none)..."
-                    & defaults write com.apple.dock $key -int 0 2>$null | Out-Null
-                    # Clear the modifier too — otherwise the corner is
+                    Write-Information "Neutralizing hot corner '$corner' ($action -> none)..."
+                    $cornerCleared = Confirm-MacDefaultWrite -DefaultsArgs @('com.apple.dock', $key) -WriteType '-int' -WriteValue '0' -ExpectRead '0'
+                    # Clear the modifier too -- otherwise the corner is
                     # merely hidden behind a modifier a wandering cursor
                     # might hit alongside a stuck Shift.
-                    & defaults write com.apple.dock "wvous-$corner-modifier" -int 0 2>$null | Out-Null
-                    $dockReloadNeeded = $true
-                    $changed = $true
+                    [void](Confirm-MacDefaultWrite -DefaultsArgs @('com.apple.dock', "wvous-$corner-modifier") -WriteType '-int' -WriteValue '0' -ExpectRead '0')
+                    if ($cornerCleared) {
+                        $dockReloadNeeded = $true
+                        $changed = $true
+                    }
                 }
             }
         }
@@ -562,11 +651,11 @@ function Set-MacHostConditionSet {
         Write-Information "Hot corners: no dangerous bindings (screen-saver / sleep / lock) detected."
     }
 
-    # ── 3h. App Nap suppression for UTM.app ──────────────────────────────
+    # -- 3h. App Nap suppression for UTM.app ------------------------------
     # macOS App Nap throttles background apps that haven't received
     # input. For UTM this can freeze the UI thread, stop updating the
     # window server, and drop the window from CGWindowListCopyWindowInfo
-    # — exactly the "UTM window for '<vm>' not found" symptom even when
+    # -- exactly the "UTM window for '<vm>' not found" symptom even when
     # the VM is fine. Opt UTM out unconditionally.
     $utmBundleId = 'com.utmapp.UTM'
     $napState = & defaults read $utmBundleId NSAppSleepDisabled 2>$null
@@ -574,21 +663,22 @@ function Set-MacHostConditionSet {
     if (-not $napAlreadyOff) {
         if ($PSCmdlet.ShouldProcess("App Nap for $utmBundleId", "Disable (NSAppSleepDisabled = YES)")) {
             Write-Information "Disabling App Nap for UTM.app ($utmBundleId)..."
-            & defaults write $utmBundleId NSAppSleepDisabled -bool YES 2>$null | Out-Null
-            $changed = $true
+            if (Confirm-MacDefaultWrite -DefaultsArgs @($utmBundleId, 'NSAppSleepDisabled') -WriteType '-bool' -WriteValue 'YES' -ExpectRead '1') {
+                $changed = $true
+            }
         }
     } else {
         Write-Information "App Nap for UTM.app is already disabled."
     }
 
-    # ── 3i. Clear any stuck ScreenSaverEngine ────────────────────────────
+    # -- 3i. Clear any stuck ScreenSaverEngine ----------------------------
     # If a prior aborted run left the saver engaged, the engine process
     # may still be running when this script applies settings. Killing
     # is idempotent and harmless when nothing runs; swallow exit codes
     # so "no such process" isn't reported as failure.
     & killall ScreenSaverEngine 2>$null | Out-Null
 
-    # ── 3j. sysadminctl unified screen lock (Ventura+) ───────────────────
+    # -- 3j. sysadminctl unified screen lock (Ventura+) -------------------
     # `sysadminctl -screenLock` is the modern (macOS 13+) unified control
     # that System Settings > Lock Screen > "Require password after screen
     # saver begins or display is turned off" writes to.
@@ -599,17 +689,16 @@ function Set-MacHostConditionSet {
     #
     # "off" sets delay to -1 (disabled). sysadminctl requires the user's
     # password (not sudo) because it touches the secure keyring entry
-    # backing lock-screen policy. `-password -` reads from stdin — a
+    # backing lock-screen policy. `-password -` reads from stdin -- a
     # second prompt appears after the sudo prompt.
-    # sysadminctl logs to stderr with an NSLog prefix; strip it so the
-    # breadcrumb and regex match see clean text.
-    # Accepted "off" forms: "screenLock is off" OR "delay is -1".
-    $slNsLog  = '^\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}\.\d+\s+sysadminctl\[\d+:\w+\]\s+'
-    $slStatus = (& sysadminctl -screenLock status 2>&1 | Select-Object -First 1) -replace $slNsLog, ''
-    $slAlreadyOff = "$slStatus" -match 'screenLock\s+(is\s+off|delay\s+is\s+-1)'
-    if (-not $slAlreadyOff) {
+    # Get-MacScreenLockDisabled strips the NSLog prefix and applies the
+    # shared "off" test (also used by Assert-ScreenLock's gate) so the
+    # apply and assert paths agree on what counts as disabled.
+    $slParsed = Get-MacScreenLockDisabled -Raw (& sysadminctl -screenLock status 2>&1 | Select-Object -First 1)
+    $slStatus = $slParsed.Status
+    if (-not $slParsed.Disabled) {
         if ($wrapperPrimed) {
-            Write-Warning "═══════════════════════════════════════════════════════════════════"
+            Write-Warning "==================================================================="
             Write-Warning " sysadminctl unified screen lock is NOT yet disabled (status:"
             Write-Warning "   $slStatus)"
             Write-Warning ""
@@ -620,7 +709,7 @@ function Set-MacHostConditionSet {
             Write-Warning " sysadminctl asks for your account password from stdin in addition"
             Write-Warning " to sudo's prompt. State is persistent across reboots, so this"
             Write-Warning " warning will not reappear once it succeeds."
-            Write-Warning "═══════════════════════════════════════════════════════════════════"
+            Write-Warning "==================================================================="
         } elseif ($PSCmdlet.ShouldProcess("sysadminctl $slStatus", "Disable (sysadminctl -screenLock off)")) {
             Write-Information "Disabling sysadminctl unified screen lock (you may be prompted for your account password)..."
             # 2>&1 so "password:" prompt and diagnostics both land on
@@ -629,12 +718,12 @@ function Set-MacHostConditionSet {
             # Re-check: if we couldn't disable (wrong password, policy
             # override, MDM), surface the state so the user knows legacy
             # keys won't save them.
-            $slAfter = (& sysadminctl -screenLock status 2>&1 | Select-Object -First 1) -replace $slNsLog, ''
-            if ("$slAfter" -match 'screenLock\s+(is\s+off|delay\s+is\s+-1)') {
+            $slAfterParsed = Get-MacScreenLockDisabled -Raw (& sysadminctl -screenLock status 2>&1 | Select-Object -First 1)
+            if ($slAfterParsed.Disabled) {
                 Write-Information "sysadminctl screen lock is now disabled."
                 $changed = $true
             } else {
-                Write-Warning "sysadminctl screen lock is STILL active after attempt: $slAfter"
+                Write-Warning "sysadminctl screen lock is STILL active after attempt: $($slAfterParsed.Status)"
                 Write-Warning "  If this Mac is MDM-managed, a Configuration Profile may be"
                 Write-Warning "  enforcing screen lock; check: profiles list ; profiles show -type configuration"
             }
@@ -643,11 +732,11 @@ function Set-MacHostConditionSet {
         Write-Information "sysadminctl unified screen lock is already disabled."
     }
 
-    # ── 3k. Auto-logout after inactivity (Security → Advanced) ───────────
+    # -- 3k. Auto-logout after inactivity (Security -> Advanced) -----------
     # `com.apple.autologout.AutoLogOutDelay` (system-level) is the
     # "Log out after N minutes of inactivity" toggle in Lock Screen /
     # Security. macOS kicks the user back to loginwindow after the
-    # delay — indistinguishable from a lock ("demands password"), but
+    # delay -- indistinguishable from a lock ("demands password"), but
     # no screen-saver / pmset key we control would prevent it. System
     # level (/Library/Preferences/.GlobalPreferences); the WRITE
     # requires sudo, but the plist is mode 644 so the READ does not --
@@ -668,10 +757,10 @@ function Set-MacHostConditionSet {
         Write-Information "Auto-logout after inactivity is already disabled."
     }
 
-    # ── 3l. Spaces "switch to a Space with open windows" toggle ──────────
+    # -- 3l. Spaces "switch to a Space with open windows" toggle ----------
     # When the harness calls `tell application "UTM" to activate` (the
     # AVF-guest keystroke fallback in Send-KeyUTM / Send-TextUTM), macOS
-    # by default yanks the operator across Spaces to UTM's window — which
+    # by default yanks the operator across Spaces to UTM's window -- which
     # is hostile when the operator has switched to VS Code on a different
     # Space to investigate something while a long test runs.
     # AppleSpacesSwitchOnActivation=false keeps the activation on the
@@ -683,34 +772,35 @@ function Set-MacHostConditionSet {
     if (-not $spacesAutoSwitchOff) {
         if ($PSCmdlet.ShouldProcess("AppleSpacesSwitchOnActivation (currently $($spacesAutoSwitch))", "Set to false (don't switch Spaces on app activation)")) {
             Write-Information "Disabling 'switch to a Space with open windows' on app activation..."
-            & defaults write NSGlobalDomain AppleSpacesSwitchOnActivation -bool false 2>$null | Out-Null
-            & killall Dock 2>$null | Out-Null
-            $changed = $true
+            if (Confirm-MacDefaultWrite -DefaultsArgs @('NSGlobalDomain', 'AppleSpacesSwitchOnActivation') -WriteType '-bool' -WriteValue 'false' -ExpectRead '0') {
+                & killall Dock 2>$null | Out-Null
+                $changed = $true
+            }
         }
     } else {
         Write-Information "Spaces auto-switch on app activation is already disabled."
     }
 
-    # Pinning UTM.app to "All Desktops" (right-click Dock icon → Options →
-    # Assign To → All Desktops) is the other half of making cross-Space
-    # debugging seamless — but it's stored deep inside com.apple.spaces
+    # Pinning UTM.app to "All Desktops" (right-click Dock icon -> Options ->
+    # Assign To -> All Desktops) is the other half of making cross-Space
+    # debugging seamless -- but it's stored deep inside com.apple.spaces
     # app-bindings plist and is fragile to script. Left as a one-time
     # manual step; flagged here so the operator knows it exists.
-    Write-Information "Tip (manual): right-click UTM in the Dock → Options → Assign To → All Desktops."
+    Write-Information "Tip (manual): right-click UTM in the Dock -> Options -> Assign To -> All Desktops."
     Write-Information "      Combined with the AppleSpacesSwitchOnActivation toggle above, this lets"
     Write-Information "      Invoke-TestRunner activate UTM without yanking the operator off VS Code."
 
-    # ── 3m. Managed Configuration Profile detection (MDM override) ───────
+    # -- 3m. Managed Configuration Profile detection (MDM override) -------
     # If MDM-managed, a Configuration Profile can enforce screen lock /
     # password delay / auto-logout at a level that OVERRIDES everything
-    # above — `defaults write` is silently ignored or reverted on next
+    # above -- `defaults write` is silently ignored or reverted on next
     # mcxrefresh. We can't bypass a profile; warn the user so they
     # don't chase a ghost.
     try {
         $profOutput = & profiles list 2>&1
         $hasProfiles = ($LASTEXITCODE -eq 0 -and "$profOutput" -notmatch 'no configuration profiles')
         if ($hasProfiles) {
-            Write-Warning "═══════════════════════════════════════════════════════════════════"
+            Write-Warning "==================================================================="
             Write-Warning " Configuration Profile(s) detected on this Mac. If any profile"
             Write-Warning " enforces screen-lock / password / auto-logout policy, the settings"
             Write-Warning " applied by this script will be overridden. Inspect with:"
@@ -718,13 +808,13 @@ function Set-MacHostConditionSet {
             Write-Warning "   profiles show -type configuration"
             Write-Warning " Policy keys to look for: screenSaverPasswordDelay, askForPassword,"
             Write-Warning " loginWindowIdleTime, AutoLogOutDelay, forceLockOnSleep."
-            Write-Warning "═══════════════════════════════════════════════════════════════════"
+            Write-Warning "==================================================================="
         }
     } catch {
         Write-Debug "profiles list failed: $_"
     }
 
-    # ── 4. Accessibility — trigger the system prompt if not granted ───────
+    # -- 4. Accessibility -- trigger the system prompt if not granted -------
     try {
         $jxa = "ObjC.import('ApplicationServices'); $.AXIsProcessTrusted();"
         $axResult = & osascript -l JavaScript -e $jxa 2>&1
@@ -744,14 +834,14 @@ $.CFDictionarySetValue(opts, key, $.kCFBooleanTrue);
 $.AXIsProcessTrustedWithOptions(opts);
 "@
             & osascript -l JavaScript -e $jxaPrompt 2>&1 | Out-Null
-            Write-Information "  → Grant access in the dialog, then re-run the test."
+            Write-Information "  -> Grant access in the dialog, then re-run the test."
         }
     } catch {
         Write-Debug "Accessibility prompt failed: $_"
         Write-Warning "Could not check Accessibility status. Grant it manually in System Settings."
     }
 
-    # ── 5. Screen Recording — preflight + first-run prompt ────────────────
+    # -- 5. Screen Recording -- preflight + first-run prompt ----------------
     # Separate TCC bucket from Accessibility. Needed so
     # CGWindowListCopyWindowInfo returns window titles (the harness matches
     # UTM's per-VM window by title) and so `screencapture -l <windowId>`
@@ -760,7 +850,7 @@ $.AXIsProcessTrustedWithOptions(opts);
     # FIRST call per process; subsequent denied states need the user to
     # toggle System Settings manually and relaunch the terminal.
     #
-    # ObjC.bindFunction is REQUIRED on some macOS releases — without it,
+    # ObjC.bindFunction is REQUIRED on some macOS releases -- without it,
     # $.CGPreflightScreenCaptureAccess() returns `undefined` (read as
     # "not granted") even when the grant is in place, misreporting state.
     try {
@@ -777,7 +867,7 @@ if (!granted) { $.CGRequestScreenCaptureAccess(); }
             Write-Information "Screen Recording permission is already granted."
         } else {
             Write-Information "Requesting Screen Recording permission (a system dialog may appear)..."
-            Write-Information "  → If no dialog appears, macOS already remembered a previous denial."
+            Write-Information "  -> If no dialog appears, macOS already remembered a previous denial."
             Write-Information "    Open System Settings > Privacy & Security > Screen Recording,"
             Write-Information "    enable your terminal app (Terminal.app, iTerm2, Ghostty, etc.),"
             Write-Information "    then FULLY QUIT and relaunch it before re-running the test."
@@ -814,7 +904,7 @@ function Assert-Accessibility {
         Write-Debug "Accessibility check failed: $_"
     }
 
-    Write-Warning "═══════════════════════════════════════════════════════════════════"
+    Write-Warning "==================================================================="
     Write-Warning " Accessibility permission is NOT granted for this terminal."
     Write-Warning ""
     Write-Warning " The test harness needs Accessibility access to send keystrokes"
@@ -829,7 +919,7 @@ function Assert-Accessibility {
     Write-Warning ""
     Write-Warning " Without this permission, keystrokes require UTM to stay focused"
     Write-Warning " and any window change will cause missed input."
-    Write-Warning "═══════════════════════════════════════════════════════════════════"
+    Write-Warning "==================================================================="
     return $false
 }
 
@@ -837,8 +927,8 @@ function Assert-ScreenRecording {
     <#
     .SYNOPSIS
     macOS: verify the terminal has Screen Recording permission (needed
-    for CGWindowListCopyWindowInfo to include window titles — the
-    harness matches UTM's per-VM window by title — and for
+    for CGWindowListCopyWindowInfo to include window titles -- the
+    harness matches UTM's per-VM window by title -- and for
     `screencapture -l <windowId>`). Returns $true if granted (or not on
     macOS). Prints setup instructions and returns $false on missing
     permission.
@@ -847,7 +937,7 @@ function Assert-ScreenRecording {
     if ($HostType -ne "host.macos.utm") { return $true }
 
     # Primary check: CGPreflightScreenCaptureAccess is the canonical
-    # TCC query — it reads the Screen Recording grant directly and is
+    # TCC query -- it reads the Screen Recording grant directly and is
     # the same call the OS uses internally. JavaScriptCore's $. bridge
     # needs a registered signature for C functions not shipped in its
     # built-in header set; AX* functions ship with signatures but
@@ -900,11 +990,11 @@ if (!list) { 'false' } else {
         Write-Debug "Window-title enumeration failed: $_"
     }
 
-    Write-Warning "═══════════════════════════════════════════════════════════════════"
+    Write-Warning "==================================================================="
     Write-Warning " Screen Recording permission does NOT appear granted for this"
-    Write-Warning " terminal. The harness needs it to enumerate UTM's windows —"
+    Write-Warning " terminal. The harness needs it to enumerate UTM's windows --"
     Write-Warning " CGWindowList only returns titles to processes with this"
-    Write-Warning " permission — and to capture a specific VM window via"
+    Write-Warning " permission -- and to capture a specific VM window via"
     Write-Warning " screencapture -l <windowId>. Without it, tapOn"
     Write-Warning " loops on 'UTM window for <vm> not found'."
     Write-Warning ""
@@ -914,7 +1004,7 @@ if (!list) { 'false' } else {
     Write-Warning "      (Terminal.app, iTerm2, Ghostty, or whichever you use)"
     Write-Warning "   3. Ensure the toggle is ON"
     Write-Warning "   4. FULLY QUIT the terminal (Cmd-Q or killall) and relaunch it"
-    Write-Warning "      — macOS will NOT honor the grant in the running process."
+    Write-Warning "      -- macOS will NOT honor the grant in the running process."
     Write-Warning "   5. Re-run the test harness from the new terminal."
     Write-Warning ""
     Write-Warning " If the toggle IS on and you already relaunched the terminal,"
@@ -926,12 +1016,12 @@ if (!list) { 'false' } else {
     Write-Warning ""
     Write-Warning " If that prints 'true', override this check with"
     Write-Warning "   `$Env:YURUNA_SKIP_SCREEN_RECORDING_CHECK = '1'"
-    Write-Warning " and re-run — then please file an issue with the diagnostic"
+    Write-Warning " and re-run -- then please file an issue with the diagnostic"
     Write-Warning " output so the probe can be tuned for your macOS version."
-    Write-Warning "═══════════════════════════════════════════════════════════════════"
+    Write-Warning "==================================================================="
 
     if ($env:YURUNA_SKIP_SCREEN_RECORDING_CHECK -eq '1') {
-        Write-Warning "YURUNA_SKIP_SCREEN_RECORDING_CHECK=1 — proceeding anyway."
+        Write-Warning "YURUNA_SKIP_SCREEN_RECORDING_CHECK=1 -- proceeding anyway."
         return $true
     }
     return $false

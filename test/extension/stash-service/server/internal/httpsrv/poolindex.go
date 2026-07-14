@@ -216,7 +216,7 @@ func (p *PoolIndex) scan(accept func(day time.Time) bool) ([]Item, bool, int) {
 					continue
 				}
 				mN, ok := atoiOK(mE.Name())
-				if !ok || mN < 1 || mN > 12 {
+				if !ok || !validMonth(mN) {
 					continue
 				}
 				dayDirs, ok := tryReadDir(filepath.Join(filesRoot, yE.Name(), mE.Name()))
@@ -228,7 +228,7 @@ func (p *PoolIndex) scan(accept func(day time.Time) bool) ([]Item, bool, int) {
 						continue
 					}
 					dN, ok := atoiOK(dE.Name())
-					if !ok || dN < 1 || dN > 31 {
+					if !ok || !validDay(dN) {
 						continue
 					}
 					day := time.Date(yN, time.Month(mN), dN, 0, 0, 0, 0, time.UTC)
@@ -332,6 +332,13 @@ func looksLikeHostID(name string) bool {
 	}
 	return true
 }
+
+// validMonth / validDay range-check a parsed month (1..12) / day (1..31), shared
+// by parsePathKey (the request path) and the pool day-folder scan so the two
+// paths cannot drift on the accepted range. The year bound is intentionally NOT
+// shared: parsePathKey bounds 1970..9999 while the scan accepts any parseable year.
+func validMonth(n int) bool { return n >= 1 && n <= 12 }
+func validDay(n int) bool   { return n >= 1 && n <= 31 }
 
 func atoiOK(s string) (int, bool) {
 	n, err := strconv.Atoi(s)

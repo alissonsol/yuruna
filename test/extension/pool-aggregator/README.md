@@ -160,6 +160,16 @@ unaffected (graceful degradation).
   substitutes at boot with `http(s)://<proxy-ip>:9400` (scheme follows the
   aggregator's TLS leaf).
 
+  The `gridPos.h` of the three **per-host** panels (host × time timeline, Pool
+  hosts, Extension hosts) is only a pre-collector default. Grafana has no
+  "fit to content" panel height, so on the proxy VM
+  `yuruna-fit-pool-dashboard.py` (cloud-init `write_files` +
+  `yuruna-fit-pool-dashboard.timer`, every 5min) recomputes those heights from
+  the live host count and rewrites the provisioned copy in place, so a table
+  sized for today's pool neither scrolls when a host joins nor shows dead
+  whitespace when one leaves. Changing the panel **ids** (`7`, `6`, `17`) or
+  adding a fourth per-host panel means updating that script.
+
 ## Flags
 
 `-squid-log` (default `/var/log/squid/yuruna_access.log`) · `-status-port`
@@ -295,6 +305,8 @@ curl -sk https://localhost:9400/metrics            # -> yuruna_pool_* lines
 
 ---
 
+LICENSEURI https://yuruna.link/license
+
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.10
+Last review: 2026.07.14

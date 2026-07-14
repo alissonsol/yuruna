@@ -1,5 +1,5 @@
-﻿<#PSScriptInfo
-.VERSION 2026.07.10
+<#PSScriptInfo
+.VERSION 2026.07.14
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456702
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -234,7 +234,7 @@ function Initialize-StatusDocument {
         # provenanceFilename / provenanceUrl are populated later via
         # Set-GuestProvenance (called by Invoke-TestRunner once per cycle
         # after the status doc is initialized). Both default to empty so
-        # a cycle with missing sidecars still serializes cleanly — the UI
+        # a cycle with missing sidecars still serializes cleanly -- the UI
         # falls back to `guestKey` for the card title when
         # provenanceFilename is blank.
         [ordered]@{
@@ -422,7 +422,7 @@ function Complete-Run {
     param([string]$OverallStatus, [int]$MaxHistoryRuns = 30)
     # Emergency-cleanup paths (e.g. a git-pull failure before
     # Initialize-StatusDocument runs) can reach us with no doc. Silently
-    # no-op rather than crashing the catch block — nothing to finalize.
+    # no-op rather than crashing the catch block -- nothing to finalize.
     if (-not $script:Doc) { return }
     $script:Doc.finishedAt    = (Get-UtcTimestamp)
     $script:Doc.overallStatus = $OverallStatus
@@ -487,7 +487,7 @@ function Complete-Run {
     # expected to resolve to.
     # totalDurationSec is the cycle's wall-clock seconds; the dashboard
     # already derives this from startedAt/finishedAt on the fly, so the
-    # field is additive — its purpose is to let programmatic trend
+    # field is additive -- its purpose is to let programmatic trend
     # analysis (jq / Python) read a number directly without re-parsing
     # ISO timestamps.
     $totalDurationSec = (Get-StepDurationSec $script:Doc.startedAt $script:Doc.finishedAt)

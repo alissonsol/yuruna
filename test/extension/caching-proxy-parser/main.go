@@ -264,6 +264,7 @@ func handleJSON(r *ring) http.HandlerFunc {
 // controlled (URL + User-Agent), so element creation is safer.
 const indexHTML = `<!doctype html>
 <html><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Squid cache — recent 100 requests</title>
 <style>
   body { font: 12px Menlo, Consolas, monospace; background: #111827; color: #e5e7eb;

@@ -1,5 +1,5 @@
-﻿<#PSScriptInfo
-.VERSION 2026.07.10
+<#PSScriptInfo
+.VERSION 2026.07.14
 .GUID 42b8c9d0-e1f2-4a34-b5c6-7d8e9f0a1b2c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -30,7 +30,7 @@ Import-Module (Join-Path $PSScriptRoot 'Test.Hash.psm1') -Global -Force
     check. Built-in providers: tesseract, winrt (Windows), macos-vision (macOS).
 
     Configuration:
-      $env:YURUNA_OCR_ENGINES  — comma-separated list of provider names to enable.
+      $env:YURUNA_OCR_ENGINES  -- comma-separated list of provider names to enable.
                                   Default: "tesseract"
                                   Example: "tesseract,winrt"
 
@@ -38,7 +38,7 @@ Import-Module (Join-Path $PSScriptRoot 'Test.Hash.psm1') -Global -Force
     caller (see Wait-ForText in Invoke-Sequence.psm1).
 #>
 
-# ── Provider registry ───────────────────────────────────────────────────────
+# -- Provider registry -------------------------------------------------------
 #
 # Backed by Test.Registry's New-YurunaRegistry primitive so the shape
 # matches Test.SequenceAction and Test.HostIO. An autonomous remediator
@@ -172,7 +172,7 @@ function Get-EnabledOcrProvider {
     $requested = if ($envVal) {
         $envVal -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ }
     } elseif ($IsMacOS) {
-        # host.macos.utm — Apple Vision is the native engine, fastest path
+        # host.macos.utm -- Apple Vision is the native engine, fastest path
         # to a match. Invoke-MacVisionOcr's x-axis crop handles the
         # silent-empty case for the framebuffer captures the runner
         # actually feeds it. Tesseract sits behind as a fallback
@@ -180,23 +180,23 @@ function Get-EnabledOcrProvider {
         # unusual fonts, very low contrast bands). With combine mode 'Or'
         # tesseract only runs when Vision did NOT match the search
         # pattern, so the common case is one OCR call per poll. winrt is
-        # omitted entirely — it is Windows-only and would be filtered out
+        # omitted entirely -- it is Windows-only and would be filtered out
         # at runtime anyway; listing it here only adds confusing log
         # lines about a provider that can't run.
         @('macos-vision', 'tesseract')
     } elseif ($IsWindows) {
-        # host.windows.hyper-v — WinRT (Windows.Media.Ocr) is native and
+        # host.windows.hyper-v -- WinRT (Windows.Media.Ocr) is native and
         # available on every Windows 10+ machine. Tesseract is the cross-
         # platform fallback. macos-vision is omitted (Apple framework,
         # not available off macOS).
         @('winrt', 'tesseract')
     } elseif ($IsLinux) {
-        # host.ubuntu.kvm — tesseract is the only OCR engine we ship for
+        # host.ubuntu.kvm -- tesseract is the only OCR engine we ship for
         # this host. macos-vision (Apple framework) and winrt (Windows
         # framework) cannot run here.
         @('tesseract')
     } else {
-        # Unknown platform — fall through to all three; Test-OcrProvider-
+        # Unknown platform -- fall through to all three; Test-OcrProvider-
         # Available will filter at runtime.
         @('tesseract', 'winrt', 'macos-vision')
     }
@@ -206,7 +206,7 @@ function Get-EnabledOcrProvider {
         if (Test-OcrProviderAvailable $name) {
             $available += $name
         } else {
-            Write-Verbose "OCR provider '$name' not available on this platform — skipping."
+            Write-Verbose "OCR provider '$name' not available on this platform -- skipping."
             # Structured drop signal so a remediator notices the OCR
             # surface is degraded (e.g. tesseract uninstalled by an OS
             # update) without having to diff -Verbose logs.
@@ -257,7 +257,7 @@ function Invoke-AllEnabledOcr {
     return $results
 }
 
-# ── Built-in provider: Tesseract ────────────────────────────────────────────
+# -- Built-in provider: Tesseract --------------------------------------------
 
 # -Global is mandatory: a bare -Force re-import of an already-global
 # Test.Tesseract yanks it out of the global session into this module's
@@ -279,7 +279,7 @@ Register-OcrProvider -Name 'tesseract' `
         [bool](Find-Tesseract)
     }
 
-# ── Built-in provider: WinRT (Windows only, via powershell.exe 5.1) ────────
+# -- Built-in provider: WinRT (Windows only, via powershell.exe 5.1) --------
 # Windows.Media.Ocr is available on all Windows 10+ machines but requires
 # PowerShell 5.1 (powershell.exe) because .NET 6+ removed WinRT projection.
 
@@ -288,7 +288,7 @@ Register-OcrProvider -Name 'tesseract' `
 # temp path on first use (see Get-WinRtOcrScriptPath); reused across every
 # Invoke-WinRtOcr call so we save the per-call Set-Content + random-name
 # overhead. The persistent path also means a new release of this module
-# (different script text → different hash → different path) coexists with
+# (different script text -> different hash -> different path) coexists with
 # any older binary still cached from a prior cycle.
 $script:WinRtOcrScript = @'
 Add-Type -AssemblyName System.Runtime.WindowsRuntime
@@ -827,7 +827,7 @@ Register-OcrProvider -Name 'winrt' `
 
 # macOS Vision provider (VNRecognizeTextRequest via Swift; macOS 10.15+).
 # Densest-row crop, PNG round-trip, and usesLanguageCorrection=false are
-# all load-bearing — rationale at https://yuruna.link/ocr
+# all load-bearing -- rationale at https://yuruna.link/ocr
 $script:VisionOcrSwift = @'
 import Vision
 import AppKit
@@ -845,11 +845,11 @@ guard let image = NSImage(contentsOfFile: imagePath),
     exit(1)
 }
 
-// ── 1. Per-row lit-pixel count (luma > 96) ────────────────────────────────
+// -- 1. Per-row lit-pixel count (luma > 96) --------------------------------
 let w = bitmap.pixelsWide, h = bitmap.pixelsHigh
 let bpp = bitmap.bitsPerPixel, bpr = bitmap.bytesPerRow
 guard let data = bitmap.bitmapData else {
-    fputs("bitmapData nil — cannot find content cluster\n", stderr); exit(1)
+    fputs("bitmapData nil -- cannot find content cluster\n", stderr); exit(1)
 }
 let pxBytes = bpp / 8
 var litPerRow = [Int](repeating: 0, count: h)
@@ -871,8 +871,8 @@ for y in 0..<h {
     if litPerRow[y] > Int(Double(w) * 0.9) { topSkip = y + 1 } else { break }
 }
 
-// ── 2. Cluster rows with > 8 lit pixels, gap up to ~80 dark rows ───────────
-// 80 px ≈ 2 line-heights at this resolution; allows blank lines between
+// -- 2. Cluster rows with > 8 lit pixels, gap up to ~80 dark rows -----------
+// 80 px ~ 2 line-heights at this resolution; allows blank lines between
 // content lines (login prompt below "Ubuntu 24.04..." banner) to stay in
 // the same cluster, but separates content from later artifacts (cursor,
 // status bar) hundreds of rows away.
@@ -895,11 +895,11 @@ for y in topSkip..<h {
 if cs >= 0 { clusters.append((cs, ce, ct)) }
 
 guard let best = clusters.max(by: { $0.total < $1.total }) else {
-    // No content — exit cleanly with no output.
+    // No content -- exit cleanly with no output.
     exit(0)
 }
 
-// ── 3. Crop to the densest cluster, padded ───────────────────────────────
+// -- 3. Crop to the densest cluster, padded -------------------------------
 // CGImage.cropping uses image-data (top-left) origin, NOT the bottom-left
 // CGContext origin used elsewhere in CG. Mixing the two conventions
 // produces bottom-of-image crops where the caller meant top-of-image,
@@ -908,7 +908,7 @@ guard let best = clusters.max(by: { $0.total < $1.total }) else {
 // Crop BOTH x and y to the text bounding box. The x-axis crop was added
 // after the QEMU+VNC switch: VNC framebuffers of a Linux console at 1920
 // wide put the entire prompt in the leftmost ~700 px, so the cluster's
-// 1920 × ~80 strip is mostly black on the right two thirds. Empirically,
+// 1920 x ~80 strip is mostly black on the right two thirds. Empirically,
 // Vision's text detector silently returns 0 observations when the
 // text-to-image-area ratio drops below some threshold around the
 // 1200-wide mark (probed on macOS 26 / Vision 4.x with VNC captures of
@@ -944,11 +944,11 @@ if maxLitX >= minLitX {
 }
 let cropped = original.cropping(to: CGRect(x: cropX0, y: cropY0, width: cropW, height: cropH))!
 
-// ── 4. PNG round-trip: strip DisplayP3 + 144 DPI metadata ────────────────
+// -- 4. PNG round-trip: strip DisplayP3 + 144 DPI metadata ----------------
 // macOS screencapture writes DisplayP3-tagged 144-DPI PNGs. Vision's text
 // detector is reliable on sRGB/72-DPI inputs but returns 0 observations
-// on the wide-gamut originals — empirically, on every UTM screen capture
-// of the login prompt — so we route through CGImageDestination to drop
+// on the wide-gamut originals -- empirically, on every UTM screen capture
+// of the login prompt -- so we route through CGImageDestination to drop
 // both tags. Use a per-PID temp path so concurrent OCR runs don't clobber
 // each other's intermediate file.
 let tmpURL = URL(fileURLWithPath: NSTemporaryDirectory())
@@ -960,7 +960,7 @@ CGImageDestinationFinalize(dest)
 let reload = CGImageSourceCreateWithURL(tmpURL as CFURL, nil)!
 let cleanCG = CGImageSourceCreateImageAtIndex(reload, 0, nil)!
 
-// ── 5. OCR ────────────────────────────────────────────────────────────────
+// -- 5. OCR ----------------------------------------------------------------
 let request = VNRecognizeTextRequest()
 request.recognitionLevel = .accurate
 // usesLanguageCorrection = false: terminal text (hostnames, cloud-init
@@ -1165,7 +1165,7 @@ Register-OcrProvider -Name 'macos-vision' `
         $IsMacOS -and [bool](Get-Command swift -ErrorAction SilentlyContinue)
     }
 
-# ── Exports ─────────────────────────────────────────────────────────────────
+# -- Exports -----------------------------------------------------------------
 
 Export-ModuleMember -Function @(
     'Register-OcrProvider'

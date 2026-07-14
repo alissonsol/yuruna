@@ -26,6 +26,19 @@ const Y = {
     return e;
   },
 
+  // replace swaps all of el's children for the given nodes via removeChild +
+  // append (Safari/iOS 10+), NOT Element.replaceChildren (Safari/iOS 14+ only),
+  // to hold the same older-iOS baseline the rest of this UI targets. Null kids
+  // are skipped and strings become text nodes, matching el()'s child handling.
+  replace(el, ...kids) {
+    while (el.firstChild) el.removeChild(el.firstChild);
+    for (const kid of kids) {
+      if (kid == null) continue;
+      el.append(kid.nodeType ? kid : document.createTextNode(String(kid)));
+    }
+    return el;
+  },
+
   async api(path, opts) {
     // Bound the request so a stalled daemon cannot hang the page load (and its
     // footer) forever; the abort surfaces as a thrown error the caller's catch

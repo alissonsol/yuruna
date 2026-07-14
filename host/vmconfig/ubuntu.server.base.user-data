@@ -138,7 +138,9 @@ APT_PROXY_BLOCK_PLACEHOLDER
     # --- REGION: https://yuruna.link/vmconfig#mask-snapd-seeded
     - curtin in-target --target=/target -- systemctl mask snapd.seeded.service
     # --- REGION: https://yuruna.link/vmconfig#disable-motd
-    - chmod -x /target/etc/update-motd.d/*
+    # Tolerate an empty/absent update-motd.d: a bare `chmod ... *` on an empty
+    # glob exits non-zero and aborts the late-command phase (the whole install).
+    - chmod -x /target/etc/update-motd.d/* 2>/dev/null || true
     - mkdir -p /target/etc/default && test -f /target/etc/default/motd-news && sed -i 's/^ENABLED=1/ENABLED=0/' /target/etc/default/motd-news || echo 'ENABLED=0' > /target/etc/default/motd-news
     - mkdir -p /target/etc/default/grub.d
 # === YURUNA_OVERLAY_GRUB_PRE_CONSOLE_QUIET ===
@@ -158,11 +160,20 @@ APT_PROXY_BLOCK_PLACEHOLDER
       ExecStartPre=-/usr/bin/cloud-init status --wait
       EOF
     # --- REGION: https://yuruna.link/vmconfig#yuruna-host-coordinates
+    # YURUNA_GITHUB_REPO/REF are where a guest fetches project code when the host
+    # status server is unreachable: the repository this host is serving, pinned to
+    # the commit it was at when this VM was provisioned. The runner types fresher
+    # coordinates per step (EXEC_FALLBACK_REPO/REF), which win over these; the
+    # baked pair is what a hand-run fetch-and-execute has to work with.
     - mkdir -p /target/etc/yuruna
     - |
       cat > /target/etc/yuruna/host.env << 'EOF'
       YURUNA_HOST_IP=YURUNA_HOST_IP_PLACEHOLDER
       YURUNA_HOST_PORT=YURUNA_HOST_PORT_PLACEHOLDER
+      YURUNA_GITHUB_REPO=YURUNA_GITHUB_REPO_PLACEHOLDER
+      YURUNA_GITHUB_REF=YURUNA_GITHUB_REF_PLACEHOLDER
+      YURUNA_FRAMEWORK_URL=YURUNA_FRAMEWORK_URL_PLACEHOLDER
+      YURUNA_PROJECT_URL=YURUNA_PROJECT_URL_PLACEHOLDER
       EOF
     - |
       grep -q yuruna-host /target/etc/hosts || \
@@ -186,6 +197,48 @@ APT_PROXY_BLOCK_PLACEHOLDER
     - |
       printf '%s' "YURUNA_NETWORK_BASE64_PLACEHOLDER" | base64 -d > /target/usr/local/lib/yuruna/yuruna-network.sh
       chmod 0755 /target/usr/local/lib/yuruna/yuruna-network.sh
+    # --- REGION: https://yuruna.link/vmconfig#git-credentials-from-gh-token
+    # git does NOT read GH_TOKEN. That name is a gh(1) convention, so a bare
+    # `git clone https://github.com/owner/private-repo` still prompts for a
+    # username -- which hangs an unattended guest, or fails outright under
+    # GIT_TERMINAL_PROMPT=0. This shim is what makes clone/fetch/pull pick the
+    # token up, with no change at any call site. The token stays in the
+    # environment: it never reaches ~/.gitconfig or a remote URL, so it cannot
+    # leak through `git remote -v` or the process list.
+    - |
+      cat > /target/usr/local/lib/yuruna/git-askpass.sh << 'EOF'
+      #!/bin/sh
+      case "$1" in
+          Username*) echo "x-access-token" ;;
+          *)         echo "${GH_TOKEN}" ;;
+      esac
+      EOF
+      chmod 0755 /target/usr/local/lib/yuruna/git-askpass.sh
+    # The token opens a private frameworkUrl/projectUrl for both the GitHub
+    # fallback in fetch-and-execute.sh and the git clone in the guest update
+    # script. It arrives on the seed ISO -- never over the console the host
+    # screenshots and OCRs into the published run log, and never over HTTP.
+    #
+    # Written to two places because they cover different shells, and the guest
+    # uses both: ~/.bashrc is read by the interactive console shell the runner
+    # types into, while /etc/profile.d is read by login shells (a console login,
+    # an SSH login shell). Skipped entirely when no token is configured, leaving
+    # a public-repo guest exactly as it was.
+    - |
+      if [ -n 'GH_TOKEN_PLACEHOLDER' ]; then
+      cat > /target/etc/profile.d/yuruna-github.sh << 'EOF'
+      export GH_TOKEN="GH_TOKEN_PLACEHOLDER"
+      export GIT_ASKPASS=/usr/local/lib/yuruna/git-askpass.sh
+      export GIT_TERMINAL_PROMPT=0
+      EOF
+      chmod 0644 /target/etc/profile.d/yuruna-github.sh
+      cat >> /target/home/USERNAME_PLACEHOLDER/.bashrc << 'EOF'
+      export GH_TOKEN="GH_TOKEN_PLACEHOLDER"
+      export GIT_ASKPASS=/usr/local/lib/yuruna/git-askpass.sh
+      export GIT_TERMINAL_PROMPT=0
+      EOF
+      curtin in-target --target=/target -- chown USERNAME_PLACEHOLDER:USERNAME_PLACEHOLDER /home/USERNAME_PLACEHOLDER/.bashrc
+      fi
     # --- REGION: https://yuruna.link/vmconfig#timezone-via-ip-geolocation-and-ntp
     - curtin in-target --target=/target -- timedatectl set-ntp true
     - curtin in-target --target=/target -- bash -c 'command -v wget >/dev/null 2>&1 && TZ=$(wget -qO - --timeout=5 "http://ip-api.com/line?fields=timezone") && [ -n "$TZ" ] && timedatectl set-timezone "$TZ" || echo "Yuruna => Timezone sync failed (check wget, network, or API)" >&2'

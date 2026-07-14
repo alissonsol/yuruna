@@ -1,5 +1,5 @@
-﻿<#PSScriptInfo
-.VERSION 2026.07.10
+<#PSScriptInfo
+.VERSION 2026.07.14
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456709
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -38,7 +38,7 @@
 .PARAMETER OnConfigSchemaDrift
     Severity when test.config.yml carries populated keys that are NOT part of the
     current template schema (for example a renamed section's old keys, left in
-    place by the default additive fill): 'Warn' (default — surfaces the orphaned
+    place by the default additive fill): 'Warn' (default -- surfaces the orphaned
     keys but lets the run continue) or 'Fail' (records a FAIL so CI / the operator
     must resolve it before the cycle). When every key still maps to the schema (a
     purely additive drift) the result is always a PASS regardless of this flag.
@@ -51,8 +51,8 @@
     the migrated file is still written but the run stops so the remaining fields
     can be hand-migrated from the backup. Without this switch a schema drift is
     resolved additively: the missing template fields are written into the file
-    (empty defaults, ready to fill in) and the operator's existing keys — including
-    a renamed section's old keys — are left untouched for hand-migration.
+    (empty defaults, ready to fill in) and the operator's existing keys -- including
+    a renamed section's old keys -- are left untouched for hand-migration.
 
 .EXAMPLE
     pwsh test/Test-Config.ps1
@@ -84,7 +84,7 @@ $SchemasRoot          = Join-Path $TestRoot "schemas"
 $NotificationCfgPath  = Join-Path $ExtensionStateRoot "notification/transports.yml"
 $NotificationTmplPath = Join-Path $ExtensionRoot      "notification/transports.yml.template"
 
-# ── helpers ──────────────────────────────────────────────────────────────────
+# -- helpers ------------------------------------------------------------------
 # Write-Pass / Write-Fail / Write-Warn / Write-Info / Write-Section /
 # Write-Summary / Exit-WithSummary are exported by Test.Output.psm1.
 # Test-IsSet / Test-AgainstSchema / Test-RepoFreshness are exported by
@@ -160,7 +160,7 @@ function ConvertTo-YurunaBool {
     return [bool]$Value
 }
 
-# ── Section 1: Config file ────────────────────────────────────────────────────
+# -- Section 1: Config file ----------------------------------------------------
 
 Write-Section "Config file"
 
@@ -183,7 +183,7 @@ if (-not (Test-Path $ConfigPath)) {
     Write-Pass "Config file found: $ConfigPath"
 }
 
-# ── Section 2: YAML parsing ───────────────────────────────────────────────────
+# -- Section 2: YAML parsing ---------------------------------------------------
 
 Write-Section "YAML structure"
 
@@ -196,7 +196,7 @@ try {
     Exit-WithSummary 1
 }
 
-# ── Section 2b: Config schema vs template ────────────────────────────────────
+# -- Section 2b: Config schema vs template ------------------------------------
 # The template is the schema source of truth. By default this validator fully
 # reconciles the live test.config.yml to it (Sync-TestConfigToTemplate in
 # Test.ConfigSync.psm1):
@@ -283,7 +283,7 @@ if (-not (Test-Path $TemplatePath)) {
     }
 }
 
-# ── Section 3: Host requirements (quick) ─────────────────────────────────────
+# -- Section 3: Host requirements (quick) -------------------------------------
 # Imports Test.HostContract.psm1 and runs the same fast pre-flight that
 # operator-facing helpers (Remove-TestVMFiles.ps1, ...) call: detects
 # the host type and verifies the absolute minimum (Administrator +
@@ -328,7 +328,7 @@ if (-not (Test-Path $hostModPath)) {
     }
 }
 
-# ── Section 4: Host capacity ─────────────────────────────────────────────────
+# -- Section 4: Host capacity -------------------------------------------------
 # RAM + CPU. Below the per-platform threshold = WARN (the harness still
 # runs but risks OOM kills inside guests / slow OCR). The 16 GiB and
 # 4-core thresholds match the "three concurrent 2-vCPU/4 GiB guests + an
@@ -375,7 +375,7 @@ try {
     Write-Warn "Could not read host capacity: $($_.Exception.Message)"
 }
 
-# ── Section 5: Host-specific feature state ───────────────────────────────────
+# -- Section 5: Host-specific feature state -----------------------------------
 # Deeper, host-type-specific verification beyond the "command/service
 # exists" gate in Test-HostRequirement: Hyper-V feature state (DISM)
 # on Windows, libvirtd active + qemu installed on Linux, UTM helper
@@ -443,7 +443,7 @@ switch ($HostType) {
     }
 }
 
-# ── Section 6: Framework / project staleness ─────────────────────────────────
+# -- Section 6: Framework / project staleness ---------------------------------
 # git fetch + compare HEAD to upstream. WARN (not FAIL) when the local
 # clone is behind: the harness can still run, but its runner / index.html
 # is older than what landed on main. Repeat for the project clone when
@@ -549,7 +549,7 @@ if (Test-IsSet $projectUrlConfigured) {
     }
 }
 
-# ── Section 7: GitHub connectivity ───────────────────────────────────────────
+# -- Section 7: GitHub connectivity -------------------------------------------
 # DNS + TCP probes of github.com:443. Surfaces a bad network state HERE
 # rather than later when Invoke-GitPull retries inside a running cycle.
 
@@ -571,7 +571,7 @@ try {
     Write-Fail "DNS resolution failed for 'github.com': $($_.Exception.Message)"
 }
 
-# ── Section 8: Top-level fields ───────────────────────────────────────────────
+# -- Section 8: Top-level fields -----------------------------------------------
 
 Write-Section "Top-level settings"
 
@@ -584,34 +584,34 @@ if ($Config.Contains("notification")) {
 if ($Config.vmImage -is [System.Collections.IDictionary] -and $Config.vmImage.Contains("alwaysRedownload")) {
     Write-Pass "'vmImage.alwaysRedownload' = $($Config.vmImage.alwaysRedownload)"
 } else {
-    Write-Warn "'vmImage.alwaysRedownload' not set — defaults to false."
+    Write-Warn "'vmImage.alwaysRedownload' not set -- defaults to false."
 }
 
 if ($Config.vmStart -is [System.Collections.IDictionary] -and $Config.vmStart.Contains("testVmNamePrefix")) {
     Write-Pass "'vmStart.testVmNamePrefix' = '$($Config.vmStart.testVmNamePrefix)'"
 } else {
-    Write-Warn "'vmStart.testVmNamePrefix' not set — defaults to 'test-'."
+    Write-Warn "'vmStart.testVmNamePrefix' not set -- defaults to 'test-'."
 }
 
 if ($Config.testCycle -is [System.Collections.IDictionary] -and $Config.testCycle.Contains("recentDisplayCount")) {
     $rdc = [int]$Config.testCycle.recentDisplayCount
     if ($rdc -gt 0) { Write-Pass "'testCycle.recentDisplayCount' = $rdc" }
-    else            { Write-Warn "'testCycle.recentDisplayCount' is $rdc — should be a positive integer." }
+    else            { Write-Warn "'testCycle.recentDisplayCount' is $rdc -- should be a positive integer." }
 } else {
-    Write-Warn "'testCycle.recentDisplayCount' not set — defaults to 30."
+    Write-Warn "'testCycle.recentDisplayCount' not set -- defaults to 30."
 }
 
 if ($Config.Contains("statusService")) {
     $ss = $Config.statusService
     Write-Pass "'statusService' block present (isEnabled=$($ss.isEnabled), port=$($ss.port))."
 } else {
-    Write-Warn "'statusService' not set — status HTTP server will be disabled."
+    Write-Warn "'statusService' not set -- status HTTP server will be disabled."
 }
 
 if ($Config.repositories -is [System.Collections.IDictionary] -and $Config.repositories.Contains("frameworkUrl")) {
     Write-Pass "'repositories.frameworkUrl' = '$($Config.repositories.frameworkUrl)'"
 } else {
-    Write-Warn "'repositories.frameworkUrl' not set — status page commit links may not work, and the failure-pause break-out trigger that watches the framework repo will be a no-op."
+    Write-Warn "'repositories.frameworkUrl' not set -- status page commit links may not work, and the failure-pause break-out trigger that watches the framework repo will be a no-op."
 }
 
 # Deeper validation (URL reachability, <RepoRoot>/project/ state) lives in
@@ -622,16 +622,16 @@ if ($Config.repositories -is [System.Collections.IDictionary] -and $Config.repos
     if (Test-IsSet $projectUrlVal) {
         Write-Pass "'repositories.projectUrl' = '$projectUrlVal'"
     } else {
-        Write-Warn "'repositories.projectUrl' is empty — in-tree <RepoRoot>/project/ will be used (no clone)."
+        Write-Warn "'repositories.projectUrl' is empty -- in-tree <RepoRoot>/project/ will be used (no clone)."
     }
 } else {
-    Write-Warn "'repositories.projectUrl' not set — in-tree <RepoRoot>/project/ will be used (no clone)."
+    Write-Warn "'repositories.projectUrl' not set -- in-tree <RepoRoot>/project/ will be used (no clone)."
 }
 
 if ($Config.testCycle -is [System.Collections.IDictionary] -and $Config.testCycle.Contains("shouldStopOnFailure")) {
     Write-Pass "'testCycle.shouldStopOnFailure' = $($Config.testCycle.shouldStopOnFailure)"
 } else {
-    Write-Warn "'testCycle.shouldStopOnFailure' not set — defaults to false (continues on failure)."
+    Write-Warn "'testCycle.shouldStopOnFailure' not set -- defaults to false (continues on failure)."
 }
 
 # Abort here if notification block is missing; nothing more to check.
@@ -647,7 +647,7 @@ if ($Config.Contains('secrets') -and $Config.secrets -is [System.Collections.IDi
     Write-Warn "secrets.resend is set in test.config.yml -- this block has moved to test/status/extension/notification/transports.yml (transports.resend). Move it manually before the next cycle."
 }
 
-# ── Section 9: Extension configs ─────────────────────────────────────────────
+# -- Section 9: Extension configs ---------------------------------------------
 
 Write-Section "Extension configs"
 
@@ -680,7 +680,7 @@ if (Test-Path $VaultPath) {
     Write-Info "vault.yml not present (expected; created on cycle start)."
 }
 
-# ── Section 9b: Authentication users mapping (users.yml) ────────────────────
+# -- Section 9b: Authentication users mapping (users.yml) --------------------
 #
 # users.yml maps logical (sequence-level) usernames onto corporate
 # identities (AD/Entra/...) plus the vault keys that hold the
@@ -849,7 +849,7 @@ if (Test-Path $UsersPath) {
     }
 }
 
-# ── Section 9b2: Sequence files (parse + snippet expansion) ──────────────────
+# -- Section 9b2: Sequence files (parse + snippet expansion) ------------------
 # Read every sequence in the framework AND the default test project through the
 # same loader the runner uses (Read-SequenceFile, which splices `snippet:`
 # references from the _snippets.yml libraries). A YAML error, an unknown or
@@ -926,7 +926,7 @@ if (-not (Test-Path $seqResolveMod)) {
     }
 }
 
-# ── Section 9b3: stale SMB alias mappings (Windows) ──────────────────────────
+# -- Section 9b3: stale SMB alias mappings (Windows) --------------------------
 # A persistent Windows drive mapping can outlive the hosts-file alias it points
 # at: after a NAS alias is renamed/removed, the mapping still shows Status OK from
 # its cached connection, yet the dead-name session it holds BLOCKS a fresh mount
@@ -1008,7 +1008,7 @@ function Show-NetworkStorageFieldSwapWarning {
     Write-Warn ("networkStorage {0}: {0}NetworkUser is set to a drive letter ('{1}') -- that's a {0}LocalPath value, not an SMB username. {0}NetworkUser and {0}LocalPath are almost certainly swapped in test.config.yml. See docs/test-config.md." -f $Prefix, $Config.NetworkUser.Trim())
 }
 
-# ── Section 9c: networkStorage pool (ypool-nas) replication ───────────────────────
+# -- Section 9c: networkStorage pool (ypool-nas) replication -----------------------
 # Validate the optional NAS replication tier when it's switched on: all three
 # paths set, a usable vault credential (so the mount won't silently auto-generate
 # a junk SMB password), that the SMB server answers on :445, and -- when both of
@@ -1135,7 +1135,7 @@ if (-not (Test-Path $poolMod)) {
     }
 }
 
-# ── Section 9c-stash: networkStorage stash (Stash Service) ───────────────────
+# -- Section 9c-stash: networkStorage stash (Stash Service) -------------------
 # The stash storage is ISOLATED from the pool (its own share + account). It is
 # optional (only the Stash Service uses it); issues here are advisory WARN, not
 # FAIL -- Start-StashServer hard-fails at build time when it is misconfigured.
@@ -1213,7 +1213,7 @@ if (-not (Test-Path $poolMod)) {
     }
 }
 
-# ── Section 9d: pool (intent sync) ───────────────────────────────────────────
+# -- Section 9d: pool (intent sync) -------------------------------------------
 # Validate the optional pool-intent PULL when configured: enabled implies a
 # non-empty intentGitUrl, and the LAN intent store answers a bounded git
 # ls-remote. Reachability is a WARN (the runner degrades to single-host when the
@@ -1252,7 +1252,7 @@ if (-not (Test-Path $poolSyncMod)) {
     }
 }
 
-# ── Section 10: Resend transport settings ────────────────────────────────────
+# -- Section 10: Resend transport settings ------------------------------------
 
 Write-Section "Resend transport settings"
 
@@ -1296,7 +1296,7 @@ if ((Get-OutputState).FailCount -gt 0) {
     Exit-WithSummary -Code 1
 }
 
-# ── Section 11: Resend API connectivity ──────────────────────────────────────
+# -- Section 11: Resend API connectivity --------------------------------------
 
 Write-Section "Resend API connectivity"
 
@@ -1320,7 +1320,7 @@ try {
     Write-Fail "TCP connection to api.resend.com:443 failed: $_"
 }
 
-# ── Section 12: Live smoke notification ──────────────────────────────────────
+# -- Section 12: Live smoke notification --------------------------------------
 
 Write-Section "Live smoke notification (config.smoke)"
 
@@ -1350,17 +1350,17 @@ Sent: $((Get-Date).ToUniversalTime().ToString("yyyy-MM-dd HH:mm:ss")) UTC
 
         Write-Info "Dispatching 'config.smoke' to the active notification extensions..."
         try {
-            Send-Notification -EventCode 'config.smoke' -EventMessage $message -EventNote $note
-            Write-Pass "Send-Notification dispatch completed without error."
+            Send-YurunaNotification -EventCode 'config.smoke' -EventMessage $message -EventNote $note
+            Write-Pass "Send-YurunaNotification dispatch completed without error."
             Write-Info "Empty subscribers list is normal -- check subscribers.config.smoke if you expected delivery."
         } catch {
-            Write-Fail "Send-Notification failed: $_"
+            Write-Fail "Send-YurunaNotification failed: $_"
             Write-Info "Verify your transports.resend.apiKey and fromEmail in transports.yml"
         }
     }
 }
 
-# ── Section: Bootstrap script encoding (ASCII, no BOM) ───────────────────────
+# -- Section: Bootstrap script encoding (ASCII, no BOM) -----------------------
 # The PS 5.1 `irm | iex` installer and the guest/windows.11 scripts the fresh
 # Windows guest runs the same way are parsed byte-for-byte before any
 # BOM-tolerant shell exists, so a UTF-8 BOM or non-ASCII byte aborts them at
@@ -1384,7 +1384,7 @@ if (-not (Test-Path -LiteralPath $asciiGate)) {
     }
 }
 
-# ── Summary ───────────────────────────────────────────────────────────────────
+# -- Summary -------------------------------------------------------------------
 #
 # Exit-WithSummary prints the PASS/WARN/FAIL tally AND the repeated
 # FAILURES block (every Write-Fail's message + full path, grouped by

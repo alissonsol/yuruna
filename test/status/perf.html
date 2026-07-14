@@ -11,7 +11,10 @@
   <title>Perf — Yuruna</title>
   <link rel="stylesheet" href="yuruna.common.css">
   <style>
-    body { min-height: 100vh; display: flex; flex-direction: column; }
+    /* dvh first-class, vh as the fallback: iOS Safari's 100vh is the large
+       viewport, so the last flex child sits below the fold until the toolbars
+       retract. */
+    body { min-height: 100vh; min-height: 100dvh; display: flex; flex-direction: column; }
 
     #perf-recalc {
       margin-left: auto;
@@ -19,10 +22,10 @@
       border-radius: .375rem;
       font-weight: 600;
       font-family: inherit; cursor: pointer;
-      background: rgba(255,255,255,.18); color: var(--fg-header);
-      border: 1px solid rgba(255,255,255,.32);
+      background: var(--banner-overlay-bg); color: var(--fg-header);
+      border: 1px solid var(--banner-overlay-border);
     }
-    #perf-recalc:hover:not([disabled]) { background: rgba(255,255,255,.3); }
+    #perf-recalc:hover:not([disabled]) { background: var(--banner-overlay-hover-bg); }
     #perf-recalc[disabled] { cursor: default; opacity: .55; }
 
     main {
@@ -37,6 +40,14 @@
     @media (max-width: 600px) {
       main { padding: 1rem .75rem; }
       .seq-card { padding: .75rem .85rem; }
+
+      /* The chart is 760 viewBox units wide. Scaled to a ~324px card on a
+         375px phone that is a 0.43 factor, so the 9px baked-in labels paint at
+         under 4px -- unreadable on exactly the touch devices they exist for
+         (there is no hover <title> fallback there). Pin a min-width and let the
+         row pan horizontally instead of shrinking the text into illegibility. */
+      .cycle-rows { overflow-x: auto; }
+      .cycle-flame { min-width: 560px; }
     }
 
     .perf-message {

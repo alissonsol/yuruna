@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.10
+.VERSION 2026.07.14
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456720
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -146,6 +146,11 @@ Import-Module (Join-Path $PSScriptRoot 'Yuruna.LogLevel.psm1') -Global -Force
 Set-YurunaLogLevel -LogLevel $logLevel
 
 $script:Problems = [System.Collections.Generic.List[string]]::new()
+# Parallel structured store: one @{ class; message } per Add-Problem call, in
+# the same order as $script:Problems. The prose SUMMARY reads $script:Problems
+# unchanged; the machine-readable sidecar (Write-ProblemJson) reads these so a
+# consumer can select problems by class without regex-parsing prose lines.
+$script:ProblemRecords = [System.Collections.Generic.List[hashtable]]::new()
 
 function Write-Section {
     param([string]$Title)
@@ -160,8 +165,76 @@ function Write-Sub {
     Write-Output "--- $Title ---"
 }
 function Add-Problem {
-    param([string]$Message)
+    param(
+        [string]$Message,
+        # Machine-readable classifier for the JSON sidecar. Callers pass an
+        # explicit class where the message prefix would be ambiguous (the four
+        # GAP heuristics all share the "GAP:" prose prefix but are distinct
+        # failure modes). When omitted, the class is derived from the leading
+        # uppercase token of the message (e.g. "DISK: ..." -> "DISK") so the
+        # existing call sites are classified without touching each one; a
+        # message with no such prefix falls back to "OTHER".
+        [string]$Class = $null
+    )
     $script:Problems.Add($Message) | Out-Null
+    if ([string]::IsNullOrWhiteSpace($Class)) {
+        if ($Message -match '^([A-Z][A-Z0-9]*):') { $Class = $Matches[1] } else { $Class = 'OTHER' }
+    }
+    $script:ProblemRecords.Add(@{ class = $Class; message = $Message }) | Out-Null
+}
+
+# Sentinels bracket the machine-readable problem list inside the otherwise-prose
+# stdout so a consumer parsing the captured .txt can slice out exactly the JSON
+# body. Kept as constants because both the emitter and any downstream parser
+# must agree on the exact literals.
+$script:ProblemJsonBeginMarker = '===YURUNA-DIAG-JSON-BEGIN==='
+$script:ProblemJsonEndMarker   = '===YURUNA-DIAG-JSON-END==='
+
+# Build the machine-readable problem document (schema v1): an object with the
+# total count, the per-class tallies, and the ordered records mirroring the
+# prose SUMMARY. -Compress keeps it to a single line so a line-oriented reader
+# can grab the one line between the sentinels; -Depth covers the nested arrays.
+function Get-ProblemJson {
+    [OutputType([string])]
+    param()
+    $byClass = [ordered]@{}
+    foreach ($rec in $script:ProblemRecords) {
+        $c = [string]$rec.class
+        if ($byClass.Contains($c)) { $byClass[$c] = [int]$byClass[$c] + 1 } else { $byClass[$c] = 1 }
+    }
+    $doc = [ordered]@{
+        schema   = 'yuruna.diagnostic.problems/v1'
+        count    = $script:Problems.Count
+        byClass  = $byClass
+        problems = @($script:ProblemRecords | ForEach-Object {
+            [ordered]@{ class = [string]$_.class; message = [string]$_.message }
+        })
+    }
+    return ($doc | ConvertTo-Json -Depth 5 -Compress)
+}
+
+# Emit the JSON sidecar. Always writes the sentinel-bracketed block to stdout
+# (the path an SSH/console capture takes into the .txt artifact). When -OutFile
+# was supplied, ALSO drop a sibling <OutFile>.json so a local run has a file a
+# consumer can read without slicing sentinels. Additive: nothing here touches
+# the prose SUMMARY or the exit code.
+function Write-ProblemJson {
+    param([string]$SidecarBasePath)
+    $json = Get-ProblemJson
+    Write-Output $script:ProblemJsonBeginMarker
+    Write-Output $json
+    Write-Output $script:ProblemJsonEndMarker
+    if (-not [string]::IsNullOrWhiteSpace($SidecarBasePath)) {
+        $sidecar = "$SidecarBasePath.json"
+        try {
+            # BOM-less UTF-8 so a byte-exact JSON parser on any platform reads it
+            # cleanly (a BOM trips strict JSON.parse in some runtimes).
+            [System.IO.File]::WriteAllText($sidecar, $json, [System.Text.UTF8Encoding]::new($false))
+            Write-Output ("(machine-readable problem list also written to {0})" -f $sidecar)
+        } catch {
+            Write-Output ("(could not write JSON sidecar '{0}': {1})" -f $sidecar, $_.Exception.Message)
+        }
+    }
 }
 
 function Invoke-DiagnosticSection {
@@ -689,16 +762,15 @@ try {
             }
         }
     } else {
-        Write-Sub "df -h (local filesystems)"
-        if ($IsMacOS) {
-            Invoke-Tool -Tool '/bin/df' -ToolArgs @('-h','-l')
-        } else {
-            Invoke-Tool -Tool 'df' -ToolArgs @('-h','-x','tmpfs','-x','devtmpfs','-x','squashfs','-x','overlay')
-        }
+        Write-Sub "df -P (local filesystems, POSIX 1K-block format)"
+        # One df snapshot serves both the rendered table and the >=90%-full
+        # parse: invoking df twice would compare a figure the reader never sees
+        # against a table from a different, non-atomic snapshot.
         $dfArgs = if ($IsMacOS) { @('-Pl') } else { @('-Pl','-x','tmpfs','-x','devtmpfs','-x','squashfs','-x','overlay') }
         $dfBin = if ($IsMacOS) { '/bin/df' } else { 'df' }
-        $lines = & $dfBin @dfArgs 2>$null | Select-Object -Skip 1
-        foreach ($l in $lines) {
+        $dfOut = @(& $dfBin @dfArgs 2>$null | ForEach-Object { $_.ToString() })
+        $dfOut | ForEach-Object { Write-Output $_ }
+        foreach ($l in ($dfOut | Select-Object -Skip 1)) {
             $cols = $l -split '\s+'
             if ($cols.Count -ge 6) {
                 $usePct = $cols[4] -replace '%',''
@@ -1580,7 +1652,7 @@ try {
                 }
             }
             if ($procMap.Count -gt 0 -and $procMap.ContainsKey($rootPid)) {
-                # Iterative breadth-first walk with depth tracking. Children
+                # Iterative depth-first walk with depth tracking. Children
                 # by ppid index built once for O(N) walk.
                 $childIdx = @{}
                 foreach ($entry in $procMap.GetEnumerator()) {
@@ -2523,7 +2595,7 @@ try {
             }
             Write-Output ("tofu.tfstate files: {0}; helm releases (all namespaces): {1}" -f $tfStateCount, $helmCount)
             if ($helmCount -eq 0) {
-                Add-Problem ("GAP: $tfStateCount tofu.tfstate file(s) present but helm has 0 releases across all namespaces -- the workloads phase appears to have been skipped or exited 0 without calling Set-Workload. Check the helm.stderr.log files above and the wrapper script's last lines.")
+                Add-Problem -Class 'GAP.tofu-state-without-helm-releases' -Message ("GAP: $tfStateCount tofu.tfstate file(s) present but helm has 0 releases across all namespaces -- the workloads phase appears to have been skipped or exited 0 without calling Set-Workload. Check the helm.stderr.log files above and the wrapper script's last lines.")
             }
         }
 
@@ -2565,7 +2637,7 @@ try {
                         Write-Output ("  namespace '{0}' declared in {1} -- present in cluster" -f $d.Name, $d.File)
                     } else {
                         Write-Output ("  namespace '{0}' declared in {1} -- MISSING from cluster" -f $d.Name, $d.File)
-                        Add-Problem ("GAP: namespace '$($d.Name)' declared in $($d.File) but does not exist in the cluster -- workloads phase never created it (helm install / kubectl create namespace did not run, or errored).")
+                        Add-Problem -Class 'GAP.declared-namespace-missing' -Message ("GAP: namespace '$($d.Name)' declared in $($d.File) but does not exist in the cluster -- workloads phase never created it (helm install / kubectl create namespace did not run, or errored).")
                     }
                 }
             }
@@ -2590,7 +2662,7 @@ try {
                     })
                 Write-Output ("Ready nodes: {0}; user-namespace pods: {1}" -f $readyNodes.Count, $userPods.Count)
                 if ($userPods.Count -eq 0) {
-                    Add-Problem ("GAP: cluster has $($readyNodes.Count) Ready node(s) but zero pods outside the system namespaces -- nothing has been deployed (workloads/components phase did not land).")
+                    Add-Problem -Class 'GAP.cluster-ready-but-no-user-pods' -Message ("GAP: cluster has $($readyNodes.Count) Ready node(s) but zero pods outside the system namespaces -- nothing has been deployed (workloads/components phase did not land).")
                 }
             }
         }
@@ -2623,7 +2695,7 @@ try {
                     }
                 }
                 if ($orphans.Count -gt 0) {
-                    Add-Problem ("GAP: $($orphans.Count) image(s) pushed to local registry but not referenced by any pod -- $($orphans -join ', '). The workloads phase either didn't deploy a chart that uses these images, or the chart rendered them with a different registry prefix (check componentsRegistry.registryLocation in resources.output.yml).")
+                    Add-Problem -Class 'GAP.registry-image-not-referenced' -Message ("GAP: $($orphans.Count) image(s) pushed to local registry but not referenced by any pod -- $($orphans -join ', '). The workloads phase either didn't deploy a chart that uses these images, or the chart rendered them with a different registry prefix (check componentsRegistry.registryLocation in resources.output.yml).")
                 }
             }
         }
@@ -2641,6 +2713,11 @@ try {
             Write-Output ("  {0,3}. {1}" -f $i, $p)
         }
     }
+
+    # Machine-readable mirror of the prose list above. Emitted after (never
+    # instead of) the human summary so the existing text output is unchanged;
+    # a consumer parses the sentinel-bracketed line to select problems by class.
+    Write-ProblemJson -SidecarBasePath $OutFile
 
     Write-Output ""
     Write-Output "Diagnostics complete."

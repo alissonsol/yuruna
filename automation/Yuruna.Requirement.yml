@@ -35,7 +35,7 @@ requirements:
     releases: "https://www.python.org/downloads/"
   - tool: "OpenTofu"
     command: "($(tofu version -json) | ConvertFrom-Json).terraform_version"
-    version: "1.12.3"
+    version: "1.12.4"
     releases: "https://opentofu.org/docs/intro/install/"
   - tool: "Helm"
     command: "helm version --short"
@@ -83,7 +83,7 @@ requirements:
     releases: "https://nodejs.org/en/download"
   - tool: "npm"
     command: "npm --version"
-    version: "11.18.0"
+    version: "12.0.1"
     releases: "https://docs.npmjs.com/cli/v11/configuring-npm/install"
   - tool: "curl"
     # First line is `curl X.Y.Z (build/triplet) libcurl/X.Y.Z ...`; the
@@ -112,7 +112,7 @@ requirements:
     # the first whitespace is environment context, not version.
     command: |-
       ((aws --version) -replace '\s.*$','')
-    version: "aws-cli/2.35.21"
+    version: "aws-cli/2.35.22"
     releases: "https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html"
   - tool: "Azure cli"
     command: "($(az version) | ConvertFrom-Json).\"azure-cli\""

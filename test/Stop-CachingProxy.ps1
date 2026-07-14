@@ -1,5 +1,5 @@
-﻿<#PSScriptInfo
-.VERSION 2026.07.10
+<#PSScriptInfo
+.VERSION 2026.07.14
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456743
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -18,11 +18,11 @@
 
 <#
 .SYNOPSIS
-    Inverse of Start-CachingProxy.ps1 — stops the yuruna-caching-proxy
+    Inverse of Start-CachingProxy.ps1 -- stops the yuruna-caching-proxy
     VM and removes its disk/bundle + stashed password. Base image is
     KEPT so the next start doesn't re-download ~600 MB. Safe to re-run.
     Remove-PortMap tears down EVERY yuruna-managed host port forward
-    (80, 3000, 3128, 3129, 9302, 8022, ...) — no port-list change is
+    (80, 3000, 3128, 3129, 9302, 8022, ...) -- no port-list change is
     needed when a new forwarded port is added on the Start side.
 
 .PARAMETER VMName   Name of the cache VM. Default: yuruna-caching-proxy.
@@ -85,7 +85,7 @@ Write-Output "  Proceeding unattended (no further prompts)."
 # whatever was there before just leaks a stale IP into the next cycle.
 # Done first so a failure tearing down the VM doesn't leave the host
 # pointing at a dead proxy for the rest of the session.
-# On macOS networksetup requires root — the sudo preamble above guarantees
+# On macOS networksetup requires root -- the sudo preamble above guarantees
 # we are already elevated by the time this runs.
 try {
     Import-Module (Join-Path $PSScriptRoot 'modules/Test.HostContract.psm1') -Force
@@ -151,7 +151,7 @@ if ($IsMacOS) {
     # $HOME/yuruna/guest.nosync. The base image lives in a separate
     # download dir ($HOME/yuruna/image/caching-proxy) and is untouched.
     if ((Get-VMState -VMName $VMName) -ne 'absent') {
-        Write-Output "  VM registered with UTM — stopping and deleting..."
+        Write-Output "  VM registered with UTM -- stopping and deleting..."
         [void](Remove-VM -VMName $VMName -Confirm:$false)
     } else {
         Write-Output "  No VM registered with UTM."
@@ -168,7 +168,7 @@ if ($IsMacOS) {
     # Tear down any host-side port mappings a prior cycle exposed for this
     # cache VM (Grafana on :3000 etc.). Done BEFORE deleting the VM so the
     # state file on disk and the in-kernel portproxy + firewall rules are
-    # removed in sync — otherwise a stale :3000 listener would outlive the
+    # removed in sync -- otherwise a stale :3000 listener would outlive the
     # VM and black-hole LAN traffic until the next Invoke-TestRunner cycle.
     $RepoRoot = Split-Path -Parent $PSScriptRoot
     Import-Module (Join-Path $RepoRoot 'test/modules/Test.HostContract.psm1') -Force

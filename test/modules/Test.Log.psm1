@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.10
+.VERSION 2026.07.14
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456790
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -45,17 +45,25 @@ if (-not (Get-Variable -Name '__YurunaRunId' -Scope Global -ErrorAction Silently
 
 # === Cycle-log rotation policy ============================================
 # Bound the per-host log directory so a long-running runner doesn't fill
-# disk with thousands of cycle folders. Top-level cap is CYCLE_HISTORY_LIMIT
-# (1000); once the count reaches that threshold, the oldest folders are
-# moved into a history.YYYY-MM-DD/ subdirectory, keeping the most recent
-# CYCLE_HISTORY_KEEP (30) at the top level for quick triage. Both values
-# are code constants by design -- NOT in test.config.yml -- so an operator
-# can grep + tune without a schema migration. Mirrors the
+# disk with thousands of cycle folders. Rotation fires when the top-level
+# count reaches CYCLE_HISTORY_TRIGGER, moving the oldest folders into a
+# history.YYYY-MM-DD/ subdirectory and keeping the most recent
+# CYCLE_HISTORY_KEEP (30) at the top level for quick triage. CYCLE_HISTORY_LIMIT
+# (1000) is the absolute hard ceiling on the top-level count; the trigger sits
+# well below it so the steady-state directory size stays bounded near the
+# trigger instead of climbing all the way to the ceiling before every trim.
+# A trigger equal to the ceiling would let the count swing KEEP..LIMIT
+# (30..1000) between trims -- a large, mostly-idle backlog -- so the trigger
+# is kept a small multiple of KEEP to hold the swing to KEEP..TRIGGER while
+# still trimming infrequently enough that the sort cost is negligible.
+# All values are code constants by design -- NOT in test.config.yml -- so an
+# operator can grep + tune without a schema migration. Mirrors the
 # FailurePauseMaxSeconds policy in Invoke-TestRunner.ps1: tunables that
 # only matter on the failure / boundary paths are kept close to the code
 # that enforces them.
-$script:CycleHistoryLimit = 1000
-$script:CycleHistoryKeep  = 30
+$script:CycleHistoryLimit   = 1000
+$script:CycleHistoryKeep    = 30
+$script:CycleHistoryTrigger = 120
 
 function Get-CycleFolderIdentity {
     <#
@@ -145,16 +153,18 @@ function Invoke-CycleLogRotation {
     <#
     .SYNOPSIS
         Rotate old cycle folders into a dated history.YYYY-MM-DD bucket
-        once the top-level count reaches CYCLE_HISTORY_LIMIT.
+        once the top-level count reaches CYCLE_HISTORY_TRIGGER.
     .DESCRIPTION
-        Idempotent: below the cap, the function returns 0 after a single
-        directory listing. At or above the cap, sorts cycle folders by
+        Idempotent: below the trigger, the function returns 0 after a single
+        directory listing. At or above the trigger, sorts cycle folders by
         name descending (lexicographic order matches cycle-number order
         because of the 6-digit prefix), keeps the most recent
         CYCLE_HISTORY_KEEP at the top level, and moves the remainder
-        into history.YYYY-MM-DD/. If that history folder already exists
-        from a prior rotation on the same date, the older cycles are
-        merged in via per-folder Move-Item.
+        into history.YYYY-MM-DD/. Trimming at the trigger (well below the
+        CYCLE_HISTORY_LIMIT ceiling) bounds the steady-state count near the
+        trigger rather than letting it swing KEEP..LIMIT between trims. If
+        that history folder already exists from a prior rotation on the same
+        date, the older cycles are merged in via per-folder Move-Item.
 
         Cycle-folder names match `^\d{6}\..+\..+\..+` (cycle-number,
         date, time, host). Operator-created folders or pre-existing
@@ -170,16 +180,16 @@ function Invoke-CycleLogRotation {
     )
     if (-not (Test-Path -LiteralPath $LogDir)) { return 0 }
     # Cheap pre-count: enumerate names only and bail before the Sort-Object when
-    # below the cap (the common per-cycle case), so the steady-state per-cycle cost
-    # is a directory listing rather than a full sort of up to CycleHistoryLimit
+    # below the trigger (the common per-cycle case), so the steady-state per-cycle
+    # cost is a directory listing rather than a full sort of up to CycleHistoryTrigger
     # folders. The full listing + sort runs only when a rotation actually fires.
     $cycleCount = @(Get-ChildItem -LiteralPath $LogDir -Directory -Name -ErrorAction SilentlyContinue |
         Where-Object { $_ -match '^\d{6}\..+\..+\..+' }).Count
-    if ($cycleCount -lt $script:CycleHistoryLimit) { return 0 }
+    if ($cycleCount -lt $script:CycleHistoryTrigger) { return 0 }
     $cycleFolders = @(Get-ChildItem -LiteralPath $LogDir -Directory -ErrorAction SilentlyContinue |
         Where-Object { $_.Name -match '^\d{6}\..+\..+\..+' } |
         Sort-Object Name -Descending)
-    if ($cycleFolders.Count -lt $script:CycleHistoryLimit) { return 0 }
+    if ($cycleFolders.Count -lt $script:CycleHistoryTrigger) { return 0 }
     $keep    = @($cycleFolders | Select-Object -First $script:CycleHistoryKeep)
     $moveSet = @($cycleFolders | Select-Object -Skip $script:CycleHistoryKeep)
     if ($moveSet.Count -eq 0) { return 0 }
@@ -211,6 +221,7 @@ function Invoke-CycleLogRotation {
         moved         = [int]$moved
         kept          = [int]$keep.Count
         limit         = $script:CycleHistoryLimit
+        trigger       = $script:CycleHistoryTrigger
         keepCount     = $script:CycleHistoryKeep
     }
     # Write-Information (not Write-Output) so the caller's `$n = Invoke-
@@ -258,7 +269,7 @@ function Start-LogFile {
     )
     $logDir = Get-LogDir -TestRoot $TestRoot
     # Cap the top-level cycle folder count before allocating a new one.
-    # The function is a fast no-op below CYCLE_HISTORY_LIMIT, so the cost
+    # The function is a fast no-op below CYCLE_HISTORY_TRIGGER, so the cost
     # is one Get-ChildItem per cycle even on a brand-new install.
     try {
         Invoke-CycleLogRotation -LogDir $logDir -Confirm:$false | Out-Null
@@ -320,25 +331,25 @@ function Start-LogFile {
                 Write-Verbose "Could not write $incompleteMarker (non-fatal): $($_.Exception.Message)"
             }
         }
-        # HTML preamble with cache-control meta tags so the log expires in
-        # the browser after 30s and a hard reload always fetches fresh
-        # content. Status server already sends
-        # `Cache-Control: no-store, no-cache, must-revalidate` as HTTP
-        # headers, but browsers still serve stale pages from bfcache
-        # (back/forward navigation) and some proxies ignore response
-        # headers. Meta tags are advisory but bake the directive into the
-        # file itself so it survives download / mirroring / direct
-        # file:// opens as well.
+        # HTML preamble. The <pre> wraps long lines (pre-wrap) so a wide
+        # command line or URL in the transcript does not force horizontal
+        # scrolling. The cache-control meta tags MIRROR the HTTP headers the
+        # status server already sends (`Cache-Control: no-store, no-cache,
+        # must-revalidate`) so a bfcache (back/forward) restore, a mirrored
+        # copy, or a direct file:// open still re-fetches instead of showing a
+        # stale in-progress log. Meta tags are advisory but bake the directive
+        # into the file itself; keeping them equal to the header avoids the
+        # split-brain of a max-age meta contradicting a no-store header.
         $preamble = @'
 <!DOCTYPE html>
 <html><head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta http-equiv="Cache-Control" content="max-age=30, must-revalidate">
+<meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <meta http-equiv="Expires" content="0">
 <title>Yuruna test-runner log</title>
-</head><body><pre>
+</head><body><pre style="white-space: pre-wrap; word-wrap: break-word; overflow-x: auto;">
 '@
         $preamble | Microsoft.PowerShell.Utility\Out-File -FilePath $logFile -Encoding utf8 -ErrorAction SilentlyContinue
         $global:__YurunaLogFile = $logFile

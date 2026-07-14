@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.10
+.VERSION 2026.07.14
 .GUID 42a7b8c9-d0e1-4f23-4567-8a9b0c112435
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -149,8 +149,9 @@ if ($problems | Where-Object { $_ -like "KUBECTL:*" }) {
         foreach ($line in $nodeLines) { $problems.Add("  $line") }
         $problems.Add("  -> Run 'kubectl get nodes' manually to investigate.")
     } else {
-        # Do not filter error lines out (that hid failures) and do not treat zero nodes as
-        # healthy: require at least one Ready node. `\bReady\b` matches "Ready" but not "NotReady".
+        # Error lines must not be filtered out (filtering them hides failures) and zero nodes
+        # must not count as healthy: require at least one Ready node. `\bReady\b` matches
+        # "Ready" but not "NotReady".
         $readyNodes    = @($nodeLines | Where-Object { $_ -match "\bReady\b" })
         $notReadyNodes = @($nodeLines | Where-Object { $_ -notmatch "\bReady\b" })
         if ($readyNodes.Count -eq 0) {

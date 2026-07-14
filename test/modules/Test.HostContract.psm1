@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.10
+.VERSION 2026.07.14
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456701
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -26,23 +26,12 @@
 # Aligned with host/Yuruna.Host.Contract.psm1: the test-harness side
 # of the host-contract boundary.
 
-# Module-level self-healing: re-import Test.VMUtility.psm1 with -Global
-# every time the contract facade is loaded. The runner's cycle re-import
-# block reloads this facade every cycle; the -Global import here keeps
-# Wait-VMRunning / Test-IpAddress / Format-IpUrlHost (and the other
-# cross-host helpers) in the runner's session even when something
-# mid-cycle has wiped the global module table -- e.g. a sequence step
-# calling `Get-Module | Remove-Module`, or a transitive Import-Module
-# without -Global. Without this, a long-running macOS in-process runner
-# could lose Wait-VMRunning at an unrelated moment and crash at the
-# next New-VM.Resource step. -ErrorAction SilentlyContinue: a missing sibling
-# is non-fatal here; Initialize-YurunaHost still fails loudly later if
-# truly broken.
-$vmCommonPath = Join-Path $PSScriptRoot 'Test.VMUtility.psm1'
-if (Test-Path $vmCommonPath) {
-    Import-Module $vmCommonPath -Force -DisableNameChecking -Global -ErrorAction SilentlyContinue
-}
-
+# Test.HostDetection carries the Test.VMUtility -Global self-heal at its
+# own module scope, so importing it (first in the list below) re-lands
+# Wait-VMRunning / Test-IpAddress / Format-IpUrlHost in the caller's
+# session on every facade load. Keeping the self-heal only in the sibling
+# also covers the callers that import Test.HostDetection directly without
+# going through this facade.
 $siblingModules = @(
     'Test.HostDetection.psm1',
     'Test.HostCondition.psm1',
@@ -56,4 +45,4 @@ foreach ($mod in $siblingModules) {
     }
 }
 
-Export-ModuleMember -Function Get-HostType, Get-HostFolder, Invoke-LibvirtGroupReExecIfNeeded, Initialize-YurunaHost, Get-GuestList, Test-GuestFolder, Get-TestVMName, Test-ElevationRequired, Test-HostRequirement, Assert-HostConditionSet, Initialize-SudoCache, Install-PowerShellYamlIfMissing, Install-PSScriptAnalyzerIfMissing, Set-MacHostConditionSet, Set-WindowsHostConditionSet, Invoke-GitPull, Get-CurrentGitCommit, Get-FileLockingProcess, Update-ProjectClone
+Export-ModuleMember -Function Get-HostType, Get-HostFolder, Invoke-LibvirtGroupReExecIfNeeded, Initialize-YurunaHost, Get-GuestList, Test-GuestFolder, Get-TestVMName, Test-ElevationRequired, Test-HostRequirement, Assert-HostConditionSet, Initialize-SudoCache, Install-PowerShellYamlIfMissing, Install-PSScriptAnalyzerIfMissing, Set-MacHostConditionSet, Set-WindowsHostConditionSet, Invoke-GitPull, Get-CurrentGitCommit, Get-FileLockingProcess, Update-ProjectClone, Test-GitRemoteAuthFailure, Write-GitAuthRefreshBanner

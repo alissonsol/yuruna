@@ -1,7 +1,7 @@
 /*
   LICENSEURI https://yuruna.link/license
   Copyright (c) 2019-2026 by Alisson Sol et al.
-  Version: 2026.07.10
+  Version: 2026.07.14
 
   Framework-free structural check for the per-row status badge colors. Run:
   node status-badges.test.js (exit 0 = pass). No repo JS test runner and no

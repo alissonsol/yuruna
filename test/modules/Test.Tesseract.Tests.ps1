@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.10
+.VERSION 2026.07.14
 .GUID 429d1e7a-2c84-4f61-9a05-7e6d2b8c4f13
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -159,9 +159,16 @@ function Test-AstContainsStringConstant {
     return (@($hits).Count -gt 0)
 }
 
+# The parsed function ASTs are built at file scope, above the first Describe. A
+# Describe body is evaluated during the discovery pass and its scope is torn
+# down before any It runs, so an AST captured inside one arrives at the
+# assertions as $null; only file-level declarations that precede the first
+# Describe are still in scope during the run pass.
+$invokeAst  = Get-FunctionAst -Path $modulePath -FunctionName 'Invoke-TesseractOcr'
+$wordboxAst = Get-FunctionAst -Path $modulePath -FunctionName 'Get-TesseractWordBox'
+$findAst    = Get-FunctionAst -Path $modulePath -FunctionName 'Find-Tesseract'
+
 Describe 'Test.Tesseract OCR invocations are single-pass, EAP-guarded, and diagnosable' {
-    $invokeAst  = Get-FunctionAst -Path $modulePath -FunctionName 'Invoke-TesseractOcr'
-    $wordboxAst = Get-FunctionAst -Path $modulePath -FunctionName 'Get-TesseractWordBox'
 
     It 'Invoke-TesseractOcr invokes tesseract exactly once (no stderr re-run)' {
         Assert-Equal -Expected 1 -Actual (Get-VarInvocationCount -FuncAst $invokeAst -VarName 'tesseractExe') -Because `
@@ -190,7 +197,6 @@ Describe 'Test.Tesseract OCR invocations are single-pass, EAP-guarded, and diagn
 }
 
 Describe 'Find-Tesseract has a real Linux filesystem-fallback branch' {
-    $findAst = Get-FunctionAst -Path $modulePath -FunctionName 'Find-Tesseract'
 
     It 'branches on $IsLinux (a real if-branch, not a comment mention)' {
         Assert-True ($null -ne (Get-IfBranchBodyOnVar -FuncAst $findAst -VarName 'IsLinux')) -Because `

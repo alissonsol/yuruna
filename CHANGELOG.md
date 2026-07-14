@@ -4,6 +4,24 @@ Yuruna uses [Calendar Versioning](https://calver.org/): `YYYY.MM.DD`.
 Tags are cut from the `main` branch; entries below summarize each
 tagged release.
 
+## 2026.07.14
+
+- **Yuruna hosts dashboard panels fit the pool.** The caching-proxy VM now ships Python scripts that every 5minutes will read the live host count from Prometheus + Loki on loopback,
+  recompute each panel's `gridPos.h` from the dashboard grid geometry, re-stack
+  the panels below it, and rewrite the provisioned dashboard, which the Grafana
+  provider re-reads within 30s.
+- **Driving a host remotely now takes a proof.** The mutating `/control/*`
+  routes now demand loopback or a short-lived HMAC in `X-Yuruna-Control`, minted
+  from the shared pool-auth-token by the aggregator's `/go/host` deep-link; reads
+  stay open. `test/Set-PoolAuthToken.ps1` provisions the token. See
+  [control-routes.md](docs/control-routes.md).
+- **Three silent failures fixed.** The dispatcher shared the extension contract's
+  `Send-Notification` name, so alerts bound to a transport and vanished (it is now
+  `Send-YurunaNotification`); snapshot manifests and runner state fell back to
+  `$env:TEMP`, undefined on POSIX, so they threw on macOS and Ubuntu; and
+  `Clear-CredentialProvider` rebound its own name instead of emptying the shared
+  registry.
+
 ## 2026.07.10
 
 - **Sync-HostConfiguration.** New per-host-type operator script
@@ -68,7 +86,7 @@ tagged release.
   unaffected — received files, sidecar records, and the persisted SSH host key
   live on the NAS share, not the disposable VM disk. See
   [stash-service.md](docs/design/stash-service.md) (§3.2).
-- **Dashboards update.** Extension hosts panel added to the Yuruna hosts dashboard. The Pool hosts now reports the paused status. Other minor visual updates.
+- **Dashboards update.** Extension hosts panel added to the Yuruna hosts dashboard. The Pool hosts panel now reports the paused status. Other minor visual updates.
 - **Mid-week release.** Test release to verify automated scripts.
 
 ## 2026.06.26
@@ -148,8 +166,10 @@ tagged release.
 
 ---
 
+LICENSEURI https://yuruna.link/license
+
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.10
+Last review: 2026.07.14
 
 Back to [Yuruna](README.md)

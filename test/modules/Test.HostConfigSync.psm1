@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.10
+.VERSION 2026.07.14
 .GUID 42d7f3b9-5c1e-4a80-9e2d-7f8a9b0c1d2e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -237,6 +237,8 @@ function Merge-ConfigSyncReferenceConfig {
 # confidential in transit without a TLS dependency.
 
 function Get-ConfigSyncHmac {
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseOutputTypeCorrectly', '',
+        Justification = 'The `return ,$bytes` idiom below is what makes the caller actually receive the declared [byte[]]. Static analysis reads the comma as an [object[]] wrapper; at runtime the pipeline unwraps it and the caller gets the byte[].')]
     [CmdletBinding()]
     [OutputType([byte[]])]
     param(
@@ -244,7 +246,15 @@ function Get-ConfigSyncHmac {
         [Parameter(Mandatory)][string]$Data
     )
     $hmac = [System.Security.Cryptography.HMACSHA256]::new([System.Text.Encoding]::UTF8.GetBytes($Token))
-    try { return $hmac.ComputeHash([System.Text.Encoding]::UTF8.GetBytes($Data)) }
+    # The unary comma is load-bearing. A bare `return $bytes` writes the array to
+    # the pipeline ELEMENT BY ELEMENT, and the caller collects the pieces back
+    # into an [object[]] -- not the [byte[]] the OutputType above advertises
+    # (that attribute documents, it does not coerce). Most callers never notice,
+    # because a [byte[]]-typed parameter converts the object[] back. Test-ConfigSyncProof
+    # does notice: it passes this value to a ReadOnlySpan<byte> parameter, and a
+    # ByRef-like type is the one thing PowerShell cannot convert an object[] into,
+    # so the comparison throws instead of returning a verdict.
+    try { return ,$hmac.ComputeHash([System.Text.Encoding]::UTF8.GetBytes($Data)) }
     finally { $hmac.Dispose() }
 }
 
@@ -277,13 +287,75 @@ function Test-ConfigSyncProof {
         [Parameter(Mandatory)][string]$Nonce,
         [Parameter(Mandatory)][string]$Proof
     )
-    $expected = Get-ConfigSyncHmac -Token $Token -Data "$($script:ConfigSyncCredentialLabel)|proof|$User|$Nonce"
-    $given = $null
+    # [byte[]] casts: a bare `$x = Get-ConfigSyncHmac` unrolls the returned byte[] into
+    # an Object[] on the PowerShell pipeline, which FixedTimeEquals (ReadOnlySpan<byte>)
+    # cannot bind -- the cast pins both operands back to byte[].
+    [byte[]]$expected = Get-ConfigSyncHmac -Token $Token -Data "$($script:ConfigSyncCredentialLabel)|proof|$User|$Nonce"
+    [byte[]]$given = $null
     try { $given = [Convert]::FromBase64String($Proof) } catch { return $false }
+    if ($given.Length -ne $expected.Length) { return $false }
+    return [System.Security.Cryptography.CryptographicOperations]::FixedTimeEquals($expected, $given)
+}
+
+<#
+.SYNOPSIS
+    Mint the wire proof the status server's mutating /control/* routes accept:
+    "<expiryUnixSeconds>.<base64 HMAC>". The pool aggregator's /go/host mints the
+    identical value in Go so a Grafana deep-link can carry it to the browser UI.
+.DESCRIPTION
+    proof = base64( HMAC-SHA256(pool-auth-token, "yuruna-control|proof|<expiry>") ).
+    Bound to the expiry only: the pool-auth-token is pool-wide, so a valid proof means
+    "authorized within the TTL". The raw token never leaves the minting host (only the
+    HMAC + the plaintext expiry travel, in a URL fragment).
+#>
+function Get-YurunaControlProof {
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        [Parameter(Mandatory)][string]$Token,
+        [Parameter(Mandatory)][long]$ExpiryUnixSeconds
+    )
+    $proof = [Convert]::ToBase64String((Get-ConfigSyncHmac -Token $Token -Data "yuruna-control|proof|$ExpiryUnixSeconds"))
+    return "$ExpiryUnixSeconds.$proof"
+}
+
+<#
+.SYNOPSIS
+    Constant-time verify of a control proof from Get-YurunaControlProof (or the
+    aggregator's Go mint). Returns $false on any malformed / expired / mismatched input.
+.DESCRIPTION
+    Parses "<expiry>.<base64 HMAC>", requires now <= expiry <= now + MaxTtlSeconds
+    (rejects a far-future proof so a captured token cannot mint an eternal pass),
+    recomputes the HMAC over the given expiry, and FixedTimeEquals-compares.
+#>
+function Test-YurunaControlProof {
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param(
+        # AllowEmptyString: the server gate calls this with whatever pool-auth-token it
+        # read -- possibly empty on a host that has none -- and must get $false, not a
+        # binding throw that would break the route.
+        [Parameter(Mandatory)][AllowEmptyString()][string]$Token,
+        [Parameter(Mandatory)][AllowEmptyString()][string]$Wire,
+        [int]$MaxTtlSeconds = 900
+    )
+    if ([string]::IsNullOrWhiteSpace($Token) -or [string]::IsNullOrWhiteSpace($Wire)) { return $false }
+    $dot = $Wire.IndexOf('.')
+    if ($dot -le 0 -or $dot -ge ($Wire.Length - 1)) { return $false }
+    [long]$expiry = 0
+    if (-not [long]::TryParse($Wire.Substring(0, $dot), [ref]$expiry)) { return $false }
+    $now = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
+    if ($expiry -lt $now -or $expiry -gt ($now + $MaxTtlSeconds)) { return $false }
+    [byte[]]$given = $null
+    try { $given = [Convert]::FromBase64String($Wire.Substring($dot + 1)) } catch { return $false }
+    [byte[]]$expected = Get-ConfigSyncHmac -Token $Token -Data "yuruna-control|proof|$expiry"
+    if ($given.Length -ne $expected.Length) { return $false }
     return [System.Security.Cryptography.CryptographicOperations]::FixedTimeEquals($expected, $given)
 }
 
 function Get-ConfigSyncEnvelopeKey {
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseOutputTypeCorrectly', '',
+        Justification = 'Same `return ,$bytes` idiom as Get-ConfigSyncHmac: the comma is what preserves the declared [byte[]] across the pipeline.')]
     [CmdletBinding()]
     [OutputType([byte[]])]
     param(
@@ -294,7 +366,10 @@ function Get-ConfigSyncEnvelopeKey {
     )
     $ikm  = [System.Text.Encoding]::UTF8.GetBytes($Token)
     $info = [System.Text.Encoding]::UTF8.GetBytes("$($script:ConfigSyncCredentialLabel)|key|$User|$ClientNonce")
-    return [System.Security.Cryptography.HKDF]::DeriveKey(
+    # Comma for the same reason as Get-ConfigSyncHmac. This one currently survives
+    # without it only because its consumers declare [byte[]] parameters, which
+    # convert the object[] back; that is luck, not a contract.
+    return ,[System.Security.Cryptography.HKDF]::DeriveKey(
         [System.Security.Cryptography.HashAlgorithmName]::SHA256, $ikm, 32, $Salt, $info)
 }
 
@@ -303,6 +378,7 @@ function New-ConfigSyncAesGcm {
         'PSUseShouldProcessForStateChangingFunctions', '',
         Justification = 'Pure object constructor; does not mutate state.')]
     [CmdletBinding()]
+    [OutputType([System.Security.Cryptography.AesGcm])]
     param([Parameter(Mandatory)][byte[]]$Key)
     # The (key, tagSize) constructor is the non-deprecated form on current
     # .NET; older runtimes only have the single-argument one.
@@ -761,8 +837,83 @@ function Sync-HostConfiguration {
     }
 }
 
+<#
+.SYNOPSIS
+    Provision THIS host as a holder of the shared pool-auth-token (idempotent).
+.DESCRIPTION
+    The shared pool-auth-token gates cross-host config-sync AND the
+    status-server control routes (the deep-link control proofs the pool
+    aggregator mints). Storing it needs two coupled writes that are easy to
+    get subtly wrong by hand:
+
+      1. users.yml -- pool-auth-token.vaultKey must be NON-EMPTY (an empty
+         vaultKey routes Get-Password down the auto-generate path, which the
+         gate rejects) AND must EQUAL the -Username Set-Password writes
+         under. Set-Password keys the vault by -Username; the gate resolves
+         the slot by vaultKey. A mismatch (the classic dash-vs-dot slip)
+         stores the token under one key and reads another -> a silent 403.
+         This sets both to the logical name, closing that class by
+         construction.
+      2. vault.yml -- the token itself, via Set-Password.
+
+    Verifies the round-trip through the SAME resolution the gate uses, and
+    optionally restarts the status server (in an isolated child pwsh) so the
+    running process re-reads users.yml now instead of next cycle --
+    Import-Extension skips re-import once loaded, so the edit is otherwise
+    invisible to the live server. Returns @{ ok; vaultKey; keyChanged;
+    verified; bounced }.
+
+    Requires the authentication extension loaded (Set-Password et al.).
+#>
+function Set-PoolAuthToken {
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([hashtable])]
+    param(
+        [Parameter(Mandatory)][string]$Token,
+        [switch]$BounceStatusServer
+    )
+    $logical = 'pool-auth-token'
+    foreach ($fn in @('Set-UserVaultKey', 'Set-Password', 'Get-Password', 'Test-VaultEntry', 'Get-EffectiveUser', 'Reset-UsersConfigCache')) {
+        if (-not (Get-Command $fn -ErrorAction SilentlyContinue)) {
+            throw "Set-PoolAuthToken requires the authentication extension: '$fn' is not available. Import test/extension/authentication/default.psm1 first."
+        }
+    }
+    $result = @{ ok = $false; vaultKey = $logical; keyChanged = $false; verified = $false; bounced = $false }
+    if (-not $PSCmdlet.ShouldProcess("host vault ($logical)", 'Provision shared pool-auth-token')) {
+        return $result
+    }
+    # vaultKey == the logical name so Set-Password's -Username and the gate's
+    # vaultKey resolution address the identical vault slot.
+    $result.keyChanged = [bool](Set-UserVaultKey -LogicalUser $logical -VaultKey $logical)
+    $null = Set-Password -Username $logical -NewPassword $Token
+    $null = Reset-UsersConfigCache -Confirm:$false
+    $tm = Get-EffectiveUser -LogicalUser $logical
+    $result.verified = [bool]($tm.vaultKey -and (Test-VaultEntry -VaultKey $tm.vaultKey) -and ((Get-Password -Username $logical) -eq $Token))
+    if ($BounceStatusServer) {
+        $startScript = Join-Path (Split-Path -Parent $PSScriptRoot) 'Start-StatusService.ps1'
+        $pwshExe = [System.Environment]::ProcessPath
+        if ((Test-Path -LiteralPath $startScript) -and $pwshExe -and (Test-Path -LiteralPath $pwshExe)) {
+            # Child process so the entry-point script's own `exit` and its
+            # -Global module (re)imports cannot disturb this runspace.
+            try {
+                & $pwshExe -NoProfile -File $startScript -Restart *> $null
+                $result.bounced = ($LASTEXITCODE -eq 0)
+                if (-not $result.bounced) {
+                    Write-Warning "Status-server bounce exited $LASTEXITCODE; the token is stored and takes effect at the next cycle."
+                }
+            } catch {
+                Write-Warning "Status-server bounce failed ($($_.Exception.Message)); the token is stored and takes effect at the next cycle."
+            }
+        } else {
+            Write-Warning "Cannot bounce the status server (Start-StatusService.ps1 or the pwsh executable was not found); the token is stored and takes effect at the next cycle."
+        }
+    }
+    $result.ok = [bool]$result.verified
+    return $result
+}
+
 Export-ModuleMember -Function `
     Get-ConfigSyncLocalPathDefault, Convert-ConfigSyncNetworkStorage, Merge-ConfigSyncReferenceConfig, `
-    Get-ConfigSyncProof, Test-ConfigSyncProof, Protect-ConfigSyncCredential, Unprotect-ConfigSyncCredential, `
+    Get-ConfigSyncProof, Test-ConfigSyncProof, Get-YurunaControlProof, Test-YurunaControlProof, Protect-ConfigSyncCredential, Unprotect-ConfigSyncCredential, `
     Get-ConfigSyncReferenceConfig, Get-ConfigSyncReferenceAliasMap, Request-ConfigSyncVaultCredential, `
-    Sync-HostConfiguration
+    Sync-HostConfiguration, Set-PoolAuthToken

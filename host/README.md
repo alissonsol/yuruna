@@ -62,7 +62,7 @@ Host setup starts with a single `irm … | iex` (Windows),
 `curl … | bash` (macOS), or `bash <(curl ...)` (Ubuntu) line. Each
 host's installer reads `YurunaCacheContent` — see
 [Caching](../docs/caching.md) for scope, persistence, and
-the optional Squid VM. Both installers are idempotent, request
+the optional Squid VM. All installers are idempotent, request
 elevation once with an up-front banner, and run
 `Enable-TestAutomation.ps1` to keep the display on during screenshots.
 
@@ -140,8 +140,10 @@ Read more: [Hosts — Nerd-Level Details](read.more.md).
 
 ---
 
+LICENSEURI https://yuruna.link/license
+
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.10
+Last review: 2026.07.14
 
 Back to [Yuruna](../README.md)

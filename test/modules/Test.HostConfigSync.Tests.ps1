@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.10
+.VERSION 2026.07.14
 .GUID 42f6a2c8-1d3e-4b90-8a7f-2e3d4c5b6a7e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -34,6 +34,35 @@ try { Import-Module powershell-yaml -Force -ErrorAction Stop } catch { Write-War
 function Assert-Equal { param($Expected, $Actual, [string]$Because='') if ($Expected -ne $Actual) { throw "Expected [$Expected] got [$Actual]. $Because" } }
 function Assert-True  { param($Condition, [string]$Because='') if (-not $Condition) { throw "Expected true. $Because" } }
 
+# Fixtures live at FILE scope, not inside a Describe. Pester runs a Describe body
+# during discovery and throws its variables and functions away before any It runs,
+# so a fixture declared in there reaches the assertions as $null (or, for a
+# function, as "command not found") -- and the test then quietly exercises the
+# empty path instead of the one it names.
+$unixRef = [ordered]@{
+    poolLocalPath   = '/mnt/ypool-nas'
+    poolNetworkPath = '//ypool-nas/work/yuruna.pool'
+    poolNetworkUser = 'yuruna-pool'
+    stashLocalPath   = '~/Shares/ystash-nas'
+    stashNetworkPath = '//ystash-nas/work/yuruna.stash'
+    stashNetworkUser = 'yuruna-stash'
+}
+
+function New-ReferenceDoc {
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+        Justification = 'Test helper: pure fixture constructor, no system state touched.')]
+    [CmdletBinding()] [OutputType([hashtable])] param()
+    return @{
+        networkStorage = @{
+            poolLocalPath = '/mnt/ypool-nas'; poolNetworkPath = '//ypool-nas/work/yuruna.pool'; poolNetworkUser = 'yuruna-pool'
+            stashLocalPath = ''; stashNetworkPath = ''; stashNetworkUser = ''
+        }
+        repositories = @{ frameworkUrl = 'https://example/framework'; projectUrl = 'https://example/project' }
+        pool         = @{ enabled = $false; localClonePath = ''; networkReplicate = $true }
+        vmStart      = @{ cachingProxyIP = '192.168.7.229' }
+    }
+}
+
 Describe 'Get-ConfigSyncLocalPathDefault' {
     It 'uses the y:/z: drive-letter convention on Windows' {
         Assert-Equal -Expected 'y:' -Actual (Get-ConfigSyncLocalPathDefault -HostType 'host.windows.hyper-v' -Tier pool  -ServerName 'ypool-nas')
@@ -49,14 +78,6 @@ Describe 'Get-ConfigSyncLocalPathDefault' {
 }
 
 Describe 'Convert-ConfigSyncNetworkStorage' {
-    $unixRef = [ordered]@{
-        poolLocalPath   = '/mnt/ypool-nas'
-        poolNetworkPath = '//ypool-nas/work/yuruna.pool'
-        poolNetworkUser = 'yuruna-pool'
-        stashLocalPath   = '~/Shares/ystash-nas'
-        stashNetworkPath = '//ystash-nas/work/yuruna.stash'
-        stashNetworkUser = 'yuruna-stash'
-    }
     It 'converts a unix-style reference for a Windows host: UNC slashes + drive-letter defaults' {
         $r = Convert-ConfigSyncNetworkStorage -Reference $unixRef -Local $null -HostType 'host.windows.hyper-v'
         Assert-Equal -Expected '\\ypool-nas\work\yuruna.pool'   -Actual $r.NetworkStorage['poolNetworkPath']
@@ -92,20 +113,6 @@ Describe 'Convert-ConfigSyncNetworkStorage' {
 }
 
 Describe 'Merge-ConfigSyncReferenceConfig' {
-    function New-ReferenceDoc {
-        [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
-            Justification = 'Test helper: pure fixture constructor, no system state touched.')]
-        [CmdletBinding()] [OutputType([hashtable])] param()
-        return @{
-            networkStorage = @{
-                poolLocalPath = '/mnt/ypool-nas'; poolNetworkPath = '//ypool-nas/work/yuruna.pool'; poolNetworkUser = 'yuruna-pool'
-                stashLocalPath = ''; stashNetworkPath = ''; stashNetworkUser = ''
-            }
-            repositories = @{ frameworkUrl = 'https://example/framework'; projectUrl = 'https://example/project' }
-            pool         = @{ enabled = $false; localClonePath = ''; networkReplicate = $true }
-            vmStart      = @{ cachingProxyIP = '192.168.7.229' }
-        }
-    }
     It 'copies host-agnostic values verbatim and converts networkStorage' {
         $m = Merge-ConfigSyncReferenceConfig -Reference (New-ReferenceDoc) -Local $null -HostType 'host.windows.hyper-v'
         Assert-Equal -Expected '192.168.7.229' -Actual $m.Config['vmStart']['cachingProxyIP'] -Because 'the caching proxy is shared LAN infrastructure'
@@ -133,6 +140,50 @@ Describe 'Merge-ConfigSyncReferenceConfig' {
         $m = Merge-ConfigSyncReferenceConfig -Reference $ref -Local $null -HostType 'host.macos.utm'
         Assert-Equal -Expected '' -Actual $m.Config['pool']['localClonePath']
         Assert-True (@($m.Warnings) -match 'localClonePath') 'the non-portable clone path is warned about'
+    }
+
+    # The sync is a FULL copy with a short list of named exceptions, not an
+    # allowlist of keys to carry over. That distinction is the whole contract: an
+    # allowlist silently drops every setting added to the config after it was
+    # written, and the pool host then runs on a default while the operator reads
+    # the reference host's value and believes it is in effect. The exceptions are
+    # enumerated here so that adding one without saying so breaks this test.
+    It 'copies EVERY key from the reference, including ones it has never heard of' {
+        $ref = New-ReferenceDoc
+        $ref['repositories']['GH_TOKEN'] = 'github_pat_FROM_REFERENCE'
+        $ref['someFutureSection']        = @{ someFutureKey = 'future-value' }
+        $ref['logLevel']                 = 'Debug'
+
+        $m = Merge-ConfigSyncReferenceConfig -Reference $ref -Local $null -HostType 'host.windows.hyper-v'
+
+        Assert-Equal -Expected 'github_pat_FROM_REFERENCE' -Actual $m.Config['repositories']['GH_TOKEN'] `
+            -Because 'a private-repo token set on the reference must reach the pool host, or its guests cannot clone'
+        Assert-Equal -Expected 'future-value' -Actual $m.Config['someFutureSection']['someFutureKey'] `
+            -Because 'a section this merge has never heard of still has to survive it'
+        Assert-Equal -Expected 'Debug' -Actual $m.Config['logLevel']
+        Assert-Equal -Expected 'https://example/framework' -Actual $m.Config['repositories']['frameworkUrl']
+    }
+
+    # The exceptions, stated as a closed set. Every key of the reference must come
+    # through untouched EXCEPT these -- each deliberately host-local, each warned about.
+    It 'alters only the documented exceptions: networkStorage, secrets, non-portable projectUrl / localClonePath' {
+        $ref = New-ReferenceDoc
+        $ref['repositories']['GH_TOKEN'] = 'tok'
+        $ref['testCycle'] = @{ cycleDelaySeconds = 300; shouldStopOnFailure = $true }
+        $ref['vmImage']   = @{ refreshHours = 168 }
+
+        $m = Merge-ConfigSyncReferenceConfig -Reference $ref -Local $null -HostType 'host.ubuntu.kvm'
+
+        # Portable values are byte-for-byte what the reference had.
+        Assert-Equal -Expected 300  -Actual $m.Config['testCycle']['cycleDelaySeconds']
+        Assert-Equal -Expected $true -Actual $m.Config['testCycle']['shouldStopOnFailure']
+        Assert-Equal -Expected 168  -Actual $m.Config['vmImage']['refreshHours']
+        Assert-Equal -Expected 'tok' -Actual $m.Config['repositories']['GH_TOKEN']
+
+        # No key the reference had went missing.
+        foreach ($k in $ref.Keys) {
+            Assert-True $m.Config.Contains($k) "reference key '$k' must survive the merge"
+        }
     }
 }
 
@@ -180,5 +231,103 @@ Describe 'Windows drive-letter YAML round-trip' {
         $doc  = [ordered]@{ networkStorage = [ordered]@{ poolLocalPath = 'y:' } }
         $back = ($doc | ConvertTo-Yaml) | ConvertFrom-Yaml -Ordered
         Assert-Equal -Expected 'y:' -Actual $back['networkStorage']['poolLocalPath']
+    }
+}
+
+Describe 'Yuruna control proof (status-server control-route auth)' {
+    # The proof the pool aggregator mints (Go) and the status server verifies (PowerShell)
+    # to gate the mutating /control/* routes. The golden vector is shared with the Go test
+    # (pool-aggregator/control_proof_test.go) so the two mints cannot drift.
+    It 'mints the shared golden wire (must equal the Go controlProofFor vector)' {
+        Assert-Equal -Expected '1900000000.0l+y7qrGppfHhBxHwLiLx702JdmA5KuxcFOmENJnZDs=' `
+            -Actual (Get-YurunaControlProof -Token 'yuruna-net1-golden-token' -ExpiryUnixSeconds 1900000000)
+    }
+    It 'accepts a fresh proof and rejects wrong token / tamper / malformed / no-token' {
+        $now = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
+        $wire = Get-YurunaControlProof -Token 'tok-1' -ExpiryUnixSeconds ($now + 120)
+        Assert-True (Test-YurunaControlProof -Token 'tok-1' -Wire $wire) 'fresh proof accepted'
+        Assert-True (-not (Test-YurunaControlProof -Token 'tok-2' -Wire $wire)) 'wrong token rejected'
+        Assert-True (-not (Test-YurunaControlProof -Token 'tok-1' -Wire (($now + 120).ToString() + '.AAAA'))) 'tampered proof rejected'
+        Assert-True (-not (Test-YurunaControlProof -Token 'tok-1' -Wire 'no-dot')) 'malformed wire rejected'
+        Assert-True (-not (Test-YurunaControlProof -Token 'tok-1' -Wire '')) 'empty wire rejected'
+        Assert-True (-not (Test-YurunaControlProof -Token '' -Wire $wire)) 'no token configured -> reject'
+    }
+    It 'rejects an expired proof and a far-future (beyond MaxTtl) proof' {
+        $now = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
+        Assert-True (-not (Test-YurunaControlProof -Token 'tok-1' -Wire (Get-YurunaControlProof -Token 'tok-1' -ExpiryUnixSeconds ($now - 60)))) 'expired rejected'
+        Assert-True (-not (Test-YurunaControlProof -Token 'tok-1' -Wire (Get-YurunaControlProof -Token 'tok-1' -ExpiryUnixSeconds ($now + 100000)))) 'far-future (beyond MaxTtl) rejected'
+    }
+}
+
+# ---------------------------------------------------------------------------
+# pool-auth-token provisioning (Set-UserVaultKey + Set-PoolAuthToken). The auth
+# extension's vault + users.yml paths are redirected into a throwaway temp dir
+# so the tests never touch the real vault.
+#
+# Setup and teardown MUST live in BeforeAll/AfterAll, not at file scope. Pester
+# executes the whole file top-level during DISCOVERY, before any It runs -- so a
+# file-scope teardown tears the redirect down (the -Force re-import re-runs the
+# module prologue and recomputes the paths from the module location) while the
+# tests are still pending. The Its then run against the REAL vault and write
+# their fixtures into the operator's live credential store. BeforeAll/AfterAll
+# are run-phase, so the redirect brackets the Its the way it reads.
+# ---------------------------------------------------------------------------
+Describe 'pool-auth-token provisioning' {
+    BeforeAll {
+        # $PSScriptRoot, not the file-scope $here: discovery-phase variables are
+        # not reliably visible from a run-phase block.
+        $patAuthModule = Join-Path -Path $PSScriptRoot -ChildPath '..' -AdditionalChildPath 'extension', 'authentication', 'default.psm1'
+        Import-Module $patAuthModule -Global -Force -DisableNameChecking -ErrorAction SilentlyContinue
+        $patTmpDir = Join-Path ([System.IO.Path]::GetTempPath()) ('yuruna-pat-' + [guid]::NewGuid().ToString('N'))
+        New-Item -ItemType Directory -Path $patTmpDir -Force | Out-Null
+        $env:YURUNA_TEST_PAT_DIR = $patTmpDir
+        $patReady = [bool](Get-Command Set-PoolAuthToken -ErrorAction SilentlyContinue) -and `
+                    [bool](Get-Command Set-UserVaultKey  -ErrorAction SilentlyContinue)
+        if ($patReady) {
+            InModuleScope default {
+                $script:VaultDir    = $env:YURUNA_TEST_PAT_DIR
+                $script:VaultPath   = Join-Path $env:YURUNA_TEST_PAT_DIR 'vault.yml'
+                $script:LogPath     = Join-Path $env:YURUNA_TEST_PAT_DIR 'events.log'
+                $script:UsersPath   = Join-Path $env:YURUNA_TEST_PAT_DIR 'users.yml'
+                $script:UsersConfig = $null
+            }
+        }
+    }
+
+    AfterAll {
+        # Restore the real vault paths (the -Force re-import recomputes them from
+        # the module location) and drop the throwaway dir so a later suite in the
+        # same runspace sees the real vault.
+        Import-Module $patAuthModule -Global -Force -DisableNameChecking -ErrorAction SilentlyContinue
+        if ($patTmpDir -and (Test-Path -LiteralPath $patTmpDir)) { Remove-Item -LiteralPath $patTmpDir -Recurse -Force -ErrorAction SilentlyContinue }
+        Remove-Item Env:\YURUNA_TEST_PAT_DIR -ErrorAction SilentlyContinue
+    }
+
+    It 'stores + verifies the token with vaultKey == username (closes the mismatch class)' {
+        Assert-True $patReady 'auth extension (Set-PoolAuthToken / Set-UserVaultKey) must be importable'
+        $tok = 'xp2e&Klq52-test'
+        $r = Set-PoolAuthToken -Token $tok -Confirm:$false
+        Assert-True  $r.ok 'Set-PoolAuthToken verifies the round-trip'
+        Assert-Equal 'pool-auth-token' $r.vaultKey
+        Assert-True  $r.verified
+        Assert-Equal $tok (Get-Password -Username 'pool-auth-token')
+        Assert-Equal 'pool-auth-token' (Get-EffectiveUser -LogicalUser 'pool-auth-token').vaultKey
+        Assert-True  (Test-VaultEntry -VaultKey 'pool-auth-token') 'vault entry present under the resolved key'
+    }
+    It 'is idempotent on the vaultKey and rotates the token value' {
+        $null = Set-PoolAuthToken -Token 'aaa' -Confirm:$false
+        $r2   = Set-PoolAuthToken -Token 'bbb' -Confirm:$false
+        Assert-True (-not $r2.keyChanged) 'vaultKey already set -> keyChanged is false'
+        Assert-Equal -Expected 'bbb' -Actual (Get-Password -Username 'pool-auth-token') -Because 'token rotates to the new value'
+    }
+    It 'honors -WhatIf (stores nothing)' {
+        $null = Set-PoolAuthToken -Token 'zzz-should-not-store' -WhatIf
+        Assert-Equal -Expected 'bbb' -Actual (Get-Password -Username 'pool-auth-token') -Because 'WhatIf left the prior value intact'
+    }
+    It 'Set-UserVaultKey is idempotent (identical re-set is a no-op)' {
+        $first  = Set-UserVaultKey -LogicalUser 'demo-user' -VaultKey 'demo.key' -Confirm:$false
+        $second = Set-UserVaultKey -LogicalUser 'demo-user' -VaultKey 'demo.key' -Confirm:$false
+        Assert-True $first         'first set writes the file'
+        Assert-True (-not $second) 'identical second set makes no change'
     }
 }

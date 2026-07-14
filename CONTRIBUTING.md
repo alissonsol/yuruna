@@ -27,6 +27,8 @@ the [install/README.md](install/README.md).
 The non-snap apt-repo route on Ubuntu is documented at
 [cli.github.com](https://github.com/cli/cli/blob/trunk/docs/install_linux.md).
 
+To execute PowerShell scripts in Windows, verify [execution policy](https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.core/about/about_execution_policies) settings.
+
 ### b. Authenticate
 
   ```
@@ -114,6 +116,58 @@ No assistance will be provided to help migrate changes you made in the public re
          projectUrl: file:///Users/[username]/git/yuruna-project
       ```
 
+#### `repositories.GH_TOKEN` — reading a private framework/project repo
+
+Leave `GH_TOKEN: ""` if both `frameworkUrl` and `projectUrl` are public. You
+need it only when a guest has to read a **private** repo — either to `git clone`
+the framework/project, or to fetch its update script from GitHub when the host
+status server is unreachable.
+
+**Use a read-only, fine-grained token scoped to exactly those two repositories.**
+This token is copied onto every test VM and is served by the status server on
+`/control/test-config`, so anything that can reach the host on port 8080 can read
+it. Its blast radius should be "read these two repos", nothing more — the guests
+only ever pull.
+
+- GitHub → *Settings* → *Developer settings* → *Personal access tokens* →
+  **Fine-grained tokens** → *Generate new token*.
+- **Resource owner:** the account that owns both repos (e.g. `alissonsol`).
+- **Repository access:** *Only select repositories* → select **both**
+  `yurunadev` **and** `yurunadev-project`.
+- **Permissions** → *Repository permissions* → **Contents: Read-only**. That is
+  the only one needed: it covers `git clone` / `fetch` / `pull` over HTTPS *and*
+  the Contents API the GitHub fallback reads. (*Metadata: Read-only* is added
+  automatically and cannot be removed.) Grant nothing else — no write, no
+  `workflow`, no org permissions.
+- Set an **expiration** and rotate it. Re-issuing is a one-line config edit.
+
+The result looks like `github_pat_…`:
+
+```
+ repositories:
+   frameworkUrl: https://github.com/alissonsol/yurunadev
+   GH_TOKEN: "github_pat_YourReadOnlyTokenGoesHere"
+   projectUrl: https://github.com/alissonsol/yurunadev-project
+```
+
+Two constraints worth knowing before you generate one:
+
+- **A fine-grained token covers a single resource owner.** It works here because
+  `frameworkUrl` and `projectUrl` live under the same account. If they ever move
+  to different owners or orgs, no single fine-grained token can pull from both,
+  and `repositories.GH_TOKEN` holds only one — you would need the repos under a
+  common owner, or a GitHub App.
+- **A classic PAT is a poor fit.** Its smallest useful scope, `repo`, is
+  read-**write** and reaches *every* repository the account can see. On a
+  credential that lives on disk in every guest VM, that is a much larger blast
+  radius than this job needs. Prefer fine-grained; use classic only if you must.
+
+The token never travels over the VM console (the host screenshots and OCRs that
+into the published run log) — guests receive it on the cloud-init seed. It is
+also kept out of `~/.gitconfig`, out of remote URLs, and out of the process list.
+`test/test.config.yml` is gitignored, so the real value is never committed; only
+the empty `GH_TOKEN: ""` in the template is.
+
   - If you modify files that guest VMs fetch
    via the [fetch-and-execution contract](https://yuruna.link/definition#fetch-and-execution-contract),
    commit your changes before testing
@@ -163,7 +217,7 @@ If you are going to run tests, mainly continuously, run these commands under Pow
     $env:YURUNA_CACHING_PROXY_IP = 'x.y.z.a'
     ```
   
-  - Test your configuration and address errors and understanding of the warnings.
+  - Test your configuration and address errors and understand the warnings.
     - Test just the caching proxy: `test/Test-CachingProxy.ps1`
     - Check the configuration: `test/Test-Config.ps1`
 
@@ -265,8 +319,10 @@ the branch and use `EXEC_BASE_URL` with `fetch-and-execute.sh`:
 
 ---
 
+LICENSEURI https://yuruna.link/license
+
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.10
+Last review: 2026.07.14
 
 Back to [Yuruna](README.md)

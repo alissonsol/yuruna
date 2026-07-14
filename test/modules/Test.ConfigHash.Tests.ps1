@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.10
+.VERSION 2026.07.14
 .GUID 42e4a5b6-7c81-4d92-a3b4-5c6d7e8f9a0b
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -59,8 +59,12 @@ function Get-FunctionAst {
     [CmdletBinding()]
     [OutputType([System.Management.Automation.Language.FunctionDefinitionAst])]
     param([Parameter(Mandatory)]$RootAst, [Parameter(Mandatory)][string]$FunctionName)
+    # Bind to a local so the parameter is referenced in the function body itself
+    # (the closure below captures it, but PSReviewUnusedParameter cannot see a
+    # use that only occurs inside a scriptblock handed to another command).
+    $wanted = $FunctionName
     return ($RootAst.FindAll({
-        param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq $FunctionName
+        param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq $wanted
     }, $true) | Select-Object -First 1)
 }
 
@@ -93,6 +97,11 @@ function Get-BitConverterToStringCount {
     return @($hits).Count
 }
 
+# The Test.Config AST is parsed at file scope because a Describe body is executed during
+# test discovery and its variables are discarded before any It runs; a Describe-local
+# $rootAst would reach the assertions as $null.
+$rootAst = Get-ModuleAst -Path $configPath
+
 Describe 'config-hash -- the SHA-256->hex converter lives once in the Test.Hash leaf' {
     It 'Test.Hash defines ConvertTo-LowerHex with a single raw BitConverter::ToString' {
         $hashAst = Get-ModuleAst -Path $hashPath
@@ -111,7 +120,6 @@ Describe 'config-hash -- the SHA-256->hex converter lives once in the Test.Hash 
 }
 
 Describe 'config-hash -- Test.Config delegates to the shared converter' {
-    $rootAst = Get-ModuleAst -Path $configPath
     It 'Test.Config no longer defines ConvertTo-LowerHex (it moved to Test.Hash)' {
         Assert-True ($null -eq (Get-FunctionAst -RootAst $rootAst -FunctionName 'ConvertTo-LowerHex')) `
             'the converter must not be re-defined in Test.Config'

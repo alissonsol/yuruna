@@ -1,7 +1,7 @@
 /*
   LICENSEURI https://yuruna.link/license
   Copyright (c) 2019-2026 by Alisson Sol et al.
-  Version: 2026.07.10
+  Version: 2026.07.14
 
   Framework-free checks for test/status/yuruna.common.js. Run: node yuruna.common.test.js
   (exit 0 = pass). No package.json / test runner in the repo, so this uses the Node
@@ -102,4 +102,22 @@ assert.match(src, /function renderStatus[\s\S]*?if \(!banner \|\| !noData \|\| !
 assert.match(src, /var BANNER = Object\.assign\(\{\}, BANNER_TEXT,/,
   'bootIndex must build BANNER by reusing BANNER_TEXT, not a duplicate literal');
 
-console.log('PASS: yuruna.common.js -- 6 assertions');
+// The cycle-folder lifecycle-suffix strip is a single shared helper, so a
+// history-row URL and a perf-icicle deep-link URL cannot drift apart. The
+// trailing-slash-capturing .incomplete strip must appear exactly once (in the
+// helper); logFileUrl's bare-anchor variant is a distinct regex and not counted.
+assert.match(src, /function stripCycleFolderSuffix\(u\)/,
+  'stripCycleFolderSuffix must be defined once as the shared cycle-folder strip');
+assert.strictEqual(src.split(".replace(/\\.incomplete(\\/?)$/, '$1')").length - 1, 1,
+  'the trailing-slash .incomplete strip must appear once (in stripCycleFolderSuffix), not re-inlined at the two call sites');
+
+// The optional-endpoint "fetch -> JSON or null" shape is the single
+// module-level fetchJson; the per-handler jsonOrNull closures are gone, and no
+// caller passes a manual ?_= cache-buster into fetchJson (which appends its own),
+// so the poll URLs cannot carry a double ?_=X?_=Y.
+assert.doesNotMatch(src, /function jsonOrNull/,
+  'the per-handler jsonOrNull closures must be consolidated onto module-level fetchJson');
+assert.doesNotMatch(src, /fetchJson\([^)]*\?_=/,
+  'no fetchJson caller may append its own ?_= buster (fetchJson adds one) -- avoids a double cache-buster');
+
+console.log('PASS: yuruna.common.js -- 10 assertions');

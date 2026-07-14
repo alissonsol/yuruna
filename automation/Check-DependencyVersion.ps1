@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.10
+.VERSION 2026.07.14
 .GUID 42d1e2f3-a4b5-4c67-8d90-1e2f3a4b5c6d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -38,8 +38,8 @@
     the rest. Rows are emitted as objects (pipe to ConvertTo-Json, Where-Object,
     etc.); a human-readable summary goes to the information stream.
 
-    The "latest"-tracked dependencies (Helm, Flannel, mkcert, PowerShell) are
-    not pinned -- the guest scripts intentionally fetch their newest release at
+    The "latest"-tracked dependencies (Flannel, mkcert, PowerShell) are not
+    pinned -- the guest scripts intentionally fetch their newest release at
     install time -- so they are reported for visibility only and never flagged
     as out of date. Pass -PinnedOnly to omit them.
 .PARAMETER VersionsFile
@@ -207,6 +207,7 @@ function Get-VersionStatus {
 $pinnedDeps = @(
     @{ Name = 'Kubernetes (minor)'; Key = 'YURUNA_K8S_MINOR';       Kind = 'minor'; Source = 'dl.k8s.io/release/stable.txt';      Resolve = { Get-K8sLatestStableVersion } }
     @{ Name = 'OpenTofu';           Key = 'YURUNA_OPENTOFU_VERSION'; Kind = 'full';  Source = 'github.com/opentofu/opentofu';      Resolve = { Get-GitHubLatestTag -Repo 'opentofu/opentofu' } }
+    @{ Name = 'Helm';               Key = 'YURUNA_HELM_VERSION';     Kind = 'full';  Source = 'github.com/helm/helm';              Resolve = { Get-GitHubLatestTag -Repo 'helm/helm' } }
     @{ Name = 'nvm';                Key = 'YURUNA_NVM_VERSION';      Kind = 'full';  Source = 'github.com/nvm-sh/nvm';             Resolve = { Get-GitHubLatestTag -Repo 'nvm-sh/nvm' } }
     @{ Name = 'Node.js (LTS major)'; Key = 'YURUNA_NODE_MAJOR';      Kind = 'major'; Source = 'nodejs.org/dist/index.json';        Resolve = { Get-NodeLatestLtsVersion } }
 )
@@ -214,7 +215,6 @@ $pinnedDeps = @(
 # "latest"-tracked dependencies: the guest scripts fetch the newest release at
 # install time, so there is no pin to bump. Reported for visibility only.
 $trackedDeps = @(
-    @{ Name = 'Helm (tracks latest)';       Source = 'github.com/helm/helm';                   Resolve = { Get-GitHubLatestTag -Repo 'helm/helm' } }
     @{ Name = 'Flannel (tracks latest)';    Source = 'github.com/flannel-io/flannel';          Resolve = { Get-GitHubLatestTag -Repo 'flannel-io/flannel' } }
     @{ Name = 'mkcert (tracks latest)';     Source = 'github.com/FiloSottile/mkcert';          Resolve = { Get-GitHubLatestTag -Repo 'FiloSottile/mkcert' } }
     @{ Name = 'PowerShell (tracks latest)'; Source = 'github.com/PowerShell/PowerShell';        Resolve = { Get-GitHubLatestTag -Repo 'PowerShell/PowerShell' } }
@@ -290,3 +290,10 @@ if ($AsJson) {
 } else {
     $results
 }
+
+# Exit non-zero when a pinned dependency has drifted (a newer stable release is
+# available) so a CI gate can fail the build on drift. A dependency that could
+# not be checked ($failCount) is a transient upstream/network blip, not an
+# actionable version bump, so it does not by itself force a non-zero exit.
+if ($updateCount -gt 0) { exit 1 }
+exit 0

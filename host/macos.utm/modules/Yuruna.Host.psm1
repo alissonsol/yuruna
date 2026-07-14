@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.10
+.VERSION 2026.07.14
 .GUID 42a2b3c4-d5e6-4f78-9012-3a4b5c6d7e91
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -20,7 +20,7 @@
 .DESCRIPTION
     Self-contained host driver: contract surface plus the UTM/macOS
     helpers it consumes. Cross-host helpers live in
-    test/modules/Test.VMUtility.psm1 and Test.Ssh.psm1, imported below.
+    automation/Yuruna.Common.psm1 and test/modules/Test.Ssh.psm1, imported below.
     Module-qualified calls (e.g. `Yuruna.HostDownload\Save-CachedHttpUri`) appear
     where an external helper shares its name with the contract function
     -- without the qualifier the call would re-enter our own definition
@@ -38,7 +38,7 @@ $script:HostFolder     = Join-Path $script:RepoRoot 'host/macos.utm'
 # mid-cycle, and a bare -Force import here lands in Yuruna.Host's nested scope and
 # EVICTS the global copy other modules call via qualified names (e.g.
 # Test.Ssh\Invoke-GuestSsh) -- feedback_module_force_import_evicts_global.
-Import-Module (Join-Path $script:TestModulesDir 'Test.VMUtility.psm1')    -Force -DisableNameChecking -Global
+Import-Module (Join-Path $script:RepoRoot 'automation/Yuruna.Common.psm1') -Force -DisableNameChecking -Global
 Import-Module (Join-Path $script:TestModulesDir 'Test.Ssh.psm1')          -Force -DisableNameChecking -Global
 Import-Module (Join-Path $script:TestModulesDir 'Test.CachingProxy.psm1') -Force -DisableNameChecking -Global
 # Shared squid download / TLS-bump stack -- single source of truth across host drivers.
@@ -46,7 +46,7 @@ Import-Module (Join-Path $script:TestModulesDir 'Test.CachingProxy.psm1') -Force
 # discovery is injected via the -ResolveCacheHostIp scriptblock (see wrapper below).
 Import-Module (Join-Path $script:RepoRoot 'host/modules/Yuruna.HostDownload.psm1') -Force -DisableNameChecking -Global
 # Shared per-guest provisioning helpers (the New-VM.ps1 child-runner +
-# the Get-Image log-line writer) that all three drivers carried in duplicate.
+# the Get-Image log-line writer) common to all three drivers.
 Import-Module (Join-Path $script:RepoRoot 'host/modules/Yuruna.HostProvision.psm1') -Force -DisableNameChecking -Global
 # --- REGION: macOS/UTM host helpers
 
@@ -356,6 +356,17 @@ function Start-CachingProxyForwarder {
     }
     Write-Warning "Forwarder launched (pid $($proc.Id)) but :${Port} did not answer within 3s."
     Write-Warning "  Check $stateDir/forwarder.stderr.log and forwarder.log"
+    # A non-answering child may still be half-bound (listener up, connect
+    # racing) or wedged. Tear it down so it is not orphaned holding the
+    # port past our return. Prefer the pidfile-driven, identity-verified
+    # stop (matches Start-CachingProxyForwarder.ps1, honors root ownership);
+    # if the child never wrote its pidfile, signal the spawned pid directly.
+    if (Test-Path $pidFile) {
+        [void](Stop-CachingProxyForwarder -Port $Port -Quiet)
+    } else {
+        try { Stop-Process -Id $proc.Id -Force -ErrorAction Stop }
+        catch { Write-Verbose "Could not stop orphaned forwarder pid $($proc.Id): $_" }
+    }
     return $false
 }
 
@@ -490,10 +501,9 @@ function Get-CachingProxyForwarder {
     Stop-CachingProxyForwarder). Missing directory / no pidfiles is a
     no-op; safe to call even when nothing is running.
 
-    Cross-platform `Add-CachingProxyPortMap` / `Remove-CachingProxyPortMap`
-    (test/modules/Test.PortMap.psm1) dispatch to
-    Start-CachingProxyForwarder + this function on macOS. High-level
-    symbols live there; only platform primitives stay here.
+    The host-contract `Add-PortMap` / `Remove-PortMap` (declared in
+    host/Yuruna.Host.Contract.psm1, implemented per platform) dispatch to
+    Start-CachingProxyForwarder + this function on macOS.
 
 .OUTPUTS
     [int[]] -- ports whose forwarder was stopped (may be empty).
@@ -908,6 +918,33 @@ function Get-RunningVmName {
 
 <#
 .SYNOPSIS
+    Return $true only when utmctl can actually talk to UTM.app right now.
+.DESCRIPTION
+    Under host memory pressure UTM.app stops answering Apple Events, and
+    utmctl surfaces that as "The operation couldn't be completed. (OSStatus
+    error -1712.)" (errAETimeout) -- sometimes with a zero exit code and an
+    otherwise-empty listing. An exit-code check alone therefore can't tell
+    "no VMs running" from "couldn't ask UTM.app", so a caller that reads an
+    empty running-set as a verified-clean host would false-pass. Match the
+    timeout signature explicitly so "couldn't verify" stays distinguishable
+    from "confirmed clear".
+.OUTPUTS
+    [bool] $true when utmctl responded; $false when utmctl is missing,
+    exited non-zero, or UTM.app timed out.
+#>
+function Test-UtmctlResponsive {
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param()
+    if (-not (Get-Command utmctl -ErrorAction SilentlyContinue)) { return $false }
+    $output = & utmctl list 2>&1
+    if ($LASTEXITCODE -ne 0) { return $false }
+    if ($output -match 'OSStatus error|couldn.t be completed') { return $false }
+    return $true
+}
+
+<#
+.SYNOPSIS
     Refuse the cycle start when any UTM VM other than $ExceptVmName is
     currently `started`. Writes a multi-line actionable warning naming
     each offender + the exact `utmctl stop` command, then returns $false.
@@ -943,6 +980,18 @@ function Assert-NoConcurrentUtmVm {
     [CmdletBinding()]
     [OutputType([bool])]
     param([string]$ExceptVmName)
+    # Distinguish "confirmed no concurrent VM" from "couldn't check". If
+    # UTM.app is unresponsive (host memory pressure -> Apple Event timeout,
+    # OSStatus -1712), utmctl list returns empty and the running-set probe
+    # below reads as "nothing running" -- a false all-clear that would let a
+    # leftover VM slip past this guard. Surface that instead of silently
+    # passing. We still proceed (returning $false here would wedge every cycle
+    # on a host whose utmctl is intermittently unresponsive); the warning is
+    # the signal, and the per-guest teardown probe is the other backstop.
+    if (-not (Test-UtmctlResponsive)) {
+        Write-Warning "Assert-NoConcurrentUtmVm: utmctl is not responding (UTM.app likely unresponsive under host memory pressure); cannot verify no other VM is running -- proceeding WITHOUT the single-VM guarantee for this cycle."
+        return $true
+    }
     # The caching-proxy VM is infrastructure designed to coexist with test
     # cycles; never let it count as a concurrent offender (see .DESCRIPTION).
     $alwaysAllow = @('yuruna-caching-proxy')
@@ -2946,7 +2995,7 @@ function Get-HostProxyBackupPath {
     [CmdletBinding()]
     [OutputType([string])]
     param()
-    return Test.VMUtility\Get-HostProxyBackupPath
+    return Yuruna.Common\Get-HostProxyBackupPath
 }
 
 <#
@@ -2983,7 +3032,7 @@ Export-ModuleMember -Function `
     Save-CachedHttpUri, `
     Stop-UtmDialogWatchdog, Start-UtmDialogWatchdog, `
     Confirm-UtmVMCreated, Remove-UtmTestVM, Start-UtmVM, Stop-UtmVM, Confirm-UtmVMStarted, Wait-UtmVMPoweredOff, Restart-UtmConsole, `
-    Get-RunningVmName, Assert-NoConcurrentUtmVm, `
+    Get-RunningVmName, Test-UtmctlResponsive, Assert-NoConcurrentUtmVm, `
     Get-MacProxyMarkerPath, Test-MacProxyIsYurunaManaged, Get-MacActiveNetworkService, Read-MacProxyState, `
     Invoke-MacElevationIfNeeded, Invoke-MacNetworksetup, `
     Set-MacHostProxy, Restore-MacHostProxy, Disable-MacHostProxy, Remove-MacHostProxy, `

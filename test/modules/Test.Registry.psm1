@@ -1,5 +1,5 @@
-﻿<#PSScriptInfo
-.VERSION 2026.07.10
+<#PSScriptInfo
+.VERSION 2026.07.14
 .GUID 42e1b4d3-a8f9-4256-bc04-3d5e8a2b1c40
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -74,10 +74,17 @@ function New-YurunaRegistry {
         cannot rename without breaking cross-module visibility.
     .PARAMETER Comparer
         'OrdinalIgnoreCase' (default) uses `[ordered]@{}` which is
-        case-insensitive — matches Test.SequenceAction and Test.HostIO
+        case-insensitive -- matches Test.SequenceAction and Test.HostIO
         today. 'Ordinal' uses [Hashtable]::new([StringComparer]::Ordinal)
-        wrapped in an OrderedDictionary-compatible shape for callers
-        that need case-sensitive keys.
+        for callers that need case-sensitive keys.
+
+        If the $global: anchor already holds a store built under a
+        different comparer, an explicit -Comparer that disagrees is
+        honored by migrating the existing entries into a fresh store
+        under the requested comparer (never silently ignored, so the
+        stricter case-sensitivity a caller asks for is actually applied).
+        The reported Comparer is always derived from the live store's
+        type, so it stays truthful after any migration.
     .OUTPUTS
         Hashtable with keys: Register, Get, Has, GetMatrix, Clear,
         Store (the live backing store, for advanced callers that need
@@ -113,23 +120,47 @@ function New-YurunaRegistry {
         Set-Variable -Name $AnchorVar -Scope Global -Value $existing
     }
 
-    # Report the case-sensitivity of the store ACTUALLY in use, not the requested
-    # -Comparer. When a global anchor already exists (a -Force re-import, or a second
-    # caller sharing an AnchorVar), the requested -Comparer is not applied to the live
-    # store; echoing it would misreport case-sensitivity to introspection callers and
-    # would make Clear rebuild the store with the wrong comparer. This module builds
-    # exactly two store shapes -- an OrderedDictionary (the case-insensitive
-    # [ordered]@{} default) and a StringComparer.Ordinal Hashtable (case-sensitive) --
-    # so the live store's type is an exact, truthful signal of its comparer.
-    $effectiveComparer =
-        if     ($existing -is [System.Collections.Specialized.OrderedDictionary]) { 'OrdinalIgnoreCase' }
-        elseif ($existing -is [System.Collections.Hashtable])                     { 'Ordinal' }
-        else                                                                       { $Comparer }
-    if ($anchorPreExisted -and $PSBoundParameters.ContainsKey('Comparer') -and $effectiveComparer -ne $Comparer) {
-        Write-Warning ("New-YurunaRegistry: anchor '$AnchorVar' for '$Name' already holds a " +
-            "'$effectiveComparer' store; requested -Comparer '$Comparer' is not applied (live entries " +
-            "are preserved). The reported Comparer reflects the live store.")
+    # The case-sensitivity of the store is a policy, not a cosmetic label: an
+    # OrderedDictionary is case-insensitive; a StringComparer.Ordinal Hashtable is
+    # case-sensitive. This module builds exactly those two shapes, so the live store's
+    # type is an exact, truthful signal of its comparer.
+    $liveComparerOf = {
+        param($store)
+        if     ($store -is [System.Collections.Specialized.OrderedDictionary]) { 'OrdinalIgnoreCase' }
+        elseif ($store -is [System.Collections.Hashtable])                     { 'Ordinal' }
+        else                                                                    { $null }
     }
+
+    # When a global anchor already exists (a -Force re-import, or a second caller
+    # sharing an AnchorVar) the store built here is discarded and the live one reused.
+    # If the caller explicitly asked for a comparer that disagrees with the live store,
+    # honoring only the live store would silently keep the looser case-sensitivity a
+    # caller was trying to tighten -- a policy downgrade. Migrate instead: build a fresh
+    # store under the requested comparer and copy the existing entries into it under the
+    # new key-equality rules, then rebind the anchor. Migrating (not throwing) keeps
+    # every current caller working; they all request the store's own comparer, so this
+    # branch never fires for them.
+    $liveComparer = & $liveComparerOf $existing
+    if ($anchorPreExisted -and $PSBoundParameters.ContainsKey('Comparer') -and
+        $null -ne $liveComparer -and $liveComparer -ne $Comparer) {
+        if ($Comparer -eq 'Ordinal') {
+            $migrated = [Hashtable]::new([StringComparer]::Ordinal)
+        } else {
+            $migrated = [ordered]@{}
+        }
+        # Collapsing case-insensitive -> case-sensitive can surface keys that only
+        # differed by case; last writer wins, matching how the store would have behaved
+        # had it been built under the requested comparer from the start.
+        foreach ($k in @($existing.Keys)) { $migrated[$k] = $existing[$k] }
+        $existing = $migrated
+        Set-Variable -Name $AnchorVar -Scope Global -Value $existing
+    }
+
+    # Report the case-sensitivity of the store ACTUALLY in use, derived from its live
+    # type (never a cached request value): a misreport would lie to introspection
+    # callers and would make Clear rebuild the store with the wrong comparer.
+    $effectiveComparer = & $liveComparerOf $existing
+    if ($null -eq $effectiveComparer) { $effectiveComparer = $Comparer }
 
     # $storeRef[0] is the live store; Clear rebinds it.
     $storeRef = , $existing

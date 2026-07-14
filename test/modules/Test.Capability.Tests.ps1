@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.10
+.VERSION 2026.07.14
 .GUID 42b6d9f1-3c75-4e82-a0d4-6f8b1c2e3a49
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -34,35 +34,39 @@ Import-Module (Join-Path $here 'Test.Capability.psm1') -Force -DisableNameChecki
 function Assert-Equal { param($Expected, $Actual, [string]$Because='') if ($Expected -ne $Actual) { throw "Expected [$Expected] got [$Actual]. $Because" } }
 function Assert-True  { param($Condition, [string]$Because='') if (-not $Condition) { throw "Expected true. $Because" } }
 
+# The fixture pair lives at file scope, not inside the Describe: a Describe body is
+# executed during test discovery and everything it declares -- functions included -- is
+# discarded before any It runs, so a Describe-local New-RegFixture would be unresolvable
+# at the moment the It calls it.
+function New-RegFixture {
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidGlobalVars', '',
+        Justification = 'Test must seed/save the $global:__Yuruna* identity channels the writer reads.')]
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+        Justification = 'Test fixture: temp dir + seeds globals/env; no production state.')]
+    [OutputType([hashtable])]
+    param()
+    $saved = @{ HostId = $global:__YurunaHostId; RunId = $global:__YurunaRunId; RuntimeDir = $env:YURUNA_RUNTIME_DIR }
+    $tmp = Join-Path ([System.IO.Path]::GetTempPath()) ('yrn-reg-' + [guid]::NewGuid().ToString('N'))
+    New-Item -ItemType Directory -Path $tmp -Force | Out-Null
+    $env:YURUNA_RUNTIME_DIR = $tmp
+    $global:__YurunaHostId = '42' + ('b' * 30)
+    $global:__YurunaRunId  = [guid]::NewGuid().ToString()
+    return @{ Tmp = $tmp; Saved = $saved }
+}
+
+function Remove-RegFixture {
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidGlobalVars', '',
+        Justification = 'Test teardown: restores the $global:__Yuruna* channels it saved.')]
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+        Justification = 'Test teardown: restores saved globals/env + removes the temp dir.')]
+    param([Parameter(Mandatory)][hashtable]$Fixture)
+    $global:__YurunaHostId  = $Fixture.Saved.HostId
+    $global:__YurunaRunId   = $Fixture.Saved.RunId
+    $env:YURUNA_RUNTIME_DIR = $Fixture.Saved.RuntimeDir
+    Remove-Item -LiteralPath $Fixture.Tmp -Recurse -Force -ErrorAction SilentlyContinue
+}
+
 Describe 'Write-HostRegistrationRecord' {
-
-    function New-RegFixture {
-        [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidGlobalVars', '',
-            Justification = 'Test must seed/save the $global:__Yuruna* identity channels the writer reads.')]
-        [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
-            Justification = 'Test fixture: temp dir + seeds globals/env; no production state.')]
-        [OutputType([hashtable])]
-        param()
-        $saved = @{ HostId = $global:__YurunaHostId; RunId = $global:__YurunaRunId; RuntimeDir = $env:YURUNA_RUNTIME_DIR }
-        $tmp = Join-Path ([System.IO.Path]::GetTempPath()) ('yrn-reg-' + [guid]::NewGuid().ToString('N'))
-        New-Item -ItemType Directory -Path $tmp -Force | Out-Null
-        $env:YURUNA_RUNTIME_DIR = $tmp
-        $global:__YurunaHostId = '42' + ('b' * 30)
-        $global:__YurunaRunId  = [guid]::NewGuid().ToString()
-        return @{ Tmp = $tmp; Saved = $saved }
-    }
-
-    function Remove-RegFixture {
-        [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidGlobalVars', '',
-            Justification = 'Test teardown: restores the $global:__Yuruna* channels it saved.')]
-        [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
-            Justification = 'Test teardown: restores saved globals/env + removes the temp dir.')]
-        param([Parameter(Mandatory)][hashtable]$Fixture)
-        $global:__YurunaHostId  = $Fixture.Saved.HostId
-        $global:__YurunaRunId   = $Fixture.Saved.RunId
-        $env:YURUNA_RUNTIME_DIR = $Fixture.Saved.RuntimeDir
-        Remove-Item -LiteralPath $Fixture.Tmp -Recurse -Force -ErrorAction SilentlyContinue
-    }
 
     It 'writes host.registration.json with identity, capabilities, and reserved fields' {
         $fx = New-RegFixture

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.10
+.VERSION 2026.07.14
 .GUID 42f2c3d4-e5f6-4a78-b901-c2d3e4f5a6b8
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -22,11 +22,10 @@ if (Test-Path $_logLevelMod) { Import-Module $_logLevelMod -Global -Force; Use-L
 
 # --- REGION: Configuration
 # Ubuntu 26.04 LTS (Resolute Raccoon), arm64 cloud image -- macOS UTM
-# runs on Apple Silicon via Apple Virtualization. Moved up from 24.04
-# LTS (Noble Numbat) so the cache VM stays inside the supported-LTS
-# window and `unattended-upgrades` (enabled in host/vmconfig/caching-proxy.base.user-data)
-# keeps pulling security patches automatically rather than going EOL
-# mid-cycle.
+# runs on Apple Silicon via Apple Virtualization. A current LTS keeps the
+# cache VM inside the supported-LTS window, so `unattended-upgrades`
+# (enabled in host/vmconfig/caching-proxy.base.user-data) keeps pulling
+# security patches automatically rather than going EOL mid-cycle.
 $sourceUrl = "https://cloud-images.ubuntu.com/resolute/current/resolute-server-cloudimg-arm64.img"
 $downloadDir = "$HOME/yuruna/image/caching-proxy"
 $baseImageName = "host.macos.utm.guest.caching-proxy"

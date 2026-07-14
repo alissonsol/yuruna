@@ -1,7 +1,7 @@
 #!/bin/bash
 # Yuruna Ubuntu KVM/libvirt bootstrap installer.
 # LICENSEURI https://yuruna.link/license
-# Version: 2026.07.10  Copyright (c) 2019-2026 by Alisson Sol et al.
+# Version: 2026.07.14  Copyright (c) 2019-2026 by Alisson Sol et al.
 # --- REGION: https://yuruna.link/install/explained
 # One-liner: bash <(curl -fsSL https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/install/ubuntu.kvm.sh)
 # Supported target: Ubuntu 26.04 (Resolute) or newer on x86_64 (aarch64 supported but UNTESTED -- see preflight).
@@ -154,12 +154,14 @@ preflight_system_requirements() {
     issues+=("$cores cores detected (need 16+)")
   fi
   mem_kb=$(awk '/^MemTotal:/ {print $2}' /proc/meminfo 2>/dev/null || echo 0)
-  mem_gb=$(( ${mem_kb:-0} / 1024 / 1024 ))
+  # Round to nearest GB (add half the divisor) so a box a fraction under the
+  # boundary -- e.g. 32 GB reporting 31.6 GB MemTotal -- is not warned as 31.
+  mem_gb=$(( (${mem_kb:-0} + 512 * 1024) / (1024 * 1024) ))
   if (( mem_gb < 32 )); then
     issues+=("${mem_gb}GB RAM detected (need 32GB+)")
   fi
   disk_kb=$(df -k / 2>/dev/null | awk 'NR==2 {print $4}')
-  disk_gb=$(( ${disk_kb:-0} / 1024 / 1024 ))
+  disk_gb=$(( (${disk_kb:-0} + 512 * 1024) / (1024 * 1024) ))
   if (( disk_gb < 512 )); then
     issues+=("${disk_gb}GB free on / (need 512GB+)")
   fi

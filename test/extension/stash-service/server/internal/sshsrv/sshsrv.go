@@ -289,10 +289,7 @@ func (s *Server) runCommand(ch ssh.Channel, rawCmd, username, remote string) {
 	// §8.2 step 2: pending record up front. storedPath and
 	// originalFilename are placeholder until FinalizeStaging produces
 	// the real values.
-	clientIP := remote
-	if h, _, splitErr := net.SplitHostPort(remote); splitErr == nil {
-		clientIP = h
-	}
+	clientIP := hostOnly(remote)
 	pendingRec := &meta.Record{
 		ID:               allocated,
 		StoredPath:       "",

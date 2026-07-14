@@ -97,7 +97,7 @@ openssl for the CA-generation step in runcmd. The cloud image ships libssl but n
 
 ### Package unattended-upgrades
 
-unattended-upgrades: applies security + LTS-point patches daily via the stock apt-daily.timer + apt-daily-upgrade.timer units that the package's postinst enables. Combined with the 20auto-upgrades drop- in below it gives the long-lived cache VM a self-maintained patch cadence so it doesn't accumulate CVEs between cache rebuilds. A first-boot `apt-get -y upgrade` at the end of runcmd applies the backlog that exists between the cloud image's build date and now.
+unattended-upgrades: applies security + LTS-point patches daily via the stock apt-daily.timer + apt-daily-upgrade.timer units that the package's postinst enables. Combined with the 20auto-upgrades drop-in below it gives the long-lived cache VM a self-maintained patch cadence so it doesn't accumulate CVEs between cache rebuilds. A first-boot `apt-get -y upgrade` at the end of runcmd applies the backlog that exists between the cloud image's build date and now.
 
 ### Packages cifs-utils and sqlite3 for NAS replication
 
@@ -109,7 +109,7 @@ Retry apt fetches on transient network errors. Cloud-init's default is one-shot;
 
 ### Unattended-upgrades schedule
 
-unattended-upgrades enable flags. Both timers (apt-daily.timer + apt-daily-upgrade.timer) ship with the apt package and are enabled by default -- this dropin is what turns the upgrade phase on. Update-Package-Lists = run `apt-get update` daily; Unattended- Upgrade = run the upgrade phase daily. Auto-clean keeps /var/cache/ apt from growing without bound between cycles. The default /etc/apt/apt.conf.d/50unattended-upgrades scopes upgrades to the security pocket only -- leave that conservative; widening to all pockets risks pulling in a kernel that needs a reboot we can't schedule on a long-lived cache box.
+unattended-upgrades enable flags. Both timers (apt-daily.timer + apt-daily-upgrade.timer) ship with the apt package and are enabled by default -- this dropin is what turns the upgrade phase on. Update-Package-Lists = run `apt-get update` daily; Unattended-Upgrade = run the upgrade phase daily. Auto-clean keeps /var/cache/apt from growing without bound between cycles. The default /etc/apt/apt.conf.d/50unattended-upgrades scopes upgrades to the security pocket only -- leave that conservative; widening to all pockets risks pulling in a kernel that needs a reboot we can't schedule on a long-lived cache box.
 
 ### Restrict cachemgr to RFC1918
 
@@ -176,17 +176,21 @@ Yuruna host (status server) coordinates. Baked into the seed by the platform New
 
 Yuruna hosts dashboard (Phase 1). INLINED (like squid.json) so it deploys from the local user-data -- independent of the pool-aggregator binary build AND of any GitHub fetch/mirror -- and therefore shows from first boot ("No data" until the collector is up). Keep in sync with the lintable canonical copy at test/extension/pool-aggregator/grafana-pool-dashboard.json.
 
+### Yuruna hosts dashboard panel autofit
+
+Grafana panel heights are fixed in the dashboard JSON (`gridPos.h`); there is no "fit to content" height. The three per-host panels -- Cycle outcome over time, Pool hosts, Extension hosts -- carry one row per host, so any fixed height is wrong for some pool size: a table sized for 8 hosts scrolls once a 9th host joins, and one sized for a large pool shows dead whitespace on a small one. `yuruna-fit-pool-dashboard.py` reads the host count the collector is reporting (Prometheus + Loki on loopback), recomputes each panel's height from the dashboard grid geometry (a panel of `h` units is `38h - 8` px tall, less the chrome, the table header row, and -- on the timeline -- the x-axis and legend), re-stacks the panels below it, and rewrites `/var/lib/grafana/dashboards/pool.json` atomically. Heights round UP: a panel a few px too tall shows blank space, one a few px too short shows a scrollbar, and only the scrollbar is a defect. The `gridPos.h` values inlined above are only the pre-collector default. A collector that is down reports no hosts, which is indistinguishable from an empty pool, so a zero count leaves the file untouched rather than collapsing every panel to its header. Row counts track the dashboard's DEFAULT 24h window; a wider range picked in the time picker can still surface an older host and scroll.
+
 ### Squid dashboard inlined
 
 Minimal squid dashboard: panels show "No data" gracefully if metric names drift between exporter releases.
 
 ### zot systemd unit
 
-Systemd unit -- runs zot as an unprivileged service user with ProtectSystem=strict + ReadWritePaths confining writes to /var/lib/ zot (blob store) and /var/log/zot. There is no apt package for zot on Resolute, so the binary install + manual systemd unit is the simplest path. The binary lands at /usr/local/bin/zot via runcmd.
+Systemd unit -- runs zot as an unprivileged service user with ProtectSystem=strict + ReadWritePaths confining writes to /var/lib/zot (blob store) and /var/log/zot. There is no apt package for zot on Resolute, so the binary install + manual systemd unit is the simplest path. The binary lands at /usr/local/bin/zot via runcmd.
 
 ### NetworkStorage pool replication config
 
-networkStorage pool (ypool-nas) service replication: config + SMB credential + the timer- driven rsync of observability data to the NAS. All values are baked by New-VM.ps1 from the host's networkStorage pool config + vault (empty / REPLICATE=false when off).
+networkStorage pool (ypool-nas) service replication: config + SMB credential + the timer-driven rsync of observability data to the NAS. All values are baked by New-VM.ps1 from the host's networkStorage pool config + vault (empty / REPLICATE=false when off).
 
 ### NAS cifs credentials
 
@@ -232,7 +236,7 @@ Publish the SAME CA under a pool-specific name so a runner can pin the pool-aggr
 
 ### Pre-warm the cache
 
-security.ubuntu.com rate-limits linux-firmware (~330 MB) hard enough that every cold guest install 429s on it. Pre-fetching via the local proxy means squid has it before any guest asks, so the first-ever install serves from cache. Pull the HWE meta too so kernel, modules- extra, headers, and microcode .debs land alongside.
+security.ubuntu.com rate-limits linux-firmware (~330 MB) hard enough that every cold guest install 429s on it. Pre-fetching via the local proxy means squid has it before any guest asks, so the first-ever install serves from cache. Pull the HWE meta too so kernel, modules-extra, headers, and microcode .debs land alongside.
 
 Wait up to 60s for squid's listener. apt's postinst usually has it up, but start can be slow on first boot.
 
@@ -298,9 +302,13 @@ Yuruna pool intent store (Phase 3): a bare git repo pooled hosts clone + pull RE
 
 3000 and dump journal if it doesn't. On a slow first boot, grafana can take ~15s to come up after `restart` returns. Without this check, a failed start only surfaces when an operator tries the dashboard and gets "connection refused" -- by which time cloud-init logs may be rotated. Mirrors the squid:3128 diagnostic net so both failure modes surface the same way in /var/log/cloud-init-output.log.
 
+### Enable yuruna hosts dashboard panel autofit
+
+Enable the timer that keeps the Yuruna hosts dashboard's per-host panels sized to the pool (see "Yuruna hosts dashboard panel autofit" above). It first fires 3min after boot -- by then the collector has polled the pool at least once -- and every 5min after, so a host that joins or leaves is reflected within one tick plus the dashboard provider's 30s reload. `--now` also runs it once here, which costs two loopback queries and, on a pool that has not registered yet, does nothing.
+
 ### Install community Zot dashboard
 
-Install the community Zot dashboard (Grafana ID 20501) alongside the hand-crafted Yuruna caching proxy dashboard. The upstream JSON uses a $DS_PROMETHEUS templating placeholder whose embedded default points at the original author's datasource ("VictoriaMetrics Bagno"); the rewriter (write_files) strips the picker and pins every panel to yuruna-prometheus + a stable uid + a friendly title so re-runs are idempotent. The dashboard provisioner under /etc/grafana/provisioning/ dashboards/yuruna.yaml picks the file up on its next 30s tick. `else` branch keeps cycling: a transient grafana.com outage degrades to "missing extra dashboard" rather than failing the whole runcmd phase.
+Install the community Zot dashboard (Grafana ID 20501) alongside the hand-crafted Yuruna caching proxy dashboard. The upstream JSON uses a $DS_PROMETHEUS templating placeholder whose embedded default points at the original author's datasource ("VictoriaMetrics Bagno"); the rewriter (write_files) strips the picker and pins every panel to yuruna-prometheus + a stable uid + a friendly title so re-runs are idempotent. The dashboard provisioner under /etc/grafana/provisioning/dashboards/yuruna.yaml picks the file up on its next 30s tick. `else` branch keeps cycling: a transient grafana.com outage degrades to "missing extra dashboard" rather than failing the whole runcmd phase.
 
 ### Enable NAS replication timer conditionally
 
@@ -320,7 +328,7 @@ Confirm the timers that drive the 24-hour cadence are actually armed. If the apt
 
 ### zot install binary and activation
 
-zot install (binary fetch + systemd activation) ZOT_VERSION is pinned for reproducibility. To bump: read https://github.com/project-zot/zot/releases, verify the asset names still match `zot-linux-{amd64,arm64}` (NOT `-minimal` -- the sync extension is required for on-demand pull-through caching), then change ZOT_VERSION here. The binary download goes DIRECT to GitHub (not through this VM's own squid -- chicken-and-egg) and is a one- shot per VM build, so the ~220 MB transfer doesn't recur.
+zot install (binary fetch + systemd activation) ZOT_VERSION is pinned for reproducibility. To bump: read https://github.com/project-zot/zot/releases, verify the asset names still match `zot-linux-{amd64,arm64}` (NOT `-minimal` -- the sync extension is required for on-demand pull-through caching), then change ZOT_VERSION here. The binary download goes DIRECT to GitHub (not through this VM's own squid -- chicken-and-egg) and is a one-shot per VM build, so the ~220 MB transfer doesn't recur.
 
 ### Ready banner YAML mapping trap
 
@@ -342,8 +350,10 @@ Single-quoted: the bare `: ` after "ready" makes YAML parse the scalar as a mapp
 
 ---
 
+LICENSEURI https://yuruna.link/license
+
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.10
+Last review: 2026.07.14
 
 Back to [Yuruna](../README.md)

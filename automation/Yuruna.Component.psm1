@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.10
+.VERSION 2026.07.14
 .GUID 42a9c1d2-e3f4-4567-8901-2a3b4c5d6e7f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -21,6 +21,9 @@ $validationModulePath = Join-Path -Path $yuruna_root -ChildPath "automation/Yuru
 Import-Module -Name $validationModulePath
 Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Invoke-DynamicExpression")
 Import-Module (Join-Path $PSScriptRoot 'Yuruna.Result.psm1') -Global -Force
+# New-YurunaTimestampedBackup: the shared timestamped-backup step, so the
+# timestamp format cannot drift between the three publishers.
+Import-Module (Join-Path $PSScriptRoot 'Yuruna.Common.psm1') -Global -Force
 # Set-ExpandedVariableHashtable + Set-ExpandedResourcesOutput live in
 # Yuruna.VariableExpansion. Component passes -NoExpand because its
 # layering happens at the YAML level -- ExpandString here would
@@ -28,12 +31,12 @@ Import-Module (Join-Path $PSScriptRoot 'Yuruna.Result.psm1') -Global -Force
 # which is exactly what the layered model is meant to avoid.
 Import-Module (Join-Path $PSScriptRoot 'Yuruna.VariableExpansion.psm1') -Global -Force
 # Registry-login dispatcher. Yuruna.Component.Registry bridges to the
-# credential-provider registry in test/modules/Test.CredentialProvider
+# credential-provider registry in automation/Yuruna.CredentialProvider
 # so this pipeline's "registryLogin" phase and the test harness's
 # self-heal Repair-Credential path agree on what the login command is
 # for any given registry hostname. Adding a new registry kind (ECR,
 # GAR, Docker Hub, Harbor, ...) is one Register-CredentialProvider
-# call inside Test.CredentialProvider; nothing to edit here.
+# call inside Yuruna.CredentialProvider; nothing to edit here.
 Import-Module (Join-Path $PSScriptRoot 'Yuruna.Component.Registry.psm1') -Global -Force
 Remove-Item Env:DOCKER_BUILDKIT -Force -ErrorAction SilentlyContinue
 
@@ -76,10 +79,7 @@ function Publish-ComponentList {
     $workFolder = Join-Path -Path $project_root -ChildPath ".yuruna/$config_subfolder/components"
     $null = New-Item -ItemType Directory -Force -Path $workFolder -ErrorAction SilentlyContinue
     $workFolder = Resolve-Path -Path $workFolder
-    $dtTime = '{0}' -f ([system.string]::format('{0:yyyy-MM-dd-HH-mm-ss}',(Get-Date)))
-    $backupFile = Join-Path -Path $workFolder -ChildPath "components.$dtTime.yml"
-    Copy-Item "$componentsFile" -Destination $backupFile -Recurse -Container -ErrorAction SilentlyContinue
-    Write-Verbose "Backup of: $componentsFile copied to: $backupFile"
+    New-YurunaTimestampedBackup -SourceFile $componentsFile -WorkFolder $workFolder -Prefix 'components'
 
     $resourcesOutputFile = Join-Path -Path $project_root -ChildPath "config/$config_subfolder/resources.output.yml"
     $resourcesOutputYaml = $null
@@ -113,7 +113,7 @@ function Publish-ComponentList {
         # replay the captured output onto the parent stdout so the test
         # runner's transcript still shows what docker did. Sets the global
         # $LASTEXITCODE so the caller's `if (-Not (0 -eq $LASTEXITCODE))`
-        # checks behave exactly as before.
+        # checks see this phase's exit code.
         param([string]$Phase, [string]$Command)
         $out = Invoke-DynamicExpression -Command $Command *>&1
         # Pure-PowerShell command sequences (no native exe in the chain)
@@ -155,7 +155,6 @@ function Publish-ComponentList {
         Set-ExpandedVariableHashtable -Variables $componentsYaml.globalVariables -Sink $componentVars -NoExpand
         Set-ExpandedVariableHashtable -Variables $component.variables -Sink $componentVars -NoExpand -DebugLabel 'componentVariables'
 
-        # buildCommand comes from components.yml
         $buildCommand = $component['buildCommand']
         if ([string]::IsNullOrEmpty($buildCommand)) { $buildCommand = $componentsYaml.globalVariables['buildCommand'] }
         if ([string]::IsNullOrEmpty($buildCommand)) { Write-Information "buildCommand cannot be null or empty in file (both globalVariables and component level): $componentsFile"; return (New-YurunaResultManifest -Success $false -ErrorMessage "buildCommand cannot be null or empty in $componentsFile (both globalVariables and component level)" -FailureClass 'config_error' -DurationMs $sw.ElapsedMilliseconds); }
@@ -184,12 +183,13 @@ function Publish-ComponentList {
             Invoke-ComponentCommand -Phase "preProcessor[$projectName]" -Command $executionCommand
             if (-Not (0 -eq $LASTEXITCODE)) {
                 Write-Information "EXITCODE: $LASTEXITCODE for preProcessor: $executionCommand"
-                # Under EAP=Continue the function "swallows" the docker
-                # failure and reports success so the cycle moves on; under
-                # any other EAP it reports failure. The manifest carries the
-                # actual tool exit code so callers and diagnostics can see
-                # what really happened.
-                return (New-YurunaResultManifest -Success ($ErrorActionPreference -eq 'Continue') -ErrorMessage "preProcessor[$projectName] exit ${LASTEXITCODE}: $executionCommand" -FailureClass 'tool_failed' -ExitCode $LASTEXITCODE -DurationMs $sw.ElapsedMilliseconds);
+                # A non-zero tool exit is a failure: report success=$false so a
+                # consumer keying on `success` (Complete-YurunaRun, diagnostics)
+                # catches it. The exit code + failureClass carry the triage
+                # detail. Deriving success from the ambient $ErrorActionPreference
+                # instead would let a failed build/tag/push masquerade as a pass
+                # at the framework defaults (EAP stays 'Continue').
+                return (New-YurunaResultManifest -Success $false -ErrorMessage "preProcessor[$projectName] exit ${LASTEXITCODE}: $executionCommand" -FailureClass 'tool_failed' -ExitCode $LASTEXITCODE -DurationMs $sw.ElapsedMilliseconds);
             }
         }
 
@@ -198,7 +198,7 @@ function Publish-ComponentList {
         Invoke-ComponentCommand -Phase "build[$projectName]" -Command $executionCommand
         if (-Not (0 -eq $LASTEXITCODE)) {
             Write-Information "EXITCODE: $LASTEXITCODE for Build: $executionCommand"
-            return (New-YurunaResultManifest -Success ($ErrorActionPreference -eq 'Continue') -ErrorMessage "build[$projectName] exit ${LASTEXITCODE}: $executionCommand" -FailureClass 'tool_failed' -ExitCode $LASTEXITCODE -DurationMs $sw.ElapsedMilliseconds);
+            return (New-YurunaResultManifest -Success $false -ErrorMessage "build[$projectName] exit ${LASTEXITCODE}: $executionCommand" -FailureClass 'tool_failed' -ExitCode $LASTEXITCODE -DurationMs $sw.ElapsedMilliseconds);
         }
 
         $postProcessor = $componentVars['postProcessor']
@@ -209,7 +209,7 @@ function Publish-ComponentList {
             Invoke-ComponentCommand -Phase "postProcessor[$projectName]" -Command $executionCommand
             if (-Not (0 -eq $LASTEXITCODE)) {
                 Write-Information "EXITCODE: $LASTEXITCODE for postProcessor: $executionCommand"
-                return (New-YurunaResultManifest -Success ($ErrorActionPreference -eq 'Continue') -ErrorMessage "postProcessor[$projectName] exit ${LASTEXITCODE}: $executionCommand" -FailureClass 'tool_failed' -ExitCode $LASTEXITCODE -DurationMs $sw.ElapsedMilliseconds);
+                return (New-YurunaResultManifest -Success $false -ErrorMessage "postProcessor[$projectName] exit ${LASTEXITCODE}: $executionCommand" -FailureClass 'tool_failed' -ExitCode $LASTEXITCODE -DurationMs $sw.ElapsedMilliseconds);
             }
         }
         Pop-Location
@@ -225,7 +225,7 @@ function Publish-ComponentList {
         Invoke-ComponentCommand -Phase "tag[$projectName]" -Command $executionCommand
         if (-Not (0 -eq $LASTEXITCODE)) {
             Write-Information "EXITCODE: $LASTEXITCODE for Tag: $executionCommand"
-            return (New-YurunaResultManifest -Success ($ErrorActionPreference -eq 'Continue') -ErrorMessage "tag[$projectName] exit ${LASTEXITCODE}: $executionCommand" -FailureClass 'tool_failed' -ExitCode $LASTEXITCODE -DurationMs $sw.ElapsedMilliseconds);
+            return (New-YurunaResultManifest -Success $false -ErrorMessage "tag[$projectName] exit ${LASTEXITCODE}: $executionCommand" -FailureClass 'tool_failed' -ExitCode $LASTEXITCODE -DurationMs $sw.ElapsedMilliseconds);
         }
 
         # Registry login dispatched through Yuruna.Component.Registry
@@ -240,7 +240,7 @@ function Publish-ComponentList {
             Invoke-ComponentCommand -Phase "registryLogin[$projectName]" -Command $executionCommand | Write-Verbose
             if (-Not (0 -eq $LASTEXITCODE)) {
                 Write-Information "EXITCODE: $LASTEXITCODE for: $executionCommand"
-                return (New-YurunaResultManifest -Success ($ErrorActionPreference -eq 'Continue') -ErrorMessage "registryLogin[$projectName] exit ${LASTEXITCODE}: $executionCommand" -FailureClass 'tool_failed' -ExitCode $LASTEXITCODE -DurationMs $sw.ElapsedMilliseconds);
+                return (New-YurunaResultManifest -Success $false -ErrorMessage "registryLogin[$projectName] exit ${LASTEXITCODE}: $executionCommand" -FailureClass 'tool_failed' -ExitCode $LASTEXITCODE -DurationMs $sw.ElapsedMilliseconds);
             }
         }
 
@@ -249,7 +249,7 @@ function Publish-ComponentList {
         Invoke-ComponentCommand -Phase "push[$projectName]" -Command $executionCommand
         if (-Not (0 -eq $LASTEXITCODE)) {
             Write-Information "EXITCODE: $LASTEXITCODE for Push: $executionCommand"
-            return (New-YurunaResultManifest -Success ($ErrorActionPreference -eq 'Continue') -ErrorMessage "push[$projectName] exit ${LASTEXITCODE}: $executionCommand" -FailureClass 'tool_failed' -ExitCode $LASTEXITCODE -DurationMs $sw.ElapsedMilliseconds);
+            return (New-YurunaResultManifest -Success $false -ErrorMessage "push[$projectName] exit ${LASTEXITCODE}: $executionCommand" -FailureClass 'tool_failed' -ExitCode $LASTEXITCODE -DurationMs $sw.ElapsedMilliseconds);
         }
     }
 

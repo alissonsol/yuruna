@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.10
+.VERSION 2026.07.14
 .GUID 422f3b8c-4e95-4a72-9b16-7f8e3c0d5a29
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -98,6 +98,12 @@ function Test-AstCallsCommand {
     return (@($hits).Count -gt 0)
 }
 
+# The parsed dispatch function the AST guards below inspect. It is resolved at
+# FILE scope because a Describe body is executed during discovery and its
+# variables are discarded before any It runs -- an in-Describe $invokeAst would
+# arrive at the guards as $null.
+$invokeAst = Get-FunctionAst -Path $modulePath -FunctionName 'Invoke-HostIOAction'
+
 Describe 'Invoke-HostIOAction dispatch contract (behavioral)' {
     # Drop the namespaced test provider on the way out so the suite leaves the
     # ambient $global:YurunaHostIOProviders registry as it found it.
@@ -115,7 +121,15 @@ Describe 'Invoke-HostIOAction dispatch contract (behavioral)' {
         Assert-True ($msg -match "not available on 'test\.hostio\.unit'") 'the message names the host'
         Assert-True ($msg -match 'available actions: Send-Probe') 'the message lists the known actions from the single lookup'
     }
-    It 'throws with the <host not registered> marker when the host is unknown' {
+    # Angle brackets in an It name are not decoration: Pester expands <...> as a
+    # data placeholder, so the contents have to parse as a PowerShell expression.
+    # A single identifier (<server>, <uuid>) survives that, which is why the
+    # brackets look safe elsewhere in the suite; several words do not. Spelling
+    # the marker as '<host not registered>' made Pester parse `host not registered`,
+    # which fails on the token `not` -- and a name that will not parse takes the
+    # whole test with it, so the body never runs and the guard silently stops
+    # guarding. Keep multi-word markers out of the brackets.
+    It 'throws with the host-not-registered marker when the host is unknown' {
         $threw = $false
         try { Invoke-HostIOAction -HostType 'test.hostio.absent-xyz' -Action 'Send-Probe' }
         catch { $threw = $true; $msg = $_.Exception.Message }
@@ -125,8 +139,6 @@ Describe 'Invoke-HostIOAction dispatch contract (behavioral)' {
 }
 
 Describe 'Invoke-HostIOAction does a single hot-path registry lookup' {
-    $invokeAst = Get-FunctionAst -Path $modulePath -FunctionName 'Invoke-HostIOAction'
-
     It 'performs exactly one registry Get (no redundant re-lookup on the send path)' {
         Assert-Equal -Expected 1 -Actual (Get-MemberAccessCount -FuncAst $invokeAst -BaseVar 'HostIORegistry' -Member 'Get') -Because `
             'the availability decision and the invoke both derive from one $hostMap reference'

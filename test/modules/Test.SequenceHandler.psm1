@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.10
+.VERSION 2026.07.14
 .GUID 42a1b2c3-d4e5-4f67-8901-bc012345672a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -46,6 +46,12 @@ Import-Module (Join-Path $PSScriptRoot 'Test.OcrMatch.psm1') -Force -Global
 # lives in Test.Backoff; import it -Global so the retry Handler below resolves
 # it by bare name. Test.Backoff is stateless, so a -Force reimport wipes nothing.
 Import-Module (Join-Path $PSScriptRoot 'Test.Backoff.psm1') -Force -Global
+
+# fetchAndExecute tells the guest which GitHub repo + commit to fall back to when
+# the host status server is unreachable. Get-YurunaGitHubSource answers that from
+# the same place the New-VM seed does, so the typed and the baked coordinates can
+# never name different repositories.
+Import-Module (Join-Path -Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) -ChildPath 'automation' -AdditionalChildPath 'Yuruna.GitHubSource.psm1') -Force -Global
 
 # --- REGION: Helpers shared by the pattern-bearing verbs
 # (waitForText, waitForAndEnter, passwdPrompt). Kept private to this module --
@@ -127,6 +133,41 @@ function Send-TabNavigation {
         }
         Start-Sleep -Milliseconds 500
     }
+}
+
+# Shared tail of the type-then-Enter input verbs (inputTextAndEnter, waitForAndEnter,
+# passwdPrompt, fetchAndExecute): send the already-expanded $Text; on a Send-Text
+# failure bail BEFORE draining (no Enter is sent); otherwise drain $DelaySeconds with
+# progress ticks + an 800ms settle, then press Enter. Returns the Enter result as
+# [bool] (or $false when Send-Text failed). Callers keep their own "Typing ..." debug
+# line -- the message text and the sensitive-masking rule differ per verb -- and decide
+# whether to return the result or continue (fetchAndExecute continues to wait for a
+# completion marker). $ShellEscape is OFF for passwdPrompt so the password types
+# literally, ON for the command/text verbs, matching each verb's Send-Text call.
+# Send-Text / Send-Key are qualified to Invoke-Sequence's dispatcher (the same names
+# also exist on the per-host I/O modules imported here). Write-Progress-only ticks
+# emit nothing to the output stream, so the single [bool] return is uncontaminated.
+function Invoke-TypeDrainEnter {
+    [OutputType([bool])]
+    param(
+        [Parameter(Mandatory)][hashtable]$Context,
+        [Parameter(Mandatory)][AllowEmptyString()][string]$Text,
+        [Parameter(Mandatory)][double]$DelaySeconds,
+        [Parameter(Mandatory)][int]$CharDelayMs,
+        [Parameter(Mandatory)][string]$Activity,
+        [switch]$ShellEscape
+    )
+    $ok = Invoke-Sequence\Send-Text -HostType $Context.HostType -VMName $Context.VMName -Text $Text -CharDelayMs $CharDelayMs -ShellEscape:$ShellEscape
+    if ($ok -eq $false) { return $false }
+    $delaySecsInt = [int][math]::Ceiling($DelaySeconds)
+    for ($r = $delaySecsInt; $r -gt 0; $r--) {
+        $pct = [math]::Round((($delaySecsInt - $r) / [math]::Max($delaySecsInt, 1)) * 100)
+        Write-ProgressTick -Activity $Activity -Status "drain ${r}s" -PercentComplete $pct
+        Start-Sleep -Seconds 1
+    }
+    Write-ProgressTick -Activity $Activity -Completed
+    Start-Sleep -Milliseconds 800
+    return [bool](Invoke-Sequence\Send-Key -HostType $Context.HostType -VMName $Context.VMName -KeyName 'Enter')
 }
 
 Register-SequenceAction -Name 'waitForSeconds' -HostIORequirement @() -OcrRequired $false `
@@ -621,17 +662,7 @@ Register-SequenceAction -Name 'inputTextAndEnter' -HostIORequirement @('Send-Tex
         $delaySeconds = $c.Step.delaySeconds ? [double]$c.Step.delaySeconds : 2
         $charDelay = $c.Step.charDelayMs ? [int]$c.Step.charDelayMs : $c.DefaultCharDelayMs
         Write-Debug "      Typing: '$masked' + Enter (charDelay=${charDelay}ms, delay ${delaySeconds}s)"
-        $ok = Invoke-Sequence\Send-Text -HostType $c.HostType -VMName $c.VMName -Text $text -CharDelayMs $charDelay -ShellEscape
-        if ($ok -eq $false) { return $false }
-        $delaySecsInt = [int][math]::Ceiling($delaySeconds)
-        for ($r = $delaySecsInt; $r -gt 0; $r--) {
-            $pct = [math]::Round((($delaySecsInt - $r) / [math]::Max($delaySecsInt,1)) * 100)
-            Write-ProgressTick -Activity 'inputTextAndEnter' -Status "drain ${r}s" -PercentComplete $pct
-            Start-Sleep -Seconds 1
-        }
-        Write-ProgressTick -Activity 'inputTextAndEnter' -Completed
-        Start-Sleep -Milliseconds 800
-        return [bool](Invoke-Sequence\Send-Key -HostType $c.HostType -VMName $c.VMName -KeyName 'Enter')
+        return (Invoke-TypeDrainEnter -Context $c -Text $text -DelaySeconds $delaySeconds -CharDelayMs $charDelay -Activity 'inputTextAndEnter' -ShellEscape)
     }
 
 Register-SequenceAction -Name 'networkRelease' -HostIORequirement @('Send-Text', 'Send-Key') -OcrRequired $false `
@@ -671,6 +702,7 @@ Register-SequenceAction -Name 'networkRelease' -HostIORequirement @('Send-Text',
 
 Register-SequenceAction -Name 'waitForText' -HostIORequirement @() -OcrRequired $true `
     -FailureClass 'ocr_timeout' -Severity 'hard' -SuggestedRecoveries @('restart_from_snapshot','pause_and_inspect') `
+    -UsesWaitSignals $true -CapturesOwnFailureScreenshot $true `
     -Description 'OCR-poll the guest framebuffer for one of N patterns.' `
     -FailureLabel { param($c)
         $pd = Format-SequencePatternLabel -Step $c.Step -Vars $c.Vars -ExpandVariable $c.ExpandVariable
@@ -688,6 +720,7 @@ Register-SequenceAction -Name 'waitForText' -HostIORequirement @() -OcrRequired 
 
 Register-SequenceAction -Name 'waitForAndEnter' -HostIORequirement @('Send-Text', 'Send-Key') -OcrRequired $true `
     -FailureClass 'ocr_timeout' -Severity 'hard' -SuggestedRecoveries @('restart_from_snapshot','pause_and_inspect') `
+    -UsesWaitSignals $true -CapturesOwnFailureScreenshot $true `
     -Description 'waitForText then typeAndEnter.' `
     -FailureLabel { param($c)
         $pd = Format-SequencePatternLabel -Step $c.Step -Vars $c.Vars -ExpandVariable $c.ExpandVariable
@@ -708,21 +741,12 @@ Register-SequenceAction -Name 'waitForAndEnter' -HostIORequirement @('Send-Text'
         $delaySeconds = $c.Step.delaySeconds ? [double]$c.Step.delaySeconds : 2
         $charDelay = $c.Step.charDelayMs ? [int]$c.Step.charDelayMs : $c.DefaultCharDelayMs
         Write-Debug "      Typing: '$masked' + Enter (charDelay=${charDelay}ms, delay ${delaySeconds}s)"
-        $ok = Invoke-Sequence\Send-Text -HostType $c.HostType -VMName $c.VMName -Text $text -CharDelayMs $charDelay -ShellEscape
-        if ($ok -eq $false) { return $false }
-        $delaySecsInt = [int][math]::Ceiling($delaySeconds)
-        for ($r = $delaySecsInt; $r -gt 0; $r--) {
-            $pct = [math]::Round((($delaySecsInt - $r) / [math]::Max($delaySecsInt,1)) * 100)
-            Write-ProgressTick -Activity 'waitForAndEnter' -Status "drain ${r}s" -PercentComplete $pct
-            Start-Sleep -Seconds 1
-        }
-        Write-ProgressTick -Activity 'waitForAndEnter' -Completed
-        Start-Sleep -Milliseconds 800
-        return [bool](Invoke-Sequence\Send-Key -HostType $c.HostType -VMName $c.VMName -KeyName 'Enter')
+        return (Invoke-TypeDrainEnter -Context $c -Text $text -DelaySeconds $delaySeconds -CharDelayMs $charDelay -Activity 'waitForAndEnter' -ShellEscape)
     }
 
 Register-SequenceAction -Name 'passwdPrompt' -HostIORequirement @('Send-Text', 'Send-Key') -OcrRequired $true `
     -FailureClass 'credential_expired' -Severity 'hard' -SuggestedRecoveries @('pause_and_inspect') `
+    -UsesWaitSignals $true -CapturesOwnFailureScreenshot $true `
     -Description 'waitForText + typed password (sensitive: redacts in logs).' `
     -FailureLabel { param($c)
         $pd = Format-SequencePatternLabel -Step $c.Step -Vars $c.Vars -ExpandVariable $c.ExpandVariable
@@ -743,17 +767,7 @@ Register-SequenceAction -Name 'passwdPrompt' -HostIORequirement @('Send-Text', '
         $delaySeconds = $c.Step.delaySeconds ? [double]$c.Step.delaySeconds : 2
         $charDelay = $c.Step.charDelayMs ? [int]$c.Step.charDelayMs : $c.DefaultCharDelayMs
         Write-Debug "      Typing: '$masked' + Enter (charDelay=${charDelay}ms, delay ${delaySeconds}s)"
-        $ok = Invoke-Sequence\Send-Text -HostType $c.HostType -VMName $c.VMName -Text $text -CharDelayMs $charDelay
-        if ($ok -eq $false) { return $false }
-        $delaySecsInt = [int][math]::Ceiling($delaySeconds)
-        for ($r = $delaySecsInt; $r -gt 0; $r--) {
-            $pct = [math]::Round((($delaySecsInt - $r) / [math]::Max($delaySecsInt,1)) * 100)
-            Write-ProgressTick -Activity 'passwdPrompt' -Status "drain ${r}s" -PercentComplete $pct
-            Start-Sleep -Seconds 1
-        }
-        Write-ProgressTick -Activity 'passwdPrompt' -Completed
-        Start-Sleep -Milliseconds 800
-        return [bool](Invoke-Sequence\Send-Key -HostType $c.HostType -VMName $c.VMName -KeyName 'Enter')
+        return (Invoke-TypeDrainEnter -Context $c -Text $text -DelaySeconds $delaySeconds -CharDelayMs $charDelay -Activity 'passwdPrompt')
     }
 
 Register-SequenceAction -Name 'tapOn' -HostIORequirement @('Send-Click') -OcrRequired $true `
@@ -785,28 +799,98 @@ Register-SequenceAction -Name 'takeScreenshot' -HostIORequirement @() -OcrRequir
         return $true
     }
 
+function Get-FetchExecuteEnvPrefix {
+    <#
+    .SYNOPSIS
+        Build an "EXEC_SHA256=<hex> EXEC_RETRY_SHA256=<hex> " env prefix for a
+        fetch-and-execute.sh invocation so the guest can verify the fetched
+        bytes before running them.
+    .DESCRIPTION
+        The host hashes the working-tree copy of the script the guest is about
+        to fetch and passes that digest over the trusted channel that TYPES the
+        command (SSH / VM console) -- not over the HTTP the guest fetches over.
+        The guest refuses to run bytes that do not match. That closes the
+        on-path network-MITM (ARP/DHCP/rogue-responder) and moving-`main`
+        GitHub-fallback RCE class: neither controls the typing channel, so
+        neither can forge bytes matching a digest they never saw. A host-local
+        compromise is out of scope (it controls both the digest and the bytes).
+        For any matched fetch-and-execute command it also sets
+        EXEC_REQUIRE_SHA256=1, so if the target file cannot be hashed here (a
+        served-root/working-tree drift or a bad path) the guest fails CLOSED
+        rather than running unverified. Returns '' only when the command is not
+        a fetch-and-execute invocation (or, defensively, when RepoRoot is unset
+        -- a code regression, not a runtime state), preserving rollout-compat.
+    #>
+    param([string]$CommandLine, [string]$RepoRoot)
+    if ([string]::IsNullOrWhiteSpace($CommandLine)) { return '' }
+    $m = [regex]::Match($CommandLine, 'fetch-and-execute\.sh\s+(\S+)')
+    if (-not $m.Success) { return '' }
+    # Without the served base we cannot compute a digest. Only reachable via a
+    # code regression (the engine always threads RepoRoot), so degrade to the
+    # guest's rollout-compat path rather than break every guest at once.
+    if ([string]::IsNullOrWhiteSpace($RepoRoot)) { return '' }
+    # Matched a fetch-and-execute invocation on the automated path: ENFORCE. The
+    # guest refuses if it does not also receive a matching EXEC_SHA256, so a
+    # served-root/working-tree drift or a bad path fails closed, not open.
+    $prefix = 'EXEC_REQUIRE_SHA256=1 '
+    $rel = ($m.Groups[1].Value -split '\?', 2)[0]
+    if ([string]::IsNullOrWhiteSpace($rel) -or $rel -match '\.\.[\\/]' -or [System.IO.Path]::IsPathRooted($rel)) {
+        Write-Warning "fetch-and-execute integrity: refusing to digest non-tree-relative path '$rel'; the guest will refuse to run it."
+        return $prefix
+    }
+    $full = Join-Path $RepoRoot $rel
+    if (-not (Test-Path -LiteralPath $full -PathType Leaf)) {
+        Write-Warning "fetch-and-execute integrity: '$rel' not found under the served repo root; the guest will refuse to run it (enforced, no digest). Fix the path or the served-root mapping."
+        return $prefix
+    }
+    $prefix += "EXEC_SHA256=$((Get-FileHash -LiteralPath $full -Algorithm SHA256).Hash.ToLower()) "
+    # fetch-and-execute.sh self-heals the retry lib over the same channel; give
+    # the guest that digest too so its sudo-installed copy is verified as well.
+    $retryLib = Join-Path $RepoRoot 'automation/yuruna-retry.sh'
+    if (Test-Path -LiteralPath $retryLib -PathType Leaf) {
+        $prefix += "EXEC_RETRY_SHA256=$((Get-FileHash -LiteralPath $retryLib -Algorithm SHA256).Hash.ToLower()) "
+    }
+
+    # Where the guest should fetch from if it cannot reach this host: THIS
+    # repository, at the commit whose bytes the digest above was taken from.
+    # Typed per step rather than baked at New-VM time, so a guest provisioned
+    # days ago still falls back to the commit being served right now.
+    #
+    # GH_TOKEN is deliberately NOT typed. This command line is rendered on the VM
+    # console, which the host screenshots and OCRs into the run log published by
+    # the status server -- a token typed here would be readable in
+    # failure_screenshot.png and failure_ocr.txt. The guest gets it from the
+    # cloud-init seed instead, which never leaves the VM.
+    $source = Get-YurunaGitHubSource -RepoRoot $RepoRoot
+    if ($source.Repo -and $source.Ref) {
+        $prefix += "EXEC_FALLBACK_REPO=$($source.Repo) EXEC_FALLBACK_REF=$($source.Ref) "
+        # The digest covers the WORKING TREE copy, but the fallback fetches the
+        # commit. When they differ, the fallback can only fetch bytes that fail
+        # the integrity gate -- so if the host is also unreachable, the run dies
+        # on an "INTEGRITY MISMATCH" whose real cause is this uncommitted edit.
+        # Say it here, where it is still cheap to act on.
+        if (-not (Test-YurunaFileMatchesHead -RepoRoot $RepoRoot -RelativePath $rel)) {
+            Write-Warning "fetch-and-execute fallback: '$rel' differs from HEAD, so the GitHub fallback cannot match its digest. Harmless while the host status server is reachable (the guest fetches the working tree); if it is not, commit and push -- or bring the status server back up."
+        }
+    } else {
+        Write-Warning "fetch-and-execute fallback: could not resolve a GitHub repo+commit for '$RepoRoot' (repositories.frameworkUrl / git remote / HEAD). If the host status server is unreachable, the guest has no fallback and will refuse to guess at another repository."
+    }
+    return $prefix
+}
+
 Register-SequenceAction -Name 'fetchAndExecute' -HostIORequirement @('Send-Text', 'Send-Key') -OcrRequired $true `
     -FailureClass 'pattern_matched_failure' -Severity 'hard' -SuggestedRecoveries @('restart_from_snapshot','pause_and_inspect') `
+    -CapturesOwnFailureScreenshot $true `
     -Description 'Type a command + Enter then wait for a freshMatch completion pattern.' `
     -FailureLabel { param($c) "fetchAndExecute: `"$(& $c.ExpandVariable $c.Step.text $c.Vars)`"" } `
     -Handler {
         param([hashtable]$c)
         $text = & $c.ExpandVariable $c.Step.text $c.Vars
+        $text = (Get-FetchExecuteEnvPrefix -CommandLine $text -RepoRoot $c.RepoRoot) + $text
         $delaySeconds = $c.Step.delaySeconds ? [double]$c.Step.delaySeconds : 2
         $charDelay = $c.Step.charDelayMs ? [int]$c.Step.charDelayMs : $c.DefaultCharDelayMs
         Write-Debug "      fetchAndExecute: typing '$text' + Enter"
-        $ok = Invoke-Sequence\Send-Text -HostType $c.HostType -VMName $c.VMName -Text $text -CharDelayMs $charDelay -ShellEscape
-        if ($ok -eq $false) { return $false }
-        $delaySecsInt = [int][math]::Ceiling($delaySeconds)
-        for ($r = $delaySecsInt; $r -gt 0; $r--) {
-            $pct = [math]::Round((($delaySecsInt - $r) / [math]::Max($delaySecsInt,1)) * 100)
-            Write-ProgressTick -Activity 'fetchAndExecute' -Status "drain ${r}s" -PercentComplete $pct
-            Start-Sleep -Seconds 1
-        }
-        Write-ProgressTick -Activity 'fetchAndExecute' -Completed
-        Start-Sleep -Milliseconds 800
-        $ok = Invoke-Sequence\Send-Key -HostType $c.HostType -VMName $c.VMName -KeyName 'Enter'
-        if ($ok -eq $false) { return $false }
+        if (-not (Invoke-TypeDrainEnter -Context $c -Text $text -DelaySeconds $delaySeconds -CharDelayMs $charDelay -Activity 'fetchAndExecute' -ShellEscape)) { return $false }
         $waitPattern = & $c.ExpandVariable $c.Step.waitPattern $c.Vars
         if ([string]::IsNullOrWhiteSpace($waitPattern)) {
             # fetchAndExecute REQUIRES a waitPattern (the completion marker). An empty/missing one
@@ -844,6 +928,7 @@ Register-SequenceAction -Name 'fetchAndExecute' -HostIORequirement @('Send-Text'
 
 Register-SequenceAction -Name 'sshWaitReady' -HostIORequirement @() -OcrRequired $false `
     -FailureClass 'network_timeout' -Severity 'soft' -SuggestedRecoveries @('retry_with_backoff','restart_from_snapshot') `
+    -UsesWaitSignals $true `
     -Description 'Block until the guest accepts an SSH handshake.' `
     -Handler {
         param([hashtable]$c)
@@ -994,6 +1079,7 @@ Register-SequenceAction -Name 'sshFetchAndExecute' -HostIORequirement @() -OcrRe
     -Handler {
         param([hashtable]$c)
         $cmd     = & $c.ExpandVariable $c.Step.command $c.Vars
+        $cmd     = (Get-FetchExecuteEnvPrefix -CommandLine $cmd -RepoRoot $c.RepoRoot) + $cmd
         $timeout = $c.Step.timeoutSeconds ? [int]$c.Step.timeoutSeconds : $c.DefaultTimeoutSeconds
         Write-Debug "      sshFetchAndExecute: $cmd"
         $result  = Invoke-GuestSsh -VMName $c.VMName -GuestKey $c.GuestKey -Command $cmd -TimeoutSeconds $timeout

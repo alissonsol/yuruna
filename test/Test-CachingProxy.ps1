@@ -1,5 +1,5 @@
-﻿<#PSScriptInfo
-.VERSION 2026.07.10
+<#PSScriptInfo
+.VERSION 2026.07.14
 .GUID 42a1b2c3-d4e5-4f67-8901-bc012345674a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -248,7 +248,7 @@ if (-not $effHost) {
 } elseif ($effHost -eq $resolvedIp -and $effPort -eq $httpPort) {
     Write-Pass "Process env routes external requests via ${effHost}:${effPort} (matches probe target)"
 } else {
-    Write-Warn "Process env HTTP(S)_PROXY routes external requests via ${effHost}:${effPort} but the caching proxy under test is ${resolvedIp}:${httpPort} — Invoke-TestRunner downloads (Get-Image.ps1, guest package fetches) will tunnel through ${effHost}:${effPort}, not the proxy you're testing. Stale env from before the most recent -SetHostProxy."
+    Write-Warn "Process env HTTP(S)_PROXY routes external requests via ${effHost}:${effPort} but the caching proxy under test is ${resolvedIp}:${httpPort} -- Invoke-TestRunner downloads (Get-Image.ps1, guest package fetches) will tunnel through ${effHost}:${effPort}, not the proxy you're testing. Stale env from before the most recent -SetHostProxy."
     Write-Output ""
     if ($SetHostProxy) {
         # The promotion below wipes process env (Remove-HostProxy) and

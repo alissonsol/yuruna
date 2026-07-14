@@ -1,5 +1,5 @@
-﻿<#PSScriptInfo
-.VERSION 2026.07.10
+<#PSScriptInfo
+.VERSION 2026.07.14
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456706
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -55,7 +55,7 @@ param(
 )
 
 # Capture cmdline override for three-state resolution. PSBoundParameters
-# is the only reliable source — `[string]` defaults to '' when omitted,
+# is the only reliable source -- `[string]` defaults to '' when omitted,
 # which would shadow "operator left it blank" vs "operator typed nothing"
 # if we just read $logLevel.
 $script:CmdLineLogLevel = if ($PSBoundParameters.ContainsKey('logLevel')) { $logLevel } else { $null }
@@ -313,7 +313,7 @@ if (-not (Test-Path $ConfigPath) -and -not (Test-Path $TemplatePath)) {
 }
 $Config = Update-TestConfigFromTemplate -ConfigPath $ConfigPath -TemplatePath $TemplatePath
 $script:Config = $Config
-# Re-resolve now that JSON values are loaded — the early Resolve-LogLevel
+# Re-resolve now that JSON values are loaded -- the early Resolve-LogLevel
 # at the top of the script saw cmdline-only data. Per-step refreshes inside a
 # cycle run via Resolve-RunnerLogLevel.
 Resolve-LogLevel
@@ -369,18 +369,21 @@ Write-Output "Log directory:     $env:YURUNA_LOG_DIR"
 # session was killed mid-cycle before consuming the flag (operator Ctrl-C,
 # outer-runner restart, process crash), the file persists. A freshly
 # starting inner IS the restart the operator asked for, so consume the
-# flag here unconditionally — otherwise the brand-new cycle's first step
-# would immediately throw YurunaCycleRestart, mark the cycle failed, and
-# loop until ConsecutiveCrashes aborts the runner. The flag's job is to
-# wake a running inner, not to nag a fresh one.
-try {
-    $bootRestartFlag = Join-Path $env:YURUNA_RUNTIME_DIR 'control.cycle-restart'
-    if (Test-Path -LiteralPath $bootRestartFlag) {
-        $flagAge = (Get-Date) - (Get-Item -LiteralPath $bootRestartFlag).LastWriteTime
-        Remove-Item -LiteralPath $bootRestartFlag -Force -ErrorAction SilentlyContinue
-        Write-Output "Consumed stale control.cycle-restart (age: $([int]$flagAge.TotalSeconds)s) — this inner start IS the restart."
+# flag here -- otherwise the brand-new cycle's first step would immediately
+# throw YurunaCycleRestart, mark the cycle failed, and loop until
+# ConsecutiveCrashes aborts the runner. The flag's job is to wake a
+# running inner, not to nag a fresh one.
+# -SkipInteractiveState: the inner's break-active + pause flags are the
+# parent's to sweep (the outer's boot recovery, or Test-Project's PreSpawn
+# handoff). A direct-invoke inner keeps a pause the operator set here, so
+# the inner never re-sweeps that class.
+if (Get-Command Clear-StaleControlState -ErrorAction SilentlyContinue) {
+    $ctl = Clear-StaleControlState -Scope Startup -SkipInteractiveState -RuntimeDir $env:YURUNA_RUNTIME_DIR -Confirm:$false
+    if ($ctl.cycleRestartCleared) {
+        Write-Output "Consumed stale control.cycle-restart (age: $($ctl.cycleRestartAgeSeconds)s) -- this inner start IS the restart."
     }
-} catch { Write-Verbose "Stale cycle-restart sweep failed: $($_.Exception.Message)" }
+    foreach ($w in $ctl.warnings) { Write-Verbose "Stale control-state sweep: $w" }
+}
 
 # Re-import Test.CachingProxy with -Global -Force AFTER Initialize-YurunaHost.
 # Yuruna.Host.psm1 imports Test.CachingProxy non-globally during its
@@ -418,40 +421,20 @@ if ($Config.vmStart -is [System.Collections.IDictionary] -and $Config.vmStart.Co
     $configCacheIp = "$($Config.vmStart.cachingProxyIP)".Trim()
 }
 if ($envCacheIp -or $configCacheIp) {
-    $effectiveCacheIp = ''
-    foreach ($cand in @(
-        @{ Ip = $envCacheIp;    Source = '$env:YURUNA_CACHING_PROXY_IP' }
-        @{ Ip = $configCacheIp; Source = 'vmStart.cachingProxyIP'        }
-    )) {
-        if (-not $cand.Ip) { continue }
-        if (-not (Test-IpAddress $cand.Ip)) {
-            Write-Output "Caching proxy '$($cand.Ip)' (source: $($cand.Source)): rejected -- not a valid IPv4 or IPv6 address."
-            continue
-        }
-        Write-Output ""
-        Write-Output "== Probing caching proxy at $($cand.Ip) (source: $($cand.Source)) =="
-        $probe = Invoke-CachingProxyProbe -CacheIp $cand.Ip
-        foreach ($line in $probe.Lines) { Write-Output $line }
-        Write-Output "  Summary: $($probe.PassCount) PASS, $($probe.WarnCount) WARN, $($probe.FailCount) FAIL"
-        if ($probe.HttpProxyReachable) {
-            $effectiveCacheIp = $cand.Ip
-            if ($probe.Success) {
-                Write-Output "Caching proxy at $($cand.Ip) ACCEPTED (full probe suite passed)."
-            } else {
-                Write-Output "Caching proxy at $($cand.Ip) ACCEPTED (HTTP proxy :$($probe.HttpPort) reachable; see WARN/FAIL above for the non-essential checks that did not pass)."
-            }
-            break
-        }
-        Write-Output "Caching proxy at $($cand.Ip) REJECTED -- HTTP proxy :$($probe.HttpPort) not reachable."
-    }
+    # Shared probe-and-clear (Test.CachingProxy) so Test-Sequence applies
+    # the identical acceptance policy, not a weaker Test-IpAddress-only
+    # promotion. Emits the console lines here (the resolver returns them so
+    # it stays side-effect-free apart from the env write below).
+    $endpoint = Resolve-CachingProxyEndpoint -EnvIp $envCacheIp -ConfigIp $configCacheIp
+    foreach ($line in $endpoint.Lines) { Write-Output $line }
     # Publish the effective IP (or clear if no candidate had a reachable
     # :3128) so the rest of the cycle sees a coherent view via
     # $env:YURUNA_CACHING_PROXY_IP.
-    $env:YURUNA_CACHING_PROXY_IP = $effectiveCacheIp
+    $env:YURUNA_CACHING_PROXY_IP = $endpoint.EffectiveIp
 }
 
 # Proxy-cache detection lives in Test.CachingProxy.psm1 so Start-StatusService
-# shares the same probe — console banner here and the status-page banner
+# shares the same probe -- console banner here and the status-page banner
 # (via $env:YURUNA_RUNTIME_DIR/caching-proxy.txt) stay in lockstep with the
 # URL injected into autoinstall user-data by guest.ubuntu.server.24/New-VM.ps1.
 $cachingProxyUrl = Test-CachingProxyAvailable
@@ -510,11 +493,11 @@ if ($cachingProxyUrl) {
         } else {
             $cacheHttpPort  = Get-CachingProxyPort -Scheme http
             $cacheHttpsPort = Get-CachingProxyPort -Scheme https
-            # 9302 (caching-proxy-parser live tail) must stay in lockstep
-            # with Start-CachingProxy.ps1's install list: Add-PortMap is
-            # clear-all-first, so any port omitted here goes dark on
-            # reinstall.
-            $CachingProxyExposedPorts = if ($IsMacOS) { @(3000) } else { @(80, 3000, 9302, $cacheHttpPort, $cacheHttpsPort) }
+            # The exposed-port set (incl. 9302 caching-proxy-parser live tail)
+            # comes from Get-CachingProxyExposedPort so it cannot drift from
+            # Start-CachingProxy's install list; Add-PortMap is clear-all-first,
+            # so a dropped port goes dark on reinstall. macOS re-maps only Grafana.
+            $CachingProxyExposedPorts = if ($IsMacOS) { @(3000) } else { Get-CachingProxyExposedPort -HttpPort $cacheHttpPort -HttpsPort $cacheHttpsPort }
             $portMapArgs = @{
                 VMIp      = $portMapIp
                 Port      = $CachingProxyExposedPorts
@@ -585,37 +568,16 @@ $null = Start-YurunaStatusServiceIfEnabled -Config $Config -StartScript $startSc
 # host that never brings up a caching proxy must not start it.
 
 # === Graceful shutdown support ===
-# CancelKeyPress handler runs in a separate SessionState (Register-ObjectEvent
-# -Action creates its own scope) so $script:var would not propagate back.
-# Use a thread-safe dictionary so the event action and main loop share state.
-$script:ShutdownState = [System.Collections.Concurrent.ConcurrentDictionary[string,bool]]::new()
-$script:ShutdownState['Requested'] = $false
+# The CancelKeyPress contract lives in Test.Prelude's
+# Register-/Unregister-EntryPointCancelHandler so the register/poll/tear-down
+# shape stays identical across every entry point. The returned hashtable is the
+# shared shutdown flag: the event action (running in its own SessionState) flips
+# ['Requested'], and the cycle polls it at safe points. Its plain-hashtable key
+# indexing is interchangeable with the prior ConcurrentDictionary for the
+# single boolean flag the loop reads.
+$script:ShutdownState = Register-EntryPointCancelHandler -SourceIdentifier YurunaCancelKey
 $script:ActiveVMName      = $null
 $script:CycleFinalized    = $true    # have Complete-Run/Stop-LogFile been called?
-
-try {
-    # Register-ObjectEvent (not [Console]::add_CancelKeyPress) so the
-    # handler runs on the PowerShell pipeline thread with a runspace.
-    # A raw .NET event delegate fires on a CLR thread-pool thread with
-    # no runspace, causing a fatal PSInvalidOperationException
-    # ("There is no Runspace available...") that kills the process and
-    # prevents graceful cleanup.
-    $shutdownRef = $script:ShutdownState
-    # Clean up any subscriber/job left by a prior run that exited without
-    # reaching the bottom-of-script Unregister-Event (Ctrl+C, error,
-    # IDE-terminated). Otherwise re-running in the same shell fails with
-    # "A subscriber with the source identifier ... already exists".
-    Unregister-Event -SourceIdentifier YurunaCancelKey -ErrorAction SilentlyContinue
-    Remove-Job -Name YurunaCancelKey -Force -ErrorAction SilentlyContinue
-    $null = Register-ObjectEvent -InputObject ([Console]) -EventName CancelKeyPress `
-        -SourceIdentifier YurunaCancelKey -MessageData $shutdownRef -Action {
-            $Event.SourceEventArgs.Cancel = $true
-            $Event.MessageData['Requested'] = $true
-            Write-Warning "Shutdown requested (Ctrl+C). Will clean up after current operation..."
-        }
-} catch {
-    Write-Verbose "Could not register CancelKeyPress handler (non-interactive session): $_"
-}
 
 # === Continuous test loop ===
 # The per-cycle work runs in Invoke-RunnerInnerCycle (Test.RunnerInnerLoop.psm1).
@@ -646,8 +608,7 @@ $FailuresBeforeAlert  = $cycleState.FailuresBeforeAlert
 $GatingFile           = $cycleState.GatingFile
 
 Write-InnerLog "post-loop cleanup: Unregister-Event YurunaCancelKey"
-Unregister-Event -SourceIdentifier YurunaCancelKey -ErrorAction SilentlyContinue
-Remove-Job -Name YurunaCancelKey -Force -ErrorAction SilentlyContinue
+Unregister-EntryPointCancelHandler -SourceIdentifier YurunaCancelKey
 Write-InnerLog "post-loop cleanup: Unregister-Event/Remove-Job complete"
 
 # Persist gating state so the next single-cycle inner respawn picks
@@ -688,14 +649,14 @@ try {
 # directly (no YURUNA_RUNNER_RELAUNCH=1 from the outer).
 if ($env:YURUNA_RUNNER_RELAUNCH -ne '1') {
 
-# Release runner.pid on graceful exit — only if it still points to us.
+# Release runner.pid on graceful exit -- only if it still points to us.
 # A competing runner may have taken over and rewritten the file with its
 # own PID; don't clobber theirs. Crash / kill -9 / power loss leaves a
 # stale PID; next startup's single-instance guard handles it.
 try {
     if (Test-Path $RunnerPidFile) {
         $filePid = 0
-        # Malformed pidfile → leave it alone (don't remove something we
+        # Malformed pidfile -> leave it alone (don't remove something we
         # can't identify as ours). $filePid stays 0 so the -eq $PID check
         # below is false.
         try { $filePid = [int]((Get-Content $RunnerPidFile -Raw -ErrorAction Stop).Trim()) } catch { $filePid = 0 }
@@ -706,7 +667,7 @@ try {
 } catch {
     # Shutdown cleanup is best-effort: any failure (pidfile race with a
     # competing runner, fs permission blip) leaves a possibly-stale file.
-    # Fine — the single-instance guard handles it on next launch.
+    # Fine -- the single-instance guard handles it on next launch.
     Write-Verbose "Shutdown pidfile cleanup swallowed error: $($_.Exception.Message)"
 }
 

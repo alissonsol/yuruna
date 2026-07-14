@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.10
+.VERSION 2026.07.14
 .GUID 42f0a1b2-c3d4-4e56-f789-0a1b2c3d4e57
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -28,10 +28,10 @@ if (-not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdent
 }
 
 # --- REGION: Configuration
-# Ubuntu 26.04 LTS (Resolute Raccoon). Moved up from 24.04 LTS (Noble
-# Numbat) so the cache VM stays inside the supported-LTS window and
-# `unattended-upgrades` (enabled in host/vmconfig/caching-proxy.base.user-data) keeps pulling
-# security patches automatically rather than going EOL mid-cycle.
+# Ubuntu 26.04 LTS (Resolute Raccoon). A current LTS keeps the cache VM
+# inside the supported-LTS window, so `unattended-upgrades` (enabled in
+# host/vmconfig/caching-proxy.base.user-data) keeps pulling security
+# patches automatically rather than going EOL mid-cycle.
 $sourceUrl = "https://cloud-images.ubuntu.com/resolute/current/resolute-server-cloudimg-amd64.img"
 $downloadDir = (Get-VMHost).VirtualHardDiskPath
 $baseImageName = "host.windows.hyper-v.guest.caching-proxy"

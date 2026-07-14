@@ -1,5 +1,5 @@
-﻿<#PSScriptInfo
-.VERSION 2026.07.10
+<#PSScriptInfo
+.VERSION 2026.07.14
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456770
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -51,7 +51,7 @@ Import-Module (Join-Path $PSScriptRoot 'Test.SequenceVariable.psm1') -Global -Fo
 # keystroke mechanism from $env:YURUNA_KEYSTROKE_MECHANISM, mirrored below.
 Import-Module (Join-Path $PSScriptRoot 'Test.SequenceResolve.psm1') -Global -Force
 
-# ── Wire the host driver ─────────────────────────────────────────────────────
+# -- Wire the host driver -----------------------------------------------------
 # Invoke-Sequence's body and Wait-ForText / Invoke-TapOn call
 # contract functions (Get-VMScreenshot, Restart-VMConsole) that live in
 # Yuruna.Host. When this module loads inside a child pwsh process spawned
@@ -73,7 +73,7 @@ try {
     Write-Warning "Invoke-Sequence: Initialize-YurunaHost failed at module load -- contract calls (Restart-VMConsole, Get-VMScreenshot) will fail. Detail: $($_.Exception.Message)"
 }
 
-# ── Load global defaults from test.config.yml ──────────────────────────────
+# -- Load global defaults from test.config.yml ------------------------------
 # The config file lives one level up from this module (test/test.config.yml).
 $script:DefaultCharDelayMs      = 10
 $script:DefaultVncPort          = 5900
@@ -105,7 +105,7 @@ $script:DefaultScreenHistorySize = 5
 # lands once. Imported with -Global by Test.Prelude's module sets,
 # so callers in this file resolve the function via the global scope.
 
-# ── Progress wrapper ─────────────────────────────────────────────────────────
+# -- Progress wrapper ---------------------------------------------------------
 # Invoke-Sequence runs inline in the runner's interactive host now (the cycle
 # planner dispatches Invoke-SequenceByName directly from Test.Start-GuestOS /
 # Test.Start-GuestWorkload -- no child pwsh in the path), so Write-Progress works
@@ -156,7 +156,12 @@ Import-Module (Join-Path $PSScriptRoot 'Test.HostIO.Kvm.psm1')    -Global -Force
 # local to Test.SequenceHandler means adding a verb does not collide with
 # engine edits.
 Import-Module (Join-Path $PSScriptRoot 'Test.SequenceHandler.psm1') -Global -Force
-$_configPath = Join-Path (Split-Path -Parent $PSScriptRoot) "test.config.yml"
+# YURUNA_CONFIG_PATH wins over the in-tree template guess so a host running with
+# `-ConfigPath <elsewhere>` seeds its vmCommunication.* defaults -- notably
+# keystrokeMechanism, which drives gui/ vs ssh/ sequence-tree resolution below --
+# from the config it actually runs, not the in-tree template. Matches Test.Transport.
+$_configPath = if ($env:YURUNA_CONFIG_PATH) { $env:YURUNA_CONFIG_PATH } `
+               else { Join-Path (Split-Path -Parent $PSScriptRoot) "test.config.yml" }
 $_cfg = Read-TestConfig -Path $_configPath
 if ($_cfg) {
     # test.config.yml keys live under the `vmCommunication` node
@@ -256,7 +261,7 @@ function Send-Key {
     return (Invoke-HostIODispatch -HostType $HostType -Action 'Send-Key' -Arguments @{ VMName=$VMName; KeyName=$KeyName })
 }
 
-# ── Action: type / typeAndEnter ──────────────────────────────────────────────
+# -- Action: type / typeAndEnter ----------------------------------------------
 
 
 function Send-Text {
@@ -286,12 +291,12 @@ function Send-Text {
 }
 
 
-# ── Action: tapOn — OCR-located mouse click ─────────────────────────────────
+# -- Action: tapOn -- OCR-located mouse click ---------------------------------
 #
 # Button-focus navigation via Tab keystrokes is brittle: initial focus depends
 # on splash animation state, async-loaded widgets, and installer redesigns,
 # so the "correct" Tab count drifts. tapOn sidesteps focus
-# entirely — it OCRs the VM screen, locates the button's bounding box, and
+# entirely -- it OCRs the VM screen, locates the button's bounding box, and
 # synthesizes a mouse click at that box's centre.
 #
 # Coordinate contract: the captured image and the click target share the
@@ -426,7 +431,7 @@ function Save-ScreenshotWithClickMarker {
         Add-Type -AssemblyName System.Drawing -ErrorAction SilentlyContinue
         # GDI+ locks the source file for the lifetime of the bitmap, so we
         # clone into an independent in-memory bitmap and release the source
-        # before saving — otherwise SourcePath stays locked until GC runs.
+        # before saving -- otherwise SourcePath stays locked until GC runs.
         $src  = [System.Drawing.Bitmap]::FromFile($SourcePath)
         $copy = New-Object System.Drawing.Bitmap $src
         $src.Dispose()
@@ -475,11 +480,21 @@ function Invoke-TapOn {
     $modulesDir = Join-Path (Split-Path -Parent $PSScriptRoot) "modules"
     # -Global: a nested -Force without -Global evicts Test.YurunaDir from
     # the parent script's session state, breaking later top-level calls.
-    Import-Module (Join-Path $modulesDir "Test.YurunaDir.psm1") -Force -Global -ErrorAction SilentlyContinue -Verbose:$false
+    # Pure eviction recovery: Test.YurunaDir is stateless (Initialize-YurunaLogDir is
+    # env-backed; $env:YURUNA_LOG_DIR survives re-imports), so re-parse the psm1 only
+    # when its command is actually unresolvable -- i.e. when a nested -Force evicted it
+    # -- not on every hot-path pass. Gate on Get-Command, NOT Get-Module: Get-Module
+    # stays truthy after an eviction moves the module into another scope, so it would
+    # skip the very re-assert this exists to perform. (Stateful modules re-imported
+    # nearby -- OcrEngine/Log/Ssh -- are deliberately left unconditional: their -Force
+    # reload also resets $script: registrations/caches, a side effect gating would drop.)
+    if (-not (Get-Command Initialize-YurunaLogDir -ErrorAction SilentlyContinue)) {
+        Import-Module (Join-Path $modulesDir "Test.YurunaDir.psm1") -Force -Global -ErrorAction SilentlyContinue -Verbose:$false
+    }
 
     $logDir = Initialize-YurunaLogDir
     $capturePath = Join-Path $logDir "clickbutton_${VMName}.png"
-    # Avoid '|' as the join separator — Write-ProgressTick's marker uses '|'
+    # Avoid '|' as the join separator -- Write-ProgressTick's marker uses '|'
     # as its field delimiter, and embedding one here would shift parsing on the
     # parent side. Write-ProgressTick sanitizes defensively, but keep the
     # display clean at the source too.
@@ -502,7 +517,7 @@ function Invoke-TapOn {
             Remove-Item $capturePath -Force -ErrorAction SilentlyContinue
             $capture = Get-VMScreenshot -VMName $VMName -Source window -OutFile $capturePath
             if (-not $capture) {
-                Write-Debug "      Window capture unavailable — retrying"
+                Write-Debug "      Window capture unavailable -- retrying"
                 Start-Sleep -Seconds $PollSeconds
                 continue
             }
@@ -512,7 +527,7 @@ function Invoke-TapOn {
                 if ($coord) {
                     $clickX = $coord.centerX + $OffsetX
                     $clickY = $coord.centerY + $OffsetY
-                    Write-Debug "      Found '$candidate' at ($($coord.x),$($coord.y)) $($coord.w)x$($coord.h) → click ($clickX, $clickY)"
+                    Write-Debug "      Found '$candidate' at ($($coord.x),$($coord.y)) $($coord.w)x$($coord.h) -> click ($clickX, $clickY)"
                     # logLevel=Debug: preserve a per-detection screenshot under
                     # a UTC timestamp so the operator can correlate a stuck
                     # installer with exactly what OCR saw and where we aimed
@@ -536,7 +551,7 @@ function Invoke-TapOn {
             Start-Sleep -Seconds $PollSeconds
         }
 
-        # Timeout — preserve the final screenshot so the operator can see
+        # Timeout -- preserve the final screenshot so the operator can see
         # what the OCR was looking at.
         $failScreenPath = Join-Path $logDir "failure_clickbutton_${VMName}.png"
         if (Test-Path $capturePath) {
@@ -553,7 +568,7 @@ function Invoke-TapOn {
 
 # Persist this frame's OCR output as raw_${stamp}.txt next to the
 # raw_${stamp}.png it was extracted from. The text file is what the
-# matcher actually saw — invaluable for diagnosing "should have matched"
+# matcher actually saw -- invaluable for diagnosing "should have matched"
 # regressions, since the ring-buffer .png alone leaves the reader to
 # re-OCR the image to figure out why the pattern didn't fire.
 #
@@ -561,7 +576,7 @@ function Invoke-TapOn {
 # rejects empty input with the misleading "Cannot bind argument ...
 # because it is an empty string" error. The empty case happens when
 # Test-CombinedOcrMatch returns no EngineResults (no providers ran on
-# this frame); skipping the write is correct — an empty sidecar would
+# this frame); skipping the write is correct -- an empty sidecar would
 # misrepresent "no engine ran" as "engines ran and saw nothing."
 #
 # AllowEmptyString: PowerShell's Mandatory binder enumerates a typed
@@ -581,7 +596,7 @@ function Save-OcrSidecar {
     Set-Content -Path $ocrPath -Value ($Sections -join "`n") -Encoding UTF8 -ErrorAction SilentlyContinue
 }
 
-# ── Action: waitForText ──────────────────────────────────────────────────────
+# -- Action: waitForText ------------------------------------------------------
 
 function Get-OcrDegradationGrace {
     <#
@@ -716,7 +731,17 @@ function Wait-ForText {
     # later top-level call to Get-CycleScreenDir (Invoke-TestInnerRunner.ps1
     # success branch, seen on macOS in-process runners) fails with
     # "term not recognized".
-    Import-Module (Join-Path $modulesDir "Test.YurunaDir.psm1") -Force -Global -ErrorAction SilentlyContinue -Verbose:$false
+    # Pure eviction recovery: Test.YurunaDir is stateless (Initialize-YurunaLogDir is
+    # env-backed; $env:YURUNA_LOG_DIR survives re-imports), so re-parse the psm1 only
+    # when its command is actually unresolvable -- i.e. when a nested -Force evicted it
+    # -- not on every hot-path pass. Gate on Get-Command, NOT Get-Module: Get-Module
+    # stays truthy after an eviction moves the module into another scope, so it would
+    # skip the very re-assert this exists to perform. (Stateful modules re-imported
+    # nearby -- OcrEngine/Log/Ssh -- are deliberately left unconditional: their -Force
+    # reload also resets $script: registrations/caches, a side effect gating would drop.)
+    if (-not (Get-Command Initialize-YurunaLogDir -ErrorAction SilentlyContinue)) {
+        Import-Module (Join-Path $modulesDir "Test.YurunaDir.psm1") -Force -Global -ErrorAction SilentlyContinue -Verbose:$false
+    }
     Import-Module (Join-Path $modulesDir "Test.Log.psm1") -Force -Global -ErrorAction SilentlyContinue -Verbose:$false
     $logDir     = Initialize-YurunaLogDir
     # Ring buffer lives INSIDE the cycle folder so a stuck/restarted
@@ -809,7 +834,7 @@ function Wait-ForText {
                 if (Test-Path $txtSibling) { Remove-Item -Path $txtSibling -Force -ErrorAction SilentlyContinue }
             }
 
-            # OCR is fed the raw capture as-is — no preprocessing. Earlier
+            # OCR is fed the raw capture as-is -- no preprocessing. Earlier
             # revisions ran a vertical-line / grayscale / invert / contrast-
             # stretch / 2x-scale pipeline (and before that, a diff-against-
             # the-previous-frame stage that suppressed unchanged pixels);
@@ -821,7 +846,7 @@ function Wait-ForText {
             # all handle native-resolution color screenshots fine.
             if ($rawScreenPath -and (Test-Path $rawScreenPath)) {
                 if ($FreshMatch) {
-                    # ── FreshMatch mode: only check the last N lines ──
+                    # -- FreshMatch mode: only check the last N lines --
                     $result = Test-CombinedOcrMatch -ImagePath $rawScreenPath -Pattern $Pattern -FreshMatchTailLines $FreshMatchTailLines
 
                     $ocrSections = [System.Collections.Generic.List[string]]::new()
@@ -843,7 +868,7 @@ function Wait-ForText {
                         return $true
                     }
                 } else {
-                    # ── Non-FreshMatch mode: accumulate text, check for pattern ──
+                    # -- Non-FreshMatch mode: accumulate text, check for pattern --
                     $result = Test-CombinedOcrMatch -ImagePath $rawScreenPath -Pattern $Pattern
 
                     $ocrSections = [System.Collections.Generic.List[string]]::new()
@@ -1011,7 +1036,7 @@ function Wait-ForText {
             Start-Sleep -Seconds $PollSeconds
         }
 
-        # Timeout — preserve last screenshot, full sequence, and OCR text
+        # Timeout -- preserve last screenshot, full sequence, and OCR text
         if ($lastCapturePath -and (Test-Path $lastCapturePath)) {
             $failScreenPath = Join-Path $logDir "failure_screenshot_${VMName}.png"
             Copy-Item -Path $lastCapturePath -Destination $failScreenPath -Force -ErrorAction SilentlyContinue
@@ -1035,14 +1060,14 @@ function Wait-ForText {
         }
         return $false
     } finally {
-        # Note: $screensDir is intentionally NOT cleared here — it survives
+        # Note: $screensDir is intentionally NOT cleared here -- it survives
         # across all Wait-ForText calls in a guest, and the runner deletes
         # it at end-of-guest on success (or surfaces it on failure).
         Write-ProgressTick -Activity "waitForText" -Completed
     }
 }
 
-# ── Action: takeScreenshot ───────────────────────────────────────────────────
+# -- Action: takeScreenshot ---------------------------------------------------
 
 function Save-DebugScreenshot {
     <#
@@ -1065,7 +1090,7 @@ function Save-DebugScreenshot {
     return $false
 }
 
-# ── Main executor ────────────────────────────────────────────────────────────
+# -- Main executor ------------------------------------------------------------
 
 <#
 .SYNOPSIS
@@ -1117,8 +1142,8 @@ function Invoke-SequenceByName {
     }
     # Informational lines go through Write-Information, NOT Write-Output.
     # Write-Output emits to the pipeline, and combined with `return (...)`
-    # below it would fold these strings into the caller's `$ok` variable —
-    # turning the boolean into @("Running…", "Sequence file…", $true/$false).
+    # below it would fold these strings into the caller's `$ok` variable --
+    # turning the boolean into @("Running...", "Sequence file...", $true/$false).
     # The caller's `$ok -eq $false` still catches an honest $false inside
     # that array, but a returned $null (e.g. from an unhandled crash path)
     # would look identical to success. Keep the pipeline clean so the
@@ -1126,8 +1151,8 @@ function Invoke-SequenceByName {
     Write-Information "[$GuestKey] Running sequence: $Name on $HostType (VM: $VMName)" -InformationAction Continue
     Write-Verbose "    Sequence file: $sequenceFile"
     $result = Invoke-Sequence -HostType $HostType -GuestKey $GuestKey -VMName $VMName -SequencePath $sequenceFile -EffectiveVariables $EffectiveVariables -ShowSensitive:$ShowSensitive
-    # Normalize: only $true is success. Anything else — $null, objects,
-    # arrays — fails. A sane Invoke-Sequence returns $true / $false and
+    # Normalize: only $true is success. Anything else -- $null, objects,
+    # arrays -- fails. A sane Invoke-Sequence returns $true / $false and
     # this is a no-op; a broken one no longer slips past.
     return ($result -eq $true)
 }
@@ -1215,7 +1240,12 @@ function Invoke-GuestSequenceList {
             # -Global: a nested -Force without -Global evicts Test.YurunaDir from
             # the parent script's session state, breaking later top-level calls.
             $modulesDir = Join-Path (Split-Path -Parent $PSScriptRoot) "modules"
-            Import-Module (Join-Path $modulesDir "Test.YurunaDir.psm1") -Force -Global -ErrorAction SilentlyContinue -Verbose:$false
+            # Pure eviction recovery for the stateless Test.YurunaDir -- re-parse only
+            # when its command is actually unresolvable (gate on Get-Command, not the
+            # eviction-blind Get-Module).
+            if (-not (Get-Command Initialize-YurunaLogDir -ErrorAction SilentlyContinue)) {
+                Import-Module (Join-Path $modulesDir "Test.YurunaDir.psm1") -Force -Global -ErrorAction SilentlyContinue -Verbose:$false
+            }
             $logDir = Initialize-YurunaLogDir
             $failFile = Join-Path $logDir "last_failure.json"
             if (Test-Path $failFile) {
@@ -1297,7 +1327,7 @@ function Invoke-Sequence {
     # in the next sequence. Seeded to the passed name; updated on $ctx.NewVMName.
     $script:SequenceFinishedVMName = $VMName
 
-    # ── SSH variant selection ──────────────────────────────────────────────
+    # -- SSH variant selection ----------------------------------------------
     # Sequences live in mode-specific subfolders: sequences/gui/ and
     # sequences/ssh/. When test.config.yml sets keystrokeMechanism="SSH"
     # and the caller passed a path under sequences/gui/, redirect to the
@@ -1311,7 +1341,7 @@ function Invoke-Sequence {
     if ($script:DefaultKeystrokeMechanism -eq "SSH") {
         $sshVariant = Get-SequenceModePath -SequencePath $SequencePath -Mode "ssh"
         if ($sshVariant -and (Test-Path $sshVariant)) {
-            Write-Information "    keystrokeMechanism=SSH → using SSH variant: $(Split-Path -Leaf $sshVariant)"
+            Write-Information "    keystrokeMechanism=SSH -> using SSH variant: $(Split-Path -Leaf $sshVariant)"
             $SequencePath = $sshVariant
         } else {
             # SSH mechanism selected but no ssh/ sibling exists. Record the
@@ -1347,12 +1377,22 @@ function Invoke-Sequence {
     # diagnostics and the pause-flag paths resolve below. Invoke-Sequence
     # runs inside a child module scope when a test-start extension script
     # imports it, so the parent runner's global Import-Module doesn't
-    # propagate here — each helper has to be re-imported on this path.
+    # propagate here -- each helper has to be re-imported on this path.
     # -Global on the -Force re-imports: without it, the nested reload
     # evicts these modules from the parent script's session state and
     # breaks subsequent top-level calls (see Get-CycleScreenDir crash).
     $modulesDir = Join-Path (Split-Path -Parent $PSScriptRoot) "modules"
-    Import-Module (Join-Path $modulesDir "Test.YurunaDir.psm1") -Force -Global -ErrorAction SilentlyContinue -Verbose:$false
+    # Pure eviction recovery: Test.YurunaDir is stateless (Initialize-YurunaLogDir is
+    # env-backed; $env:YURUNA_LOG_DIR survives re-imports), so re-parse the psm1 only
+    # when its command is actually unresolvable -- i.e. when a nested -Force evicted it
+    # -- not on every hot-path pass. Gate on Get-Command, NOT Get-Module: Get-Module
+    # stays truthy after an eviction moves the module into another scope, so it would
+    # skip the very re-assert this exists to perform. (Stateful modules re-imported
+    # nearby -- OcrEngine/Log/Ssh -- are deliberately left unconditional: their -Force
+    # reload also resets $script: registrations/caches, a side effect gating would drop.)
+    if (-not (Get-Command Initialize-YurunaLogDir -ErrorAction SilentlyContinue)) {
+        Import-Module (Join-Path $modulesDir "Test.YurunaDir.psm1") -Force -Global -ErrorAction SilentlyContinue -Verbose:$false
+    }
     Import-Module (Join-Path $modulesDir "Test.Ssh.psm1")      -Force -Global -ErrorAction SilentlyContinue -Verbose:$false
     $logDir = Initialize-YurunaLogDir
 
@@ -1502,19 +1542,19 @@ function Invoke-Sequence {
     # Step-pause back-channel: the status server's /control/step-pause
     # endpoint creates $env:YURUNA_RUNTIME_DIR/control.step-pause. We gate
     # on that file in two places:
-    #   1. Before sequence setup (here, below) — so Restart-VMConnect and any
+    #   1. Before sequence setup (here, below) -- so Restart-VMConnect and any
     #      per-sequence work don't run while paused, and the very first
     #      action of a new sequence can't start while paused. This matters
-    #      most between two sequences (e.g. Test-Start → Test-Workload, or
-    #      one guest's workload → the next guest's workload) where clicking
+    #      most between two sequences (e.g. Test-Start -> Test-Workload, or
+    #      one guest's workload -> the next guest's workload) where clicking
     #      Pause used to only take effect after the next sequence had
     #      already started its first action.
-    #   2. At the top of each step iteration (further below) — so a click
+    #   2. At the top of each step iteration (further below) -- so a click
     #      mid-sequence takes effect before the next action.
     # Empty-steps sequences have already returned above, so the sequence-
     # level wait here never triggers for a sequence that has nothing to do.
     # Cycle-pause (control.cycle-pause) is gated separately in
-    # Invoke-TestRunner.ps1 at cycle boundaries — Invoke-Sequence is only
+    # Invoke-TestRunner.ps1 at cycle boundaries -- Invoke-Sequence is only
     # concerned with step-level pauses.
     $runtimeDir = Initialize-YurunaRuntimeDir
     $stepPauseFlagFile = Join-Path $runtimeDir 'control.step-pause'
@@ -1522,7 +1562,7 @@ function Invoke-Sequence {
     # endpoint sets this flag while it kills in-progress VMs. The inter-
     # cycle delay loop in Invoke-TestInnerRunner already breaks on it, but
     # if the request lands while a cycle is actively executing steps the
-    # delay loop never sees it — the cycle limps through screenshot
+    # delay loop never sees it -- the cycle limps through screenshot
     # failures of deleted VMs and the operator's "restart now" never
     # arrives. Gating here too makes the abort fire from inside an active
     # cycle: the throw escapes through retry / sequence / runner and is
@@ -1594,7 +1634,7 @@ function Invoke-Sequence {
         }
     }
 
-    # Cycle-restart gate. Throws a message-prefixed exception so the inner
+    # Cycle-restart gate. Throws a control-flow marker so the inner
     # runner's cycle-catch (see Invoke-TestInnerRunner.ps1) can short-
     # circuit emergency-cleanup chatter and skip the ConsecutiveCrashes
     # increment for this expected abort. The flag is intentionally NOT
@@ -1604,12 +1644,20 @@ function Invoke-Sequence {
     # actively running this sequence), the throw propagates up through
     # any enclosing retry / step / sequence frames straight to the cycle
     # try/catch.
+    #
+    # The marker is carried BOTH as an Exception.Data tag and as the
+    # 'YurunaCycleRestart:' message prefix. Consumers prefer the structured
+    # tag, which survives a rewrap that a downstream `throw "wrapped: $_"`
+    # would strip from the message; the prefix stays as the fallback so any
+    # reader still matching on the message routes this abort correctly.
     $checkCycleRestart = {
         param([string]$Label)
         if (Test-Path $cycleRestartFlagFile) {
             & $writeCurrentAction "$Label cycle-restart requested (aborting cycle)"
-            Write-Information "    $Label cycle-restart signal seen — aborting current cycle."
-            throw "YurunaCycleRestart: status-service /control/start-cycle requested mid-cycle abort at $Label"
+            Write-Information "    $Label cycle-restart signal seen -- aborting current cycle."
+            $restart = [System.Management.Automation.RuntimeException]::new("YurunaCycleRestart: status-service /control/start-cycle requested mid-cycle abort at $Label")
+            $restart.Data['YurunaCycleRestart'] = $true
+            throw $restart
         }
     }
 
@@ -1646,7 +1694,7 @@ function Invoke-Sequence {
                          -AdditionalChildPath 'captures', 'sequences'
     $sequenceStopwatch = [System.Diagnostics.Stopwatch]::StartNew()
 
-    # ── Recursive step executor ─────────────────────────────────────────────
+    # -- Recursive step executor ---------------------------------------------
     # Wrapped as a script-block so the `retry` action case (below) can call
     # it on its inner `steps:` array, reusing the full per-step
     # infrastructure: pause checks, currentAction sidecar, progress ticks,
@@ -1676,7 +1724,7 @@ function Invoke-Sequence {
             # Gate #2: between-steps pause + cycle-restart check. Catches
             # a Pause or a "Save and start cycle" clicked while the previous
             # step was running. The throw inside $checkCycleRestart escapes
-            # this $invokeStepBlock (including any wrapping `retry` block —
+            # this $invokeStepBlock (including any wrapping `retry` block --
             # retry only catches $false returns, not exceptions) and bubbles
             # up to the cycle-level try/catch in Invoke-TestInnerRunner.
             & $waitWhilePaused "[$stepNum/$($Steps.Count)]"
@@ -1706,7 +1754,7 @@ function Invoke-Sequence {
         # (via Write-ProgressTick below), NOT by a Write-Information here.
         # A Write-Information at step-start would go through the Yuruna.Log
         # proxy and leave a permanent line in both the terminal and the log
-        # transcript — then the end-of-step completion line (with elapsed
+        # transcript -- then the end-of-step completion line (with elapsed
         # time) would appear below rather than replacing it. Write-Progress
         # renders out-of-band (floating bar) and auto-dismisses on
         # -Completed, so the scroll-permanent log gets exactly one entry
@@ -1748,6 +1796,11 @@ function Invoke-Sequence {
                 ScreenshotDir         = $screenshotDir
                 ShowSensitive         = $ShowSensitive
                 SequencePath          = $SequencePath
+                # Served-repo root (== the base the host status server serves at
+                # /yuruna-repo). fetchAndExecute/sshFetchAndExecute use it to
+                # hash the working-tree copy of the script the guest is about to
+                # fetch, so the guest can verify the bytes before running them.
+                RepoRoot              = $repoRoot
                 ExpandVariable        = ${function:Expand-Variable}
                 # Step-default param resolution lives in each handler
                 # scriptblock; these mirror the values the engine used to
@@ -1784,14 +1837,14 @@ function Invoke-Sequence {
             $global:ProgressPreference = $savedProgress
         }
 
-        # Normalize $ok. Anything that isn't a strict [bool] — $null, an
+        # Normalize $ok. Anything that isn't a strict [bool] -- $null, an
         # accidentally-polluted pipeline array, a string, an exception object
-        # wrapped by a catch — is treated as failure. Without this, helpers
+        # wrapped by a catch -- is treated as failure. Without this, helpers
         # that forget to `return $true`/`return $false` (or that leak a stray
         # Write-Output) silently pass the step despite a timeout.
         if ($ok -isnot [bool]) {
             $okType = if ($null -eq $ok) { '<null>' } else { $ok.GetType().Name }
-            Write-Warning "    Step [$stepNum] action '$($step.action)' returned a non-boolean ($okType) — treating as failure."
+            Write-Warning "    Step [$stepNum] action '$($step.action)' returned a non-boolean ($okType) -- treating as failure."
             $ok = $false
         }
 
@@ -1878,7 +1931,7 @@ function Invoke-Sequence {
             # Build a human-readable failed-step label (e.g. 'waitForText: "login prompt"').
             # Canonical builder: Test.SequenceAction\Get-SequenceActionFailureLabel.
             # Each verb's FailureLabel scriptblock lives next to its capability
-            # requirements in Test.SequenceHandler.psm1 — search for
+            # requirements in Test.SequenceHandler.psm1 -- search for
             # Register-SequenceAction. The OUTER call site reads $script:Fail.Last-
             # Failure* below to write last_failure.json + the failure screen-
             # shot. Capturing here (and only returning $false) keeps transient
@@ -1886,14 +1939,21 @@ function Invoke-Sequence {
             # behind.
             $actionLabel = Get-SequenceActionFailureLabel -Step $step -Vars $vars -ExpandVariable ${function:Expand-Variable}
 
-            # If Wait-ForText short-circuited on a failurePattern, annotate
-            # the step label so the runner's ERROR banner and the per-run
-            # failure JSON both say *why* the step died instead of the
-            # generic "pattern not found within Ns". Only waitForText /
-            # waitForAndEnter / passwdPrompt / sshWaitReady set this signal;
-            # for other actions it is $null and the label is unchanged.
-            if (($step.action -eq 'waitForText' -or $step.action -eq 'waitForAndEnter' -or $step.action -eq 'passwdPrompt' -or $step.action -eq 'sshWaitReady') -and
-                $script:Fail.WaitForTextMatchedFailurePattern) {
+            # If a wait-signal verb short-circuited on a failurePattern,
+            # annotate the step label so the runner's ERROR banner and the
+            # per-run failure JSON both say *why* the step died instead of
+            # the generic "pattern not found within Ns". The set of verbs
+            # that populate this signal is declared per-verb via the
+            # UsesWaitSignals registry flag (Register-SequenceAction), so a
+            # new wait verb opts in at its registration rather than editing
+            # this engine site. For other actions the signal is $null and
+            # the label is unchanged.
+            $stepUsesWaitSignals = $false
+            if (-not [string]::IsNullOrEmpty([string]$step.action)) {
+                $waitSignalEntry = Get-SequenceAction -Name ([string]$step.action)
+                if ($waitSignalEntry) { $stepUsesWaitSignals = [bool]$waitSignalEntry.UsesWaitSignals }
+            }
+            if ($stepUsesWaitSignals -and $script:Fail.WaitForTextMatchedFailurePattern) {
                 $actionLabel = $actionLabel + " -- matched failurePattern `"$($script:Fail.WaitForTextMatchedFailurePattern)`""
             }
 
@@ -1949,11 +2009,20 @@ function Invoke-Sequence {
         # One NDJSON line for stream consumers (status server, remediation loop, CI hook).
         Send-CycleEventSafely -EventRecord $failRec.Event
 
-        # For non-OCR failures, capture a screenshot now (waitForText / waitForAndEnter
-        # / passwdPrompt / fetchAndExecute already save one in their own failure paths).
+        # Capture a screenshot now unless the failed verb already saved one
+        # in its own failure path (avoids overwriting the verb's richer,
+        # in-context frame with a later capture). Which verbs self-capture
+        # is declared per-verb via the CapturesOwnFailureScreenshot registry
+        # flag (Register-SequenceAction), so a new self-capturing verb opts
+        # out here at its registration rather than editing this engine site.
         # Use the DEEPEST failed action's name -- after retry-exhausted, that's the inner
         # action, not 'retry' itself.
-        if ($script:Fail.LastFailedAction -ne "waitForText" -and $script:Fail.LastFailedAction -ne "waitForAndEnter" -and $script:Fail.LastFailedAction -ne "passwdPrompt" -and $script:Fail.LastFailedAction -ne "fetchAndExecute") {
+        $failedVerbSelfCaptures = $false
+        if (-not [string]::IsNullOrEmpty([string]$script:Fail.LastFailedAction)) {
+            $failedVerbEntry = Get-SequenceAction -Name ([string]$script:Fail.LastFailedAction)
+            if ($failedVerbEntry) { $failedVerbSelfCaptures = [bool]$failedVerbEntry.CapturesOwnFailureScreenshot }
+        }
+        if (-not $failedVerbSelfCaptures) {
             $failScreenPath = Join-Path $logDir "failure_screenshot_${VMName}.png"
             $captured = Get-VMScreenshot -VMName $VMName -OutFile $failScreenPath
             # Confirm the file landed before advertising it: Get-VMScreenshot can
@@ -1989,11 +2058,15 @@ function Invoke-Sequence {
     # YurunaCycleRestart is a control-flow marker from the cycle-restart
     # gate ($checkCycleRestart), not an actual sequence failure. The gate
     # comment at Gate #2 promises it "bubbles up to the cycle-level try/
-    # catch in Invoke-TestInnerRunner" — re-throw before the generic
+    # catch in Invoke-TestInnerRunner" -- re-throw before the generic
     # handler turns it into a Write-Warning + return $false, which would
     # leave control.cycle-restart unconsumed and the flag re-fires on every
-    # subsequent sequence's [sequence start] gate.
-    if ($_.Exception.Message -like 'YurunaCycleRestart:*') { throw }
+    # subsequent sequence's [sequence start] gate. Prefer the structured
+    # Exception.Data tag (survives a rewrap that would strip the message
+    # prefix); fall back to the message prefix so an untagged marker from an
+    # older throw path still re-throws instead of being counted as a crash.
+    if (($_.Exception.Data -and $_.Exception.Data['YurunaCycleRestart']) -or
+        ($_.Exception.Message -like 'YurunaCycleRestart:*')) { throw }
     # Print the message AND the throwing-statement origin AND the
     # call stack. Without these the operator gets only the .Exception
     # text (e.g. 'Exception calling "Replace" with "3" argument(s)')
@@ -2048,7 +2121,7 @@ function Invoke-Sequence {
   }
 }
 
-# ── Host I/O provider registrations ─────────────────────────────────────────
+# -- Host I/O provider registrations -----------------------------------------
 # Lifted to per-host singular-noun modules:
 #   Test.HostIO.HyperV.psm1   host.windows.hyper-v
 #   Test.HostIO.Utm.psm1      host.macos.utm
@@ -2061,7 +2134,7 @@ function Invoke-Sequence {
 # Get-HostIOProviderMatrix so the operator sees which actions are
 # wired on the current host before the cycle starts. See docs/host-io.md.
 
-# ── Sequence action metadata registrations ──────────────────────────────────
+# -- Sequence action metadata registrations ----------------------------------
 # Failure-label scriptblock convention: $Context carries Step (parsed YAML
 # step), Vars (variable scope), and ExpandVariable (live reference to
 # Expand-Variable; we pass it in so the registry module does NOT have to

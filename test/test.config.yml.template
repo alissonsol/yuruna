@@ -24,6 +24,7 @@ pool:
   pullTimeoutSeconds: 30
 repositories:
   frameworkUrl: https://github.com/alissonsol/yuruna
+  GH_TOKEN: ""
   projectUrl: https://github.com/alissonsol/yuruna-project
 statusService:
   isEnabled: true

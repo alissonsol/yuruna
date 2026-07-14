@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.10
+.VERSION 2026.07.14
 .GUID 42d0e1f2-a3b4-4c56-9890-bd1e2f3a4b52
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -186,10 +186,41 @@ Describe 'CI gate marks pools.yml required and admin git ops route through retry
             (Test-AnyExtentMatch -Nodes $wrapped -Pattern "'$op'") | Should -Be $true
             (Test-AnyExtentMatch -Nodes $direct  -Pattern "'$op'") | Should -Be $false
         }
-        foreach ($op in 'add', 'commit', 'reset', 'diff') {
+        # merge-base + rebase are LOCAL ops: retrying a rebase could re-enter a
+        # half-applied rebase, so they must stay direct like add/commit/reset/diff.
+        foreach ($op in 'add', 'commit', 'reset', 'diff', 'merge-base', 'rebase') {
             (Test-AnyExtentMatch -Nodes $direct  -Pattern "'$op'") | Should -Be $true
             (Test-AnyExtentMatch -Nodes $wrapped -Pattern "'$op'") | Should -Be $false
         }
+    }
+}
+
+Describe 'Open-YurunaPoolIntent refuses to reset --hard over unpushed local commits' {
+    It 'returns Ok=$false and does NOT reset when the clone is local-ahead (merge-base --is-ancestor = 1)' {
+        Mock -ModuleName Test.PoolAdmin Test-Path { param($LiteralPath) $LiteralPath -notlike '*rebase-*' }
+        Mock -ModuleName Test.PoolAdmin Invoke-PoolAdminGitWithRetry { 0 }
+        Mock -ModuleName Test.PoolAdmin Invoke-PoolSyncGit { if ($ArgumentList -contains 'merge-base') { 1 } else { 0 } }
+        $r = Open-YurunaPoolIntent -IntentGitUrl 'https://example/intent' -IntentDir 'TestDrive:\intent' -Confirm:$false
+        $r.Ok | Should -Be $false
+        $r.Error | Should -Match 'refusing to reset'
+        Assert-MockCalled -ModuleName Test.PoolAdmin Invoke-PoolSyncGit -Scope It -Times 0 -Exactly -ParameterFilter { $ArgumentList -contains 'reset' }
+    }
+    It 'proceeds with the reset when HEAD is contained in FETCH_HEAD (merge-base = 0)' {
+        Mock -ModuleName Test.PoolAdmin Test-Path { param($LiteralPath) $LiteralPath -notlike '*rebase-*' }
+        Mock -ModuleName Test.PoolAdmin Invoke-PoolAdminGitWithRetry { 0 }
+        Mock -ModuleName Test.PoolAdmin Invoke-PoolSyncGit { 0 }
+        $r = Open-YurunaPoolIntent -IntentGitUrl 'https://example/intent' -IntentDir 'TestDrive:\intent' -Confirm:$false
+        $r.Ok | Should -Be $true
+        Assert-MockCalled -ModuleName Test.PoolAdmin Invoke-PoolSyncGit -Scope It -Times 1 -Exactly -ParameterFilter { $ArgumentList -contains 'reset' }
+    }
+    It 'returns Ok=$false and does NOT reset when a rebase is in progress (mid-rebase clone)' {
+        Mock -ModuleName Test.PoolAdmin Test-Path { $true }
+        Mock -ModuleName Test.PoolAdmin Invoke-PoolAdminGitWithRetry { 0 }
+        Mock -ModuleName Test.PoolAdmin Invoke-PoolSyncGit { 0 }
+        $r = Open-YurunaPoolIntent -IntentGitUrl 'https://example/intent' -IntentDir 'TestDrive:\intent' -Confirm:$false
+        $r.Ok | Should -Be $false
+        $r.Error | Should -Match 'unfinished rebase'
+        Assert-MockCalled -ModuleName Test.PoolAdmin Invoke-PoolSyncGit -Scope It -Times 0 -Exactly -ParameterFilter { $ArgumentList -contains 'reset' }
     }
 }
 

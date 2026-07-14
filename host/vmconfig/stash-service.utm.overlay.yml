@@ -1,7 +1,5 @@
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 # macOS/UTM (QEMU) overlay for stash-service.base.user-data.
-# The stash-service user-data has no per-platform divergence; this
-# overlay is intentionally empty (no anchor sections). It exists so a
-# future platform-specific tweak has an obvious home, matching the
-# caching-proxy overlay structure.
+# Intentionally empty (no anchor sections): stash-service has no per-platform
+# divergence. Kept so a future platform-specific tweak has an obvious home.

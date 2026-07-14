@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.10
+.VERSION 2026.07.14
 .GUID 42b5c6d7-e8f9-4a01-8b23-5c6d7e8f9012
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -69,7 +69,10 @@ $save = Save-YurunaPoolDoc -IntentDir $t.IntentDir -RelPath 'pools.yml' -Doc $do
 if (-not $save.Ok) { Write-Error "pools.yml validation/write failed: $($save.Error)"; exit $ExitFailure }
 $pub = Publish-YurunaPoolIntent -IntentDir $t.IntentDir -Message "pool: $PoolId desiredState=$State" -Confirm:$false
 if (-not $pub.Ok) { Write-Error "Commit failed: $($pub.Error)"; exit $ExitFailure }
-if (-not $pub.Pushed) { Write-Warning $pub.Error }
+if (-not $pub.Pushed) {
+    Write-Error "Committed locally but NOT pushed to the remote -- the change is not durable and a later admin command will discard it: $($pub.Error)"
+    exit $ExitFailure
+}
 
 Write-Information "Pool '$PoolId' desiredState set to '$State'. Members reconcile on their next cycle pull." -InformationAction Continue
 exit $ExitOk

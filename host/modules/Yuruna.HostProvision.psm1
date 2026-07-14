@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.10
+.VERSION 2026.07.14
 .GUID 42b8e6a4-3d17-4c92-8f05-6a1b9d2e7c40
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -16,12 +16,10 @@
 
 #requires -version 7
 
-# Shared per-guest provisioning helpers for the host drivers. The three
-# Yuruna.Host drivers carried byte-identical copies of the New-VM child-
-# process runner -- the only platform variable was the host subdirectory
-# string literal -- and the Windows and macOS drivers carried byte-identical
-# copies of the Get-Image console + HTML-log line writer. They live here once
-# now so a fix to the child-arg forwarding, the %-complete line filter, or the
+# Shared per-guest provisioning helpers for the host drivers: the New-VM
+# child-process runner (whose only platform variable is the host subdirectory
+# string literal) and the Get-Image console + HTML-log line writer. Defined once
+# here so a fix to the child-arg forwarding, the %-complete line filter, or the
 # log-line HTML encoding lands in one place instead of drifting across drivers.
 #
 # Each driver imports this module (non-Global) into its own scope: New-VM
@@ -35,18 +33,18 @@
 # (see feedback_closure_foreign_module_command_resolution.md).
 #
 # The caching-proxy probe's cross-module dependencies (Get-CachingProxyPort,
-# Test-IpAddress, Format-IpUrlHost from Test.VMUtility; Read-CachingProxyState
+# Test-IpAddress, Format-IpUrlHost from Yuruna.Common; Read-CachingProxyState
 # from Test.CachingProxy) are called by name, so this module owns those imports
 # itself (below) rather than assuming a driver imported them into a visible
 # scope -- mirroring the Yuruna.HostDownload.psm1 self-import pattern.
 $script:RepoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
-Import-Module (Join-Path $script:RepoRoot 'test/modules/Test.VMUtility.psm1')    -DisableNameChecking -ErrorAction SilentlyContinue
+Import-Module (Join-Path $script:RepoRoot 'automation/Yuruna.Common.psm1')       -DisableNameChecking -ErrorAction SilentlyContinue
 Import-Module (Join-Path $script:RepoRoot 'test/modules/Test.CachingProxy.psm1') -DisableNameChecking -ErrorAction SilentlyContinue
 # Verify the by-name dependencies resolved at LOAD time, so a broken/moved module surfaces here
 # instead of on the one caching-proxy probe per cycle (where it looks like a cache outage).
 foreach ($dep in @('Get-CachingProxyPort', 'Test-IpAddress', 'Format-IpUrlHost', 'Read-CachingProxyState')) {
     if (-not (Get-Command -Name $dep -ErrorAction SilentlyContinue)) {
-        Write-Warning "Yuruna.HostProvision: required command '$dep' is not available after importing Test.VMUtility / Test.CachingProxy -- the caching-proxy probe will fail. Verify those modules loaded correctly."
+        Write-Warning "Yuruna.HostProvision: required command '$dep' is not available after importing Yuruna.Common / Test.CachingProxy -- the caching-proxy probe will fail. Verify those modules loaded correctly."
     }
 }
 
@@ -167,8 +165,13 @@ function Invoke-WaitVmIp {
     while ((Get-Date) -lt $deadline) {
         $candidate = & $ResolveVmIp -VMName $VMName
         if ($candidate) { return [string]$candidate }
+        # The resolver call itself can be slow (a Get-VMIp that waits on KVP/ARP);
+        # re-check the deadline before sleeping so we neither nap a full PollSeconds
+        # past an already-expired budget nor spin one extra resolver call past it.
+        if ((Get-Date) -ge $deadline) { break }
         Start-Sleep -Seconds $PollSeconds
     }
+    Write-Verbose "Invoke-WaitVmIp: no IP for '$VMName' within ${TimeoutSeconds}s (resolver returned no address)."
     return $null
 }
 
@@ -221,6 +224,43 @@ function Invoke-GetImage {
         return @{ success = $false; skipped = $false; errorMessage = "Get-Image.ps1 exited with code $code" }
     }
     return @{ success = $true; skipped = $false; errorMessage = $null }
+}
+
+function Test-TcpConnectWithin {
+    <#
+    .SYNOPSIS
+        True when a TCP connect to $IpAddress:$Port completes within
+        $TimeoutMs; $false on timeout, refusal, or any socket error.
+    .DESCRIPTION
+        BeginConnect starts an async connect and WaitOne bounds it, so a
+        black-holed IP times out at $TimeoutMs instead of blocking on the OS
+        default connect timeout (~20s+). On a completed connect EndConnect is
+        called to finish the async operation cleanly before the socket is torn
+        down -- leaving it pending abandons the operation and leaks the handle.
+        The TcpClient is disposed in a finally so both the success and timeout
+        paths release the socket deterministically.
+    #>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param(
+        [Parameter(Mandatory)][string]$IpAddress,
+        [Parameter(Mandatory)][int]$Port,
+        [Parameter(Mandatory)][int]$TimeoutMs
+    )
+    $tcp = New-Object System.Net.Sockets.TcpClient
+    try {
+        $async = $tcp.BeginConnect($IpAddress, $Port, $null, $null)
+        if ($async.AsyncWaitHandle.WaitOne($TimeoutMs) -and $tcp.Connected) {
+            $tcp.EndConnect($async)
+            return $true
+        }
+        return $false
+    } catch {
+        Write-Verbose "TCP connect ${IpAddress}:${Port} failed: $($_.Exception.Message)"
+        return $false
+    } finally {
+        $tcp.Close()
+    }
 }
 
 function Invoke-CachingProxyAvailableProbe {
@@ -276,16 +316,8 @@ function Invoke-CachingProxyAvailableProbe {
         # accept); it only delays the verdict for a genuinely-down one.
         for ($attempt = 1; $attempt -le $ConnectAttempts; $attempt++) {
             if ($attempt -gt 1) { Start-Sleep -Milliseconds $ConnectBackoffMs }
-            $tcp = New-Object System.Net.Sockets.TcpClient
-            try {
-                $async = $tcp.BeginConnect($externIp, $httpPort, $null, $null)
-                if ($async.AsyncWaitHandle.WaitOne(3000) -and $tcp.Connected) {
-                    return "http://$(if ($NoBracketHost) { $externIp } else { Format-IpUrlHost $externIp }):${httpPort}"
-                }
-            } catch {
-                Write-Verbose "external caching proxy probe to ${externIp}:${httpPort} failed: $($_.Exception.Message)"
-            } finally {
-                $tcp.Close()
+            if (Test-TcpConnectWithin -IpAddress $externIp -Port $httpPort -TimeoutMs 3000) {
+                return "http://$(if ($NoBracketHost) { $externIp } else { Format-IpUrlHost $externIp }):${httpPort}"
             }
         }
         Write-Warning "YURUNA_CACHING_PROXY_IP=${externIp} set but ${externIp}:${httpPort} did not answer within 3s."
@@ -312,16 +344,8 @@ function Invoke-CachingProxyAvailableProbe {
     # single bootstrap probe and silently strands the whole inner cycle.
     for ($attempt = 1; $attempt -le $ConnectAttempts; $attempt++) {
         if ($attempt -gt 1) { Start-Sleep -Milliseconds $ConnectBackoffMs }
-        $tcp = New-Object System.Net.Sockets.TcpClient
-        try {
-            $async = $tcp.BeginConnect($stateIp, $httpPort, $null, $null)
-            if ($async.AsyncWaitHandle.WaitOne(1500) -and $tcp.Connected) {
-                return "http://$(if ($NoBracketHost) { $stateIp } else { Format-IpUrlHost $stateIp }):${httpPort}"
-            }
-        } catch {
-            Write-Verbose "cache probe ${stateIp}:${httpPort} failed: $($_.Exception.Message)"
-        } finally {
-            $tcp.Close()
+        if (Test-TcpConnectWithin -IpAddress $stateIp -Port $httpPort -TimeoutMs 1500) {
+            return "http://$(if ($NoBracketHost) { $stateIp } else { Format-IpUrlHost $stateIp }):${httpPort}"
         }
     }
     Write-Warning "Test-CachingProxyAvailable: state.ipAddress=${stateIp} did not answer :${httpPort} within 1500 ms; treating cache as unavailable. Verify with '$($VerifyHint -f $stateIp, $httpPort)'; if it answers, the cache is running and the next runner cycle will pick it up. If not, re-run Start-CachingProxy.ps1 (the VM may have restarted with a new DHCP lease)."

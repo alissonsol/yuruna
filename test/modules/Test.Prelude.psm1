@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.10
+.VERSION 2026.07.14
 .GUID 42ab19c1-07c0-4d84-be69-80c4f1c780a8
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -510,9 +510,14 @@ function Register-EntryPointCancelHandler {
     [CmdletBinding()]
     [OutputType([hashtable])]
     param(
-        [string]$SourceIdentifier = 'YurunaCancelKey'
+        [string]$SourceIdentifier = 'YurunaCancelKey',
+        # Label in the Ctrl+C warning: the outer runner surrenders after the current
+        # 'cycle', the single-sequence entry point after the current 'step'. Rides on
+        # the shared MessageData so the event-thread -Action block (which does not
+        # close over this function's locals) can read it back.
+        [string]$ExitAfterLabel = 'step'
     )
-    $state = @{ Requested = $false }
+    $state = @{ Requested = $false; ExitAfterLabel = $ExitAfterLabel }
     try {
         Unregister-Event -SourceIdentifier $SourceIdentifier -ErrorAction SilentlyContinue
         Remove-Job -Name $SourceIdentifier -Force -ErrorAction SilentlyContinue
@@ -520,7 +525,7 @@ function Register-EntryPointCancelHandler {
             -SourceIdentifier $SourceIdentifier -MessageData $state -Action {
                 $Event.SourceEventArgs.Cancel = $true
                 $Event.MessageData['Requested'] = $true
-                Write-Warning "Shutdown requested (Ctrl+C). Will exit after the current step..."
+                Write-Warning "Shutdown requested (Ctrl+C). Will exit after the current $($Event.MessageData['ExitAfterLabel'])..."
             }
     } catch {
         Write-Verbose "Could not register CancelKeyPress handler (non-interactive session): $($_.Exception.Message)"

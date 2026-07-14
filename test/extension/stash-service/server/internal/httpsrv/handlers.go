@@ -148,7 +148,7 @@ func (s *Server) parsePathKey(r *http.Request) (pathKey, bool) {
 	y, ok1 := atoiOK(yS)
 	m, ok2 := atoiOK(mS)
 	d, ok3 := atoiOK(dS)
-	if !ok1 || !ok2 || !ok3 || m < 1 || m > 12 || d < 1 || d > 31 || y < 1970 || y > 9999 {
+	if !ok1 || !ok2 || !ok3 || !validMonth(m) || !validDay(d) || y < 1970 || y > 9999 {
 		return pathKey{}, false
 	}
 	return pathKey{hostID: hostID, y: y, m: m, d: d, id: id, yS: yS, mS: mS, dS: dS}, true
@@ -334,19 +334,34 @@ func (s *Server) handleList(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func (s *Server) handleGetMeta(w http.ResponseWriter, r *http.Request) {
+// parseAndResolve runs the shared handler prologue -- parse the stash path key,
+// resolve it, and write the 400 (invalid path) / 500 (resolve error) / 404 (not
+// found) JSON error itself -- returning (res, true) only on a resolved, found
+// stash. Callers needing extra post-conditions (e.g. handleArchive's
+// artifact!="" / IsArchive checks) apply them to the returned res. serveBytes and
+// handleDelete are NOT folded: serveBytes writes plain-text http.Error bodies,
+// and handleDelete does an ownership check instead of resolve.
+func (s *Server) parseAndResolve(w http.ResponseWriter, r *http.Request) (*resolved, bool) {
 	k, ok := s.parsePathKey(r)
 	if !ok {
 		writeErr(w, http.StatusBadRequest, "invalid stash path")
-		return
+		return nil, false
 	}
 	res, found, err := s.resolve(k)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
-		return
+		return nil, false
 	}
 	if !found {
 		writeErr(w, http.StatusNotFound, "stash not found")
+		return nil, false
+	}
+	return res, true
+}
+
+func (s *Server) handleGetMeta(w http.ResponseWriter, r *http.Request) {
+	res, ok := s.parseAndResolve(w, r)
+	if !ok {
 		return
 	}
 	eff := s.effectiveResult(res)
@@ -366,17 +381,11 @@ func (s *Server) handleGetMeta(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleArchive(w http.ResponseWriter, r *http.Request) {
-	k, ok := s.parsePathKey(r)
+	res, ok := s.parseAndResolve(w, r)
 	if !ok {
-		writeErr(w, http.StatusBadRequest, "invalid stash path")
 		return
 	}
-	res, found, err := s.resolve(k)
-	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	if !found || res.artifact == "" {
+	if res.artifact == "" {
 		writeErr(w, http.StatusNotFound, "stash not found")
 		return
 	}

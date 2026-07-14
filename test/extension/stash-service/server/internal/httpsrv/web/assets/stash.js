@@ -17,7 +17,7 @@
   }
 
   function msg(kind, text) {
-    $('msg').replaceChildren(Y.el('div', { class: 'notice ' + kind, text }));
+    Y.replace($('msg'), Y.el('div', { class: 'notice ' + kind, text }));
   }
 
   function meta(v) {
@@ -63,7 +63,9 @@
     if (!confirm('Delete stash ' + v.id + ' (' + (v.originalFilename || 'unnamed') + ', ' + Y.humanSize(v.sizeBytes) + ') on this host? This cannot be undone.')) return;
     try {
       await Y.api(apiPath(), { method: 'DELETE' });
-      location.href = '/';
+      // Route even this static destination through the shared safeUrl gate so
+      // every navigation in the UI passes one same-origin check.
+      location.href = safeUrl('/') || '/';
     } catch (e) {
       msg('error', 'Delete failed: ' + e.message);
     }
@@ -82,6 +84,11 @@
         break;
       case 'pdf':
         wrap.append(Y.el('embed', { class: 'viewer-frame', src: raw, type: 'application/pdf' }));
+        // Neither iOS Safari nor Android Chrome renders a PDF inside <embed>;
+        // both paint an empty frame with no hint that anything is wrong. Desktop
+        // Firefox/Chrome do render it, and then this link is merely redundant.
+        wrap.append(Y.el('p', { class: 'notice' },
+          Y.el('a', { href: raw, target: '_blank', rel: 'noopener', text: 'Open PDF' })));
         break;
       case 'audio':
         wrap.append(Y.el('audio', { class: 'viewer-av', controls: 'controls', src: raw }));
@@ -147,7 +154,7 @@
       document.title = (v.originalFilename || v.id) + ' · Yuruna Stash';
       const detail = $('detail');
       detail.className = '';
-      detail.replaceChildren(
+      Y.replace(detail,
         Y.el('h2', { text: v.originalFilename || v.id }),
         actions(v),
         await renderViewer(v),

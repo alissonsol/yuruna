@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.10
+.VERSION 2026.07.14
 .GUID 42c5e8a1-9b3d-4f27-8a6c-1d2e3f4a5b6c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -346,6 +346,31 @@ function Clear-PoolStorageConflictingMount {
     return $result
 }
 
+# Resolve-YurunaConfigDoc loads test.config.yml for the no-Config path of the
+# storage config readers: resolve $env:YURUNA_CONFIG_PATH, require it to exist AND
+# Read-TestConfig to be loaded, then read it inside a try/catch. Returns the parsed
+# config document, or $null when the feature is effectively off (no resolvable
+# path, Read-TestConfig unloaded, or the read threw). Read-TestConfig is ALWAYS
+# called with the RESOLVED $Path -- never by-name with $Path omitted -- because its
+# Mandatory $Path would stall forever on the interactive parameter prompt under the
+# headless runner (see feedback_byname_detection_mandatory_param_prompt_hang). The
+# Read-TestConfig-unloaded fallback keeps a caller that never imported Test.Config
+# (a storage reader can be dot-sourced standalone) from throwing. CallerName only
+# tags the verbose diagnostic so each reader's log line stays self-identifying.
+function Resolve-YurunaConfigDoc {
+    [CmdletBinding()]
+    [OutputType([object])]
+    param([Parameter(Mandatory)][string]$CallerName)
+    $cfgPath = if ($env:YURUNA_CONFIG_PATH) { $env:YURUNA_CONFIG_PATH } else { $null }
+    if (-not [string]::IsNullOrWhiteSpace($cfgPath) -and (Test-Path -LiteralPath $cfgPath) -and
+        (Get-Command Read-TestConfig -ErrorAction SilentlyContinue)) {
+        try { return (Read-TestConfig -Path $cfgPath) } catch { Write-Verbose "Read-TestConfig failed: $($_.Exception.Message)" }
+        return $null
+    }
+    Write-Verbose "${CallerName}: no -Config and no resolvable YURUNA_CONFIG_PATH; feature off."
+    return $null
+}
+
 <#
 .SYNOPSIS
 Returns a normalized pool config object, or $null when the feature is OFF (replicate false unless -IgnoreReplicate, or any of networkPath/networkUser/localPath empty); the object's Replicate field carries the real flag. Accepts an already-parsed config (IDictionary), else reads test.config.yml via Read-TestConfig using a RESOLVED path ($env:YURUNA_CONFIG_PATH) -- never with the path omitted, because Read-TestConfig's Mandatory $Path would stall forever on the interactive parameter prompt under the headless runner (see feedback_byname_detection_mandatory_param_prompt_hang).
@@ -363,14 +388,8 @@ function Get-YurunaPoolStorageConfig {
         [switch]$IgnoreReplicate
     )
     if (-not $Config) {
-        $cfgPath = if ($env:YURUNA_CONFIG_PATH) { $env:YURUNA_CONFIG_PATH } else { $null }
-        if (-not [string]::IsNullOrWhiteSpace($cfgPath) -and (Test-Path -LiteralPath $cfgPath) -and
-            (Get-Command Read-TestConfig -ErrorAction SilentlyContinue)) {
-            try { $Config = Read-TestConfig -Path $cfgPath } catch { Write-Verbose "Read-TestConfig failed: $($_.Exception.Message)" }
-        } else {
-            Write-Verbose "Get-YurunaPoolStorageConfig: no -Config and no resolvable YURUNA_CONFIG_PATH; feature off."
-            return $null
-        }
+        $Config = Resolve-YurunaConfigDoc -CallerName 'Get-YurunaPoolStorageConfig'
+        if (-not $Config) { return $null }
     }
     if (-not ($Config -is [System.Collections.IDictionary]) -or -not $Config.Contains('networkStorage')) { return $null }
     $ps = $Config['networkStorage']
@@ -425,14 +444,8 @@ function Get-YurunaStashStorageConfig {
     [OutputType([pscustomobject])]
     param([Parameter()][AllowNull()]$Config)
     if (-not $Config) {
-        $cfgPath = if ($env:YURUNA_CONFIG_PATH) { $env:YURUNA_CONFIG_PATH } else { $null }
-        if (-not [string]::IsNullOrWhiteSpace($cfgPath) -and (Test-Path -LiteralPath $cfgPath) -and
-            (Get-Command Read-TestConfig -ErrorAction SilentlyContinue)) {
-            try { $Config = Read-TestConfig -Path $cfgPath } catch { Write-Verbose "Read-TestConfig failed: $($_.Exception.Message)" }
-        } else {
-            Write-Verbose "Get-YurunaStashStorageConfig: no -Config and no resolvable YURUNA_CONFIG_PATH; feature off."
-            return $null
-        }
+        $Config = Resolve-YurunaConfigDoc -CallerName 'Get-YurunaStashStorageConfig'
+        if (-not $Config) { return $null }
     }
     if (-not ($Config -is [System.Collections.IDictionary]) -or -not $Config.Contains('networkStorage')) { return $null }
     $ns = $Config['networkStorage']

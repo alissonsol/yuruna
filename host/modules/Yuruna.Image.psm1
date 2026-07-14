@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.10
+.VERSION 2026.07.14
 .GUID 42de9c8b-f7a6-4b34-9182-3c4d5e6f7ab7
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -391,10 +391,16 @@ function Convert-Qcow2ToVhdx {
         if ($LASTEXITCODE -eq 0) { $resized = $true } else { Write-Warning "qemu-img resize failed: $resizeOut" }
     }
     if (-not $resized) {
-        Write-Warning "VHDX resize failed via both Resize-VHD and qemu-img; the VM will have only the base cloud-image capacity."
+        # Both resize paths failed, so the VHDX is only the base cloud-image
+        # capacity. Refuse to hand it back as success -- a caller that proceeds
+        # would provision an undersized disk (a 512 GB cache on a ~4 GB image).
+        # Remove the stub so a retry does not adopt the undersized VHDX, and
+        # return $false; every caller already fails fast on $false.
+        Write-Warning "VHDX resize failed via both Resize-VHD and qemu-img; refusing the base-capacity disk."
         Write-Warning "Resize manually: fsutil sparse setflag '$DestPath' 0; Resize-VHD -Path '$DestPath' -SizeBytes $SizeBytes"
+        Remove-Item -LiteralPath $DestPath -Force -ErrorAction SilentlyContinue
     }
-    return $true
+    return $resized
 }
 
 Export-ModuleMember -Function Save-ImageWithChecksum, Get-ImageChecksumLine, Convert-Qcow2ToVhdx, Test-PublishedChecksumSignature

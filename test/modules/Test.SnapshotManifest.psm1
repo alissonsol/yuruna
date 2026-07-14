@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.10
+.VERSION 2026.07.14
 .GUID 42cd8b7a-e6f5-4a23-9081-3b4c5d6e7fa6
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -73,7 +73,11 @@ function Get-SnapshotManifestDir {
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions',
         '', Justification = 'Wraps New-Item which is gated by ShouldProcess below.')]
     param()
-    $base = if ($env:YURUNA_RUNTIME_DIR) { $env:YURUNA_RUNTIME_DIR } else { $env:TEMP }
+    # $env:TEMP is Windows-only -- POSIX PowerShell never defines it, so on a
+    # macos.utm / ubuntu.kvm host this fallback yields $null and Join-Path throws
+    # on a null -Path, taking every manifest write, read, and restore-gate check
+    # with it. [IO.Path]::GetTempPath() resolves on every platform.
+    $base = if ($env:YURUNA_RUNTIME_DIR) { $env:YURUNA_RUNTIME_DIR } else { [System.IO.Path]::GetTempPath() }
     $dir = Join-Path $base 'snapshots'
     if (-not (Test-Path -LiteralPath $dir)) {
         if ($PSCmdlet.ShouldProcess($dir, 'Create snapshot-manifest directory')) {

@@ -1,5 +1,5 @@
-﻿<#PSScriptInfo
-.VERSION 2026.07.10
+<#PSScriptInfo
+.VERSION 2026.07.14
 .GUID 42c7d3a9-5e1b-4f80-9a2c-6d8e3f1b0a47
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -163,9 +163,9 @@ function Get-SequenceModePath {
     project under that tree may ship its own test sequences in
     <project>/test/<mode>/. We walk project/ once and collect every
     directory whose name matches the requested mode and whose immediate
-    parent is named "test". This keeps depth flexible — projects sit at
+    parent is named "test". This keeps depth flexible -- projects sit at
     project/<category>/<name>/test/<mode>/ (e.g. example/website) or at
-    project/<name>/test/<mode>/ (e.g. template) — without callers having
+    project/<name>/test/<mode>/ (e.g. template) -- without callers having
     to know the layout.
 
     project/test/ (cycle config holder) deliberately has no gui/ssh
@@ -384,7 +384,7 @@ function Get-SequenceSearchPath {
     return $paths.ToArray()
 }
 
-# ── Step-snippet library ─────────────────────────────────────────────────────
+# -- Step-snippet library -----------------------------------------------------
 # A snippet is a named, reusable list of steps spliced into a sequence wherever
 # a `{ snippet: <name> }` step appears (including inside retry.steps), so common
 # preambles like the cold-agetty login prime live in one place instead of being

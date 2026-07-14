@@ -1,5 +1,5 @@
-﻿<#PSScriptInfo
-.VERSION 2026.07.10
+<#PSScriptInfo
+.VERSION 2026.07.14
 .GUID 425458ca-5060-4a2d-b2e3-2fb297ec265e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -63,7 +63,7 @@ function Set-LogLevelPreference {
     if (-not $script:LogLevelRank.Contains($Level)) { return }
     $eff = $script:LogLevelRank[$Level]
     # Stream visibility cascade. $ErrorActionPreference is intentionally
-    # left at its inherited default ('Continue') — even at logLevel='Error'
+    # left at its inherited default ('Continue') -- even at logLevel='Error'
     # we want errors visible, and lowering it would also hide them.
     $global:WarningPreference     = if ($script:LogLevelRank.Warning     -le $eff) { 'Continue' } else { 'SilentlyContinue' }
     $global:InformationPreference = if ($script:LogLevelRank.Information -le $eff) { 'Continue' } else { 'SilentlyContinue' }
@@ -117,7 +117,7 @@ function Use-LogLevelFromEnv {
     <#
     .SYNOPSIS
         Apply the cascade in a child script that inherited YURUNA_LOG_LEVEL
-        from its parent. No-op when the env var is unset or invalid — the
+        from its parent. No-op when the env var is unset or invalid -- the
         script keeps PowerShell's default preference values.
     #>
     if ($env:YURUNA_LOG_LEVEL -and $script:LogLevelRank.Contains($env:YURUNA_LOG_LEVEL)) {

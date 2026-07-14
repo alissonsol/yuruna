@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.10
+.VERSION 2026.07.14
 .GUID 422c9a3d-41bb-4e8c-9b64-5f7a1d0c9a12
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -181,6 +181,32 @@ System.String. Absolute path to the private key file.
     Initialize-YurunaSshKey | Out-Null
     $script:CachedSshKey = $script:SshKeyPath
     return $script:SshKeyPath
+}
+
+function Get-YurunaSshHostKeyOption {
+<#
+.SYNOPSIS
+Returns the three host-key ssh -o options every yuruna ssh call site must pass.
+.DESCRIPTION
+yuruna recreates guests constantly and reuses VM names and NAT-assigned IPs, so
+every fresh guest presents a different host key on an address that previously had
+a different one. Skipping any one of these would trip a "REMOTE HOST
+IDENTIFICATION HAS CHANGED" refusal (or a ssh-keyscan-into-ssh_known_hosts trap
+for the global file). Returned as a flat -o/value sequence so it drops straight
+into a ProcessStartInfo.ArgumentList or a native-ssh argument array; divergent
+per-call options (ConnectTimeout / ServerAlive / LogLevel) stay caller-appended.
+.OUTPUTS
+System.String[]. Six elements: -o StrictHostKeyChecking=no -o
+UserKnownHostsFile=/dev/null -o GlobalKnownHostsFile=/dev/null.
+#>
+    [CmdletBinding()]
+    [OutputType([string[]])]
+    param()
+    return [string[]]@(
+        '-o', 'StrictHostKeyChecking=no',
+        '-o', 'UserKnownHostsFile=/dev/null',
+        '-o', 'GlobalKnownHostsFile=/dev/null'
+    )
 }
 
 function Get-GuestAddress {
@@ -529,9 +555,7 @@ System.Boolean. $true if SSH became ready, $false on timeout.
         # paths with spaces in $key.
         $psi.ArgumentList.Add('-i'); $psi.ArgumentList.Add($key)
         $psi.ArgumentList.Add('-o'); $psi.ArgumentList.Add('BatchMode=yes')
-        $psi.ArgumentList.Add('-o'); $psi.ArgumentList.Add('StrictHostKeyChecking=no')
-        $psi.ArgumentList.Add('-o'); $psi.ArgumentList.Add('UserKnownHostsFile=/dev/null')
-        $psi.ArgumentList.Add('-o'); $psi.ArgumentList.Add('GlobalKnownHostsFile=/dev/null')
+        foreach ($hk in (Get-YurunaSshHostKeyOption)) { $psi.ArgumentList.Add($hk) }
         $psi.ArgumentList.Add('-o'); $psi.ArgumentList.Add('ConnectTimeout=5')
         $psi.ArgumentList.Add('-o'); $psi.ArgumentList.Add('ServerAliveInterval=3')
         $psi.ArgumentList.Add('-o'); $psi.ArgumentList.Add('ServerAliveCountMax=2')
@@ -653,11 +677,9 @@ System.Boolean. $true if SSH became ready, $false on timeout.
             $vpsi.RedirectStandardError  = $true
             $vpsi.UseShellExecute = $false
             foreach ($a in @('-v', '-i', $key,
-                    '-o', 'BatchMode=yes',
-                    '-o', 'StrictHostKeyChecking=no',
-                    '-o', 'UserKnownHostsFile=/dev/null',
-                    '-o', 'GlobalKnownHostsFile=/dev/null',
-                    '-o', 'ConnectTimeout=5',
+                    '-o', 'BatchMode=yes') +
+                    (Get-YurunaSshHostKeyOption) +
+                    @('-o', 'ConnectTimeout=5',
                     "$user@$lastTarget", 'echo yuruna-ssh-ready')) {
                 $vpsi.ArgumentList.Add($a)
             }
@@ -751,11 +773,9 @@ System.Collections.Hashtable with keys: success (bool), exitCode (int), output (
     $psi.CreateNoWindow         = $true
     foreach ($sshArg in @(
             '-i', $keyPath,
-            '-o', 'BatchMode=yes',
-            '-o', 'StrictHostKeyChecking=no',
-            '-o', 'UserKnownHostsFile=/dev/null',
-            '-o', 'GlobalKnownHostsFile=/dev/null',
-            '-o', 'ConnectTimeout=10',
+            '-o', 'BatchMode=yes') +
+            (Get-YurunaSshHostKeyOption) +
+            @('-o', 'ConnectTimeout=10',
             '-o', 'ServerAliveInterval=30',
             '-o', 'LogLevel=ERROR',
             $target, $cmd)) {
@@ -837,4 +857,4 @@ System.String IPv4 on success, $null on timeout.
     return $null
 }
 
-Export-ModuleMember -Function Initialize-YurunaSshKey, Get-YurunaSshPublicKey, Get-YurunaSshPrivateKeyPath, Wait-SshReady, Get-SshReadinessFailureCause, Invoke-GuestSsh, Get-GuestSshUser, Set-GuestSshUserOverride, Clear-GuestSshUserOverride, Get-GuestAddress, Wait-GuestIp
+Export-ModuleMember -Function Initialize-YurunaSshKey, Get-YurunaSshPublicKey, Get-YurunaSshPrivateKeyPath, Get-YurunaSshHostKeyOption, Wait-SshReady, Get-SshReadinessFailureCause, Invoke-GuestSsh, Get-GuestSshUser, Set-GuestSshUserOverride, Clear-GuestSshUserOverride, Get-GuestAddress, Wait-GuestIp

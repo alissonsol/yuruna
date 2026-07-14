@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.10
+.VERSION 2026.07.14
 .GUID 42d5e6f7-a8b9-4c01-9d23-ef4a5b6c7d82
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -18,15 +18,18 @@
 
 <#
 .SYNOPSIS
-    The five deployment entrypoints resolve project_root/config_root with -LiteralPath
-    plus an explicit single-match count check (so a wildcard-metachar folder name is not
-    glob-expanded and a multi-match does not false-pass), and scope the pre-import module
-    eviction to Yuruna.* so unrelated modules in a shared session survive.
+    Path-resolution hardening (-LiteralPath plus an explicit single-match count check, so a
+    wildcard-metachar folder name is not glob-expanded and a multi-match does not
+    false-pass) lives once in the shared Resolve-YurunaRootSet helper; each of the five
+    deployment entrypoints delegates to it and scopes its pre-import module eviction to
+    Yuruna.* so unrelated modules in a shared session survive.
 .DESCRIPTION
-    AST guards over automation/{yuruna,Set-Component,Set-Resource,Set-Workload,Invoke-Clear}.ps1
-    -- the scripts are top-level deploy CLIs that cannot be unit-invoked, so the guards
-    assert the hardened shape on the exact command/comparison nodes. One semantic test
-    demonstrates the wildcard-glob hazard the -LiteralPath switch closes. Pester 4.10.1.
+    The resolution prelude was hoisted into automation/Yuruna.LogLevel.psm1
+    (Resolve-YurunaRootSet), so the AST guards assert the hardened -LiteralPath/count shape
+    on that helper's command/comparison nodes, plus that each top-level deploy CLI -- which
+    cannot be unit-invoked -- delegates to the helper and keeps a Yuruna.*-scoped eviction.
+    One semantic test demonstrates the wildcard-glob hazard the -LiteralPath switch closes.
+    Pester 4.10.1.
 #>
 
 $here     = Split-Path -Parent $PSCommandPath
@@ -71,31 +74,51 @@ function Get-EvictionGetModule {
     }, $true) | Select-Object -First 1
 }
 
-Describe 'Deployment entrypoints harden path resolution and module eviction' {
+# The parsed ASTs live at file scope because a Describe/Context body is executed during
+# test discovery and its variables are discarded before any It runs; only the file's own
+# scope is still on the chain when an It executes. The per-entrypoint AST is keyed by file
+# name and the key is handed to each It as test-case data, since the discovery-time loop
+# variable is likewise gone by then.
+$helperAst     = Get-FileAst (Join-Path $autoDir 'Yuruna.LogLevel.psm1')
+$entrypointAst = @{}
+foreach ($entrypoint in $entrypoints) {
+    $entrypointAst[$entrypoint] = Get-FileAst (Join-Path $autoDir $entrypoint)
+}
+
+Describe 'Deployment entrypoints delegate hardened path resolution and scope module eviction' {
+    Context 'Resolve-YurunaRootSet helper (automation/Yuruna.LogLevel.psm1)' {
+        It 'resolves the project root with -LiteralPath (not -Path)' {
+            $c = Get-ResolvePathTargeting -Ast $helperAst -TargetVar 'ProjectRoot'
+            $c | Should -Not -BeNullOrEmpty
+            $c.Extent.Text | Should -Match '-LiteralPath'
+            $c.Extent.Text | Should -Not -Match '-Path\s+\$ProjectRoot'
+        }
+        It 'resolves the config root with -LiteralPath (not -Path)' {
+            $c = Get-ResolvePathTargeting -Ast $helperAst -TargetVar 'configRelative'
+            $c | Should -Not -BeNullOrEmpty
+            $c.Extent.Text | Should -Match '-LiteralPath'
+        }
+        It 'validates the project resolution resolves to exactly one path' {
+            (Test-HasCountNeOne -Ast $helperAst -ResolvedVar 'resolvedRoot') | Should -BeTrue
+        }
+        It 'validates the config resolution resolves to exactly one path' {
+            (Test-HasCountNeOne -Ast $helperAst -ResolvedVar 'configRoot') | Should -BeTrue
+        }
+    }
+
     foreach ($name in $entrypoints) {
         Context $name {
-            $ast = Get-FileAst (Join-Path $autoDir $name)
-
-            It 'resolves project_root with -LiteralPath (not -Path)' {
-                $c = Get-ResolvePathTargeting -Ast $ast -TargetVar 'project_root'
-                $c | Should -Not -BeNullOrEmpty
-                $c.Extent.Text | Should -Match '-LiteralPath'
-                $c.Extent.Text | Should -Not -Match '-Path\s+\$project_root'
+            It 'delegates root resolution to Resolve-YurunaRootSet' -TestCases @(@{ EntryName = $name }) {
+                param($EntryName)
+                $call = $entrypointAst[$EntryName].FindAll({ param($n)
+                    $n -is [System.Management.Automation.Language.CommandAst] -and
+                    $n.GetCommandName() -eq 'Resolve-YurunaRootSet'
+                }, $true) | Select-Object -First 1
+                $call | Should -Not -BeNullOrEmpty
             }
-            It 'resolves config_root with -LiteralPath (not -Path)' {
-                $c = Get-ResolvePathTargeting -Ast $ast -TargetVar 'config_relative'
-                $c | Should -Not -BeNullOrEmpty
-                $c.Extent.Text | Should -Match '-LiteralPath'
-                $c.Extent.Text | Should -Not -Match '-Path\s+\$config_relative'
-            }
-            It 'validates the project resolution resolves to exactly one path' {
-                (Test-HasCountNeOne -Ast $ast -ResolvedVar 'resolved_root') | Should -BeTrue
-            }
-            It 'validates the config resolution resolves to exactly one path' {
-                (Test-HasCountNeOne -Ast $ast -ResolvedVar 'config_root') | Should -BeTrue
-            }
-            It 'scopes the pre-import module eviction to Yuruna.*' {
-                $gm = Get-EvictionGetModule -Ast $ast
+            It 'scopes the pre-import module eviction to Yuruna.*' -TestCases @(@{ EntryName = $name }) {
+                param($EntryName)
+                $gm = Get-EvictionGetModule -Ast $entrypointAst[$EntryName]
                 $gm | Should -Not -BeNullOrEmpty
                 # The eviction Get-Module must carry a Yuruna.* filter argument, not run bare.
                 # Accept either the positional (Get-Module Yuruna.*) or the -Name Yuruna.* form

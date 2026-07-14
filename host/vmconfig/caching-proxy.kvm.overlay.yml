@@ -14,12 +14,8 @@
 # === YURUNA_OVERLAY_NIC_OFFLOAD ===
 # === YURUNA_OVERLAY_RUNCMD_NET ===
 # === YURUNA_OVERLAY_RUNCMD_HOST_AGENT ===
-  # qemu-guest-agent: enable + start so `virsh domifaddr --source agent`
-  # reports the guest IPv4 promptly on the bridged 'yuruna-external'
-  # network, where the host is NOT the DHCP server and the lease never
-  # lands in the host's ARP cache passively. The apt package's postinst
-  # usually enables this automatically, but a belt-and-braces enable
-  # makes the IP-discovery path deterministic.
+  # Belt-and-braces: the postinst usually enables the agent already, but an
+  # explicit enable keeps the IP-discovery path deterministic.
   - systemctl enable qemu-guest-agent.service || true
   - systemctl start qemu-guest-agent.service || true
 # === YURUNA_OVERLAY_FIRMWARE_PKGS ===

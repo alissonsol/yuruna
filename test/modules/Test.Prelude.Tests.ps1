@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.10
+.VERSION 2026.07.14
 .GUID 42c6a4b0-7182-4394-8ea5-1a2b3c4d5e6f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -32,6 +32,11 @@ Import-Module (Join-Path $here 'Test.Prelude.psm1') -Force -DisableNameChecking
 
 function Assert-Equal { param($Expected, $Actual, [string]$Because='') if ($Expected -ne $Actual) { throw "Expected [$Expected] got [$Actual]. $Because" } }
 function Assert-True  { param($Condition, [string]$Because='') if (-not $Condition) { throw "Expected true. $Because" } }
+
+# File scope, above the first Describe: a Describe body is evaluated during the discovery
+# pass and everything it declares is torn down before the first It runs, so a path
+# declared inside one reaches the assertion as $null.
+$EntryPointDir = Split-Path -Parent $here   # test/ (this test lives in test/modules)
 
 Describe 'Resolve-StatusServiceStart' {
     It 'starts on enabled config and resolves the configured port' {
@@ -83,29 +88,41 @@ Describe 'Resolve-ConfigServiceStart' {
 Describe 'Start-YurunaStatusServiceIfEnabled' {
     # Stub start script records its args to a marker file, so the gate is
     # verified end-to-end without launching a real status server.
-    $stub = Join-Path ([System.IO.Path]::GetTempPath()) ("yrn-startstub-" + [guid]::NewGuid().ToString('N') + ".ps1")
-    $marker = "$stub.invoked"
-    Set-Content -Path $stub -Value "param([int]`$Port,[switch]`$Restart) Set-Content -LiteralPath '$marker' -Value (`"port=`$Port restart=`$Restart`")"
+    #
+    # The stub is written in BeforeAll and removed in AfterAll because only those run in
+    # the run phase. Authored straight into the Describe body -- which is evaluated during
+    # the discovery pass -- the stub was created and then deleted by the trailing
+    # Remove-Item before a single It executed, so the gate was handed a -StartScript path
+    # that no longer existed and the "was it invoked" marker could never appear.
+    BeforeAll {
+        $script:StubScript = Join-Path ([System.IO.Path]::GetTempPath()) ("yrn-startstub-" + [guid]::NewGuid().ToString('N') + ".ps1")
+        $script:StubMarker = "$($script:StubScript).invoked"
+        Set-Content -Path $script:StubScript -Value "param([int]`$Port,[switch]`$Restart) Set-Content -LiteralPath '$($script:StubMarker)' -Value (`"port=`$Port restart=`$Restart`")"
+    }
+    AfterAll {
+        Remove-Item -LiteralPath $script:StubScript -Force -ErrorAction SilentlyContinue
+        Remove-Item -LiteralPath $script:StubMarker -Force -ErrorAction SilentlyContinue
+    }
 
     It 'invokes the start script with the resolved port when enabled' {
-        Remove-Item -LiteralPath $marker -Force -ErrorAction SilentlyContinue
-        $d = Start-YurunaStatusServiceIfEnabled -Config @{ statusService = @{ isEnabled = $true; port = 8123 } } -StartScript $stub
+        Remove-Item -LiteralPath $script:StubMarker -Force -ErrorAction SilentlyContinue
+        $d = Start-YurunaStatusServiceIfEnabled -Config @{ statusService = @{ isEnabled = $true; port = 8123 } } -StartScript $script:StubScript
         Assert-True $d.ShouldStart 'decision says start'
-        Assert-True (Test-Path $marker) 'start script was invoked'
-        Assert-True ([bool]((Get-Content $marker -Raw) -match 'port=8123')) 'port forwarded'
-        Assert-True ([bool]((Get-Content $marker -Raw) -match 'restart=False')) 'no -Restart by default'
+        Assert-True (Test-Path $script:StubMarker) 'start script was invoked'
+        Assert-True ([bool]((Get-Content $script:StubMarker -Raw) -match 'port=8123')) 'port forwarded'
+        Assert-True ([bool]((Get-Content $script:StubMarker -Raw) -match 'restart=False')) 'no -Restart by default'
     }
     It 'passes -Restart through when requested' {
-        Remove-Item -LiteralPath $marker -Force -ErrorAction SilentlyContinue
-        $null = Start-YurunaStatusServiceIfEnabled -Config @{ statusService = @{ isEnabled = $true } } -StartScript $stub -Restart
-        Assert-True ([bool]((Get-Content $marker -Raw) -match 'restart=True')) '-Restart forwarded'
+        Remove-Item -LiteralPath $script:StubMarker -Force -ErrorAction SilentlyContinue
+        $null = Start-YurunaStatusServiceIfEnabled -Config @{ statusService = @{ isEnabled = $true } } -StartScript $script:StubScript -Restart
+        Assert-True ([bool]((Get-Content $script:StubMarker -Raw) -match 'restart=True')) '-Restart forwarded'
     }
     It 'does NOT invoke the start script when disabled or -NoServer' {
-        Remove-Item -LiteralPath $marker -Force -ErrorAction SilentlyContinue
-        $null = Start-YurunaStatusServiceIfEnabled -Config @{ statusService = @{ isEnabled = $false } } -StartScript $stub
-        Assert-True (-not (Test-Path $marker)) 'disabled -> not invoked'
-        $null = Start-YurunaStatusServiceIfEnabled -Config @{ statusService = @{ isEnabled = $true } } -StartScript $stub -NoServer
-        Assert-True (-not (Test-Path $marker)) '-NoServer -> not invoked'
+        Remove-Item -LiteralPath $script:StubMarker -Force -ErrorAction SilentlyContinue
+        $null = Start-YurunaStatusServiceIfEnabled -Config @{ statusService = @{ isEnabled = $false } } -StartScript $script:StubScript
+        Assert-True (-not (Test-Path $script:StubMarker)) 'disabled -> not invoked'
+        $null = Start-YurunaStatusServiceIfEnabled -Config @{ statusService = @{ isEnabled = $true } } -StartScript $script:StubScript -NoServer
+        Assert-True (-not (Test-Path $script:StubMarker)) '-NoServer -> not invoked'
     }
 
     It 'aborts the entry point when the start script reports a tagged port conflict' {
@@ -143,7 +160,62 @@ Set-Content -LiteralPath '$continuedFlag' -Value 'CONTINUED'
             Remove-Item -LiteralPath $conflictStub, $childScript, $continuedFlag -Force -ErrorAction SilentlyContinue
         }
     }
+}
 
-    Remove-Item -LiteralPath $stub -Force -ErrorAction SilentlyContinue
-    Remove-Item -LiteralPath $marker -Force -ErrorAction SilentlyContinue
+Describe 'Register-EntryPointCancelHandler (shared Ctrl+C handler)' {
+    # The entry points share one CancelKeyPress registration. It returns a reference
+    # hashtable whose 'Requested' flag the caller polls at safe points, and threads the
+    # exit-after label (outer='cycle', single-sequence='step') onto the shared
+    # MessageData so the event-thread action -- which cannot see the function's locals --
+    # reads it back into its warning. A test-unique SourceIdentifier avoids colliding
+    # with a live runner's 'YurunaCancelKey' subscription. The label is set on the state
+    # before registration, so these assertions hold even in a headless host where the
+    # Register-ObjectEvent bind falls through to the catch.
+    It 'returns a shared hashtable with Requested=$false and threads -ExitAfterLabel' {
+        $sid = 'YurunaTestCancel-A'
+        try {
+            $s = Register-EntryPointCancelHandler -SourceIdentifier $sid -ExitAfterLabel 'cycle'
+            Assert-True ($s -is [hashtable]) 'returns a hashtable'
+            Assert-True ($s['Requested'] -eq $false) "Requested starts `$false (got $($s['Requested']))"
+            Assert-Equal -Expected 'cycle' -Actual $s['ExitAfterLabel'] -Because '-ExitAfterLabel threads onto the shared state'
+        } finally {
+            Unregister-EntryPointCancelHandler -SourceIdentifier $sid
+        }
+    }
+    It 'defaults the exit-after label to step' {
+        $sid = 'YurunaTestCancel-B'
+        try {
+            $s = Register-EntryPointCancelHandler -SourceIdentifier $sid
+            Assert-Equal -Expected 'step' -Actual $s['ExitAfterLabel'] -Because 'default label'
+        } finally {
+            Unregister-EntryPointCancelHandler -SourceIdentifier $sid
+        }
+    }
+    It 'Unregister-EntryPointCancelHandler is safe for a never-registered id (any exit path)' {
+        Unregister-EntryPointCancelHandler -SourceIdentifier 'YurunaTestCancel-NeverRegistered'
+        Assert-True $true 'did not throw'
+    }
+}
+
+Describe 'entry-point Ctrl+C handlers delegate to the shared helper' {
+    # Invoke-TestRunner.ps1 and Test-Sequence.ps1 must register/tear down the cancel
+    # handler through Register-/Unregister-EntryPointCancelHandler, not a hand-rolled
+    # inline Register-ObjectEvent -EventName CancelKeyPress, so the pipeline-thread
+    # subscription cannot drift between entry points.
+    # The entry point under test is threaded in as test-case data rather than captured from
+    # an enclosing foreach. The loop would run during the discovery pass and its iteration
+    # variable would be gone by the time the It body executed, leaving $entry null and the
+    # assertion reading an empty path; -TestCases binds the value into the It's own scope.
+    It "<Entry> delegates to the shared cancel handler with no inline CancelKeyPress registration" -TestCases @(
+        @{ Entry = 'Invoke-TestRunner.ps1' }
+        @{ Entry = 'Test-Sequence.ps1' }
+    ) {
+        param($Entry)
+        $path = Join-Path $EntryPointDir $Entry
+        Assert-True (Test-Path -LiteralPath $path) "entry point exists: $Entry"
+        $src = Get-Content -Raw -LiteralPath $path
+        Assert-True ($src -match 'Register-EntryPointCancelHandler') "$Entry must call Register-EntryPointCancelHandler"
+        Assert-True ($src -match 'Unregister-EntryPointCancelHandler') "$Entry must call Unregister-EntryPointCancelHandler"
+        Assert-True (-not ($src -match '-EventName CancelKeyPress')) "$Entry must not hand-roll an inline CancelKeyPress registration"
+    }
 }

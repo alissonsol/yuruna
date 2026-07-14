@@ -18,6 +18,29 @@ Same as the host setup — see
 [Windows Hyper-V ...](../host/windows.hyper-v/README.md).
 Windows requires elevation; macOS does not.
 
+## Host setup
+
+Three host-neutral entry points. Each detects the host and runs that host's
+copy of the script from `host/<host type>/`, so the same command works on
+every host:
+
+```
+pwsh test/Enable-TestAutomation.ps1                        # prepare this host for unattended runs
+pwsh test/Sync-HostConfiguration.ps1 -ReferenceHost <host> # copy another pool host's test.config.yml
+pwsh test/Remove-OrphanedVMFiles.ps1                       # delete files left by VMs that are already gone
+```
+
+Arguments (`-WhatIf` among them) are forwarded to the per-host script, which
+owns the behavior and documents it:
+[macOS UTM](../host/macos.utm/README.md),
+[Windows Hyper-V](../host/windows.hyper-v/README.md),
+[Ubuntu KVM](../host/ubuntu.kvm/README.md). On Windows,
+`Enable-TestAutomation` and `Sync-HostConfiguration` must be run from an
+elevated PowerShell.
+
+`Remove-OrphanedVMFiles` only sweeps files whose VM is already gone. To stop
+and unregister the test VMs *and* sweep, use `pwsh test/Remove-TestVMFiles.ps1`.
+
 ## Configuration
 
 Copy the template (it is git-ignored):
@@ -120,8 +143,10 @@ Read more: [Test Runner](read.more.md).
 
 ---
 
+LICENSEURI https://yuruna.link/license
+
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.10
+Last review: 2026.07.14
 
 Back to [Yuruna](../README.md)

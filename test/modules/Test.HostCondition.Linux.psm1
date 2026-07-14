@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.10
+.VERSION 2026.07.14
 .GUID 42c5d6e7-f8a9-4b01-9234-5e6f7a8b9c0d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -23,6 +23,43 @@
 # diagnostic logic for Assert lives here, not in the facade, so the
 # facade stays pure dispatch and a future libvirt-side check has an
 # obvious home.
+
+function Get-LibvirtGroupState {
+    <#
+    .SYNOPSIS
+        Reads the libvirt group picture two callers both need: the
+        calling process's RUNNING supplementary group set and the
+        libvirt group's membership per /etc/group.
+    .DESCRIPTION
+        Returns a hashtable with:
+          ActiveGroups   -- the running shell's supplementary group set
+                            (from `id -nG`); what actually governs socket
+                            access, and what a stale `usermod -aG` does
+                            NOT refresh.
+          LibvirtMembers -- the libvirt group's members per `getent group
+                            libvirt`. getent joins members with commas and
+                            no spaces; the last token can carry a trailing
+                            newline, so each token is trimmed and empties
+                            dropped -- otherwise a `-contains $user` test
+                            can miss the last, newline-suffixed member.
+        The ActiveGroups-vs-LibvirtMembers gap is the classic
+        "member in /etc/group but not in the live group set" case that
+        makes libvirt-sock return Permission denied until the group set
+        is refreshed (sg / newgrp / reboot).
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param()
+    $activeGroups = (& id -nG 2>$null) -split '\s+'
+    $libvirtLine  = & getent group libvirt 2>$null
+    $libvirtMembers = if ($libvirtLine) {
+        (($libvirtLine -split ':', 4)[3]) -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ }
+    } else { @() }
+    return @{
+        ActiveGroups   = $activeGroups
+        LibvirtMembers = @($libvirtMembers)
+    }
+}
 
 function Set-LinuxHostConditionSet {
     <#
@@ -103,11 +140,9 @@ function Assert-LinuxHostConditionSet {
     # by-far most common cause is a stale supplementary group set on
     # the calling shell. Detect that case specifically so the operator
     # gets actionable steps, not a generic "permission denied".
-    $activeGroups   = (& id -nG 2>$null) -split '\s+'
-    $libvirtLine    = & getent group libvirt 2>$null
-    # getent joins members with commas and no spaces; the group-line split can
-    # leave a trailing newline on the last token, so trim and drop empties.
-    $libvirtMembers = if ($libvirtLine) { (($libvirtLine -split ':',4)[3]) -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ } } else { @() }
+    $groupState     = Get-LibvirtGroupState
+    $activeGroups   = $groupState.ActiveGroups
+    $libvirtMembers = $groupState.LibvirtMembers
     # Use the process's REAL identity, not $env:USER: under sg/newgrp/sudo/systemd
     # the inherited USER can be empty or wrong, which would select the wrong
     # remediation branch -- the opposite of the actionable diagnostics intended.
@@ -169,4 +204,4 @@ function Test-LinuxHostMinimum {
     return $ok
 }
 
-Export-ModuleMember -Function Set-LinuxHostConditionSet, Assert-LinuxHostConditionSet, Test-LinuxHostMinimum
+Export-ModuleMember -Function Get-LibvirtGroupState, Set-LinuxHostConditionSet, Assert-LinuxHostConditionSet, Test-LinuxHostMinimum

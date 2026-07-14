@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.10
+.VERSION 2026.07.14
 .GUID 42e3f4a5-b6c7-4d89-9e01-3f4a5b6c7d8e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -32,6 +32,14 @@ function Assert-Equal { param($Expected, $Actual, [string]$Because = '') if ($Ex
 function Assert-True  { param($Condition, [string]$Because = '') if (-not $Condition) { throw "Expected true. $Because" } }
 function Assert-Null  { param($Actual, [string]$Because = '') if ($null -ne $Actual) { throw "Expected null got [$Actual]. $Because" } }
 
+# Pure value fixtures belong at file scope, above the first Describe: a Describe body
+# is executed during the discovery pass and everything it declares is torn down before
+# the first It runs, so a doc built inside one reaches the assertion as $null.
+$MemberIntent = [ordered]@{ schemaVersion = 1; pools = @(
+    [ordered]@{ poolId = 'lab';  members = @('42aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', '42bbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'); desiredState = 'paused' },
+    [ordered]@{ poolId = 'prod'; members = @('42cccccccccccccccccccccccccccccc'); desiredState = 'run' }
+) }
+
 Describe 'Get-YurunaPoolConfig (feature on/off)' {
     It 'is off when there is no pool block' {
         Assert-Null (Get-YurunaPoolConfig -Config ([ordered]@{ networkStorage = [ordered]@{} })) 'no pool block -> off'
@@ -61,19 +69,15 @@ Describe 'Get-YurunaPoolConfig (feature on/off)' {
 }
 
 Describe 'Resolve-YurunaPoolForHost (member -> pool)' {
-    $intent = [ordered]@{ schemaVersion = 1; pools = @(
-        [ordered]@{ poolId = 'lab';  members = @('42aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', '42bbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'); desiredState = 'paused' },
-        [ordered]@{ poolId = 'prod'; members = @('42cccccccccccccccccccccccccccccc'); desiredState = 'run' }
-    ) }
     It 'finds the pool whose members contain the hostId' {
-        Assert-Equal -Expected 'lab'  -Actual (Resolve-YurunaPoolForHost -Intent $intent -HostId '42bbbbbbbbbbbbbbbbbbbbbbbbbbbbbb').poolId -Because 'member of lab'
-        Assert-Equal -Expected 'prod' -Actual (Resolve-YurunaPoolForHost -Intent $intent -HostId '42cccccccccccccccccccccccccccccc').poolId -Because 'member of prod'
+        Assert-Equal -Expected 'lab'  -Actual (Resolve-YurunaPoolForHost -Intent $MemberIntent -HostId '42bbbbbbbbbbbbbbbbbbbbbbbbbbbbbb').poolId -Because 'member of lab'
+        Assert-Equal -Expected 'prod' -Actual (Resolve-YurunaPoolForHost -Intent $MemberIntent -HostId '42cccccccccccccccccccccccccccccc').poolId -Because 'member of prod'
     }
     It 'returns null for a non-member' {
-        Assert-Null (Resolve-YurunaPoolForHost -Intent $intent -HostId '42ffffffffffffffffffffffffffffff') 'non-member'
+        Assert-Null (Resolve-YurunaPoolForHost -Intent $MemberIntent -HostId '42ffffffffffffffffffffffffffffff') 'non-member'
     }
     It 'returns null for empty hostId, null intent, or no pools key' {
-        Assert-Null (Resolve-YurunaPoolForHost -Intent $intent -HostId '') 'empty hostId'
+        Assert-Null (Resolve-YurunaPoolForHost -Intent $MemberIntent -HostId '') 'empty hostId'
         Assert-Null (Resolve-YurunaPoolForHost -Intent $null -HostId '42aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa') 'null intent'
         Assert-Null (Resolve-YurunaPoolForHost -Intent ([ordered]@{ schemaVersion = 1 }) -HostId '42aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa') 'no pools key'
     }
@@ -118,26 +122,39 @@ Describe 'ConvertTo-PoolGatingRecord (gating normalization)' {
 }
 
 Describe 'Write-YurunaPoolState (gating round-trips through pool.state.json)' {
-    $runtimeDir = Join-Path ([System.IO.Path]::GetTempPath()) ("yps-" + [guid]::NewGuid().ToString('N'))
-    New-Item -ItemType Directory -Force -Path $runtimeDir | Out-Null
-    $savedRuntime = $env:YURUNA_RUNTIME_DIR
-    $env:YURUNA_RUNTIME_DIR = $runtimeDir
-    try {
-        It 'writes gating into the state file when present' {
-            $gating = [ordered]@{ failuresBeforeAlert = 3; quorum = [ordered]@{ healthyThreshold = 0.5; degradedAfterMinutes = 30 } }
-            $null = Write-YurunaPoolState -PoolId 'lab' -DesiredState 'run' -IntentOk:$true -Gating $gating -Confirm:$false
-            $state = Get-Content -Raw -LiteralPath (Join-Path $runtimeDir 'pool.state.json') | ConvertFrom-Json
-            Assert-Equal -Expected 'lab' -Actual $state.poolId -Because 'poolId'
-            Assert-Equal -Expected 3 -Actual $state.gating.failuresBeforeAlert -Because 'gating.failuresBeforeAlert'
-            Assert-Equal -Expected 0.5 -Actual $state.gating.quorum.healthyThreshold -Because 'gating.quorum.healthyThreshold'
-        }
-        It 'writes a null gating when the pool authored none' {
-            $null = Write-YurunaPoolState -PoolId 'lab' -DesiredState 'run' -IntentOk:$true -Confirm:$false
-            $state = Get-Content -Raw -LiteralPath (Join-Path $runtimeDir 'pool.state.json') | ConvertFrom-Json
-            Assert-Null $state.gating 'gating null when not supplied'
-        }
-    } finally {
-        $env:YURUNA_RUNTIME_DIR = $savedRuntime
-        Remove-Item -LiteralPath $runtimeDir -Recurse -Force -ErrorAction SilentlyContinue
+    # Side-effecting fixtures belong in BeforeAll rather than at file scope. A Describe
+    # body runs at discovery, so a try/finally wrapped around the It blocks would create
+    # AND delete the runtime dir before any test executed. File scope is no refuge either:
+    # when this file is invoked directly the body is evaluated once per phase, so a fresh
+    # temp dir is minted twice while $env:YURUNA_RUNTIME_DIR -- process-global, last write
+    # wins -- ends up naming the OTHER directory than the one the It blocks captured, and
+    # the state file lands where nothing reads it. BeforeAll/AfterAll run in the run phase,
+    # which keeps the dir the module writes and the dir the assertions read identical.
+    BeforeAll {
+        $script:StateRuntimeDir = Join-Path ([System.IO.Path]::GetTempPath()) ("yps-" + [guid]::NewGuid().ToString('N'))
+        New-Item -ItemType Directory -Force -Path $script:StateRuntimeDir | Out-Null
+        $script:SavedRuntimeDir = $env:YURUNA_RUNTIME_DIR
+        $env:YURUNA_RUNTIME_DIR = $script:StateRuntimeDir
+    }
+    AfterAll {
+        $env:YURUNA_RUNTIME_DIR = $script:SavedRuntimeDir
+        Remove-Item -LiteralPath $script:StateRuntimeDir -Recurse -Force -ErrorAction SilentlyContinue
+    }
+    It 'writes gating into the state file when present' {
+        $gating = [ordered]@{ failuresBeforeAlert = 3; quorum = [ordered]@{ healthyThreshold = 0.5; degradedAfterMinutes = 30 } }
+        $null = Write-YurunaPoolState -PoolId 'lab' -DesiredState 'run' -IntentOk:$true -Gating $gating -Confirm:$false
+        $state = Get-Content -Raw -LiteralPath (Join-Path $script:StateRuntimeDir 'pool.state.json') | ConvertFrom-Json
+        Assert-Equal -Expected 'lab' -Actual $state.poolId -Because 'poolId'
+        Assert-Equal -Expected 3 -Actual $state.gating.failuresBeforeAlert -Because 'gating.failuresBeforeAlert'
+        Assert-Equal -Expected 0.5 -Actual $state.gating.quorum.healthyThreshold -Because 'gating.quorum.healthyThreshold'
+    }
+    It 'writes a null gating when the pool authored none' {
+        $null = Write-YurunaPoolState -PoolId 'lab' -DesiredState 'run' -IntentOk:$true -Confirm:$false
+        $state = Get-Content -Raw -LiteralPath (Join-Path $script:StateRuntimeDir 'pool.state.json') | ConvertFrom-Json
+        Assert-Null $state.gating 'gating null when not supplied'
+    }
+    AfterAll {
+        $env:YURUNA_RUNTIME_DIR = $SavedRuntimeDir
+        Remove-Item -LiteralPath $StateRuntimeDir -Recurse -Force -ErrorAction SilentlyContinue
     }
 }

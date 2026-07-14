@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.10
+.VERSION 2026.07.14
 .GUID 42e6f7a8-b9c0-4d12-9345-6e7f8a9b0c1d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -48,10 +48,58 @@ function New-TempDir {
     return $d
 }
 
-$script:Compat = [ordered]@{ schemaVersion = 1; rules = @(
+# Everything an It block reads must be declared unqualified and above the first
+# Describe. A Describe body runs during the discovery pass and its declarations are
+# discarded before any It executes; a $script:-qualified name binds to the test
+# framework's own script scope rather than this file's, so both forms read back as
+# $null from inside an assertion. That also fixes the region of the file a fixture may
+# live in: below the first Describe is already too late.
+$Compat = [ordered]@{ schemaVersion = 1; rules = @(
     [ordered]@{ guestKey = 'guest.windows.11';       hypervisors = @('hyper-v') },
     [ordered]@{ guestKey = 'guest.ubuntu.server.24'; hypervisors = @('hyper-v', 'kvm', 'utm') }
 ) }
+
+$RunnableCandidates = @('guest.windows.11', 'guest.ubuntu.server.24', 'guest.amazon.linux.2023')
+
+# --- REGION: Sequence-fixture integration: Resolve-TestSetCyclePlan + parity + Resolve-PoolCyclePlan
+function New-PlannerFixture {
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions','',Justification='Test fixture tree.')]
+    [CmdletBinding()] [OutputType([hashtable])] param()
+    $root = New-TempDir
+    $seqGui = Join-Path $root 'sequences/gui'
+    $null = New-Item -ItemType Directory -Force -Path $seqGui
+    @"
+description: test install
+baseline:
+  ubuntu.server.24: []
+  windows.11: []
+variables:
+  username: baseuser
+  region: us
+steps: []
+"@ | Set-Content (Join-Path $seqGui 'install.yml')
+    $projTest = Join-Path $root 'project/test'
+    $null = New-Item -ItemType Directory -Force -Path (Join-Path $projTest 'test-sets')
+    "sequences:`n  - install`n" | Set-Content (Join-Path $projTest 'test.runner.yml')
+    @"
+schemaVersion: 1
+name: smoke
+sequences:
+  - install
+requiredGuests:
+  - guest.ubuntu.server.24
+perGuestOverrides:
+  guest.ubuntu.server.24:
+    keystrokeMechanism: SSH
+    username: webuser
+    variables:
+      region: eu
+"@ | Set-Content (Join-Path $projTest 'test-sets/smoke.yml')
+    ($Compat | ConvertTo-Yaml) | Set-Content (Join-Path $projTest 'guests.compatibility.yml')
+    # Guest folder so Test-GuestFolder passes for ubuntu on a kvm host.
+    $null = New-Item -ItemType Directory -Force -Path (Join-Path $root (Join-Path (Get-HostFolder 'host.ubuntu.kvm') 'guest.ubuntu.server.24'))
+    return @{ Root = $root; SequencesDir = (Join-Path $root 'sequences') }
+}
 
 Describe 'Get-PoolHostHypervisor + Get-CompatibleHypervisorList' {
     It 'derives the hypervisor token from the host type' {
@@ -60,37 +108,36 @@ Describe 'Get-PoolHostHypervisor + Get-CompatibleHypervisorList' {
         Assert-Equal -Expected 'utm'     -Actual (Get-PoolHostHypervisor -HostType 'host.macos.utm') -Because 'utm'
     }
     It 'returns the rule list, or $null when no rule / no file' {
-        Assert-Equal -Expected 'hyper-v' -Actual (Get-CompatibleHypervisorList -Compatibility $script:Compat -GuestKey 'guest.windows.11')[0] -Because 'win11 rule'
-        Assert-Null (Get-CompatibleHypervisorList -Compatibility $script:Compat -GuestKey 'guest.unknown') 'no rule -> null'
+        Assert-Equal -Expected 'hyper-v' -Actual (Get-CompatibleHypervisorList -Compatibility $Compat -GuestKey 'guest.windows.11')[0] -Because 'win11 rule'
+        Assert-Null (Get-CompatibleHypervisorList -Compatibility $Compat -GuestKey 'guest.unknown') 'no rule -> null'
         Assert-Null (Get-CompatibleHypervisorList -Compatibility $null -GuestKey 'guest.windows.11') 'no file -> null'
     }
 }
 
 Describe 'Test-GuestCompatibleWithHost (permit when no rule)' {
     It 'matches the host hypervisor against the rule' {
-        Assert-True  (Test-GuestCompatibleWithHost -Compatibility $script:Compat -GuestKey 'guest.windows.11' -HostType 'host.windows.hyper-v') 'win11 on hyper-v'
-        Assert-False (Test-GuestCompatibleWithHost -Compatibility $script:Compat -GuestKey 'guest.windows.11' -HostType 'host.ubuntu.kvm') 'win11 on kvm'
-        Assert-True  (Test-GuestCompatibleWithHost -Compatibility $script:Compat -GuestKey 'guest.ubuntu.server.24' -HostType 'host.ubuntu.kvm') 'ubuntu on kvm'
+        Assert-True  (Test-GuestCompatibleWithHost -Compatibility $Compat -GuestKey 'guest.windows.11' -HostType 'host.windows.hyper-v') 'win11 on hyper-v'
+        Assert-False (Test-GuestCompatibleWithHost -Compatibility $Compat -GuestKey 'guest.windows.11' -HostType 'host.ubuntu.kvm') 'win11 on kvm'
+        Assert-True  (Test-GuestCompatibleWithHost -Compatibility $Compat -GuestKey 'guest.ubuntu.server.24' -HostType 'host.ubuntu.kvm') 'ubuntu on kvm'
     }
     It 'permits a guest with no rule (advisory) and when no compat file' {
-        Assert-True (Test-GuestCompatibleWithHost -Compatibility $script:Compat -GuestKey 'guest.no.rule' -HostType 'host.ubuntu.kvm') 'no rule -> permit'
+        Assert-True (Test-GuestCompatibleWithHost -Compatibility $Compat -GuestKey 'guest.no.rule' -HostType 'host.ubuntu.kvm') 'no rule -> permit'
         Assert-True (Test-GuestCompatibleWithHost -Compatibility $null -GuestKey 'guest.windows.11' -HostType 'host.ubuntu.kvm') 'no file -> permit'
     }
 }
 
 Describe 'Select-RunnableGuestList (folder AND capability AND compat, stable order)' {
-    $cands = @('guest.windows.11', 'guest.ubuntu.server.24', 'guest.amazon.linux.2023')
     It 'keeps only guests passing all three gates, in candidate order' {
         $folder = @{ 'guest.windows.11'=$true; 'guest.ubuntu.server.24'=$true; 'guest.amazon.linux.2023'=$false }
         $cap    = @{ 'guest.windows.11'=$true; 'guest.ubuntu.server.24'=$true; 'guest.amazon.linux.2023'=$true }
-        $r = Select-RunnableGuestList -CandidateGuests $cands -FolderPresent $folder -CapabilitySupported $cap -Compatibility $script:Compat -HostType 'host.ubuntu.kvm'
+        $r = Select-RunnableGuestList -CandidateGuests $RunnableCandidates -FolderPresent $folder -CapabilitySupported $cap -Compatibility $Compat -HostType 'host.ubuntu.kvm'
         Assert-Equal -Expected 1 -Actual $r.Count -Because 'only ubuntu (win11 incompatible on kvm, amazon no folder)'
         Assert-Equal -Expected 'guest.ubuntu.server.24' -Actual $r[0] -Because 'ubuntu kept'
     }
     It 'drops a guest failing the capability gate' {
         $folder = @{ 'guest.ubuntu.server.24'=$true }
         $cap    = @{ 'guest.ubuntu.server.24'=$false }
-        $r = Select-RunnableGuestList -CandidateGuests @('guest.ubuntu.server.24') -FolderPresent $folder -CapabilitySupported $cap -Compatibility $script:Compat -HostType 'host.ubuntu.kvm'
+        $r = Select-RunnableGuestList -CandidateGuests @('guest.ubuntu.server.24') -FolderPresent $folder -CapabilitySupported $cap -Compatibility $Compat -HostType 'host.ubuntu.kvm'
         Assert-Equal -Expected 0 -Actual $r.Count -Because 'capability false -> dropped'
     }
 }
@@ -148,46 +195,6 @@ Describe 'Manifest readers + Write-YurunaPoolManifest' {
             Assert-False (Test-Path $path) 'null pool clears the manifest'
         } finally { $env:YURUNA_RUNTIME_DIR=$null; Remove-Item -LiteralPath $d -Recurse -Force -ErrorAction SilentlyContinue }
     }
-}
-
-# --- REGION: Sequence-fixture integration: Resolve-TestSetCyclePlan + parity + Resolve-PoolCyclePlan
-function New-PlannerFixture {
-    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions','',Justification='Test fixture tree.')]
-    [CmdletBinding()] [OutputType([hashtable])] param()
-    $root = New-TempDir
-    $seqGui = Join-Path $root 'sequences/gui'
-    $null = New-Item -ItemType Directory -Force -Path $seqGui
-    @"
-description: test install
-baseline:
-  ubuntu.server.24: []
-  windows.11: []
-variables:
-  username: baseuser
-  region: us
-steps: []
-"@ | Set-Content (Join-Path $seqGui 'install.yml')
-    $projTest = Join-Path $root 'project/test'
-    $null = New-Item -ItemType Directory -Force -Path (Join-Path $projTest 'test-sets')
-    "sequences:`n  - install`n" | Set-Content (Join-Path $projTest 'test.runner.yml')
-    @"
-schemaVersion: 1
-name: smoke
-sequences:
-  - install
-requiredGuests:
-  - guest.ubuntu.server.24
-perGuestOverrides:
-  guest.ubuntu.server.24:
-    keystrokeMechanism: SSH
-    username: webuser
-    variables:
-      region: eu
-"@ | Set-Content (Join-Path $projTest 'test-sets/smoke.yml')
-    ($script:Compat | ConvertTo-Yaml) | Set-Content (Join-Path $projTest 'guests.compatibility.yml')
-    # Guest folder so Test-GuestFolder passes for ubuntu on a kvm host.
-    $null = New-Item -ItemType Directory -Force -Path (Join-Path $root (Join-Path (Get-HostFolder 'host.ubuntu.kvm') 'guest.ubuntu.server.24'))
-    return @{ Root = $root; SequencesDir = (Join-Path $root 'sequences') }
 }
 
 Describe 'Resolve-CyclePlan parity (refactor preserved single-host behavior)' {

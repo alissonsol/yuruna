@@ -162,9 +162,11 @@ In-flight cycles always finish, so pause/drain never corrupt an accumulating run
 
 All mutating commands support `-WhatIf` (preview) and `-Confirm`, validate against the
 schemas **before** writing, and `git commit` + `push` for you. `-IntentGitUrl` defaults to
-`pool.intentGitUrl` from `test.config.yml` when omitted. A failed push is reported as a
-*warning* (the change is committed locally) — re-run once the remote is reachable. Every
-command has full help: e.g. `Get-Help test/Set-PoolTestSet.ps1 -Full`.
+`pool.intentGitUrl` from `test.config.yml` when omitted. A failed push **fails the command**
+(non-zero exit): a change committed locally but not pushed is not durable, and a later admin
+command discards it — recover by re-running from a writable location (on the proxy: a `file://`
+or local path to the bare repo), or delete the admin clone dir to discard the local change and
+re-clone from the remote. Every command has full help: e.g. `Get-Help test/Set-PoolTestSet.ps1 -Full`.
 
 ## Current limitations
 
@@ -198,6 +200,8 @@ then to standalone — a pool never stops a host from testing.
 
 ## See also
 
+- [control-routes.md](control-routes.md) — what a host accepts from the dashboard's action
+  buttons, and the one-time `pool-auth-token` setup that enables them from another machine.
 - [pool-storage.md](pool-storage.md) — optional NAS replication of pool observability data
   (a separate, NAS-only feature).
 - [test/extension/pool-aggregator/README.md](../test/extension/pool-aggregator/README.md) —
@@ -206,8 +210,10 @@ then to standalone — a pool never stops a host from testing.
 
 ---
 
+LICENSEURI https://yuruna.link/license
+
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.10
+Last review: 2026.07.14
 
 Back to [Yuruna](../README.md)

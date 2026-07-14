@@ -832,7 +832,7 @@ Wrapping the call in
 [`pwsh_retry`](network.md#defining-yuruna-retry-lib) does two things:
 
 1. **Rides out the transient.** Five attempts with exponential
-   backoff (10/20/40/80/160 s) absorbs ~5 min of PSGallery edge
+   backoff (10/20/40/80/160 s) absorb ~5 min of PSGallery edge
    flapping at no cost on the happy path.
 2. **Captures the discriminating evidence.** Each attempt's
    `Resolve-DnsName www.powershellgallery.com` + HEAD on
@@ -1016,8 +1016,10 @@ Source:
 
 ---
 
+LICENSEURI https://yuruna.link/license
+
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.10
+Last review: 2026.07.14
 
 Back to [Yuruna](../README.md)

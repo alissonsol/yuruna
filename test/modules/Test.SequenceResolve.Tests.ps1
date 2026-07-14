@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.10
+.VERSION 2026.07.14
 .GUID 42b9e1c4-7a3d-4f52-8e16-9c4d2a7b3e58
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -49,18 +49,24 @@ function Assert-Throw {
     if (-not $threw) { throw "Expected a throw. $Because" }
 }
 
-$script:yamlAvailable = [bool](Get-Module -ListAvailable -Name powershell-yaml)
-$script:tmpRoot = Join-Path ([System.IO.Path]::GetTempPath()) 'yuruna-snippet-tests'
-$script:caseSeq = 0
+# Unqualified file-scope fixtures. An It body resolves an unqualified file-level
+# variable but not a $script:-qualified one: the run pass re-enters the file in a
+# fresh scope, so $script: writes land in a script scope the It bodies never see
+# and the value would arrive as $null -- silently skipping every yaml case and
+# handing New-SnippetTestDir a null root.
+$yamlAvailable = [bool](Get-Module -ListAvailable -Name powershell-yaml)
+$tmpRoot = Join-Path ([System.IO.Path]::GetTempPath()) 'yuruna-snippet-tests'
 
 function New-SnippetTestDir {
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions','',Justification='Test temp dir.')]
     [CmdletBinding()]
     param()
     # Returns a fresh, empty test root unique to this case (so the path-keyed
-    # snippet-library cache never serves a stale parse from a prior case).
+    # snippet-library cache never serves a stale parse from a prior case). The
+    # counter is $script:-scoped inside the function, where it does persist
+    # across calls, so each case gets its own directory.
     $script:caseSeq++
-    $dir = Join-Path $script:tmpRoot ("case{0:D3}" -f $script:caseSeq)
+    $dir = Join-Path $tmpRoot ("case{0:D3}" -f $script:caseSeq)
     if (Test-Path -LiteralPath $dir) { Remove-Item -LiteralPath $dir -Recurse -Force }
     New-Item -ItemType Directory -Path $dir -Force | Out-Null
     return $dir
@@ -76,7 +82,7 @@ function Write-TextFile {
 Describe 'Test.SequenceResolve step-snippet expansion' {
 
     It 'splices a top-level snippet reference into its steps' {
-        if (-not $script:yamlAvailable) { Set-ItResult -Skipped -Because 'powershell-yaml not installed'; return }
+        if (-not $yamlAvailable) { Set-ItResult -Skipped -Because 'powershell-yaml not installed'; return }
         $root = New-SnippetTestDir
         Write-TextFile (Join-Path $root '_snippets.yml') @"
 prime:
@@ -101,7 +107,7 @@ steps:
     }
 
     It 'splices a snippet referenced inside retry.steps' {
-        if (-not $script:yamlAvailable) { Set-ItResult -Skipped -Because 'powershell-yaml not installed'; return }
+        if (-not $yamlAvailable) { Set-ItResult -Skipped -Because 'powershell-yaml not installed'; return }
         $root = New-SnippetTestDir
         Write-TextFile (Join-Path $root '_snippets.yml') @"
 prime:
@@ -128,7 +134,7 @@ steps:
     }
 
     It 'expands a snippet that references another snippet' {
-        if (-not $script:yamlAvailable) { Set-ItResult -Skipped -Because 'powershell-yaml not installed'; return }
+        if (-not $yamlAvailable) { Set-ItResult -Skipped -Because 'powershell-yaml not installed'; return }
         $root = New-SnippetTestDir
         Write-TextFile (Join-Path $root '_snippets.yml') @"
 outer:
@@ -152,7 +158,7 @@ steps:
     }
 
     It 'throws on an unknown snippet name' {
-        if (-not $script:yamlAvailable) { Set-ItResult -Skipped -Because 'powershell-yaml not installed'; return }
+        if (-not $yamlAvailable) { Set-ItResult -Skipped -Because 'powershell-yaml not installed'; return }
         $root = New-SnippetTestDir
         Write-TextFile (Join-Path $root '_snippets.yml') @"
 known:
@@ -169,7 +175,7 @@ steps:
     }
 
     It 'throws on a snippet reference cycle' {
-        if (-not $script:yamlAvailable) { Set-ItResult -Skipped -Because 'powershell-yaml not installed'; return }
+        if (-not $yamlAvailable) { Set-ItResult -Skipped -Because 'powershell-yaml not installed'; return }
         $root = New-SnippetTestDir
         Write-TextFile (Join-Path $root '_snippets.yml') @"
 a:
@@ -187,7 +193,7 @@ steps:
     }
 
     It 'returns a snippet-free sequence with its steps unchanged' {
-        if (-not $script:yamlAvailable) { Set-ItResult -Skipped -Because 'powershell-yaml not installed'; return }
+        if (-not $yamlAvailable) { Set-ItResult -Skipped -Because 'powershell-yaml not installed'; return }
         $root = New-SnippetTestDir
         $seqPath = Join-Path $root 'seq.yml'
         Write-TextFile $seqPath @"
@@ -205,7 +211,7 @@ steps:
     }
 
     It 'lets a project snippet override a framework snippet of the same name' {
-        if (-not $script:yamlAvailable) { Set-ItResult -Skipped -Because 'powershell-yaml not installed'; return }
+        if (-not $yamlAvailable) { Set-ItResult -Skipped -Because 'powershell-yaml not installed'; return }
         $root = New-SnippetTestDir
         # Framework library + sequence under test/sequences/gui/.
         Write-TextFile (Join-Path $root 'test/sequences/gui/_snippets.yml') @"
@@ -231,7 +237,7 @@ steps:
     }
 
     It 'throws when two project libraries define the same snippet name' {
-        if (-not $script:yamlAvailable) { Set-ItResult -Skipped -Because 'powershell-yaml not installed'; return }
+        if (-not $yamlAvailable) { Set-ItResult -Skipped -Because 'powershell-yaml not installed'; return }
         $root = New-SnippetTestDir
         Write-TextFile (Join-Path $root 'project/a/test/gui/_snippets.yml') @"
 dup:

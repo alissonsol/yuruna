@@ -47,8 +47,7 @@ event-schema validator: catch drift loudly, never lose telemetry.
 | Function | Used by |
 |---|---|
 | `Initialize-RunnerState` | Outer runner startup; reads the prior state file and synthesizes a crash recovery if a stale runId is found. |
-| `Set-RunnerState -To <state> -Reason <text>` | The
-[outer-loop dispatcher](runner-outer-loop.md) at every cycle boundary. |
+| `Set-RunnerState -To <state> -Reason <text>` | The [outer-loop dispatcher](runner-outer-loop.md) at every cycle boundary. |
 | `Get-RunnerStateName` | Capability matrix; dashboard. |
 | `Test-RunnerStateTransition -From <state> -To <state>` | Predicate validator; checks whether a `(From, To)` pair is an allowed transition. |
 
@@ -89,8 +88,10 @@ in-file slice is a convenience.
 
 ---
 
+LICENSEURI https://yuruna.link/license
+
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.10
+Last review: 2026.07.14
 
 Back to [Yuruna](../README.md)

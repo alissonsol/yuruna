@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.10
+.VERSION 2026.07.14
 .GUID 42f2a3b4-c5d6-4e78-9012-3f4a5b6c7d81
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -143,8 +143,8 @@ Write-Output "See configuration at: $(Resolve-ExtensionAreaDir -Area 'authentica
 # ConvertTo-Sha512CryptHash centralises the openssl probe + the `--`
 # end-of-options safety that keeps a leading-dash password
 # (e.g. `-4aWj*CRw` from New-RandomPassword) from being parsed as an
-# option. See Test.VMUtility\ConvertTo-Sha512CryptHash for rationale.
-Import-Module (Join-Path $_repoRootForExt 'test/modules/Test.VMUtility.psm1') -Force -DisableNameChecking
+# option. See Yuruna.Common\ConvertTo-Sha512CryptHash for rationale.
+Import-Module (Join-Path $_repoRootForExt 'automation/Yuruna.Common.psm1') -Force -DisableNameChecking
 try {
     $PasswordHash = ConvertTo-Sha512CryptHash -Plaintext $Password
 } catch {
@@ -165,7 +165,6 @@ Write-BaseImageProvenance -BaseImagePath $baseImageFile
 # immediately after `utmctl delete`).
 Import-Module (Join-Path (Split-Path -Parent $ScriptDir) "modules/Yuruna.Host.psm1") -Force
 $RepoRoot = (Resolve-Path (Join-Path $ScriptDir "..\..\..")).Path
-Import-Module (Join-Path $RepoRoot "test/modules/Test.VMUtility.psm1") -Force -DisableNameChecking
 
 if (-not (Remove-UtmBundleWithRetry -Path $UtmDir)) {
     Write-Error "Could not remove existing UTM bundle at '$UtmDir' after retries. Aborting."
@@ -347,32 +346,28 @@ if ($Env:YURUNA_CACHING_PROXY_IP -and (Test-IpAddress $Env:YURUNA_CACHING_PROXY_
     $candidate = (Read-CachingProxyState).ipAddress
     if ($candidate -and (Test-IpAddress $candidate)) { $cacheVmIp = $candidate }
 }
+# An empty $CaCertBase64 is NOT a harmless no-op: the seed still routes the
+# guest's HTTPS through the bump (:3129) and locks direct :443 egress, so a
+# CA-less guest fails every HTTPS with curl rc=60 ("self-signed certificate in
+# certificate chain"). Get-CachingProxyCaCertBase64 retries the live fetch and
+# falls back to the last-good persisted CA for this cache host; if it still
+# comes up empty the guest boots CA-less and recovers at update time via the
+# host status-server CA self-heal. See
+# feedback_sslbump_rc60_untrusted_chain_and_ca_gate_trap and
+# project_sslbump_ca_gating_durable_fix.
 if ($CachingProxyUrl -and $cacheVmIp) {
-    Import-Module -Name (Join-Path $PSScriptRoot '../../../automation/Yuruna.Retry.psm1') -Force
     $cacheVmHost = Format-IpUrlHost $cacheVmIp
-    $cacheVmCaUrl = "http://${cacheVmHost}/yuruna-squid-ca.crt"
-    # An empty $CaCertBase64 is NOT a harmless no-op: the seed still routes the
-    # guest's HTTPS through the bump (:3129) and locks direct :443 egress, so a
-    # CA-less guest fails every HTTPS with curl rc=60 ("self-signed certificate
-    # in certificate chain"). Retry the fetch under the shared capped-backoff
-    # policy so one blip against a slow or flapping caching proxy does not
-    # strand the guest without the CA. See
-    # feedback_sslbump_rc60_untrusted_chain_and_ca_gate_trap.
-    $caFetch = Invoke-WithYurunaRetry -Label 'caching-proxy CA cert' -MaxAttempts 5 -InitialDelaySeconds 3 -MaxDelaySeconds 20 -ScriptBlock {
-        $caResp = Invoke-WebRequest -Uri $cacheVmCaUrl -UseBasicParsing -TimeoutSec 10 -ErrorAction Stop
-        if ($caResp.StatusCode -ne 200 -or $caResp.RawContentLength -le 0) {
-            throw "caching-proxy returned status=$($caResp.StatusCode) length=$($caResp.RawContentLength)"
-        }
-        $caBytes = if ($caResp.Content -is [byte[]]) { $caResp.Content } else { [System.Text.Encoding]::UTF8.GetBytes([string]$caResp.Content) }
-        [Convert]::ToBase64String($caBytes)
+    $ca = Get-CachingProxyCaCertBase64 -CacheCaUrl "http://${cacheVmHost}/yuruna-squid-ca.crt" -CacheHost $cacheVmIp
+    $CaCertBase64 = $ca.CaCertBase64
+    if ($ca.Exhausted) {
+        Write-Warning "  Guest boots CA-less; it will self-heal the CA from the host status server at update time. HTTP caching via :3128 unaffected."
     }
-    if ($caFetch.Success) {
-        $CaCertBase64 = [string]($caFetch.LastOutput | Select-Object -Last 1)
-        Write-Verbose "  Fetched caching-proxy CA from $cacheVmCaUrl -- embedded in seed."
-    } else {
-        Write-Warning "  Could not fetch CA cert from ${cacheVmCaUrl} after $($caFetch.Attempts) attempt(s) : $($caFetch.LastError.Exception.Message)"
-        Write-Warning "  Guest will skip HTTPS caching (Acquire::https::Proxy); HTTP caching via :3128 unaffected."
-    }
+} elseif ($CachingProxyUrl) {
+    # Proxy URL present but no cache IP resolved (env unset AND no persisted
+    # state IP): the CA cannot be fetched host-side. Surface it rather than
+    # skipping silently -- the guest attempts the same recovery via the host
+    # /ca.crt endpoint at update time.
+    Write-Warning "  Caching proxy '$CachingProxyUrl' is set but no cache IP resolved; guest boots CA-less and will rely on the host status-server CA self-heal."
 }
 
 # Yuruna host (status server) IP+port baked into the seed for the dev
@@ -380,13 +375,13 @@ if ($CachingProxyUrl -and $cacheVmIp) {
 # the user-data late-commands) to resolve a local URL before falling
 # back to GitHub. See Test-YurunaHost.ps1 for the in-guest probe.
 $YurunaHostIp = Get-GuestReachableHostIp
+Import-Module (Join-Path (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $ScriptDir))) 'test/modules/Test.Config.psm1') -Global -Force
 $YurunaHostPort = '8080'
 $YurunaTestConfig = Join-Path (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $ScriptDir))) 'test/test.config.yml'
-if (Test-Path $YurunaTestConfig) {
-    try {
-        $tc = Get-Content -Raw $YurunaTestConfig | ConvertFrom-Yaml -Ordered
-        if ($tc.statusService.port) { $YurunaHostPort = "$($tc.statusService.port)" }
-    } catch { Write-Verbose "test.config.yml parse failed: $_" }
+$tc = $null
+if (Test-Path -LiteralPath $YurunaTestConfig) {
+    try { $tc = Read-TestConfig -Path $YurunaTestConfig } catch { Write-Verbose "test.config.yml read: $($_.Exception.Message)" }
+    if ($tc -and $tc.statusService -and $tc.statusService.port) { $YurunaHostPort = "$($tc.statusService.port)" }
 }
 
 # --- REGION: Render user-data / meta-data

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.10
+.VERSION 2026.07.14
 .GUID 42c0ffee-a0de-4e1f-a2b3-c4d5e6f7aa02
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -37,7 +37,7 @@
     On macOS: typically launched detached by Start-CachingProxy.ps1 to
     let REMOTE LAN hosts reach squid via the Mac's LAN IP.
 
-    On Windows: launched by Test.PortMap.psm1's Add-CachingProxyPortMap
+    On Windows: launched by the host driver's Add-PortMap
     when -ProxyProtocolPort lists a port; -PrependProxyV1 then makes
     the forwarder write a HAProxy PROXY v1 header before the byte
     stream so squid (with `accept-proxy-protocol`) sees the real
@@ -109,8 +109,8 @@
 param(
     # Default port honors $env:YURUNA_CACHING_PROXY_HTTP_PORT (3128 fallback).
     # This script runs in a fresh pwsh subprocess (Start-Process pwsh -File),
-    # so the Test.VMUtility helper is not yet imported -- read the env var
-    # directly to keep the same defaulting behavior callers expect.
+    # so the Get-CachingProxyPort helper is not yet imported -- read the env
+    # var directly to keep the same defaulting behavior callers expect.
     [Parameter(Mandatory)][string]$CacheIp,
     [int]$Port = $(if ($env:YURUNA_CACHING_PROXY_HTTP_PORT -as [int]) { [int]$env:YURUNA_CACHING_PROXY_HTTP_PORT } else { 3128 }),
     [int]$VMPort = 0,

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.10
+.VERSION 2026.07.14
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456791
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -47,13 +47,26 @@ param()
 # per cycle add up. A failed append is non-fatal (swallowed to Verbose) so logging
 # never breaks the caller. The catch uses the fully-qualified
 # Microsoft.PowerShell.Utility\Write-Verbose to bypass this module's own override.
+#
+# Severity is stamped as a CSS class on a wrapping <span> so the same transcript
+# is both eye-scannable (a stylesheet can colour errors/warnings) and machine-
+# filterable (a reader can select `.log-error` / `.log-warning` records) without
+# reparsing free text. Only the message body is HtmlEncode'd; the span markup is
+# emitted verbatim so it renders as an element rather than as escaped angle
+# brackets inside the <pre>. An unknown/empty severity degrades to the neutral
+# 'log-output' class rather than dropping the record -- the tag is additive and
+# never gates whether a line is written.
 function Add-YurunaLogLine {
-    param([Parameter(Mandatory)][AllowEmptyString()][string]$Text)
+    param(
+        [Parameter(Mandatory)][AllowEmptyString()][string]$Text,
+        [ValidateSet('output', 'error', 'warning', 'information', 'verbose', 'debug')]
+        [string]$Severity = 'output'
+    )
     if (-not $global:__YurunaLogFile) { return }
     try {
-        [System.IO.File]::AppendAllText(
-            $global:__YurunaLogFile,
-            [System.Net.WebUtility]::HtmlEncode($Text) + [Environment]::NewLine)
+        $encoded = [System.Net.WebUtility]::HtmlEncode($Text)
+        $line = "<span class=`"log-$Severity`">$encoded</span>" + [Environment]::NewLine
+        [System.IO.File]::AppendAllText($global:__YurunaLogFile, $line)
     } catch { Microsoft.PowerShell.Utility\Write-Verbose "Yuruna.Log append failed (non-fatal): $($_.Exception.Message)" }
 }
 
@@ -82,7 +95,7 @@ function Write-Output {
     process {
         if ($global:__YurunaLogFile) {
             foreach ($item in $InputObject) {
-                Add-YurunaLogLine "$item"
+                Add-YurunaLogLine "$item" -Severity 'output'
             }
         }
         Microsoft.PowerShell.Utility\Write-Output -InputObject $InputObject -NoEnumerate:$NoEnumerate
@@ -135,7 +148,7 @@ function Write-Error {
     process {
         if ($global:__YurunaLogFile) {
             $text = if ($Message) { $Message } elseif ($Exception) { $Exception.Message } else { '' }
-            Add-YurunaLogLine $text
+            Add-YurunaLogLine $text -Severity 'error'
         }
         # Splat the caller's own bound parameters straight through. This proxy's
         # parameter sets mirror Write-Error's (NoException = Message,
@@ -156,10 +169,15 @@ function Write-Warning {
         Proxy for Write-Warning that also appends the message to the log file.
     .DESCRIPTION
         Forwards to Microsoft.PowerShell.Utility\Write-Warning and writes the
-        HTML-encoded message text (no level prefix) to $global:__YurunaLogFile
-        -- but only when $WarningPreference is anything other than
-        SilentlyContinue, so the transcript mirrors the console (Information /
-        Verbose / Debug follow the same gating).
+        HTML-encoded message text (tagged with the log-warning class) to
+        $global:__YurunaLogFile. The transcript append is UNCONDITIONAL: a
+        warning is durable evidence of something the operator needs to see, so
+        it must persist in the HTML transcript even when the console is quiet
+        (WarningPreference=SilentlyContinue at a low logLevel). Gating the
+        mirror on console verbosity would silently erase warnings from the very
+        artifact kept for post-hoc triage. The Information / Verbose / Debug
+        proxies still gate on their preferences -- those streams are chatty
+        progress noise, not evidence -- but a warning always reaches the file.
     #>
     [CmdletBinding()]
     param(
@@ -168,8 +186,8 @@ function Write-Warning {
         [string]$Message
     )
     process {
-        if ($global:__YurunaLogFile -and $global:WarningPreference -ne 'SilentlyContinue') {
-            Add-YurunaLogLine $Message
+        if ($global:__YurunaLogFile) {
+            Add-YurunaLogLine $Message -Severity 'warning'
         }
         Microsoft.PowerShell.Utility\Write-Warning -Message $Message
     }
@@ -193,7 +211,7 @@ function Write-Debug {
     )
     process {
         if ($global:__YurunaLogFile -and $global:DebugPreference -ne 'SilentlyContinue') {
-            Add-YurunaLogLine $Message
+            Add-YurunaLogLine $Message -Severity 'debug'
         }
         Microsoft.PowerShell.Utility\Write-Debug -Message $Message
     }
@@ -217,7 +235,7 @@ function Write-Verbose {
     )
     process {
         if ($global:__YurunaLogFile -and $global:VerbosePreference -ne 'SilentlyContinue') {
-            Add-YurunaLogLine $Message
+            Add-YurunaLogLine $Message -Severity 'verbose'
         }
         Microsoft.PowerShell.Utility\Write-Verbose -Message $Message
     }
@@ -245,7 +263,7 @@ function Write-Information {
     )
     process {
         if ($global:__YurunaLogFile -and $global:InformationPreference -ne 'SilentlyContinue') {
-            Add-YurunaLogLine "$MessageData"
+            Add-YurunaLogLine "$MessageData" -Severity 'information'
         }
         $params = @{ MessageData = $MessageData }
         if ($Tags) { $params['Tags'] = $Tags }

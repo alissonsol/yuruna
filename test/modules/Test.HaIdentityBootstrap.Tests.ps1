@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.10
+.VERSION 2026.07.14
 .GUID 42f0a1b2-c3d4-4e56-9f78-9a0b1c2d3e47
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -33,10 +33,14 @@
 
 $here     = Split-Path -Parent $PSCommandPath
 $modPath  = Join-Path $here 'Test.HostIdentity.psm1'
+# The AST is an unqualified file-scope variable: inside an It block a $script: reference
+# resolves to the test runner's own script scope, not this file's, so a $script:-qualified
+# fixture reaches the assertions as $null -- and a -Not -Match against $null passes
+# vacuously, which is exactly the silent false-pass the AST guards exist to prevent.
 $errs = $null
-$script:hostIdAst = [System.Management.Automation.Language.Parser]::ParseFile($modPath, [ref]$null, [ref]$errs)
+$hostIdAst = [System.Management.Automation.Language.Parser]::ParseFile($modPath, [ref]$null, [ref]$errs)
 if ($errs) { throw "Parse errors in Test.HostIdentity.psm1: $($errs[0].Message)" }
-$fnDef = $script:hostIdAst.FindAll({ param($n)
+$fnDef = $hostIdAst.FindAll({ param($n)
     $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq 'Resolve-GuardedSysctlValue'
 }, $true) | Select-Object -First 1
 if (-not $fnDef) { throw "Test.HaIdentityBootstrap.Tests.ps1: could not lift Resolve-GuardedSysctlValue from Test.HostIdentity.psm1 (renamed or removed?)." }
@@ -88,11 +92,11 @@ Describe 'Resolve-GuardedSysctlValue gates a sysctl read on exit code + non-empt
 
 Describe 'Get-HostFingerprintMacOS routes its sysctl reads through the guard' {
     It 'retains no bare [int]/[int64] sysctl cast' {
-        $script:hostIdAst.Extent.Text | Should -Not -Match '\[int(64)?\]\(& sysctl'
+        $hostIdAst.Extent.Text | Should -Not -Match '\[int(64)?\]\(& sysctl'
     }
     It 'reads all three corroborating fields through Get-SysctlValue' {
-        (Get-CommandCallCount -Ast $script:hostIdAst -Name 'Get-SysctlValue') | Should -BeGreaterOrEqual 3
-        $text = $script:hostIdAst.Extent.Text
+        (Get-CommandCallCount -Ast $hostIdAst -Name 'Get-SysctlValue') | Should -BeGreaterOrEqual 3
+        $text = $hostIdAst.Extent.Text
         foreach ($key in 'machdep.cpu.brand_string', 'hw.logicalcpu', 'hw.memsize') {
             $text | Should -Match ("Get-SysctlValue -Key '" + [regex]::Escape($key) + "'")
         }

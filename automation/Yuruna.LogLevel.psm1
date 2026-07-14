@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.10
+.VERSION 2026.07.14
 .GUID 4233f4cf-65ad-4c8f-9aa1-c98c89574996
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -61,14 +61,13 @@ function Resolve-YurunaRootSet {
         Resolve the yuruna / project / config roots for an automation entrypoint, set
         the matching Env: items, and return them (or $false on a missing/ambiguous path).
     .DESCRIPTION
-        The shared root-resolution prelude every entrypoint carried: resolve yuruna_root
+        The root-resolution prelude shared by every entrypoint: resolve yuruna_root
         from the caller's script folder; default an empty -ProjectRoot to the current
         location and Resolve-Path it (failing on a missing/ambiguous path); then resolve
         config/<subfolder> under it with the same guard. Each resolved path is exported
         as Env:yuruna_root / Env:project_root / Env:config_root for the tofu/helm
         subprocesses. Returns @{ YurunaRoot; ProjectRoot; ConfigRoot } on success, or
-        $false after writing the same 'not found or ambiguous' Information message the
-        inline guards did.
+        $false after writing a 'not found or ambiguous' Information message.
 
         CALL BEFORE the 'Get-Module Yuruna.* | Remove-Module' eviction: the resolution
         never needs the operation modules, so running it first lets this leaf provide the

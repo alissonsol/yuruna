@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.10
+.VERSION 2026.07.14
 .GUID 42c9d0e1-f2a3-4b45-9678-9a0b1c2d3e42
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -76,12 +76,148 @@ function Get-GitUpstreamStatus {
     return @{ State = $state; Ahead = $ahead; Behind = $behind; Local = $local; Remote = $remote }
 }
 
+function Test-GitRemoteAuthFailure {
+    <#
+    .SYNOPSIS
+        Pure text classifier: does this git fetch/pull/ls-remote output carry a
+        credential / authorization signature (a stale or missing GitHub login),
+        as opposed to a network outage or a local-branch condition?
+    .DESCRIPTION
+        Lets the pull path fail FAST with an actionable "refresh GitHub access"
+        message instead of a runner blocking on git's interactive username /
+        password prompt. With the credential-prompt env neutralized
+        (GIT_TERMINAL_PROMPT=0), a missing credential surfaces as "terminal
+        prompts disabled"; an expired / wrong one as "Authentication failed" or
+        "Invalid username or password"; a private repo the current identity can
+        no longer see as "Repository not found"; an expired PAT / unauthorized
+        SSO as an HTTPS "returned error: 401|403"; an SSH key that is not loaded
+        as "Permission denied (publickey)". Every one is fixed by refreshing the
+        login, not by retrying -- so the caller stops rather than burning its
+        retry budget.
+    .OUTPUTS
+        [bool] $true when the output matches an auth/authorization signature.
+    #>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param([Parameter()][AllowNull()][AllowEmptyString()][string]$Output)
+    if ([string]::IsNullOrWhiteSpace($Output)) { return $false }
+    return [bool]($Output -match '(?i)(terminal prompts disabled|could not read (Username|Password)|Authentication failed|Invalid username or password|Permission denied \(publickey\)|Repository not found|returned error: 40[13])')
+}
+
+function Invoke-GitNetworkCommand {
+    <#
+    .SYNOPSIS
+        Run a network-touching git command (fetch / pull / ls-remote) so it can
+        NEVER block on an interactive credential prompt and never hang the runner.
+    .DESCRIPTION
+        An unattended runner -- and, on the bare-pwsh path, the INTERACTIVE outer
+        loop -- would otherwise stall forever inside git the moment a stale or
+        missing GitHub credential makes git prompt for a username (the block is
+        inside the git child, so a wall-clock check in the caller can't catch it).
+        Prefers the bounded, process-tree-killing pool-sync runner when it is
+        loaded (that also caps a wedged TCP connect); otherwise neutralizes the
+        credential-prompt env (GIT_TERMINAL_PROMPT=0 + empty GIT_ASKPASS /
+        SSH_ASKPASS + GCM_INTERACTIVE=never) on this process for the duration of a
+        plain call and restores it after. A valid GH_TOKEN in the environment is
+        inherited by the child either way, so a good token still authenticates.
+    .OUTPUTS
+        [hashtable] @{ ExitCode; Output }. ExitCode is 124 on a pool-sync timeout,
+        -1 when git could not be started.
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param(
+        [Parameter(Mandatory)][string[]]$GitArgs,
+        [Parameter()][int]$TimeoutSeconds = 60
+    )
+    if (Get-Command Invoke-PoolSyncGitCapture -ErrorAction SilentlyContinue) {
+        $r = Invoke-PoolSyncGitCapture -ArgumentList $GitArgs -TimeoutSeconds $TimeoutSeconds
+        $text = ((@($r.StdOut, $r.StdErr) | Where-Object { $_ }) -join "`n").Trim()
+        return @{ ExitCode = [int]$r.ExitCode; Output = $text }
+    }
+    # Fallback: neutralize the prompt env on THIS process around a plain call.
+    $names = @('GIT_TERMINAL_PROMPT', 'GIT_ASKPASS', 'SSH_ASKPASS', 'GCM_INTERACTIVE')
+    $prev  = @{}
+    foreach ($n in $names) { $prev[$n] = [Environment]::GetEnvironmentVariable($n) }
+    $env:GIT_TERMINAL_PROMPT = '0'
+    $env:GIT_ASKPASS         = ''
+    $env:SSH_ASKPASS         = ''
+    $env:GCM_INTERACTIVE     = 'never'
+    try {
+        $out = & git @GitArgs 2>&1
+        return @{ ExitCode = $LASTEXITCODE; Output = ((@($out) -join "`n")).Trim() }
+    } finally {
+        foreach ($n in $names) {
+            if ($null -eq $prev[$n]) { Remove-Item -Path "Env:$n" -ErrorAction SilentlyContinue }
+            else { Set-Item -Path "Env:$n" -Value $prev[$n] }
+        }
+    }
+}
+
+function Write-GitAuthRefreshBanner {
+    <#
+    .SYNOPSIS
+        Emit the actionable "GitHub access needs refreshing" message when a git
+        fetch/pull failed because the cached credential is missing or expired
+        (classified by Test-GitRemoteAuthFailure), so the operator refreshes the
+        login in one step instead of debugging a silent hang.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter()][AllowEmptyString()][string]$RemoteUrl,
+        [Parameter()][AllowEmptyString()][string]$GitOutput
+    )
+    $remote = if ([string]::IsNullOrWhiteSpace($RemoteUrl)) { 'origin' } else { $RemoteUrl.Trim() }
+    $said   = ''
+    if (-not [string]::IsNullOrWhiteSpace($GitOutput)) {
+        $line = (($GitOutput -split "`r?`n") | Where-Object { $_ -match '\S' } | Select-Object -First 1)
+        if ($line) { $said = "`n  git said: $($line.Trim())" }
+    }
+    Write-Warning @"
+GitHub access needs refreshing.
+  git could not authenticate to the framework remote:
+    $remote
+  The cached GitHub credential is missing or expired, so 'git fetch' / 'git
+  pull' would block on an interactive login prompt (which hangs an unattended
+  runner). Refresh the login with ONE of, then re-run:
+    * export GH_TOKEN=<a valid GitHub token>
+    * gh auth login
+    * refresh your git credential helper / re-enter the personal access token$said
+"@
+}
+
 function Invoke-GitPull {
     <#
     .SYNOPSIS
     Runs git pull in the repo root. Returns $true on success.
+    .DESCRIPTION
+    Every network git call routes through Invoke-GitNetworkCommand, so a stale or
+    missing GitHub login can never block the runner on git's interactive username
+    prompt. A cheap ls-remote preflight verifies the remote is both reachable AND
+    authorized before the fetch; an auth failure (at the preflight, the fetch, or
+    the pull) stops FAST with the "refresh GitHub access" message instead of
+    hanging or spending the whole retry budget on a problem that will not
+    self-heal.
     #>
     param([string]$RepoRoot)
+
+    # Origin URL for the diagnostic message only (local config read -- no network,
+    # no prompt). Best-effort: an unusual remote name just yields a blank here.
+    $remoteUrl = & git -C $RepoRoot config --get remote.origin.url 2>$null
+    if ($remoteUrl) { $remoteUrl = "$remoteUrl".Trim() }
+
+    # Preflight: confirm the credential still AUTHORIZES against origin without ever
+    # blocking on a login prompt. This is the "will the pull work?" check the fetch
+    # below would otherwise discover only by hanging. Only an auth signature
+    # short-circuits here; a network blip, a missing 'origin', or a timeout falls
+    # through to the retry loop, which owns the transient-network backoff and the
+    # no-upstream handling. One extra lightweight ref advertisement per cycle -- far
+    # cheaper than a fetch, and it turns a silent hang into a clear message.
+    $pre = Invoke-GitNetworkCommand -GitArgs @('-C', $RepoRoot, 'ls-remote', '--exit-code', '--quiet', 'origin', 'HEAD') -TimeoutSeconds 30
+    if ($pre.ExitCode -ne 0 -and (Test-GitRemoteAuthFailure -Output $pre.Output)) {
+        Write-GitAuthRefreshBanner -RemoteUrl $remoteUrl -GitOutput $pre.Output
+        return $false
+    }
 
     # Fetch without modifying working tree. Linear-backoff retry on
     # failure: on macOS the Application Firewall stalls outbound TCP
@@ -100,17 +236,22 @@ function Invoke-GitPull {
         $attempt++
         $totalAttempts = $maxRetries + 1
         Write-Information "Fetching remote changes in: $RepoRoot (attempt $attempt/$totalAttempts)" -InformationAction Continue
-        $output = & git -C $RepoRoot fetch 2>&1
-        Write-Information "$output" -InformationAction Continue
-        if ($LASTEXITCODE -eq 0) { break }
+        $fetch = Invoke-GitNetworkCommand -GitArgs @('-C', $RepoRoot, 'fetch') -TimeoutSeconds 60
+        Write-Information "$($fetch.Output)" -InformationAction Continue
+        if ($fetch.ExitCode -eq 0) { break }
+        # An auth failure never self-heals across retries -- stop now with the actionable message.
+        if (Test-GitRemoteAuthFailure -Output $fetch.Output) {
+            Write-GitAuthRefreshBanner -RemoteUrl $remoteUrl -GitOutput $fetch.Output
+            return $false
+        }
         $elapsed = [int]([DateTime]::UtcNow - $startUtc).TotalSeconds
         if ($attempt -gt $maxRetries -or $elapsed -ge $maxTotalSeconds) {
-            Write-Error "git fetch failed (exit $LASTEXITCODE) after $attempt attempt(s) / ${elapsed}s (cap ${maxTotalSeconds}s)."
+            Write-Error "git fetch failed (exit $($fetch.ExitCode)) after $attempt attempt(s) / ${elapsed}s (cap ${maxTotalSeconds}s)."
             return $false
         }
         # Clamp the backoff so we never sleep past the wall-clock deadline.
         $waitSeconds = [Math]::Min(10 * $attempt, [Math]::Max(1, $maxTotalSeconds - $elapsed))
-        Write-Information "  git fetch failed (exit $LASTEXITCODE); retrying in ${waitSeconds}s..." -InformationAction Continue
+        Write-Information "  git fetch failed (exit $($fetch.ExitCode)); retrying in ${waitSeconds}s..." -InformationAction Continue
         Start-Sleep -Seconds $waitSeconds
     }
 
@@ -133,12 +274,16 @@ function Invoke-GitPull {
         }
         'behind' {
             Write-Information "Local branch is behind remote by $($st.Behind) commit(s). Pulling..." -InformationAction Continue
-            $pullOutput = & git -C $RepoRoot pull --ff-only 2>&1
-            if ($LASTEXITCODE -eq 0) {
-                Write-Information "Pull succeeded: $pullOutput" -InformationAction Continue
+            $pull = Invoke-GitNetworkCommand -GitArgs @('-C', $RepoRoot, 'pull', '--ff-only') -TimeoutSeconds 60
+            if ($pull.ExitCode -eq 0) {
+                Write-Information "Pull succeeded: $($pull.Output)" -InformationAction Continue
                 return $true
             }
-            Write-Error "git pull --ff-only failed (exit $LASTEXITCODE): $pullOutput"
+            if (Test-GitRemoteAuthFailure -Output $pull.Output) {
+                Write-GitAuthRefreshBanner -RemoteUrl $remoteUrl -GitOutput $pull.Output
+                return $false
+            }
+            Write-Error "git pull --ff-only failed (exit $($pull.ExitCode)): $($pull.Output)"
             return $false
         }
         'unknown' {
@@ -458,6 +603,18 @@ function Update-ProjectClone {
     }
 
     if ($PSCmdlet.ShouldProcess($projectDir, "Wipe and re-clone from $ProjectUrl")) {
+        # Preflight the project remote BEFORE the destructive wipe: a private
+        # projectUrl with a stale/expired GitHub credential would otherwise block
+        # the clone on an interactive username prompt (an uncatchable runner hang),
+        # and wiping first would also throw away the last good checkout. ls-remote
+        # is credential-prompt-proof + bounded; only an auth signature short-circuits
+        # (a network blip / non-git path falls through to the clone, which reports
+        # it). Leave the existing clone in place and fail fast with clear guidance.
+        $pre = Invoke-GitNetworkCommand -GitArgs @('ls-remote', '--exit-code', '--quiet', $ProjectUrl, 'HEAD') -TimeoutSeconds 30
+        if ($pre.ExitCode -ne 0 -and (Test-GitRemoteAuthFailure -Output $pre.Output)) {
+            Write-GitAuthRefreshBanner -RemoteUrl $ProjectUrl -GitOutput $pre.Output
+            return @{ success = $false; skipped = $false; errorMessage = "project remote '$ProjectUrl' rejected the cached GitHub credential (needs refreshing): $($pre.Output)" }
+        }
         if (Test-Path $projectDir) {
             Write-Information "Removing previous project clone: $projectDir" -InformationAction Continue
             try {
@@ -485,9 +642,14 @@ function Update-ProjectClone {
             }
         }
         Write-Information "Cloning $ProjectUrl -> $projectDir" -InformationAction Continue
-        $cloneOut = & git clone --depth 1 $ProjectUrl $projectDir 2>&1
-        if ($LASTEXITCODE -ne 0) {
-            return @{ success = $false; skipped = $false; errorMessage = "git clone failed (exit $LASTEXITCODE): $cloneOut" }
+        # Prompt-proof (and bounded, when the pool-sync runner is loaded) so a
+        # credential that expired between the preflight and here can't hang the clone.
+        $clone = Invoke-GitNetworkCommand -GitArgs @('clone', '--depth', '1', $ProjectUrl, $projectDir) -TimeoutSeconds 600
+        if ($clone.ExitCode -ne 0) {
+            if (Test-GitRemoteAuthFailure -Output $clone.Output) {
+                Write-GitAuthRefreshBanner -RemoteUrl $ProjectUrl -GitOutput $clone.Output
+            }
+            return @{ success = $false; skipped = $false; errorMessage = "git clone failed (exit $($clone.ExitCode)): $($clone.Output)" }
         }
         Write-Information "Project clone refreshed." -InformationAction Continue
     }
@@ -580,4 +742,4 @@ function Install-PSScriptAnalyzerIfMissing {
     return Install-YurunaGalleryModuleIfMissing -Name 'PSScriptAnalyzer' @PSBoundParameters
 }
 
-Export-ModuleMember -Function Invoke-GitPull, Get-GitUpstreamStatus, Get-CurrentGitCommit, Get-FileLockingProcess, Update-ProjectClone, Install-PowerShellYamlIfMissing, Install-PSScriptAnalyzerIfMissing
+Export-ModuleMember -Function Invoke-GitPull, Get-GitUpstreamStatus, Get-CurrentGitCommit, Get-FileLockingProcess, Update-ProjectClone, Install-PowerShellYamlIfMissing, Install-PSScriptAnalyzerIfMissing, Test-GitRemoteAuthFailure, Write-GitAuthRefreshBanner

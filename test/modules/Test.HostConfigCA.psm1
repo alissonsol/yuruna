@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.10
+.VERSION 2026.07.14
 .GUID 42d7c1b4-6e8a-4f3c-9d20-5a7b1c2e3f40
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -323,7 +323,15 @@ function New-YurunaConfigClientCertificate {
     $leaf = New-YurunaConfigLeaf -Subject $cn -EkuOid $script:OidClientAuth -San $san -Ca $ca
     # GetECDsaPrivateKey is also an extension method -> static invocation.
     $leafKey = [System.Security.Cryptography.X509Certificates.ECDsaCertificateExtensions]::GetECDsaPrivateKey($leaf)
-    $keyDer  = $leafKey.ExportPkcs8PrivateKey()
+    try {
+        $keyDer = $leafKey.ExportPkcs8PrivateKey()
+    } finally {
+        # The DER bytes are copied out above, so the live ECDsa handle is no longer
+        # needed. Disposing it releases the backing CNG/OpenSSL key rather than
+        # leaking one handle per issued VM leaf (this is the leaf's own key object,
+        # distinct from the cert returned by New-YurunaConfigServerCertificate).
+        if ($leafKey) { $leafKey.Dispose() }
+    }
     return @{
         CertificatePem   = (ConvertTo-YurunaPem -Label 'CERTIFICATE' -Bytes $leaf.RawData)
         PrivateKeyPem    = (ConvertTo-YurunaPem -Label 'PRIVATE KEY' -Bytes $keyDer)
@@ -381,7 +389,18 @@ function Test-YurunaConfigClientCertificate {
         $chain.ChainPolicy.RevocationMode = [System.Security.Cryptography.X509Certificates.X509RevocationMode]::NoCheck
         $chain.ChainPolicy.TrustMode      = [System.Security.Cryptography.X509Certificates.X509ChainTrustMode]::CustomRootTrust
         [void]$chain.ChainPolicy.CustomTrustStore.Add($CaCertificate)
-        return [bool]$chain.Build($client)
+        $built = [bool]$chain.Build($client)
+        if (-not $built) {
+            # Build() surfaces WHY it rejected (expired leaf, partial chain, untrusted
+            # root) only in ChainStatus; without echoing it a legitimate rejection and a
+            # buggy CA look identical in the log. Diagnostics only -- the verdict below is
+            # exactly $chain.Build()'s bool; nothing here changes what is accepted.
+            $why = ($chain.ChainStatus | ForEach-Object { $_.StatusInformation.Trim() }) -join '; '
+            if (-not [string]::IsNullOrWhiteSpace($why)) {
+                Write-Verbose "Test-YurunaConfigClientCertificate: client chain rejected -- $why"
+            }
+        }
+        return $built
     } catch {
         Write-Verbose "Test-YurunaConfigClientCertificate: $($_.Exception.Message)"
         return $false

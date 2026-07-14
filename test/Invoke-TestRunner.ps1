@@ -1,5 +1,5 @@
-﻿<#PSScriptInfo
-.VERSION 2026.07.10
+<#PSScriptInfo
+.VERSION 2026.07.14
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456707
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -98,7 +98,7 @@ $script:ForwardEnvNames = @(
 
 # === Resolve paths ==========================================================
 # Canonical path bundle from Test.Prelude. Same call shape used by
-# Test-Project, Test-Sequence, and Invoke-TestInnerRunner — adding a
+# Test-Project, Test-Sequence, and Invoke-TestInnerRunner -- adding a
 # new entry point uses the same one-liner.
 Import-Module (Join-Path $PSScriptRoot 'modules/Test.Prelude.psm1') -Global -Force
 $paths       = Initialize-YurunaEntryPoint -ScriptRoot $PSScriptRoot -ConfigPath $ConfigPath
@@ -179,7 +179,7 @@ if (Get-Command Initialize-RunnerState -ErrorAction SilentlyContinue) {
 # Snapshot AFTER Initialize-YurunaRuntimeDir / Initialize-YurunaLogDir so the
 # resolved (or operator-supplied) defaults for YURUNA_RUNTIME_DIR / YURUNA_-
 # LOG_DIR are captured rather than the pre-resolution null. Only names
-# present in $env: at this moment are stored — absent names are not
+# present in $env: at this moment are stored -- absent names are not
 # forwarded (we don't want to set them to '' downstream).
 $script:ForwardEnvSnapshot = @{}
 foreach ($n in $script:ForwardEnvNames) {
@@ -236,24 +236,13 @@ if (-not $pidWritten) {
 }
 
 # === Ctrl+C handler =========================================================
-# Same shape as the previous in-process runner: subscribe via Register-Object-
-# Event so the handler runs on the pipeline thread (a raw .NET event delegate
-# would fire on a thread-pool thread with no Runspace, throwing on shutdown).
-# Setting $script:ShutdownState['Requested']=$true lets the eternal loop and
-# the failure-pause loop both observe the request at their next iteration.
-$script:ShutdownState = @{ Requested = $false }
-try {
-    Unregister-Event -SourceIdentifier YurunaCancelKey -ErrorAction SilentlyContinue
-    Remove-Job -Name YurunaCancelKey -Force -ErrorAction SilentlyContinue
-    $null = Register-ObjectEvent -InputObject ([Console]) -EventName CancelKeyPress `
-        -SourceIdentifier YurunaCancelKey -MessageData $script:ShutdownState -Action {
-            $Event.SourceEventArgs.Cancel = $true
-            $Event.MessageData['Requested'] = $true
-            Write-Warning "Shutdown requested (Ctrl+C). Will exit after the current cycle..."
-        }
-} catch {
-    Write-Verbose "Could not register CancelKeyPress handler (non-interactive session): $_"
-}
+# Shared registration lives in Test.Prelude (Register-EntryPointCancelHandler): a
+# Register-ObjectEvent CancelKeyPress subscription that flips the returned hashtable's
+# 'Requested' flag on the pipeline thread (a raw .NET delegate would fire on a
+# Runspace-less thread-pool thread). The outer runner surrenders after the current
+# CYCLE -- the eternal loop and the failure-pause loop both poll
+# $script:ShutdownState['Requested'] at their next iteration -- so pass -ExitAfterLabel 'cycle'.
+$script:ShutdownState = Register-EntryPointCancelHandler -ExitAfterLabel 'cycle'
 
 # === Build inner argument list ==============================================
 # Canonical builder: Test.InnerSpawn\New-InnerRunnerArgList. Why -Command,
@@ -279,7 +268,7 @@ $argList = New-InnerRunnerArgList -ScriptPath $InnerScript -Parameters $PSBoundP
 # First line written to runtime/outer.log on every outer startup. If this line
 # is missing from outer.log after the runner has clearly been running (e.g.
 # the inner emitted output to the console), Write-OuterLog itself is broken
-# (env var, permissions, encoding) — investigate before trusting outer.log
+# (env var, permissions, encoding) -- investigate before trusting outer.log
 # absence as evidence that Start-Process -Wait hung.
 Write-OuterLog "===== outer runner started (PID $PID) ====="
 Write-Output ""
@@ -344,8 +333,13 @@ if (-not (Get-Module -ListAvailable -Name powershell-yaml -ErrorAction SilentlyC
 # the runner against an in-progress edit).
 $gate = Invoke-ConfigGate -TestRoot $TestRoot -ConfigPath $ConfigPath -Skip:$NoConfigGate -CallerName 'outer startup'
 if (-not $gate.passed) {
+    # Log the raw Test-Config.ps1 code for diagnostics, but exit through the
+    # canonical Ok/Failure contract like every other exit path here. Test-Config
+    # may return an arbitrary non-zero code; the entry-point exit surface is
+    # binary (0 = ran a cycle loop, 1 = refused/failed) so CI consumers do not
+    # need a per-script code lookup.
     Write-OuterLog "[outer startup] Test-Config.ps1 exited $($gate.exitCode) -- refusing to start the cycle loop."
-    exit $gate.exitCode
+    exit (Get-EntryPointExitCode -Outcome Failure)
 }
 
 # === Eternal loop ===========================================================
@@ -375,8 +369,7 @@ Invoke-RunnerOuterLoop -State @{
 # === Graceful shutdown ======================================================
 Write-Output ""
 Write-Output "Shutdown requested. Releasing pidfile and exiting."
-Unregister-Event -SourceIdentifier YurunaCancelKey -ErrorAction SilentlyContinue
-Remove-Job -Name YurunaCancelKey -Force -ErrorAction SilentlyContinue
+Unregister-EntryPointCancelHandler
 try {
     if (Test-Path -LiteralPath $RunnerPidFile) {
         $filePid = 0

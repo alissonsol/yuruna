@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.10
+.VERSION 2026.07.14
 .GUID 42d9e0f1-a2b3-4c45-d678-9e0f1a2b3c46
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -34,6 +34,12 @@ if (Test-Path $_logLevelMod) { Import-Module $_logLevelMod -Global -Force; Use-L
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $commonModulePath = Join-Path -Path (Split-Path -Parent $ScriptDir) -ChildPath "modules/Yuruna.Host.psm1"
 Import-Module -Name $commonModulePath -Force
+
+# Get-YurunaGitHubSource: the token that opens a private frameworkUrl/projectUrl.
+# The Linux guests get it from Build-CloudInitUserData; Windows has no cloud-init,
+# so this seed resolves it directly.
+$repoRoot = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))
+Import-Module (Join-Path $repoRoot 'automation/Yuruna.GitHubSource.psm1') -Force -DisableNameChecking
 
 Write-Verbose "This script requires elevation (Run as Administrator)."
 if (-not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator")) {
@@ -141,8 +147,54 @@ if (-not (Test-Path $AnswerFileTemplate)) {
     exit 1
 }
 
+# First-logon bootstrap for the guest's GitHub credentials. git does NOT read
+# GH_TOKEN -- that name is a gh(1) convention -- so the token alone leaves a
+# private-repo `git clone` prompting for a username, which hangs an unattended
+# guest. GIT_ASKPASS is what makes clone/fetch/pull authenticate with no change
+# at any call site; the .cmd shim exists only because GIT_ASKPASS must name an
+# executable, not a PowerShell function.
+#
+# The whole script is base64'd into the answer file's -EncodedCommand slot rather
+# than XML-escaped inline: see the comment on that SynchronousCommand.
+$ghSource = Get-YurunaGitHubSource -RepoRoot $repoRoot
+# The profile lines are built inside a SINGLE-quoted here-string so '$env:...'
+# survives as literal text into the profile. A double-quoted "-Value" would
+# expand $env:GH_TOKEN while the bootstrap is running -- it is empty then -- and
+# silently write ' = <token>' into the profile: a broken line, on a VM nobody is
+# watching. The token and path are filled in by .Replace afterwards instead.
+#
+# Machine-scope env vars are set alongside the profile because a profile only
+# reaches the interactive shell of the edition that owns it: pwsh 7 reads a
+# different $PROFILE than powershell.exe, and a non-interactive SSH command reads
+# neither. Machine scope covers every shell the guest scripts might actually use.
+$ghBootstrap = @"
+`$ErrorActionPreference = 'Stop'
+`$token = '$($ghSource.Token)'
+if (-not `$token) { return }
+`$dir = 'C:\ProgramData\yuruna'
+New-Item -ItemType Directory -Force -Path `$dir | Out-Null
+`$askpass = Join-Path `$dir 'git-askpass.cmd'
+Set-Content -Path `$askpass -Encoding Ascii -Value @'
+@echo off
+echo %* | find /i "Username" >nul
+if errorlevel 1 (echo %GH_TOKEN%) else (echo x-access-token)
+'@
+[Environment]::SetEnvironmentVariable('GH_TOKEN', `$token, 'Machine')
+[Environment]::SetEnvironmentVariable('GIT_ASKPASS', `$askpass, 'Machine')
+[Environment]::SetEnvironmentVariable('GIT_TERMINAL_PROMPT', '0', 'Machine')
+New-Item -ItemType Directory -Force -Path (Split-Path -Parent `$PROFILE) | Out-Null
+`$profileText = @'
+`$env:GH_TOKEN = '__TOKEN__'
+`$env:GIT_ASKPASS = '__ASKPASS__'
+`$env:GIT_TERMINAL_PROMPT = '0'
+'@
+Add-Content -Path `$PROFILE -Value (`$profileText.Replace('__TOKEN__', `$token).Replace('__ASKPASS__', `$askpass))
+"@
+$ghBootstrapB64 = [Convert]::ToBase64String([System.Text.Encoding]::Unicode.GetBytes($ghBootstrap))
+
 $AnswerFile = (Get-Content -Raw $AnswerFileTemplate) `
-    -replace 'COMPUTERNAME_PLACEHOLDER', $VMName
+    -replace 'COMPUTERNAME_PLACEHOLDER', $VMName `
+    -replace 'GH_BOOTSTRAP_B64_PLACEHOLDER', $ghBootstrapB64
 Set-Content -Path "$SeedDir/autounattend.xml" -Value $AnswerFile -NoNewline
 
 $SeedIso = Join-Path $vmDir "seed.iso"

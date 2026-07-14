@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.07.10
+# Version: 2026.07.14
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 #
@@ -71,7 +71,9 @@ echo "Service user: $SERVICE_USER"
 ENVF=/etc/yuruna/ystash-nas.env
 get_env() {
   [ -r "$ENVF" ] || return 0
-  sed -nE "s/^$1='(.*)'\$/\1/p" "$ENVF" | head -n1
+  # head closes the pipe after the first line, so sed can take SIGPIPE (141);
+  # under pipefail that would abort a successful lookup. Swallow it.
+  sed -nE "s/^$1='(.*)'\$/\1/p" "$ENVF" | head -n1 || true
 }
 NETWORK_PATH=$(get_env YSTASH_NAS_NETWORK_PATH)
 HOST_ID=$(get_env YSTASH_NAS_HOST_ID)
@@ -95,7 +97,7 @@ LOCAL_FALLBACK=/var/lib/stash-server/share-local
 # would re-substitute the default on empty and force the UI back on.
 HTTP_ADDR="${STASH_HTTP_ADDR-0.0.0.0:80}"
 POOL_WINDOW_DAYS="${STASH_POOL_WINDOW_DAYS:-30}"
-AGGREGATOR_URL_SEED=$(sed -nE "s/^YURUNA_AGGREGATOR_URL='(.*)'\$/\1/p" /etc/yuruna/pool.env 2>/dev/null | head -n1)
+AGGREGATOR_URL_SEED=$(sed -nE "s/^YURUNA_AGGREGATOR_URL='(.*)'\$/\1/p" /etc/yuruna/pool.env 2>/dev/null | head -n1 || true)
 AGGREGATOR_URL="${STASH_AGGREGATOR_URL:-$AGGREGATOR_URL_SEED}"
 # Presence beacon (§4.7): the daemon self-announces to the aggregator on
 # boot, every PRESENCE_INTERVAL, and at shutdown, so the pool dashboard's
@@ -151,7 +153,7 @@ echo "Daemon source: $SERVER_SRC"
 # Framework version (repo root is four levels above server/) — stamped into
 # the binary so the UI header shows it (stash-guide / status pages style).
 # Read before staging; empty/missing falls back to "dev".
-VERSION_STR=$(cat "$SERVER_SRC/../../../../VERSION" 2>/dev/null | head -n1 | tr -d '[:space:]')
+VERSION_STR=$(cat "$SERVER_SRC/../../../../VERSION" 2>/dev/null | head -n1 | tr -d '[:space:]' || true)
 [ -n "$VERSION_STR" ] || VERSION_STR=dev
 echo "Framework version: $VERSION_STR"
 

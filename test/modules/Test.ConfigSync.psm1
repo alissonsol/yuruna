@@ -1,5 +1,5 @@
-﻿<#PSScriptInfo
-.VERSION 2026.07.10
+<#PSScriptInfo
+.VERSION 2026.07.14
 .GUID 42c04f16-a1b2-4c3d-8e4f-5a6b7c8d9e0f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -254,11 +254,11 @@ function Update-TestConfigFromTemplate {
     )
 
     if (-not (Test-Path $TemplatePath)) {
-        Write-Warning "Template not found: $TemplatePath — loading config as-is."
+        Write-Warning "Template not found: $TemplatePath -- loading config as-is."
         return (Get-Content -Raw $ConfigPath | ConvertFrom-Yaml -Ordered)
     }
     if (-not (Test-Path $ConfigPath)) {
-        Write-Information "Config not found: $ConfigPath — bootstrapping from template." -InformationAction Continue
+        Write-Information "Config not found: $ConfigPath -- bootstrapping from template." -InformationAction Continue
         Copy-Item -Path $TemplatePath -Destination $ConfigPath
         return (Get-Content -Raw $ConfigPath | ConvertFrom-Yaml -Ordered)
     }
@@ -338,7 +338,7 @@ function Update-TestConfigFromTemplate {
             }
         } else {
             $default = "$($template['vmCommunication']['keystrokeMechanism'])"
-            Write-Information "test.config.yml: vmCommunication.keystrokeMechanism='$original' not recognized — resetting to '$default'." -InformationAction Continue
+            Write-Information "test.config.yml: vmCommunication.keystrokeMechanism='$original' not recognized -- resetting to '$default'." -InformationAction Continue
             $mergedComm['keystrokeMechanism'] = $default
         }
     }

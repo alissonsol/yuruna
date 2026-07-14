@@ -1,5 +1,5 @@
-﻿<#PSScriptInfo
-.VERSION 2026.07.10
+<#PSScriptInfo
+.VERSION 2026.07.14
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456742
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -152,7 +152,7 @@ if ($IsMacOS) {
 } elseif ($IsWindows) {
     $HostDir      = Join-Path $RepoRoot 'host/windows.hyper-v/guest.caching-proxy'
     # (Get-VMHost) loads the Hyper-V module on first use; fails cleanly if
-    # Hyper-V isn't installed — the underlying New-VM.ps1 has the same
+    # Hyper-V isn't installed -- the underlying New-VM.ps1 has the same
     # dependency, so surfacing it here keeps the error close to the user.
     $downloadDir  = (Get-VMHost).VirtualHardDiskPath
     $ImageFile    = Join-Path $downloadDir 'host.windows.hyper-v.guest.caching-proxy.vhdx'
@@ -307,7 +307,7 @@ if ($IsMacOS) {
     # the raw utmctl sequence lacked), and removes the stale .utm bundle.
     # The base image is in a separate download dir and is untouched.
     if ((Get-VMState -VMName $VMName) -ne 'absent') {
-        Write-Output "  Prior VM registered with UTM — stopping and deleting..."
+        Write-Output "  Prior VM registered with UTM -- stopping and deleting..."
         [void](Remove-VM -VMName $VMName -Confirm:$false)
     } else {
         Write-Output "  No prior VM registered with UTM."
@@ -320,7 +320,7 @@ if ($IsMacOS) {
     # base VHDX lives directly under that path (not the per-VM dir) and is
     # untouched.
     if ((Get-VMState -VMName $VMName) -ne 'absent') {
-        Write-Output "  Prior VM found (state: $(Get-VMState -VMName $VMName)) — stopping and removing..."
+        Write-Output "  Prior VM found (state: $(Get-VMState -VMName $VMName)) -- stopping and removing..."
         [void](Stop-VM -VMName $VMName -Force -Confirm:$false)
         [void](Remove-VM -VMName $VMName -Confirm:$false)
     } else {
@@ -334,7 +334,7 @@ if ($IsMacOS) {
     # under ~/yuruna/vms/<name>. The base image is in a separate download
     # dir (~/yuruna/image/caching-proxy) and is untouched.
     if ((Get-VMState -VMName $VMName) -ne 'absent') {
-        Write-Output "  Prior VM registered with libvirt — destroying and undefining..."
+        Write-Output "  Prior VM registered with libvirt -- destroying and undefining..."
         [void](Remove-VM -VMName $VMName -Confirm:$false)
     } else {
         Write-Output "  No prior VM registered with libvirt."
@@ -517,7 +517,7 @@ if ($null -ne $LASTEXITCODE -and $LASTEXITCODE -ne 0) {
     exit 1
 }
 
-# --- REGION: Step 4: macOS — register with UTM and start
+# --- REGION: Step 4: macOS -- register with UTM and start
 # (Hyper-V's New-VM.ps1 already starts the VM and waits for :3128.)
 
 $cacheIp = $null
@@ -552,7 +552,7 @@ if ($IsMacOS) {
     }
     Start-UtmDialogWatchdog
     # `open -g -a UTM` launches UTM in background and imports the bundle.
-    # utmctl has no 'import' verb — `open` is the only way to register a
+    # utmctl has no 'import' verb -- `open` is the only way to register a
     # freshly-built .utm bundle from the CLI.
     & open -g -a UTM $UtmDir
     if ($LASTEXITCODE -ne 0) {
@@ -578,7 +578,7 @@ if ($IsMacOS) {
     }
     # On a freshly-imported bundle, `utmctl start` can return 0 at the RPC
     # level while UTM is still finalizing bundle ingestion, and the start
-    # request is silently dropped — the VM stays in 'stopped'. Verify the
+    # request is silently dropped -- the VM stays in 'stopped'. Verify the
     # transition by parsing `utmctl status` output and retry a few times.
     # `utmctl status` prints one of: started / paused / stopped / suspended.
     Write-Output "  Registered. Starting VM..."
@@ -602,7 +602,7 @@ if ($IsMacOS) {
             }
         }
         if (-not $started) {
-            Write-Warning "  'utmctl start' attempt $attempt returned 0 but VM still reports '$state' — retrying."
+            Write-Warning "  'utmctl start' attempt $attempt returned 0 but VM still reports '$state' -- retrying."
         }
     }
     if (-not $started) {
@@ -668,7 +668,7 @@ if ($IsMacOS) {
                 & sudo -v
             }
             $cacheForwarded = [bool](Add-PortMap -VMIp $cacheIp `
-                    -Port @(80, 3000, 9302, $httpPort, $httpsPort) `
+                    -Port (Get-CachingProxyExposedPort -HttpPort $httpPort -HttpsPort $httpsPort) `
                     -PortRemap @{8022 = 22} -Confirm:$false)
             if ($cacheForwarded) {
                 $cacheLanIp = Get-BestHostIp
@@ -818,7 +818,7 @@ if ($IsMacOS) {
             # Grafana (3000), caching-proxy-parser (9302),
             # SSH remap 8022 -> 22 for jump-host access.
             $cacheForwarded = [bool](Add-PortMap -VMIp $cacheIp `
-                    -Port @(80, 3000, 9302, $hPort, $hsPort) `
+                    -Port (Get-CachingProxyExposedPort -HttpPort $hPort -HttpsPort $hsPort) `
                     -PortRemap @{8022 = 22} -Confirm:$false)
             if ($cacheForwarded) {
                 $cacheLanIp = Get-BestHostIp
@@ -830,7 +830,7 @@ if ($IsMacOS) {
     }
 } elseif ($IsWindows) {
     # Use the same KVP+ARP+:3128-probe discovery the guest consumers
-    # (guest.ubuntu.server.24/desktop/New-VM.ps1) use, so the summary line
+    # (guest.ubuntu.server.24/New-VM.ps1) use, so the summary line
     # below matches what a subsequent guest install will actually see.
     # KVP-only discovery would print "(discovery failed)" whenever
     # hv_kvp_daemon wasn't warm, even though the inner New-VM.ps1's ARP
@@ -855,11 +855,11 @@ if ($IsMacOS) {
     # and Grafana (:3000). Local guests on the Default Switch already reach
     # the VM directly (172.25.x.x NAT subnet is visible from the host and
     # from every Hyper-V guest on that switch), so this portproxy adds LAN
-    # exposure without changing the local-guest path — those still target
+    # exposure without changing the local-guest path -- those still target
     # the VM's private IP. The port list matches Invoke-TestRunner.ps1's
-    # Add-CachingProxyPortMap call; mismatched lists fight each other because
+    # Add-PortMap call; mismatched lists fight each other because
     # the function runs Clear-AllCachingProxyPortMapping first. Requires
-    # elevation; Add-CachingProxyPortMap warns and no-ops otherwise.
+    # elevation; Add-PortMap warns and no-ops otherwise.
     if ($cacheIp) {
         Import-Module (Join-Path $RepoRoot 'test/modules/Test.HostContract.psm1') -Force
         [void](Initialize-YurunaHost -RepoRoot $RepoRoot)
@@ -883,7 +883,7 @@ if ($IsMacOS) {
             # test/extension/caching-proxy-parser/). Reached directly via
             # netsh portproxy along with squid/Apache/Grafana.
             [void](Add-PortMap -VMIp $cacheIp `
-                    -Port @(80, 3000, 9302, $hPort, $hsPort) `
+                    -Port (Get-CachingProxyExposedPort -HttpPort $hPort -HttpsPort $hsPort) `
                     -PortRemap @{8022 = 22} -Confirm:$false)
         }
     }
@@ -979,7 +979,7 @@ if ($cacheIp) {
         }
     }
 } else {
-    Write-Output "  IP address:  (discovery failed — see warnings above)"
+    Write-Output "  IP address:  (discovery failed -- see warnings above)"
 }
 Write-Output ""
 Write-Output "  SSH / console login:"

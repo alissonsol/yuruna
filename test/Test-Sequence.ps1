@@ -1,5 +1,5 @@
-﻿<#PSScriptInfo
-.VERSION 2026.07.10
+<#PSScriptInfo
+.VERSION 2026.07.14
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456708
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -89,13 +89,13 @@ param(
 
     # Three-state: omitted -> read from test.config.yml.logLevel;
     # explicit value -> override (wins over YAML). Single-pass resolution
-    # below — this script doesn't run a long-lived cycle loop.
+    # below -- this script doesn't run a long-lived cycle loop.
     [ValidateSet('Error', 'Warning', 'Information', 'Verbose', 'Debug', IgnoreCase = $true)]
     [string]$logLevel
 )
 
 # Cmdline override for three-state resolution further down (after config
-# load). PSBoundParameters is the only reliable source — `[string]` defaults
+# load). PSBoundParameters is the only reliable source -- `[string]` defaults
 # to '' when omitted.
 $script:CmdLineLogLevel = if ($PSBoundParameters.ContainsKey('logLevel')) { $logLevel } else { $null }
 
@@ -330,43 +330,18 @@ if (-not (Assert-NoOtherRunner -RuntimeDir $env:YURUNA_RUNTIME_DIR -CallerName '
 # the operator can inspect post-mortem via virsh / vmconnect / utmctl.
 $script:CancelState = Register-EntryPointCancelHandler
 
-# Archive any break-active.json left behind by a prior Test-Sequence /
-# Invoke-TestRunner that crashed (or was Ctrl-C'd) while paused at a
-# breakpoint. Otherwise the stale file would tell the status UI that a
-# Continue is pending for THIS new run before its break step has even
-# fired -- and the next break would write over the stale file with no
-# audit trail of what the previous one was paused on. Resolve-Stale-
-# BreakActive renames to break-active.<UTC>.json.aborted so forensics
-# survive. Same helper Invoke-TestRunner's outer-startup sweep runs.
-if (Get-Command Resolve-StaleBreakActive -ErrorAction SilentlyContinue) {
-    $null = Resolve-StaleBreakActive -RuntimeDir $env:YURUNA_RUNTIME_DIR -Confirm:$false
-}
-
-# Clear any stale control.cycle-restart flag. The status server's
-# /control/start-cycle endpoint writes this file to ask the runner to
-# rewind to step 1. If Invoke-TestRunner was Ctrl-C'd between flag write
-# and flag consumption, the file persists. Invoke-Sequence Gate #1 would
-# then throw YurunaCycleRestart on our first step and exit non-zero --
-# making it look like the SEQUENCE broke, when really it was leftover
-# inter-cycle control state. Mirror Invoke-TestInnerRunner: a freshly
-# starting Test-Sequence IS the restart, so consume the flag here.
-$restartFlag = Join-Path $env:YURUNA_RUNTIME_DIR 'control.cycle-restart'
-if (Test-Path -LiteralPath $restartFlag) {
-    try {
-        Remove-Item -LiteralPath $restartFlag -Force -ErrorAction Stop
-        Write-Verbose "Cleared stale control.cycle-restart flag."
-    } catch {
-        Write-Verbose "Could not clear control.cycle-restart: $($_.Exception.Message)"
-    }
-}
-
-# Clear any leftover pause flags (control.step-pause / .cycle-pause).
-# A fresh Test-Sequence invocation should never inherit a pause request
-# from a prior session the operator never explicitly resumed -- the
-# operator typed THIS command line, so we honour the intent to run, not
-# the stale flag. Same helper Invoke-YurunaBootRecovery uses.
-if (Get-Command Clear-StalePauseFlag -ErrorAction SilentlyContinue) {
-    $null = Clear-StalePauseFlag -RuntimeDir $env:YURUNA_RUNTIME_DIR -Confirm:$false
+# Sweep the stale inter-cycle control state a freshly-typed Test-Sequence
+# command line must not inherit. -Scope Startup consumes control.cycle-
+# restart (so Invoke-Sequence Gate #1 doesn't throw YurunaCycleRestart on
+# our first step and make it look like the SEQUENCE broke) AND archives a
+# leftover break-active.json + clears leftover pause flags (so the status
+# UI doesn't show a Continue pending, and the run doesn't start paused,
+# from a prior session the operator never resumed). The operator typed
+# THIS command line, so we honour the intent to run over the stale flags.
+if (Get-Command Clear-StaleControlState -ErrorAction SilentlyContinue) {
+    $ctl = Clear-StaleControlState -Scope Startup -RuntimeDir $env:YURUNA_RUNTIME_DIR -Confirm:$false
+    if ($ctl.cycleRestartCleared) { Write-Verbose "Cleared stale control.cycle-restart flag." }
+    foreach ($w in $ctl.warnings) { Write-Verbose "Stale control-state sweep: $w" }
 }
 
 $activeEngines = Get-EnabledOcrProvider
@@ -462,7 +437,11 @@ $ChainPlan          = $plan.chainPlan
 $effectiveUser      = $plan.effectiveUser
 $ChainTotalSteps    = $plan.chainTotalSteps
 $requiredSnapshotId = $plan.requiredSnapshotId
-if ($plan.warmPath) { $VMName = $requiredSnapshotId }
+# Warm path targets the persisted snapshot VM by its recorded id. An
+# explicit -VMName is an operator instruction to run against a specific
+# VM, so it wins: overwriting it here would silently redirect the run to
+# a different VM than the one the operator named on the command line.
+if ($plan.warmPath -and -not $PSBoundParameters.ContainsKey('VMName')) { $VMName = $requiredSnapshotId }
 
 # Same cascade registration as Invoke-TestInnerRunner: Test.Ssh's
 # Get-GuestSshUser is the lookup point for Save-GuestDiagnostic +
@@ -480,22 +459,26 @@ if ($effectiveUser -and (Get-Command Set-GuestSshUserOverride -ErrorAction Silen
     Set-GuestSshUserOverride -GuestKey $GuestKey -Username $effectiveUser
 }
 
-# --- REGION: Promote vmStart.cachingProxyIP config -> env
+# --- REGION: Resolve the caching-proxy endpoint from env + config
 # Invoke-TestInnerRunner reads BOTH $env:YURUNA_CACHING_PROXY_IP and
-# $Config.vmStart.cachingProxyIP (the persistent UI-edited key) before
-# probing. Without this promotion, a proxy configured only via the status
-# server's Edit-config page is invisible to Test-Sequence's
-# Test-CachingProxyAvailable call. Bridge them here so both paths agree.
-# Empty env wins (operator can clear the env to test the no-cache branch
-# even when the config has a stale IP).
-if (-not $env:YURUNA_CACHING_PROXY_IP -and
-    $Config.vmStart -is [System.Collections.IDictionary] -and
-    $Config.vmStart.Contains('cachingProxyIP')) {
-    $cfgCacheIp = "$($Config.vmStart.cachingProxyIP)".Trim()
-    if ($cfgCacheIp -and (Test-IpAddress $cfgCacheIp)) {
-        $env:YURUNA_CACHING_PROXY_IP = $cfgCacheIp
-        Write-Verbose "Promoted vmStart.cachingProxyIP=$cfgCacheIp into env."
-    }
+# $Config.vmStart.cachingProxyIP (the persistent UI-edited key), probes
+# each with the full suite, keeps the first whose HTTP proxy port is
+# reachable, and clears the env when none answers. Test-Sequence runs the
+# SAME Resolve-CachingProxyEndpoint so a syntactically valid but dead IP
+# configured via the status server's Edit-config page can't survive into
+# guest cidata here either -- previously this path only Test-IpAddress'd
+# the config value and promoted it unprobed. When neither source is set,
+# the resolver is a no-op and the local-discovery path in
+# Test-CachingProxyAvailable below runs unchanged.
+$envCacheIp    = if ($env:YURUNA_CACHING_PROXY_IP) { $env:YURUNA_CACHING_PROXY_IP.Trim() } else { '' }
+$configCacheIp = ''
+if ($Config.vmStart -is [System.Collections.IDictionary] -and $Config.vmStart.Contains('cachingProxyIP')) {
+    $configCacheIp = "$($Config.vmStart.cachingProxyIP)".Trim()
+}
+if (($envCacheIp -or $configCacheIp) -and (Get-Command Resolve-CachingProxyEndpoint -ErrorAction SilentlyContinue)) {
+    $endpoint = Resolve-CachingProxyEndpoint -EnvIp $envCacheIp -ConfigIp $configCacheIp
+    foreach ($line in $endpoint.Lines) { Write-Output $line }
+    $env:YURUNA_CACHING_PROXY_IP = $endpoint.EffectiveIp
 }
 
 # --- REGION: Resolve caching proxy URL

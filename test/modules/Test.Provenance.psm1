@@ -1,5 +1,5 @@
-﻿<#PSScriptInfo
-.VERSION 2026.07.10
+<#PSScriptInfo
+.VERSION 2026.07.14
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456782
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -21,13 +21,13 @@
     Reads a two-line base-image provenance sidecar written by Get-Image.ps1.
 .DESCRIPTION
     Each Get-Image.ps1 writes a companion .txt next to the base image with:
-      line 1: the ORIGINAL filename (as downloaded — e.g. ubuntu-24.04.4-desktop-amd64.iso)
+      line 1: the ORIGINAL filename (as downloaded -- e.g. ubuntu-24.04.4-desktop-amd64.iso)
       line 2: the source URL the file was fetched from
     These feed two consumers:
-      * New-VM.ps1 — emits a Provenance: line (or a warning) right after
+      * New-VM.ps1 -- emits a Provenance: line (or a warning) right after
         "Creating VM '...' using image: ..." so the transcript carries an
         audit-trail hint about where the ISO came from.
-      * Invoke-TestRunner — seeds each guest entry in status.json with
+      * Invoke-TestRunner -- seeds each guest entry in status.json with
         provenance{Filename,Url}, letting the UI swap the card title from
         the generic "guest.ubuntu.server.24" to the actual ISO filename.
     The sidecar path is computed by swapping the image extension for .txt.

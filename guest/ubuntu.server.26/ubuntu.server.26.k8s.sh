@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.07.10
+# Version: 2026.07.14
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 set -euo pipefail
@@ -49,11 +49,39 @@ apt_retry sudo apt-get install -y \
 sudo systemctl enable --now ssh
 sudo systemctl is-active ssh > /dev/null 2>&1 || echo "Note: SSH service status unknown"
 
+# Verify a downloaded apt signing key against a pinned PRIMARY-key fingerprint
+# allow-set before it is trusted, so a caching-proxy / CDN tamper cannot land an
+# attacker key in apt's trust store (the key is fetched over the guest's SSL-bump
+# proxy, which is a trust boundary). arg1 = key file; the remaining args are the
+# ALLOWED primary fingerprints and the FIRST is also REQUIRED to be present. Only
+# primary-key fingerprints are checked, so a vendor rotating a signing subkey
+# under a stable primary stays trusted without a pin update. Fail-closed. Mirrors
+# verify_key_fingerprints in install/ubuntu.kvm.sh.
+_yuruna_verify_key_fpr() {
+    local keyfile="$1"; shift
+    local required="${1^^}" allowed=("$@") present a fpr ok found=0
+    present="$(gpg --show-keys --with-colons "$keyfile" 2>/dev/null \
+              | awk -F: '/^pub:/{p=1} /^fpr:/{if(p){print toupper($10); p=0}}')"
+    [ -n "$present" ] || { echo "!! key verify: no primary key fingerprints in $keyfile (is gpg installed?)" >&2; return 1; }
+    while IFS= read -r fpr; do
+        fpr="${fpr//[$'\r\n\t ']/}"; [ -z "$fpr" ] && continue
+        ok=0; for a in "${allowed[@]}"; do [ "${a^^}" = "$fpr" ] && { ok=1; break; }; done
+        [ "$ok" = 1 ] || { echo "!! key verify: unexpected fingerprint $fpr in $keyfile (not in the pinned allow-set)" >&2; return 1; }
+        [ "$fpr" = "$required" ] && found=1
+    done <<< "$present"
+    [ "$found" = 1 ] || { echo "!! key verify: required fingerprint $required missing from $keyfile" >&2; return 1; }
+    echo "  key verify: OK ($keyfile)"
+}
+
 echo ""
 echo -e "\e[1;36m==== Docker ====\e[0m"
 sudo install -m 0755 -d /etc/apt/keyrings
-curl_retry -fsSL "https://download.docker.com/linux/ubuntu/gpg${YurunaCacheContent:+?nocache=${YurunaCacheContent}}" | sudo tee /etc/apt/keyrings/docker.asc > /dev/null
-sudo chmod a+r /etc/apt/keyrings/docker.asc
+_dk="$(mktemp)"
+curl_retry -fsSL "https://download.docker.com/linux/ubuntu/gpg${YurunaCacheContent:+?nocache=${YurunaCacheContent}}" -o "$_dk"
+_yuruna_verify_key_fpr "$_dk" 9DC858229FC7DD38854AE2D88D81803C0EBFCD88 \
+    || { echo "NONZERO SCRIPT EXIT: docker apt key fingerprint mismatch" >&2; rm -f "$_dk"; exit 1; }
+sudo install -m 0644 "$_dk" /etc/apt/keyrings/docker.asc
+rm -f "$_dk"
 
 sudo tee /etc/apt/sources.list.d/docker.sources <<EOF
 Types: deb
@@ -80,7 +108,12 @@ EOF
 # Write the Kubernetes repo HERE so the single `apt-get update` below
 # refreshes both Docker and K8s indices in one shot. K8s packages are
 # installed later but the index is cheap to carry.
-curl_retry -fsSL "https://pkgs.k8s.io/core:/stable:/v${YURUNA_K8S_MINOR}/deb/Release.key${YurunaCacheContent:+?nocache=${YurunaCacheContent}}" | sudo gpg --batch --yes --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg
+_kk="$(mktemp)"
+curl_retry -fsSL "https://pkgs.k8s.io/core:/stable:/v${YURUNA_K8S_MINOR}/deb/Release.key${YurunaCacheContent:+?nocache=${YurunaCacheContent}}" -o "$_kk"
+_yuruna_verify_key_fpr "$_kk" DE15B14486CD377B9E876E1A234654DA9A296436 \
+    || { echo "NONZERO SCRIPT EXIT: kubernetes apt key fingerprint mismatch" >&2; rm -f "$_kk"; exit 1; }
+sudo gpg --batch --yes --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg "$_kk"
+rm -f "$_kk"
 echo "deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v${YURUNA_K8S_MINOR}/deb/ /" | sudo tee /etc/apt/sources.list.d/kubernetes.list > /dev/null
 
 apt_retry sudo apt-get update -y
@@ -125,13 +158,19 @@ echo ""
 echo -e "\e[1;36m==== Docker up ====\e[0m"
 DOCKER_WAIT_SECONDS=60
 DOCKER_READY=false
-for i in $(seq 1 "$DOCKER_WAIT_SECONDS"); do
+# Bound the wait on wall-clock: `systemctl is-active` can itself take a
+# non-trivial slice of a second on a busy guest, so an iteration counter
+# with per-iteration work would run well past the intended timeout.
+docker_deadline=$(( $(date +%s) + DOCKER_WAIT_SECONDS ))
+while true; do
     if sudo systemctl is-active docker &>/dev/null; then
         DOCKER_READY=true
         echo "Docker is up and running."
         break
     fi
-    echo "Waiting for Docker daemon to be ready... ($i/${DOCKER_WAIT_SECONDS}s)"
+    _now=$(date +%s)
+    [ "$_now" -ge "$docker_deadline" ] && break
+    echo "Waiting for Docker daemon to be ready... ($(( docker_deadline - _now ))s left)"
     sleep 1
 done
 
@@ -211,8 +250,14 @@ if [ -f /etc/kubernetes/manifests/kube-apiserver.yaml ] || [ -d /etc/kubernetes/
     echo "Existing Kubernetes cluster detected — resetting before re-initialization"
     sudo kubeadm reset -f --cri-socket unix:///var/run/containerd/containerd.sock
     sudo rm -rf /etc/cni/net.d
-    # Clean up network filtering rules left by the previous cluster
-    sudo iptables -F && sudo iptables -t nat -F && sudo iptables -t mangle -F && sudo iptables -X || true
+    # Clean up network filtering rules left by the previous cluster.
+    # Each flush is independent: chaining with && would let one failing
+    # flush short-circuit the rest, leaving stale rules that break the
+    # new cluster. Guard each on its own so all four always run.
+    sudo iptables -F || true
+    sudo iptables -t nat -F || true
+    sudo iptables -t mangle -F || true
+    sudo iptables -X || true
     if command -v ipvsadm &>/dev/null; then
         sudo ipvsadm --clear || true
     fi
@@ -221,12 +266,18 @@ fi
 
 # Restart containerd after reset (reset can disrupt it) and wait for the socket
 sudo systemctl restart containerd
-for i in $(seq 1 30); do
+# `crictl ... info` can block for a good fraction of a second while the
+# socket is still coming up, so bound the wait on wall-clock rather than
+# on an iteration count with per-iteration work.
+containerd_deadline=$(( $(date +%s) + 30 ))
+while true; do
     if sudo crictl --runtime-endpoint unix:///var/run/containerd/containerd.sock info &>/dev/null; then
         echo "containerd is ready"
         break
     fi
-    echo "Waiting for containerd to be ready... ($i/30)"
+    _now=$(date +%s)
+    [ "$_now" -ge "$containerd_deadline" ] && break
+    echo "Waiting for containerd to be ready... ($(( containerd_deadline - _now ))s left)"
     sleep 1
 done
 
@@ -266,8 +317,10 @@ for kubeadm_attempt in 1 2 3; do
         sudo kubeadm reset -f --cri-socket unix:///var/run/containerd/containerd.sock || true
         sudo rm -rf /etc/cni/net.d
         sudo systemctl restart containerd || true
-        for i in $(seq 1 30); do
+        containerd_deadline=$(( $(date +%s) + 30 ))
+        while true; do
             if sudo crictl --runtime-endpoint unix:///var/run/containerd/containerd.sock info &>/dev/null; then break; fi
+            [ "$(date +%s)" -ge "$containerd_deadline" ] && break
             sleep 1
         done
         sleep $((kubeadm_attempt * 10))
@@ -324,15 +377,21 @@ kubectl --kubeconfig="${REAL_HOME}/.kube/config" config rename-context kubernete
 
 echo ""
 echo -e "\e[1;36m==== Helm ====\e[0m"
-# get-helm-3 downloads the helm binary from get.helm.sh using its own
-# un-retried curl/wget, so a single transient blip leaves helm
-# uninstalled. Capture the script, run it under _yuruna_retry, then
-# verify the binary landed: a swallowed failure here otherwise surfaces
-# far away as a `helm: not recognized` abort in the k8s.website workload.
-curl_retry -fsSL "https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3${YurunaCacheContent:+?nocache=${YurunaCacheContent}}" -o /tmp/get-helm-3.sh
-chmod +x /tmp/get-helm-3.sh
-_yuruna_retry helm_install /tmp/get-helm-3.sh || true
-rm -f /tmp/get-helm-3.sh
+# get-helm-4, not get-helm-3: the v3 installer resolves its default from
+# get.helm.sh/helm3-latest-version, so it can only ever land a 3.x binary no
+# matter what Yuruna.Requirement.yml asks for. DESIRED_VERSION pins the exact
+# release (the installer verifies the tarball checksum), which also keeps the
+# guest off the unauthenticated "latest" lookup.
+#
+# The installer downloads the binary with its own un-retried curl/wget, so a
+# single transient blip leaves helm uninstalled. Capture the script, run it
+# under _yuruna_retry, then verify the binary landed: a swallowed failure here
+# otherwise surfaces far away as a `helm: not recognized` abort in the
+# k8s.website workload.
+curl_retry -fsSL "https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-4${YurunaCacheContent:+?nocache=${YurunaCacheContent}}" -o /tmp/get-helm-4.sh
+chmod +x /tmp/get-helm-4.sh
+DESIRED_VERSION="v${YURUNA_HELM_VERSION}" _yuruna_retry helm_install /tmp/get-helm-4.sh || true
+rm -f /tmp/get-helm-4.sh
 if ! command -v helm >/dev/null 2>&1; then
     echo "ERROR: Helm install failed; downstream chart-based workloads (helm repo add / upgrade) will fail at Set-Workload." >&2
     exit 1

@@ -1,5 +1,5 @@
-﻿<#PSScriptInfo
-.VERSION 2026.07.10
+<#PSScriptInfo
+.VERSION 2026.07.14
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456810
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -54,7 +54,7 @@ function Get-VaultLogPath {
 # named EventName because $Event is a PowerShell automatic variable.
 function Write-VaultEvent {
     param(
-        [Parameter(Mandatory)][ValidateSet('init','get','generate','set')][string]$EventName,
+        [Parameter(Mandatory)][ValidateSet('init','get','generate','set','vaultkey')][string]$EventName,
         [Parameter(Mandatory)][ValidateSet('hit','miss','ok','error')][string]$Outcome,
         [string]$Username,
         [string]$Detail
@@ -129,7 +129,7 @@ function Write-VaultUnlocked {
     Move-Item -Path $tmp -Destination $script:VaultPath -Force
 }
 
-# === users.yml — logical -> corporate-identity mapping ====================
+# === users.yml -- logical -> corporate-identity mapping ====================
 
 <#
 .SYNOPSIS
@@ -557,6 +557,67 @@ function Test-VaultEntry {
     })
 }
 
+<#
+.SYNOPSIS
+    Set (or create) the vaultKey for a logical user in users.yml. Returns
+    $true when the file changed, $false when it was already at $VaultKey (or
+    under -WhatIf).
+.DESCRIPTION
+    Idempotent, structured edit of the runtime users.yml this module reads
+    ($script:UsersPath), so the mapping the process resolves and this write
+    can never diverge on path. Creates a minimal entry when the logical user
+    is absent. Clears the in-process users.yml cache so a later resolve in
+    THIS runspace sees the change; a SEPARATE long-running process (the
+    status server) keeps its own cached copy until restarted, because
+    Import-Extension skips re-import once a module is loaded.
+
+    A non-empty vaultKey is the switch that moves an operator-supplied
+    credential (e.g. pool-auth-token) off the auto-generate-junk path onto
+    the operator-owned path Get-Password/Test-VaultEntry require.
+#>
+function Set-UserVaultKey {
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([bool])]
+    param(
+        [Parameter(Mandatory)][string]$LogicalUser,
+        [Parameter(Mandatory)][string]$VaultKey
+    )
+    # Bootstrap users.yml from the template when the runtime file is absent.
+    $null = Read-UsersConfig
+    $doc = [ordered]@{ strict = $true; users = [ordered]@{} }
+    if (Test-Path -LiteralPath $script:UsersPath) {
+        $raw = Get-Content -Raw -LiteralPath $script:UsersPath
+        if ($raw -and $raw.Trim()) {
+            $parsed = $raw | ConvertFrom-Yaml -Ordered
+            if ($parsed -is [System.Collections.IDictionary]) { $doc = $parsed }
+        }
+    }
+    if (-not $doc.Contains('users') -or -not ($doc['users'] -is [System.Collections.IDictionary])) {
+        $doc['users'] = [ordered]@{}
+    }
+    $users = $doc['users']
+    if (-not $users.Contains($LogicalUser) -or -not ($users[$LogicalUser] -is [System.Collections.IDictionary])) {
+        $users[$LogicalUser] = [ordered]@{
+            localOsUser        = ''
+            corporate          = [ordered]@{ domain = ''; sam = ''; upn = '' }
+            vaultKey           = ''
+            localOsPasswordRef = ''
+        }
+    }
+    $entry = $users[$LogicalUser]
+    $current = if ($entry.Contains('vaultKey')) { [string]$entry['vaultKey'] } else { '' }
+    if ($current -eq $VaultKey) { return $false }
+    if (-not $PSCmdlet.ShouldProcess("$script:UsersPath [$LogicalUser].vaultKey", "Set to '$VaultKey'")) {
+        return $false
+    }
+    $entry['vaultKey'] = $VaultKey
+    $yaml = ConvertTo-Yaml $doc
+    [System.IO.File]::WriteAllText($script:UsersPath, $yaml, [System.Text.UTF8Encoding]::new($false))
+    $null = Write-VaultEvent -EventName 'vaultkey' -Outcome 'ok' -Username $LogicalUser -Detail "vaultKey=$VaultKey"
+    Reset-UsersConfigCache -Confirm:$false
+    return $true
+}
+
 Export-ModuleMember -Function `
     Initialize-VaultConnection, `
     New-RandomPassword, `
@@ -567,4 +628,5 @@ Export-ModuleMember -Function `
     Test-VaultEntry, `
     Read-UsersConfig, `
     Reset-UsersConfigCache, `
-    Set-Password
+    Set-Password, `
+    Set-UserVaultKey

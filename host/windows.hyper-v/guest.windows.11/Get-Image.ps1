@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.10
+.VERSION 2026.07.14
 .GUID 42a8b3c4-d5e6-4f78-9a0b-1c2d3e4f5a6b
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -204,7 +204,6 @@ try {
         throw "Downloaded file is suspiciously small (< 1 GB). It may not be a valid ISO."
     }
 
-    # Rename to the naming convention
     $previousFile = Join-Path $downloadDir "$baseImageName.previous.iso"
     Remove-Item $previousFile -Force -ErrorAction SilentlyContinue
     if (Test-Path $baseImageFile) {

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.10
+.VERSION 2026.07.14
 .GUID 42f0a1b2-c3d4-4e56-f789-0a1b2c3d4e80
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -28,11 +28,11 @@ if (-not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdent
 }
 
 # --- REGION: Configuration
-# Ubuntu 26.04 LTS (Resolute Raccoon). Moved up from 24.04 LTS (Noble
-# Numbat) per the stash-service spec (section 3.1: default image
-# ubuntu.server.26) so the stash VM stays inside the supported-LTS window
-# (matching the caching-proxy image) and the distro Go toolchain ships new
-# enough to satisfy the daemon's go.mod directive without a toolchain fetch.
+# Ubuntu 26.04 LTS (Resolute Raccoon), per the stash-service spec
+# (section 3.1: default image ubuntu.server.26) so the stash VM stays
+# inside the supported-LTS window (matching the caching-proxy image) and
+# the distro Go toolchain ships new enough to satisfy the daemon's go.mod
+# directive without a toolchain fetch.
 $sourceUrl = "https://cloud-images.ubuntu.com/resolute/current/resolute-server-cloudimg-amd64.img"
 $downloadDir = (Get-VMHost).VirtualHardDiskPath
 $baseImageName = "host.windows.hyper-v.guest.stash-service"

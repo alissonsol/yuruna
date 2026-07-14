@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.10
+.VERSION 2026.07.14
 .GUID 42c2a1aa-2e97-414a-9393-0d097d2e2a2c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -323,9 +323,9 @@ if (-not $SkipPreflight) {
 # --- REGION: Single-fetch materialization (irm|iex path)
 # Under `irm | iex` there is no $PSCommandPath, so the elevation and PS7
 # relaunches below would each RE-FETCH the installer from the moving ref --
-# extra unverified swings, two of them in the elevated context (the Rank-4
-# threat). Instead fetch the source ONCE here to a BOM-less temp file and
-# relaunch via -File, so every child runs from that one file with a real
+# extra unverified swings, two of them in the elevated context. Instead fetch
+# the source ONCE here to a BOM-less temp file and relaunch via -File, so
+# every child runs from that one file with a real
 # $PSCommandPath and never re-fetches. Byte-true IRM-to-temp (not
 # ScriptBlock.ToString(), whose PS5.1 round-trip fidelity is unverified), so
 # the materialized bytes match the canonical installer.
@@ -355,7 +355,13 @@ if (-not $PSCommandPath) {
     if ($PinVersion) { $matArgs += '-PinVersion' }
     $matArgs += @('-LogPath', "`"$LogPath`"")   # forward the one log file to every stage
     & $currentShellExe $matArgs
-    return
+    # Propagate the -File child's exit code so a wrapping script / CI sees the
+    # install's real result; a bare `return` here otherwise always exits 0.
+    # Kept 5.1-safe (no `??`): this gate runs in the original irm|iex shell,
+    # which may be Windows PowerShell 5.1.
+    $childExit = $LASTEXITCODE
+    if ($null -eq $childExit) { $childExit = 0 }
+    exit $childExit
 }
 
 # --- REGION: Elevation announcement + self-relaunch

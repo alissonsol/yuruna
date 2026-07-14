@@ -1,13 +1,19 @@
 /*
   LICENSEURI https://yuruna.link/license
   Copyright (c) 2019-2026 by Alisson Sol et al.
-  Version: 2026.07.10
+  Version: 2026.07.14
   --- REGION: https://yuruna.link/definition#defining-the-status-page-browser-baseline
   --- REGION: https://yuruna.link/definition#defining-the-status-page-header-anatomy
-  --- REGION: https://yuruna.link/definition#defining-the-status-page-mobile-dark-mode-hardening
+  --- REGION: https://yuruna.link/definition#defining-the-status-page-mobile-and-dark-mode-hardening
 */
 
 :root {
+  /* Lets the UA paint its own chrome (scrollbars, number-input spinners, focus
+     rings) from the active theme. Without it those stay on the light palette in
+     dark mode, because the rules below only set background/color on the elements
+     we style ourselves. */
+  color-scheme: light dark;
+
   --bg-primary:   #f9fafb;
   --bg-elevated:  #ffffff;
   --bg-header:    #111827;
@@ -16,7 +22,7 @@
   --fg-primary:   #111827;
   --fg-header:    #ffffff;
   --fg-muted:     #6b7280;
-  --fg-faint:     #9ca3af;
+  --fg-faint:     #6b7280;
   --fg-version:   #9ca3af;
   --border:       #e5e7eb;
   --border-soft:  #f3f4f6;
@@ -24,6 +30,13 @@
   --border-cta:   #4b5563;
   --cta-fg:       #d1d5db;
   --cta-hover-bg: #1f2937;
+  /* Translucent-white overlays for affordances hosted ON the status banner
+     (e.g. perf.html #perf-recalc). They ride whatever saturated banner color
+     is behind, so they stay theme-neutral -- one definition keeps banner
+     buttons rendering identically across the status pages. */
+  --banner-overlay-bg:       rgba(255,255,255,.18);
+  --banner-overlay-hover-bg: rgba(255,255,255,.3);
+  --banner-overlay-border:   rgba(255,255,255,.32);
   --pass-bg:      #dcfce7;
   --pass-fg:      #16a34a;
   --warn-bg:      #fef3c7;
@@ -83,7 +96,7 @@
     --bg-code:      #1f2937;
     --fg-primary:   #e5e7eb;
     --fg-muted:     #94a3b8;
-    --fg-faint:     #64748b;
+    --fg-faint:     #7c8899;
     --fg-version:   #6b7280;
     --border:       #1f2937;
     --border-soft:  #111827;

@@ -1,5 +1,5 @@
-﻿<#PSScriptInfo
-.VERSION 2026.07.10
+<#PSScriptInfo
+.VERSION 2026.07.14
 .GUID 4292b214-b454-46f0-976c-81a548f8de5d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -187,24 +187,17 @@ if (-not (Assert-NoOtherRunner -RuntimeDir $env:YURUNA_RUNTIME_DIR -CallerName '
         -Reason 'A live Invoke-TestRunner already owns runner.pid in this runtime dir. Stop it before invoking Test-Project, or run from a different YURUNA_RUNTIME_DIR.'
 }
 
-# Archive any break-active.json left behind by a prior cycle / Test-
-# Sequence that crashed while paused at a breakpoint. Test-Project
+# Sweep the parked interactive control state before handing off to the
+# inner. -Scope PreSpawn archives a leftover break-active.json and clears
+# leftover pause flags (control.step-pause / .cycle-pause) so the spawned
+# inner doesn't inherit the parked break state -- the status UI would
+# otherwise keep the previous run's Continue button live. Test-Project
 # spawns Invoke-TestInnerRunner directly (bypassing the outer
 # Invoke-TestRunner that normally hosts Invoke-YurunaBootRecovery), so
-# without this sweep here the inner inherits the parked break state and
-# the status UI keeps the previous run's Continue button live. Resolve-
-# StaleBreakActive renames to break-active.<UTC>.json.aborted, matching
-# the outer-startup behavior.
-if (Get-Command Resolve-StaleBreakActive -ErrorAction SilentlyContinue) {
-    $null = Resolve-StaleBreakActive -RuntimeDir $env:YURUNA_RUNTIME_DIR -Confirm:$false
-}
-
-# Clear any leftover pause flags (control.step-pause / .cycle-pause)
-# from a prior runner that the operator paused but never resumed --
-# the operator typed THIS command line, so we honour the intent to
-# run, not the stale flag. Same helper Invoke-YurunaBootRecovery uses.
-if (Get-Command Clear-StalePauseFlag -ErrorAction SilentlyContinue) {
-    $null = Clear-StalePauseFlag -RuntimeDir $env:YURUNA_RUNTIME_DIR -Confirm:$false
+# this sweep has to happen here. PreSpawn deliberately leaves
+# control.cycle-restart for the child inner to consume as ITS own restart.
+if (Get-Command Clear-StaleControlState -ErrorAction SilentlyContinue) {
+    $null = Clear-StaleControlState -Scope PreSpawn -RuntimeDir $env:YURUNA_RUNTIME_DIR -Confirm:$false
 }
 
 Write-Output ''
@@ -266,7 +259,7 @@ Write-Output '[Test-Project] Step 3: spawning Invoke-TestInnerRunner for one tes
 # Test.InnerSpawn was imported by Initialize-YurunaEntryPointModuleSet above.
 $pwshExe = Get-PwshExePath
 # Build the parameter set Test-Project must pass to the inner. -NoGitPull
-# and -NoProjectClone are *always* forced here — Test-Project does a fresh
+# and -NoProjectClone are *always* forced here -- Test-Project does a fresh
 # clone itself and tests the local tree as-is; a mid-test framework update
 # would conflate signals. logLevel is forwarded only if the operator passed
 # it on this script's command line (PSBoundParameters), so the inner falls

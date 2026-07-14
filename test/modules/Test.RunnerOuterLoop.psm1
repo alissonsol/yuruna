@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.10
+.VERSION 2026.07.14
 .GUID 42e5f6a7-b8c9-4d12-9345-6e7f8a9b0c1d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -70,8 +70,10 @@ function Test-OuterNewCommitsAvailable {
         [Parameter(Mandatory)][string]$RepoRoot,
         [Parameter(Mandatory)][string]$BaselineSha
     )
-    & git -C $RepoRoot fetch --quiet origin 2>$null | Out-Null
-    if ($LASTEXITCODE -ne 0) { return $false }
+    # Bounded + credential-prompt-proof: a wedged / half-dead remote or a
+    # credential prompt must never hang the outer loop (the watchdog only guards
+    # the inner). rev-parse below is local -- no network -- so it stays raw.
+    if ((Invoke-PoolSyncGit -ArgumentList @('-C', $RepoRoot, 'fetch', '--quiet', 'origin') -TimeoutSeconds 45) -ne 0) { return $false }
     $upstream = & git -C $RepoRoot rev-parse '@{u}' 2>$null
     if ($LASTEXITCODE -ne 0 -or -not $upstream) { return $false }
     return (([string]$upstream).Trim() -ne $BaselineSha)
@@ -86,8 +88,26 @@ function Invoke-OuterGitPull {
     [CmdletBinding()]
     [OutputType([bool])]
     param([Parameter(Mandatory)][string]$RepoRoot)
-    & git -C $RepoRoot pull --ff-only --quiet 2>&1 | Write-Output
-    return ($LASTEXITCODE -eq 0)
+    # Bounded + credential-prompt-proof (see Test-OuterNewCommitsAvailable). The
+    # capture variant preserves git's (already --quiet) output for the console.
+    # Stream via Write-Information, NOT Write-Output: this function's contract is a
+    # single [bool], and git's stderr on a failure would otherwise ride the pipeline
+    # and turn the caller's `-not (Invoke-OuterGitPull ...)` into `-not <array>`
+    # ($false), masking the failure. See feedback_powershell_writeoutput_pipeline_pollution.
+    $pull = Invoke-PoolSyncGitCapture -ArgumentList @('-C', $RepoRoot, 'pull', '--ff-only', '--quiet') -TimeoutSeconds 60
+    if ($pull.StdOut) { Write-Information ($pull.StdOut.TrimEnd()) -InformationAction Continue }
+    if ($pull.StdErr) { Write-Information ($pull.StdErr.TrimEnd()) -InformationAction Continue }
+    if ($pull.ExitCode -ne 0) {
+        # A stale/expired GitHub credential is the one failure worth naming: surface
+        # the same refresh-your-login guidance the inner pull uses so an operator
+        # fixes it in one step instead of chasing a generic pull error or a hang.
+        $combined = ((@($pull.StdOut, $pull.StdErr) | Where-Object { $_ }) -join "`n")
+        if ((Get-Command Test-GitRemoteAuthFailure -ErrorAction SilentlyContinue) -and (Test-GitRemoteAuthFailure -Output $combined)) {
+            $remoteUrl = & git -C $RepoRoot config --get remote.origin.url 2>$null
+            Write-GitAuthRefreshBanner -RemoteUrl ("$remoteUrl".Trim()) -GitOutput $combined
+        }
+    }
+    return ($pull.ExitCode -eq 0)
 }
 
 function Get-OuterRemoteSha {
@@ -102,8 +122,12 @@ function Get-OuterRemoteSha {
     [OutputType([string])]
     param([Parameter(Mandatory)][AllowEmptyString()][string]$RemoteUrl)
     if ([string]::IsNullOrWhiteSpace($RemoteUrl)) { return $null }
-    $line = & git ls-remote $RemoteUrl HEAD 2>$null | Select-Object -First 1
-    if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($line)) { return $null }
+    # Bounded + credential-prompt-proof: ls-remote reaches an arbitrary remote
+    # that may hang or prompt; it must not block the pause loop.
+    $ls = Invoke-PoolSyncGitCapture -ArgumentList @('ls-remote', $RemoteUrl, 'HEAD') -TimeoutSeconds 30
+    if ($ls.ExitCode -ne 0) { return $null }
+    $line = ($ls.StdOut -split "`r?`n" | Where-Object { $_ }) | Select-Object -First 1
+    if ([string]::IsNullOrWhiteSpace($line)) { return $null }
     return ([string]$line).Split("`t")[0].Trim()
 }
 
@@ -260,6 +284,24 @@ function Get-OuterProjectUrl {
     return $null
 }
 
+function Test-OuterNoServerForwarded {
+    <#
+    .SYNOPSIS
+        True when -NoServer was forwarded to the inner runner.
+    .DESCRIPTION
+        New-InnerRunnerArgList folds the forwarded switches into a single
+        combined -Command string element, so the token is embedded mid-string
+        rather than a standalone arg -- a start-anchored per-element test would
+        never see it. Match -NoServer as a whole token in the joined list so a
+        hypothetical -NoServerFoo cannot false-match.
+    #>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param([string[]]$ArgList)
+    if (-not $ArgList) { return $false }
+    return (($ArgList -join ' ') -match '(?<![\w-])-NoServer(?![\w-])')
+}
+
 # === Forward-env + outer.log helpers ======================================
 
 function Sync-ForwardEnv {
@@ -288,15 +330,49 @@ function Write-OuterLog {
         Append a timestamped line to runtime/outer.log. Survives a
         console-output wedge (observed on Windows: conhost can swallow
         every Write-Output for the entire failure-pause window).
+    .DESCRIPTION
+        outer.log is written concurrently by this loop, the watchdog thread
+        job, the inner runner, and the status service, so a lone Add-Content
+        can lose the race to another writer's exclusive open (a transient
+        Windows sharing violation). The first write is attempted immediately
+        -- the common uncontended case is unchanged; only on failure does it
+        retry a few times with jittered backoff to ride out the contention
+        window. If every attempt fails (a genuinely broken/read-only runtime
+        dir, not mere contention) the failure is surfaced with a WARNING
+        exactly once per session rather than swallowed to Verbose, so a
+        silently vanishing outer.log becomes visible; the dedup keeps a
+        persistently broken dir from warning on every cycle.
     #>
     [CmdletBinding()]
     param([Parameter(Mandatory)][string]$Message)
     $stamp = (Get-Date).ToString('yyyy-MM-ddTHH:mm:ssK')
-    try {
-        Add-Content -LiteralPath (Join-Path $env:YURUNA_RUNTIME_DIR 'outer.log') `
-            -Value "$stamp $Message" -Encoding utf8 -ErrorAction Stop
-    } catch {
-        Write-Verbose "outer.log write failed (non-fatal): $($_.Exception.Message)"
+    $logPath = Join-Path $env:YURUNA_RUNTIME_DIR 'outer.log'
+    $line = "$stamp $Message"
+    $maxAttempts = 4
+    $lastErr = $null
+    for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
+        try {
+            Add-Content -LiteralPath $logPath -Value $line -Encoding utf8 -ErrorAction Stop
+            return
+        } catch {
+            $lastErr = $_
+            if ($attempt -lt $maxAttempts) {
+                # Jittered backoff so two writers that collided do not re-collide
+                # in lockstep on the retry. Sub-second and bounded (worst case a
+                # few hundred ms across the attempts) so a contended log never
+                # meaningfully delays the loop.
+                Start-Sleep -Milliseconds (Get-Random -Minimum 20 -Maximum 80)
+            }
+        }
+    }
+    # Every attempt failed. Warn ONCE per session (not per cycle) so a broken
+    # runtime dir surfaces without spamming the console; further failures still
+    # drop to Verbose. Verbose-only-forever was the masking behavior being fixed.
+    if (-not $script:OuterLogWriteWarned) {
+        $script:OuterLogWriteWarned = $true
+        Write-Warning "outer.log write to '$logPath' failed after $maxAttempts attempts (non-fatal; further failures logged at Verbose only): $($lastErr.Exception.Message)"
+    } else {
+        Write-Verbose "outer.log write failed (non-fatal): $($lastErr.Exception.Message)"
     }
 }
 
@@ -438,15 +514,18 @@ function Invoke-RunnerOuterLoop {
             }
         }
 
-        # 2. Spawn the inner. YURUNA_RUNNER_RELAUNCH=1 tells the inner
-        #    that we (the outer) own the pidfile + Ctrl+C handler;
-        #    inner skips its own copies of those. Sync-ForwardEnv
-        #    re-asserts the launch-time snapshot of YURUNA_* vars
-        #    (cache IP, track/log dirs, log level, OCR combine) so
-        #    the inner sees them even if some module in this outer
-        #    process clobbered $env: mid-run.
+        # 2. Spawn the inner. YURUNA_RUNNER_RELAUNCH=1 (set just before the
+        #    spawn, cleared in the finally that follows it) tells the inner
+        #    that we (the outer) own the pidfile + Ctrl+C handler; inner
+        #    skips its own copies of those. It is scoped tightly to the spawn:
+        #    left set in $env: after the inner returns it would suppress the
+        #    inner's single-instance guard for any LATER direct invocation in
+        #    the same shell session, silently disabling concurrency protection.
+        #    Sync-ForwardEnv re-asserts the launch-time snapshot of YURUNA_*
+        #    vars (cache IP, track/log dirs, log level, OCR combine) so the
+        #    inner sees them even if some module in this outer process
+        #    clobbered $env: mid-run.
         Sync-ForwardEnv -ForwardEnvSnapshot $State.ForwardEnvSnapshot
-        $env:YURUNA_RUNNER_RELAUNCH = '1'
         if ($State.ForwardEnvSnapshot.Count -gt 0) {
             Write-Output "[outer cycle $cycle] forwarding env: $($State.ForwardEnvSnapshot.Keys -join ', ')"
         }
@@ -545,6 +624,10 @@ function Invoke-RunnerOuterLoop {
             # --- REGION: https://yuruna.link/memory#why-the-inner-spawn-uses-the-call-operator-instead-of-start-process
             $exitCode = 0
             try {
+                # Announce the relaunch to the child immediately before the spawn so
+                # it inherits the flag; the finally below clears it from $env: the
+                # moment the inner returns so it can never leak into a later invocation.
+                $env:YURUNA_RUNNER_RELAUNCH = '1'
                 & $State.PwshExe @($State.ArgList)
                 $exitCode = $LASTEXITCODE
             } catch {
@@ -552,6 +635,12 @@ function Invoke-RunnerOuterLoop {
                 $innerSpawnFailed = $true
             }
         } finally {
+            # Clear the relaunch flag now the inner has returned. It must not persist
+            # in $env: past the spawn: a direct-invoke inner started later in this same
+            # shell session reads it and skips its single-instance guard + pidfile
+            # takeover, which would silently disable concurrency protection. The next
+            # cycle re-sets it right before its own spawn.
+            Remove-Item -LiteralPath 'Env:YURUNA_RUNNER_RELAUNCH' -ErrorAction SilentlyContinue
             # A watchdog job that ENDED in Failed crashed mid-cycle -- the
             # inner ran some or all of the cycle unguarded. The job object
             # is about to be removed, so this is the last chance to say so.
@@ -579,7 +668,7 @@ function Invoke-RunnerOuterLoop {
         }
         # Outer regained control. Emit BOTH to console and to runtime/
         # outer.log so a conhost wedge (documented above) can't hide
-        # the moment Start-Process -Wait returned.
+        # the moment the call operator returned.
         Write-Output "[outer cycle $cycle] outer runner back in control (local time: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss zzz'))"
         Write-OuterLog "[outer cycle $cycle] outer runner back in control"
         Write-Output "[outer cycle $cycle] inner exited with code $exitCode"
@@ -838,6 +927,38 @@ function Invoke-RunnerOuterLoop {
             $null = Set-RunnerState -To 'fault' -Reason "inner exited $exitCode" -Confirm:$false
         }
 
+        # Re-ensure the status server before the pause. The step-heartbeat
+        # watchdog's Windows tree-kill (taskkill /T) also takes down the status
+        # server, which the inner spawns as its own child on Windows -- exactly
+        # when the operator's UI recovery path (/control/start-cycle) is needed
+        # during the failure-pause below. (The Unix branch re-parents the server
+        # so its kill spares it; the Host Config Service is owned by
+        # Start-CachingProxy, not the inner, so it is never in the kill-tree and
+        # needs no re-ensure here.) Re-spawning from THIS outer process makes it
+        # a stable child that survives the pause; it is a no-op when the server
+        # is still alive (the common non-watchdog inner exit -- skip-if-healthy)
+        # or when -NoServer was requested. Start-StatusService.ps1 is invoked
+        # directly (not via Start-YurunaStatusServiceIfEnabled) so that a status-
+        # port conflict -- which that wrapper turns into a process-level exit --
+        # is caught and logged here, letting the pause proceed instead of tearing
+        # down the outer runner over a transient port race during the very
+        # failure it is nursing (an `exit` inside the &-invoked script only sets
+        # $LASTEXITCODE; the wrapper's exit is inside a function and would not).
+        try {
+            if (-not (Test-OuterNoServerForwarded -ArgList $State.ArgList) -and
+                (Get-Command Resolve-StatusServiceStart -ErrorAction SilentlyContinue) -and
+                (Get-Command Read-TestConfig -ErrorAction SilentlyContinue)) {
+                $ensureStartScript = Join-Path $State.RepoRoot 'test/Start-StatusService.ps1'
+                if (Test-Path -LiteralPath $ensureStartScript) {
+                    $ensureCfg      = Read-TestConfig -Path $State.ConfigPath
+                    $ensureDecision = Resolve-StatusServiceStart -Config $ensureCfg
+                    if ($ensureDecision.ShouldStart) { & $ensureStartScript -Port $ensureDecision.Port }
+                }
+            }
+        } catch {
+            Write-OuterLog "[outer cycle $cycle] status-service re-ensure after inner failure failed: $($_.Exception.Message)"
+        }
+
         # 3b. Failure -- pause until either a new upstream commit
         #     lands on the framework repo OR a new commit lands on
         #     repositories.projectUrl OR the local test.config.yml
@@ -994,7 +1115,7 @@ function Invoke-RunnerOuterLoop {
 Export-ModuleMember -Function `
     Get-OuterCommitSha, Test-OuterNewCommitsAvailable, Invoke-OuterGitPull, `
     Get-OuterRemoteSha, Get-OuterConfigMtime, Get-OuterStepTimeoutMinute, Get-OuterProjectUrl, `
-    Get-OuterPoolTestCycleOverride, Get-OuterAutoRemediation, `
+    Get-OuterPoolTestCycleOverride, Get-OuterAutoRemediation, Test-OuterNoServerForwarded, `
     Sync-ForwardEnv, Write-OuterLog, `
     Clear-TerminalNotifierJob, `
     Invoke-RunnerOuterLoop

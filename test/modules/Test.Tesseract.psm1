@@ -1,5 +1,5 @@
-﻿<#PSScriptInfo
-.VERSION 2026.07.10
+<#PSScriptInfo
+.VERSION 2026.07.14
 .GUID 42a7b8c9-d0e1-4f23-a4b5-6c7d8e9f0a1b
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -182,7 +182,7 @@ function Invoke-TesseractOcr {
     # PSM 6 walks the whole image as one block, so a sparse top-of-image
     # text region with empty space below still gets read end-to-end.
     #
-    # Why not --psm 4 (single column of variable sizes — the previous
+    # Why not --psm 4 (single column of variable sizes -- the previous
     # default): on screens with TWO visually-distinct content regions
     # (e.g. a tiny login prompt at the top + cloud-init dump rendered
     # in a virtual second column at the bottom on retried boots),
@@ -193,7 +193,7 @@ function Invoke-TesseractOcr {
     #
     # Why not --psm 3 (default, fully automatic): does its own
     # multi-column detection and re-orders/merges adjacent UI regions
-    # — same `login:` drop-out we hit with PSM 4.
+    # -- same `login:` drop-out we hit with PSM 4.
     #
     # Why not --psm 11 (sparse text): fragments every word onto its own
     # output line, breaking the `Wait-ForText -ContainsString` substring
@@ -231,7 +231,7 @@ function Get-TesseractWordBox {
         Uses tesseract's `tsv` output config (standard in every modern install)
         to get level/x/y/w/h/conf/text rows. We filter to level=5 (word) and
         skip empty-text rows. Coordinates are in the image's pixel space,
-        origin top-left — the same space the caller captured the screenshot in.
+        origin top-left -- the same space the caller captured the screenshot in.
     .PARAMETER ImagePath
         Path to a PNG or image file to OCR.
     .OUTPUTS

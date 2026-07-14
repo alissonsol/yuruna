@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.10
+.VERSION 2026.07.14
 .GUID 42a2b3c4-d5e6-4f78-9012-3a4b5c6d7e90
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -20,7 +20,7 @@
 .DESCRIPTION
     Self-contained host driver: contract surface plus the Hyper-V /
     Windows helpers it consumes. Cross-host helpers live in
-    test/modules/Test.VMUtility.psm1 and Test.Ssh.psm1, imported below.
+    automation/Yuruna.Common.psm1 and test/modules/Test.Ssh.psm1, imported below.
 
     Module-qualified calls (e.g. `Yuruna.HostDownload\Save-CachedHttpUri`) appear
     where an external helper shares its name with the contract function
@@ -35,8 +35,7 @@ $script:RepoRoot       = (Resolve-Path (Join-Path $PSScriptRoot '..\..\..')).Pat
 $script:TestModulesDir = Join-Path $script:RepoRoot 'test\modules'
 $script:HostFolder     = Join-Path $script:RepoRoot 'host\windows.hyper-v'
 
-# Import the supporting test/modules into THIS module's scope (no -Global).
-# Their functions become callable from our function bodies;
+# The supporting test/modules become callable from our function bodies;
 # Export-ModuleMember below decides which of OUR functions become visible
 # to test/ orchestration. Yuruna.Host.psm1's exports shadow any same-name
 # exports the supporting modules also produce.
@@ -44,7 +43,7 @@ $script:HostFolder     = Join-Path $script:RepoRoot 'host\windows.hyper-v'
 # mid-cycle, and a bare -Force import here lands in Yuruna.Host's nested scope and
 # EVICTS the global copy other modules call via qualified names (e.g.
 # Test.Ssh\Invoke-GuestSsh) -- feedback_module_force_import_evicts_global.
-Import-Module (Join-Path $script:TestModulesDir 'Test.VMUtility.psm1')    -Force -DisableNameChecking -Global
+Import-Module (Join-Path $script:RepoRoot 'automation\Yuruna.Common.psm1') -Force -DisableNameChecking -Global
 Import-Module (Join-Path $script:TestModulesDir 'Test.Ssh.psm1')          -Force -DisableNameChecking -Global
 Import-Module (Join-Path $script:TestModulesDir 'Test.CachingProxy.psm1') -Force -DisableNameChecking -Global
 # Shared squid download / TLS-bump stack -- single source of truth across host drivers.
@@ -52,7 +51,7 @@ Import-Module (Join-Path $script:TestModulesDir 'Test.CachingProxy.psm1') -Force
 # discovery is injected via the -ResolveCacheHostIp scriptblock (see wrapper below).
 Import-Module (Join-Path $script:RepoRoot 'host\modules\Yuruna.HostDownload.psm1') -Force -DisableNameChecking -Global
 # Shared per-guest provisioning helpers (the New-VM.ps1 child-runner +
-# the Get-Image log-line writer) that all three drivers carried in duplicate.
+# the Get-Image log-line writer) common to all three drivers.
 Import-Module (Join-Path $script:RepoRoot 'host\modules\Yuruna.HostProvision.psm1') -Force -DisableNameChecking -Global
 # --- REGION: Hyper-V host helpers
 
@@ -375,7 +374,7 @@ function Test-CacheVmOnYurunaExternalSwitch {
         vSwitch (LAN-bridged, has a real LAN IP, no host forwarders needed).
     .DESCRIPTION
         Used by the cross-platform test/ scripts to decide whether
-        Add-CachingProxyPortMap is needed on Windows. When the cache VM
+        Add-PortMap is needed on Windows. When the cache VM
         is bridged to LAN, remote clients reach it directly at its own
         LAN IP and squid sees real client IPs natively -- netsh portproxy
         adds nothing useful and would only register a redundant alternate
@@ -3088,10 +3087,10 @@ function Get-HostProxyBackupPath {
     [CmdletBinding()]
     [OutputType([string])]
     param()
-    # Test.VMUtility.psm1's Get-HostProxyBackupPath is the authoritative
+    # Yuruna.Common.psm1's Get-HostProxyBackupPath is the authoritative
     # implementation -- same path on every host. Module-qualified call
     # avoids re-entering OUR function.
-    return Test.VMUtility\Get-HostProxyBackupPath
+    return Yuruna.Common\Get-HostProxyBackupPath
 }
 
 <#

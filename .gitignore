@@ -432,3 +432,10 @@ Fido.ps1
 .bazelrc.user
 MODULE.bazel.lock
 test/extension/pool-aggregator/pool-aggregator.exe
+
+# Generated CIDATA seed images. New-VM.ps1 writes seed.iso per run --
+# it holds the per-cycle vault password + the harness SSH key, so it must never
+# be committed (a `git add -A` next to the guest source dir would leak them).
+seed.iso
+**/seed.iso
+*.seed.img

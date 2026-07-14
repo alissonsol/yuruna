@@ -66,7 +66,7 @@ policy or security-posture choice.
 | # | Decision | Recommendation | Why it is an operator call |
 |---|---|---|---|
 | D1 | Root of trust for the first fetch (Item 1): sha256 only, or a real signature? | sha256 now (closes cache-poisoning / partial / corruption / `main`-drift and gives Item 4 a working hash primitive); open a **P1 for a detached signature** so the operator consciously owns the residual MITM gap | A signature adds key management and a new trust surface |
-| D2 | Canonical tag scheme (Item 2). Three live dialects: tag `2026.05.29` (no `v`), tag `v2026.05.22` (with `v`), installer `.VERSION 2026.07.10` | Bare CalVer `YYYY.MM.DD` — already matches the newest tag AND the installer's own `.VERSION`, minimizing churn. Pin URLs/clones to the tag **and record the tag→commit SHA** in the manifest | Tag naming is project policy; do not pick unilaterally |
+| D2 | Canonical tag scheme (Item 2). Three live dialects: tag `2026.05.29` (no `v`), tag `v2026.05.22` (with `v`), installer `.VERSION 2026.07.14` | Bare CalVer `YYYY.MM.DD` — already matches the newest tag AND the installer's own `.VERSION`, minimizing churn. Pin URLs/clones to the tag **and record the tag→commit SHA** in the manifest | Tag naming is project policy; do not pick unilaterally |
 | D3 | Pin granularity: tag name vs full commit SHA | Tag in URLs/clones for readability; record + (optionally) verify the tag→SHA mapping in `install.sha256`; pair with D5 | Trades usability vs immutability |
 | D4 | `main`-fallback policy when the pinned tag clone fails | Fall back to `main` **only on explicit operator opt-in** (`-YurunaBranch main` / env var) with a loud warning — never silently | Silent fallback re-opens the moving-target hole |
 | D5 | Fail-hard vs warn on mismatch (Items 4, 5, and the clone fallback) | **Hard-fail** on guest sha mismatch (Item 4) and key-fingerprint mismatch (Item 5) — a mismatch there is corruption or attack, never benign. **Warn-and-fall-back** on a missing clone tag (Item 2 / D4), since a missing tag on a fresh checkout is an operational reality | Hard-fail trades availability for integrity on upstream rotations |
@@ -728,8 +728,10 @@ architecture.
 
 ---
 
+LICENSEURI https://yuruna.link/license
+
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.10
+Last review: 2026.07.14
 
 Back to [Yuruna](../README.md)

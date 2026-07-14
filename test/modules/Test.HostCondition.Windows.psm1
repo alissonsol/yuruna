@@ -1,5 +1,5 @@
-﻿<#PSScriptInfo
-.VERSION 2026.07.10
+<#PSScriptInfo
+.VERSION 2026.07.14
 .GUID 42e5b4c3-d2a1-4f9a-6789-0b1c2d3e4f51
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -25,6 +25,32 @@
 # Test.HostCondition.psm1 facade; callers continue to import the facade
 # and resolve these names through its Export-ModuleMember. See
 # Test.HostCondition.psm1 for the per-platform split rationale.
+
+function Test-YurunaUsbmmiddDevice {
+    <#
+    .SYNOPSIS
+    True when a Get-PnpDevice object is an Amyuni usbmmidd virtual monitor.
+    .DESCRIPTION
+    The single source of truth for recognising the usbmmidd indirect-display
+    device across the install/converge and teardown census paths. The device
+    surfaces under two independent identifiers depending on whether the adapter
+    node or the child monitor node is being enumerated -- a FriendlyName of
+    'USB Mobile Monitor ...' and an InstanceId containing 'USBMMIDD' -- so the
+    canonical predicate matches either. Keeping every census site on this one
+    function stops the two forms from drifting apart: if a caller checked only
+    one identifier, a present-but-unhealthy monitor could go unrecognised and
+    the convergence loop would stack a duplicate every cycle. Operates on the
+    Get-PnpDevice shape (FriendlyName / InstanceId); the display-clone path
+    keys off the DISPLAY_DEVICE DeviceString instead and is intentionally
+    separate.
+    #>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param([Parameter(Mandatory)] $Device)
+
+    return ("$($Device.FriendlyName)" -like '*USB Mobile Monitor*') -or
+           ("$($Device.InstanceId)"  -like '*USBMMIDD*')
+}
 
 function Test-YurunaVirtualDisplayEnabled {
     <#
@@ -146,7 +172,7 @@ function Install-YurunaVirtualDisplay {
     if (-not (Test-Path -LiteralPath $debugDir)) { New-Item -ItemType Directory -Force -Path $debugDir | Out-Null }
     $logPath = Join-Path $debugDir 'usbmmidd.log'
 
-    # ── 1. Cache + verify the toolkit (download only when missing) ─────────
+    # -- 1. Cache + verify the toolkit (download only when missing) ---------
     if (-not (Test-Path -LiteralPath $installer)) {
         if (-not $PSCmdlet.ShouldProcess('Amyuni usbmmidd_v2 virtual-display driver', 'Download + verify')) {
             return 'Skipped'
@@ -194,29 +220,28 @@ function Install-YurunaVirtualDisplay {
     $infName = (Get-ChildItem -LiteralPath $toolDir -Filter '*.inf' -ErrorAction SilentlyContinue | Select-Object -First 1).Name
     if (-not $infName) { Write-Warning "usbmmidd .inf not found in $toolDir"; return 'Failed' }
 
-    # ── 2. usbmmidd monitor census ─────────────────────────────────────────
+    # -- 2. usbmmidd monitor census -----------------------------------------
     # The vendor's enableidd is additive (up to 4 monitors), so a COUNT is the
     # source of truth, not a boolean "is one active?". A mid-cycle KVM switch
     # can leave a usbmmidd monitor PRESENT but not 'OK'; an "is one OK?" gate
     # then misfires and enableidd 1 stacks another monitor every cycle.
     # Converging on the count (section 4) collapses any leftover / duplicate /
     # unhealthy state back to exactly one.
-    $isUsbmmidd  = { param($d) ($d.FriendlyName -like '*USB Mobile Monitor*') -or ($d.InstanceId -like '*USBMMIDD*') }
     $healthyCount = {
         @(Get-PnpDevice -PresentOnly -Class Monitor -ErrorAction SilentlyContinue |
-            Where-Object { (& $isUsbmmidd $_) -and $_.Status -eq 'OK' }).Count
+            Where-Object { (Test-YurunaUsbmmiddDevice $_) -and $_.Status -eq 'OK' }).Count
     }
     $presentCount = {
         @(Get-PnpDevice -PresentOnly -Class Monitor -ErrorAction SilentlyContinue |
-            Where-Object { & $isUsbmmidd $_ }).Count
+            Where-Object { Test-YurunaUsbmmiddDevice $_ }).Count
     }
 
-    # ── 3. Stage the signed driver only when its devnode is absent ─────────
+    # -- 3. Stage the signed driver only when its devnode is absent ---------
     # `install` creates a fresh root devnode on every call; gating on devnode
     # presence keeps re-runs (e.g. after a reboot dropped only the active
     # monitor) from piling up duplicate adapters.
     $devPresent = @(Get-PnpDevice -PresentOnly -ErrorAction SilentlyContinue |
-        Where-Object { $_.InstanceId -like '*USBMMIDD*' -or $_.FriendlyName -like '*USB Mobile Monitor*' }).Count -gt 0
+        Where-Object { Test-YurunaUsbmmiddDevice $_ }).Count -gt 0
     if (-not $devPresent) {
         if ($PSCmdlet.ShouldProcess('Amyuni usbmmidd virtual-display driver', 'Install (stage signed driver)')) {
             Push-Location -LiteralPath $toolDir
@@ -227,7 +252,7 @@ function Install-YurunaVirtualDisplay {
         } else { return 'Skipped' }
     }
 
-    # ── 4. Converge to exactly ONE healthy virtual display ─────────────────
+    # -- 4. Converge to exactly ONE healthy virtual display -----------------
     # Leave a lone healthy monitor in place (no per-cycle flicker). For any
     # other state -- zero, several stacked, or one present-but-unhealthy --
     # reset deterministically: enableidd 0 disables ALL usbmmidd monitors,
@@ -251,7 +276,7 @@ function Install-YurunaVirtualDisplay {
         $status = 'Activated'
     }
 
-    # ── 5. Confirm the VIRTUAL display specifically is live ────────────────
+    # -- 5. Confirm the VIRTUAL display specifically is live ----------------
     # Confirm via the usbmmidd-specific signal only -- never a generic "any
     # monitor" count. With a physical monitor still attached, a generic count
     # would report success even if the virtual display never activated --
@@ -266,7 +291,7 @@ function Install-YurunaVirtualDisplay {
     } while ([DateTime]::UtcNow -lt $deadlineUtc)
     if (-not $live) { return 'Failed' }
 
-    # ── 6. Mirror the main monitor, pin the virtual as primary, enforce ────
+    # -- 6. Mirror the main monitor, pin the virtual as primary, enforce ----
     #       the OCR resolution floor.
     # The virtual display must DUPLICATE (not extend) the physical one and be the
     # primary so the captured surface stays alive when the physical monitor is
@@ -412,7 +437,7 @@ namespace Yuruna {
     [DllImport("user32.dll")]
     public static extern uint GetDpiForSystem();
 
-    // ── Window-repositioning sweep ──────────────────────────────────────
+    // -- Window-repositioning sweep --------------------------------------
     // Moves any top-level app window whose centre sits off the PRIMARY
     // monitor's work area back inside it, so windows can't strand on an
     // extended (invisible) virtual display. Centre-based so a window that is
@@ -475,7 +500,7 @@ namespace Yuruna {
       return moved;
     }
 
-    // ── Live per-monitor DPI scale (undocumented CCD device-info, stable
+    // -- Live per-monitor DPI scale (undocumented CCD device-info, stable
     //    since Windows 10 1607; the only way to set 100% without sign-out).
     //    The minimum scale Windows offers is always 100%, so setting the
     //    relative scale to its minimum is exactly 100% -- no DPI table needed.
@@ -556,7 +581,7 @@ namespace Yuruna {
 
     $changed = $false
 
-    # ── Win32 display flags (PowerShell-side constants) ────────────────────
+    # -- Win32 display flags (PowerShell-side constants) --------------------
     $ENUM_CURRENT_SETTINGS              = -1
     $DM_POSITION                        = 0x00000020
     $DM_PELSWIDTH                       = 0x00080000
@@ -673,7 +698,7 @@ namespace Yuruna {
     $cloneW = 1920
     $cloneH = 1080
 
-    # ── 1. Force every VIRTUAL display to the 1920x1080 floor ──────────────
+    # -- 1. Force every VIRTUAL display to the 1920x1080 floor --------------
     # The usbmmidd monitor powers up at a low default mode (1024x768) that is too
     # small for reliable OCR, and when a physical monitor is attached and
     # extended the clone path below never resizes the virtual one. Pin it here
@@ -702,7 +727,7 @@ namespace Yuruna {
     $extended = (@($active | Where-Object { $_.PosX -ne 0 -or $_.PosY -ne 0 }).Count -gt 0)
 
     if ($physical.Count -ge 1 -and $virtuals.Count -ge 1) {
-        # ── 2. Physical + virtual attached → DUPLICATE (clone), always ─────
+        # -- 2. Physical + virtual attached -> DUPLICATE (clone), always -----
         # The VIRTUAL display is made the primary so the surface the runner
         # captures is anchored to the always-present display; unplugging the
         # physical monitor then only drops a secondary and the guest-console
@@ -761,7 +786,7 @@ namespace Yuruna {
             }
 
             if ($canClone) {
-                # ── Clone (duplicate) topology across all active displays ──
+                # -- Clone (duplicate) topology across all active displays --
                 if ($PSCmdlet.ShouldProcess('All active displays', 'Set clone (duplicate) topology')) {
                     $rc = [Yuruna.DisplayConfig]::SetDisplayConfig(0, [IntPtr]::Zero, 0, [IntPtr]::Zero, ($SDC_APPLY -bor $SDC_TOPOLOGY_CLONE))
                     if ($LogPath) { Add-Content -LiteralPath $LogPath -Value "== SetDisplayConfig(clone) rc=$rc ==" }
@@ -782,7 +807,7 @@ namespace Yuruna {
                     $changed = $true
                 }
 
-                # ── Verify the clone actually bound ────────────────────────
+                # -- Verify the clone actually bound ------------------------
                 $postActive = @(& $enumActive)
                 $stillExtended = (@($postActive | Where-Object { $_.PosX -ne 0 -or $_.PosY -ne 0 }).Count -gt 0)
                 if ($stillExtended) {
@@ -797,7 +822,7 @@ namespace Yuruna {
             }
         }
     } else {
-        # ── 3. Single display (headless virtual-only, or physical-only) ────
+        # -- 3. Single display (headless virtual-only, or physical-only) ----
         # Nothing to clone. A headless host's lone virtual display was already
         # pinned to >= 1920x1080 in step 1; this also holds the floor on a
         # physical-only host that has no virtual display yet. Target the primary
@@ -821,7 +846,7 @@ namespace Yuruna {
         }
     }
 
-    # ── Scaling: force the PRIMARY to 100% live ────────────────────────────
+    # -- Scaling: force the PRIMARY to 100% live ----------------------------
     # OCR needs 100%. The registry knobs in Set-WindowsHostConditionSet only
     # apply on next sign-in; the CCD per-monitor DPI device-info call applies
     # immediately (best-effort -- never fails the cycle). Re-read the primary's
@@ -849,7 +874,7 @@ namespace Yuruna {
         }
     }
 
-    # ── Pull any window stranded off the primary back onto it ──────────────
+    # -- Pull any window stranded off the primary back onto it --------------
     # New windows open on the primary, but apps that remember a position (or a
     # window dragged onto the extended virtual display) can land off-screen.
     # Best-effort; never fails the cycle.
@@ -907,10 +932,9 @@ function Remove-YurunaVirtualDisplay {
     # usbmmidd present-monitor census -- the same usbmmidd-specific signal the
     # install path converges on (never a generic "any monitor" count, which a
     # physical display would satisfy). Nothing present -> nothing to tear down.
-    $isUsbmmidd   = { param($d) ($d.FriendlyName -like '*USB Mobile Monitor*') -or ($d.InstanceId -like '*USBMMIDD*') }
     $presentCount = {
         @(Get-PnpDevice -PresentOnly -Class Monitor -ErrorAction SilentlyContinue |
-            Where-Object { & $isUsbmmidd $_ }).Count
+            Where-Object { Test-YurunaUsbmmiddDevice $_ }).Count
     }
 
     if (-not (Test-Path -LiteralPath $installer)) {
@@ -995,9 +1019,9 @@ function Set-YurunaDisplayScale100 {
     # Rationale and registry keys: https://yuruna.link/host/hyperv
     $scaleChanged = $false
 
-    # REG_DWORD → signed int32: Windows writes DpiValue as signed (e.g.
+    # REG_DWORD -> signed int32: Windows writes DpiValue as signed (e.g.
     # -2 for "two steps below recommended") but PowerShell surfaces
-    # REG_DWORD as UInt32 — -2 arrives as 4294967294 and a bare [int]
+    # REG_DWORD as UInt32 -- -2 arrives as 4294967294 and a bare [int]
     # cast throws OverflowException. Reinterpret bits: values with the
     # high bit set map to their two's-complement signed equivalent.
     $asSignedDword = {
@@ -1007,9 +1031,9 @@ function Set-YurunaDisplayScale100 {
         if ($u -gt [int32]::MaxValue) { return [int32]($u - 0x100000000) } else { return [int32]$u }
     }
 
-    # ── 1. Per-monitor DPI ───────────────────────────────
+    # -- 1. Per-monitor DPI -------------------------------
     # foreach statement (not ForEach-Object) so $scaleChanged writes
-    # reach function scope — ForEach-Object's scriptblock runs in a
+    # reach function scope -- ForEach-Object's scriptblock runs in a
     # child scope where the assignment would be silently local.
     $perMonPath = 'HKCU:\Control Panel\Desktop\PerMonitorSettings'
     if (Test-Path -LiteralPath $perMonPath) {
@@ -1038,11 +1062,11 @@ function Set-YurunaDisplayScale100 {
         Write-Verbose "HKCU:\Control Panel\Desktop\PerMonitorSettings absent; skipping per-monitor DPI override."
     }
 
-    # ── 2. System-wide DPI (LogPixels fallback) ────────────
+    # -- 2. System-wide DPI (LogPixels fallback) ------------
     # For non-per-monitor-aware
     # apps. Touch only when LogPixels overrides the default (96).
     # Win8DpiScaling=1 is meaningful only alongside a non-96 LogPixels
-    # — tells Windows to honor it. Default state (LogPixels=96,
+    # -- tells Windows to honor it. Default state (LogPixels=96,
     # Win8DpiScaling=0) is 100%; skip the write to avoid churning
     # the registry on a pristine system.
     $desktopPath = 'HKCU:\Control Panel\Desktop'
@@ -1060,7 +1084,7 @@ function Set-YurunaDisplayScale100 {
         Write-Information "System DPI (LogPixels) is already 96 (100%)."
     }
 
-    # ── 3. Windows 11 Accessibility "Text size" ─────────
+    # -- 3. Windows 11 Accessibility "Text size" ---------
     $accPath = 'HKCU:\Software\Microsoft\Accessibility'
     if (-not (Test-Path -LiteralPath $accPath)) {
         if ($PSCmdlet.ShouldProcess($accPath, 'Create Accessibility key')) {
@@ -1107,24 +1131,24 @@ function Set-WindowsHostConditionSet {
         return
     }
 
-    # ── 0. Elevation check ───────────────────────────────────────────────
+    # -- 0. Elevation check -----------------------------------------------
     $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole(
         [Security.Principal.WindowsBuiltInRole]"Administrator")
     if (-not $isAdmin) {
-        Write-Error "This script must be run as Administrator. Right-click PowerShell → Run as Administrator."
+        Write-Error "This script must be run as Administrator. Right-click PowerShell -> Run as Administrator."
         return
     }
 
     $changed = $false
 
-    # ── 1. Hyper-V service ───────────────────────────────────────────────
+    # -- 1. Hyper-V service -----------------------------------------------
     $svc = Get-Service -Name vmms -ErrorAction SilentlyContinue
     if (-not $svc) {
         # vmms missing has two cases with different fixes:
-        #   a) Hyper-V feature never enabled  → enable, reboot.
+        #   a) Hyper-V feature never enabled  -> enable, reboot.
         #   b) Hyper-V enabled via DISM but reboot pending (DISM reports
         #      State=Enabled after /Enable-Feature /NoRestart even though
-        #      components don't deploy until reboot) → just reboot; don't
+        #      components don't deploy until reboot) -> just reboot; don't
         #      re-run Enable-WindowsOptionalFeature.
         # Distinguish by asking DISM directly instead of guessing.
         $dismExe = Join-Path $env:WINDIR 'System32\dism.exe'
@@ -1155,7 +1179,7 @@ function Set-WindowsHostConditionSet {
         Write-Information "Hyper-V service (vmms) is already running."
     }
 
-    # ── 2. Display timeout → Never ───────────────────────────────────────
+    # -- 2. Display timeout -> Never ---------------------------------------
     $acTimeout = powercfg /query SCHEME_CURRENT SUB_VIDEO VIDEOIDLE 2>$null |
         Select-String 'Current AC Power Setting Index:\s+0x([0-9a-fA-F]+)' |
         Select-Object -First 1
@@ -1173,7 +1197,7 @@ function Set-WindowsHostConditionSet {
         Write-Information "Display timeout (AC) is already set to Never."
     }
 
-    # ── 3. Machine inactivity lock → disabled ────────────────────────────
+    # -- 3. Machine inactivity lock -> disabled ----------------------------
     $regPath = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System'
     $lockTimeout = $null
     $regProps = Get-ItemProperty -Path $regPath -ErrorAction SilentlyContinue
@@ -1191,7 +1215,7 @@ function Set-WindowsHostConditionSet {
         Write-Information "Machine inactivity lock is already disabled."
     }
 
-    # ── 4. Lock screen on resume → disabled ──────────────────────────────
+    # -- 4. Lock screen on resume -> disabled ------------------------------
     # power-plan consolelock via powercfg
     $consoleLock = powercfg /query SCHEME_CURRENT SUB_NONE CONSOLELOCK 2>$null |
         Select-String 'Current AC Power Setting Index:\s+0x([0-9a-fA-F]+)' |
@@ -1210,7 +1234,7 @@ function Set-WindowsHostConditionSet {
         Write-Information "Lock screen on resume is already disabled (or not applicable)."
     }
 
-    # ── 5. Allow ICMPv4 echo (ping) from VM guests and the LAN ──────────
+    # -- 5. Allow ICMPv4 echo (ping) from VM guests and the LAN ----------
     # For `ping <host>` to work:
     #   (a) An Allow rule for inbound ICMPv4 Echo Request must exist and
     #       be enabled for every profile whose interface you want ping
@@ -1220,11 +1244,11 @@ function Set-WindowsHostConditionSet {
     #   (b) No higher-precedence block rule matches.
     #
     # A custom -InterfaceAlias-scoped rule (e.g. for 'vEthernet (Default
-    # Switch)') doesn't make ping work on its own — disabled built-ins
+    # Switch)') doesn't make ping work on its own -- disabled built-ins
     # coexist with it without being triggered, and Windows Firewall
     # doesn't merge them. The reliable fix is to enable the built-in
     # echo-request rules across all profiles. This opens ping on the
-    # LAN NIC too (expected — operators also want to ping the host from
+    # LAN NIC too (expected -- operators also want to ping the host from
     # peers for diagnostics). No TCP is exposed; ping is just a liveness
     # probe.
     #
@@ -1302,12 +1326,12 @@ function Set-WindowsHostConditionSet {
         foreach ($r in $icmpBlockRules) {
             Write-Warning "  $($r.DisplayName) [profile: $($r.Profile)]"
         }
-        Write-Warning "If ping still fails, disable these or ask your admin — GPO may be pushing them."
+        Write-Warning "If ping still fails, disable these or ask your admin -- GPO may be pushing them."
     }
 
-    # ── 6. Allow inbound TCP on the status-service port ───────────────────
+    # -- 6. Allow inbound TCP on the status-service port -------------------
     # Start-StatusService.ps1 binds HttpListener to http://*:$Port/ which
-    # covers every interface at the socket level — but Windows Firewall
+    # covers every interface at the socket level -- but Windows Firewall
     # drops inbound TCP on non-loopback interfaces without an Allow
     # rule. On a fresh install localhost works (loopback is never
     # filtered) while a LAN browser on http://<host-ip>:8080/ hangs.
@@ -1329,9 +1353,20 @@ function Set-WindowsHostConditionSet {
     if ($existingStatusRule) {
         # Pre-existing rule may have the right name but wrong port (user
         # changed statusService.port in test.config.yml after running
-        # this once). Verify + rebuild instead of silently leaving it.
+        # this once) or wrong Action/Direction/Profile (a stale hand-made
+        # rule, or a prior version that scoped the profile differently).
+        # Any of those leaves LAN clients blocked despite the rule
+        # "existing", so verify the full shape -- inbound TCP Allow on this
+        # port across all profiles, matching what the create branch builds
+        # (-Direction Inbound -Action Allow -Protocol TCP -Profile Any) --
+        # and rebuild on any mismatch instead of silently leaving it.
         $portFilter = $existingStatusRule | Get-NetFirewallPortFilter -ErrorAction SilentlyContinue
-        $rulePortMatches = $portFilter -and ($portFilter.Protocol -eq 'TCP') -and ($portFilter.LocalPort -eq "$statusPort")
+        $rulePortMatches = $portFilter -and
+            ($portFilter.Protocol -eq 'TCP') -and
+            ($portFilter.LocalPort -eq "$statusPort") -and
+            ($existingStatusRule.Direction -eq 'Inbound') -and
+            ($existingStatusRule.Action -eq 'Allow') -and
+            ("$($existingStatusRule.Profile)" -eq 'Any')
         if (-not $rulePortMatches) {
             if ($PSCmdlet.ShouldProcess($statusRuleName, "Recreate with port $statusPort")) {
                 Write-Information "Rebuilding firewall rule for status server on port $statusPort..."
@@ -1371,7 +1406,7 @@ function Set-WindowsHostConditionSet {
     }
 
     # 6b. Diagnostic: any enabled TCP Block rule covering this port
-    # vetoes the Allow above — surface it instead of leaving the user
+    # vetoes the Allow above -- surface it instead of leaving the user
     # wondering why LAN clients can't connect.
     $tcpBlockRules = Get-NetFirewallRule -Direction Inbound -Action Block -ErrorAction SilentlyContinue |
         Where-Object { $_.Enabled -eq 'True' } |
@@ -1386,7 +1421,7 @@ function Set-WindowsHostConditionSet {
         foreach ($r in $tcpBlockRules) {
             Write-Warning "  $($r.DisplayName) [profile: $($r.Profile)]"
         }
-        Write-Warning "If remote clients still get 'connection timed out' on port $statusPort, disable these or ask your admin — GPO may be pushing them."
+        Write-Warning "If remote clients still get 'connection timed out' on port $statusPort, disable these or ask your admin -- GPO may be pushing them."
     }
 
     # Display/text scale = 100% (HKCU per-monitor DPI, system DPI, Win11
@@ -1432,20 +1467,20 @@ function Assert-WindowsHostConditionSet {
     # 2. Hyper-V management service must be running
     $svc = Get-Service -Name vmms -ErrorAction SilentlyContinue
     if (-not $svc -or $svc.Status -ne 'Running') {
-        Write-Warning "═══════════════════════════════════════════════════════════════════"
+        Write-Warning "==================================================================="
         Write-Warning " Hyper-V Virtual Machine Management service (vmms) is not running."
         Write-Warning ""
-        Write-Warning " Quick fix — run from an elevated PowerShell at the repo root:"
+        Write-Warning " Quick fix -- run from an elevated PowerShell at the repo root:"
         Write-Warning "   pwsh .\host\windows.hyper-v\Enable-TestAutomation.ps1"
         Write-Warning ""
         Write-Warning " If Hyper-V is not installed, enable it first:"
         Write-Warning "   Enable-WindowsOptionalFeature -Online -FeatureName Microsoft-Hyper-V -All"
         Write-Warning " then reboot."
-        Write-Warning "═══════════════════════════════════════════════════════════════════"
+        Write-Warning "==================================================================="
         return $false
     }
 
-    # 3. Screen lock / display timeout — warn if display will turn off
+    # 3. Screen lock / display timeout -- warn if display will turn off
     try {
         $acTimeout = (powercfg /query SCHEME_CURRENT SUB_VIDEO VIDEOIDLE 2>$null |
             Select-String 'Current AC Power Setting Index:\s+0x([0-9a-fA-F]+)' |
@@ -1454,14 +1489,14 @@ function Assert-WindowsHostConditionSet {
             $seconds = [Convert]::ToInt32($acTimeout.Matches[0].Groups[1].Value, 16)
             if ($seconds -ne 0) {
                 $minutes = [math]::Round($seconds / 60)
-                Write-Warning "═══════════════════════════════════════════════════════════════════"
+                Write-Warning "==================================================================="
                 Write-Warning " Display timeout is set to $minutes minute(s) on AC power."
                 Write-Warning " The screen will blank during long test runs, which may cause"
                 Write-Warning " Hyper-V Enhanced Session screen captures to fail."
                 Write-Warning ""
-                Write-Warning " Quick fix — run from an elevated PowerShell at the repo root:"
+                Write-Warning " Quick fix -- run from an elevated PowerShell at the repo root:"
                 Write-Warning "   pwsh .\host\windows.hyper-v\Enable-TestAutomation.ps1"
-                Write-Warning "═══════════════════════════════════════════════════════════════════"
+                Write-Warning "==================================================================="
                 return $false
             }
         }
@@ -1469,7 +1504,7 @@ function Assert-WindowsHostConditionSet {
         Write-Debug "Display timeout check failed: $_"
     }
 
-    # 4. Lock screen timeout — warn if machine will lock
+    # 4. Lock screen timeout -- warn if machine will lock
     try {
         $lockTimeout = $null
         $regProps = Get-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System' -ErrorAction SilentlyContinue
@@ -1477,13 +1512,13 @@ function Assert-WindowsHostConditionSet {
             $lockTimeout = $regProps.InactivityTimeoutSecs
         }
         if ($lockTimeout -and $lockTimeout -gt 0) {
-            Write-Warning "═══════════════════════════════════════════════════════════════════"
+            Write-Warning "==================================================================="
             Write-Warning " Machine inactivity lock is set to $lockTimeout second(s)."
             Write-Warning " The lock screen will activate during long test runs."
             Write-Warning ""
-            Write-Warning " Quick fix — run from an elevated PowerShell at the repo root:"
+            Write-Warning " Quick fix -- run from an elevated PowerShell at the repo root:"
             Write-Warning "   pwsh .\host\windows.hyper-v\Enable-TestAutomation.ps1"
-            Write-Warning "═══════════════════════════════════════════════════════════════════"
+            Write-Warning "==================================================================="
             return $false
         }
     } catch {

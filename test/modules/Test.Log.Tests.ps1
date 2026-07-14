@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.10
+.VERSION 2026.07.14
 .GUID 42e9c5b7-2d18-4a3f-bc60-7f1e9a8d2c40
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -36,6 +36,48 @@ Import-Module $evtPath    -Force -DisableNameChecking -ErrorAction SilentlyConti
 
 function Assert-Equal { param($Expected, $Actual, [string]$Because='') if ($Expected -ne $Actual) { throw "Expected [$Expected] got [$Actual]. $Because" } }
 function Assert-True  { param($Condition, [string]$Because='') if (-not $Condition) { throw "Expected true. $Because" } }
+
+# The archive fixture lives at FILE scope, not inside its Describe: a Describe
+# body is executed during discovery and everything it declares is discarded
+# before any It runs, so a helper defined there is a CommandNotFoundException by
+# the time the It blocks call it.
+#
+# All $global:__Yuruna* access (the Yuruna.Log cross-module channels Stop-LogFile
+# consumes) is confined to these two suppressed helpers so the It blocks stay
+# clean; the production Copy-FailureArtifactsToStatusLog suppresses
+# PSAvoidGlobalVars for the same channels.
+function New-ArchiveFixture {
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidGlobalVars', '',
+        Justification = 'Test must seed/save the Yuruna.Log cross-module globals Stop-LogFile reads.')]
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+        Justification = 'Test fixture: temp dir + seed files + saves globals; no production state.')]
+    [OutputType([hashtable])]
+    param([string]$RootFailureJson)
+    $saved = @{ Cycle = $global:__YurunaCycleFolder; LogFile = $global:__YurunaLogFile; LogDir = $env:YURUNA_LOG_DIR }
+    $tmp = Join-Path ([System.IO.Path]::GetTempPath()) ('yrn-archive-' + [guid]::NewGuid().ToString('N'))
+    New-Item -ItemType Directory -Path $tmp -Force | Out-Null
+    $env:YURUNA_LOG_DIR = $tmp
+    if ($RootFailureJson) {
+        [System.IO.File]::WriteAllText((Join-Path $tmp 'last_failure.json'), $RootFailureJson, [System.Text.UTF8Encoding]::new($false))
+    }
+    $cycle = Join-Path $tmp '000001.2026-06-08.00-00-00.4253419c1f0b45a08260f36a1521a857.incomplete'
+    New-Item -ItemType Directory -Path $cycle -Force | Out-Null
+    $global:__YurunaCycleFolder = $cycle
+    $global:__YurunaLogFile = $null
+    return @{ Tmp = $tmp; Saved = $saved; Final = ($cycle -replace '\.incomplete$', '') }
+}
+
+function Restore-ArchiveFixture {
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidGlobalVars', '',
+        Justification = 'Test teardown: restores the Yuruna.Log cross-module globals it saved.')]
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+        Justification = 'Test teardown: restores saved globals/env and removes the temp dir.')]
+    param([Parameter(Mandatory)][hashtable]$Fixture)
+    $global:__YurunaCycleFolder = $Fixture.Saved.Cycle
+    $global:__YurunaLogFile     = $Fixture.Saved.LogFile
+    $env:YURUNA_LOG_DIR         = $Fixture.Saved.LogDir
+    if ($Fixture.Tmp) { Remove-Item -LiteralPath $Fixture.Tmp -Recurse -Force -ErrorAction SilentlyContinue }
+}
 
 Describe 'New-YurunaDegradationRecord' {
 
@@ -80,43 +122,6 @@ Describe 'New-YurunaDegradationRecord' {
 }
 
 Describe 'Stop-LogFile last_failure.json archiving' {
-
-    # All $global:__Yuruna* access (the Yuruna.Log cross-module channels
-    # Stop-LogFile consumes) is confined to these two suppressed helpers so the
-    # It blocks stay clean; the production Copy-FailureArtifactsToStatusLog
-    # suppresses PSAvoidGlobalVars for the same channels.
-    function New-ArchiveFixture {
-        [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidGlobalVars', '',
-            Justification = 'Test must seed/save the Yuruna.Log cross-module globals Stop-LogFile reads.')]
-        [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
-            Justification = 'Test fixture: temp dir + seed files + saves globals; no production state.')]
-        [OutputType([hashtable])]
-        param([string]$RootFailureJson)
-        $saved = @{ Cycle = $global:__YurunaCycleFolder; LogFile = $global:__YurunaLogFile; LogDir = $env:YURUNA_LOG_DIR }
-        $tmp = Join-Path ([System.IO.Path]::GetTempPath()) ('yrn-archive-' + [guid]::NewGuid().ToString('N'))
-        New-Item -ItemType Directory -Path $tmp -Force | Out-Null
-        $env:YURUNA_LOG_DIR = $tmp
-        if ($RootFailureJson) {
-            [System.IO.File]::WriteAllText((Join-Path $tmp 'last_failure.json'), $RootFailureJson, [System.Text.UTF8Encoding]::new($false))
-        }
-        $cycle = Join-Path $tmp '000001.2026-06-08.00-00-00.4253419c1f0b45a08260f36a1521a857.incomplete'
-        New-Item -ItemType Directory -Path $cycle -Force | Out-Null
-        $global:__YurunaCycleFolder = $cycle
-        $global:__YurunaLogFile = $null
-        return @{ Tmp = $tmp; Saved = $saved; Final = ($cycle -replace '\.incomplete$', '') }
-    }
-
-    function Restore-ArchiveFixture {
-        [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidGlobalVars', '',
-            Justification = 'Test teardown: restores the Yuruna.Log cross-module globals it saved.')]
-        [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
-            Justification = 'Test teardown: restores saved globals/env and removes the temp dir.')]
-        param([Parameter(Mandatory)][hashtable]$Fixture)
-        $global:__YurunaCycleFolder = $Fixture.Saved.Cycle
-        $global:__YurunaLogFile     = $Fixture.Saved.LogFile
-        $env:YURUNA_LOG_DIR         = $Fixture.Saved.LogDir
-        if ($Fixture.Tmp) { Remove-Item -LiteralPath $Fixture.Tmp -Recurse -Force -ErrorAction SilentlyContinue }
-    }
 
     It 'archives the cycle last_failure.json + manifests it as kind=failure on a non-pass outcome' {
         $fx = New-ArchiveFixture -RootFailureJson '{"schemaVersion":2,"failureClass":"ocr_timeout","context":{"causeDetail":{"ocrTail":"yt2sqluser@host:~$"}}}'

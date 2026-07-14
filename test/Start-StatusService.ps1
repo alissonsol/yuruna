@@ -1,5 +1,5 @@
-﻿<#PSScriptInfo
-.VERSION 2026.07.10
+<#PSScriptInfo
+.VERSION 2026.07.14
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456740
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -84,10 +84,12 @@ if ($Restart -and (Test-Path $PidFile)) {
     $oldPid = (Get-Content $PidFile).Trim()
     if ($oldPid) {
         $proc = Get-Process -Id $oldPid -ErrorAction SilentlyContinue
-        if ($proc -and $proc.ProcessName -match 'pwsh|PowerShell') {
+        if ($proc -and (Test-PidFileIdentity -PidFile $PidFile -Process $proc)) {
             Stop-Process -Id $oldPid -Force -ErrorAction SilentlyContinue
             Write-Output "Stopped existing status server (PID $oldPid)."
             Start-Sleep -Seconds 1
+        } elseif ($proc) {
+            Write-Warning "PID $oldPid is not the status server (started after the PID file -- recycled onto an unrelated process); leaving it running and clearing the stale PID file."
         }
     }
     Remove-Item $PidFile -Force -ErrorAction SilentlyContinue
@@ -109,8 +111,12 @@ if (Test-Path $PidFile) {
     $serverAlive = $false
     if ($oldPid) {
         $proc = Get-Process -Id $oldPid -ErrorAction SilentlyContinue
-        # Verify PID is a pwsh process (not a recycled PID)
-        if ($proc -and $proc.ProcessName -match 'pwsh|PowerShell') {
+        # Confirm identity -- a PowerShell process that predates the pidfile --
+        # not merely the process name: on a long-uptime host the OS can recycle
+        # this PID onto an unrelated process, and force-killing it (below, when
+        # the port does not answer) would take down whatever now owns the PID
+        # (e.g. the freshly-launched outer runner after a reboot).
+        if ($proc -and (Test-PidFileIdentity -PidFile $PidFile -Process $proc)) {
             try {
                 $null = Invoke-WebRequest -Uri "http://localhost:$Port/status.json" -TimeoutSec 3 -UseBasicParsing -ErrorAction Stop -Verbose:$false -Debug:$false
                 $serverAlive = $true
@@ -155,19 +161,30 @@ if (Test-Path $PidFile) {
 # Why it's needed and the Test.PortOwner.psm1 dispatch contract:
 # https://yuruna.link/test/harness
 $portResolution = Resolve-PortOrphan -Port $Port -PidFile $PidFile -Confirm:$false
-if ($portResolution.Status -eq 'Conflict') {
+# 'PrivilegeRequired' refuses for the same reason a conflict does -- this process
+# cannot bind the wildcard prefix, and neither can the server -- but the port is
+# EMPTY, so it must not be reported as one that is in use. Handled with Conflict
+# so a new status can never fall through this gate and start a blind cycle; only
+# the banner and the thrown message differ.
+if ($portResolution.Status -eq 'Conflict' -or $portResolution.Status -eq 'PrivilegeRequired') {
     foreach ($line in ($portResolution.Message -split "`n")) { Write-Warning $line.TrimEnd() }
     # Refuse, and make the refusal PROPAGATE. A bare `exit 1` here would only
     # set $LASTEXITCODE for the call-operator invocation the shared gate runs
     # (`& $StartScript`), so the parent cycle would carry on without a status
-    # server — the blind-cycle trap this guards against. Throw a tagged
+    # server -- the blind-cycle trap this guards against. Throw a tagged
     # exception instead: Start-YurunaStatusServiceIfEnabled recognizes the tag
     # and aborts the entry point cleanly; a standalone run exits non-zero on the
     # uncaught throw. The detection is OS-agnostic (HttpListener bind probe), so
     # this fires identically on macOS/UTM, Ubuntu/KVM, and Windows/Hyper-V.
-    $conflict = [System.InvalidOperationException]::new("Status-service port $Port is held by another process; refusing to start.")
+    $reason = if ($portResolution.Status -eq 'PrivilegeRequired') {
+        "Status-service port $Port is free, but this process may not reserve http://*:$Port/ (needs elevation, or a netsh urlacl); refusing to start."
+    } else {
+        "Status-service port $Port is held by another process; refusing to start."
+    }
+    $conflict = [System.InvalidOperationException]::new($reason)
     $conflict.Data['YurunaPortConflict'] = $true
     $conflict.Data['YurunaPort'] = $Port
+    $conflict.Data['YurunaPortStatus'] = $portResolution.Status
     throw $conflict
 }
 
@@ -202,9 +219,12 @@ if (Test-Path $StatusFile) {
             }
             # BOM-less UTF-8: status.json is served over HTTP to the browser
             # dashboard and the Go aggregator, whose JSON parsers reject a
-            # leading BOM. Matches the canonical Write-YurunaStateFile sidecar
-            # encoding and the detached server's own status.json writes.
-            $statusDoc | ConvertTo-Json -Depth 10 | Set-Content -Path $StatusFile -Encoding utf8
+            # leading BOM. WriteAllText with an explicit BOM-less UTF8Encoding
+            # keeps the byte encoding stable across PowerShell editions (5.1's
+            # -Encoding utf8 emits a BOM), matching the detached server's
+            # status.json writes and the canonical sidecar encoding.
+            $statusJson = $statusDoc | ConvertTo-Json -Depth 10
+            [System.IO.File]::WriteAllText($StatusFile, $statusJson, [System.Text.UTF8Encoding]::new($false))
             Write-Output "Set repoUrl in status.json: $repoUrl"
         }
     } catch {
@@ -244,13 +264,13 @@ if (Test-Path -LiteralPath $LegacyTrackDir) {
 Remove-Item (Join-Path $RuntimeDir 'break-active.json')      -Force -ErrorAction SilentlyContinue
 Remove-Item (Join-Path $RuntimeDir 'control.break-continue') -Force -ErrorAction SilentlyContinue
 
-# --- REGION: Enumerate host IPs → $env:YURUNA_RUNTIME_DIR/ipaddresses.txt
+# --- REGION: Enumerate host IPs -> $env:YURUNA_RUNTIME_DIR/ipaddresses.txt
 # UI footer reads this to show reachable addresses. Loopback
-# (127.0.0.1, ::1) excluded — useless for remote clients.
+# (127.0.0.1, ::1) excluded -- useless for remote clients.
 #
 # File format:
-#   * No addresses  → single line "No IP addresses detected"
-#   * Addresses     → up to two lines:
+#   * No addresses  -> single line "No IP addresses detected"
+#   * Addresses     -> up to two lines:
 #       line 1: IPv4, comma-separated (omitted if none)
 #       line 2: IPv6, comma-separated (omitted if none)
 #
@@ -281,7 +301,7 @@ try {
         $lines = @()
         if ($ipv4.Count -gt 0) { $lines += ($ipv4 -join ',') }
         if ($ipv6.Count -gt 0) { $lines += ($ipv6 -join ',') }
-        # LF not CRLF — UI splits on \n; single line terminator avoids
+        # LF not CRLF -- UI splits on \n; single line terminator avoids
         # \r leaking into rendered strings.
         $fileContent = ($lines -join "`n")
         $reportCount = $ipv4.Count + $ipv6.Count
@@ -307,12 +327,12 @@ try {
     Write-Warning "Host-type detection failed (continuing with HTTP status server): $_"
 }
 
-# --- REGION: Probe proxy cache → $env:YURUNA_RUNTIME_DIR/caching-proxy.txt
+# --- REGION: Probe proxy cache -> $env:YURUNA_RUNTIME_DIR/caching-proxy.txt
 # UI banner appends this string to the status text so viewers see at a
 # glance whether the harness is behind a local squid. File holds
 # ready-to-embed HTML (including <a href> to the Grafana dashboards URL) so the UI
 # injects it without knowing the URL format. Written once at
-# Start-StatusService — restart to refresh after bringing squid up/down.
+# Start-StatusService -- restart to refresh after bringing squid up/down.
 # Needs $detectedHost, so runs AFTER the SSH block's host detection.
 $CachingProxyFile = Join-Path $RuntimeDir "caching-proxy.txt"
 try {
@@ -343,13 +363,13 @@ try {
         if ($cachingProxyUrl) {
             # Port mapping so the status-page banner reports the same
             # state as Invoke-TestRunner's console output.
-            # Add-CachingProxyPortMap dispatches per-platform via
-            # Test.PortMap (netsh portproxy on Hyper-V, detached
-            # TcpListener forwarders on macOS/UTM). Both channels read
+            # Add-PortMap dispatches per-platform via the host driver
+            # (netsh portproxy on Hyper-V, detached TcpListener
+            # forwarders on macOS/UTM). Both channels read
             # the same caching-proxy.txt so banner and console stay
             # in lock-step.
             #
-            # Windows: port lists across callers MUST match — Add-CachingProxyPortMap
+            # Windows: port lists across callers MUST match -- Add-PortMap
             # runs Clear-AllCachingProxyPortMapping first (netsh clears all), so
             # any port omitted here would be torn down. macOS: per-port pidfiles
             # mean each caller manages its own subset independently; no match
@@ -358,7 +378,7 @@ try {
             # External-cache branch: when $Env:YURUNA_CACHING_PROXY_IP
             # is set, Test-CachingProxyAvailable returns the remote URL and
             # the remote host exposes all its ports itself. Skip the
-            # local portproxy/forwarder entirely — the dashboard link
+            # local portproxy/forwarder entirely -- the dashboard link
             # points straight at the remote IP.
             $cachingProxyContent = $null
             $mapOk = $false
@@ -394,7 +414,7 @@ try {
                     # Test-CachingProxyAvailable returns the VM's direct
                     # IP (Hyper-V Default Switch is reachable from the
                     # host), so parsing works. On macOS the URL is
-                    # http://192.168.64.1:3128 — the VZ-gateway URL
+                    # http://192.168.64.1:3128 -- the VZ-gateway URL
                     # guests use, NOT the cache VM. Feeding 192.168.64.1
                     # to Start-CachingProxyForwarder would make the
                     # forwarder tunnel to its own listen socket (self-
@@ -423,9 +443,9 @@ try {
                     # it here would trigger a sudo prompt on every status-service
                     # restart. On macOS each port is independent (per-port pidfile),
                     # so excluding :80 does not affect the other ports.
-                    # Windows: all ports in one list — netsh clears everything first.
+                    # Windows: all ports in one list -- netsh clears everything first.
                     # All caching-proxy port mappings are repeated in EVERY caller's
-                    # list because Add-CachingProxyPortMap clears ALL Yuruna netsh /
+                    # list because Add-PortMap clears ALL Yuruna netsh /
                     # pwsh-forwarder / firewall state first; omitting any here
                     # would tear it down each status-service restart.
                     #
@@ -459,18 +479,19 @@ try {
                         # PROXY v1 (real LAN IPs); Windows uses plain netsh
                         # portproxy because the user-mode listener path is
                         # unreachable from LAN on this host (squid logs the
-                        # NAT-side IP — see docs/caching.md).
-                        # macOS skips :80 — Start-CachingProxy.ps1 is the
+                        # NAT-side IP -- see docs/caching.md).
+                        # macOS skips :80 -- Start-CachingProxy.ps1 is the
                         # sole sudo owner of the privileged bind.
                         # Port values come from YURUNA_CACHING_PROXY_*_PORT
                         # env vars (defaults 3128 / 3129).
                         $cacheHttpPort  = Get-CachingProxyPort -Scheme http
                         $cacheHttpsPort = Get-CachingProxyPort -Scheme https
-                        # 9302 (caching-proxy-parser live tail) must stay in
-                        # lockstep with Start-CachingProxy.ps1's install list:
-                        # Add-PortMap is clear-all-first, so any port omitted
-                        # here goes dark on reinstall.
-                        $squidPorts = if ($IsMacOS) { @(3000) } else { @(80, 3000, 9302, $cacheHttpPort, $cacheHttpsPort) }
+                        # The exposed-port set (incl. 9302 caching-proxy-parser
+                        # live tail) comes from Get-CachingProxyExposedPort so it
+                        # cannot drift from Start-CachingProxy's install list;
+                        # Add-PortMap is clear-all-first, so a dropped port goes
+                        # dark on reinstall. macOS re-maps only Grafana.
+                        $squidPorts = if ($IsMacOS) { @(3000) } else { Get-CachingProxyExposedPort -HttpPort $cacheHttpPort -HttpsPort $cacheHttpsPort }
                         if ($vmIp) {
                             $portMapArgs = @{
                                 VMIp = $vmIp
@@ -494,24 +515,24 @@ try {
             }
             if ($mapOk) {
                 $dashboardUrl = "http://${bestIp}:3000/dashboards?tag=yuruna"
-                # Escape & for strict HTML-attribute correctness — we
+                # Escape & for strict HTML-attribute correctness -- we
                 # inject via .innerHTML so lenient parsers work either
                 # way, but strict ones trip on bare `&` next to
                 # entity-like sequences.
                 $hrefUrl = $dashboardUrl -replace '&', '&amp;'
                 $cachingProxyContent = 'Caching proxy: <a href="' + $hrefUrl + '" target="_blank">detected</a>'
-                Write-Output "Caching proxy: detected, port map OK, dashboard=$dashboardUrl — written to $CachingProxyFile"
+                Write-Output "Caching proxy: detected, port map OK, dashboard=$dashboardUrl -- written to $CachingProxyFile"
             } else {
                 $cachingProxyContent = 'Caching proxy: detected (port map failed)'
-                Write-Output "Caching proxy: detected, port map failed — written to $CachingProxyFile"
+                Write-Output "Caching proxy: detected, port map failed -- written to $CachingProxyFile"
             }
         } else {
             $cachingProxyContent = 'Caching proxy: not detected'
-            Write-Output "Caching proxy: not detected — written to $CachingProxyFile"
+            Write-Output "Caching proxy: not detected -- written to $CachingProxyFile"
         }
         [System.IO.File]::WriteAllText($CachingProxyFile, $cachingProxyContent, [System.Text.UTF8Encoding]::new($false))
     } else {
-        Write-Warning "Proxy-cache probe skipped — module missing or host not detected."
+        Write-Warning "Proxy-cache probe skipped -- module missing or host not detected."
     }
 } catch {
     Write-Warning "Failed to probe/write proxy-cache state: $_"
@@ -551,6 +572,12 @@ Import-Module (Join-Path `$repoRoot 'test/modules/Test.PoolStorage.psm1') -Force
 # extension load inside that route.
 Import-Module (Join-Path `$repoRoot 'test/modules/Test.HostConfigSync.psm1') -Force -DisableNameChecking -Verbose:`$false -ErrorAction SilentlyContinue
 Import-Module (Join-Path `$repoRoot 'test/modules/Test.Extension.psm1')      -Force -DisableNameChecking -Verbose:`$false -ErrorAction SilentlyContinue
+# Get-RunnerInstanceState is the single tested implementation of the
+# runner PID + StartTime-sidecar identity check; the runner-status and
+# start-cycle handlers call it via Test-RunnerAlive below instead of
+# each re-deriving that logic. This detached server has its own runspace,
+# so the module must be imported here for the command to resolve.
+Import-Module (Join-Path `$repoRoot 'test/modules/Test.SingleInstance.psm1') -Force -DisableNameChecking -Verbose:`$false -ErrorAction SilentlyContinue
 `$stepPauseFile  = Join-Path `$runtimeDir 'control.step-pause'
 `$cyclePauseFile = Join-Path `$runtimeDir 'control.cycle-pause'
 `$statusJsonFile = Join-Path `$runtimeDir 'status.json'
@@ -559,15 +586,15 @@ Import-Module (Join-Path `$repoRoot 'test/modules/Test.Extension.psm1')      -Fo
 # detached server's here-string. Used by /control/guest-folders to list
 # guests under host/<short>/.
 `$serverHostType = '$detectedHost'
-# NOTE: deliberately NO self-exit on a stale server.heartbeat —
+# NOTE: deliberately NO self-exit on a stale server.heartbeat --
 # legitimate runner states outlast ANY threshold: a
 # prompt-for-confirmation pausing the runner for hours, or a single
 # waitForText with timeoutSeconds:3600. UI must stay up, so the ONLY
 # stop path is Stop-StatusService.ps1 (kills server.pid). A truly
-# orphaned server must be killed manually — deliberate trade-off.
+# orphaned server must be killed manually -- deliberate trade-off.
 # Log per-iteration exceptions so we can see why the server died. On
 # Windows, Start-Process -WindowStyle Hidden has no stderr redirection,
-# so without this file an unhandled throw dies silently — the exact
+# so without this file an unhandled throw dies silently -- the exact
 # prior failure mode where the server vanished mid-run with no trace.
 # Bounded so it can't fill the status dir indefinitely.
 function Write-ServerErr {
@@ -578,6 +605,112 @@ function Write-ServerErr {
         }
         Add-Content -Path `$serverLogFile -Value "[`$(Get-Date -Format o)] `$msg" -ErrorAction SilentlyContinue
     } catch { Write-Debug `$_ }
+}
+# JSON string-escaping shared by every error-response builder below. The
+# `$_.Exception.Message / operator-supplied text is spliced into a hand-built
+# {"ok":false,"error":"..."} literal, so quotes must be backslash-escaped and
+# CR/LF collapsed to a space to keep the payload a single valid JSON line.
+# The '\\'->'\\' pass is intentionally a no-op on the backslash (regex \\ ->
+# literal \) and is kept verbatim so the emitted bytes match every call site
+# that already relied on this exact transform chain.
+function Escape-JsonString {
+    param([string]`$s)
+    `$s -replace '\\','\\' -replace '"','\"' -replace '[\r\n]+',' '
+}
+# Uniform tail for an error response whose Content-Type / Cache-Control / Allow
+# headers (when a branch needs them) are set by the caller BEFORE this call, so
+# the caller keeps full control of the exact header set. This only owns the
+# status code + body-byte emit + stream close that every branch repeats
+# identically. ``continue`` stays at the call site because it must target the
+# request loop, not this function.
+function Send-JsonError {
+    param(`$Response, [int]`$StatusCode, [string]`$Json)
+    `$Response.StatusCode = `$StatusCode
+    `$b = [System.Text.Encoding]::UTF8.GetBytes(`$Json)
+    `$Response.ContentLength64 = `$b.Length
+    `$Response.OutputStream.Write(`$b, 0, `$b.Length)
+    `$Response.OutputStream.Close()
+}
+# ``git archive --format=tar.gz HEAD`` streamer shared by the two archive
+# endpoints. `$RepoDir is the tree to archive (framework repo or project/),
+# `$ErrorLabel tags the Write-ServerErr line so a failure is attributable to the
+# right endpoint. Injects a .yuruna-origin sidecar (repo origin URL) at archive
+# root because ``git archive`` strips .git/, then reads the tarball and emits it
+# with the same headers/status both endpoints used inline. `$req/`$ctx are the
+# per-request objects the handler already holds.
+function Send-GitArchive {
+    param(`$Response, `$Request, `$Context, [string]`$RepoDir, [string]`$ErrorLabel)
+    `$tmp       = [System.IO.Path]::GetTempFileName()
+    `$originDir = `$null
+    try {
+        `$archiveArgs = @('-C', `$RepoDir, 'archive', '--format=tar.gz')
+        `$originUrl = & git -C `$RepoDir config --get remote.origin.url 2>`$null
+        if (`$LASTEXITCODE -eq 0 -and -not [string]::IsNullOrWhiteSpace(`$originUrl)) {
+            `$originDir  = New-Item -ItemType Directory -Path ([IO.Path]::Combine([IO.Path]::GetTempPath(), [Guid]::NewGuid().ToString('N'))) -Force
+            `$originFile = Join-Path `$originDir.FullName '.yuruna-origin'
+            [IO.File]::WriteAllText(`$originFile, (([string]`$originUrl).Trim()))
+            `$archiveArgs += ('--add-file=' + `$originFile)
+        }
+        `$archiveArgs += @('-o', `$tmp, 'HEAD')
+        & git @archiveArgs 2>`$null
+        if (`$LASTEXITCODE -ne 0 -or -not (Test-Path `$tmp)) {
+            `$Response.StatusCode = 500
+            `$body = [System.Text.Encoding]::UTF8.GetBytes('git archive failed')
+            `$Response.OutputStream.Write(`$body, 0, `$body.Length)
+            `$Response.OutputStream.Close()
+            return
+        }
+        `$bytes = [System.IO.File]::ReadAllBytes(`$tmp)
+        `$Response.ContentType = 'application/gzip'
+        `$Response.Headers.Add('Cache-Control', 'no-store')
+        `$Response.ContentLength64 = `$bytes.Length
+        if (`$Request.HttpMethod -ne 'HEAD') { `$Response.OutputStream.Write(`$bytes, 0, `$bytes.Length) }
+        `$Response.OutputStream.Close()
+    } catch {
+        Write-ServerErr "`${ErrorLabel}: `$(`$_.Exception.Message)"
+        try { `$Context.Response.Abort() } catch { Write-Debug `$_ }
+    } finally {
+        Remove-Item `$tmp -Force -ErrorAction SilentlyContinue
+        if (`$originDir) { Remove-Item -LiteralPath `$originDir.FullName -Recurse -Force -ErrorAction SilentlyContinue }
+    }
+}
+# Runner-liveness detection shared by /control/runner-status and the pre-kill
+# probe in /control/start-cycle. Delegates the runner.pid + runner.start
+# StartTime identity check (with the cmdline regex fallback) to
+# Get-RunnerInstanceState so that logic lives in one tested place; a prior
+# occupant classified as anything other than this-process/absent/stale counts
+# as running. -QuietErrors routes the check's own diagnostics to the debug
+# stream; the default path forwards them to server.err, matching each caller's
+# prior behavior.
+function Test-RunnerAlive {
+    param([switch]`$QuietErrors)
+    `$runnerPidFile   = Join-Path `$runtimeDir 'runner.pid'
+    `$runnerStartFile = Join-Path `$runtimeDir 'runner.start'
+    # Get-RunnerInstanceState surfaces a runner.start cross-check failure on
+    # its verbose stream; run it with verbose enabled so that diagnostic
+    # materializes, capture the records, and keep only the returned
+    # classification hashtable. Only the module's own "cross-check failed"
+    # line is forwarded -- to server.err by default, or the debug stream when
+    # the caller is quiet -- so cmdline-probe chatter (e.g. the Windows CIM
+    # query trace that ambient verbose also emits) never reaches the log.
+    `$verboseLines = [System.Collections.Generic.List[string]]::new()
+    `$state = Get-RunnerInstanceState -RunnerPidFile `$runnerPidFile -RunnerStartFile `$runnerStartFile -Verbose 4>&1 |
+        ForEach-Object {
+            if (`$_ -is [System.Management.Automation.VerboseRecord]) { `$verboseLines.Add([string]`$_.Message); return }
+            `$_
+        } |
+        Select-Object -Last 1
+    foreach (`$line in `$verboseLines) {
+        if (`$line -notmatch 'cross-check failed') { continue }
+        if (`$QuietErrors) { Write-Debug `$line } else { Write-ServerErr `$line }
+    }
+    # 'OtherRunner' is a live runner owning the pidfile (identified by
+    # StartTime sidecar or cmdline regex); 'None'/'Self'/'Stale' are not.
+    `$running = (`$state -and `$state.status -eq 'OtherRunner')
+    # Preserve the prior null-when-absent contract: the file PID is reported
+    # only when a pidfile actually named one (0 means missing/unparsable).
+    `$pidVal = if (`$state -and `$state.pid -gt 0) { [int]`$state.pid } else { `$null }
+    [pscustomobject]@{ Running = `$running; RunnerPid = `$pidVal }
 }
 try {
     `$listener.Start()
@@ -602,17 +735,96 @@ try {
         try {
             `$req  = `$ctx.Request
             `$res  = `$ctx.Response
-            `$res.Headers.Add('Access-Control-Allow-Origin', '*')
+            # No wildcard Access-Control-Allow-Origin. This listener serves the
+            # status pages itself, so its own JS reads every endpoint same-origin
+            # and needs no CORS grant. A '*' here would instead let any foreign
+            # web page read every response and, paired with the mutating control
+            # routes below, drive cross-site requests against the host.
             `$path = `$req.Url.LocalPath.TrimStart('/')
             if (`$path -eq '' -or `$path -eq 'status/' -or `$path -eq 'status') { `$path = 'index.html' }
             `$path = `$path -replace '^status[/\\]', ''
+
+            # Cross-site request guard for state-changing operator-control routes.
+            # Requiring a non-simple custom header forces a cross-origin browser
+            # request through a CORS preflight, which the no-ACAO policy above
+            # leaves unanswered, so the browser blocks the follow-up; same-origin
+            # UI calls carry the header and pass. Guest/installer ingest routes
+            # (perf-checkpoints, diagnostics, log-upload) are curl clients, not
+            # browser CSRF vectors, so they stay ungated. Guards the drive-by
+            # class where a foreign page POSTs control/start-cycle (deletes
+            # in-progress VMs), triggers the arbitrary-target host probe, or
+            # spawns the host diagnostic on every hit.
+            `$csrfAlwaysProtected = @(
+                'control/start-cycle','control/break-continue','control/test-caching-proxy',
+                'control/host-diagnostic','control/step-pause','control/step-resume',
+                'control/cycle-pause','control/cycle-resume'
+            )
+            `$csrfWriteProtected = @('control/test-config','control/perf-aggregates')
+            if ((`$csrfAlwaysProtected -contains `$path) -or (`$csrfWriteProtected -contains `$path)) {
+                if (`$req.HttpMethod -eq 'OPTIONS') {
+                    # Preflight for a cross-origin custom-header request: answer
+                    # every guarded route the same way -- with no Access-Control-
+                    # Allow-* header -- so the browser denies the actual request.
+                    # Same-origin callers never preflight.
+                    `$res.StatusCode = 204
+                    `$res.OutputStream.Close()
+                    continue
+                }
+                # Always-protected routes require the header on any method; the
+                # write-protected pair only on state-changing verbs, since their
+                # GET/HEAD read path changes nothing.
+                `$needsHeader = (`$csrfAlwaysProtected -contains `$path) -or (@('POST','PUT') -contains `$req.HttpMethod)
+                if (`$needsHeader -and `$req.Headers['X-Yuruna'] -ne '1') {
+                    `$res.ContentType = 'application/json; charset=utf-8'
+                    `$res.Headers.Add('Cache-Control', 'no-store')
+                    Send-JsonError `$res 403 '{"ok":false,"error":"forbidden: missing X-Yuruna request header (cross-site request guard)"}'
+                    continue
+                }
+                # A mutating control route additionally requires that the caller
+                # is either on the loopback interface (the on-host operator, who
+                # is implicitly trusted) or presents a valid, short-lived control
+                # proof. The proof is an HMAC over the shared pool-auth-token,
+                # minted by the pool aggregator when the operator follows a
+                # Grafana deep-link and delivered to the page in a URL fragment
+                # (never sent to a server or written to an access log). A LAN peer
+                # or a guest VM reaches this listener over the network -- it can
+                # neither originate from loopback nor forge the HMAC without the
+                # shared token -- so control is fail-closed for them. With no
+                # pool-auth-token configured on this host the token reads empty
+                # and every non-loopback caller is rejected, i.e. control
+                # collapses to loopback-only. Guards against the unauthenticated-
+                # remote-control regression class.
+                if (`$needsHeader) {
+                    `$ctlLoopback = `$false
+                    try { `$ctlLoopback = [bool]`$req.RemoteEndPoint.Address.IsLoopback } catch { `$ctlLoopback = `$false }
+                    if (-not `$ctlLoopback) {
+                        `$ctlToken = ''
+                        try {
+                            if (Get-Command Import-Extension -ErrorAction SilentlyContinue) {
+                                try { `$null = Import-Extension -Area 'authentication' -RequireSingle } catch { `$null = `$_ }
+                            }
+                            `$ctlTm = if (Get-Command Get-EffectiveUser -ErrorAction SilentlyContinue) { Get-EffectiveUser -LogicalUser 'pool-auth-token' } else { `$null }
+                            if (`$ctlTm -and `$ctlTm.vaultKey -and (Get-Command Test-VaultEntry -ErrorAction SilentlyContinue) -and (Test-VaultEntry -VaultKey `$ctlTm.vaultKey)) {
+                                `$ctlToken = Get-Password -Username 'pool-auth-token'
+                            }
+                        } catch { `$ctlToken = '' }
+                        if (-not (Get-Command Test-YurunaControlProof -ErrorAction SilentlyContinue) -or
+                            -not (Test-YurunaControlProof -Token `$ctlToken -Wire ([string]`$req.Headers['X-Yuruna-Control']))) {
+                            `$res.ContentType = 'application/json; charset=utf-8'
+                            `$res.Headers.Add('Cache-Control', 'no-store')
+                            Send-JsonError `$res 403 '{"ok":false,"error":"forbidden: control route requires a loopback caller or a valid pool control proof"}'
+                            continue
+                        }
+                    }
+                }
+            }
 
             # --- REGION: /control/test-config: read/write test.config.yml from UI
             # GET parses the YAML on disk and sends it as JSON (200) so the
             # in-browser tree editor (test.config.html) does not need a YAML
             # parser. POST/PUT accepts a JSON body, validates that
             # ConvertFrom-Json parses it, converts to YAML, and atomically
-            # replaces the file (write .tmp + Move-Item). Bypasses the
+            # replaces the file (write .tmp + [IO.File]::Move). Bypasses the
             # /yuruna-repo/ deny-list because the operator has explicitly
             # opted into editing this file from the UI; the response is
             # no-store. All errors come back as {"ok":false,"error":...}.
@@ -624,11 +836,7 @@ try {
                 `$res.Headers.Add('Cache-Control', 'no-store')
                 if (`$req.HttpMethod -eq 'GET' -or `$req.HttpMethod -eq 'HEAD') {
                     if (-not (Test-Path -LiteralPath `$testConfigFile)) {
-                        `$res.StatusCode = 404
-                        `$body = [System.Text.Encoding]::UTF8.GetBytes('{"ok":false,"error":"test.config.yml not found"}')
-                        `$res.ContentLength64 = `$body.Length
-                        `$res.OutputStream.Write(`$body, 0, `$body.Length)
-                        `$res.OutputStream.Close()
+                        Send-JsonError `$res 404 '{"ok":false,"error":"test.config.yml not found"}'
                         continue
                     }
                     try {
@@ -637,7 +845,7 @@ try {
                         `$bytes = [System.Text.Encoding]::UTF8.GetBytes(`$json)
                     } catch {
                         `$res.StatusCode = 500
-                        `$errMsg = (`$_.Exception.Message -replace '\\','\\' -replace '"','\"' -replace '[\r\n]+',' ')
+                        `$errMsg = (Escape-JsonString `$_.Exception.Message)
                         `$bytes = [System.Text.Encoding]::UTF8.GetBytes('{"ok":false,"error":"YAML parse failed: ' + `$errMsg + '"}')
                     }
                     `$res.ContentLength64 = `$bytes.Length
@@ -651,11 +859,7 @@ try {
                     `$payload = `$null
                     # ContentLength64 == -1 means chunked/unknown; allow those through.
                     if (`$req.ContentLength64 -gt 1MB) {
-                        `$res.StatusCode = 413
-                        `$body = [System.Text.Encoding]::UTF8.GetBytes('{"ok":false,"error":"payload too large (>1 MB)"}')
-                        `$res.ContentLength64 = `$body.Length
-                        `$res.OutputStream.Write(`$body, 0, `$body.Length)
-                        `$res.OutputStream.Close()
+                        Send-JsonError `$res 413 '{"ok":false,"error":"payload too large (>1 MB)"}'
                         continue
                     }
                     try {
@@ -663,23 +867,15 @@ try {
                         `$payload = `$reader.ReadToEnd()
                         `$reader.Close()
                     } catch {
-                        `$res.StatusCode = 400
-                        `$body = [System.Text.Encoding]::UTF8.GetBytes('{"ok":false,"error":"could not read body"}')
-                        `$res.ContentLength64 = `$body.Length
-                        `$res.OutputStream.Write(`$body, 0, `$body.Length)
-                        `$res.OutputStream.Close()
+                        Send-JsonError `$res 400 '{"ok":false,"error":"could not read body"}'
                         continue
                     }
                     `$parsedDoc = `$null
                     try {
                         `$parsedDoc = `$payload | ConvertFrom-Json -AsHashtable -ErrorAction Stop
                     } catch {
-                        `$res.StatusCode = 400
-                        `$errMsg = (`$_.Exception.Message -replace '\\','\\' -replace '"','\"' -replace '[\r\n]+',' ')
-                        `$body = [System.Text.Encoding]::UTF8.GetBytes('{"ok":false,"error":"invalid JSON: ' + `$errMsg + '"}')
-                        `$res.ContentLength64 = `$body.Length
-                        `$res.OutputStream.Write(`$body, 0, `$body.Length)
-                        `$res.OutputStream.Close()
+                        `$errMsg = (Escape-JsonString `$_.Exception.Message)
+                        Send-JsonError `$res 400 ('{"ok":false,"error":"invalid JSON: ' + `$errMsg + '"}')
                         continue
                     }
                     # Validate vmStart.cachingProxyIP at save time: must be
@@ -720,15 +916,11 @@ try {
                         }
                     }
                     if (`$cacheIpErr) {
-                        `$res.StatusCode = 400
-                        `$errMsg = (`$cacheIpErr -replace '\\','\\' -replace '"','\"' -replace '[\r\n]+',' ')
-                        `$body = [System.Text.Encoding]::UTF8.GetBytes('{"ok":false,"error":"' + `$errMsg + '"}')
-                        `$res.ContentLength64 = `$body.Length
-                        `$res.OutputStream.Write(`$body, 0, `$body.Length)
-                        `$res.OutputStream.Close()
+                        `$errMsg = (Escape-JsonString `$cacheIpErr)
+                        Send-JsonError `$res 400 ('{"ok":false,"error":"' + `$errMsg + '"}')
                         continue
                     }
-                    `$tmp = "`$testConfigFile.tmp"
+                    `$tmp = "`$testConfigFile.`$PID-`$([guid]::NewGuid().ToString('N')).tmp"
                     `$writeOk = `$false
                     try {
                         # Written in the JSON body's key/element order (NOT canonical
@@ -739,20 +931,16 @@ try {
                         # is order-insensitive -- so the UI save does not need to sort here.
                         `$yamlOut = `$parsedDoc | ConvertTo-Yaml
                         Set-Content -LiteralPath `$tmp -Value `$yamlOut -Encoding utf8 -NoNewline
-                        Move-Item -LiteralPath `$tmp -Destination `$testConfigFile -Force
+                        [System.IO.File]::Move(`$tmp, `$testConfigFile, `$true)
                         `$writeOk = `$true
                     } catch {
-                        `$res.StatusCode = 500
-                        `$errMsg = (`$_.Exception.Message -replace '\\','\\' -replace '"','\"' -replace '[\r\n]+',' ')
-                        `$body = [System.Text.Encoding]::UTF8.GetBytes('{"ok":false,"error":"write failed: ' + `$errMsg + '"}')
-                        `$res.ContentLength64 = `$body.Length
-                        `$res.OutputStream.Write(`$body, 0, `$body.Length)
-                        `$res.OutputStream.Close()
+                        `$errMsg = (Escape-JsonString `$_.Exception.Message)
+                        Send-JsonError `$res 500 ('{"ok":false,"error":"write failed: ' + `$errMsg + '"}')
                         Write-ServerErr "test-config write failed: `$errMsg"
                     } finally {
                         # On the failure path, Set-Content may have left
                         # a partial .tmp next to the real file; on the
-                        # success path Move-Item already consumed it.
+                        # success path the atomic move already consumed it.
                         # Either way, ensure no .tmp is left behind.
                         if (-not `$writeOk -and (Test-Path -LiteralPath `$tmp)) {
                             Remove-Item -LiteralPath `$tmp -Force -ErrorAction SilentlyContinue
@@ -765,12 +953,8 @@ try {
                     `$res.OutputStream.Close()
                     continue
                 }
-                `$res.StatusCode = 405
                 `$res.Headers.Add('Allow', 'GET, POST, PUT')
-                `$body = [System.Text.Encoding]::UTF8.GetBytes('{"ok":false,"error":"method not allowed"}')
-                `$res.ContentLength64 = `$body.Length
-                `$res.OutputStream.Write(`$body, 0, `$body.Length)
-                `$res.OutputStream.Close()
+                Send-JsonError `$res 405 '{"ok":false,"error":"method not allowed"}'
                 continue
             }
 
@@ -786,12 +970,8 @@ try {
             # UI tooltip on the read-only field.
             if (`$path -eq 'control/runtime-env') {
                 if (`$req.HttpMethod -ne 'GET' -and `$req.HttpMethod -ne 'HEAD') {
-                    `$res.StatusCode = 405
                     `$res.Headers.Add('Allow', 'GET')
-                    `$body = [System.Text.Encoding]::UTF8.GetBytes('{"ok":false,"error":"method not allowed"}')
-                    `$res.ContentLength64 = `$body.Length
-                    `$res.OutputStream.Write(`$body, 0, `$body.Length)
-                    `$res.OutputStream.Close()
+                    Send-JsonError `$res 405 '{"ok":false,"error":"method not allowed"}'
                     continue
                 }
                 `$res.ContentType = 'application/json; charset=utf-8'
@@ -824,12 +1004,8 @@ try {
             # POST -> clear the cache then return fresh aggregates.
             if (`$path -eq 'control/perf-aggregates') {
                 if (`$req.HttpMethod -ne 'GET' -and `$req.HttpMethod -ne 'POST' -and `$req.HttpMethod -ne 'HEAD') {
-                    `$res.StatusCode = 405
                     `$res.Headers.Add('Allow', 'GET, POST')
-                    `$body = [System.Text.Encoding]::UTF8.GetBytes('{"ok":false,"error":"method not allowed"}')
-                    `$res.ContentLength64 = `$body.Length
-                    `$res.OutputStream.Write(`$body, 0, `$body.Length)
-                    `$res.OutputStream.Close()
+                    Send-JsonError `$res 405 '{"ok":false,"error":"method not allowed"}'
                     continue
                 }
                 if (`$req.HttpMethod -eq 'POST') {
@@ -1028,20 +1204,12 @@ try {
                 `$res.ContentType = 'application/json; charset=utf-8'
                 `$res.Headers.Add('Cache-Control', 'no-store')
                 if (`$req.HttpMethod -ne 'POST' -and `$req.HttpMethod -ne 'PUT') {
-                    `$res.StatusCode = 405
                     `$res.Headers.Add('Allow', 'POST, PUT')
-                    `$body = [System.Text.Encoding]::UTF8.GetBytes('{"ok":false,"error":"method not allowed; POST the checkpoint body"}')
-                    `$res.ContentLength64 = `$body.Length
-                    `$res.OutputStream.Write(`$body, 0, `$body.Length)
-                    `$res.OutputStream.Close()
+                    Send-JsonError `$res 405 '{"ok":false,"error":"method not allowed; POST the checkpoint body"}'
                     continue
                 }
                 if (`$req.ContentLength64 -gt 256KB) {
-                    `$res.StatusCode = 413
-                    `$body = [System.Text.Encoding]::UTF8.GetBytes('{"ok":false,"error":"payload too large (>256 KB)"}')
-                    `$res.ContentLength64 = `$body.Length
-                    `$res.OutputStream.Write(`$body, 0, `$body.Length)
-                    `$res.OutputStream.Close()
+                    Send-JsonError `$res 413 '{"ok":false,"error":"payload too large (>256 KB)"}'
                     continue
                 }
                 `$rawBody = ''
@@ -1052,11 +1220,7 @@ try {
                 `$parsed = `$null
                 try { `$parsed = `$rawBody | ConvertFrom-Json -AsHashtable -ErrorAction Stop } catch { `$parsed = `$null }
                 if (`$null -eq `$parsed -or -not (`$parsed -is [System.Collections.IDictionary])) {
-                    `$res.StatusCode = 400
-                    `$body = [System.Text.Encoding]::UTF8.GetBytes('{"ok":false,"error":"body must be a JSON object"}')
-                    `$res.ContentLength64 = `$body.Length
-                    `$res.OutputStream.Write(`$body, 0, `$body.Length)
-                    `$res.OutputStream.Close()
+                    Send-JsonError `$res 400 '{"ok":false,"error":"body must be a JSON object"}'
                     continue
                 }
                 # Bounded, validated copy of the checkpoint list (max 500;
@@ -1115,10 +1279,12 @@ try {
                     `$safeStamp   = `$receivedUtc -replace ':', '-'
                     `$tail        = ([Guid]::NewGuid().ToString('N')).Substring(0, 4)
                     `$ckptFile    = Join-Path `$ckptDir "`${safeStamp}__`${tail}.json"
+                    # The checkpoint filename already carries a per-write stamp+guid, so
+                    # its .tmp sibling is unique per writer without a further suffix.
                     `$tmpFile     = "`$ckptFile.tmp"
                     `$sidecarJson = `$sidecar | ConvertTo-Json -Depth 6 -Compress
                     [System.IO.File]::WriteAllText(`$tmpFile, `$sidecarJson)
-                    Move-Item -LiteralPath `$tmpFile -Destination `$ckptFile -Force
+                    [System.IO.File]::Move(`$tmpFile, `$ckptFile, `$true)
                     `$writeOk = `$true
                     # Light retention: keep the newest ~500 sidecars so the
                     # directory can't grow without bound across many cycles.
@@ -1132,11 +1298,7 @@ try {
                     Write-ServerErr "perf-checkpoints: write failed: `$(`$_.Exception.Message)"
                 }
                 if (-not `$writeOk) {
-                    `$res.StatusCode = 500
-                    `$body = [System.Text.Encoding]::UTF8.GetBytes('{"ok":false,"error":"sidecar write failed"}')
-                    `$res.ContentLength64 = `$body.Length
-                    `$res.OutputStream.Write(`$body, 0, `$body.Length)
-                    `$res.OutputStream.Close()
+                    Send-JsonError `$res 500 '{"ok":false,"error":"sidecar write failed"}'
                     continue
                 }
                 # Fresh checkpoint data invalidates the memoized aggregates so the
@@ -1151,7 +1313,7 @@ try {
                 continue
             }
 
-            # --- REGION: /control/test-caching-proxy?ip=<ip>: probe a caching proxy from the host
+            # --- REGION: /control/test-caching-proxy (POST ?ip=<ip>): probe a caching proxy from the host
             # Wraps Invoke-CachingProxyProbe (Test.CachingProxy.psm1, same
             # function the startup probe uses) so the test-config UI can
             # show a live connectivity verdict next to cachingProxyIP and
@@ -1161,13 +1323,13 @@ try {
             # returns valid=false WITHOUT running the probe so the UI can
             # render a "disabled" mark instead of a false negative.
             if (`$path -eq 'control/test-caching-proxy') {
-                if (`$req.HttpMethod -ne 'GET') {
-                    `$res.StatusCode = 405
-                    `$res.Headers.Add('Allow', 'GET')
-                    `$body = [System.Text.Encoding]::UTF8.GetBytes('{"ok":false,"error":"method not allowed"}')
-                    `$res.ContentLength64 = `$body.Length
-                    `$res.OutputStream.Write(`$body, 0, `$body.Length)
-                    `$res.OutputStream.Close()
+                # POST-only: this drives a live host-side outbound probe to an
+                # operator-supplied target, so it must not be reachable via a
+                # simple GET (e.g. a foreign page's <img src>). The ?ip= query
+                # is still honored on the POST.
+                if (`$req.HttpMethod -ne 'POST' -and `$req.HttpMethod -ne 'PUT') {
+                    `$res.Headers.Add('Allow', 'POST, PUT')
+                    Send-JsonError `$res 405 '{"ok":false,"error":"method not allowed"}'
                     continue
                 }
                 `$res.ContentType = 'application/json; charset=utf-8'
@@ -1206,7 +1368,7 @@ try {
                             lines              = @(`$probe.Lines)
                         } | ConvertTo-Json -Compress -Depth 4
                     } catch {
-                        `$errMsg = (`$_.Exception.Message -replace '\\','\\' -replace '"','\"' -replace '[\r\n]+',' ')
+                        `$errMsg = (Escape-JsonString `$_.Exception.Message)
                         `$payload = '{"ok":false,"ip":"' + (`$ipQ -replace '\\','\\' -replace '"','\"') + '","valid":true,"error":"' + `$errMsg + '"}'
                         Write-ServerErr "test-caching-proxy probe failed for `${ipQ}: `$errMsg"
                     }
@@ -1259,12 +1421,12 @@ try {
             #   1. <track>/runner.start sidecar (preferred): contains the
             #      outer pwsh's ISO-8601 StartTime, recorded at launch.
             #      We cross-check against Get-Process -Id <pid>'s live
-            #      StartTime — a PID-reuse by a different process has a
+            #      StartTime -- a PID-reuse by a different process has a
             #      different StartTime, so the check is forgery-resistant
             #      without depending on argv visibility. This is what
             #      makes the documented `pwsh ~/git/yuruna/test/Invoke-
             #      TestRunner.ps1` launch (run from an interactive pwsh
-            #      REPL on macOS/Linux) get correctly identified — there
+            #      REPL on macOS/Linux) get correctly identified -- there
             #      the process's argv is just `pwsh` (no script name),
             #      and the cmdline regex below false-negatives.
             #
@@ -1279,58 +1441,9 @@ try {
             # operator isn't fooled by status.json showing the last
             # cycle's data into thinking the runner is still active.
             if (`$path -eq 'control/runner-status') {
-                `$running = `$false
-                `$pidVal  = `$null
-                `$runnerPidFile   = Join-Path `$runtimeDir 'runner.pid'
-                `$runnerStartFile = Join-Path `$runtimeDir 'runner.start'
-                if (Test-Path -LiteralPath `$runnerPidFile) {
-                    try {
-                        `$rawPid = (Get-Content -LiteralPath `$runnerPidFile -Raw -ErrorAction Stop).Trim()
-                        if (`$rawPid -as [int]) {
-                            `$pidVal = [int]`$rawPid
-                            `$proc = Get-Process -Id `$pidVal -ErrorAction SilentlyContinue
-                            if (`$proc) {
-                                # Path 1: StartTime cross-check against the sidecar.
-                                if (Test-Path -LiteralPath `$runnerStartFile) {
-                                    try {
-                                        `$recorded   = (Get-Content -LiteralPath `$runnerStartFile -Raw -ErrorAction Stop).Trim()
-                                        `$recordedDt = [DateTimeOffset]::Parse(`$recorded).UtcDateTime
-                                        `$liveDt     = `$proc.StartTime.ToUniversalTime()
-                                        # 2s tolerance absorbs the
-                                        # ToString('o') -> Parse round-trip
-                                        # precision loss seen on some kernels
-                                        # without admitting an unrelated PID.
-                                        if ([Math]::Abs((`$recordedDt - `$liveDt).TotalSeconds) -le 2) {
-                                            `$running = `$true
-                                        }
-                                    } catch {
-                                        Write-ServerErr "runner.start cross-check failed: `$($_.Exception.Message)"
-                                    }
-                                }
-                                # Path 2: cmdline regex fallback.
-                                if (-not `$running) {
-                                    `$cmd = `$null
-                                    if (`$IsWindows) {
-                                        `$cmd = (Get-CimInstance Win32_Process -Filter "ProcessId=`$pidVal" -ErrorAction SilentlyContinue).CommandLine
-                                    } elseif (`$IsMacOS -or `$IsLinux) {
-                                        # `-ww` forces unlimited column width. Without it,
-                                        # BSD/macOS ps truncates `args` to the controlling
-                                        # terminal's columns (or 80 if there's no TTY -- the
-                                        # case for this HTTP server daemon), hiding the
-                                        # trailing `Invoke-TestRunner.ps1` token that the
-                                        # regex below matches against.
-                                        `$cmd = & '/bin/ps' -ww -p `$pidVal -o args= 2>`$null
-                                    }
-                                    if (`$cmd -and `$cmd -match 'Invoke-Test(?:Inner)?Runner\.ps1') {
-                                        `$running = `$true
-                                    }
-                                }
-                            }
-                        }
-                    } catch {
-                        Write-ServerErr "runner-status read failed: `$($_.Exception.Message)"
-                    }
-                }
+                `$rs      = Test-RunnerAlive
+                `$running = `$rs.Running
+                `$pidVal  = `$rs.RunnerPid
                 `$res.ContentType = 'application/json; charset=utf-8'
                 `$res.Headers.Add('Cache-Control', 'no-store')
                 `$payload = @{ running = `$running; pid = `$pidVal } | ConvertTo-Json -Compress
@@ -1412,7 +1525,7 @@ try {
                         `$bytes = [System.Text.Encoding]::UTF8.GetBytes(`$payload)
                     } catch {
                         `$res.StatusCode = 500
-                        `$errMsg = (`$_.Exception.Message -replace '\\','\\' -replace '"','\"' -replace '[\r\n]+',' ')
+                        `$errMsg = (Escape-JsonString `$_.Exception.Message)
                         `$bytes = [System.Text.Encoding]::UTF8.GetBytes('{"ok":false,"error":"' + `$errMsg + '"}')
                     }
                 }
@@ -1502,19 +1615,19 @@ try {
                         }
                     } catch {
                         `$vcStatus = 500
-                        `$vcError = (`$_.Exception.Message -replace '\\','\\' -replace '"','\"' -replace '[\r\n]+',' ')
+                        `$vcError = (Escape-JsonString `$_.Exception.Message)
                         Write-ServerErr "vault-credential failed: `$vcError"
                     }
                 }
                 if (`$vcError) {
                     `$res.StatusCode = `$vcStatus
-                    `$errMsg = (`$vcError -replace '\\','\\' -replace '"','\"' -replace '[\r\n]+',' ')
+                    `$errMsg = (Escape-JsonString `$vcError)
                     `$bytes = [System.Text.Encoding]::UTF8.GetBytes('{"ok":false,"error":"' + `$errMsg + '"}')
                 } else {
                     `$bytes = [System.Text.Encoding]::UTF8.GetBytes(`$payload)
                 }
                 `$res.ContentLength64 = `$bytes.Length
-                `$res.OutputStream.Write(`$bytes, 0, `$bytes.Length)
+                if (`$req.HttpMethod -ne 'HEAD') { `$res.OutputStream.Write(`$bytes, 0, `$bytes.Length) }
                 `$res.OutputStream.Close()
                 continue
             }
@@ -1522,10 +1635,10 @@ try {
             # --- REGION: Control endpoints: Pause/Continue back-channel from UI
             # Two pause switches, each backed by a flag file, mirrored
             # into status.json so the next UI poll flips the banner:
-            #   control.step-pause  — Invoke-Sequence checks at every
+            #   control.step-pause  -- Invoke-Sequence checks at every
             #                         step boundary; stops after the
             #                         running step finishes.
-            #   control.cycle-pause — Invoke-TestRunner checks at the
+            #   control.cycle-pause -- Invoke-TestRunner checks at the
             #                         cycle boundary; stops after the
             #                         current cycle finishes cleanup.
             # Parent-side Write-StatusJson keeps both in sync by
@@ -1553,7 +1666,7 @@ try {
                     `$doc[`$fieldName] = `$desiredPaused
                     `$tmp = "`$statusJsonFile.`$PID-`$([guid]::NewGuid().ToString('N')).tmp"
                     `$doc | ConvertTo-Json -Depth 20 | Set-Content -Path `$tmp -Encoding utf8
-                    Move-Item -Path `$tmp -Destination `$statusJsonFile -Force
+                    [System.IO.File]::Move(`$tmp, `$statusJsonFile, `$true)
                 } catch { Write-Debug `$_ }
                 `$res.ContentType = 'application/json; charset=utf-8'
                 `$res.Headers.Add('Cache-Control', 'no-store')
@@ -1580,33 +1693,21 @@ try {
                 `$res.ContentType = 'application/json; charset=utf-8'
                 `$res.Headers.Add('Cache-Control', 'no-store')
                 if (`$req.HttpMethod -ne 'POST' -and `$req.HttpMethod -ne 'PUT') {
-                    `$res.StatusCode = 405
                     `$res.Headers.Add('Allow', 'POST, PUT')
-                    `$body = [System.Text.Encoding]::UTF8.GetBytes('{"ok":false,"error":"POST required"}')
-                    `$res.ContentLength64 = `$body.Length
-                    `$res.OutputStream.Write(`$body, 0, `$body.Length)
-                    `$res.OutputStream.Close()
+                    Send-JsonError `$res 405 '{"ok":false,"error":"POST required"}'
                     continue
                 }
                 `$breakActiveFile   = Join-Path `$runtimeDir 'break-active.json'
                 `$breakContinueFile = Join-Path `$runtimeDir 'control.break-continue'
                 if (-not (Test-Path -LiteralPath `$breakActiveFile)) {
-                    `$res.StatusCode = 409
-                    `$body = [System.Text.Encoding]::UTF8.GetBytes('{"ok":false,"error":"no break active"}')
-                    `$res.ContentLength64 = `$body.Length
-                    `$res.OutputStream.Write(`$body, 0, `$body.Length)
-                    `$res.OutputStream.Close()
+                    Send-JsonError `$res 409 '{"ok":false,"error":"no break active"}'
                     continue
                 }
                 try {
                     Set-Content -Path `$breakContinueFile -Value (Get-Date -Format o) -ErrorAction Stop
                 } catch {
-                    `$res.StatusCode = 500
                     `$msg = '{"ok":false,"error":"could not write continue flag: ' + (`$_.Exception.Message -replace '"','\\"') + '"}'
-                    `$body = [System.Text.Encoding]::UTF8.GetBytes(`$msg)
-                    `$res.ContentLength64 = `$body.Length
-                    `$res.OutputStream.Write(`$body, 0, `$body.Length)
-                    `$res.OutputStream.Close()
+                    Send-JsonError `$res 500 `$msg
                     continue
                 }
                 `$body = [System.Text.Encoding]::UTF8.GetBytes('{"ok":true}')
@@ -1637,11 +1738,7 @@ try {
                 `$res.ContentType = 'application/json; charset=utf-8'
                 `$res.Headers.Add('Cache-Control', 'no-store')
                 if (`$req.HttpMethod -ne 'POST' -and `$req.HttpMethod -ne 'PUT') {
-                    `$res.StatusCode = 405
-                    `$body = [System.Text.Encoding]::UTF8.GetBytes('{"ok":false,"error":"POST required"}')
-                    `$res.ContentLength64 = `$body.Length
-                    `$res.OutputStream.Write(`$body, 0, `$body.Length)
-                    `$res.OutputStream.Close()
+                    Send-JsonError `$res 405 '{"ok":false,"error":"POST required"}'
                     continue
                 }
                 # File-existence lock. CreateNew is atomic at the OS layer;
@@ -1669,11 +1766,7 @@ try {
                 try {
                     `$lockHandle = [System.IO.File]::Open(`$lockFile, [System.IO.FileMode]::CreateNew, [System.IO.FileAccess]::ReadWrite, [System.IO.FileShare]::None)
                 } catch {
-                    `$res.StatusCode = 409
-                    `$body = [System.Text.Encoding]::UTF8.GetBytes('{"ok":false,"error":"another start-cycle request is in progress"}')
-                    `$res.ContentLength64 = `$body.Length
-                    `$res.OutputStream.Write(`$body, 0, `$body.Length)
-                    `$res.OutputStream.Close()
+                    Send-JsonError `$res 409 '{"ok":false,"error":"another start-cycle request is in progress"}'
                     continue
                 }
                 `$action = 'restarted'
@@ -1690,7 +1783,7 @@ try {
                         `$doc['stepPaused']  = `$false
                         `$tmp = "`$statusJsonFile.`$PID-`$([guid]::NewGuid().ToString('N')).tmp"
                         `$doc | ConvertTo-Json -Depth 20 | Set-Content -Path `$tmp -Encoding utf8
-                        Move-Item -Path `$tmp -Destination `$statusJsonFile -Force
+                        [System.IO.File]::Move(`$tmp, `$statusJsonFile, `$true)
                     } catch { Write-Debug `$_ }
 
                     # 2. signal "wake from inter-cycle delay" to a running inner
@@ -1701,38 +1794,10 @@ try {
                     #    logic as /control/runner-status: PID file + start
                     #    cross-check + cmdline regex fallback). Done BEFORE
                     #    Remove-TestVMFiles so the spawn decision is based
-                    #    on pre-kill state.
-                    `$runnerAlive    = `$false
-                    `$runnerPidFile  = Join-Path `$runtimeDir 'runner.pid'
-                    `$runnerStartFile = Join-Path `$runtimeDir 'runner.start'
-                    if (Test-Path -LiteralPath `$runnerPidFile) {
-                        try {
-                            `$rawPid = (Get-Content -LiteralPath `$runnerPidFile -Raw -ErrorAction Stop).Trim()
-                            if (`$rawPid -as [int]) {
-                                `$pidVal = [int]`$rawPid
-                                `$proc = Get-Process -Id `$pidVal -ErrorAction SilentlyContinue
-                                if (`$proc) {
-                                    if (Test-Path -LiteralPath `$runnerStartFile) {
-                                        try {
-                                            `$recorded   = (Get-Content -LiteralPath `$runnerStartFile -Raw -ErrorAction Stop).Trim()
-                                            `$recordedDt = [DateTimeOffset]::Parse(`$recorded).UtcDateTime
-                                            `$liveDt     = `$proc.StartTime.ToUniversalTime()
-                                            if ([Math]::Abs((`$recordedDt - `$liveDt).TotalSeconds) -le 2) { `$runnerAlive = `$true }
-                                        } catch { Write-Debug `$_ }
-                                    }
-                                    if (-not `$runnerAlive) {
-                                        `$cmd = `$null
-                                        if (`$IsWindows) {
-                                            `$cmd = (Get-CimInstance Win32_Process -Filter "ProcessId=`$pidVal" -ErrorAction SilentlyContinue).CommandLine
-                                        } elseif (`$IsMacOS -or `$IsLinux) {
-                                            `$cmd = & '/bin/ps' -ww -p `$pidVal -o args= 2>`$null
-                                        }
-                                        if (`$cmd -and `$cmd -match 'Invoke-Test(?:Inner)?Runner\.ps1') { `$runnerAlive = `$true }
-                                    }
-                                }
-                            }
-                        } catch { Write-Debug `$_ }
-                    }
+                    #    on pre-kill state. -QuietErrors keeps this probe's
+                    #    read failures on the debug stream (no server.err
+                    #    line), unlike the runner-status endpoint.
+                    `$runnerAlive = (Test-RunnerAlive -QuietErrors).Running
 
                     # 4. Remove-TestVMFiles synchronously. Captures both
                     #    streams; non-zero exit is surfaced in the response
@@ -1822,11 +1887,11 @@ try {
                 continue
             }
 
-            # --- REGION: /livecheck — cheap reachability probe for guests
+            # --- REGION: /livecheck -- cheap reachability probe for guests
             # Test-YurunaHost.ps1 (and fetch-and-execute's host probe) GET
             # this; success means "host server is reachable from this
             # guest, prefer it over GitHub." JSON body is {ok, service,
-            # time} — `service` lets a misdirected probe (e.g. someone
+            # time} -- `service` lets a misdirected probe (e.g. someone
             # else's HTTP server on the same port) be distinguished by
             # value, not just by 200/non-200.
             if (`$path -eq 'livecheck' -or `$path -eq 'livecheck/') {
@@ -1851,7 +1916,41 @@ try {
                 continue
             }
 
-            # --- REGION: /diagnostics/<folder>/<filename> — guest-pushed diagnostic dump
+            # --- REGION: /ca.crt -- caching-proxy CA for guest CA self-heal
+            # A guest whose seed was baked CA-less (the caching proxy was
+            # unreachable when the host built the seed) fetches this over the
+            # RFC1918 plain-HTTP path and update-ca-certificates it, so bumped
+            # HTTPS validates. Resolve-CachingProxyCaCertPem live-reads the
+            # CURRENT cache first (never a stale cached CA) and only falls back
+            # to the persisted last-good CA; 404 when neither resolves so the
+            # guest degrades to a diagnosed rc=60 rather than a silent pass.
+            # Serves the PUBLIC CA only -- never the state file, whose password
+            # stays deny-listed. See project_sslbump_ca_gating_durable_fix.
+            if (`$path -eq 'ca.crt' -or `$path -eq 'ca.crt/') {
+                `$caRes = `$null
+                try { `$caRes = Resolve-CachingProxyCaCertPem } catch { `$caRes = `$null }
+                if (`$caRes -and `$caRes.Pem) {
+                    `$res.ContentType = 'application/x-x509-ca-cert'
+                    `$res.Headers.Add('Cache-Control', 'no-store')
+                    `$res.Headers.Add('X-Yuruna-CA-Source', [string]`$caRes.Source)
+                    `$body = [System.Text.Encoding]::ASCII.GetBytes([string]`$caRes.Pem)
+                } else {
+                    `$res.StatusCode = 404
+                    `$res.ContentType = 'application/json; charset=utf-8'
+                    `$body = [System.Text.Encoding]::UTF8.GetBytes('{"ok":false,"error":"no caching-proxy CA resolvable"}')
+                }
+                `$res.ContentLength64 = `$body.Length
+                # HEAD: advertise Content-Length but send no body -- HTTP.sys
+                # RSTs the connection when user code writes a body for a HEAD,
+                # which would make a guest's wget --spider silently fall back.
+                if (`$req.HttpMethod -ne 'HEAD') {
+                    `$res.OutputStream.Write(`$body, 0, `$body.Length)
+                }
+                `$res.OutputStream.Close()
+                continue
+            }
+
+            # --- REGION: /diagnostics/<folder>/<filename> -- guest-pushed diagnostic dump
             # Second-defence path for Test.Diagnostic. The host has just
             # injected a one-liner into the guest console that:
             #   1. wgets automation/Get-SystemDiagnostic.ps1 from us,
@@ -1871,12 +1970,8 @@ try {
                 `$res.ContentType = 'application/json; charset=utf-8'
                 `$res.Headers.Add('Cache-Control', 'no-store')
                 if (`$req.HttpMethod -ne 'POST' -and `$req.HttpMethod -ne 'PUT') {
-                    `$res.StatusCode = 405
                     `$res.Headers.Add('Allow', 'POST, PUT')
-                    `$body = [System.Text.Encoding]::UTF8.GetBytes('{"ok":false,"error":"method not allowed; POST the dump body"}')
-                    `$res.ContentLength64 = `$body.Length
-                    `$res.OutputStream.Write(`$body, 0, `$body.Length)
-                    `$res.OutputStream.Close()
+                    Send-JsonError `$res 405 '{"ok":false,"error":"method not allowed; POST the dump body"}'
                     continue
                 }
                 # path: 'diagnostics/<folder>.../<filename>' -- at least
@@ -1893,11 +1988,7 @@ try {
                 `$rel  = `$path.Substring(12)
                 `$segs = @(`$rel -split '/' | Where-Object { `$_ })
                 if (`$segs.Count -lt 2 -or (`$segs | Where-Object { -not `$_ })) {
-                    `$res.StatusCode = 400
-                    `$body = [System.Text.Encoding]::UTF8.GetBytes('{"ok":false,"error":"expected /diagnostics/<folder>.../<filename>"}')
-                    `$res.ContentLength64 = `$body.Length
-                    `$res.OutputStream.Write(`$body, 0, `$body.Length)
-                    `$res.OutputStream.Close()
+                    Send-JsonError `$res 400 '{"ok":false,"error":"expected /diagnostics/<folder>.../<filename>"}'
                     continue
                 }
                 `$diagFile   = `$segs[-1]
@@ -1919,29 +2010,17 @@ try {
                     if (`$seg -match '[\\]' -or `$seg -match '\.\.') { `$segReject = `$true; break }
                 }
                 if (`$segReject) {
-                    `$res.StatusCode = 400
-                    `$body = [System.Text.Encoding]::UTF8.GetBytes('{"ok":false,"error":"folder segment contains traversal or backslash"}')
-                    `$res.ContentLength64 = `$body.Length
-                    `$res.OutputStream.Write(`$body, 0, `$body.Length)
-                    `$res.OutputStream.Close()
+                    Send-JsonError `$res 400 '{"ok":false,"error":"folder segment contains traversal or backslash"}'
                     continue
                 }
                 if (`$diagFile -notlike '*.system.diagnostic.*.txt' -or `$diagFile -match '[\\/]' -or `$diagFile -match '\.\.') {
-                    `$res.StatusCode = 400
-                    `$body = [System.Text.Encoding]::UTF8.GetBytes('{"ok":false,"error":"filename must match *.system.diagnostic.<id>.txt"}')
-                    `$res.ContentLength64 = `$body.Length
-                    `$res.OutputStream.Write(`$body, 0, `$body.Length)
-                    `$res.OutputStream.Close()
+                    Send-JsonError `$res 400 '{"ok":false,"error":"filename must match *.system.diagnostic.<id>.txt"}'
                     continue
                 }
                 `$folderPath = `$logDir
                 foreach (`$seg in `$folderSegs) { `$folderPath = Join-Path `$folderPath `$seg }
                 if (-not (Test-Path -LiteralPath `$folderPath -PathType Container)) {
-                    `$res.StatusCode = 404
-                    `$body = [System.Text.Encoding]::UTF8.GetBytes('{"ok":false,"error":"failure folder not found; runner must have created it first"}')
-                    `$res.ContentLength64 = `$body.Length
-                    `$res.OutputStream.Write(`$body, 0, `$body.Length)
-                    `$res.OutputStream.Close()
+                    Send-JsonError `$res 404 '{"ok":false,"error":"failure folder not found; runner must have created it first"}'
                     continue
                 }
                 # Pin the resolved file under logDir so a folder name that
@@ -1950,28 +2029,20 @@ try {
                 `$filePath = [System.IO.Path]::GetFullPath((Join-Path `$folderPath `$diagFile))
                 `$logRootFull = [System.IO.Path]::GetFullPath(`$logDir)
                 if (-not `$filePath.StartsWith(`$logRootFull)) {
-                    `$res.StatusCode = 403
-                    `$body = [System.Text.Encoding]::UTF8.GetBytes('{"ok":false,"error":"path escapes log root"}')
-                    `$res.ContentLength64 = `$body.Length
-                    `$res.OutputStream.Write(`$body, 0, `$body.Length)
-                    `$res.OutputStream.Close()
+                    Send-JsonError `$res 403 '{"ok":false,"error":"path escapes log root"}'
                     continue
                 }
                 if (`$req.ContentLength64 -gt 5MB) {
-                    `$res.StatusCode = 413
-                    `$body = [System.Text.Encoding]::UTF8.GetBytes('{"ok":false,"error":"payload too large (>5 MB)"}')
-                    `$res.ContentLength64 = `$body.Length
-                    `$res.OutputStream.Write(`$body, 0, `$body.Length)
-                    `$res.OutputStream.Close()
+                    Send-JsonError `$res 413 '{"ok":false,"error":"payload too large (>5 MB)"}'
                     continue
                 }
                 # Stream the body straight to disk via a FileStream copy --
                 # we don't need to decode/inspect, and avoiding the
                 # StreamReader allocation keeps a 1 MB body off the GC
-                # heap. Tmp + Move-Item preserves the "no partial file
+                # heap. Tmp + atomic [IO.File]::Move preserves the "no partial file
                 # visible to the dashboard" property the dispatcher already
                 # depends on elsewhere.
-                `$tmp = "`$filePath.tmp"
+                `$tmp = "`$filePath.`$PID-`$([guid]::NewGuid().ToString('N')).tmp"
                 `$bytesWritten = 0
                 `$writeOk = `$false
                 try {
@@ -1986,11 +2057,11 @@ try {
                             if (`$bytesWritten -gt 5MB) { throw 'streamed body exceeded 5 MB cap' }
                         }
                     } finally { `$out.Dispose() }
-                    Move-Item -LiteralPath `$tmp -Destination `$filePath -Force
+                    [System.IO.File]::Move(`$tmp, `$filePath, `$true)
                     `$writeOk = `$true
                 } catch {
                     `$res.StatusCode = 500
-                    `$errMsg = (`$_.Exception.Message -replace '\\','\\' -replace '"','\"' -replace '[\r\n]+',' ')
+                    `$errMsg = (Escape-JsonString `$_.Exception.Message)
                     `$body = [System.Text.Encoding]::UTF8.GetBytes('{"ok":false,"error":"write failed: ' + `$errMsg + '"}')
                     `$res.ContentLength64 = `$body.Length
                     `$res.OutputStream.Write(`$body, 0, `$body.Length)
@@ -2009,55 +2080,21 @@ try {
                 continue
             }
 
-            # --- REGION: /yuruna-archive.tar.gz — committed-content tarball
+            # --- REGION: /yuruna-archive.tar.gz -- committed-content tarball
             # Replaces ``git clone`` for guests in the dev iteration loop:
             # ``git archive --format=tar.gz HEAD`` streams a tarball of
             # the latest committed tree, no .git/, no working-tree
             # uncommitted noise. Sidesteps the deny-list (which forbids
             # .git/) since it does not expose the repo internals.
             if (`$path -eq 'yuruna-archive.tar.gz') {
-                `$tmp       = [System.IO.Path]::GetTempFileName()
-                `$originDir = `$null
-                try {
-                    # Inject a .yuruna-origin sidecar at the tarball root so
-                    # guests (which have no .git/ after `git archive` extract)
-                    # can still report the framework repo's origin URL in
-                    # Get-SystemDiagnostic. --add-file places the file at
-                    # archive root using its basename.
-                    `$archiveArgs = @('-C', `$repoRoot, 'archive', '--format=tar.gz')
-                    `$originUrl = & git -C `$repoRoot config --get remote.origin.url 2>`$null
-                    if (`$LASTEXITCODE -eq 0 -and -not [string]::IsNullOrWhiteSpace(`$originUrl)) {
-                        `$originDir  = New-Item -ItemType Directory -Path ([IO.Path]::Combine([IO.Path]::GetTempPath(), [Guid]::NewGuid().ToString('N'))) -Force
-                        `$originFile = Join-Path `$originDir.FullName '.yuruna-origin'
-                        [IO.File]::WriteAllText(`$originFile, (([string]`$originUrl).Trim()))
-                        `$archiveArgs += ('--add-file=' + `$originFile)
-                    }
-                    `$archiveArgs += @('-o', `$tmp, 'HEAD')
-                    & git @archiveArgs 2>`$null
-                    if (`$LASTEXITCODE -ne 0 -or -not (Test-Path `$tmp)) {
-                        `$res.StatusCode = 500
-                        `$body = [System.Text.Encoding]::UTF8.GetBytes('git archive failed')
-                        `$res.OutputStream.Write(`$body, 0, `$body.Length)
-                        `$res.OutputStream.Close()
-                        continue
-                    }
-                    `$bytes = [System.IO.File]::ReadAllBytes(`$tmp)
-                    `$res.ContentType = 'application/gzip'
-                    `$res.Headers.Add('Cache-Control', 'no-store')
-                    `$res.ContentLength64 = `$bytes.Length
-                    `$res.OutputStream.Write(`$bytes, 0, `$bytes.Length)
-                    `$res.OutputStream.Close()
-                } catch {
-                    Write-ServerErr "yuruna-archive: `$(`$_.Exception.Message)"
-                    try { `$ctx.Response.Abort() } catch { Write-Debug `$_ }
-                } finally {
-                    Remove-Item `$tmp -Force -ErrorAction SilentlyContinue
-                    if (`$originDir) { Remove-Item -LiteralPath `$originDir.FullName -Recurse -Force -ErrorAction SilentlyContinue }
-                }
+                # Injects a .yuruna-origin sidecar at the tarball root so guests
+                # (which have no .git/ after ``git archive`` extract) can still
+                # report the framework repo's origin URL in Get-SystemDiagnostic.
+                Send-GitArchive -Response `$res -Request `$req -Context `$ctx -RepoDir `$repoRoot -ErrorLabel 'yuruna-archive'
                 continue
             }
 
-            # --- REGION: /yuruna-project-archive.tar.gz — project repo tarball
+            # --- REGION: /yuruna-project-archive.tar.gz -- project repo tarball
             # Symmetric counterpart to /yuruna-archive.tar.gz, but for the
             # project repo at <repoRoot>/project/. Update-ProjectClone
             # populates that folder each cycle by ``git clone``-ing the
@@ -2078,42 +2115,7 @@ try {
                     `$res.OutputStream.Close()
                     continue
                 }
-                `$tmp       = [System.IO.Path]::GetTempFileName()
-                `$originDir = `$null
-                try {
-                    # Mirrors /yuruna-archive.tar.gz: inject a .yuruna-origin
-                    # sidecar so guests can recover the project repo's
-                    # origin URL even though `git archive` strips .git/.
-                    `$archiveArgs = @('-C', `$projectRoot, 'archive', '--format=tar.gz')
-                    `$originUrl = & git -C `$projectRoot config --get remote.origin.url 2>`$null
-                    if (`$LASTEXITCODE -eq 0 -and -not [string]::IsNullOrWhiteSpace(`$originUrl)) {
-                        `$originDir  = New-Item -ItemType Directory -Path ([IO.Path]::Combine([IO.Path]::GetTempPath(), [Guid]::NewGuid().ToString('N'))) -Force
-                        `$originFile = Join-Path `$originDir.FullName '.yuruna-origin'
-                        [IO.File]::WriteAllText(`$originFile, (([string]`$originUrl).Trim()))
-                        `$archiveArgs += ('--add-file=' + `$originFile)
-                    }
-                    `$archiveArgs += @('-o', `$tmp, 'HEAD')
-                    & git @archiveArgs 2>`$null
-                    if (`$LASTEXITCODE -ne 0 -or -not (Test-Path `$tmp)) {
-                        `$res.StatusCode = 500
-                        `$body = [System.Text.Encoding]::UTF8.GetBytes('git archive failed')
-                        `$res.OutputStream.Write(`$body, 0, `$body.Length)
-                        `$res.OutputStream.Close()
-                        continue
-                    }
-                    `$bytes = [System.IO.File]::ReadAllBytes(`$tmp)
-                    `$res.ContentType = 'application/gzip'
-                    `$res.Headers.Add('Cache-Control', 'no-store')
-                    `$res.ContentLength64 = `$bytes.Length
-                    `$res.OutputStream.Write(`$bytes, 0, `$bytes.Length)
-                    `$res.OutputStream.Close()
-                } catch {
-                    Write-ServerErr "yuruna-project-archive: `$(`$_.Exception.Message)"
-                    try { `$ctx.Response.Abort() } catch { Write-Debug `$_ }
-                } finally {
-                    Remove-Item `$tmp -Force -ErrorAction SilentlyContinue
-                    if (`$originDir) { Remove-Item -LiteralPath `$originDir.FullName -Recurse -Force -ErrorAction SilentlyContinue }
-                }
+                Send-GitArchive -Response `$res -Request `$req -Context `$ctx -RepoDir `$projectRoot -ErrorLabel 'yuruna-project-archive'
                 continue
             }
 
@@ -2142,12 +2144,8 @@ try {
                 `$res.ContentType = 'application/json; charset=utf-8'
                 `$res.Headers.Add('Cache-Control', 'no-store')
                 if (`$req.HttpMethod -ne 'PUT' -and `$req.HttpMethod -ne 'POST') {
-                    `$res.StatusCode = 405
                     `$res.Headers.Add('Allow', 'PUT, POST')
-                    `$body = [System.Text.Encoding]::UTF8.GetBytes('{"ok":false,"error":"PUT or POST required"}')
-                    `$res.ContentLength64 = `$body.Length
-                    `$res.OutputStream.Write(`$body, 0, `$body.Length)
-                    `$res.OutputStream.Close()
+                    Send-JsonError `$res 405 '{"ok":false,"error":"PUT or POST required"}'
                     continue
                 }
                 `$uploadRel = `$path.Substring(11) -replace '\\','/'
@@ -2157,30 +2155,18 @@ try {
                 elseif (`$uploadRel -match '^/')                           { `$uploadDeny = `$true }
                 elseif (-not (`$uploadRel -match '\.(log|txt|json|err|crash)`$')) { `$uploadDeny = `$true }
                 if (`$uploadDeny) {
-                    `$res.StatusCode = 400
-                    `$body = [System.Text.Encoding]::UTF8.GetBytes('{"ok":false,"error":"invalid upload path (must end in .log/.txt/.json/.err/.crash, no traversal)"}')
-                    `$res.ContentLength64 = `$body.Length
-                    `$res.OutputStream.Write(`$body, 0, `$body.Length)
-                    `$res.OutputStream.Close()
+                    Send-JsonError `$res 400 '{"ok":false,"error":"invalid upload path (must end in .log/.txt/.json/.err/.crash, no traversal)"}'
                     continue
                 }
                 if (`$req.ContentLength64 -gt 4MB) {
-                    `$res.StatusCode = 413
-                    `$body = [System.Text.Encoding]::UTF8.GetBytes('{"ok":false,"error":"payload too large (>4 MB)"}')
-                    `$res.ContentLength64 = `$body.Length
-                    `$res.OutputStream.Write(`$body, 0, `$body.Length)
-                    `$res.OutputStream.Close()
+                    Send-JsonError `$res 413 '{"ok":false,"error":"payload too large (>4 MB)"}'
                     continue
                 }
                 `$uploadTarget = Join-Path `$logDir `$uploadRel
                 `$uploadFull   = [System.IO.Path]::GetFullPath(`$uploadTarget)
                 `$logDirFull   = [System.IO.Path]::GetFullPath(`$logDir)
                 if (-not `$uploadFull.StartsWith(`$logDirFull)) {
-                    `$res.StatusCode = 403
-                    `$body = [System.Text.Encoding]::UTF8.GetBytes('{"ok":false,"error":"path escapes log dir"}')
-                    `$res.ContentLength64 = `$body.Length
-                    `$res.OutputStream.Write(`$body, 0, `$body.Length)
-                    `$res.OutputStream.Close()
+                    Send-JsonError `$res 403 '{"ok":false,"error":"path escapes log dir"}'
                     continue
                 }
                 `$uploadParent = Split-Path -Parent `$uploadFull
@@ -2208,12 +2194,8 @@ try {
                     Write-ServerErr "log-upload write failed for `$uploadRel : `$writeErr"
                 }
                 if (-not `$writeOk) {
-                    `$res.StatusCode = 500
-                    `$errEsc = (`$writeErr -replace '\\','\\' -replace '"','\"' -replace '[\r\n]+',' ')
-                    `$body = [System.Text.Encoding]::UTF8.GetBytes('{"ok":false,"error":"write failed: ' + `$errEsc + '"}')
-                    `$res.ContentLength64 = `$body.Length
-                    `$res.OutputStream.Write(`$body, 0, `$body.Length)
-                    `$res.OutputStream.Close()
+                    `$errEsc = (Escape-JsonString `$writeErr)
+                    Send-JsonError `$res 500 ('{"ok":false,"error":"write failed: ' + `$errEsc + '"}')
                     continue
                 }
                 `$res.StatusCode = 201
@@ -2343,7 +2325,7 @@ try {
             # When the resolved path is a directory, serve an HTML index
             # of its contents with relative links. Used by the failure-
             # screens folder under /log/<id>.<ts>.failure-screens-<vm>/
-            # whose <a href="…/"> in the HTML transcript otherwise 404'd.
+            # whose <a href=".../"> in the HTML transcript otherwise 404'd.
             # Skipped for /yuruna-repo/* so a working-tree listing never
             # exposes paths beyond the existing per-file deny-list.
             if (Test-Path `$file -PathType Container) {
@@ -2375,7 +2357,7 @@ try {
                 # the inner attribute quotes) and at deployed-parse
                 # time. `$titleEnc` is the only dynamic part, so a
                 # plain `+` keeps the rest literal.
-                [void]`$sb.AppendLine('<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><title>Index of ' + `$titleEnc + '</title><link rel="stylesheet" href="/yuruna.common.css"><style>body{margin:1.5em}h1{font-size:1.1em}table{border-collapse:collapse}td,th{padding:0.2em 1em;border-bottom:1px solid var(--border);font-family:var(--font-mono);text-align:left}th{background:var(--bg-hover)}</style></head><body>')
+                [void]`$sb.AppendLine('<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><title>Index of ' + `$titleEnc + '</title><link rel="stylesheet" href="/yuruna.common.css"><style>body{margin:1.5em}h1{font-size:1.1em}table{border-collapse:collapse}td,th{padding:0.2em 1em;border-bottom:1px solid var(--border);font-family:var(--font-mono);text-align:left}th{background:var(--bg-hover)}</style></head><body>')
                 [void]`$sb.AppendLine("<h1>Index of `$titleEnc</h1>")
                 [void]`$sb.AppendLine('<table><thead><tr><th>Name</th><th>Size</th><th>Modified (UTC)</th></tr></thead><tbody>')
                 if (`$origLocal -ne '/') {
@@ -2396,7 +2378,7 @@ try {
                 `$res.ContentType = 'text/html; charset=utf-8'
                 `$res.Headers.Add('Cache-Control', 'no-store, no-cache, must-revalidate')
                 `$res.ContentLength64 = `$bytes.Length
-                `$res.OutputStream.Write(`$bytes, 0, `$bytes.Length)
+                if (`$req.HttpMethod -ne 'HEAD') { `$res.OutputStream.Write(`$bytes, 0, `$bytes.Length) }
                 `$res.OutputStream.Close()
                 continue
             }
@@ -2449,7 +2431,11 @@ try {
                 }
                 `$bytes = [System.IO.File]::ReadAllBytes(`$file)
                 `$res.ContentLength64 = `$bytes.Length
-                `$res.OutputStream.Write(`$bytes, 0, `$bytes.Length)
+                # HEAD returns the headers (incl. Content-Length) but no body:
+                # skip the read+write so a large file isn't loaded only to be
+                # discarded, and the managed HttpListener (Linux/macOS) doesn't
+                # emit an unexpected body on a HEAD response.
+                if (`$req.HttpMethod -ne 'HEAD') { `$res.OutputStream.Write(`$bytes, 0, `$bytes.Length) }
             } else {
                 `$res.StatusCode = 404
                 `$body = [System.Text.Encoding]::UTF8.GetBytes('Not Found')
@@ -2513,7 +2499,7 @@ if ($IsWindows) {
     # the long-running status server which without explicit redirection
     # also inherits those shared handles. When the inner cycle ends and
     # the outer's WaitForExit() returns, the grandchild still holds the
-    # console handles open — which on Windows can keep the outer's
+    # console handles open -- which on Windows can keep the outer's
     # Start-Process -Wait pinned past the inner's actual exit, producing
     # the symptom "[outer cycle N] outer runner back in control" never
     # firing on outer.log even though the inner clearly emitted its

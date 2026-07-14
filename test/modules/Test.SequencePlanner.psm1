@@ -1,5 +1,5 @@
-﻿<#PSScriptInfo
-.VERSION 2026.07.10
+<#PSScriptInfo
+.VERSION 2026.07.14
 .GUID 42a1b2c3-d4e5-4f67-8901-bc012345677a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -259,7 +259,7 @@ function Add-CyclePlanEntriesForTopLevel {
       - startSequences:    chain entries matching ^start\. (run during Start-GuestOS)
       - workloadSequences: every other chain entry (run during Start-GuestWorkload)
 
-    A missing top-level or unresolvable prereq is logged and skipped — the
+    A missing top-level or unresolvable prereq is logged and skipped -- the
     rest of the plan still runs. The runner is responsible for handling
     cases where the same guest appears in multiple entries (currently it
     merges them for a single VM lifecycle).
@@ -331,7 +331,7 @@ function Resolve-TestSetCyclePlan {
     Returns the deduplicated guest list from a cycle plan, in first-appearance order.
 .DESCRIPTION
     The runner uses this for pre-flight folder checks, image refresh, and
-    VM-name allocation — places that operate per unique guest rather than
+    VM-name allocation -- places that operate per unique guest rather than
     per plan entry. The relative order matches the order entries appear in
     the plan, which is itself the order top-level sequences appear in
     the project/test/test.runner.yml sequences list.

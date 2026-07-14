@@ -1,5 +1,5 @@
-﻿<#PSScriptInfo
-.VERSION 2026.07.10
+<#PSScriptInfo
+.VERSION 2026.07.14
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456723
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -17,10 +17,10 @@
 #requires -version 7
 
 # Test.Config* role pyramid:
-#   * Test.Config            — mtime-cached YAML reader (the data layer).
-#   * Test.ConfigValidator   — schema + freshness primitives (the rules
+#   * Test.Config            -- mtime-cached YAML reader (the data layer).
+#   * Test.ConfigValidator   -- schema + freshness primitives (the rules
 #                              layer). Reusable across callers.
-#   * Test.ConfigPreflight   — pre-cycle gate that spawns Test-Config.ps1
+#   * Test.ConfigPreflight   -- pre-cycle gate that spawns Test-Config.ps1
 #                              and refuses the cycle on FAIL items
 #                              (this file; the policy layer).
 # "Preflight" names the *when* (before each cycle) instead of the

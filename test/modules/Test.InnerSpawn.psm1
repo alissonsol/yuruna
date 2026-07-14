@@ -1,5 +1,5 @@
-﻿<#PSScriptInfo
-.VERSION 2026.07.10
+<#PSScriptInfo
+.VERSION 2026.07.14
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456722
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -47,11 +47,11 @@ function New-InnerRunnerArgList {
         Bool / int / double values are emitted as PowerShell literals so
         the binder preserves the type.
     .PARAMETER ExcludeParameter
-        Names that exist in $Parameters but must NOT be forwarded — e.g.
+        Names that exist in $Parameters but must NOT be forwarded -- e.g.
         outer-only switches like -NoConfigGate that the inner does not
         accept.
     .OUTPUTS
-        [string[]] — pass with @ splatting to `& $pwshExe`.
+        [string[]] -- pass with @ splatting to `& $pwshExe`.
     #>
     [CmdletBinding()]
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions',

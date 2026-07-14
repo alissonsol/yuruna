@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.10
+.VERSION 2026.07.14
 .GUID 42c9d0e1-b3a4-4f56-9b67-78c2e3f4d5a6
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -15,6 +15,10 @@
 #>
 
 #requires -version 7
+
+# Get-YurunaGitHubSource: which repository/commit this host serves, and the token
+# that opens it. Build-CloudInitUserData bakes those into every guest seed.
+Import-Module (Join-Path $PSScriptRoot 'Yuruna.GitHubSource.psm1') -Force -DisableNameChecking
 
 <#
 .SYNOPSIS
@@ -331,6 +335,29 @@ function Build-CloudInitUserData {
     }
     if (-not $fullReplacement.ContainsKey('YURUNA_NETWORK_BASE64_PLACEHOLDER')) {
         $fullReplacement['YURUNA_NETWORK_BASE64_PLACEHOLDER'] = $b64.NetworkLib
+    }
+    # The guest's GitHub coordinates: which repository this host is serving, the
+    # commit it is at, and the token that opens it when it is private. Resolved
+    # here, from $RepoRoot, for the same reason the base64 script bodies are --
+    # every New-VM.ps1 needs the identical answer, and a per-caller copy is a
+    # per-caller chance to name a different repository than the one the runner
+    # types at fetch time. Templates that do not carry these placeholders (the
+    # caching-proxy and stash-service seeds) simply never consume them.
+    $ghSource = Get-YurunaGitHubSource -RepoRoot $RepoRoot
+    if (-not $fullReplacement.ContainsKey('YURUNA_GITHUB_REPO_PLACEHOLDER')) {
+        $fullReplacement['YURUNA_GITHUB_REPO_PLACEHOLDER'] = $ghSource.Repo
+    }
+    if (-not $fullReplacement.ContainsKey('YURUNA_GITHUB_REF_PLACEHOLDER')) {
+        $fullReplacement['YURUNA_GITHUB_REF_PLACEHOLDER'] = $ghSource.Ref
+    }
+    if (-not $fullReplacement.ContainsKey('GH_TOKEN_PLACEHOLDER')) {
+        $fullReplacement['GH_TOKEN_PLACEHOLDER'] = $ghSource.Token
+    }
+    if (-not $fullReplacement.ContainsKey('YURUNA_FRAMEWORK_URL_PLACEHOLDER')) {
+        $fullReplacement['YURUNA_FRAMEWORK_URL_PLACEHOLDER'] = $ghSource.FrameworkUrl
+    }
+    if (-not $fullReplacement.ContainsKey('YURUNA_PROJECT_URL_PLACEHOLDER')) {
+        $fullReplacement['YURUNA_PROJECT_URL_PLACEHOLDER'] = $ghSource.ProjectUrl
     }
     $resolved = Resolve-CloudInitPlaceholder -TemplateContent $merged -Replacement $fullReplacement -AllowedUnresolved $AllowedUnresolved
     if ($OutputPath) {

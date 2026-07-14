@@ -1,5 +1,5 @@
-﻿<#PSScriptInfo
-.VERSION 2026.07.10
+<#PSScriptInfo
+.VERSION 2026.07.14
 .GUID 42c3d4e5-f6a7-4b89-0c12-de3f4a5b6c7d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -420,7 +420,7 @@ if (-not (Test-Path $cleanupScript)) {
     exit 1
 }
 
-# Always run the orphan-file sweep — even if some VMs survived the
+# Always run the orphan-file sweep -- even if some VMs survived the
 # registry-removal step. Their on-disk files are still claimed by the
 # surviving registration so the orphan script will skip them, but
 # files left over from earlier failures (the actual symptom on
@@ -434,3 +434,12 @@ Write-Status ""
 $orphanArgs = @{ Force = $true }
 if ($Quiet) { $orphanArgs['Quiet'] = $true }
 & $cleanupScript @orphanArgs
+
+# Surface incomplete cleanup to an automated caller. Survivors are VMs that
+# resisted registry removal; their on-disk files stay claimed so the orphan
+# sweep above intentionally skips them. A caller (the cycle-start sweep) needs
+# a non-zero exit to retry or alert instead of treating a partial teardown as
+# clean. Run the orphan sweep first so the reclaimable files are always freed.
+if ($survivors.Count -gt 0) {
+    exit 1
+}

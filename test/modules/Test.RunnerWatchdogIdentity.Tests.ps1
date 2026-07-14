@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.10
+.VERSION 2026.07.14
 .GUID 42e5f6a7-b8c9-4d02-9345-6e7f8a9b0c1d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -41,9 +41,12 @@ $here    = Split-Path -Parent $PSCommandPath
 $modPath = Join-Path $here 'Test.RunnerWatchdog.psm1'
 Import-Module $modPath -Force
 
-$script:IdentitySb = [scriptblock]::Create((Get-WatchdogInnerIdentityScript))
+# Unqualified and above the first Describe: an It block resolves a plain file-scope
+# name through its parent scope chain, but a $script:-qualified one binds to the test
+# framework's own script scope and reads back $null once the run phase starts.
+$IdentitySb = [scriptblock]::Create((Get-WatchdogInnerIdentityScript))
 
-# --- REGION: AST helpers (script scope; referenced from It blocks -> Pester 4)
+# --- REGION: AST helpers (file scope; referenced from It blocks)
 function Get-ModuleAst {
     $errs = $null
     $ast = [System.Management.Automation.Language.Parser]::ParseFile($modPath, [ref]$null, [ref]$errs)
@@ -102,19 +105,19 @@ function Test-StopProcessGatedBy {
 Describe 'Get-WatchdogInnerIdentityScript predicate distinguishes a reused PID' {
     It 'is true for a live process whose recorded StartTime matches' {
         $start = (Get-Process -Id $PID).StartTime.ToUniversalTime().ToString('o')
-        (& $script:IdentitySb $PID $start) | Should -Be $true
+        (& $IdentitySb $PID $start) | Should -Be $true
     }
     It 'is false for the SAME live PID with a different StartTime (a reused PID)' {
-        (& $script:IdentitySb $PID '2000-01-01T00:00:00.0000000Z') | Should -Be $false
+        (& $IdentitySb $PID '2000-01-01T00:00:00.0000000Z') | Should -Be $false
     }
     It 'is false for an exited PID' {
         $proc = Start-Process -FilePath ([System.Environment]::ProcessPath) `
             -ArgumentList '-NoProfile', '-Command', 'exit' -PassThru -WindowStyle Hidden
         $proc.WaitForExit()
-        (& $script:IdentitySb $proc.Id '2026-01-01T00:00:00.0000000Z') | Should -Be $false
+        (& $IdentitySb $proc.Id '2026-01-01T00:00:00.0000000Z') | Should -Be $false
     }
     It 'is false when no arm-time start was recorded (identity unprovable)' {
-        (& $script:IdentitySb $PID '') | Should -Be $false
+        (& $IdentitySb $PID '') | Should -Be $false
     }
 }
 

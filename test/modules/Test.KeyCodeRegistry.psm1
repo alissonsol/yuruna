@@ -1,5 +1,5 @@
-﻿<#PSScriptInfo
-.VERSION 2026.07.10
+<#PSScriptInfo
+.VERSION 2026.07.14
 .GUID 42e7c4b3-d2a1-4f56-9c78-3e4f5a6b7c80
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -39,7 +39,7 @@
     See docs/host-io.md for the broader transport contract.
 #>
 
-# ── Maps owned by this module ─────────────────────────────────────────────────
+# -- Maps owned by this module -------------------------------------------------
 
 # macOS UTM AppleScript named-key code table.
 $script:UtmNamedKeyMap = @{
@@ -52,7 +52,7 @@ $script:UtmNamedKeyMap = @{
 
 # macOS UTM character->virtual-key-code map (US layout). Entries are
 # [keyCode, needsShift]. Used by Send-TextUTM when AppleScript's
-# keystroke command would misinterpret a sequence (e.g. "2-" → Enter).
+# keystroke command would misinterpret a sequence (e.g. "2-" -> Enter).
 $script:UtmCharKeyMap = [System.Collections.Generic.Dictionary[string,object[]]]::new()
 $script:UtmCharKeyMap['a']=@(0,$false);  $script:UtmCharKeyMap['b']=@(11,$false)
 $script:UtmCharKeyMap['c']=@(8,$false);  $script:UtmCharKeyMap['d']=@(2,$false)

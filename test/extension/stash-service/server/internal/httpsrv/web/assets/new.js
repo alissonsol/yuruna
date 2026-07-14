@@ -17,7 +17,7 @@
   $('tab-files').addEventListener('click', () => showTab('files'));
 
   function msg(kind, text) {
-    $('msg').replaceChildren(Y.el('div', { class: 'notice ' + kind, text }));
+    Y.replace($('msg'), Y.el('div', { class: 'notice ' + kind, text }));
   }
 
   async function submitCreate(form, btn) {

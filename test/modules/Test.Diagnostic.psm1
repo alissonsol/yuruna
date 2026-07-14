@@ -1,5 +1,5 @@
-﻿<#PSScriptInfo
-.VERSION 2026.07.10
+<#PSScriptInfo
+.VERSION 2026.07.14
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456712
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -59,7 +59,7 @@
 #>
 
 # -Global so callers that have already imported Test.VMUtility / Test.Ssh
-# keep their existing bindings — same pattern Test.Ssh uses for its own
+# keep their existing bindings -- same pattern Test.Ssh uses for its own
 # transitive imports.
 Import-Module (Join-Path $PSScriptRoot 'Test.VMUtility.psm1') -Force -DisableNameChecking -Global
 Import-Module (Join-Path $PSScriptRoot 'Test.Ssh.psm1')        -Force -DisableNameChecking -Global
@@ -157,7 +157,7 @@ function Get-DiagnosticsFileName {
     Caller-supplied tag appended after 'system.diagnostic.' and before
     '.txt'. Use snake/dot-case (no slashes, no spaces, no '..'). The
     'id' field on each saveSystemDiagnostic sequence step chooses the
-    tag — e.g. 'after.k8s.bootstrap' or 'before.reboot'.
+    tag -- e.g. 'after.k8s.bootstrap' or 'before.reboot'.
 #>
     [CmdletBinding()]
     [OutputType([string])]
@@ -266,7 +266,7 @@ function Invoke-RemoteDiagnosticsPasswordSsh {
     $job = Start-Job -ScriptBlock {
         $env:SSHPASS = $using:Password
         # Host-key bypass options must match the Test.Ssh policy
-        # (Test.Ssh.psm1 header) — VMs with reused names/IPs present a
+        # (Test.Ssh.psm1 header) -- VMs with reused names/IPs present a
         # different host key each cycle, so we never read or write any
         # known_hosts file.
         $out = & $using:SshpassPath -e ssh `
@@ -652,7 +652,7 @@ function Save-GuestDiagnostic {
     function creates the folder if it does not yet exist (so a caller
     that only knows the path string need not pre-create it).
 .PARAMETER Id
-    Tag appended to the saved filename — see Get-DiagnosticsFileName
+    Tag appended to the saved filename -- see Get-DiagnosticsFileName
     for the exact format. Sequence steps supply their own value: the
     saveSystemDiagnostic action requires an 'id' field on each step so
     multiple captures in the same cycle land in distinct files.

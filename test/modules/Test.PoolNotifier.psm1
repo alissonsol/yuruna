@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.10
+.VERSION 2026.07.14
 .GUID 423e9a21-5b84-4f63-9c12-8e4a1d2f6b90
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -437,7 +437,13 @@ function Send-PoolAlertViaExtension {
         [Parameter(Mandatory)][string]$WorkDir,
         [Parameter(Mandatory)][string]$Ledger
     )
-    if (-not (Get-Command Send-Notification -ErrorAction SilentlyContinue)) { Write-Verbose 'Send-Notification unavailable'; return $false }
+    # Send-YurunaNotification, not the extensions' contract verb Send-Notification:
+    # the extensions load -Global, so the bare name resolves to whichever transport
+    # loaded last, which has no -Synchronous and no delivery ledger. This runs
+    # in-process in the long-lived outer runner, so binding the wrong one loses
+    # every pool alert after the first -- and quietly, because the catch below
+    # downgrades it to a Write-Verbose.
+    if (-not (Get-Command Send-YurunaNotification -ErrorAction SilentlyContinue)) { Write-Verbose 'Send-YurunaNotification unavailable'; return $false }
     $eventCode = if ($Message.Contains('eventCode')) { [string]$Message['eventCode'] } else { $script:PoolAlertEventCode }
     $subject = [string]$Message['subject']
     $body    = [string]$Message['body']
@@ -450,7 +456,7 @@ function Send-PoolAlertViaExtension {
     $saved = $global:__YurunaCycleFolder
     $global:__YurunaCycleFolder = $WorkDir
     try {
-        Send-Notification -EventCode $eventCode -EventMessage $subject -EventNote $body -EventData $eventData -Synchronous -ErrorAction SilentlyContinue | Out-Null
+        Send-YurunaNotification -EventCode $eventCode -EventMessage $subject -EventNote $body -EventData $eventData -Synchronous -ErrorAction SilentlyContinue | Out-Null
     } catch {
         Write-Verbose "Send-PoolAlertViaExtension: $($_.Exception.Message)"
     } finally {

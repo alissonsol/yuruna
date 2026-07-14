@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.10
+.VERSION 2026.07.14
 .GUID 4206c748-f960-4178-9901-2341a0b2c3d4
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -30,7 +30,7 @@ if (-not (Test-Path $automationPath)) {
 }
 
 if ($env:PATH -split [IO.Path]::PathSeparator -notcontains $automationPath) {
-    $env:PATH = $automationPath + [IO.Path]::PathSeparator + $env:PATH
+    $env:PATH = $env:PATH + [IO.Path]::PathSeparator + $automationPath
     Write-Output "Added to current session PATH: $automationPath"
 } else {
     Write-Output "Already in current session PATH: $automationPath"
@@ -41,9 +41,17 @@ if ($IsWindows -or $env:OS -eq "Windows_NT") {
     $userPath = [System.Environment]::GetEnvironmentVariable("PATH", "User")
     $userPaths = $userPath -split ";"
     if ($userPaths -notcontains $automationPath) {
-        $newUserPath = $automationPath + ";" + $userPath
+        # Append (not prepend) so the automation dir never shadows a
+        # system tool of the same name; split+filter drops any empty
+        # segment so an empty/edge User PATH can't leave a leading ';'
+        # (an empty PATH entry is the current directory on Windows).
+        $newUserPath = ((@($userPath -split ';') + $automationPath) | Where-Object { $_ }) -join ';'
         [System.Environment]::SetEnvironmentVariable("PATH", $newUserPath, "User")
         Write-Output "Persisted to user PATH (Windows registry): $automationPath"
+        # SetEnvironmentVariable('User') writes the registry but does not broadcast
+        # into already-open shells, so the persisted entry only reaches terminals
+        # started afterward. The current session was already patched above.
+        Write-Output "Open a new terminal for the persisted PATH change to take effect."
     } else {
         Write-Output "Already in user PATH (Windows registry): $automationPath"
     }
@@ -54,7 +62,7 @@ if ($IsWindows -or $env:OS -eq "Windows_NT") {
     if (-not (Test-Path $profileDir)) {
         New-Item -ItemType Directory -Path $profileDir -Force | Out-Null
     }
-    $exportLine = "`$env:PATH = `"$automationPath`" + [IO.Path]::PathSeparator + `$env:PATH"
+    $exportLine = "`$env:PATH = `$env:PATH + [IO.Path]::PathSeparator + `"$automationPath`""
     $guardStart = "# BEGIN Add-AutomationToPath"
     $guardEnd   = "# END Add-AutomationToPath"
     $block = @"
@@ -67,6 +75,9 @@ $guardEnd
     if (-not (Test-Path $profilePath) -or -not (Select-String -Path $profilePath -Pattern ([regex]::Escape($guardStart)) -Quiet)) {
         Add-Content -Path $profilePath -Value "`n$block"
         Write-Output "Persisted to PowerShell profile: $profilePath"
+        # The profile is sourced only by shells started afterward, so the persisted
+        # entry reaches new terminals; the current session was already patched above.
+        Write-Output "Open a new terminal for the persisted PATH change to take effect."
     } else {
         Write-Output "Already persisted in PowerShell profile: $profilePath"
     }

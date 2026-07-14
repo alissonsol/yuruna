@@ -24,7 +24,6 @@ package sshsrv
 import (
 	"io"
 	"log"
-	"net"
 	"os"
 	"path"
 	"path/filepath"
@@ -42,10 +41,7 @@ import (
 // session ends. Every write is routed into the stash by stashSFTP.
 func (s *Server) serveSFTP(ch ssh.Channel, username, remote string) {
 	defer ch.Close()
-	clientIP := remote
-	if h, _, err := net.SplitHostPort(remote); err == nil {
-		clientIP = h
-	}
+	clientIP := hostOnly(remote)
 	h := &stashSFTP{srv: s, username: username, clientIP: clientIP}
 	handlers := sftp.Handlers{FileGet: h, FilePut: h, FileCmd: h, FileList: h}
 	rs := sftp.NewRequestServer(ch, handlers)

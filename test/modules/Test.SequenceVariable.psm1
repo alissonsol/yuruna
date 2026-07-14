@@ -1,5 +1,5 @@
-﻿<#PSScriptInfo
-.VERSION 2026.07.10
+<#PSScriptInfo
+.VERSION 2026.07.14
 .GUID 42b8e1f4-7c2a-4d09-8e3b-1a5c9f0d2e64
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -24,8 +24,8 @@
 # Invoke-ExtensionExpression, so it travels with the function; no top-level
 # import is needed here.
 # Private-use Unicode codepoint used as the placeholder for `$` after the
-# $$ → sentinel pre-pass and before the sentinel → $ post-pass. The
-# Unicode private-use area (U+E000–U+F8FF) is reserved for application-
+# $$ -> sentinel pre-pass and before the sentinel -> $ post-pass. The
+# Unicode private-use area (U+E000-U+F8FF) is reserved for application-
 # specific use and effectively never appears in legitimate input, so it
 # is safe to round-trip through the regex pass without colliding with
 # something a user actually typed.
@@ -142,9 +142,9 @@ function Expand-Variable {
     #>
     param([string]$Text, [hashtable]$Variables)
     if ($null -eq $Text) { return $Text }
-    # Escape pass: $$ → sentinel hides escaped dollars from both the
+    # Escape pass: $$ -> sentinel hides escaped dollars from both the
     # ${ext:...} regex and the ${var} text replacement below. The
-    # closing sentinel → $ pass at the end restores them. So $${foo}
+    # closing sentinel -> $ pass at the end restores them. So $${foo}
     # survives as literal "${foo}", and $$$${foo} survives as "$${foo}".
     $result = $Text.Replace('$$', $script:DollarSentinel)
     # ${ext:...} expressions are resolved first so any ${var} placeholders

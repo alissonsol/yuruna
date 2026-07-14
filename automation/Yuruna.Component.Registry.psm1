@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.10
+.VERSION 2026.07.14
 .GUID 42d2e3f4-a5b6-4789-0123-4d5e6f7a8b9c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -20,32 +20,23 @@
 .SYNOPSIS
     Resolves the per-cycle registry-login command for the component-push
     pipeline in [Yuruna.Component](Yuruna.Component.psm1) by reusing the
-    credential-provider registry that the test harness already ships
-    ([test/modules/Test.CredentialProvider.psm1](../test/modules/Test.CredentialProvider.psm1)).
+    neutral credential-provider registry
+    ([Yuruna.CredentialProvider.psm1](Yuruna.CredentialProvider.psm1)).
 .DESCRIPTION
-    Both surfaces -- the runtime push pipeline here and the test-runner
-    self-heal path after a 401 -- need exactly the same answer to "what
-    is the login command for &lt;registry&gt;?". Hosting the providers in
-    one module ([Test.CredentialProvider]) and bridging from automation
-    means a new registry kind (a private repo on a corp Nexus, a Harbor
-    instance, ...) is registered in one place and picked up by both
-    surfaces.
-
-    The cross-tree import (automation -&gt; test) is the only such edge in
-    the codebase. It is justified because the providers are
-    deployment-time knowledge, not test-time knowledge -- the `Test.`
-    naming convention is what puts the registry under test/modules. A future
-    consolidation could move Test.CredentialProvider into automation/;
-    for now this bridge keeps the boundary explicit and concentrated.
+    Both surfaces -- the runtime push pipeline here and the self-heal path
+    after a 401 -- need exactly the same answer to "what is the login
+    command for &lt;registry&gt;?". Hosting the providers in one
+    automation-layer module ([Yuruna.CredentialProvider]) means a new
+    registry kind (a private repo on a corp Nexus, a Harbor instance, ...)
+    is registered in one place and picked up by both surfaces, with no
+    dependency from the automation layer into the test tree.
 #>
 
-# Resolve the cross-tree path once at module load. $PSScriptRoot is
-# automation/; the repo root is one folder up; test/modules/Test.Cred*
-# lives two folders below that.
+# Resolve the sibling module path once at module load. $PSScriptRoot is
+# automation/, where Yuruna.CredentialProvider.psm1 also lives.
 $script:CredentialProviderModulePath = Join-Path `
-    -Path (Split-Path -Parent $PSScriptRoot) `
-    -ChildPath 'test' `
-    -AdditionalChildPath 'modules', 'Test.CredentialProvider.psm1'
+    -Path $PSScriptRoot `
+    -ChildPath 'Yuruna.CredentialProvider.psm1'
 
 if (Test-Path -LiteralPath $script:CredentialProviderModulePath) {
     # -Global so the registered providers stay reachable from the
@@ -54,7 +45,7 @@ if (Test-Path -LiteralPath $script:CredentialProviderModulePath) {
     # expose Get-CredentialProvider to the outer scope).
     Import-Module -Name $script:CredentialProviderModulePath -Global -Force
 } else {
-    Write-Warning "Yuruna.Component.Registry: Test.CredentialProvider.psm1 not found at $($script:CredentialProviderModulePath); component-push registry login will be skipped for every registry."
+    Write-Warning "Yuruna.Component.Registry: Yuruna.CredentialProvider.psm1 not found at $($script:CredentialProviderModulePath); component-push registry login will be skipped for every registry."
 }
 
 function Resolve-ComponentRegistryLogin {

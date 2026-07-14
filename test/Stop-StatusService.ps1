@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.10
+.VERSION 2026.07.14
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456741
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -66,17 +66,10 @@ if (-not $proc) {
 # the server died started later. If the start time is unreadable we cannot
 # confirm identity, so treat the PID file as stale (remove it, no kill) rather
 # than risk force-killing an unrelated process.
-$identityOk = $false
-try {
-    $pidFileMtime = (Get-Item -LiteralPath $PidFile).LastWriteTime
-    $identityOk = ($proc.StartTime -le $pidFileMtime.AddSeconds(2))
-} catch {
-    Write-Verbose "Identity check failed for PID $id : $($_.Exception.Message)"
-}
-if ($identityOk) {
+if (Test-PidFileIdentity -PidFile $PidFile -Process $proc) {
     Stop-Process -Id $id -Force
     Write-Output "Status server stopped (PID $id)."
 } else {
-    Write-Warning "PID $id is not the status server (start time post-dates the PID file, or is unreadable) -- likely recycled after a crash/reboot. Removing the stale PID file without killing it."
+    Write-Warning "PID $id is not the status server (start time post-dates the PID file, wrong process, or unreadable) -- likely recycled after a crash/reboot. Removing the stale PID file without killing it."
 }
 Remove-Item $PidFile -Force -ErrorAction SilentlyContinue

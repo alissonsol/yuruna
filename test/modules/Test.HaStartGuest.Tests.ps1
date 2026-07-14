@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.10
+.VERSION 2026.07.14
 .GUID 42a1b2c3-d4e5-4f67-8901-9c0d1e2f3a58
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -45,9 +45,12 @@ function Get-CallCount {
         $n -is [System.Management.Automation.Language.CommandAst] -and $n.GetCommandName() -eq $wm
     }, $true)).Count
 }
-$script:engineAst = Get-FileAst (Join-Path $here 'Invoke-Sequence.psm1')
-$script:osAst     = Get-FileAst (Join-Path $here 'Test.Start-GuestOS.psm1')
-$script:wlAst     = Get-FileAst (Join-Path $here 'Test.Start-GuestWorkload.psm1')
+# Unqualified file-scope variables: inside an It block a $script: reference resolves to the
+# test runner's own script scope, not this file's, so a $script:-qualified AST reaches the
+# structural guards as $null.
+$engineAst = Get-FileAst (Join-Path $here 'Invoke-Sequence.psm1')
+$osAst     = Get-FileAst (Join-Path $here 'Test.Start-GuestOS.psm1')
+$wlAst     = Get-FileAst (Join-Path $here 'Test.Start-GuestWorkload.psm1')
 
 Describe 'ha-startguest: the dispatcher loop is shared, not duplicated' {
     BeforeAll {
@@ -184,7 +187,7 @@ Describe 'ha-startguest: the dispatcher loop is shared, not duplicated' {
 
     Context 'structure: one definition, both delegate (AST)' {
         It 'Invoke-Sequence defines Invoke-GuestSequenceList exactly once' {
-            @($script:engineAst.FindAll({ param($n)
+            @($engineAst.FindAll({ param($n)
                 $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq 'Invoke-GuestSequenceList'
             }, $true)).Count | Should -Be 1
         }
@@ -192,7 +195,7 @@ Describe 'ha-startguest: the dispatcher loop is shared, not duplicated' {
             @{ File = 'Start-GuestOS' }, @{ File = 'Start-GuestWorkload' }
         ) {
             param($File)
-            $ast = if ($File -eq 'Start-GuestOS') { $script:osAst } else { $script:wlAst }
+            $ast = if ($File -eq 'Start-GuestOS') { $osAst } else { $wlAst }
             (Get-CallCount -Ast $ast -Name 'Invoke-GuestSequenceList') | Should -BeGreaterOrEqual 1
             (Get-CallCount -Ast $ast -Name 'Invoke-SequenceByName')    | Should -Be 0
         }

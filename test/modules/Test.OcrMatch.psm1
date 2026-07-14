@@ -1,5 +1,5 @@
-﻿<#PSScriptInfo
-.VERSION 2026.07.10
+<#PSScriptInfo
+.VERSION 2026.07.14
 .GUID 42a9b3c7-d1e5-4f02-9b8a-6c3d7e1f4a52
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -31,23 +31,23 @@ Import-Module (Join-Path $PSScriptRoot 'Test.OcrEngine.psm1') -Global -Force
 # vary per call and would balloon memory.
 $script:OcrPatternCache = @{}
 
-# ── OCR-tolerant matching ────────────────────────────────────────────────────
+# -- OCR-tolerant matching ----------------------------------------------------
 
 # Common OCR confusion groups: characters within each group are frequently
 # misrecognized as each other on console/monospace text.
 # Sources: WinRT/Vision observed errors, UNLV OCR accuracy studies.
 $script:OCRConfusionGroups = @(
-    'wuv'       # w↔u↔v — most common on console fonts
-    'mn'        # m↔n
-    'oO0@'      # o↔O↔0↔@ — '@' frequently substituted for '0' on console fonts
+    'wuv'       # w<->u<->v -- most common on console fonts
+    'mn'        # m<->n
+    'oO0@'      # o<->O<->0<->@ -- '@' frequently substituted for '0' on console fonts
                 # (e.g. "test-ubuntu-server-01" reads as "test-ubuntu-server-@1")
-    "lI1i[]$([char]0x0131)"  # l↔I↔1↔i↔[↔]↔ı — brackets misread as l/1/i, ı (dotless i) from Vision OCR
-    'S5s'       # S↔5↔s
-    'B8'        # B↔8
-    'Z2z'       # Z↔2↔z
-    'gq9'       # g↔q↔9
-    'ce'        # c↔e — at small sizes
-    ':;.'       # :↔;↔. — punctuation frequently mangled on terminal fonts
+    "lI1i[]$([char]0x0131)"  # l<->I<->1<->i<->[<->]<->U+0131 -- brackets misread as l/1/i, U+0131 (dotless i) from Vision OCR
+    'S5s'       # S<->5<->s
+    'B8'        # B<->8
+    'Z2z'       # Z<->2<->z
+    'gq9'       # g<->q<->9
+    'ce'        # c<->e -- at small sizes
+    ':;.'       # :<->;<->. -- punctuation frequently mangled on terminal fonts
 )
 
 # Characters that are stripped entirely during normalization.
@@ -56,14 +56,14 @@ $script:OCRConfusionGroups = @(
 # Stripping these (along with their ASCII equivalents) prevents
 # mismatches when the pattern uses plain ASCII.
 #
-# '@' is NOT in this list — it lives in the oO0@ confusion group
+# '@' is NOT in this list -- it lives in the oO0@ confusion group
 # (above) because OCR mistakes for '0' are more common in this codebase
 # than '@' being dropped from a prompt. With '@' canonicalized to 'o',
 # a pattern with literal '@' (e.g. "[ec2-user@host]$") still matches
-# OCR text that reads '@' as '@' OR as '0' — both canonicalize the same.
+# OCR text that reads '@' as '@' OR as '0' -- both canonicalize the same.
 $script:OCRStripChars = [System.Collections.Generic.HashSet[char]]::new(
     [char[]]@(
-        '-', [char]0x2014, [char]0x2013, [char]0x2012,  # -, —, –, ‒
+        '-', [char]0x2014, [char]0x2013, [char]0x2012,  # -, --, -, -
         '[', ']', '$', '~', '"', '`'                    # terminal prompt chars frequently dropped by OCR
     )
 )
@@ -116,14 +116,14 @@ function Get-OCRNormalized {
 
     Two matching strategies are tried (either passing is sufficient):
     1. Positional (sliding window): handles arbitrary single-character
-       substitutions not covered by confusion groups (e.g. R→K).
+       substitutions not covered by confusion groups (e.g. R->K).
     2. Subsequence with span limit: handles dropped characters
        (e.g. "Password" OCR'd as "assuord").
 
     Also handles:
-    - Character confusion (w↔u↔v, o↔O↔0↔@, l↔I↔1↔i↔[↔], etc.)
-    - Punctuation confusion (:↔;↔.)
-    - Dash normalization (-, —, –, ‒ all stripped)
+    - Character confusion (w<->u<->v, o<->O<->0<->@, l<->I<->1<->i<->[<->], etc.)
+    - Punctuation confusion (:<->;<->.)
+    - Dash normalization (-, --, -, - all stripped)
     - Spurious spaces from courier/monospace OCR
 #>
 function Test-OCRMatch {
@@ -137,13 +137,13 @@ function Test-OCRMatch {
     # wait condition -- returning $true would "match" any text, including a blank/degraded screen.
     if ($normPattern.Length -eq 0) { return $false }
     # Require at least 85% of normalized pattern chars to appear in order.
-    # This allows ~1 dropped char per 7 pattern chars (e.g. "Password:" → "assuord:")
+    # This allows ~1 dropped char per 7 pattern chars (e.g. "Password:" -> "assuord:")
     # while rejecting scattered coincidental matches in long log lines.
     # The :;. confusion group handles punctuation substitution (e.g. "rassword."
     # matches "Password:" via the sliding window at 8/9 = 89%).
     $threshold = [int][Math]::Ceiling($normPattern.Length * 0.85)
     $patternChars = $normPattern.ToCharArray()
-    # Matched chars in the text must span at most 2× the pattern length to
+    # Matched chars in the text must span at most 2x the pattern length to
     # prevent hits where common chars are scattered across a long line.
     $maxSpan = $normPattern.Length * 2
     # Loop-invariant: depends only on $patternChars, hoisted from the
@@ -157,7 +157,7 @@ function Test-OCRMatch {
         # --- REGION: Strategy 1: Positional (sliding window) comparison
         # Slide the pattern across the text and count character matches at each
         # aligned position.  This naturally handles arbitrary single-character
-        # substitutions (e.g. R→K in "Retype"→"Ketype") that are not covered
+        # substitutions (e.g. R->K in "Retype"->"Ketype") that are not covered
         # by confusion groups and that break the subsequence algorithm.
         $patLen = $normPattern.Length
         if ($normLine.Length -ge $patLen) {
@@ -176,7 +176,7 @@ function Test-OCRMatch {
         # in "Iinux") and stretch the span past the limit even though the real
         # match ("login:") starts later and is compact.  Starting from any
         # pattern char (not just the first) also handles the case where the
-        # first pattern char was dropped by OCR (e.g. "Password" → "assuord").
+        # first pattern char was dropped by OCR (e.g. "Password" -> "assuord").
         for ($startIdx = 0; $startIdx -lt $normLine.Length; $startIdx++) {
             if (-not $patternCharSet.Contains($normLine[$startIdx])) { continue }
 
@@ -236,16 +236,16 @@ function Test-OCRMatch {
     return $false
 }
 
-# ── Multi-engine OCR combine logic ──────────────────────────────────────────
+# -- Multi-engine OCR combine logic ------------------------------------------
 
-# ┌─────────────────────────────────────────────────────────────────────────┐
-# │ COMBINE MODE: controls how per-engine detection booleans are merged.   │
-# │                                                                        │
-# │  'Or'  — pattern detected by ANY engine → match  (default, resilient)  │
-# │  'And' — pattern detected by ALL engines → match  (strict, fewer FPs)  │
-# │                                                                        │
-# │ To switch: change the value below, or set $env:YURUNA_OCR_COMBINE.    │
-# └─────────────────────────────────────────────────────────────────────────┘
+# +-------------------------------------------------------------------------+
+# | COMBINE MODE: controls how per-engine detection booleans are merged.   |
+# |                                                                        |
+# |  'Or'  -- pattern detected by ANY engine -> match  (default, resilient)  |
+# |  'And' -- pattern detected by ALL engines -> match  (strict, fewer FPs)  |
+# |                                                                        |
+# | To switch: change the value below, or set $env:YURUNA_OCR_COMBINE.    |
+# +-------------------------------------------------------------------------+
 
 <#
 .SYNOPSIS
@@ -261,7 +261,7 @@ function Get-OcrCombineMode {
         throw "Invalid YURUNA_OCR_COMBINE value '$envVal'. Only 'Or' and 'And' are allowed."
     }
     if ($envVal -eq 'And') { return 'And' }
-    return 'Or'   # ← default
+    return 'Or'   # <- default
 }
 
 <#
@@ -272,17 +272,17 @@ function Get-OcrCombineMode {
 
 .DESCRIPTION
     For each enabled OCR engine:
-      1. Run OCR on ImagePath → engine text
-      2. For each pattern, test engine text → boolean
+      1. Run OCR on ImagePath -> engine text
+      2. For each pattern, test engine text -> boolean
     Collect a boolean per engine (true if ANY pattern matched that engine's text).
 
     Combine mode (Or/And) controls how the per-engine booleans are merged:
-      Or  → $true if at least one engine detected any pattern
-      And → $true only if every engine detected at least one pattern
+      Or  -> $true if at least one engine detected any pattern
+      And -> $true only if every engine detected at least one pattern
 
 .PARAMETER ImagePath
     Path to the screen capture PNG. The image is sent to each OCR engine
-    as-is — no preprocessing.
+    as-is -- no preprocessing.
 
 .PARAMETER Pattern
     One or more patterns to match (any pattern matching counts for that engine).
@@ -293,9 +293,9 @@ function Get-OcrCombineMode {
 
 .OUTPUTS
     A hashtable with:
-      Match        — [bool] combined result
-      EngineResults — [ordered] engine-name → @{ Text; Matched; MatchedPattern }
-      AnyText      — [string] concatenation of all engine texts (for accumulation)
+      Match        -- [bool] combined result
+      EngineResults -- [ordered] engine-name -> @{ Text; Matched; MatchedPattern }
+      AnyText      -- [string] concatenation of all engine texts (for accumulation)
 #>
 function Test-CombinedOcrMatch {
     param(
@@ -318,7 +318,7 @@ function Test-CombinedOcrMatch {
     # Why sequential, not parallel: the per-engine cost (~5-15 ms after
     # the WinRT worker warm-up) is well below the dispatch overhead of
     # Start-ThreadJob + RemotingWait, AND the combine modes are
-    # short-circuit by design — running both engines in parallel and
+    # short-circuit by design -- running both engines in parallel and
     # then discarding the slower one would waste work in the common
     # (Or-mode, first-engine-hits) case.
     foreach ($engineName in $enabledProviders) {

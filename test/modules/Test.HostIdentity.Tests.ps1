@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.10
+.VERSION 2026.07.14
 .GUID 42a1c2d3-e4f5-4061-9273-8495a6b7c8d9
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -58,6 +58,17 @@ function Get-TestFingerprint {
         cpuCount = $Cpu; ramBytes = $Ram; macAddresses = [string[]]$Mac
         platform = 'linux'; hostType = 'ubuntu.kvm'; hostname = 'box-a'
     }
+}
+
+# A ranked-candidate row for the reclaim-decision policy. It lives at file scope
+# rather than inside its Describe: a Describe body is executed during discovery
+# and everything it declares is discarded before any It runs, so a helper defined
+# there is a CommandNotFoundException by the time the assertions need it.
+function New-Cand {
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+        Justification = 'Pure test-data constructor; mutates no state.')]
+    [CmdletBinding()] param([int]$Score, [bool]$Strong, [string]$Uuid = '42aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa')
+    [pscustomobject]@{ uuid=$Uuid; hostname='h'; lastSeenUtc='2026-06-01T00:00:00Z'; score=$Score; matchedFields=@(); strong=$Strong }
 }
 
 Describe 'Test-HostFingerprintValueUsable + ConvertTo-NormalizedFingerprintValue' {
@@ -130,12 +141,6 @@ Describe 'Get-HostIdentityMatchScore' {
 }
 
 Describe 'Get-HostIdentityReclaimDecision' {
-    function New-Cand {
-        [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
-            Justification = 'Pure test-data constructor; mutates no state.')]
-        [CmdletBinding()] param([int]$Score, [bool]$Strong, [string]$Uuid = '42aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa')
-        [pscustomobject]@{ uuid=$Uuid; hostname='h'; lastSeenUtc='2026-06-01T00:00:00Z'; score=$Score; matchedFields=@(); strong=$Strong }
-    }
     It 'none for an empty list' {
         Assert-Equal -Expected 'none' -Actual (Get-HostIdentityReclaimDecision -Ranked @()).action -Because 'empty -> none'
     }

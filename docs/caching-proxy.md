@@ -292,8 +292,10 @@ ubuntu.kvm / windows.hyper-v / macos.utm — all three run the same
 
 ---
 
+LICENSEURI https://yuruna.link/license
+
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.10
+Last review: 2026.07.14
 
 Back to [Yuruna](../README.md)

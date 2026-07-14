@@ -61,7 +61,7 @@ folder per supported guest holding `Get-Image.ps1` + `New-VM.ps1`;
 `infra-guests` (`guest.caching-proxy`, `guest.stash-service`) is a logical
 aggregate: these directories live nested under each provider
 (`windows.hyper-v/`, `ubuntu.kvm/`, `macos.utm/`), not at the `host/` root
-(see the [≤7 rule](00-index.md#the-7-rule-grouping-decisions)).
+(see the [≤7 rule](00-index.md#the-7-rule--grouping-decisions)).
 
 ## Guest Workloads — `guest/`
 
@@ -164,6 +164,8 @@ stub only). OCR engines are the built-ins registered by
 
 ---
 
+LICENSEURI https://yuruna.link/license
+
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.10
+Last review: 2026.07.14

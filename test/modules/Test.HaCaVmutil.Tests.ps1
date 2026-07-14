@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.10
+.VERSION 2026.07.14
 .GUID 42a1b2c3-d4e5-4f67-8901-ac0d1e2f3a62
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -81,8 +81,11 @@ function Test-DisposeNullGuarded {
     return $false
 }
 
-$script:vmUtilPath = Join-Path $here 'Test.VMUtility.psm1'
-$script:cmpAst     = Get-CompareScreenshotAst -Path $script:vmUtilPath
+# Unqualified file-scope variables: inside an It block a $script: reference resolves to the
+# test runner's own script scope, not this file's, so a $script:-qualified AST reaches the
+# structural guards as $null.
+$vmUtilPath = Join-Path $here 'Test.VMUtility.psm1'
+$cmpAst     = Get-CompareScreenshotAst -Path $vmUtilPath
 
 # --- REGION: Windows-only image factory (System.Drawing.Bitmap is Windows-supported)
 function Get-TestPng {
@@ -106,16 +109,16 @@ Describe 'ha-ca-vmutil: Compare-Screenshot releases its GDI+ bitmaps on every pa
 
     Context 'structure: both source bitmaps are disposed in a finally (AST)' {
         It 'defines Compare-Screenshot' {
-            $script:cmpAst | Should -Not -BeNullOrEmpty
+            $cmpAst | Should -Not -BeNullOrEmpty
         }
         It 'disposes $ref exactly once, and that dispose is inside a finally' {
-            $refDisposes = Get-DisposeInvocation -Ast $script:cmpAst -VarName 'ref'
+            $refDisposes = Get-DisposeInvocation -Ast $cmpAst -VarName 'ref'
             $refDisposes.Count | Should -Be 1
             (Test-NodeInFinally -Node $refDisposes[0]) | Should -BeTrue
         }
         It 'disposes $ref and $act inside a finally, each null-guarded' {
-            $refFinal = @(Get-DisposeInvocation -Ast $script:cmpAst -VarName 'ref' | Where-Object { Test-NodeInFinally -Node $_ })
-            $actFinal = @(Get-DisposeInvocation -Ast $script:cmpAst -VarName 'act' | Where-Object { Test-NodeInFinally -Node $_ })
+            $refFinal = @(Get-DisposeInvocation -Ast $cmpAst -VarName 'ref' | Where-Object { Test-NodeInFinally -Node $_ })
+            $actFinal = @(Get-DisposeInvocation -Ast $cmpAst -VarName 'act' | Where-Object { Test-NodeInFinally -Node $_ })
             $refFinal.Count | Should -BeGreaterOrEqual 1
             $actFinal.Count | Should -BeGreaterOrEqual 1
             (Test-DisposeNullGuarded -Node $refFinal[0] -VarName 'ref') | Should -BeTrue

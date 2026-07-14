@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.10
+.VERSION 2026.07.14
 .GUID 4236e7f8-a9b0-4c23-d678-9e0f1a2b3c48
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -40,8 +40,8 @@ param(
     # sequences. The framework default 'yuuser26' is intentionally
     # unique/greppable (versus the cloud-image default 'ubuntu', which
     # is noisy in any text search) and version-tagged so 24.04 and 26.04
-    # guests don't collide in shared logs. Multi-user future (gap 33)
-    # will spawn additional users via a manifest -- no need to override here.
+    # guests don't collide in shared logs. Additional users are expected to
+    # come from a manifest rather than an override here.
     [string]$Username = 'yuuser26'
 )
 
@@ -122,8 +122,8 @@ Write-Output "See configuration at: $(Resolve-ExtensionAreaDir -Area 'authentica
 # ConvertTo-Sha512CryptHash centralises the openssl probe + the `--`
 # end-of-options safety that keeps a leading-dash password
 # (e.g. `-4aWj*CRw` from New-RandomPassword) from being parsed as an
-# option. See Test.VMUtility\ConvertTo-Sha512CryptHash for rationale.
-Import-Module (Join-Path $_repoRootForExt 'test/modules/Test.VMUtility.psm1') -Force -DisableNameChecking
+# option. See Yuruna.Common\ConvertTo-Sha512CryptHash for rationale.
+Import-Module (Join-Path $_repoRootForExt 'automation/Yuruna.Common.psm1') -Force -DisableNameChecking
 try {
     $PasswordHash = ConvertTo-Sha512CryptHash -Plaintext $Password
 } catch {
@@ -302,39 +302,34 @@ if (-not $switchName) {
 # reboots -- see Test-YurunaHost.ps1 for the in-guest probe.
 $YurunaHostIp = Get-GuestReachableHostIp -SwitchName $switchName
 if (-not $YurunaHostIp) { $YurunaHostIp = '' }
+Import-Module (Join-Path (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))) 'test/modules/Test.Config.psm1') -Global -Force
 $YurunaHostPort = '8080'
 $YurunaTestConfig = Join-Path (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))) 'test/test.config.yml'
-if (Test-Path $YurunaTestConfig) {
-    try {
-        $tc = Get-Content -Raw $YurunaTestConfig | ConvertFrom-Yaml -Ordered
-        if ($tc.statusService.port) { $YurunaHostPort = "$($tc.statusService.port)" }
-    } catch { Write-Verbose "test.config.yml parse failed: $_" }
+$tc = $null
+if (Test-Path -LiteralPath $YurunaTestConfig) {
+    try { $tc = Read-TestConfig -Path $YurunaTestConfig } catch { Write-Verbose "test.config.yml read: $($_.Exception.Message)" }
+    if ($tc -and $tc.statusService -and $tc.statusService.port) { $YurunaHostPort = "$($tc.statusService.port)" }
 }
 
 # --- REGION: Fetch caching-proxy CA cert (base64-embedded in seed)
 # --- REGION: https://yuruna.link/network#caching-proxy-ca-cert-rc60-gate
-# An empty $CaCertBase64 is NOT a harmless no-op (curl rc=60 SSL-bump gate);
-# see feedback_sslbump_rc60_untrusted_chain_and_ca_gate_trap.
+# An empty $CaCertBase64 is NOT a harmless no-op: the seed still routes the
+# guest's HTTPS through the bump (:3129) and locks direct :443 egress, so a
+# CA-less guest fails every HTTPS with curl rc=60. Get-CachingProxyCaCertBase64
+# retries the live fetch and falls back to the last-good persisted CA for this
+# cache host; if it still comes up empty the guest boots CA-less and recovers
+# at update time via the host status-server CA self-heal. See
+# feedback_sslbump_rc60_untrusted_chain_and_ca_gate_trap and
+# project_sslbump_ca_gating_durable_fix.
 $CaCertBase64 = ""
 if ($CachingProxyUrl) {
-    Import-Module -Name (Join-Path $PSScriptRoot '../../../automation/Yuruna.Retry.psm1') -Force
+    Import-Module -Name (Join-Path $PSScriptRoot '../../../test/modules/Test.CachingProxy.psm1') -Force -DisableNameChecking
     $uri = [System.Uri]$CachingProxyUrl
     $cacheHost = if ($uri.Host -match ':') { "[$($uri.Host)]" } else { $uri.Host }
-    $cacheCaUrl = "http://$cacheHost/yuruna-squid-ca.crt"
-    $caFetch = Invoke-WithYurunaRetry -Label 'caching-proxy CA cert' -MaxAttempts 5 -InitialDelaySeconds 3 -MaxDelaySeconds 20 -ScriptBlock {
-        $caResp = Invoke-WebRequest -Uri $cacheCaUrl -UseBasicParsing -TimeoutSec 10 -ErrorAction Stop
-        if ($caResp.StatusCode -ne 200 -or $caResp.RawContentLength -le 0) {
-            throw "caching-proxy returned status=$($caResp.StatusCode) length=$($caResp.RawContentLength)"
-        }
-        $caBytes = if ($caResp.Content -is [byte[]]) { $caResp.Content } else { [System.Text.Encoding]::UTF8.GetBytes([string]$caResp.Content) }
-        [Convert]::ToBase64String($caBytes)
-    }
-    if ($caFetch.Success) {
-        $CaCertBase64 = [string]($caFetch.LastOutput | Select-Object -Last 1)
-        Write-Verbose "  Fetched caching-proxy CA from $cacheCaUrl -- embedded in seed."
-    } else {
-        Write-Warning "  Could not fetch CA cert from caching-proxy after $($caFetch.Attempts) attempt(s) : $($caFetch.LastError.Exception.Message)"
-        Write-Warning "  Guest will skip HTTPS caching (Acquire::https::Proxy); HTTP caching via :3128 unaffected."
+    $ca = Get-CachingProxyCaCertBase64 -CacheCaUrl "http://$cacheHost/yuruna-squid-ca.crt" -CacheHost $uri.Host
+    $CaCertBase64 = $ca.CaCertBase64
+    if ($ca.Exhausted) {
+        Write-Warning "  Guest boots CA-less; it will self-heal the CA from the host status server at update time. HTTP caching via :3128 unaffected."
     }
 }
 

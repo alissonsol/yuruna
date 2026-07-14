@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.10
+.VERSION 2026.07.14
 .GUID 42b1c2d3-e4f5-4a67-8b90-1c2d3e4f5a6b
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -41,22 +41,23 @@ $script:PoolSyncFetchTimeoutSec = 30
 # Returns the exit code, 124 on timeout, or -1 if git could not be started.
 # Mirrors Invoke-PoolStorageProcess; kept local so Test.PoolSync has no dependency
 # on Test.PoolStorage.
-function Invoke-PoolSyncGit {
+function Invoke-PoolSyncGitCapture {
     <#
     .SYNOPSIS
         Runs a git command bounded by a wall-clock cap, killing the whole process tree on
         timeout, with stdin closed and every interactive credential path neutralized so a
-        hung or prompting remote can never block the loop. Returns the exit code, 124 on
-        timeout, or -1 if git could not be started.
+        hung or prompting remote can never block the loop. Returns a hashtable
+        @{ ExitCode; StdOut; StdErr } -- ExitCode is 124 on timeout, or -1 when git could
+        not be started (StdOut/StdErr are empty in both of those cases).
     #>
     [CmdletBinding()]
-    [OutputType([int])]
+    [OutputType([hashtable])]
     param(
         [Parameter(Mandatory)][string[]]$ArgumentList,
         [Parameter()][int]$TimeoutSeconds = 30
     )
     $git = (Get-Command -CommandType Application -Name 'git' -ErrorAction SilentlyContinue | Select-Object -First 1).Source
-    if (-not $git) { Write-Verbose 'Invoke-PoolSyncGit: git not found on PATH.'; return -1 }
+    if (-not $git) { Write-Verbose 'Invoke-PoolSyncGitCapture: git not found on PATH.'; return @{ ExitCode = -1; StdOut = ''; StdErr = '' } }
     $psi = [System.Diagnostics.ProcessStartInfo]::new()
     $psi.FileName = $git
     foreach ($a in $ArgumentList) { [void]$psi.ArgumentList.Add([string]$a) }
@@ -74,8 +75,8 @@ function Invoke-PoolSyncGit {
     try {
         $proc = [System.Diagnostics.Process]::Start($psi)
     } catch {
-        Write-Verbose "Invoke-PoolSyncGit: failed to start git: $($_.Exception.Message)"
-        return -1
+        Write-Verbose "Invoke-PoolSyncGitCapture: failed to start git: $($_.Exception.Message)"
+        return @{ ExitCode = -1; StdOut = ''; StdErr = '' }
     }
     try { $proc.StandardInput.Close() } catch { $null = $_ }
     $outTask = $proc.StandardOutput.ReadToEndAsync()
@@ -85,12 +86,28 @@ function Invoke-PoolSyncGit {
         try { $proc.Kill($true) } catch { $null = $_ }
         try { $null = $proc.WaitForExit(5000) } catch { $null = $_ }
         try { $proc.Dispose() } catch { $null = $_ }
-        return 124
+        return @{ ExitCode = 124; StdOut = ''; StdErr = '' }
     }
     try { $null = [System.Threading.Tasks.Task]::WaitAll(@($outTask, $errTask), 2000) } catch { $null = $_ }
-    $code = [int]$proc.ExitCode
+    $result = @{ ExitCode = [int]$proc.ExitCode; StdOut = [string]$outTask.Result; StdErr = [string]$errTask.Result }
     try { $proc.Dispose() } catch { $null = $_ }
-    return $code
+    return $result
+}
+
+function Invoke-PoolSyncGit {
+    <#
+    .SYNOPSIS
+        Exit-code-only wrapper over Invoke-PoolSyncGitCapture (same bounded, credential-
+        prompt-proof semantics). Returns the exit code, 124 on timeout, or -1 if git
+        could not be started.
+    #>
+    [CmdletBinding()]
+    [OutputType([int])]
+    param(
+        [Parameter(Mandatory)][string[]]$ArgumentList,
+        [Parameter()][int]$TimeoutSeconds = 30
+    )
+    return (Invoke-PoolSyncGitCapture -ArgumentList $ArgumentList -TimeoutSeconds $TimeoutSeconds).ExitCode
 }
 
 # Get-YurunaPoolConfig returns a normalized pool config object, or $null when the
@@ -469,5 +486,5 @@ Export-ModuleMember -Function `
     Get-YurunaPoolConfig, Sync-YurunaPoolIntent, `
     Resolve-YurunaPoolForHost, Resolve-YurunaPoolDesiredState, `
     Test-PoolIntentHasMember, `
-    Write-YurunaPoolState, Write-YurunaPoolManifest, Invoke-PoolSyncGit, `
+    Write-YurunaPoolState, Write-YurunaPoolManifest, Invoke-PoolSyncGit, Invoke-PoolSyncGitCapture, `
     ConvertTo-PoolGatingRecord

@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.07.10
+# Version: 2026.07.14
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 set -euo pipefail
@@ -30,6 +30,53 @@ esac
 # under a timeout(1) parent). Force unbounded regardless of the image's
 # lib vintage; remove once no image predates the lib's unbounded default.
 export YURUNA_APT_STALL_TIMEOUT=0
+
+# --- REGION: https://yuruna.link/network#caching-proxy-ca-cert-rc60-gate
+# CA self-heal: if this guest is routed through the SSL-bump proxy (:3129) but
+# does not trust its CA -- e.g. the caching proxy was unreachable when the host
+# built this guest's seed, so an empty CA was baked -- every HTTPS returns a
+# "self-signed certificate in certificate chain" error (curl rc=60) and the run
+# aborts on the first github HTTPS below. By now the cache has typically
+# recovered, so the CA is re-fetchable from the host status server (which
+# live-reads the current cache) over the RFC1918-permitted plain-HTTP path.
+# Installing it does NOT relax egress: HTTPS still flows through the auditable
+# bump; this only supplies the trust anchor the bump already expects.
+# Best-effort and non-fatal -- a missing host, empty body, or absent host.env
+# degrades to the existing rc=60 with a clear diagnostic, never a silent pass.
+# See project_sslbump_ca_gating_durable_fix.
+yuruna_ca_selfheal() {
+  # Guard on the bump port with a boundary so a no-cache/direct guest (empty
+  # https_proxy) or a proxy on some other port is a hard no-op.
+  printf '%s' "${https_proxy:-}" | grep -qE ':3129/?($|[^0-9])' || return 0
+  # Already trusted? A bump HTTPS that verifies needs no repair.
+  if wget -q --spider --timeout=15 --tries=1 "https://github.com/" 2>/dev/null; then
+    return 0
+  fi
+  if [ -r /etc/yuruna/host.env ]; then . /etc/yuruna/host.env; fi
+  if [ -z "${YURUNA_HOST_IP:-}" ] || [ -z "${YURUNA_HOST_PORT:-}" ]; then
+    echo "CA self-heal: bump HTTPS untrusted and no host.env coordinates; cannot recover CA." >&2
+    return 0
+  fi
+  echo "CA self-heal: bump HTTPS untrusted; fetching CA from host status server ..."
+  local ca_tmp
+  ca_tmp=$(mktemp) || return 0
+  if wget --no-proxy --timeout=10 --tries=2 -qO "$ca_tmp" \
+        "http://${YURUNA_HOST_IP}:${YURUNA_HOST_PORT}/ca.crt" \
+     && [ -s "$ca_tmp" ] && grep -q 'BEGIN CERTIFICATE' "$ca_tmp"; then
+    sudo install -m 0644 "$ca_tmp" /usr/local/share/ca-certificates/yuruna-squid-ca.crt || true
+    sudo update-ca-certificates >/dev/null 2>&1 || true
+    if wget -q --spider --timeout=15 --tries=1 "https://github.com/" 2>/dev/null; then
+      echo "CA self-heal: OK -- bump HTTPS now trusted."
+    else
+      echo "CA self-heal: CA installed but bump still untrusted (stale/wrong CA, or cache unreachable); HTTPS through the bump will still fail." >&2
+    fi
+  else
+    echo "CA self-heal: host status server served no usable CA (cache may still be unreachable); HTTPS through the bump will still fail." >&2
+  fi
+  rm -f "$ca_tmp"
+  return 0
+}
+yuruna_ca_selfheal
 
 # --- REGION: https://yuruna.link/memory#why-ubuntu-guest-update-scripts-install-powershell-first
 echo ""
@@ -183,6 +230,12 @@ if [ -n "${YURUNA_HOST_IP:-}" ] && [ -n "${YURUNA_HOST_PORT:-}" ]; then
     PROJECT_URL=$(printf '%s' "$cfg_body" | python3 -c $'import json,sys\ntry: print((json.load(sys.stdin).get("repositories") or {}).get("projectUrl",""))\nexcept Exception: print("")' 2>/dev/null || true)
   fi
 fi
+
+# The config endpoint lives ON the host, so a guest that cannot reach the host
+# gets nothing from it -- exactly when it most needs a URL to clone from.
+# host.env carries the same two URLs, baked at New-VM time, for that case.
+: "${FRAMEWORK_URL:=${YURUNA_FRAMEWORK_URL:-}}"
+: "${PROJECT_URL:=${YURUNA_PROJECT_URL:-}}"
 
 if [ ! -d "$REAL_HOME/yuruna" ]; then
   HOST_OK=false

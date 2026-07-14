@@ -1,5 +1,5 @@
-﻿<#PSScriptInfo
-.VERSION 2026.07.10
+<#PSScriptInfo
+.VERSION 2026.07.14
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456724
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -25,7 +25,7 @@
 # $HostType" deep in the sequence run.
 #
 # The capability matrix (Get-HostIOProviderMatrix) provides startup-time
-# visibility of what each host can actually do — see docs/host-io.md.
+# visibility of what each host can actually do -- see docs/host-io.md.
 
 # Two-level table: { HostType -> { Action -> scriptblock } }. Ordered so
 # Get-HostIOProviderMatrix returns hosts and actions in the registration
@@ -56,7 +56,7 @@ function Register-HostIOProvider {
     .PARAMETER Action
         Action verb ('Send-Key', 'Send-Text', 'Send-Click', 'Get-VMScreenshot', ...).
     .PARAMETER Implementation
-        Scriptblock signature: `param([hashtable]$a) ...` — returns [bool]
+        Scriptblock signature: `param([hashtable]$a) ...` -- returns [bool]
         for action verbs whose contract is success/failure.
     #>
     [CmdletBinding()]
@@ -97,7 +97,7 @@ function Invoke-HostIOAction {
     <#
     .SYNOPSIS
         Dispatch to the scriptblock registered for (HostType, Action).
-        Throws if the pair is not registered — callers that need
+        Throws if the pair is not registered -- callers that need
         graceful degradation (the existing Send-Key/Send-Text/Send-Click
         dispatchers in Invoke-Sequence.psm1) wrap with try/catch.
     .PARAMETER Arguments

@@ -51,8 +51,10 @@ Read more: [Amazon Linux 2023 guest on Windows Hyper-V host — Nerd-Level Detai
 
 ---
 
+LICENSEURI https://yuruna.link/license
+
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.10
+Last review: 2026.07.14
 
 Back to [Yuruna](../../../README.md)

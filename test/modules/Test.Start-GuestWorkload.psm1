@@ -1,5 +1,5 @@
-﻿<#PSScriptInfo
-.VERSION 2026.07.10
+<#PSScriptInfo
+.VERSION 2026.07.14
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456715
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -16,7 +16,7 @@
 
 #requires -version 7
 
-# ── Start-GuestWorkload dispatcher ──────────────────────────────────────────
+# -- Start-GuestWorkload dispatcher ------------------------------------------
 #
 # Generic dispatcher that runs a caller-supplied list of workload
 # sequence names via Invoke-SequenceByName -- one entry point regardless

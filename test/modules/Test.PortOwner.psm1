@@ -1,5 +1,5 @@
-﻿<#PSScriptInfo
-.VERSION 2026.07.10
+<#PSScriptInfo
+.VERSION 2026.07.14
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456729
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -23,22 +23,32 @@
 #
 # Functions:
 #
-#   Get-PortListenerPid     — pure: PID(s) holding a TCP port. Cross-platform:
+#   Get-PortListenerPid     -- pure: PID(s) holding a TCP port. Cross-platform:
 #                             netsh on Windows (because HTTP.sys hides the real
 #                             owner from Get-NetTCPConnection), lsof on
 #                             macOS/Linux. Empty when the holder is owned by
 #                             another user (lsof/netsh hide it without elevation).
-#   Test-PortListenerFree   — pure: $true when THIS process can bind
+#   Test-PortListenerFree   -- pure: $true when THIS process can bind
 #                             http://*:$Port/. The OS-agnostic source of truth:
 #                             a holder owned by another user still makes it
 #                             $false even when no PID is resolvable.
-#   Get-ProcessOwnerName    — pure: best-effort OS user owning a PID.
-#   Get-PortHolderServiceInfo — pure: best-effort identity of a Yuruna status
+#   Test-PortPrivilegeBlocked -- pure: $true when that bind failed only because
+#                             this process may not RESERVE the wildcard URL, and
+#                             the port is in fact empty. Wanting the bind and
+#                             being allowed to ask for it are different questions,
+#                             and a failed bind alone cannot tell them apart.
+#   Get-ProcessOwnerName    -- pure: best-effort OS user owning a PID.
+#   Get-PortHolderServiceInfo -- pure: best-effort identity of a Yuruna status
 #                             service already answering on the port.
-#   Resolve-PortOrphan      — opinionated: reclaim an orphan pwsh holder THIS
+#   Resolve-PortOrphan      -- opinionated: reclaim an orphan pwsh holder THIS
 #                             user owns; otherwise classify the port as a
-#                             'Conflict'. Returns a structured result and never
-#                             exits/throws — the caller (Start-StatusService)
+#                             'Conflict', or as 'PrivilegeRequired' when nothing
+#                             holds it and the wildcard reservation was simply
+#                             refused. Both refuse to start -- the status server
+#                             binds the same prefix and would fail the same way --
+#                             but only one of them has a holder to go and stop.
+#                             Returns a structured result and never
+#                             exits/throws -- the caller (Start-StatusService)
 #                             decides how to refuse, so the refusal can
 #                             propagate and abort the cycle rather than letting
 #                             it run blind without a status server.
@@ -107,7 +117,7 @@ function Get-PortListenerPid {
 
     # Windows: HTTP.sys hides the real owner from Get-NetTCPConnection
     # (OwningProcess reports 4, the System kernel account), so netsh is
-    # the only reliable source for url-group → PID mapping. Output is
+    # the only reliable source for url-group -> PID mapping. Output is
     # grouped per "Request queue name:" block; within a block,
     # `Processes: ID: <pid>` lists user-mode PIDs and `Registered URLs:`
     # lists URL prefixes. Flush a block's PIDs to the result set when
@@ -143,7 +153,7 @@ function Get-PortListenerPid {
 function Test-PortListenerFree {
     <#
     .SYNOPSIS
-        $true when THIS process can bind http://*:$Port/ — the OS-agnostic
+        $true when THIS process can bind http://*:$Port/ -- the OS-agnostic
         proof that the detached status server will be able to start.
     .DESCRIPTION
         The single source of truth across host environments. HttpListener
@@ -179,6 +189,76 @@ function Test-PortListenerFree {
         Start-Sleep -Milliseconds $PollMs
     }
     return $false
+}
+
+function Test-PortPrivilegeBlocked {
+    <#
+    .SYNOPSIS
+        $true when the port is FREE but this process may not reserve the wildcard
+        prefix Test-PortListenerFree probes with.
+    .DESCRIPTION
+        A failed wildcard bind has two completely different causes, and treating
+        them alike produces a confidently wrong diagnosis. `http://*:<port>/` is
+        an HTTP.sys URL reservation on Windows, and reserving one needs elevation
+        (or a standing `netsh http add urlacl`). So an ordinary shell is refused
+        the bind whether or not anything is actually listening -- and reporting
+        "the port is in use, stop the other owner" to someone whose port is empty
+        sends them hunting a holder that does not exist.
+
+        Two signals separate the cases, and both are checked because they fail on
+        different platforms:
+
+          * The HttpListenerException error code. Windows answers 183
+            (ERROR_ALREADY_EXISTS, "conflicts with an existing registration")
+            when a registration genuinely holds the port, and 5
+            (ERROR_ACCESS_DENIED) when the caller simply may not reserve it.
+          * A bind of `http://localhost:<port>/`, which carries no reservation
+            requirement and therefore succeeds ONLY when the port is really free.
+            This is what makes the answer hold on macOS/Linux, where the managed
+            HttpListener is not HTTP.sys and the error codes do not apply.
+
+        Deliberately NOT folded into Test-PortListenerFree: that function answers
+        "can the status server bind here", and the answer stays $false in this
+        case -- the server binds the same wildcard prefix and fails identically.
+        Only the explanation differs, so only the explanation is computed here.
+    .OUTPUTS
+        [bool] $true only when the port is provably free AND the wildcard
+        reservation was refused for want of privilege.
+    #>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param([Parameter(Mandatory)][int]$Port)
+
+    $code  = 0
+    $probe = [System.Net.HttpListener]::new()
+    try {
+        $probe.Prefixes.Add("http://*:$Port/")
+        $probe.Start()
+        $probe.Stop()
+        return $false   # the wildcard bound: nothing to explain
+    } catch [System.Net.HttpListenerException] {
+        $code = $_.Exception.ErrorCode
+    } catch {
+        return $false
+    } finally {
+        try { $probe.Close() } catch { Write-Debug $_ }
+    }
+
+    # ERROR_ALREADY_EXISTS: a real registration holds the port. Not a privilege
+    # problem, and the localhost probe below must not get a chance to soften it.
+    if ($code -eq 183) { return $false }
+
+    $local = [System.Net.HttpListener]::new()
+    try {
+        $local.Prefixes.Add("http://localhost:$Port/")
+        $local.Start()
+        $local.Stop()
+        return $true    # port is empty; the wildcard refusal was about privilege
+    } catch {
+        return $false   # something holds it after all
+    } finally {
+        try { $local.Close() } catch { Write-Debug $_ }
+    }
 }
 
 function Get-ProcessOwnerName {
@@ -220,7 +300,7 @@ function Get-ProcessOwnerName {
     }
 }
 
-# Internal: the OS user this process runs as. Not exported — only the
+# Internal: the OS user this process runs as. Not exported -- only the
 # ownership comparison below consumes it.
 function Get-CurrentUserName {
     [CmdletBinding()]
@@ -249,7 +329,7 @@ function Get-PortHolderServiceInfo {
     <#
     .SYNOPSIS
         Best-effort identity of a Yuruna status service already answering on
-        $Port — the "go deeper" probe so the conflict banner can name WHICH
+        $Port -- the "go deeper" probe so the conflict banner can name WHICH
         host/service (and thus, usually, which user) already owns the port.
     #>
     [CmdletBinding()]
@@ -295,29 +375,35 @@ function Resolve-PortOrphan {
         reclaimable orphan (our own detached pwsh holder) from an unrecoverable
         conflict (port owned by another user, a non-pwsh process, or a holder
         this user cannot even see). Returns a structured result; never exits or
-        throws — the caller decides how to refuse.
+        throws -- the caller decides how to refuse.
     .DESCRIPTION
         Returns a classification rather than calling `exit`: Start-StatusService.ps1
         runs under a call-operator invocation (`& $StartScript` from the shared
         gate), and `exit` inside a `&`-invoked script only sets $LASTEXITCODE in
-        the parent — it does NOT abort it. A conflict reported that way would let
+        the parent -- it does NOT abort it. A conflict reported that way would let
         the parent cycle run on with the live dashboard and breakpoint controls
         silently absent. Returning the classification lets the caller throw a
         tagged, propagating error that actually aborts the cycle.
     .OUTPUTS
         [hashtable] @{
-            Status  = 'Free' | 'Recovered' | 'Conflict'
+            Status  = 'Free' | 'Recovered' | 'Conflict' | 'PrivilegeRequired'
             Port    = [int]
             Pids    = [int[]]
             Owner   = [string]    # owner of a foreign holder, when known
             Service = [hashtable] # Get-PortHolderServiceInfo result, when held
-            Message = [string]    # operator banner, set when Status='Conflict'
+            Message = [string]    # operator banner; set on Conflict and PrivilegeRequired
         }
         'Free'      : the port is bindable now (nothing held it, or a transient
                       HTTP.sys reservation cleared within budget).
         'Recovered' : an orphan pwsh THIS user owns was stopped; port now free.
         'Conflict'  : the port is held by something this user must not (or
                       cannot) take over. The cycle must refuse to start.
+        'PrivilegeRequired' : the port is EMPTY, but this process may not reserve
+                      the wildcard prefix (elevation, or a standing urlacl). The
+                      cycle must still refuse -- the status server binds the same
+                      prefix and would fail identically -- but there is no holder
+                      to hunt, so it is reported apart from 'Conflict' rather than
+                      being described as a port that is "in use".
     #>
     [CmdletBinding(SupportsShouldProcess)]
     [OutputType([hashtable])]
@@ -330,7 +416,7 @@ function Resolve-PortOrphan {
 
     # HTTP.sys releases a URL reservation asynchronously after a Stop-Process'd
     # pwsh exits, so give the bind probe a 5 s budget before treating "cannot
-    # bind" as a real conflict — a GC delay must not look like a collision.
+    # bind" as a real conflict -- a GC delay must not look like a collision.
     if (Test-PortListenerFree -Port $Port -BudgetMs 5000) {
         return @{ Status = 'Free'; Port = $Port; Pids = @(); Owner = ''; Service = $null; Message = '' }
     }
@@ -346,13 +432,34 @@ function Resolve-PortOrphan {
         if ($service.Hostname) { $who += "hostname '$($service.Hostname)'" }
         if ($service.Host)     { $who += "host '$($service.Host)'" }
         $suffix = if ($who.Count) { " ($($who -join ', '))" } else { '' }
-        $svcClause = "A Yuruna status service is already answering on port $Port$suffix — started by another checkout or user."
+        $svcClause = "A Yuruna status service is already answering on port $Port$suffix -- started by another checkout or user."
     }
 
     if (-not $holderPids.Count) {
+        # Before concluding "held by a user we cannot see", rule out the other
+        # reason a wildcard bind fails: not being allowed to make the reservation
+        # at all. Both refuse to start -- the status server binds the same prefix
+        # and would fail the same way -- but they send the operator to opposite
+        # places, and the port-is-empty case has no holder to go looking for.
+        if (Test-PortPrivilegeBlocked -Port $Port) {
+            $lines = @(
+                "Status-service port $Port is FREE, but this process may not reserve http://*:$Port/."
+                "  That is an HTTP.sys URL reservation: making one needs elevation. Nothing is holding"
+                "  the port -- this is a privilege problem, not a port conflict."
+                "  Refusing to start: the status server binds the same wildcard prefix (so that guests"
+                "  can reach it on the host's LAN IP, not just localhost) and would fail identically."
+                "  Resolve by ONE of:"
+                "    - run this shell as Administrator; or"
+                "    - reserve the URL once, then rerun unelevated:"
+                "        netsh http add urlacl url=http://*:$Port/ user=$env:USERDOMAIN\$env:USERNAME"
+                "  Diagnostic: $diag"
+            )
+            return @{ Status = 'PrivilegeRequired'; Port = $Port; Pids = @(); Owner = ''; Service = $service; Message = ($lines -join [Environment]::NewLine) }
+        }
+
         # The port is provably held (bind failed) but no PID is visible. On
         # macOS and Linux lsof without elevation cannot see sockets owned by
-        # OTHER users, and on Windows HTTP.sys hides a foreign url-group — so
+        # OTHER users, and on Windows HTTP.sys hides a foreign url-group -- so
         # this is the signature of a listener owned by a DIFFERENT USER. Treat
         # it as a hard conflict: a bind failure with no reclaimable owner means
         # this user cannot host a status server here, and proceeding would run
@@ -419,7 +526,7 @@ function Resolve-PortOrphan {
         return @{ Status = 'Recovered'; Port = $Port; Pids = $holderPids; Owner = ''; Service = $null; Message = '' }
     }
 
-    # Stopped what we could but the port is still held — the holder was not ours
+    # Stopped what we could but the port is still held -- the holder was not ours
     # to reclaim (e.g. another user's pwsh that Stop-Process could not touch).
     $stillLines = @(
         "Status-service port $Port is still held after stopping the orphan pwsh holder(s) ($($holderPids -join ', '))."
@@ -430,4 +537,4 @@ function Resolve-PortOrphan {
     return @{ Status = 'Conflict'; Port = $Port; Pids = $holderPids; Owner = ''; Service = $service; Message = ($stillLines -join [Environment]::NewLine) }
 }
 
-Export-ModuleMember -Function Get-PortListenerPid, Test-PortListenerFree, Get-ProcessOwnerName, Get-PortHolderServiceInfo, Resolve-PortOrphan
+Export-ModuleMember -Function Get-PortListenerPid, Test-PortListenerFree, Test-PortPrivilegeBlocked, Get-ProcessOwnerName, Get-PortHolderServiceInfo, Resolve-PortOrphan

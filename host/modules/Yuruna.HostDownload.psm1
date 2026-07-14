@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.10
+.VERSION 2026.07.14
 .GUID 42e0d1c8-9b3a-4f52-8c61-7d2e4a9b0f33
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -16,15 +16,14 @@
 
 #requires -version 7
 
-# Shared squid caching-proxy download stack for the host drivers. The Windows
-# and macOS Yuruna.Host drivers carried byte-identical copies of this
+# Shared squid caching-proxy download stack for the host drivers
 # (Test-DownloadAlreadyCurrent, Get-CacheProxyForHostDownload, Save-CachedHttpUri,
-# Invoke-HttpsViaSquidBump) plus a per-driver TCP port probe, so a hardening fix
-# to the X509 chain-validation callback had to land twice and could drift. They
-# live here once now. The only genuinely platform-specific piece -- discovering
-# the cache VM's IP -- stays per-driver (Resolve-CacheHostIp) and is INJECTED as
-# a scriptblock so this module never reaches across a module boundary by name
-# (which would be fragile under -Force re-imports; see
+# Invoke-HttpsViaSquidBump, plus the TCP port probe). Defined once here so a
+# hardening fix to the X509 chain-validation callback lands in one place and
+# cannot drift between drivers. The only genuinely platform-specific piece --
+# discovering the cache VM's IP -- stays per-driver (Resolve-CacheHostIp) and is
+# INJECTED as a scriptblock so this module never reaches across a module boundary
+# by name (which would be fragile under -Force re-imports; see
 # feedback_module_force_import_evicts_global.md).
 #
 # Each driver imports this module (non-Global) into its own scope, keeps its own
@@ -33,9 +32,9 @@
 # resolves the driver's own discovery while executing inside this module.
 
 # Own the dependencies (Get-CachingProxyPort, Format-IpUrlHost) rather than
-# assuming a caller imported Test.VMUtility into a visible scope.
+# assuming a caller imported Yuruna.Common into a visible scope.
 $script:RepoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
-Import-Module (Join-Path $script:RepoRoot 'test/modules/Test.VMUtility.psm1') -DisableNameChecking -ErrorAction SilentlyContinue
+Import-Module (Join-Path $script:RepoRoot 'automation/Yuruna.Common.psm1') -DisableNameChecking -ErrorAction SilentlyContinue
 
 function Test-CachingProxyPort {
     <#
@@ -43,8 +42,7 @@ function Test-CachingProxyPort {
         Async TCP port probe with a bounded wait. $true when $IpAddress:$Port
         accepts within $TimeoutMs. BeginConnect+WaitOne caps the wait
         predictably; a synchronous TcpClient.Connect() blocks ~20s on a
-        filtered/dropped port. The single shared probe replaces the former
-        per-driver Test-CachingProxyPort / Test-CacheTcpPort copies.
+        filtered/dropped port.
     #>
     [CmdletBinding()]
     [OutputType([bool])]

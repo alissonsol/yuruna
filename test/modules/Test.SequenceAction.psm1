@@ -1,5 +1,5 @@
-﻿<#PSScriptInfo
-.VERSION 2026.07.10
+<#PSScriptInfo
+.VERSION 2026.07.14
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456726
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -16,7 +16,7 @@
 
 #requires -version 7
 
-# Sequence-action metadata registry — single source of truth for the
+# Sequence-action metadata registry -- single source of truth for the
 # failure-label switch and the verb -> required-capability table. Storage
 # is delegated to Test.Registry; the $global:YurunaSequenceActions anchor
 # is the cross-module-eviction-safe lookup target.
@@ -37,7 +37,7 @@ $script:SequenceActionRegistry = New-YurunaRegistry -Name 'SequenceAction' -Anch
 function Register-SequenceAction {
     <#
     .SYNOPSIS
-        Register metadata for a sequence action verb. Idempotent — a second
+        Register metadata for a sequence action verb. Idempotent -- a second
         Register-SequenceAction with the same Name overwrites the prior
         entry (so a -Force re-import of the registering module re-asserts
         cleanly).
@@ -61,6 +61,16 @@ function Register-SequenceAction {
     .PARAMETER Aliases
         Alternate YAML names that resolve to this entry (legacy renames,
         e.g. 'typeAndEnter' -> 'inputTextAndEnter').
+    .PARAMETER UsesWaitSignals
+        $true when the verb sets $script:Fail.WaitForTextMatchedFailurePattern
+        on an early anti-pattern abort. The engine reads this to decide
+        whether to append the matched-failurePattern annotation to the
+        failure label.
+    .PARAMETER CapturesOwnFailureScreenshot
+        $true when the verb's failure path already writes
+        failure_screenshot_<vm>.png. The engine reads this to skip its
+        generic post-failure capture so the verb's in-context frame is
+        not overwritten.
     .PARAMETER Handler
         Optional scriptblock that runs the action. Signature:
             param([hashtable]$Context)
@@ -68,10 +78,10 @@ function Register-SequenceAction {
             # GuestKey, HostType, LogDir, RuntimeDir, ShowSensitive,
             # SequencePath, ExpandVariable. Returns [bool] (success).
         When registered, the
-        engine dispatches via Invoke-SequenceActionHandler instead of
-        the legacy switch arm. Migrated verbs use the Handler; the
-        legacy switch remains as the safety net for verbs not yet
-        migrated.
+        engine dispatches via Invoke-SequenceActionHandler. Every
+        built-in verb registers a Handler; an action name with no
+        registered Handler is treated as an unknown verb and fails
+        the step.
     #>
     [CmdletBinding()]
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter',
@@ -98,7 +108,20 @@ function Register-SequenceAction {
         [string]$FailureClass = 'unknown',
         [ValidateSet('hard','soft','unknown')]
         [string]$Severity = 'unknown',
-        [string[]]$SuggestedRecoveries = @()
+        [string[]]$SuggestedRecoveries = @(),
+        # Engine behavior flags each verb declares once, so the sequence
+        # engine reads a property instead of matching against a literal
+        # verb-name list (which silently drifts as verbs are added).
+        # UsesWaitSignals: the verb populates the shared
+        # $script:Fail.WaitForTextMatchedFailurePattern signal on an
+        # early anti-pattern abort, so the engine appends "-- matched
+        # failurePattern ..." to its failure label.
+        # CapturesOwnFailureScreenshot: the verb's own failure path
+        # already writes failure_screenshot_<vm>.png, so the engine skips
+        # its generic post-failure capture (avoids overwriting the
+        # verb's richer, in-context frame with a later one).
+        [bool]$UsesWaitSignals = $false,
+        [bool]$CapturesOwnFailureScreenshot = $false
     )
     # SuggestedRecoveries must draw from the same recovery vocabulary the
     # remediation dispatcher routes on (Test.Remediation). Late-bound via
@@ -115,16 +138,18 @@ function Register-SequenceAction {
         }
     }
     $entry = [ordered]@{
-        Name                = $Name
-        FailureLabel        = $FailureLabel
-        Handler             = $Handler
-        HostIORequirement   = @($HostIORequirement)
-        OcrRequired         = $OcrRequired
-        Description         = $Description
-        Aliases             = @($Aliases)
-        FailureClass        = $FailureClass
-        Severity            = $Severity
-        SuggestedRecoveries = @($SuggestedRecoveries)
+        Name                        = $Name
+        FailureLabel                = $FailureLabel
+        Handler                     = $Handler
+        HostIORequirement           = @($HostIORequirement)
+        OcrRequired                 = $OcrRequired
+        Description                 = $Description
+        Aliases                     = @($Aliases)
+        FailureClass                = $FailureClass
+        Severity                    = $Severity
+        SuggestedRecoveries         = @($SuggestedRecoveries)
+        UsesWaitSignals             = $UsesWaitSignals
+        CapturesOwnFailureScreenshot = $CapturesOwnFailureScreenshot
     }
     & $script:SequenceActionRegistry.Register $Name $entry
     foreach ($alias in $Aliases) {
@@ -151,7 +176,7 @@ function Test-SequenceActionHasHandler {
     .SYNOPSIS
         $true when (Name) is registered AND has a Handler scriptblock.
         Used by the engine to decide between the registry dispatch and
-        the legacy switch arm.
+        failing the step as an unknown verb.
     #>
     [CmdletBinding()]
     [OutputType([bool])]
@@ -166,8 +191,8 @@ function Invoke-SequenceActionHandler {
         Invoke the registered Handler scriptblock for an action. Returns
         the Handler's [bool] result. Throws when the action is not
         registered or has no Handler -- callers check with
-        Test-SequenceActionHasHandler before calling, OR catch the
-        throw and fall through to a legacy implementation.
+        Test-SequenceActionHasHandler before calling so an unknown or
+        Handler-less verb fails the step rather than throwing here.
     #>
     [CmdletBinding()]
     [OutputType([bool])]
@@ -177,7 +202,7 @@ function Invoke-SequenceActionHandler {
     )
     $entry = & $script:SequenceActionRegistry.Get $Name
     if (-not $entry)         { throw "Sequence action '$Name' is not registered." }
-    if (-not $entry.Handler) { throw "Sequence action '$Name' has no Handler scriptblock registered (legacy switch only)." }
+    if (-not $entry.Handler) { throw "Sequence action '$Name' has no Handler scriptblock registered." }
     return [bool](& $entry.Handler $Context)
 }
 
@@ -185,7 +210,7 @@ function Get-SequenceAction {
     <#
     .SYNOPSIS
         Look up a registered action by name (or alias). Returns $null when
-        the name is unknown — callers decide whether that's a soft warning
+        the name is unknown -- callers decide whether that's a soft warning
         (typo) or a hard error.
     #>
     [CmdletBinding()]
@@ -220,7 +245,7 @@ function Get-SequenceActionFailureLabel {
     .SYNOPSIS
         Build the human-readable failure label for a failed step. Returns
         the verb name when no FailureLabel scriptblock is registered or
-        the action isn't in the registry — same default the prior switch's
+        the action isn't in the registry -- same default the prior switch's
         fall-through used.
     .PARAMETER Step
         The parsed YAML step (an IDictionary; access fields via dot
@@ -230,7 +255,7 @@ function Get-SequenceActionFailureLabel {
         calls.
     .PARAMETER ExpandVariable
         Reference to the live Expand-Variable function (passed in
-        because Test.SequenceAction does not import Invoke-Sequence —
+        because Test.SequenceAction does not import Invoke-Sequence --
         the FailureLabel scriptblocks bind it via the Context hashtable
         at call time).
     #>

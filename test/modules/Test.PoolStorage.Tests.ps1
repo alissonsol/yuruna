@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.10
+.VERSION 2026.07.14
 .GUID 42d6f9b2-0c4e-4a38-9b7d-2e3f4a5b6c7d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -35,6 +35,18 @@ function Assert-Null { param($Actual, [string]$Because = '') if ($null -ne $Actu
 # Build a ledger object the way Read-PoolStorageLedger would (replicated map +
 # scalar status), for the pure pending/merge tests.
 function Get-TestLedger { param([string[]]$Replicated = @()) $r = [ordered]@{}; foreach ($n in $Replicated) { $r[$n] = '2026-06-10T00:00:00Z' }; return [ordered]@{ replicated = $r } }
+
+# The fixture helpers below sit at file scope, above the first Describe, because that
+# is the only region an It block can still reach at run time: a Describe body is
+# executed during the discovery pass and everything it declares -- functions included --
+# is discarded before the first It runs, so a helper defined inside one would surface
+# as a CommandNotFoundException in the assertion rather than as a real failure.
+
+# A pscustomobject of the shape Get-YurunaPoolStorageConfig returns.
+function Get-TestPoolConfig { param([string]$LocalPath = '/mnt/ypool-nas') [pscustomobject]@{ Replicate = $true; NetworkPath = '//srv/work'; NetworkUser = 'u'; LocalPath = $LocalPath } }
+
+# N cycles, oldest-first (zero-padded so lexical == chronological).
+function Get-NSeq { param([int]$N) 1..$N | ForEach-Object { '{0:D6}.d.t.h' -f $_ } }
 
 Describe 'Get-PoolStorageUncPath (SMB path normalization)' {
     It 'normalizes a Windows UNC input to either style' {
@@ -383,8 +395,6 @@ Describe 'Test-PoolStorageVaultDecision (loud-fail gate)' {
 }
 
 Describe 'Get-PoolStorageHostFolderPath (per-host destination root)' {
-    # A pscustomobject of the shape Get-YurunaPoolStorageConfig returns.
-    function Get-TestPoolConfig { param([string]$LocalPath = '/mnt/ypool-nas') [pscustomobject]@{ Replicate = $true; NetworkPath = '//srv/work'; NetworkUser = 'u'; LocalPath = $LocalPath } }
     It 'joins localPath and hostId' {
         $cfg = Get-TestPoolConfig
         Assert-Equal -Expected (Join-Path '/mnt/ypool-nas' '4212abc') -Actual (Get-PoolStorageHostFolderPath -Config $cfg -HostId '4212abc') -Because 'host root = localPath/hostId'
@@ -422,8 +432,6 @@ Describe 'Initialize-PoolStorageHostFolder (-WhatIf is a no-I/O no-op)' {
 }
 
 Describe 'Get-PoolStorageDrainOrder (hybrid newest + oldest, recency)' {
-    # 30 cycles, oldest-first (zero-padded so lexical == chronological).
-    function Get-NSeq { param([int]$N) 1..$N | ForEach-Object { '{0:D6}.d.t.h' -f $_ } }
     It 'returns the list unchanged when it fits in one run' {
         $p = @(Get-NSeq 5)
         Assert-Equal -Expected ($p -join ',') -Actual ((Get-PoolStorageDrainOrder -PendingOldestFirst $p -Max 100) -join ',') -Because 'fits -> unchanged'

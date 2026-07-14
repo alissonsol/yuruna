@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.10
+.VERSION 2026.07.14
 .GUID 42d3f1a8-6b25-4c79-9e0a-3f5b7d9c1e46
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -89,6 +89,39 @@ function Get-MethodCallCount {
 $rootAst = Get-ModuleAst -Path $modulePath
 $proxies = @('Write-Output', 'Write-Error', 'Write-Warning', 'Write-Debug', 'Write-Verbose', 'Write-Information')
 
+# A temp file stands in for the per-cycle transcript; these seed/restore the
+# Yuruna.Log cross-module global handle, so PSAvoidGlobalVars is suppressed on
+# the confined helpers rather than the It blocks.
+#
+# They are declared above every Describe because file-level code only runs as
+# far as the first Describe on the run pass -- a helper defined after one is
+# never redefined for the run and is unresolvable from an It body.
+function New-TranscriptFixture {
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidGlobalVars', '',
+        Justification = 'Test must seed the Yuruna.Log transcript-handle global the proxies read.')]
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+        Justification = 'Test fixture: temp file + seeds/saves globals; no production state.')]
+    [OutputType([hashtable])]
+    param()
+    $saved = @{ LogFile = $global:__YurunaLogFile; Warn = $global:WarningPreference; Info = $global:InformationPreference }
+    $file = Join-Path ([System.IO.Path]::GetTempPath()) ('yrn-tee-' + [guid]::NewGuid().ToString('N') + '.html')
+    [System.IO.File]::WriteAllText($file, '')
+    $global:__YurunaLogFile = $file
+    return @{ File = $file; Saved = $saved }
+}
+
+function Restore-TranscriptFixture {
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidGlobalVars', '',
+        Justification = 'Test teardown restores the globals it saved.')]
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+        Justification = 'Test teardown: restores saved globals and removes the temp file.')]
+    param([Parameter(Mandatory)][hashtable]$Fixture)
+    $global:__YurunaLogFile      = $Fixture.Saved.LogFile
+    $global:WarningPreference     = $Fixture.Saved.Warn
+    $global:InformationPreference = $Fixture.Saved.Info
+    if ($Fixture.File) { Remove-Item -LiteralPath $Fixture.File -Force -ErrorAction SilentlyContinue }
+}
+
 Describe 'yuruna-log-tee -- the append-to-transcript block is centralized in one helper' {
     It 'defines a single private Add-YurunaLogLine tee helper' {
         Assert-True ([bool](Get-FunctionAst -RootAst $rootAst -FunctionName 'Add-YurunaLogLine')) `
@@ -134,5 +167,43 @@ Describe 'yuruna-log-tee -- the append-to-transcript block is centralized in one
         foreach ($p in $proxies) {
             Assert-True ($exportText -match [regex]::Escape($p)) "$p must remain exported"
         }
+    }
+}
+
+Describe 'yuruna-log-tee -- severity tags and unconditional warning mirroring' {
+    Import-Module $modulePath -Global -Force -DisableNameChecking -ErrorAction SilentlyContinue
+
+    It 'tags each transcript record with a log-<severity> CSS class' {
+        $fx = New-TranscriptFixture
+        try {
+            $global:InformationPreference = 'Continue'
+            Write-Error 'boom' -ErrorAction SilentlyContinue
+            Write-Information 'note'
+            $content = Get-Content -Raw -LiteralPath $fx.File
+            Assert-True ($content -match 'class="log-error"')       'error record carries the log-error class'
+            Assert-True ($content -match 'class="log-information"')  'information record carries the log-information class'
+        } finally { Restore-TranscriptFixture -Fixture $fx }
+    }
+
+    It 'mirrors a Warning to the transcript even when the console is quiet (WarningPreference=SilentlyContinue)' {
+        $fx = New-TranscriptFixture
+        try {
+            $global:WarningPreference = 'SilentlyContinue'
+            Write-Warning 'quiet-warning'
+            $content = Get-Content -Raw -LiteralPath $fx.File
+            Assert-True ($content -match 'class="log-warning"') 'the warning record is tagged log-warning'
+            Assert-True ($content -match 'quiet-warning')       'the warning body reaches the transcript despite the quiet console'
+        } finally { Restore-TranscriptFixture -Fixture $fx }
+    }
+
+    It 'HTML-encodes the message body while emitting the span markup verbatim' {
+        $fx = New-TranscriptFixture
+        try {
+            $global:WarningPreference = 'SilentlyContinue'
+            Write-Warning 'a<b>c'
+            $content = Get-Content -Raw -LiteralPath $fx.File
+            Assert-True ($content -match 'a&lt;b&gt;c')          'angle brackets in the message are HTML-encoded'
+            Assert-True ($content -match '<span class="log-warning">') 'the span wrapper is emitted as live markup, not escaped'
+        } finally { Restore-TranscriptFixture -Fixture $fx }
     }
 }

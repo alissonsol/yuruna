@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.10
+.VERSION 2026.07.14
 .GUID 422d8f14-9a73-4e52-8c61-2d9b3a7e1f04
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -43,8 +43,12 @@ function New-TempDir {
     return $d
 }
 
-Describe 'ConvertFrom-PrometheusPoolGauge (parse the gating gauges)' {
-    $text = @'
+# Pure value fixtures belong at file scope, above the first Describe: a Describe body is
+# evaluated during the discovery pass and everything it declares is torn down before the
+# first It runs, so a gauge parsed inside one reaches the assertion as $null. Fixtures
+# that touch the filesystem instead go in BeforeAll/AfterAll (see below) -- those run in
+# the run phase, so their setup is still standing when the It executes.
+$GaugeText = @'
 # HELP yuruna_pool_alert_active ...
 # TYPE yuruna_pool_alert_active gauge
 yuruna_pool_alert_active{pool="lab"} 1
@@ -57,36 +61,39 @@ yuruna_pool_degraded{pool="wild"} 1
 yuruna_pool_healthy_fraction{pool="wild"} 0
 yuruna_pool_host_status{pool="lab",hostId="42aa"} 3
 '@
-    $pools = ConvertFrom-PrometheusPoolGauge -MetricsText $text
+$GaugePools = ConvertFrom-PrometheusPoolGauge -MetricsText $GaugeText
+
+$SpoolGauge = @{ pool = 'lab'; alertActive = $true; healthyFraction = 0.25; healthyThreshold = 0.5; membersHealthy = 1; membersTotal = 4 }
+$SpoolMessage = New-PoolAlertSpoolMessage -Pool 'lab' -GaugePool $SpoolGauge -UnixSeconds 1700000000 -NowUtc '2026-01-01T00:00:00Z'
+
+Describe 'ConvertFrom-PrometheusPoolGauge (parse the gating gauges)' {
     It 'parses an authored, firing pool' {
-        Assert-True  $pools['lab'].alertActive 'lab alertActive'
-        Assert-True  $pools['lab'].degraded 'lab degraded'
-        Assert-Equal -Expected 0.25 -Actual $pools['lab'].healthyFraction -Because 'lab fraction'
-        Assert-Equal -Expected 0.5  -Actual $pools['lab'].healthyThreshold -Because 'lab threshold'
-        Assert-Equal -Expected 1 -Actual $pools['lab'].membersHealthy -Because 'lab healthy'
-        Assert-Equal -Expected 4 -Actual $pools['lab'].membersTotal -Because 'lab total'
+        Assert-True  $GaugePools['lab'].alertActive 'lab alertActive'
+        Assert-True  $GaugePools['lab'].degraded 'lab degraded'
+        Assert-Equal -Expected 0.25 -Actual $GaugePools['lab'].healthyFraction -Because 'lab fraction'
+        Assert-Equal -Expected 0.5  -Actual $GaugePools['lab'].healthyThreshold -Because 'lab threshold'
+        Assert-Equal -Expected 1 -Actual $GaugePools['lab'].membersHealthy -Because 'lab healthy'
+        Assert-Equal -Expected 4 -Actual $GaugePools['lab'].membersTotal -Because 'lab total'
     }
     It 'treats a pool with no alert_active series as not alerting (un-authored)' {
-        Assert-True  $pools['wild'].degraded 'wild degraded gauge present'
-        Assert-False $pools['wild'].alertActive 'wild never alerts (no alert_active line)'
+        Assert-True  $GaugePools['wild'].degraded 'wild degraded gauge present'
+        Assert-False $GaugePools['wild'].alertActive 'wild never alerts (no alert_active line)'
     }
     It 'ignores unrelated/labelled series and an empty body' {
-        Assert-True (-not $pools.ContainsKey('')) 'no empty pool key from host_status'
+        Assert-True (-not $GaugePools.ContainsKey('')) 'no empty pool key from host_status'
         Assert-Equal -Expected 0 -Actual (ConvertFrom-PrometheusPoolGauge -MetricsText '').Count -Because 'empty -> no pools'
     }
 }
 
 Describe 'New-PoolAlertSpoolMessage (message shape)' {
-    $g = @{ pool = 'lab'; alertActive = $true; healthyFraction = 0.25; healthyThreshold = 0.5; membersHealthy = 1; membersTotal = 4 }
-    $m = New-PoolAlertSpoolMessage -Pool 'lab' -GaugePool $g -UnixSeconds 1700000000 -NowUtc '2026-01-01T00:00:00Z'
     It 'builds a stable id + the pool.alert event code + structured fields' {
-        Assert-Equal -Expected 'pool-lab-1700000000' -Actual $m['id'] -Because 'id'
-        Assert-Equal -Expected 'pool.alert' -Actual $m['eventCode'] -Because 'eventCode'
-        Assert-Equal -Expected 'pool_alert_fired' -Actual $m['event'] -Because 'event'
-        Assert-Equal -Expected 1 -Actual $m['membersHealthy'] -Because 'membersHealthy'
-        Assert-Equal -Expected 4 -Actual $m['membersTotal'] -Because 'membersTotal'
-        Assert-Equal -Expected 0 -Actual $m['attempts'] -Because 'attempts starts at 0'
-        Assert-True ($m['subject'] -like "*DEGRADED*1/4*") 'subject carries the fraction'
+        Assert-Equal -Expected 'pool-lab-1700000000' -Actual $SpoolMessage['id'] -Because 'id'
+        Assert-Equal -Expected 'pool.alert' -Actual $SpoolMessage['eventCode'] -Because 'eventCode'
+        Assert-Equal -Expected 'pool_alert_fired' -Actual $SpoolMessage['event'] -Because 'event'
+        Assert-Equal -Expected 1 -Actual $SpoolMessage['membersHealthy'] -Because 'membersHealthy'
+        Assert-Equal -Expected 4 -Actual $SpoolMessage['membersTotal'] -Because 'membersTotal'
+        Assert-Equal -Expected 0 -Actual $SpoolMessage['attempts'] -Because 'attempts starts at 0'
+        Assert-True ($SpoolMessage['subject'] -like "*DEGRADED*1/4*") 'subject carries the fraction'
     }
 }
 
@@ -131,27 +138,33 @@ Describe 'Add-PoolAlertSpoolEntry (rising-edge detection + cooldown)' {
 }
 
 Describe 'Test-PoolNotifierReady (self-election gate)' {
-    $dir = New-TempDir
-    try {
-        $configured = Join-Path $dir 'configured.yml'
-        $empty      = Join-Path $dir 'empty.yml'
-        Set-Content -LiteralPath $configured -Value "subscribers:`n  pool.alert:`n    - transport: email`n      address: ops@example.com`n" -Encoding utf8
-        Set-Content -LiteralPath $empty      -Value "subscribers:`n  pool.alert: []`n  cycle.failure:`n    - transport: email`n      address: ops@example.com`n" -Encoding utf8
-        It 'is true when a pool.alert subscriber has a non-empty address' {
-            Assert-True (Test-PoolNotifierReady -TransportsPath $configured) 'configured -> ready'
-        }
-        It 'is false when pool.alert is empty (even if other events are configured)' {
-            Assert-False (Test-PoolNotifierReady -TransportsPath $empty) 'no pool.alert subscriber -> not ready'
-        }
-        It 'is false for a non-email transport (extension cannot deliver -> would false-ok)' {
-            $webhook = Join-Path $dir 'webhook.yml'
-            Set-Content -LiteralPath $webhook -Value "subscribers:`n  pool.alert:`n    - transport: webhook`n      address: https://hooks.example.com/x`n" -Encoding utf8
-            Assert-False (Test-PoolNotifierReady -TransportsPath $webhook) 'unsupported transport -> not ready'
-        }
-        It 'is false when the transports file is absent' {
-            Assert-False (Test-PoolNotifierReady -TransportsPath (Join-Path $dir 'nope.yml')) 'missing -> not ready'
-        }
-    } finally { Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue }
+    # Setup/teardown must straddle the run phase, not the discovery pass. Written as a
+    # try/finally around the It blocks, the transports files would be created AND deleted
+    # while the Describe body was still being discovered, so every It would then probe a
+    # path that no longer exists and the gate would report not-ready for the wrong reason.
+    BeforeAll {
+        $script:ReadyDir = New-TempDir
+        $script:ReadyConfigured = Join-Path $script:ReadyDir 'configured.yml'
+        $script:ReadyEmpty      = Join-Path $script:ReadyDir 'empty.yml'
+        Set-Content -LiteralPath $script:ReadyConfigured -Value "subscribers:`n  pool.alert:`n    - transport: email`n      address: ops@example.com`n" -Encoding utf8
+        Set-Content -LiteralPath $script:ReadyEmpty      -Value "subscribers:`n  pool.alert: []`n  cycle.failure:`n    - transport: email`n      address: ops@example.com`n" -Encoding utf8
+    }
+    AfterAll { Remove-Item -LiteralPath $script:ReadyDir -Recurse -Force -ErrorAction SilentlyContinue }
+
+    It 'is true when a pool.alert subscriber has a non-empty address' {
+        Assert-True (Test-PoolNotifierReady -TransportsPath $script:ReadyConfigured) 'configured -> ready'
+    }
+    It 'is false when pool.alert is empty (even if other events are configured)' {
+        Assert-False (Test-PoolNotifierReady -TransportsPath $script:ReadyEmpty) 'no pool.alert subscriber -> not ready'
+    }
+    It 'is false for a non-email transport (extension cannot deliver -> would false-ok)' {
+        $webhook = Join-Path $script:ReadyDir 'webhook.yml'
+        Set-Content -LiteralPath $webhook -Value "subscribers:`n  pool.alert:`n    - transport: webhook`n      address: https://hooks.example.com/x`n" -Encoding utf8
+        Assert-False (Test-PoolNotifierReady -TransportsPath $webhook) 'unsupported transport -> not ready'
+    }
+    It 'is false when the transports file is absent' {
+        Assert-False (Test-PoolNotifierReady -TransportsPath (Join-Path $script:ReadyDir 'nope.yml')) 'missing -> not ready'
+    }
 }
 
 Describe 'Get-PoolMetricsCandidateUrl (TLS rollout tolerance)' {
@@ -238,35 +251,37 @@ Describe 'Invoke-PoolNotifierDelivery: claim stamps claimedUtc and reclaim measu
 }
 
 Describe 'Get-PoolNotifierReadiness distinguishes ready / unconfigured / unreadable' {
-    $dir = New-TempDir
-    try {
-        $configured = Join-Path $dir 'configured.yml'
-        Set-Content -LiteralPath $configured -Value "subscribers:`n  pool.alert:`n    - transport: email`n      address: ops@example.com`n" -Encoding utf8
-        It 'reports ready for a configured pool.alert email subscriber' {
-            $r = Get-PoolNotifierReadiness -TransportsPath $configured
-            Assert-Equal -Expected 'ready' -Actual $r.State -Because 'configured -> ready'
-            Assert-True $r.Ready 'Ready flag true'
-        }
-        It 'reports unconfigured for an absent transports file' {
-            $r = Get-PoolNotifierReadiness -TransportsPath (Join-Path $dir 'nope.yml')
-            Assert-Equal -Expected 'unconfigured' -Actual $r.State -Because 'absent -> unconfigured'
-            Assert-False $r.Ready 'not ready'
-        }
-        It 'reports unconfigured for a present file with no pool.alert subscriber' {
-            $empty = Join-Path $dir 'empty.yml'
-            Set-Content -LiteralPath $empty -Value "subscribers:`n  pool.alert: []`n" -Encoding utf8
-            $r = Get-PoolNotifierReadiness -TransportsPath $empty
-            Assert-Equal -Expected 'unconfigured' -Actual $r.State -Because 'no subscriber -> unconfigured'
-        }
-        It 'reports unreadable (distinct from unconfigured) for a present file whose parse throws' {
-            $bad = Join-Path $dir 'bad.yml'
-            Set-Content -LiteralPath $bad -Value 'subscribers: {oops' -Encoding utf8
-            Mock -ModuleName Test.PoolNotifier ConvertFrom-Yaml { throw 'parse boom' }
-            $r = Get-PoolNotifierReadiness -TransportsPath $bad
-            Assert-Equal -Expected 'unreadable' -Actual $r.State -Because 'present but parse-throws -> unreadable'
-            Assert-False $r.Ready 'unreadable is not ready'
-        }
-    } finally { Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue }
+    BeforeAll {
+        $script:ReadinessDir = New-TempDir
+        $script:ReadinessConfigured = Join-Path $script:ReadinessDir 'configured.yml'
+        Set-Content -LiteralPath $script:ReadinessConfigured -Value "subscribers:`n  pool.alert:`n    - transport: email`n      address: ops@example.com`n" -Encoding utf8
+    }
+    AfterAll { Remove-Item -LiteralPath $script:ReadinessDir -Recurse -Force -ErrorAction SilentlyContinue }
+
+    It 'reports ready for a configured pool.alert email subscriber' {
+        $r = Get-PoolNotifierReadiness -TransportsPath $script:ReadinessConfigured
+        Assert-Equal -Expected 'ready' -Actual $r.State -Because 'configured -> ready'
+        Assert-True $r.Ready 'Ready flag true'
+    }
+    It 'reports unconfigured for an absent transports file' {
+        $r = Get-PoolNotifierReadiness -TransportsPath (Join-Path $script:ReadinessDir 'nope.yml')
+        Assert-Equal -Expected 'unconfigured' -Actual $r.State -Because 'absent -> unconfigured'
+        Assert-False $r.Ready 'not ready'
+    }
+    It 'reports unconfigured for a present file with no pool.alert subscriber' {
+        $empty = Join-Path $script:ReadinessDir 'empty.yml'
+        Set-Content -LiteralPath $empty -Value "subscribers:`n  pool.alert: []`n" -Encoding utf8
+        $r = Get-PoolNotifierReadiness -TransportsPath $empty
+        Assert-Equal -Expected 'unconfigured' -Actual $r.State -Because 'no subscriber -> unconfigured'
+    }
+    It 'reports unreadable (distinct from unconfigured) for a present file whose parse throws' {
+        $bad = Join-Path $script:ReadinessDir 'bad.yml'
+        Set-Content -LiteralPath $bad -Value 'subscribers: {oops' -Encoding utf8
+        Mock -ModuleName Test.PoolNotifier ConvertFrom-Yaml { throw 'parse boom' }
+        $r = Get-PoolNotifierReadiness -TransportsPath $bad
+        Assert-Equal -Expected 'unreadable' -Actual $r.State -Because 'present but parse-throws -> unreadable'
+        Assert-False $r.Ready 'unreadable is not ready'
+    }
 }
 
 Describe 'Invoke-PoolNotifierCycle keeps draining on an unreadable transport but no-ops when unconfigured' {

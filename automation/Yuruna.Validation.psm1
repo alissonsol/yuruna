@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.10
+.VERSION 2026.07.14
 .GUID 42d2f4a5-b6c7-4890-1234-5d6e7f809102
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -29,23 +29,28 @@ Import-Module (Join-Path $PSScriptRoot 'Yuruna.VariableExpansion.psm1') -Global 
 # text can't diverge from Publish-WorkloadList. -Global -Force per
 # feedback_module_force_import_evicts_global.md.
 Import-Module (Join-Path $PSScriptRoot 'Yuruna.DeploymentKind.psm1') -Global -Force
+# New-YurunaValidationResult decorates a boxed [bool] with a Reason so the
+# actionable failure pointer travels with the pass/fail decision instead of
+# reaching only Write-Information (silenced at Error/Warning). -Global -Force
+# per feedback_module_force_import_evicts_global.md.
+Import-Module (Join-Path $PSScriptRoot 'Yuruna.Result.psm1') -Global -Force
 
 function Confirm-FolderList {
     param (
         $project_root,
         $config_subfolder
     )
-    if ([string]::IsNullOrEmpty($project_root)) { Write-Information "Project path is null or empty"; return $false; }
-    if ([string]::IsNullOrEmpty($config_subfolder)) { Write-Information "Configuration subfolder is null or empty"; return $false; }
+    if ([string]::IsNullOrEmpty($project_root)) { $r = "Project path is null or empty"; Write-Information $r; return (New-YurunaValidationResult $false $r); }
+    if ([string]::IsNullOrEmpty($config_subfolder)) { $r = "Configuration subfolder is null or empty"; Write-Information $r; return (New-YurunaValidationResult $false $r); }
 
     $config_relative = Join-Path -Path $project_root -ChildPath "config/$config_subfolder"
     $config_root = Resolve-Path -Path $config_relative -ErrorAction SilentlyContinue
-    if ([string]::IsNullOrEmpty($config_root)) { Write-Information "Configuration subfolder not found: $config_relative"; return $false; }
+    if ([string]::IsNullOrEmpty($config_root)) { $r = "Configuration subfolder not found: $config_relative"; Write-Information $r; return (New-YurunaValidationResult $false $r); }
 
-    if (-Not (Test-Path -Path $project_root)) { Write-Information "Project path not found: $project_root"; return $false; }
-    if (-Not (Test-Path -Path $config_root)) { Write-Information "Config path not found: $config_root"; return $false; }
+    if (-Not (Test-Path -Path $project_root)) { $r = "Project path not found: $project_root"; Write-Information $r; return (New-YurunaValidationResult $false $r); }
+    if (-Not (Test-Path -Path $config_root)) { $r = "Config path not found: $config_root"; Write-Information $r; return (New-YurunaValidationResult $false $r); }
 
-    return $true;
+    return (New-YurunaValidationResult $true);
 }
 
 function Confirm-GlobalVariableList {
@@ -57,11 +62,11 @@ function Confirm-GlobalVariableList {
     if (-Not ($null -eq  $yaml.globalVariables)) {
         foreach ($key in $yaml.globalVariables.Keys) {
             $value = $yaml.globalVariables[$key]
-            if ([string]::IsNullOrEmpty($value)) { Write-Information "globalVariables.$key cannot be null or empty in file: $filePath"; return $false; }
+            if ([string]::IsNullOrEmpty($value)) { $r = "globalVariables.$key cannot be null or empty in file: $filePath"; Write-Information $r; return (New-YurunaValidationResult $false $r); }
         }
     }
 
-    return $true;
+    return (New-YurunaValidationResult $true);
 }
 
 function Invoke-SecretFolderValidation {
@@ -77,7 +82,7 @@ function Invoke-SecretFolderValidation {
         [Parameter(Mandatory)][string]$SecretsFolder,
         [switch]$RequireNonEmpty
     )
-    if (-not (Test-Path -Path $SecretsFolder)) { return $true }
+    if (-not (Test-Path -Path $SecretsFolder)) { return (New-YurunaValidationResult $true) }
     Write-Debug "---- Validating Secrets folder: $SecretsFolder"
     $files = Get-ChildItem -Path $SecretsFolder -Filter *.txt
     foreach ($file in $files) {
@@ -87,12 +92,13 @@ function Invoke-SecretFolderValidation {
         # IsNullOrEmpty is $false, letting a blank secret pass and bake a malformed cluster Secret.
         $content = Get-Content $file -Raw
         if ([string]::IsNullOrWhiteSpace($content)) {
-            Write-Information "Empty secret file: $file"
-            if ($RequireNonEmpty) { return $false }
+            $r = "Empty secret file: $file"
+            Write-Information $r
+            if ($RequireNonEmpty) { return (New-YurunaValidationResult $false $r) }
         }
         git update-index --assume-unchanged $file
     }
-    return $true
+    return (New-YurunaValidationResult $true)
 }
 
 function Confirm-ResourceList {
@@ -101,15 +107,17 @@ function Confirm-ResourceList {
         $config_subfolder
     )
     Write-Debug "---- Validating Resources"
-    if (!(Confirm-FolderList $project_root $config_subfolder)) { return $false; }
+    $folderResult = Confirm-FolderList $project_root $config_subfolder
+    if (!($folderResult)) { return (New-YurunaValidationResult $false $folderResult.Reason); }
 
     $resourcesFile = Join-Path -Path $project_root -ChildPath "config/$config_subfolder/resources.yml"
-    if (-Not (Test-Path -Path $resourcesFile)) { Write-Information "File not found: $resourcesFile"; return $false; }
+    if (-Not (Test-Path -Path $resourcesFile)) { $r = "File not found: $resourcesFile"; Write-Information $r; return (New-YurunaValidationResult $false $r); }
     $yaml = ConvertFrom-File $resourcesFile
 
-    if (!(Confirm-GlobalVariableList $yaml $resourcesFile)) { return $false; }
+    $globalResult = Confirm-GlobalVariableList $yaml $resourcesFile
+    if (!($globalResult)) { return (New-YurunaValidationResult $false $globalResult.Reason); }
 
-    if ($null -eq $yaml.resources) { Write-Information "Resources cannot be null or empty in file: $resourcesFile"; return $false; }
+    if ($null -eq $yaml.resources) { $r = "Resources cannot be null or empty in file: $resourcesFile"; Write-Information $r; return (New-YurunaValidationResult $false $r); }
     # Colliding resource names stage into the same .yuruna/<subfolder>/
     # resources/<name> work folder, so the second tofu apply overwrites the
     # first's template and carried-over state -- one resource is silently
@@ -121,26 +129,27 @@ function Confirm-ResourceList {
     $seenResourceNamesExpanded = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
     foreach ($resource in $yaml.resources) {
         $resourceName = $resource['name']
-        if ([string]::IsNullOrEmpty($resourceName)) { Write-Information "Resource without name in file: $resourcesFile"; return $false; }
-        if (-not $seenResourceNames.Add($resourceName)) { Write-Information "Duplicate resource name '$resourceName' in file: $resourcesFile"; return $false; }
+        if ([string]::IsNullOrEmpty($resourceName)) { $r = "Resource without name in file: $resourcesFile"; Write-Information $r; return (New-YurunaValidationResult $false $r); }
+        if (-not $seenResourceNames.Add($resourceName)) { $r = "Duplicate resource name '$resourceName' in file: $resourcesFile"; Write-Information $r; return (New-YurunaValidationResult $false $r); }
         $resourceNameExpanded = $ExecutionContext.InvokeCommand.ExpandString($resourceName)
         if ([string]::IsNullOrEmpty($resourceNameExpanded)) { Write-Information "Resource '$resourceName' may expand to empty name in file: $resourcesFile"; }
-        elseif (-not $seenResourceNamesExpanded.Add($resourceNameExpanded)) { Write-Information "Duplicate resource name '$resourceNameExpanded' (expanded from '$resourceName') in file: $resourcesFile"; return $false; }
+        elseif (-not $seenResourceNamesExpanded.Add($resourceNameExpanded)) { $r = "Duplicate resource name '$resourceNameExpanded' (expanded from '$resourceName') in file: $resourcesFile"; Write-Information $r; return (New-YurunaValidationResult $false $r); }
         $resourceTemplate = $resource['template']
         $templateProjectFolder = Join-Path -Path $project_root -ChildPath "resources/$resourceTemplate" -ErrorAction SilentlyContinue
         if (($null -eq $templateProjectFolder) -or (-Not (Test-Path -Path $templateProjectFolder))) {
             $templateGlobalFolder = Join-Path -Path $yuruna_root  -ChildPath "global/resources/$resourceTemplate" -ErrorAction SilentlyContinue
             if (($null -eq $templateGlobalFolder) -or (-Not (Test-Path -Path $templateGlobalFolder))) {
-                Write-Information "Resources template not found locally or globally: $resourceTemplate`nUsed in file: $resourcesFile";
+                $r = "Resources template not found locally or globally: $resourceTemplate`nUsed in file: $resourcesFile";
+                Write-Information $r;
                 Write-Information "Not found local folder: $templateProjectFolder";
                 Write-Information "Not found global folder: $templateGlobalFolder";
-                return $false;
+                return (New-YurunaValidationResult $false $r);
             }
         }
         if (-Not ($null -eq  $resource.variables)) {
             foreach ($key in $resource.variables.Keys) {
                 $value = $resource.variables[$key]
-                if ([string]::IsNullOrEmpty($value)) { Write-Information "resource[$resourceName][$key] cannot be null or empty in file: $resourcesFile"; return $false; }
+                if ([string]::IsNullOrEmpty($value)) { $r = "resource[$resourceName][$key] cannot be null or empty in file: $resourcesFile"; Write-Information $r; return (New-YurunaValidationResult $false $r); }
             }
         }
     }
@@ -149,7 +158,7 @@ function Confirm-ResourceList {
     $secrets_folder = Join-Path -Path $project_root -ChildPath "config/$config_subfolder/secrets"
     $null = Invoke-SecretFolderValidation -SecretsFolder $secrets_folder
 
-    return $true;
+    return (New-YurunaValidationResult $true);
 }
 
 function Confirm-ResourceOutputList {
@@ -160,16 +169,16 @@ function Confirm-ResourceOutputList {
 
     $resourcesOutputFile = Join-Path -Path $project_root -ChildPath "config/$config_subfolder/resources.output.yml"
     # Valid for the resources output not to exist yet
-    if (-Not (Test-Path -Path $resourcesOutputFile)) { Write-Verbose "Resources output file not found: $resourcesOutputFile"; return $true; }
+    if (-Not (Test-Path -Path $resourcesOutputFile)) { Write-Verbose "Resources output file not found: $resourcesOutputFile"; return (New-YurunaValidationResult $true); }
     $resourcesOutputYaml = ConvertFrom-File $resourcesOutputFile
 
-    if ($null -eq $resourcesOutputYaml) { Write-Information "resources output cannot be null or empty in file: $resourcesOutputFile"; return $false; }
+    if ($null -eq $resourcesOutputYaml) { $r = "resources output cannot be null or empty in file: $resourcesOutputFile"; Write-Information $r; return (New-YurunaValidationResult $false $r); }
     # Validation is read-only: push RAW values (-NoExpand). Variable expansion
     # is the publishers' job at publish time; the validator mirrors the
     # Component publisher's -NoExpand debug pass and does not expand here.
     Set-ExpandedResourcesOutput -ResourcesOutputYaml $resourcesOutputYaml -NoExpand -EmitDebug
 
-    return $true;
+    return (New-YurunaValidationResult $true);
 }
 
 function Confirm-ComponentList {
@@ -178,14 +187,17 @@ function Confirm-ComponentList {
         $config_subfolder
     )
     Write-Debug "---- Validating Components"
-    if (!(Confirm-FolderList $project_root $config_subfolder)) { return $false; }
-    if (!(Confirm-ResourceOutputList $project_root $config_subfolder)) { return $false; }
+    $folderResult = Confirm-FolderList $project_root $config_subfolder
+    if (!($folderResult)) { return (New-YurunaValidationResult $false $folderResult.Reason); }
+    $outputResult = Confirm-ResourceOutputList $project_root $config_subfolder
+    if (!($outputResult)) { return (New-YurunaValidationResult $false $outputResult.Reason); }
 
     $componentsFile = Join-Path -Path $project_root -ChildPath "config/$config_subfolder/components.yml"
-    if (-Not (Test-Path -Path $componentsFile)) { Write-Information "File not found: $componentsFile"; return $false; }
+    if (-Not (Test-Path -Path $componentsFile)) { $r = "File not found: $componentsFile"; Write-Information $r; return (New-YurunaValidationResult $false $r); }
     $yaml = ConvertFrom-File $componentsFile
 
-    if (!(Confirm-GlobalVariableList $yaml $componentsFile)) { return $false; }
+    $globalResult = Confirm-GlobalVariableList $yaml $componentsFile
+    if (!($globalResult)) { return (New-YurunaValidationResult $false $globalResult.Reason); }
 
     if ($null -eq $yaml.components) { Write-Information "Components null or empty in file: $componentsFile"; }
     # Two components sharing a project key build/tag/push to the same image
@@ -196,29 +208,29 @@ function Confirm-ComponentList {
     $seenProjectsExpanded = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
     foreach ($component in $yaml.components) {
         $project = $component['project']
-        if ([string]::IsNullOrEmpty($project)) { Write-Information "component.project cannot be null or empty in file: $componentsFile"; return $false; }
-        if (-not $seenProjects.Add($project)) { Write-Information "Duplicate component project '$project' in file: $componentsFile"; return $false; }
+        if ([string]::IsNullOrEmpty($project)) { $r = "component.project cannot be null or empty in file: $componentsFile"; Write-Information $r; return (New-YurunaValidationResult $false $r); }
+        if (-not $seenProjects.Add($project)) { $r = "Duplicate component project '$project' in file: $componentsFile"; Write-Information $r; return (New-YurunaValidationResult $false $r); }
         $projectExpanded = $ExecutionContext.InvokeCommand.ExpandString($project)
         if ([string]::IsNullOrEmpty($projectExpanded)) { Write-Information "Component project '$project' may expand to empty in file: $componentsFile"; }
-        elseif (-not $seenProjectsExpanded.Add($projectExpanded)) { Write-Information "Duplicate component project '$projectExpanded' (expanded from '$project') in file: $componentsFile"; return $false; }
+        elseif (-not $seenProjectsExpanded.Add($projectExpanded)) { $r = "Duplicate component project '$projectExpanded' (expanded from '$project') in file: $componentsFile"; Write-Information $r; return (New-YurunaValidationResult $false $r); }
         $buildPath = $component['buildPath']
         if ([string]::IsNullOrEmpty($buildPath)) { Write-Verbose "component.buildPath for $project is null in file: $componentsFile"; }
 
         $buildCommand = $component['buildCommand']
         if ([string]::IsNullOrEmpty($buildCommand)) { $buildCommand = $yaml.globalVariables['buildCommand']; }
-        if ([string]::IsNullOrEmpty($buildCommand)) { Write-Information "buildCommand cannot be null or empty in file (both globalVariables and component level): $componentsFile"; return $false; }
+        if ([string]::IsNullOrEmpty($buildCommand)) { $r = "buildCommand cannot be null or empty in file (both globalVariables and component level): $componentsFile"; Write-Information $r; return (New-YurunaValidationResult $false $r); }
         $tagCommand = $component['tagCommand']
         if ([string]::IsNullOrEmpty($tagCommand)) { $tagCommand = $yaml.globalVariables['tagCommand']; }
-        if ([string]::IsNullOrEmpty($tagCommand)) { Write-Information "tagCommand cannot be null or empty in file (both globalVariables and component level): $componentsFile"; return $false; }
+        if ([string]::IsNullOrEmpty($tagCommand)) { $r = "tagCommand cannot be null or empty in file (both globalVariables and component level): $componentsFile"; Write-Information $r; return (New-YurunaValidationResult $false $r); }
         $pushCommand = $component['pushCommand']
         if ([string]::IsNullOrEmpty($pushCommand)) { $pushCommand = $yaml.globalVariables['pushCommand']; }
-        if ([string]::IsNullOrEmpty($pushCommand)) { Write-Information "pushCommand cannot be null or empty in file (both globalVariables and component level): $componentsFile"; return $false; }
+        if ([string]::IsNullOrEmpty($pushCommand)) { $r = "pushCommand cannot be null or empty in file (both globalVariables and component level): $componentsFile"; Write-Information $r; return (New-YurunaValidationResult $false $r); }
 
         $buildFolder = Resolve-Path -Path (Join-Path -Path $project_root -ChildPath "components/$buildPath") -ErrorAction SilentlyContinue
-        if (($null -eq $buildFolder) -or (-Not (Test-Path -Path $buildFolder))) { Write-Information "Components folder not found: $buildPath`nUsed in file: $componentsFile"; return $false; }
+        if (($null -eq $buildFolder) -or (-Not (Test-Path -Path $buildFolder))) { $r = "Components folder not found: $buildPath`nUsed in file: $componentsFile"; Write-Information $r; return (New-YurunaValidationResult $false $r); }
     }
 
-    return $true;
+    return (New-YurunaValidationResult $true);
 }
 
 function Confirm-WorkloadList {
@@ -227,14 +239,17 @@ function Confirm-WorkloadList {
         $config_subfolder
     )
     Write-Debug "---- Validating Workloads"
-    if (!(Confirm-FolderList $project_root $config_subfolder)) { return $false; }
-    if (!(Confirm-ResourceOutputList $project_root $config_subfolder)) { return $false; }
+    $folderResult = Confirm-FolderList $project_root $config_subfolder
+    if (!($folderResult)) { return (New-YurunaValidationResult $false $folderResult.Reason); }
+    $outputResult = Confirm-ResourceOutputList $project_root $config_subfolder
+    if (!($outputResult)) { return (New-YurunaValidationResult $false $outputResult.Reason); }
 
     $workloadsFile = Join-Path -Path $project_root -ChildPath "config/$config_subfolder/workloads.yml"
-    if (-Not (Test-Path -Path $workloadsFile)) { Write-Information "File not found: $workloadsFile"; return $false; }
+    if (-Not (Test-Path -Path $workloadsFile)) { $r = "File not found: $workloadsFile"; Write-Information $r; return (New-YurunaValidationResult $false $r); }
     $yaml = ConvertFrom-File $workloadsFile
 
-    if (!(Confirm-GlobalVariableList $yaml $workloadsFile)) { return $false; }
+    $globalResult = Confirm-GlobalVariableList $yaml $workloadsFile
+    if (!($globalResult)) { return (New-YurunaValidationResult $false $globalResult.Reason); }
 
     if ($null -eq $yaml.workloads) { Write-Information "Workloads null or empty in file: $workloadsFile"; }
     # A chart deploys as a helm release <installName> into <context>; two
@@ -254,13 +269,13 @@ function Confirm-WorkloadList {
     foreach ($workload in $yaml.workloads) {
         $contextRaw = $workload['context']
         $contextName = $ExecutionContext.InvokeCommand.ExpandString($contextRaw)
-        if ([string]::IsNullOrEmpty($contextName)) { Write-Information "workloads.context cannot be null or empty in file: $workloadsFile"; return $false; }
-        if (-not $seenContexts.Add($contextRaw)) { Write-Information "Duplicate workload context '$contextRaw' in file: $workloadsFile"; return $false; }
-        if (-not $seenContextsExpanded.Add($contextName)) { Write-Information "Duplicate workload context '$contextName' (expanded from '$contextRaw') in file: $workloadsFile"; return $false; }
+        if ([string]::IsNullOrEmpty($contextName)) { $r = "workloads.context cannot be null or empty in file: $workloadsFile"; Write-Information $r; return (New-YurunaValidationResult $false $r); }
+        if (-not $seenContexts.Add($contextRaw)) { $r = "Duplicate workload context '$contextRaw' in file: $workloadsFile"; Write-Information $r; return (New-YurunaValidationResult $false $r); }
+        if (-not $seenContextsExpanded.Add($contextName)) { $r = "Duplicate workload context '$contextName' (expanded from '$contextRaw') in file: $workloadsFile"; Write-Information $r; return (New-YurunaValidationResult $false $r); }
         # Non-mutating existence probe: `kubectl config get-contexts <name>` exits non-zero when
-        # the context is absent WITHOUT switching the operator's current context. The old
-        # use-context/restore dance mutated live state and left it on the wrong context if
-        # anything threw between the switch and the restore.
+        # the context is absent WITHOUT switching the operator's current context. Probing with
+        # use-context instead would mutate live state and leave the shell on the wrong context
+        # if anything threw between the switch and the restore.
         $null = kubectl config get-contexts $contextName *>&1
         if ($LASTEXITCODE -ne 0) { Write-Debug "K8S context not found: $contextName`nFile: $workloadsFile"; }
         foreach ($deployment in $workload.deployments) {
@@ -269,20 +284,20 @@ function Confirm-WorkloadList {
             # Register-YurunaDeploymentKind line and the phrase can't
             # diverge from the publisher.
             $kind = Resolve-YurunaDeploymentKind -Deployment $deployment
-            if ($null -eq $kind) { Write-Information "context.deployment should be $(Get-YurunaDeploymentKindExpectedText) in file: $workloadsFile"; return $false; }
+            if ($null -eq $kind) { $r = "context.deployment should be $(Get-YurunaDeploymentKindExpectedText) in file: $workloadsFile"; Write-Information $r; return (New-YurunaValidationResult $false $r); }
             if ($kind.IsChart) {
                 $chartName = $deployment['chart'];
-                if ([string]::IsNullOrEmpty($chartName)) { Write-Information "context.chart cannot be null or empty in file: $workloadsFile"; return $false; }
+                if ([string]::IsNullOrEmpty($chartName)) { $r = "context.chart cannot be null or empty in file: $workloadsFile"; Write-Information $r; return (New-YurunaValidationResult $false $r); }
                 $chartFolder = Resolve-Path -Path (Join-Path -Path $project_root -ChildPath "workloads/$chartName") -ErrorAction SilentlyContinue
-                if (($null -eq $chartFolder) -or (-Not (Test-Path -Path $chartFolder))) { Write-Information "workload[$contextName]chart[$chartName] folder not found: $chartFolder"; return $false; }
+                if (($null -eq $chartFolder) -or (-Not (Test-Path -Path $chartFolder))) { $r = "workload[$contextName]chart[$chartName] folder not found: $chartFolder"; Write-Information $r; return (New-YurunaValidationResult $false $r); }
                 foreach ($key in $deployment.variables.Keys) {
                     $value = $deployment.variables[$key]
-                    if ([string]::IsNullOrEmpty($value)) { Write-Information "workload[$contextName]chart[$chartName][$key] variable cannot be null or empty in file: $workloadsFile"; return $false; }
+                    if ([string]::IsNullOrEmpty($value)) { $r = "workload[$contextName]chart[$chartName][$key] variable cannot be null or empty in file: $workloadsFile"; Write-Information $r; return (New-YurunaValidationResult $false $r); }
                 }
                 $installName = $deployment.variables['installName']
-                if ([string]::IsNullOrEmpty($installName)) { Write-Information "workload[$contextName]chart[$chartName]variables['installName'] cannot be null or empty in file: $workloadsFile"; return $false; }
+                if ([string]::IsNullOrEmpty($installName)) { $r = "workload[$contextName]chart[$chartName]variables['installName'] cannot be null or empty in file: $workloadsFile"; Write-Information $r; return (New-YurunaValidationResult $false $r); }
                 $installNameExpanded = $ExecutionContext.InvokeCommand.ExpandString($installName)
-                if (-not $seenWorkloadReleases.Add("$contextName`n$installNameExpanded")) { Write-Information "Duplicate workload release '$installNameExpanded' in context '$contextName' in file: $workloadsFile"; return $false; }
+                if (-not $seenWorkloadReleases.Add("$contextName`n$installNameExpanded")) { $r = "Duplicate workload release '$installNameExpanded' in context '$contextName' in file: $workloadsFile"; Write-Information $r; return (New-YurunaValidationResult $false $r); }
             }
             # For kubectl/helm/shell the null/empty check above is sufficient.
         }
@@ -290,14 +305,16 @@ function Confirm-WorkloadList {
 
     # Non-empty secrets are required -- missing content blocks workload execution.
     $secrets_folder = Join-Path -Path $project_root -ChildPath "config/$config_subfolder/secrets"
-    if (-not (Invoke-SecretFolderValidation -SecretsFolder $secrets_folder -RequireNonEmpty)) { return $false }
+    $secretsResult = Invoke-SecretFolderValidation -SecretsFolder $secrets_folder -RequireNonEmpty
+    if (-not ($secretsResult)) { return (New-YurunaValidationResult $false $secretsResult.Reason) }
     # Peer folder accommodates workloads that share a parent-level vault
     # across multiple config subfolders (a single set of credentials feeds
     # several deployment configs without duplicating the .txt files).
     $secrets_folder = Join-Path -Path $project_root -ChildPath "config/$config_subfolder/../secrets"
-    if (-not (Invoke-SecretFolderValidation -SecretsFolder $secrets_folder -RequireNonEmpty)) { return $false }
+    $peerSecretsResult = Invoke-SecretFolderValidation -SecretsFolder $secrets_folder -RequireNonEmpty
+    if (-not ($peerSecretsResult)) { return (New-YurunaValidationResult $false $peerSecretsResult.Reason) }
 
-    return $true;
+    return (New-YurunaValidationResult $true);
 }
 
 function Confirm-Configuration {
@@ -306,11 +323,14 @@ function Confirm-Configuration {
         $config_subfolder
     )
 
-    if (!(Confirm-ResourceList $project_root $config_subfolder)) { return $false; }
-    if (!(Confirm-ComponentList $project_root $config_subfolder)) { return $false; }
-    if (!(Confirm-WorkloadList $project_root $config_subfolder)) { return $false; }
+    $resourceResult = Confirm-ResourceList $project_root $config_subfolder
+    if (!($resourceResult)) { return (New-YurunaValidationResult $false $resourceResult.Reason); }
+    $componentResult = Confirm-ComponentList $project_root $config_subfolder
+    if (!($componentResult)) { return (New-YurunaValidationResult $false $componentResult.Reason); }
+    $workloadResult = Confirm-WorkloadList $project_root $config_subfolder
+    if (!($workloadResult)) { return (New-YurunaValidationResult $false $workloadResult.Reason); }
 
-    return $true;
+    return (New-YurunaValidationResult $true);
 }
 
 Export-ModuleMember -Function * -Alias *

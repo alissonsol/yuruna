@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.10
+.VERSION 2026.07.14
 .GUID 42bc8a7d-e6f5-4d23-9180-3a4b5c6d7e95
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -105,14 +105,17 @@ function Get-RunnerStatePath {
     .SYNOPSIS
         Canonical on-disk path for the runner state file.
     .DESCRIPTION
-        $env:YURUNA_RUNTIME_DIR/runner.state.json. Falls back to
-        $env:TEMP when the runtime dir isn't published yet (the only
-        legitimate caller in that state is a test fixture).
+        $env:YURUNA_RUNTIME_DIR/runner.state.json. Falls back to the
+        platform temp dir when the runtime dir isn't published yet (the
+        only legitimate caller in that state is a test fixture).
     #>
     [CmdletBinding()]
     [OutputType([string])]
     param()
-    $base = if ($env:YURUNA_RUNTIME_DIR) { $env:YURUNA_RUNTIME_DIR } else { $env:TEMP }
+    # Not $env:TEMP: that is Windows-only, so on a macos.utm / ubuntu.kvm host it
+    # is $null and Join-Path throws on a null -Path. [IO.Path]::GetTempPath()
+    # resolves everywhere.
+    $base = if ($env:YURUNA_RUNTIME_DIR) { $env:YURUNA_RUNTIME_DIR } else { [System.IO.Path]::GetTempPath() }
     return (Join-Path $base 'runner.state.json')
 }
 

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.10
+.VERSION 2026.07.14
 .GUID 42e8b3c5-7f1a-4d62-9c40-6b2d3e4f5a61
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -369,9 +369,14 @@ if (-not $Restart -and $existingProc -and (Test-YurunaConfigPortAccepting -Probe
     Write-YurunaConfigHealth -Up $true -HealthPort $Port
     return
 }
-if ($existingProc) {
+if ($existingProc -and (Test-PidFileIdentity -PidFile $PidFile -Process $existingProc)) {
     Write-Output "Replacing Host Config Service (pid $existingPid)..."
     Stop-Process -Id $existingPid -Force -ErrorAction SilentlyContinue
+} elseif ($existingProc) {
+    # Confirm identity before a force-kill: the OS can recycle config-server.pid
+    # onto an unrelated process on a long-uptime host, and killing that would
+    # take down whatever now owns the PID. Not ours -> leave it, clear the stale file.
+    Write-Warning "PID $existingPid is not the Host Config Service (started after the PID file -- recycled onto an unrelated process); leaving it running and clearing the stale PID file."
 }
 if (Test-Path -LiteralPath $PidFile) { Remove-Item -LiteralPath $PidFile -Force -ErrorAction SilentlyContinue }
 

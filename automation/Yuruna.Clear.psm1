@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.10
+.VERSION 2026.07.14
 .GUID 42c1e3f4-a5b6-4789-0123-4c5d6e7f8091
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -45,16 +45,12 @@ function Clear-Configuration {
     if (-Not (Test-Path -Path $resourcesFile)) { Write-Information "File not found: $resourcesFile"; return $false; }
     $yaml = ConvertFrom-File $resourcesFile
 
-    # Global variables saved expanded for reuse
-    if ((-Not ($null -eq $yaml.globalVariables)) -and (-Not ($null -eq $yaml.globalVariables.Keys))) {
-        $keys = @($yaml.globalVariables.Keys)
-        foreach ($key in $keys) {
-            $value = $ExecutionContext.InvokeCommand.ExpandString($yaml.globalVariables[$key])
-            Write-Debug "globalVariables[$key] = $value"
-            Set-Item -Path Env:$key -Value ${value}
-            $yaml.globalVariables[$key] = $value
-        }
-    }
+    # Global variables saved expanded for reuse. Same expand -> Set-Item Env ->
+    # cache-back walk as the resource/component/workload publishers; call the one
+    # shared implementation (resolvable here because Yuruna.Validation, imported
+    # above, imports Yuruna.VariableExpansion -Global) so the teardown env matches
+    # what deploy set.
+    Set-ExpandedVariableHashtable -Variables $yaml.globalVariables -DebugLabel 'globalVariables' -CacheExpanded
 
     if ($null -eq $yaml.resources) { Write-Information "Resources null or empty in file: $resourcesFile"; return $true; }
     $destroyFailed = $false

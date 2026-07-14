@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.10
+.VERSION 2026.07.14
 .GUID 42f4a5b6-c7d8-4e90-8f12-4a5b6c7d8e90
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -42,6 +42,13 @@ function New-TempDir {
     $null = New-Item -ItemType Directory -Path $d
     return $d
 }
+
+# Fixtures live at file scope, above the first Describe: a Describe body runs during
+# the discovery pass and its variables are torn down before any It executes, so a doc
+# declared inside the Describe would reach the assertion as $null.
+$LookupDoc = [ordered]@{ schemaVersion = 1; pools = @(
+    [ordered]@{ poolId = 'lab' }, [ordered]@{ poolId = 'prod' }
+) }
 
 Describe 'Test-YurunaPoolDocValid (schema validation)' {
     It 'accepts a valid pools doc' {
@@ -95,11 +102,8 @@ Describe 'Read-YurunaPoolsDoc (default-empty)' {
 }
 
 Describe 'Get-YurunaPoolFromDoc (lookup by id)' {
-    $doc = [ordered]@{ schemaVersion = 1; pools = @(
-        [ordered]@{ poolId = 'lab' }, [ordered]@{ poolId = 'prod' }
-    ) }
-    It 'finds an existing pool' { Assert-Equal -Expected 'prod' -Actual (Get-YurunaPoolFromDoc -Doc $doc -PoolId 'prod').poolId -Because 'prod found' }
-    It 'returns null for a missing pool' { Assert-Null (Get-YurunaPoolFromDoc -Doc $doc -PoolId 'nope') 'missing -> null' }
+    It 'finds an existing pool' { Assert-Equal -Expected 'prod' -Actual (Get-YurunaPoolFromDoc -Doc $LookupDoc -PoolId 'prod').poolId -Because 'prod found' }
+    It 'returns null for a missing pool' { Assert-Null (Get-YurunaPoolFromDoc -Doc $LookupDoc -PoolId 'nope') 'missing -> null' }
 }
 
 Describe 'Resolve-YurunaPoolAdminTarget (defaults)' {

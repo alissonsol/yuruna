@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.05.30
+.VERSION 2026.07.14
 .GUID 42e3a5b6-c7d8-4901-2345-6e7f80910218
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -210,10 +210,18 @@ function Invoke-WithYurunaRetry {
             # breadcrumb can't be confused with budget exhaustion. No
             # predicate => retry on any non-zero exit (the tofu-init contract).
             if ($ShouldRetry) {
-                $retryThis = $false
+                # A predicate that THROWS is a bug in the caller's fail-fast
+                # test, not evidence the failure is non-transient. Default to
+                # retryable so a broken predicate falls back to the no-predicate
+                # contract (retry on any non-zero exit) instead of silently
+                # converting a retryable failure into a fail-fast; surface the
+                # fault so the predicate bug stays diagnosable.
+                $retryThis = $true
                 try {
                     $retryThis = [bool](& $ShouldRetry @{ Attempt = $attempt; MaxAttempts = $MaxAttempts; ExitCode = $lastExit; Output = $lastOutput; Error = $lastError })
-                } catch { $null = $_ }
+                } catch {
+                    Write-Information "!! ${Label}: ShouldRetry predicate threw ($($_.Exception.Message)); treating the failure as retryable"
+                }
                 if (-not $retryThis) {
                     Write-Information "!! ${Label}: failure not retryable (exit=${lastExit}); failing fast"
                     break

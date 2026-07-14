@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.10
+.VERSION 2026.07.14
 .GUID 42b6c7d8-e9f0-4a12-8b34-5c6d7e8f9a01
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -146,13 +146,22 @@ function Test-AssignsFromCommand {
     return $false
 }
 
+# Both Stop-* scripts carry the identical PID guard, so one It body covers them
+# from a file-scope case list. The per-case path reaches the It body through
+# -TestCases rather than the loop variable: a Describe body -- including a foreach
+# that emits Its -- runs during discovery, and its variables are discarded before
+# any It executes, so a `$case.Path` read inside the body would arrive as $null and
+# assert against an empty path.
+$stopScriptCases = @(
+    @{ Name = 'Stop-HostConfigService.ps1'; Path = $stopHostConfig },
+    @{ Name = 'Stop-StatusService.ps1';     Path = $stopStatus }
+)
+
 Describe 'Stop-* scripts parse the PID defensively before process control' {
-    foreach ($case in @(
-        @{ Name = 'Stop-HostConfigService.ps1'; Path = $stopHostConfig },
-        @{ Name = 'Stop-StatusService.ps1';     Path = $stopStatus }
-    )) {
-        It "$($case.Name) gates on [int]::TryParse and passes only the typed int to -Id" {
-            $ast = Get-ScriptAst $case.Path
+    foreach ($case in $stopScriptCases) {
+        It "$($case.Name) gates on [int]::TryParse and passes only the typed int to -Id" -TestCases @(@{ Path = $case.Path }) {
+            param([string]$Path)
+            $ast = Get-ScriptAst $Path
             Assert-True ((Get-InvokedMember -Ast $ast) -contains 'TryParse') 'a real [int]::TryParse invocation guards the PID (a comment does not count)'
             Assert-True ((Get-IfConditionMember -Ast $ast) -contains 'TryParse') 'the [int]::TryParse result gates an if-branch (not an ignored expression)'
             foreach ($cmd in @('Get-Process', 'Stop-Process')) {
@@ -181,7 +190,11 @@ Describe 'Start-StashServer.ps1 surfaces status-server unreachability' {
         $ast = Get-ScriptAst $startStash
         Assert-True (Test-AssignsFromCommand -Ast $ast -Command 'Start-YurunaStatusServiceIfEnabled') 'the start decision is captured in an assignment (not discarded)'
         Assert-True ((Get-InvokedMember -Ast $ast) -contains 'BeginConnect') 'the status port is TCP-probed via BeginConnect'
-        $warn = @(Get-StringLiteralExtent -Ast $ast | Where-Object { $_ -match 'not appear under Extension hosts' })
-        Assert-True ($warn.Count -ge 1) 'a warning literal ties an unreachable status port to Extension-hosts absence'
+        # The warning must tie an unreachable status port to the degraded Extension-hosts
+        # consequence. It states the accurate outcome -- the aggregator falls back to the
+        # stash VM's presence beacon (the host still appears, minus its status baseUrl link)
+        # -- rather than a blanket "won't appear", so match on that durable phrasing.
+        $warn = @(Get-StringLiteralExtent -Ast $ast | Where-Object { $_ -match 'Extension hosts row depends' })
+        Assert-True ($warn.Count -ge 1) 'a warning literal ties an unreachable status port to the degraded Extension-hosts row'
     }
 }

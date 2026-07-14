@@ -44,7 +44,7 @@
   }
 
   async function load(reset) {
-    if (reset) { offset = 0; $('rows').replaceChildren(); }
+    if (reset) { offset = 0; Y.replace($('rows')); }
     $('status').textContent = 'Loading…';
     try {
       const data = await Y.api('/api/stashes?' + filterQuery());

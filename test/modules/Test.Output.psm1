@@ -1,5 +1,5 @@
-﻿<#PSScriptInfo
-.VERSION 2026.07.10
+<#PSScriptInfo
+.VERSION 2026.07.14
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456727
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -210,9 +210,9 @@ function Write-Summary {
     [CmdletBinding()]
     param()
     Write-Output ""
-    Write-Output "─────────────────────────────────────────"
+    Write-Output "-----------------------------------------"
     Write-Output ("  PASS: {0,3}   WARN: {1,3}   FAIL: {2,3}" -f $script:State.PassCount, $script:State.WarnCount, $script:State.FailCount)
-    Write-Output "─────────────────────────────────────────"
+    Write-Output "-----------------------------------------"
     if ($script:State.FailCount -gt 0) {
         Write-Output ""
         Write-Output "============================================================"

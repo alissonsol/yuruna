@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.10
+.VERSION 2026.07.14
 .GUID 42b7e3a1-c8d9-4f56-ab12-3e4f5a6b7c8d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -308,7 +308,6 @@ Write-CleanupMessage ""
 Write-CleanupMessage "Empty subfolders will also be removed after file deletion."
 Write-CleanupMessage ""
 
-# Ask for confirmation (skip if -Force)
 if ($Force) {
     Write-CleanupMessage "Force mode enabled -- skipping confirmation."
 } else {

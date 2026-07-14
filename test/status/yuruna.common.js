@@ -1,7 +1,7 @@
 /*
   LICENSEURI https://yuruna.link/license
   Copyright (c) 2019-2026 by Alisson Sol et al.
-  Version: 2026.07.10
+  Version: 2026.07.14
 
   Shared helpers for the Yuruna status pages. Mounted on window.Yuruna.
   --- REGION: https://yuruna.link/definition#defining-the-status-page-browser-baseline
@@ -10,7 +10,38 @@
 (function() {
   'use strict';
 
-  var VERSION = '2026.07.10';
+  var VERSION = '2026.07.14';
+
+  // --- REGION: control-route auth (proof from the Caching Proxy /go/host redirect)
+  // A Grafana deep-link routes through the Caching Proxy's /go/host, which appends a
+  // short-lived HMAC control proof in the URL FRAGMENT (#yctl=<expiry>.<proof>). Capture
+  // it once, stash it in sessionStorage, and strip it from the address bar so the proof is
+  // not shoulder-surfed or copy-pasted out of the URL. The mutating /control/* POSTs then
+  // present it in the X-Yuruna-Control header; the host verifies it (or accepts loopback).
+  // Read routes are unaffected. ES5 only (iOS 9.x baseline). No proof -> loopback only.
+  (function() {
+    try {
+      var m = (window.location.hash || '').match(/(?:^#|[#&])yctl=([^&]+)/);
+      if (m && m[1]) {
+        window.sessionStorage.setItem('yurunaCtl', m[1]);
+        if (window.history && window.history.replaceState) {
+          window.history.replaceState(null, document.title, window.location.pathname + window.location.search);
+        }
+      }
+    } catch (e) { /* sessionStorage / history unavailable -> no proof; loopback still works */ }
+  })();
+
+  // Request headers for a control-plane call: the same-origin X-Yuruna marker plus the
+  // captured control proof (when present) in X-Yuruna-Control. Pass a base object for the
+  // routes that also set Content-Type.
+  function yurunaControlHeaders(base) {
+    var h = base || {};
+    h['X-Yuruna'] = '1';
+    var t = '';
+    try { t = window.sessionStorage.getItem('yurunaCtl') || ''; } catch (e) { t = ''; }
+    if (t) { h['X-Yuruna-Control'] = t; }
+    return h;
+  }
 
   // fetch shim for Safari iOS 9.x. (Target support for Yuruna UI).
   if (!window.fetch) {
@@ -72,7 +103,11 @@
   }
 
   function badge(status, label) {
-    return '<span class="badge ' + cls(status) + '">' + (label || status) + '</span>';
+    // cls() already constrains the class attribute to the STATUS_CLASSES
+    // whitelist; the visible text is caller-supplied (a status or a label that
+    // can originate from guest output on error paths), so escape it for
+    // defense-in-depth against HTML injection.
+    return '<span class="badge ' + cls(status) + '">' + escHtml(label || status) + '</span>';
   }
 
   // ISO -> short localized date+time. Returns "—" for falsy/unparseable
@@ -111,6 +146,15 @@
     return fetch(url + '?_=' + Date.now(), { cache: 'no-store' })
       .then(function(res) { return res.ok ? res.json() : null; })
       ['catch'](function() { return null; });
+  }
+
+  // stripCycleFolderSuffix removes the .incomplete / .aborted.<UTC> lifecycle
+  // suffix from a cycle-folder URL (preserving a trailing slash) so an in-progress
+  // folder URL resolves to its post-rename on-disk path. Shared by the history
+  // rows (renderStatus) and the perf deep-links (buildCycleLinks); logFileUrl's
+  // bare-anchor variant is intentionally different and is NOT merged here.
+  function stripCycleFolderSuffix(u) {
+    return u ? u.replace(/\.incomplete(\/?)$/, '$1').replace(/\.aborted\.[^/]+(\/?)$/, '$1') : u;
   }
 
   function buildHostInfo(statusDoc, versionRaw, ipRaw) {
@@ -288,15 +332,10 @@
   function pollBanner() {
     // Three endpoints are independent; Promise.all parallelizes the
     // round-trips so a 60 s banner poll pays one RTT, not three.
-    function jsonOrNull(url) {
-      return fetch(url, { cache: 'no-store' })
-        .then(function(r) { return r.ok ? r.json() : null; })
-        ['catch'](function() { return null; });
-    }
     Promise.all([
-      jsonOrNull('runtime/status.json?_=' + Date.now()),
-      jsonOrNull('runtime/current-action.json?_=' + Date.now()),
-      jsonOrNull('control/runner-status')
+      fetchJson('runtime/status.json'),
+      fetchJson('runtime/current-action.json'),
+      fetchJson('control/runner-status')
     ]).then(function(results) {
       applyBanner(results[0], results[1], results[2]);
     });
@@ -426,7 +465,9 @@
       var btn = document.getElementById(kind + '-pause-btn');
       if (btn) btn.disabled = true;
       var endpoint = 'control/' + kind + '-' + action;
-      fetch(endpoint, { method: 'POST', cache: 'no-store' })
+      // X-Yuruna marks this as a same-origin UI call: any cross-origin copy
+      // becomes a preflighted request the server refuses, blocking drive-by CSRF.
+      fetch(endpoint, { method: 'POST', cache: 'no-store', headers: yurunaControlHeaders() })
         ['catch'](function(e) {
           safeWarn(endpoint + ' failed:', e);
         })
@@ -443,9 +484,13 @@
     function pill(step) {
       var c = cls(step.status);
       var skip = step.skipped ? ' (skip)' : '';
-      var err  = step.errorMessage ? ' title="' + step.errorMessage.replace(/"/g,'&quot;') + '"' : '';
+      // errorMessage flows into a title="" attribute and step.name into element
+      // text; both are runner/guest-supplied. escHtml() covers the attribute
+      // delimiters and the HTML-significant characters, so a value carrying a
+      // quote or angle bracket cannot break out of either context.
+      var err  = step.errorMessage ? ' title="' + escHtml(step.errorMessage) + '"' : '';
       var label = PILL_LABELS[step.name] || step.name;
-      return '<span class="step-pill ' + c + '"' + err + '>' + label + skip + '</span>';
+      return '<span class="step-pill ' + c + '"' + err + '>' + escHtml(label) + skip + '</span>';
     }
 
     var VM_PREP_STEPS = ['New-VM', 'Start-VM', 'New-VM.Resource'];
@@ -579,7 +624,7 @@
     function continueFromBreak() {
       var btn = document.getElementById('break-continue-btn');
       if (btn) { btn.disabled = true; btn.textContent = 'Continuing...'; }
-      fetch('control/break-continue', { method: 'POST', cache: 'no-store' })
+      fetch('control/break-continue', { method: 'POST', cache: 'no-store', headers: yurunaControlHeaders() })
         ['catch'](function(e) { safeWarn('control/break-continue failed:', e); })
         .then(function() { loadStatus(); });
     }
@@ -781,7 +826,7 @@
         var cycleIdLabel = (liveCycleId || '—').slice(0, 19).replace('T', ' T');
         var cycleLogUrl  = logFileUrl(liveCycleId, (data.hostId || data.hostname), primaryShaForLog(data), data.cycleFolderUrl);
         var cycleCell = cycleLogUrl
-          ? ('<a href="' + cycleLogUrl + '" target="_blank" style="color:inherit;text-decoration:underline dotted">' + cycleIdLabel + '</a>')
+          ? ('<a href="' + escHtml(cycleLogUrl) + '" target="_blank" style="color:inherit;text-decoration:underline dotted">' + cycleIdLabel + '</a>')
           : cycleIdLabel;
         document.getElementById('cycle-timestamp').innerHTML = '<span class="badge ' + cls(status) + '">' + cycleCell + '</span>';
         document.getElementById('cycle-started').textContent  = fmtDate(data.startedAt);
@@ -875,15 +920,11 @@
           // stripping the suffix) saved the in-progress `.incomplete/`
           // URL into history. Strip on read so those rows resolve to
           // the post-rename folder on disk.
-          var hCycleFolderUrl = h.cycleFolderUrl
-            ? h.cycleFolderUrl
-                .replace(/\.incomplete(\/?)$/, '$1')
-                .replace(/\.aborted\.[^/]+(\/?)$/, '$1')
-            : h.cycleFolderUrl;
+          var hCycleFolderUrl = stripCycleFolderSuffix(h.cycleFolderUrl);
           var hLogUrl     = logFileUrl(hCycleId, (h.hostId || h.hostname), primaryShaForLog(h), hCycleFolderUrl);
           var hCycleLabel = (hCycleId || '—').slice(0, 19).replace('T', ' <wbr>T');
           var hCycleCell  = hLogUrl
-            ? ('<a href="' + hLogUrl + '" target="_blank" style="color:inherit;text-decoration:underline dotted">' + hCycleLabel + '</a>')
+            ? ('<a href="' + escHtml(hLogUrl) + '" target="_blank" style="color:inherit;text-decoration:underline dotted">' + hCycleLabel + '</a>')
             : hCycleLabel;
           var statusCls  = cls(h.overallStatus);
           var commitCell = renderCommitLinks(gitCommitsForRender(h, data.repoUrl));
@@ -913,16 +954,11 @@
           safeWarn('Could not load runtime/status.json:', e);
           return null;
         });
-      function jsonOrNull(url, opts) {
-        return fetch(url, opts || {})
-          .then(function(res) { return res.ok ? res.json() : null; })
-          ['catch'](function() { return null; });
-      }
       Promise.all([
         statusPromise,
-        jsonOrNull('runtime/current-action.json?_=' + Date.now()),
-        jsonOrNull('runtime/break-active.json?_=' + Date.now()),
-        jsonOrNull('control/runner-status', { cache: 'no-store' })
+        fetchJson('runtime/current-action.json'),
+        fetchJson('runtime/break-active.json'),
+        fetchJson('control/runner-status')
       ]).then(function(results) {
         var data = results[0], actionData = results[1], breakData = results[2], runnerStatus = results[3];
         renderStatus(data, actionData, breakData, runnerStatus);
@@ -1331,9 +1367,7 @@
     function buildCycleLinks(statusDoc) {
       var map = {};
       if (!statusDoc) return map;
-      function strip(u) {
-        return u ? u.replace(/\.incomplete(\/?)$/, '$1').replace(/\.aborted\.[^/]+(\/?)$/, '$1') : u;
-      }
+      var strip = stripCycleFolderSuffix;
       var hist = statusDoc.history || [];
       for (var i = 0; i < hist.length; i++) {
         var h = hist[i];
@@ -1357,7 +1391,7 @@
         body.innerHTML = '';
       }
       var opts = { cache: 'no-store' };
-      if (recalculate) { opts.method = 'POST'; }
+      if (recalculate) { opts.method = 'POST'; opts.headers = yurunaControlHeaders(); }
       // Two independent fetches: the aggregates drive the icicles; status.json
       // supplies the cycleId -> folder map that makes each row's timestamp a
       // deep link. A status.json miss only costs the links, not the charts.
@@ -1410,7 +1444,7 @@
     startBannerPolling();
 
     var el = document.getElementById('hostinfo-output');
-    fetch('control/host-diagnostic?_=' + Date.now(), { cache: 'no-store' })
+    fetch('control/host-diagnostic?_=' + Date.now(), { cache: 'no-store', headers: yurunaControlHeaders() })
       .then(function(res) { if (!res.ok) throw new Error('HTTP ' + res.status); return res.text(); })
       .then(function(text) { el.className = ''; el.textContent = text || '(no output)'; })
       ['catch'](function(e) { el.className = 'error'; el.textContent = 'Could not load: ' + (e.message || e); });
@@ -1422,6 +1456,23 @@
 
     var configState = null;
     var availableGuestFolders = null;
+    // Serialized snapshot of configState taken the moment the tree loads.
+    // The editor mutates configState in place, so comparing a fresh
+    // serialization against this baseline tells us whether the operator has
+    // unsaved edits — used to gate the Escape/discard exit behind a confirm.
+    var pristineConfigJson = null;
+
+    function serializeConfig() {
+      try { return JSON.stringify(configState); }
+      catch (e) { return null; }
+    }
+    function isConfigDirty() {
+      if (pristineConfigJson === null) return false;
+      var current = serializeConfig();
+      // A serialization failure is ambiguous; treat it as dirty so the
+      // operator is asked rather than losing edits silently.
+      return current === null || current !== pristineConfigJson;
+    }
 
     function loadGuestFolders() {
       return fetch('control/guest-folders?_=' + Date.now(), { cache: 'no-store' })
@@ -1453,6 +1504,7 @@
         return configRes.text();
       }).then(function(text) {
         configState = JSON.parse(text);
+        pristineConfigJson = serializeConfig();
         body.innerHTML = '';
         body.appendChild(renderConfigNode(configState, null, null));
         saveBtn.disabled  = false;
@@ -1465,6 +1517,10 @@
     }
 
     function discardAndExit() {
+      if (isConfigDirty() &&
+          !window.confirm('Discard unsaved config changes and return to status?')) {
+        return;
+      }
       window.location.replace('index.html');
     }
 
@@ -1870,7 +1926,7 @@
           if (myId !== latestId) return;
           if (inputEl) { inputEl.disabled = true; lockedByMe = true; }
           fetch('control/test-caching-proxy?ip=' + encodeURIComponent(v) + '&_=' + Date.now(),
-                { cache: 'no-store' })
+                { method: 'POST', cache: 'no-store', headers: yurunaControlHeaders() })
             .then(function(r) {
               if (!r.ok) throw new Error('HTTP ' + r.status);
               return r.json();
@@ -2121,7 +2177,11 @@
           return;
         }
         if (k === 'Escape') {
-          e.preventDefault(); close();
+          // Escape here only dismisses the open menu. Without stopPropagation
+          // it would also reach the page-level keydown handler, which reads a
+          // bare Escape as "discard the whole edit session" — closing a dropdown
+          // would silently throw away every unsaved config change.
+          e.preventDefault(); e.stopPropagation(); close();
         } else if (k === 'ArrowDown') {
           e.preventDefault(); moveActive(1);
         } else if (k === 'ArrowUp') {
@@ -2224,7 +2284,7 @@
       fetch('control/test-config', {
         method: 'POST',
         cache: 'no-store',
-        headers: { 'Content-Type': 'application/json' },
+        headers: yurunaControlHeaders({ 'Content-Type': 'application/json' }),
         body: payload
       }).then(function(res) {
         return res.text().then(function(text) {
@@ -2305,7 +2365,7 @@
       fetch('control/test-config', {
         method: 'POST',
         cache: 'no-store',
-        headers: { 'Content-Type': 'application/json' },
+        headers: yurunaControlHeaders({ 'Content-Type': 'application/json' }),
         body: payload
       }).then(function(res) {
         return res.text().then(function(text) {
@@ -2318,7 +2378,8 @@
           status.textContent = 'Saved. Stopping in-progress VMs (up to ~30s each) and starting a new cycle -- this can take a minute or two…';
           return fetch('control/start-cycle', {
             method: 'POST',
-            cache: 'no-store'
+            cache: 'no-store',
+            headers: yurunaControlHeaders()
           });
         });
       }).then(function(res) {
@@ -2351,7 +2412,13 @@
                   (e.key === 'Esc') ||
                   (e.keyCode === 27) ||
                   (e.which === 27);
-      if (isEsc) discardAndExit();
+      if (isEsc) {
+        // Stop the Escape here once we own it as "exit the editor" so no other
+        // listener re-handles the same keystroke. An open dropdown's own Escape
+        // handler stops propagation first, so it never reaches this point.
+        e.stopPropagation();
+        discardAndExit();
+      }
     });
 
     startBannerPolling();

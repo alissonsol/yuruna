@@ -124,11 +124,13 @@ identity; its `vaultKey` / `localOsPasswordRef` resolve into `VAULT_ENTRY`
 `test/status/extension/authentication/`). `TRANSPORTS` (`transports.yml`)
 pairs provider credentials (`transports.resend`) with per-event-code
 `subscribers` (`cycle.failure`, `config.smoke`, `pool.alert`). Both views
-stay within the [≤7 rule](00-index.md#the-7-rule-grouping-decisions):
+stay within the [≤7 rule](00-index.md#the-7-rule--grouping-decisions):
 seven entities in the deploy view, six in the runtime view.
 
 ---
 
+LICENSEURI https://yuruna.link/license
+
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.10
+Last review: 2026.07.14

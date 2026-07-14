@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.10
+.VERSION 2026.07.14
 .GUID 42a2b3c4-d5e6-4f78-9012-3a4b5c6d7e8f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -50,7 +50,7 @@ $script:PortMapDir     = Join-Path $HOME 'yuruna/portmap'
 # mid-cycle, and a bare -Force import here lands in Yuruna.Host's nested scope and
 # EVICTS the global copy other modules call via qualified names (e.g.
 # Test.Ssh\Invoke-GuestSsh) -- feedback_module_force_import_evicts_global.
-Import-Module (Join-Path $script:TestModulesDir 'Test.VMUtility.psm1')    -Force -DisableNameChecking -Global
+Import-Module (Join-Path $script:RepoRoot 'automation/Yuruna.Common.psm1') -Force -DisableNameChecking -Global
 Import-Module (Join-Path $script:TestModulesDir 'Test.Ssh.psm1')          -Force -DisableNameChecking -Global
 Import-Module (Join-Path $script:TestModulesDir 'Test.CachingProxy.psm1') -Force -DisableNameChecking -Global
 # Shared squid download / TLS-bump stack -- single source of truth across host
@@ -59,8 +59,8 @@ Import-Module (Join-Path $script:TestModulesDir 'Test.CachingProxy.psm1') -Force
 # Save-CachedHttpUri wrapper below). This also puts Test-DownloadAlreadyCurrent /
 # Write-ImageSentinel on the table for the per-guest Get-Image.ps1 scripts.
 Import-Module (Join-Path $script:RepoRoot 'host/modules/Yuruna.HostDownload.psm1') -Force -DisableNameChecking -Global
-# Shared per-guest provisioning helper (the New-VM.ps1 child-runner) that
-# all three drivers carried in duplicate.
+# Shared per-guest provisioning helper (the New-VM.ps1 child-runner) common to
+# all three drivers.
 Import-Module (Join-Path $script:RepoRoot 'host/modules/Yuruna.HostProvision.psm1') -Force -DisableNameChecking -Global
 
 # Per-guest base image paths -- single table keeps Get-ImagePath, Get-Image,
@@ -596,10 +596,15 @@ function Send-Text {
     # Send-Text calls should usually use -Mechanism ssh on Linux guests.
     $invokeSequence = Join-Path $script:TestModulesDir 'Invoke-Sequence.psm1'
     if (Test-Path $invokeSequence) {
-        # -Global: a bare -Force import evicts the global Invoke-Sequence (and its
-        # nested modules) the outer loop still calls (feedback_module_force_import_evicts_global);
-        # refresh it in place instead.
-        Import-Module $invokeSequence -Force -DisableNameChecking -Global
+        # Import only when the dispatcher isn't already resolvable, so the
+        # steady-state path (module already loaded by the outer loop) is a
+        # no-op. -Global on the cold path: a bare -Force import evicts the
+        # global Invoke-Sequence (and its nested modules) the outer loop
+        # still calls (feedback_module_force_import_evicts_global); refresh
+        # it in place instead.
+        if (-not (Get-Command 'Invoke-Sequence\Send-Text' -ErrorAction SilentlyContinue)) {
+            Import-Module $invokeSequence -Force -DisableNameChecking -Global
+        }
         return [bool](Invoke-Sequence\Send-Text -HostType $script:HostTag -VMName $VMName -Text $Text -CharDelayMs $CharDelayMs)
     }
     Write-Warning "Send-Text -Mechanism gui: Invoke-Sequence.psm1 not found at '$invokeSequence'."
@@ -1494,7 +1499,11 @@ function New-YurunaBridgeViaNmcli {
     # returns when the connection is "activated" -- which can be before
     # DHCP completes. A bridge with no IP is still useless for the
     # libvirt network we are about to define, so block here briefly.
-    for ($i = 0; $i -lt 30; $i++) {
+    # Wall-clock deadline (not an iteration count): the per-iteration `ip`
+    # probe adds its own latency, so a counted loop would stretch the 30 s
+    # budget past the advertised timeout.
+    $deadline = (Get-Date).AddSeconds(30)
+    while ((Get-Date) -lt $deadline) {
         $brIp = & ip -4 -o addr show dev $BridgeName 2>$null | Select-String -Pattern 'inet '
         if ($brIp) {
             Write-Information "  Bridge '$BridgeName' DHCP-leased: $($brIp -replace '^\s+|\s+$','')"
@@ -1565,8 +1574,11 @@ network:
         return $false
     }
 
-    # Wait up to 30 s for the bridge to DHCP. Same rationale as nmcli.
-    for ($i = 0; $i -lt 30; $i++) {
+    # Wait up to 30 s for the bridge to DHCP. Same wall-clock deadline
+    # rationale as the nmcli path: a counted loop would overrun the 30 s
+    # budget because the per-iteration `ip` probe has its own latency.
+    $deadline = (Get-Date).AddSeconds(30)
+    while ((Get-Date) -lt $deadline) {
         $brIp = & ip -4 -o addr show dev $BridgeName 2>$null | Select-String -Pattern 'inet '
         if ($brIp) {
             Write-Information "  Bridge '$BridgeName' DHCP-leased: $($brIp -replace '^\s+|\s+$','')"
@@ -1791,11 +1803,10 @@ function Remove-PortMap {
     return $true
 }
 
-# Start-PortForwarder (a pwsh Start-Process TcpListener forwarder) was
-# removed: it could not bind privileged ports (:80) as a non-root user
-# and its detached processes did not survive a host reboot. Add-PortMap
-# now installs systemd socket-activated forwarders instead -- see its
-# .DESCRIPTION above.
+# There is deliberately no pwsh Start-Process TcpListener forwarder here: it
+# cannot bind privileged ports (:80) as a non-root user, and its detached
+# processes do not survive a host reboot. Add-PortMap installs systemd
+# socket-activated forwarders instead -- see its .DESCRIPTION above.
 
 <#
 .SYNOPSIS
@@ -2136,7 +2147,7 @@ function Get-HostProxyBackupPath {
     [CmdletBinding()]
     [OutputType([string])]
     param()
-    return Test.VMUtility\Get-HostProxyBackupPath
+    return Yuruna.Common\Get-HostProxyBackupPath
 }
 
 <#

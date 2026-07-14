@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.10
+.VERSION 2026.07.14
 .GUID 42b7c8d9-e0f1-4a23-9b45-6c7d8e9f0a12
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -52,8 +52,7 @@
     archive.ubuntu.com, UTM pins the aarch64 ports mirror, KVM resolves it by
     arch).
 .OUTPUTS
-    [string] the apt block, byte-identical to the inline here-string each script
-    used.
+    [string] the apt block, byte-identical across the three platform scripts.
 #>
 function Build-AptProxyBlock {
     [CmdletBinding()]

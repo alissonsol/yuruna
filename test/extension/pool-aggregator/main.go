@@ -40,8 +40,11 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
 	"crypto/subtle"
 	"crypto/tls"
+	"encoding/base64"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -107,6 +110,44 @@ const (
 // IP). Capture both; the response-time field (%6tr) sits between them.
 var clientIPRE = regexp.MustCompile(`^(\d+\.\d+)\s+\S+\s+(\S+)`)
 
+// gitCommitRef is one status.json gitCommits entry: the machine-routable sha +
+// repoUrl (hostname-free, so it stays safe on the unauthenticated pool surface).
+type gitCommitRef struct {
+	Sha     string `json:"sha"`
+	RepoURL string `json:"repoUrl"`
+}
+
+// gitCommitRefs is the gitCommits array with a DEFENSIVE decoder. status.json's
+// gitCommits is expected flat -- [{sha,repoUrl},...] -- but a host whose writer
+// hits the PowerShell array-double-wrap trap emits it nested one level too deep
+// ([[{sha,repoUrl},...]]). A strict []gitCommitRef decode of that nested shape
+// fails the ENTIRE status.json parse, which would silently drop the host from
+// the pool view over one optional display field. So: try the flat shape, then
+// the double-wrapped shape (unwrap + flatten), and on any unrecognized shape
+// yield an empty list rather than erroring -- the Commit column blanks but the
+// host stays reachable. Guards the pool view against one host's malformed
+// gitCommits (the host-side writer fix is the real correction).
+type gitCommitRefs []gitCommitRef
+
+func (g *gitCommitRefs) UnmarshalJSON(b []byte) error {
+	var flat []gitCommitRef
+	if err := json.Unmarshal(b, &flat); err == nil {
+		*g = flat
+		return nil
+	}
+	var nested [][]gitCommitRef
+	if err := json.Unmarshal(b, &nested); err == nil {
+		out := gitCommitRefs{}
+		for _, inner := range nested {
+			out = append(out, inner...)
+		}
+		*g = out
+		return nil
+	}
+	*g = nil
+	return nil
+}
+
 // hostStatus mirrors the subset of each host's /runtime/status.json the pool
 // view needs. Unknown fields ignored; missing fields tolerated.
 type hostStatus struct {
@@ -136,10 +177,7 @@ type hostStatus struct {
 	// machine-routable sha + repoUrl are parsed; a commit id and a repo URL are
 	// hostname-free, so they stay safe on the unauthenticated pool surface this
 	// struct serializes.
-	GitCommits []struct {
-		Sha     string `json:"sha"`
-		RepoURL string `json:"repoUrl"`
-	} `json:"gitCommits"`
+	GitCommits gitCommitRefs `json:"gitCommits"`
 	// LastFailure is parsed DELIBERATELY NARROW: only the machine-routable
 	// failureClass + severity, never the host's richer lastFailure (errorMessage,
 	// vmName, reproCommand, relPath) which would leak host detail onto the
@@ -559,6 +597,7 @@ func (s *poolState) pollOnce(client *http.Client, squidLog, lokiURL string, now 
 	type probeResult struct {
 		ip         string
 		st         *hostStatus
+		errMsg     string            // non-empty when the probe failed: the reason, keyed onto the unreachable host's LastError
 		version    string            // framework VERSION ("" = not fetched this poll; caller keeps prior)
 		regOK      bool              // host.registration.json was fetched + parsed this poll
 		poolID     string            // poolId from the registration record ("" = unpooled/not-yet-derived)
@@ -591,6 +630,15 @@ func (s *poolState) pollOnce(client *http.Client, squidLog, lokiURL string, now 
 					pr.version = v
 				}
 				results[i] = pr
+			} else {
+				// Probe did not yield a usable status (st stays nil): record WHY so the
+				// unreachable pass can surface it on the host whose last-known IP this
+				// was. A 200 with no hostId is a probe failure too (not a pool member).
+				msg := "status probe returned no hostId"
+				if err != nil {
+					msg = err.Error()
+				}
+				results[i] = &probeResult{ip: ip, errMsg: msg}
 			}
 		}(i, ip)
 	}
@@ -598,13 +646,25 @@ func (s *poolState) pollOnce(client *http.Client, squidLog, lokiURL string, now 
 
 	s.mu.Lock()
 	refreshed := map[string]bool{}
+	// A failed probe records its reason keyed by the candidate IP, so the
+	// unreachable pass below can surface WHY (proxy/timeout/refused) on the host
+	// whose last-known IP that was -- instead of a blind Reachable=false.
+	ipErr := map[string]string{}
 	// Hosts newly discovered or whose IP changed this tick: their address is
 	// beaconed to Loki (src=presence) after the unlock so the collector can
 	// re-seed its volatile view from Loki on a restart (rehydrateHostPresenceFromLoki).
 	var presence []presenceTarget
 	for _, r := range results {
 		if r == nil {
-			continue // not a pool member (no status server / no hostId)
+			continue // slot never filled (should not happen: every candidate writes one)
+		}
+		if r.st == nil {
+			// Probe failed (or a 200 without a hostId): not a live member this tick.
+			// Remember the reason for the unreachable pass; do not refresh.
+			if r.errMsg != "" {
+				ipErr[r.ip] = r.errMsg
+			}
+			continue
 		}
 		hid := r.st.HostId
 		base := fmt.Sprintf("http://%s:%d", r.ip, s.statusPort)
@@ -682,6 +742,12 @@ func (s *poolState) pollOnce(client *http.Client, squidLog, lokiURL string, now 
 	for hid, hv := range s.hosts {
 		if !refreshed[hid] {
 			hv.Reachable = false
+			// Surface WHY this tick's probe of the host's last-known IP failed, so
+			// /api/v1/pool-status is no longer blind about an unreachable host. Left
+			// as-is when the IP was not a candidate this tick (no fresh reason).
+			if msg, ok := ipErr[hv.CurrentIP]; ok {
+				hv.LastError = msg
+			}
 			if now.UnixMilli()-hv.LastSeenUnixMs > defaultHostTTL.Milliseconds() {
 				delete(s.hosts, hid)
 				deleted = append(deleted, hid)
@@ -745,6 +811,27 @@ func (s *poolState) pollOnce(client *http.Client, squidLog, lokiURL string, now 
 	}
 }
 
+// newInternalHTTPClient builds the HTTP client the aggregator uses for ALL of
+// its traffic: host status probes (http://<lan-ip>:8080) and Loki push/query on
+// 127.0.0.1. Every target is on the LAN or loopback, so the client MUST NOT use
+// a proxy. This process runs ON the caching-proxy host, whose environment may
+// export a system-wide http_proxy; http.DefaultTransport's ProxyFromEnvironment
+// would then route these LAN/loopback requests THROUGH squid, and a host squid
+// is not actively serving right then reads back as unreachable even though its
+// :8080 answers a direct request. Proxy:nil pins direct connections;
+// DisableKeepAlives makes each poll a fresh one-shot so a pooled connection
+// cannot silently go stale between polls and fail a live host's probe.
+func newInternalHTTPClient(timeout time.Duration) *http.Client {
+	return &http.Client{
+		Timeout: timeout,
+		Transport: &http.Transport{
+			Proxy:             nil,
+			DisableKeepAlives: true,
+			DialContext:       (&net.Dialer{Timeout: timeout}).DialContext,
+		},
+	}
+}
+
 func fetchStatus(client *http.Client, base string) (*hostStatus, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), probeTimeout)
 	defer cancel()
@@ -775,7 +862,7 @@ func fetchStatus(client *http.Client, base string) (*hostStatus, error) {
 // served by the status server at /yuruna-repo/VERSION -- the SAME source the
 // host's own status pages read for their header (their getHostInfo() fetches
 // yuruna-repo/VERSION via JS, so the version is not embedded in the HTML). A tiny
-// plain-text file (one CalVer line, e.g. "2026.07.10"), so it is lighter than any
+// plain-text file (one CalVer line, e.g. "2026.07.14"), so it is lighter than any
 // status HTML page and fetchable server-side without a JS engine. Returns
 // ("", err) on any failure; the caller keeps the prior version on a transient
 // miss (the version is stable across polls). The value is capped + first-line
@@ -880,6 +967,50 @@ func fetchRegistration(client *http.Client, base string) (string, *gatingPolicy,
 	return reg.PoolID, &g, reg.ActiveExtensions, reg.ExtensionTargets, nil
 }
 
+// postToLoki marshals payload, POSTs it to lokiURL under the shared pushTimeout,
+// drains + closes the body, and logs (prefixed by logPrefix) on a build error, a
+// transport error, or a non-2xx status. The cycle / single-line beacon / events /
+// incident push paths share this tail; only the payload and logPrefix differ.
+func postToLoki(client *http.Client, lokiURL string, payload map[string]any, logPrefix string) {
+	buf, _ := json.Marshal(payload)
+	ctx, cancel := context.WithTimeout(context.Background(), pushTimeout)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, lokiURL, bytes.NewReader(buf))
+	if err != nil {
+		log.Printf("%s build: %v", logPrefix, err)
+		return
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := client.Do(req)
+	if err != nil {
+		log.Printf("%s: %v", logPrefix, err)
+		return
+	}
+	defer resp.Body.Close()
+	_, _ = io.Copy(io.Discard, resp.Body)
+	if resp.StatusCode/100 != 2 {
+		log.Printf("%s HTTP %d", logPrefix, resp.StatusCode)
+	}
+}
+
+// lokiStreamsResult is the query_range response envelope every Loki reader
+// decodes: for each returned stream, its [timestamp, line] value pairs. Declared
+// once instead of re-inlining the identical anonymous struct in each reader.
+type lokiStreamsResult struct {
+	Data struct {
+		Result []struct {
+			Values [][2]string `json:"values"`
+		} `json:"result"`
+	} `json:"data"`
+}
+
+// queryRangeURL derives the Loki query_range endpoint from the push endpoint
+// (the readers query the same base the pushes write to), replacing the identical
+// strings.TrimSuffix build inline in each reader.
+func queryRangeURL(pushURL string) string {
+	return strings.TrimSuffix(pushURL, "push") + "query_range"
+}
+
 // pushLoki POSTs one cycle-status transition to Loki. Labels are strictly
 // {pool,hostId,cycleId} (low cardinality); the variable fields -- including the
 // CURRENT baseURL for the dashboard's drill-down deep-link -- live in the line.
@@ -907,25 +1038,7 @@ func pushLoki(client *http.Client, lokiURL, pool string, st *hostStatus, baseURL
 		"stream": map[string]string{"pool": pool, "hostId": st.HostId, "cycleId": st.CycleId, "src": "cycle"},
 		"values": [][]string{{fmt.Sprintf("%d", ingest.UnixNano()), string(line)}},
 	}}}
-	buf, _ := json.Marshal(payload)
-	ctx, cancel := context.WithTimeout(context.Background(), pushTimeout)
-	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, lokiURL, bytes.NewReader(buf))
-	if err != nil {
-		log.Printf("loki push build: %v", err)
-		return
-	}
-	req.Header.Set("Content-Type", "application/json")
-	resp, err := client.Do(req)
-	if err != nil {
-		log.Printf("loki push: %v", err)
-		return
-	}
-	defer resp.Body.Close()
-	_, _ = io.Copy(io.Discard, resp.Body)
-	if resp.StatusCode/100 != 2 {
-		log.Printf("loki push HTTP %d", resp.StatusCode)
-	}
+	postToLoki(client, lokiURL, payload, "loki push")
 }
 
 // pushLokiStream POSTs one line to Loki under the given stream labels --
@@ -939,25 +1052,7 @@ func pushLokiStream(client *http.Client, lokiURL, what string, stream map[string
 		"stream": stream,
 		"values": [][]string{{fmt.Sprintf("%d", now.UnixNano()), string(line)}},
 	}}}
-	buf, _ := json.Marshal(payload)
-	ctx, cancel := context.WithTimeout(context.Background(), pushTimeout)
-	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, lokiURL, bytes.NewReader(buf))
-	if err != nil {
-		log.Printf("%s push build: %v", what, err)
-		return
-	}
-	req.Header.Set("Content-Type", "application/json")
-	resp, err := client.Do(req)
-	if err != nil {
-		log.Printf("%s push: %v", what, err)
-		return
-	}
-	defer resp.Body.Close()
-	_, _ = io.Copy(io.Discard, resp.Body)
-	if resp.StatusCode/100 != 2 {
-		log.Printf("%s push HTTP %d", what, resp.StatusCode)
-	}
+	postToLoki(client, lokiURL, payload, what+" push")
 }
 
 // pushPresence records a host's last-known address in Loki under {pool,hostId,
@@ -1056,7 +1151,7 @@ func (s *poolState) seedHostStubLocked(hostID, baseURL string, now time.Time) bo
 // or double-counted. Best-effort: on any Loki error the collector starts with
 // empty counts (prior behavior) and rebuilds as cycles complete.
 func (s *poolState) rehydrateFromLoki(lokiPushURL, pool string, window time.Duration, now time.Time) {
-	queryURL := strings.TrimSuffix(lokiPushURL, "push") + "query_range"
+	queryURL := queryRangeURL(lokiPushURL)
 	params := url.Values{}
 	params.Set("query", fmt.Sprintf(`{pool=%q} | json | overallStatus=~"pass|fail"`, pool))
 	params.Set("start", strconv.FormatInt(now.Add(-window).UnixNano(), 10))
@@ -1064,7 +1159,7 @@ func (s *poolState) rehydrateFromLoki(lokiPushURL, pool string, window time.Dura
 	params.Set("limit", "5000")
 	params.Set("direction", "backward") // most-recent first: if capped, keep the freshest transitions
 
-	client := &http.Client{Timeout: pushTimeout}
+	client := newInternalHTTPClient(pushTimeout)
 	ctx, cancel := context.WithTimeout(context.Background(), pushTimeout)
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, queryURL+"?"+params.Encode(), nil)
@@ -1083,13 +1178,7 @@ func (s *poolState) rehydrateFromLoki(lokiPushURL, pool string, window time.Dura
 		log.Printf("rehydrate: Loki HTTP %d: %s (starting with empty counts)", resp.StatusCode, strings.TrimSpace(string(body)))
 		return
 	}
-	var lr struct {
-		Data struct {
-			Result []struct {
-				Values [][2]string `json:"values"`
-			} `json:"result"`
-		} `json:"data"`
-	}
+	var lr lokiStreamsResult
 	if err := json.NewDecoder(io.LimitReader(resp.Body, 32<<20)).Decode(&lr); err != nil {
 		log.Printf("rehydrate: parse Loki response: %v", err)
 		return
@@ -1186,7 +1275,7 @@ func (s *poolState) rehydrateFromLoki(lokiPushURL, pool string, window time.Dura
 // incident survives the restart). Best-effort: any Loki error leaves incidents
 // empty and they simply re-open on the next qualifying fail burst.
 func (s *poolState) rehydrateIncidentsFromLoki(lokiPushURL, pool string, window time.Duration, now time.Time) {
-	queryURL := strings.TrimSuffix(lokiPushURL, "push") + "query_range"
+	queryURL := queryRangeURL(lokiPushURL)
 	params := url.Values{}
 	params.Set("query", fmt.Sprintf(`{pool=%q, src="incident"} | json`, pool))
 	params.Set("start", strconv.FormatInt(now.Add(-window).UnixNano(), 10))
@@ -1194,7 +1283,7 @@ func (s *poolState) rehydrateIncidentsFromLoki(lokiPushURL, pool string, window 
 	params.Set("limit", "5000")
 	params.Set("direction", "backward") // newest-first: the first line per host stream is the latest
 
-	client := &http.Client{Timeout: pushTimeout}
+	client := newInternalHTTPClient(pushTimeout)
 	ctx, cancel := context.WithTimeout(context.Background(), pushTimeout)
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, queryURL+"?"+params.Encode(), nil)
@@ -1210,13 +1299,7 @@ func (s *poolState) rehydrateIncidentsFromLoki(lokiPushURL, pool string, window 
 	if resp.StatusCode != http.StatusOK {
 		return
 	}
-	var lr struct {
-		Data struct {
-			Result []struct {
-				Values [][2]string `json:"values"`
-			} `json:"result"`
-		} `json:"data"`
-	}
+	var lr lokiStreamsResult
 	if err := json.NewDecoder(io.LimitReader(resp.Body, 16<<20)).Decode(&lr); err != nil {
 		log.Printf("rehydrate incidents: parse: %v", err)
 		return
@@ -1337,7 +1420,7 @@ func (s *poolState) applyIncidentLines(streams [][][2]string, now time.Time) int
 // the proxy -- the discovery-liveness gap. Best-effort: any Loki error leaves the
 // view to rebuild from the squid log as before.
 func (s *poolState) rehydrateHostPresenceFromLoki(lokiPushURL, pool string, window time.Duration, now time.Time) {
-	queryURL := strings.TrimSuffix(lokiPushURL, "push") + "query_range"
+	queryURL := queryRangeURL(lokiPushURL)
 	params := url.Values{}
 	params.Set("query", fmt.Sprintf(`{pool=%q, src="presence"} | json`, pool))
 	params.Set("start", strconv.FormatInt(now.Add(-window).UnixNano(), 10))
@@ -1345,7 +1428,7 @@ func (s *poolState) rehydrateHostPresenceFromLoki(lokiPushURL, pool string, wind
 	params.Set("limit", "5000")
 	params.Set("direction", "backward") // newest-first: the first line per host stream is the latest
 
-	client := &http.Client{Timeout: pushTimeout}
+	client := newInternalHTTPClient(pushTimeout)
 	ctx, cancel := context.WithTimeout(context.Background(), pushTimeout)
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, queryURL+"?"+params.Encode(), nil)
@@ -1361,13 +1444,7 @@ func (s *poolState) rehydrateHostPresenceFromLoki(lokiPushURL, pool string, wind
 	if resp.StatusCode != http.StatusOK {
 		return
 	}
-	var lr struct {
-		Data struct {
-			Result []struct {
-				Values [][2]string `json:"values"`
-			} `json:"result"`
-		} `json:"data"`
-	}
+	var lr lokiStreamsResult
 	if json.NewDecoder(io.LimitReader(resp.Body, 16<<20)).Decode(&lr) != nil {
 		return
 	}
@@ -1421,7 +1498,7 @@ func (s *poolState) rehydrateAnnouncesFromLoki(lokiPushURL, pool string, now tim
 	if s.announceTTL <= 0 {
 		return
 	}
-	queryURL := strings.TrimSuffix(lokiPushURL, "push") + "query_range"
+	queryURL := queryRangeURL(lokiPushURL)
 	params := url.Values{}
 	params.Set("query", fmt.Sprintf(`{pool=%q, src="announce"} | json`, pool))
 	params.Set("start", strconv.FormatInt(now.Add(-s.announceTTL).UnixNano(), 10))
@@ -1429,7 +1506,7 @@ func (s *poolState) rehydrateAnnouncesFromLoki(lokiPushURL, pool string, now tim
 	params.Set("limit", "5000")
 	params.Set("direction", "backward") // newest-first: the first line per (hostId,area) is the latest
 
-	client := &http.Client{Timeout: pushTimeout}
+	client := newInternalHTTPClient(pushTimeout)
 	ctx, cancel := context.WithTimeout(context.Background(), pushTimeout)
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, queryURL+"?"+params.Encode(), nil)
@@ -1445,13 +1522,7 @@ func (s *poolState) rehydrateAnnouncesFromLoki(lokiPushURL, pool string, now tim
 	if resp.StatusCode != http.StatusOK {
 		return
 	}
-	var lr struct {
-		Data struct {
-			Result []struct {
-				Values [][2]string `json:"values"`
-			} `json:"result"`
-		} `json:"data"`
-	}
+	var lr lokiStreamsResult
 	if json.NewDecoder(io.LimitReader(resp.Body, 16<<20)).Decode(&lr) != nil {
 		return
 	}
@@ -1646,25 +1717,7 @@ func pushEvents(client *http.Client, lokiURL, pool, hostID string, lines []strin
 		"stream": map[string]string{"pool": pool, "hostId": hostID, "src": "event"},
 		"values": values,
 	}}}
-	buf, _ := json.Marshal(payload)
-	ctx, cancel := context.WithTimeout(context.Background(), pushTimeout)
-	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, lokiURL, bytes.NewReader(buf))
-	if err != nil {
-		log.Printf("event push build: %v", err)
-		return
-	}
-	req.Header.Set("Content-Type", "application/json")
-	resp, err := client.Do(req)
-	if err != nil {
-		log.Printf("event push: %v", err)
-		return
-	}
-	defer resp.Body.Close()
-	_, _ = io.Copy(io.Discard, resp.Body)
-	if resp.StatusCode/100 != 2 {
-		log.Printf("event push HTTP %d", resp.StatusCode)
-	}
+	postToLoki(client, lokiURL, payload, "event push")
 }
 
 // eventNano returns the event's own timestamp in unix-nanoseconds, or the
@@ -2052,25 +2105,7 @@ func pushIncident(client *http.Client, lokiURL, pool string, ev incidentEvent) {
 		"stream": stream,
 		"values": [][]string{{strconv.FormatInt(ev.now.UnixNano(), 10), string(line)}},
 	}}}
-	buf, _ := json.Marshal(payload)
-	ctx, cancel := context.WithTimeout(context.Background(), pushTimeout)
-	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, lokiURL, bytes.NewReader(buf))
-	if err != nil {
-		log.Printf("incident push build: %v", err)
-		return
-	}
-	req.Header.Set("Content-Type", "application/json")
-	resp, err := client.Do(req)
-	if err != nil {
-		log.Printf("incident push: %v", err)
-		return
-	}
-	defer resp.Body.Close()
-	_, _ = io.Copy(io.Discard, resp.Body)
-	if resp.StatusCode/100 != 2 {
-		log.Printf("incident push HTTP %d", resp.StatusCode)
-	}
+	postToLoki(client, lokiURL, payload, "incident push")
 }
 
 func (s *poolState) handleHealth(w http.ResponseWriter, _ *http.Request) {
@@ -2179,7 +2214,7 @@ func (s *poolState) lookupCycleAt(pool, hostID string, t time.Time) (folderURL, 
 	if t.IsZero() || s.lokiURL == "" || s.httpClient == nil {
 		return "", "", false
 	}
-	queryURL := strings.TrimSuffix(s.lokiURL, "push") + "query_range"
+	queryURL := queryRangeURL(s.lokiURL)
 	const win = 6 * time.Hour
 	params := url.Values{}
 	params.Set("query", fmt.Sprintf(`{pool=%q, hostId=%q, src="cycle"} | json`, pool, hostID))
@@ -2202,13 +2237,7 @@ func (s *poolState) lookupCycleAt(pool, hostID string, t time.Time) (folderURL, 
 	if resp.StatusCode != http.StatusOK {
 		return "", "", false
 	}
-	var lr struct {
-		Data struct {
-			Result []struct {
-				Values [][2]string `json:"values"`
-			} `json:"result"`
-		} `json:"data"`
-	}
+	var lr lokiStreamsResult
 	if json.NewDecoder(io.LimitReader(resp.Body, 8<<20)).Decode(&lr) != nil {
 		return "", "", false
 	}
@@ -2254,7 +2283,7 @@ func (s *poolState) lastKnownBaseURL(pool, hostID string) string {
 		return ""
 	}
 	now := time.Now().UTC()
-	queryURL := strings.TrimSuffix(s.lokiURL, "push") + "query_range"
+	queryURL := queryRangeURL(s.lokiURL)
 	params := url.Values{}
 	params.Set("query", fmt.Sprintf(`{pool=%q, hostId=%q, src="cycle"} | json`, pool, hostID))
 	params.Set("start", strconv.FormatInt(now.Add(-defaultHostTTL).UnixNano(), 10))
@@ -2276,13 +2305,7 @@ func (s *poolState) lastKnownBaseURL(pool, hostID string) string {
 	if resp.StatusCode != http.StatusOK {
 		return ""
 	}
-	var lr struct {
-		Data struct {
-			Result []struct {
-				Values [][2]string `json:"values"`
-			} `json:"result"`
-		} `json:"data"`
-	}
+	var lr lokiStreamsResult
 	if json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&lr) != nil {
 		return ""
 	}
@@ -2321,6 +2344,30 @@ func (s *poolState) resolveHostBase(hostID, pool string) (base, resolvedPool str
 	return base, pool
 }
 
+// controlProofFor is the deterministic core of the host-control proof: the exact wire
+// string "<expiry>.<base64 HMAC>" the host status server accepts on its mutating
+// /control/* routes, where HMAC = HMAC-SHA256(pool-auth-token, "yuruna-control|proof|
+// <expiry>"). It is byte-for-byte identical to Test.HostConfigSync\Get-YurunaControlProof
+// (PowerShell) -- same HMAC-SHA256, same std base64, same data string -- so a proof minted
+// here on the Caching Proxy validates on any pool host (the pool-auth-token is pool-wide).
+// Verified by TestMintControlProofGolden against the shared golden vector.
+func controlProofFor(token string, expiry int64) string {
+	mac := hmac.New(sha256.New, []byte(token))
+	mac.Write([]byte("yuruna-control|proof|" + strconv.FormatInt(expiry, 10)))
+	return strconv.FormatInt(expiry, 10) + "." + base64.StdEncoding.EncodeToString(mac.Sum(nil))
+}
+
+// mintControlProof mints a control proof valid for ttl from now, or "" when no
+// pool-auth-token is configured (the host then only accepts loopback control). The
+// operator reaches the host through Grafana -> /go/host, so this rides the proof to the
+// browser in the redirect fragment; the host revalidates it (expiry window + HMAC).
+func mintControlProof(token string, ttl time.Duration) string {
+	if token == "" {
+		return ""
+	}
+	return controlProofFor(token, time.Now().Add(ttl).Unix())
+}
+
 // handleGoHost bridges a dashboard click -> the host's OWN status-page root, resolving
 // the host's CURRENT IP server-side (the same uuid->IP resolution as /go/cycle, so the
 // link survives a host IP change). Distinct from /go/cycle, which targets a specific
@@ -2340,7 +2387,16 @@ func (s *poolState) handleGoHost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Cache-Control", "no-store")
-	http.Redirect(w, r, strings.TrimRight(base, "/"), http.StatusFound)
+	// Carry a short-lived control proof to the host UI in the URL FRAGMENT (never sent to
+	// a server or written to an access log; the status page JS reads location.hash). This
+	// lets the operator drive the host's mutating /control/* routes after arriving through
+	// the (to-be-authenticated) Grafana dashboard, without the host trusting the whole LAN.
+	// No token configured -> no fragment -> the host accepts only loopback control.
+	dest := strings.TrimRight(base, "/")
+	if proof := mintControlProof(s.authToken, 5*time.Minute); proof != "" {
+		dest += "#yctl=" + proof
+	}
+	http.Redirect(w, r, dest, http.StatusFound)
 }
 
 // handleGoStash bridges a dashboard Extension-cell click -> an extension's service
@@ -3110,7 +3166,7 @@ func main() {
 	state.crossN = *crossN
 	state.crossWin = *crossWin
 	state.announceTTL = *announceTTL
-	client := &http.Client{Timeout: probeTimeout}
+	client := newInternalHTTPClient(probeTimeout)
 	state.lokiURL = *lokiURL
 	state.httpClient = client
 	// Load the shared bearer token that GATES /ingest. Absent / empty file -> token

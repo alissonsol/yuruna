@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.10
+.VERSION 2026.07.14
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456721
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -80,6 +80,35 @@ function Get-TestConfigContentHash {
     }
 }
 
+function Get-TestConfigFreshnessTriple {
+    <#
+    .SYNOPSIS
+        Resolve a config path to its canonical (path, mtime, hash) freshness
+        triple used to key the parse cache and validate snapshots.
+    .DESCRIPTION
+        Returns a hashtable with Path (resolved absolute path), Mtime
+        (LastWriteTimeUtc) and Hash (64 KB SHA-256). Caller must have already
+        confirmed the file exists; the resolve step below tolerates a null
+        Resolve-Path result but the file must be present for Get-Item to succeed.
+    .PARAMETER Path
+        Absolute or relative path to an existing YAML file.
+    #>
+    [CmdletBinding()]
+    [OutputType([System.Collections.Hashtable])]
+    param([Parameter(Mandatory)][string]$Path)
+    # Resolve-Path can return $null for a path the caller's Test-Path confirmed
+    # exists -- observed on macOS. Fall back to the input path (already absolute
+    # and existing) so the hash + read never receive a null Path, which would
+    # otherwise fail Get-TestConfigContentHash's Mandatory -Path bind with a
+    # cryptic "Cannot bind argument to parameter 'Path'" that masquerades as a
+    # YAML parse error at the call site.
+    $resolved = (Resolve-Path -LiteralPath $Path -ErrorAction SilentlyContinue).Path
+    if ([string]::IsNullOrEmpty($resolved)) { $resolved = $Path }
+    $mtime = (Get-Item -LiteralPath $resolved).LastWriteTimeUtc
+    $hash  = Get-TestConfigContentHash -Path $resolved
+    return @{ Path = $resolved; Mtime = $mtime; Hash = $hash }
+}
+
 function Read-TestConfig {
     <#
     .SYNOPSIS
@@ -121,16 +150,10 @@ function Read-TestConfig {
         $mtime    = [datetime]$KnownMtime
         $hash     = $KnownHash
     } else {
-        # Resolve-Path can return $null for a path that Test-Path (above) confirms
-        # exists -- observed on macOS. Fall back to the input path (already absolute
-        # and existing) so the hash + read never receive a null Path, which would
-        # otherwise fail Get-TestConfigContentHash's Mandatory -Path bind with a
-        # cryptic "Cannot bind argument to parameter 'Path'" that masquerades as a
-        # YAML parse error at the call site.
-        $resolved = (Resolve-Path -LiteralPath $Path -ErrorAction SilentlyContinue).Path
-        if ([string]::IsNullOrEmpty($resolved)) { $resolved = $Path }
-        $mtime    = (Get-Item -LiteralPath $resolved).LastWriteTimeUtc
-        $hash     = Get-TestConfigContentHash -Path $resolved
+        $triple   = Get-TestConfigFreshnessTriple -Path $Path
+        $resolved = $triple.Path
+        $mtime    = $triple.Mtime
+        $hash     = $triple.Hash
     }
     if (-not $NoCache -and $script:TestConfigCache.ContainsKey($resolved)) {
         $entry = $script:TestConfigCache[$resolved]
@@ -322,12 +345,14 @@ function Read-TestConfigOrSnapshot {
     $known = $null
     if (-not $NoCache -and (Test-Path -LiteralPath $Path)) {
         try {
-            $resolved = (Resolve-Path -LiteralPath $Path).Path
-            $mtime    = (Get-Item -LiteralPath $resolved).LastWriteTimeUtc
-            $hash     = Get-TestConfigContentHash -Path $resolved
             # Source freshness triple; reuse it on the fallback parse below so
-            # the 64 KB SHA-256 is computed at most once per call.
-            $known    = @{ Path = $resolved; Mtime = $mtime; Hash = $hash }
+            # the 64 KB SHA-256 is computed at most once per call. Shares the
+            # macOS null-Resolve-Path fallback with Read-TestConfig so a null
+            # resolve does not throw and silently forfeit the snapshot.
+            $known    = Get-TestConfigFreshnessTriple -Path $Path
+            $resolved = $known.Path
+            $mtime    = $known.Mtime
+            $hash     = $known.Hash
             # Per-source slot: the snapshot filename is keyed by the resolved source
             # path, so a snapshot published for a different config cannot be mistaken
             # for this one.
@@ -380,4 +405,4 @@ function Get-TestConfigValue {
     return $node
 }
 
-Export-ModuleMember -Function Read-TestConfig, Clear-TestConfigCache, Get-TestConfigValue, Get-TestConfigSnapshotPath, Publish-TestConfigSnapshot, Read-TestConfigOrSnapshot
+Export-ModuleMember -Function Read-TestConfig, Clear-TestConfigCache, Get-TestConfigValue, Get-TestConfigSnapshotPath, Publish-TestConfigSnapshot, Read-TestConfigOrSnapshot, Get-TestConfigFreshnessTriple

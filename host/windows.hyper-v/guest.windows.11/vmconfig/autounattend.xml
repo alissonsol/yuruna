@@ -222,6 +222,21 @@
                     <CommandLine>net user ywuser1 /logonpasswordchg:yes</CommandLine>
                     <Description>Expire default password so user must change it on next login</Description>
                 </SynchronousCommand>
+                <!--
+                  Put repositories.GH_TOKEN into the user's PowerShell profile and point
+                  git at it, so a private frameworkUrl/projectUrl clones unattended.
+
+                  Passed as -EncodedCommand because the bootstrap is a multi-line script
+                  full of quotes, '$', and redirection: spelling it inline here would mean
+                  XML-escaping shell metacharacters into a single unreadable line, and one
+                  bad escape produces a first-logon script that fails silently on a VM
+                  nobody is watching. New-VM.ps1 base64s the real script into this slot.
+                -->
+                <SynchronousCommand wcm:action="add">
+                    <Order>6</Order>
+                    <CommandLine>powershell.exe -NoProfile -ExecutionPolicy Bypass -EncodedCommand GH_BOOTSTRAP_B64_PLACEHOLDER</CommandLine>
+                    <Description>Configure GH_TOKEN and git credentials</Description>
+                </SynchronousCommand>
             </FirstLogonCommands>
         </component>
     </settings>

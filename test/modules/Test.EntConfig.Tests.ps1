@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.10
+.VERSION 2026.07.14
 .GUID 42c7d8e9-a0b1-4c23-9d45-6e7f8a9b0c14
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -34,10 +34,13 @@ $scriptPath = (Resolve-Path (Join-Path -Path $here -ChildPath '..' -AdditionalCh
 
 # Parse the script and lift the two helper definitions into this scope so they can be
 # exercised without running the whole validator (which probes the network and exits).
+# The AST is an unqualified file-scope variable: inside an It block a $script: reference
+# resolves to the test runner's own script scope, not this file's, so a $script:-qualified
+# fixture reaches the assertions as $null.
 $errs = $null
-$script:cfgAst = [System.Management.Automation.Language.Parser]::ParseFile($scriptPath, [ref]$null, [ref]$errs)
+$cfgAst = [System.Management.Automation.Language.Parser]::ParseFile($scriptPath, [ref]$null, [ref]$errs)
 $wanted = 'Test-TcpReachable', 'ConvertTo-YurunaBool'
-$fnDefs = $script:cfgAst.FindAll({ param($n)
+$fnDefs = $cfgAst.FindAll({ param($n)
     $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $wanted -contains $n.Name
 }, $true)
 foreach ($fn in $fnDefs) { . ([ScriptBlock]::Create($fn.Extent.Text)) }
@@ -118,20 +121,20 @@ Describe 'Test-TcpReachable is a bounded probe that always disposes' {
 
 Describe 'Test-Config.ps1 routes probes and flags through the helpers' {
     It 'the probe helper disposes its socket in a finally' {
-        $fn = Get-HelperDefinition -Ast $script:cfgAst -Name 'Test-TcpReachable'
+        $fn = Get-HelperDefinition -Ast $cfgAst -Name 'Test-TcpReachable'
         $fn | Should -Not -BeNullOrEmpty
         $body = $fn.Body.Extent.Text
         $body | Should -Match 'finally'
         $body | Should -Match '\.Dispose\(\)'
     }
     It 'both TCP probes route through Test-TcpReachable' {
-        (Get-CommandCallCount -Ast $script:cfgAst -Name 'Test-TcpReachable') | Should -Be 2
+        (Get-CommandCallCount -Ast $cfgAst -Name 'Test-TcpReachable') | Should -Be 2
     }
     It 'no inline TcpClient BeginConnect remains outside the shared helper' {
         # Exactly one BeginConnect member-invoke -- the one inside Test-TcpReachable.
-        (Get-MemberInvokeCount -Ast $script:cfgAst -Member 'BeginConnect') | Should -Be 1
+        (Get-MemberInvokeCount -Ast $cfgAst -Member 'BeginConnect') | Should -Be 1
     }
     It 'the three config boolean flags route through ConvertTo-YurunaBool' {
-        (Get-CommandCallCount -Ast $script:cfgAst -Name 'ConvertTo-YurunaBool') | Should -Be 3
+        (Get-CommandCallCount -Ast $cfgAst -Name 'ConvertTo-YurunaBool') | Should -Be 3
     }
 }

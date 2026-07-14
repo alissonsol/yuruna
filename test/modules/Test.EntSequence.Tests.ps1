@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.10
+.VERSION 2026.07.14
 .GUID 42e9f0a1-b2c3-4d45-9e67-8f9a0b1c2d36
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -32,10 +32,14 @@
 
 $here       = Split-Path -Parent $PSCommandPath
 $scriptPath = (Resolve-Path (Join-Path -Path $here -ChildPath '..' -AdditionalChildPath 'Test-Sequence.ps1')).Path
+# The AST is an unqualified file-scope variable: inside an It block a $script: reference
+# resolves to the test runner's own script scope, not this file's, so a $script:-qualified
+# fixture reaches the assertions as $null -- and a -Not -Match against $null passes
+# vacuously, which is exactly the silent false-pass the AST guards exist to prevent.
 $errs = $null
-$script:seqAst = [System.Management.Automation.Language.Parser]::ParseFile($scriptPath, [ref]$null, [ref]$errs)
+$seqAst = [System.Management.Automation.Language.Parser]::ParseFile($scriptPath, [ref]$null, [ref]$errs)
 if ($errs) { throw "Parse errors in Test-Sequence.ps1: $($errs[0].Message)" }
-$fnDef = $script:seqAst.FindAll({ param($n)
+$fnDef = $seqAst.FindAll({ param($n)
     $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq 'Get-FirstExecutedStepAction'
 }, $true) | Select-Object -First 1
 if (-not $fnDef) { throw "Test.EntSequence.Tests.ps1: could not lift Get-FirstExecutedStepAction from Test-Sequence.ps1 (renamed or removed?)." }
@@ -84,9 +88,9 @@ Describe 'Get-FirstExecutedStepAction resolves the first executed step honoring 
 
 Describe 'Test-Sequence.ps1 routes the pre-start skip through the StartStep-aware lookup' {
     It 'the pre-start decision calls Get-FirstExecutedStepAction' {
-        (Get-CommandCallCount -Ast $script:seqAst -Name 'Get-FirstExecutedStepAction') | Should -BeGreaterOrEqual 1
+        (Get-CommandCallCount -Ast $seqAst -Name 'Get-FirstExecutedStepAction') | Should -BeGreaterOrEqual 1
     }
     It 'the hard-coded literal-first-step form (ChainEntries[0].sequence.steps) is gone' {
-        $script:seqAst.Extent.Text | Should -Not -Match '\$ChainEntries\[0\]\.sequence\.steps'
+        $seqAst.Extent.Text | Should -Not -Match '\$ChainEntries\[0\]\.sequence\.steps'
     }
 }

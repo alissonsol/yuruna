@@ -1,5 +1,5 @@
-﻿<#PSScriptInfo
-.VERSION 2026.07.10
+<#PSScriptInfo
+.VERSION 2026.07.14
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456820
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -17,7 +17,7 @@
 #requires -version 7
 
 # Default stash-service extension. The Go daemon (SCP sink-mode wire-protocol
-# handler, SQLite metadata index, storage layout per https://yuruna.link/stash-service §6)
+# handler, SQLite metadata index, storage layout per https://yuruna.link/stash-service sec 6)
 # lives under [server/](server/). Get-StashServiceInfo is a status stub that
 # returns a uniform hashtable in the host-side cmdlet vocabulary; host-side
 # status probing (querying a running stash VM) is not wired yet, so the flags

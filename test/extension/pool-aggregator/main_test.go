@@ -563,12 +563,49 @@ func TestCommitCells(t *testing.T) {
 	}
 }
 
+// TestGitCommitsTolerantDecode verifies status.json's gitCommits decoder accepts
+// both the correct flat array and a double-wrapped [[...]] array (the PowerShell
+// array-double-wrap a host writer can emit), and NEVER fails the whole
+// status.json parse over a malformed gitCommits -- the host must stay in the pool
+// view. The host-side writer fix is the real correction; this is defense.
+func TestGitCommitsTolerantDecode(t *testing.T) {
+	// Flat (correct) shape.
+	var flat hostStatus
+	if err := json.Unmarshal([]byte(`{"hostId":"h1","overallStatus":"pass","gitCommits":[{"sha":"aa","repoUrl":"https://x/y"},{"sha":"bb","repoUrl":"https://x/z"}]}`), &flat); err != nil {
+		t.Fatalf("flat gitCommits should parse: %v", err)
+	}
+	if len(flat.GitCommits) != 2 || flat.GitCommits[0].Sha != "aa" || flat.GitCommits[1].Sha != "bb" {
+		t.Fatalf("flat gitCommits = %+v", flat.GitCommits)
+	}
+
+	// Double-wrapped shape: the whole doc must still parse AND the commits flatten.
+	var dbl hostStatus
+	if err := json.Unmarshal([]byte(`{"hostId":"h2","overallStatus":"pass","gitCommits":[[{"sha":"aa","repoUrl":"https://x/y"},{"sha":"bb","repoUrl":"https://x/z"}]]}`), &dbl); err != nil {
+		t.Fatalf("double-wrapped gitCommits must NOT fail the status.json parse: %v", err)
+	}
+	if dbl.HostId != "h2" || dbl.OverallStatus != "pass" {
+		t.Fatalf("host fields lost on double-wrap: %+v", dbl)
+	}
+	if len(dbl.GitCommits) != 2 || dbl.GitCommits[0].Sha != "aa" || dbl.GitCommits[1].Sha != "bb" {
+		t.Fatalf("double-wrapped gitCommits did not flatten: %+v", dbl.GitCommits)
+	}
+
+	// Garbage gitCommits: still parse the doc (host stays reachable), empty commits.
+	var bad hostStatus
+	if err := json.Unmarshal([]byte(`{"hostId":"h3","overallStatus":"fail","gitCommits":"nope"}`), &bad); err != nil {
+		t.Fatalf("garbage gitCommits must NOT fail the status.json parse: %v", err)
+	}
+	if bad.HostId != "h3" || len(bad.GitCommits) != 0 {
+		t.Fatalf("garbage gitCommits: hostId=%q commits=%d", bad.HostId, len(bad.GitCommits))
+	}
+}
+
 // TestHostInfoCommitLabels drives handleMetrics and asserts the Commit column's
 // three labels ride on yuruna_pool_host_info so the dashboard's Commit cell + its
 // two deep-links resolve.
 func TestHostInfoCommitLabels(t *testing.T) {
 	s := newPoolState("default", 8080)
-	hv := &hostView{HostId: "4253419c", BaseURL: "http://192.168.7.13:8080", Reachable: true, Version: "2026.07.10"}
+	hv := &hostView{HostId: "4253419c", BaseURL: "http://192.168.7.13:8080", Reachable: true, Version: "2026.07.14"}
 	hv.Status = &hostStatus{HostId: "4253419c", Host: "host.windows.hyper-v", CycleId: "c1", OverallStatus: "pass"}
 	hv.Status.GitCommits = append(hv.Status.GitCommits,
 		struct {

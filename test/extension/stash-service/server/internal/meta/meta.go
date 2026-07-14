@@ -15,6 +15,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -24,6 +25,7 @@ import (
 	_ "modernc.org/sqlite"
 
 	"stash-server/internal/config"
+	"stash-server/internal/fsutil"
 )
 
 // Status values (§8.1).
@@ -260,12 +262,18 @@ func (s *Store) Delete(id string) error {
 	return err
 }
 
+// uploadColumns is the full 18-column uploads projection, in the exact order
+// scanRow's Scan expects. Kept in one place so Get / ListBuffered / Search and
+// scanRow share a single column-order source of truth -- a column add is one
+// edit, not four, and cannot silently misalign the Scan-to-column mapping.
+const uploadColumns = `id, storedPath, originalFilename, isArchive, username, pathMetadata, clientAddress,
+       createdAt, receivedAt, status, sizeBytes, locallyBuffered,
+       mimeType, contentClass, isText, typeLabel, typeScore, source`
+
 // Get returns one record by exact id, or sql.ErrNoRows if absent.
 func (s *Store) Get(id string) (*Record, error) {
 	row := s.db.QueryRow(`
-SELECT id, storedPath, originalFilename, isArchive, username, pathMetadata, clientAddress,
-       createdAt, receivedAt, status, sizeBytes, locallyBuffered,
-       mimeType, contentClass, isText, typeLabel, typeScore, source
+SELECT `+uploadColumns+`
   FROM uploads WHERE id = ?`, id)
 	return scanRow(row)
 }
@@ -282,9 +290,7 @@ func (s *Store) Count() (int, error) {
 // first, so the flush worker drains the backlog in arrival order (§8.4).
 func (s *Store) ListBuffered() ([]*Record, error) {
 	rows, err := s.db.Query(`
-SELECT id, storedPath, originalFilename, isArchive, username, pathMetadata, clientAddress,
-       createdAt, receivedAt, status, sizeBytes, locallyBuffered,
-       mimeType, contentClass, isText, typeLabel, typeScore, source
+SELECT ` + uploadColumns + `
   FROM uploads WHERE locallyBuffered = 1 ORDER BY createdAt ASC`)
 	if err != nil {
 		return nil, err
@@ -363,9 +369,7 @@ func (s *Store) Search(f *SearchFilter) ([]*Record, error) {
 		add("receivedAt <= ?", f.ReceivedAtTo.UTC().Format(time.RFC3339Nano))
 	}
 	q := `
-SELECT id, storedPath, originalFilename, isArchive, username, pathMetadata, clientAddress,
-       createdAt, receivedAt, status, sizeBytes, locallyBuffered,
-       mimeType, contentClass, isText, typeLabel, typeScore, source
+SELECT ` + uploadColumns + `
   FROM uploads`
 	if len(clauses) > 0 {
 		q += " WHERE " + strings.Join(clauses, " AND ")
@@ -636,41 +640,8 @@ func nullableTime(t *time.Time) any {
 // atomicWriteFile writes data to dst via a temp file in the same directory
 // followed by fsync + rename, so a reader never observes a partial file.
 func atomicWriteFile(dst string, data []byte, perm os.FileMode) error {
-	tmp, err := os.CreateTemp(filepath.Dir(dst), ".sidecar-*.tmp")
-	if err != nil {
+	return fsutil.AtomicCommit(dst, ".sidecar-*.tmp", perm, func(w io.Writer) error {
+		_, err := w.Write(data)
 		return err
-	}
-	tmpName := tmp.Name()
-	defer func() { _ = os.Remove(tmpName) }() // no-op once renamed away
-	if _, err := tmp.Write(data); err != nil {
-		_ = tmp.Close()
-		return err
-	}
-	if err := tmp.Sync(); err != nil {
-		_ = tmp.Close()
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		return err
-	}
-	if err := os.Chmod(tmpName, perm); err != nil {
-		return err
-	}
-	if err := os.Rename(tmpName, dst); err != nil {
-		return err
-	}
-	// Best-effort fsync of the destination directory so the rename itself is durable: without it
-	// a crash right after Rename can lose the new directory entry even though the file bytes were
-	// fsync'd. Best-effort because not every platform supports directory sync (the service runs
-	// on Linux, where it does).
-	syncDir(filepath.Dir(dst))
-	return nil
-}
-
-// syncDir fsyncs a directory so a rename/create within it survives a crash (Linux). Best-effort.
-func syncDir(dir string) {
-	if d, err := os.Open(dir); err == nil {
-		_ = d.Sync()
-		_ = d.Close()
-	}
+	})
 }

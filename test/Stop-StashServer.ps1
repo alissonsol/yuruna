@@ -1,5 +1,5 @@
-﻿<#PSScriptInfo
-.VERSION 2026.07.10
+<#PSScriptInfo
+.VERSION 2026.07.14
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456761
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -25,13 +25,13 @@
 
     The durable stash data is untouched: received files, the per-artifact
     sidecar records, and the persisted SSH host key live on the NAS stash
-    share (stash-service.md §1, §4.4, §6.1), not on the disposable VM
+    share (stash-service.md sec 1, sec 4.4, sec 6.1), not on the disposable VM
     disk. Start rebuilds the disk from the base image.
 
-    In-flight uploads are not drained (§3.2): a graceful stop runs first
+    In-flight uploads are not drained (sec 3.2): a graceful stop runs first
     so the daemon's flush worker can push NAS-offline buffered uploads to
     the share, but deleting the disk then discards anything still buffered
-    locally -- the same reimage caveat as §8.4. Committed (on-share)
+    locally -- the same reimage caveat as sec 8.4. Committed (on-share)
     artifacts and their sidecars are durable.
 
 .PARAMETER VMName   Name of the stash VM. Default: yuruna-stash-service.
@@ -94,7 +94,7 @@ if ($state -eq 'absent') {
     Write-Output "  VM '$VMName' is already stopped."
 } else {
     # Graceful stop FIRST: a clean systemd shutdown lets the stash daemon's
-    # flush worker (stash-service.md §8.4) push any NAS-offline buffered uploads
+    # flush worker (stash-service.md sec 8.4) push any NAS-offline buffered uploads
     # to the share before the disk is deleted below, shrinking the unflushed-loss
     # window. A hard stop is still acceptable, so escalate on a stuck graceful
     # stop rather than blocking (the teardown below force-stops a half-up daemon).
@@ -111,7 +111,7 @@ if ($state -eq 'absent') {
 # Start-StashServer builds from a clean slate with no leftover VM files. The
 # durable stash data is untouched: received files, the per-artifact sidecar
 # records, and the persisted SSH host key live on the NAS stash share
-# (stash-service.md §1, §4.4, §6.1), not on the disposable VM disk, which Start
+# (stash-service.md sec 1, sec 4.4, sec 6.1), not on the disposable VM disk, which Start
 # rebuilds from the base image. Run unconditionally -- even an 'absent'
 # (unregistered) VM can leave a disk directory behind from a New-VM that crashed
 # mid-build, and this sweeps it. Best-effort: a cleanup hiccup must not abort the

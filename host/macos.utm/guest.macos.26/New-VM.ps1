@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.10
+.VERSION 2026.07.14
 .GUID 42f2a3b4-c5d6-4e78-f901-2a3b4c5d6e79
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -189,7 +189,7 @@ Write-BaseImageProvenance -BaseImagePath $baseImageFile
 
 # --- REGION: Build the UTM bundle skeleton
 Import-Module (Join-Path (Split-Path -Parent $ScriptDir) "modules/Yuruna.Host.psm1") -Force
-Import-Module (Join-Path $RepoRoot "test/modules/Test.VMUtility.psm1") -Force -DisableNameChecking
+Import-Module (Join-Path $RepoRoot "automation/Yuruna.Common.psm1") -Force -DisableNameChecking
 
 if (-not (Remove-UtmBundleWithRetry -Path $UtmDir)) {
     Write-Error "Could not remove existing UTM bundle at '$UtmDir' after retries. Aborting."

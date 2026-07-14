@@ -143,6 +143,53 @@ Linux 2023, and macOS 26 all ship newer.
 
 ---
 
+## Guest dependency version pins
+
+### Defining yuruna versions pins
+
+[automation/yuruna-versions.sh](../automation/yuruna-versions.sh) is the
+single source of truth for the pinned upstream dependency versions the guest
+provisioning scripts install. cloud-init deploys it (base64) to
+`/usr/local/lib/yuruna/` alongside `yuruna-retry.sh`, and the retry library
+sources it — so every guest script that sources the retry lib also sees the
+pins. Guest scripts reference the exported variables and **never** the version
+literals.
+
+| Variable | Pins | Consumed by |
+|---|---|---|
+| `YURUNA_K8S_MINOR` | Kubernetes apt-repo minor track (`pkgs.k8s.io/core:/stable:/v<minor>/deb`) | Ubuntu/AL2023 `*.k8s.sh` |
+| `YURUNA_OPENTOFU_VERSION` | OpenTofu release for the standalone installer's `--opentofu-version` | guest OpenTofu install |
+| `YURUNA_HELM_VERSION` | Helm release, passed to the installer as `DESIRED_VERSION=v<x>` | Ubuntu `*.k8s.sh` |
+| `YURUNA_NVM_VERSION` | nvm release tag (`nvm-sh/nvm`) the Ubuntu guests fetch `install.sh` from | Ubuntu `*.n8n.sh` / `*.openclaw.sh` |
+| `YURUNA_NODE_MAJOR` | Node.js major (`nvm install <major>`; nodesource `setup_<major>.x` on AL2023) | Ubuntu + AL2023 Node installs |
+
+**Why pin at all.** Bump `YURUNA_K8S_MINOR` only across a minor your
+kubeadm/kubelet/kubectl are validated on. `YURUNA_OPENTOFU_VERSION` exists so
+the standalone installer never queries the rate-limited GitHub releases API for
+"latest" — an unauthenticated `api.github.com` call that starts returning 403
+once many guests share one NAT egress IP, which makes the fallback
+non-deterministic exactly when a pool is busiest.
+
+`YURUNA_HELM_VERSION` carries a second constraint: the guests must fetch
+upstream's **`get-helm-4`** installer, not `get-helm-3`. The v3 script resolves
+its default from `get.helm.sh/helm3-latest-version`, so it can only ever land a
+3.x binary — a guest provisioned with it can never satisfy the Helm requirement
+in `Yuruna.Requirement.yml`, however that requirement is bumped. Passing
+`DESIRED_VERSION=v<x>` both pins the release (the installer verifies the tarball
+checksum) and keeps the guest off the same unauthenticated "latest" lookup.
+
+**Format is load-bearing.** Keep the file POSIX-simple — one `export KEY=value`
+per line, value unquoted and free of spaces — so
+[automation/Check-DependencyVersion.ps1](../automation/Check-DependencyVersion.ps1)
+can parse it with a line regex instead of sourcing a shell. Values are
+`export`ed so they survive into the `bash << 'EOF'` heredocs the nvm/node guest
+scripts use; a child shell only inherits exported state.
+
+**To bump a dependency.** Run `Check-DependencyVersion.ps1`; when it reports a
+newer stable release upstream, edit the matching number here.
+
+---
+
 ## Guest network diagnostics and DHCP lease release
 
 ### Defining yuruna network lib
@@ -240,6 +287,29 @@ without the CA. See the memory capture
 `feedback_sslbump_rc60_untrusted_chain_and_ca_gate_trap` for the incident
 class.
 
+A finite host-side retry budget can still be outlasted by a longer proxy
+flap, so the empty-CA case is recovered at two further layers without
+relaxing egress (`project_sslbump_ca_gating_durable_fix`):
+
+- **Host-side fallback.** `Get-CachingProxyCaCertBase64` (in
+  `Test.CachingProxy.psm1`, shared by all six ubuntu `New-VM.ps1`) persists
+  each successfully fetched CA into the `yuruna-caching-proxy.yml` state
+  file, keyed by cache host, and reuses it when a later live fetch flaps —
+  so a guest provisioned during a flap can still bake a valid CA from a
+  prior good fetch of the same cache.
+- **Guest CA self-heal.** Before the first bumped HTTPS, the ubuntu update
+  scripts detect an untrusted bump and re-fetch the CA from the host status
+  server's `/ca.crt` endpoint over the RFC1918-permitted plain-HTTP path
+  (`wget --no-proxy`), then `update-ca-certificates` and re-probe. The
+  endpoint **live-reads the current cache** (never a stale cached CA),
+  falling back to the persisted CA only when the cache is unreachable, and
+  `404`s when neither resolves so the guest fails with a clear diagnostic
+  rather than a silent pass. By update time the cache has usually recovered
+  (apt over `:3128` already succeeds), so this is the layer that turns the
+  confirmed flap-during-provisioning failure into a pass. Installing the CA
+  does not relax egress: HTTPS still flows through the auditable bump; the
+  self-heal only supplies the trust anchor the bump already expects.
+
 On macOS UTM the fetch has an extra reason to run host-side: guests on VZ
 shared-NAT cannot reach the cache VM directly, but the host can.
 
@@ -268,8 +338,10 @@ foregone conclusion.
 
 ---
 
+LICENSEURI https://yuruna.link/license
+
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.10
+Last review: 2026.07.14
 
 Back to [Yuruna](../README.md)

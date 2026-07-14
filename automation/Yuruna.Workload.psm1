@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.10
+.VERSION 2026.07.14
 .GUID 42b0d2e3-f4a5-4678-9012-3b4c5d6e7f80
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -21,6 +21,9 @@ $validationModulePath = Join-Path -Path $yuruna_root -ChildPath "automation/Yuru
 Import-Module -Name $validationModulePath
 Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Invoke-DynamicExpression")
 Import-Module (Join-Path $PSScriptRoot 'Yuruna.Result.psm1') -Global -Force
+# New-YurunaTimestampedBackup: the shared timestamped-backup step, so the
+# timestamp format cannot drift between the three publishers.
+Import-Module (Join-Path $PSScriptRoot 'Yuruna.Common.psm1') -Global -Force
 # Set-ExpandedVariableHashtable + Set-ExpandedResourcesOutput live in
 # Yuruna.VariableExpansion so [[Yuruna.Component]] can reuse the same
 # walk (with its -NoExpand flavour) instead of carrying a parallel
@@ -118,8 +121,14 @@ function Invoke-WorkloadChartDeployment {
     # because resources.output.yml had `componentsRegistry: {}`).
     # Surface the captured output on the Information stream
     # and abort the cycle BEFORE attempting install.
+    #
+    # The chart PATH ('.', the pushed-to $workFolder) must be passed
+    # explicitly: helm 4 made it a required argument, where helm 3
+    # defaulted it to the current directory. A bare `helm lint` exits 1
+    # with "requires at least 1 argument", which reads as a rejected
+    # chart and fails the cycle before install.
     Write-Debug "Helm lint"
-    $lintOutput = helm lint *>&1
+    $lintOutput = helm lint . *>&1
     $lintExit = $LASTEXITCODE
     Add-Content -LiteralPath $helmLogFile -Value "== helm lint (exit=$lintExit) =="
     $lintOutput | ForEach-Object { Add-Content -LiteralPath $helmLogFile -Value ([string]$_); Write-Verbose "$_" }
@@ -361,10 +370,7 @@ function Publish-WorkloadList {
     $workFolder = Join-Path -Path $project_root -ChildPath ".yuruna/$config_subfolder/workloads"
     $null = New-Item -ItemType Directory -Force -Path $workFolder -ErrorAction SilentlyContinue
     $workFolder = Resolve-Path -Path $workFolder
-    $dtTime = '{0}' -f ([system.string]::format('{0:yyyy-MM-dd-HH-mm-ss}',(Get-Date)))
-    $backupFile = Join-Path -Path $workFolder -ChildPath "workloads.$dtTime.yml"
-    Copy-Item "$workloadsFile" -Destination $backupFile -Recurse -Container -ErrorAction SilentlyContinue
-    Write-Verbose "Backup of: $workloadsFile copied to: $backupFile"
+    New-YurunaTimestampedBackup -SourceFile $workloadsFile -WorkFolder $workFolder -Prefix 'workloads'
 
     $resourcesOutputFile = Join-Path -Path $project_root -ChildPath "config/$config_subfolder/resources.output.yml"
     $resourcesOutputYaml = $null
@@ -404,21 +410,25 @@ function Publish-WorkloadList {
 
         $workFolder = Join-Path -Path $project_root -ChildPath ".yuruna/$config_subfolder/workloads/$contextName"
         $null = New-Item -ItemType Directory -Force -Path $workFolder -ErrorAction SilentlyContinue
-        # Context must exist. Probe by switching to it and reading back the
-        # current context, then restore. Capture kubectl's exit code on each
-        # call: a broken kubeconfig / unreachable cluster makes these fail, and
-        # blindly restoring an empty $originalContext (when the first read
-        # failed) in the finally below would error or clobber the operator's
-        # active context.
+        # Save the operator's active context so the finally below can put the
+        # shell back on it. Capture kubectl's exit code: a broken kubeconfig
+        # makes the read fail, and blindly restoring an empty $originalContext
+        # in the finally would error or clobber the operator's active context,
+        # so gate the restore on a confirmed read.
         $originalContext = kubectl config current-context 2>$null
         $originalContextRead = ($LASTEXITCODE -eq 0) -and (-not [string]::IsNullOrWhiteSpace($originalContext))
+        # Context must exist. `kubectl config get-contexts <name>` is a
+        # non-mutating existence probe -- it exits non-zero when the context is
+        # absent without switching the operator's current context, so a missing
+        # context never leaves the shell on the wrong cluster.
+        $null = kubectl config get-contexts $contextName *>&1
+        $probeExit = $LASTEXITCODE
+        if ($probeExit -ne 0) { Write-Information "K8S context '$contextName' not usable (cluster unreachable or context not found)`nFile: $workloadsFile"; return (New-YurunaResultManifest -Success $false -ErrorMessage "K8S context '$contextName' not usable (cluster unreachable or context not found) in $workloadsFile" -FailureClass 'cluster_unreachable' -DurationMs $sw.ElapsedMilliseconds); }
+        # Activate the context for the deployment loop; every kubectl/helm call
+        # below targets whatever the kubeconfig's current context is.
         kubectl config use-context $contextName *>&1 | Write-Verbose
         $useContextExit = $LASTEXITCODE
-        $currentContext = kubectl config current-context 2>$null
-        $currentContextExit = $LASTEXITCODE
-        if ($originalContextRead) { kubectl config use-context $originalContext *>&1 | Write-Verbose }
-        if ($useContextExit -ne 0 -or $currentContextExit -ne 0 -or $currentContext -ne $contextName) { Write-Information "K8S context '$contextName' not usable (cluster unreachable or context not found)`nFile: $workloadsFile"; return (New-YurunaResultManifest -Success $false -ErrorMessage "K8S context '$contextName' not usable (cluster unreachable or context not found) in $workloadsFile" -FailureClass 'cluster_unreachable' -DurationMs $sw.ElapsedMilliseconds); }
-        kubectl config use-context $contextName *>&1 | Write-Verbose
+        if ($useContextExit -ne 0) { Write-Information "K8S context '$contextName' not usable (cluster unreachable or context not found)`nFile: $workloadsFile"; return (New-YurunaResultManifest -Success $false -ErrorMessage "K8S context '$contextName' not usable (cluster unreachable or context not found) in $workloadsFile" -FailureClass 'cluster_unreachable' -DurationMs $sw.ElapsedMilliseconds); }
 
         # Restore $originalContext in a finally so every early-return failure
         # path inside the per-deployment loop (and the normal end-of-loop exit)

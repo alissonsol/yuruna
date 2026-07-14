@@ -98,9 +98,11 @@ header.app {
   padding: 0.75rem max(1rem, env(safe-area-inset-right)) 0.75rem max(1rem, env(safe-area-inset-left));
   display: flex;
   align-items: center;
-  gap: 1rem;
   flex-wrap: wrap;
 }
+/* Space children with margins, not flex `gap` (Safari/iOS 14.5+ only), to hold
+   the older-iOS baseline this UI targets; matches the status pages' idiom. */
+header.app > * + * { margin-left: 1rem; }
 header.app h1 { font-size: 1.1rem; margin: 0; }
 header.app h1 a { color: var(--fg-header); }
 header.app .brand { display: flex; flex-direction: column; line-height: 1.15; }
@@ -110,7 +112,8 @@ header.app .machine { color: var(--fg-faint); font-family: var(--font-mono); fon
 
 main { max-width: 1100px; margin: 0 auto; padding: 1rem max(1rem, env(safe-area-inset-right)) 1rem max(1rem, env(safe-area-inset-left)); }
 
-.toolbar { display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center; margin-bottom: 1rem; }
+.toolbar { display: flex; flex-wrap: wrap; align-items: center; margin-bottom: 1rem; }
+.toolbar > * + * { margin-left: 0.5rem; }
 .toolbar input[type="search"], .toolbar input[type="text"], .toolbar select {
   padding: 0.5rem 0.6rem;
   border: 1px solid var(--border-input);
@@ -181,7 +184,8 @@ form.create input[type="text"], form.create textarea, form.create input[type="fi
 }
 form.create textarea { min-height: 16rem; font-family: var(--font-mono); font-size: 0.85rem; }
 
-.tabs { display: flex; gap: 0.5rem; margin-bottom: 0.5rem; }
+.tabs { display: flex; margin-bottom: 0.5rem; }
+.tabs > * + * { margin-left: 0.5rem; }
 .tab { padding: 0.4rem 0.8rem; border: 1px solid var(--border-input); border-radius: 6px; cursor: pointer; background: var(--bg-elevated); }
 .tab.active { background: var(--primary-bg); color: var(--primary-fg); border-color: var(--primary-hover-bg); }
 
@@ -192,7 +196,8 @@ form.create textarea { min-height: 16rem; font-family: var(--font-mono); font-si
 
 .muted { color: var(--fg-muted); }
 .right { text-align: right; }
-.actions { display: flex; gap: 0.5rem; flex-wrap: wrap; margin: 1rem 0; }
+.actions { display: flex; flex-wrap: wrap; margin: 1rem 0; }
+.actions > * + * { margin-left: 0.5rem; }
 
 footer.app { background: var(--footer-bg); color: var(--footer-fg); padding: 0.75rem max(1rem, env(safe-area-inset-right)) max(0.75rem, env(safe-area-inset-bottom)) max(1rem, env(safe-area-inset-left)); margin-top: 2rem; font-size: 0.8rem; text-align: center; }
 
@@ -210,8 +215,9 @@ footer.app { background: var(--footer-bg); color: var(--footer-fg); padding: 0.7
   padding: 0.35rem max(1rem, env(safe-area-inset-right)) max(0.35rem, env(safe-area-inset-bottom)) max(1rem, env(safe-area-inset-left));
   font-size: 0.6875rem;
   display: flex; justify-content: space-between; align-items: center;
-  gap: 0.75rem; text-align: left;
+  text-align: left;
 }
+#footer-bar > * + * { margin-left: 0.75rem; }
 #footer-bar a { color: var(--footer-fg); }
 #footer-ips { flex: 0 1 33%; max-width: 33%; min-width: 0; display: flex; align-items: center; }
 #footer-ips > * + * { margin-left: 0.5rem; }
@@ -234,4 +240,18 @@ body.has-footer-bar main { padding-bottom: calc(3rem + env(safe-area-inset-botto
 @media (max-width: 600px) {
   #footer-bar { padding-left: max(0.5rem, env(safe-area-inset-left)); padding-right: max(0.5rem, env(safe-area-inset-right)); flex-wrap: wrap; }
   #footer-ips { flex-basis: 100%; max-width: 100%; }
+  /* #footer-ips claims its own row here, so the bar is two rows tall and the
+     3rem single-row reserve above no longer clears it -- the last rows of the
+     table and the "Load more" button end up under the fixed bar. Only bites
+     where the home-indicator inset adds to the bar height. */
+  body.has-footer-bar main { padding-bottom: 4.5rem; padding-bottom: calc(4.5rem + env(safe-area-inset-bottom)); }
+
+  /* iOS Safari zooms the viewport whenever a focused text control computes under
+     16px, and never zooms back out. The search box and the create-form fields
+     inherit a ~13px UA default (or .85rem off a 15px root), so every tap on the
+     primary controls shifts the page. Desktop density is untouched. */
+  .toolbar input[type="search"], .toolbar input[type="text"], .toolbar select,
+  form.create input[type="text"], form.create textarea { font-size: 16px; }
+  /* The tab switcher is a div, so it misses the button --touch-min rule. */
+  .tab { min-height: var(--touch-min); display: flex; align-items: center; }
 }

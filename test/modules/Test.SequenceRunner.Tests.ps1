@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.10
+.VERSION 2026.07.14
 .GUID 42f8c3d6-1a4b-4e29-9c70-5d8e1f2a3b40
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -66,6 +66,56 @@ function Get-FunctionWriteOutputCount {
     return @($writeOutputs).Count
 }
 
+# Find the argument expression passed to a named parameter of the (single)
+# Invoke-TestSequenceChain call in a script, handling both `-P $x` (space) and
+# `-P:$x` (colon) forms.
+#
+# This helper, Get-FunctionText and the $planText fixture below all sit above the
+# first Describe: file-level code only executes as far as the first Describe on
+# the run pass, and a Describe body is evaluated during discovery with its scope
+# discarded before any It runs. A helper or fixture declared after the first
+# Describe -- or inside one -- is therefore unresolvable from an It body.
+function Get-CallArgumentAst {
+    [CmdletBinding()]
+    [OutputType([System.Management.Automation.Language.Ast])]
+    param([Parameter(Mandatory)][string]$Path, [Parameter(Mandatory)][string]$Command, [Parameter(Mandatory)][string]$ParameterName)
+
+    $tokens = $null; $errs = $null
+    $ast = [System.Management.Automation.Language.Parser]::ParseFile($Path, [ref]$tokens, [ref]$errs)
+    if ($errs) { throw "Parse errors in ${Path}: $($errs[0].Message)" }
+
+    $call = $ast.FindAll({
+        param($n) $n -is [System.Management.Automation.Language.CommandAst] -and $n.GetCommandName() -eq $Command
+    }, $true) | Select-Object -First 1
+    if (-not $call) { throw "No '$Command' call found in $Path" }
+
+    $els = $call.CommandElements
+    for ($i = 0; $i -lt $els.Count; $i++) {
+        $el = $els[$i]
+        if ($el -is [System.Management.Automation.Language.CommandParameterAst] -and $el.ParameterName -eq $ParameterName) {
+            if ($el.Argument) { return $el.Argument }
+            if ($i + 1 -lt $els.Count) { return $els[$i + 1] }
+        }
+    }
+    throw "No -$ParameterName argument found on the '$Command' call in $Path"
+}
+
+function Get-FunctionText {
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([Parameter(Mandatory)][string]$Path, [Parameter(Mandatory)][string]$FunctionName)
+    $errs = $null
+    $ast = [System.Management.Automation.Language.Parser]::ParseFile($Path, [ref]$null, [ref]$errs)
+    if ($errs) { throw "Parse errors in ${Path}: $($errs[0].Message)" }
+    $func = $ast.FindAll({
+        param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq $FunctionName
+    }, $true) | Select-Object -First 1
+    if (-not $func) { throw "Function '$FunctionName' not found in $Path" }
+    return $func.Extent.Text
+}
+
+$planText = Get-FunctionText -Path $modulePath -FunctionName 'Resolve-TestSequencePlan'
+
 Describe 'Test.SequenceRunner value-returning functions avoid Write-Output' {
     It 'Resolve-TestSequencePlan emits no Write-Output (return value is captured into $plan)' {
         Assert-Equal -Expected 0 -Actual (Get-FunctionWriteOutputCount -Path $modulePath -FunctionName 'Resolve-TestSequencePlan') -Because `
@@ -94,34 +144,6 @@ Describe 'Invoke-TestSequenceChain accepts the planner List shape' {
     }
 }
 
-# Find the argument expression passed to a named parameter of the (single)
-# Invoke-TestSequenceChain call in a script, handling both `-P $x` (space) and
-# `-P:$x` (colon) forms.
-function Get-CallArgumentAst {
-    [CmdletBinding()]
-    [OutputType([System.Management.Automation.Language.Ast])]
-    param([Parameter(Mandatory)][string]$Path, [Parameter(Mandatory)][string]$Command, [Parameter(Mandatory)][string]$ParameterName)
-
-    $tokens = $null; $errs = $null
-    $ast = [System.Management.Automation.Language.Parser]::ParseFile($Path, [ref]$tokens, [ref]$errs)
-    if ($errs) { throw "Parse errors in ${Path}: $($errs[0].Message)" }
-
-    $call = $ast.FindAll({
-        param($n) $n -is [System.Management.Automation.Language.CommandAst] -and $n.GetCommandName() -eq $Command
-    }, $true) | Select-Object -First 1
-    if (-not $call) { throw "No '$Command' call found in $Path" }
-
-    $els = $call.CommandElements
-    for ($i = 0; $i -lt $els.Count; $i++) {
-        $el = $els[$i]
-        if ($el -is [System.Management.Automation.Language.CommandParameterAst] -and $el.ParameterName -eq $ParameterName) {
-            if ($el.Argument) { return $el.Argument }
-            if ($i + 1 -lt $els.Count) { return $els[$i + 1] }
-        }
-    }
-    throw "No -$ParameterName argument found on the '$Command' call in $Path"
-}
-
 Describe 'Test-Sequence.ps1 passes ChainEntries without an @() wrap' {
     It 'forwards the bare $ChainEntries variable (an @() wrap breaks the [IList] bind)' {
         $arg = Get-CallArgumentAst -Path $testSequenceScript -Command 'Invoke-TestSequenceChain' -ParameterName 'ChainEntries'
@@ -130,22 +152,7 @@ Describe 'Test-Sequence.ps1 passes ChainEntries without an @() wrap' {
     }
 }
 
-function Get-FunctionText {
-    [CmdletBinding()]
-    [OutputType([string])]
-    param([Parameter(Mandatory)][string]$Path, [Parameter(Mandatory)][string]$FunctionName)
-    $errs = $null
-    $ast = [System.Management.Automation.Language.Parser]::ParseFile($Path, [ref]$null, [ref]$errs)
-    if ($errs) { throw "Parse errors in ${Path}: $($errs[0].Message)" }
-    $func = $ast.FindAll({
-        param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq $FunctionName
-    }, $true) | Select-Object -First 1
-    if (-not $func) { throw "Function '$FunctionName' not found in $Path" }
-    return $func.Extent.Text
-}
-
 Describe 'Resolve-TestSequencePlan snapshot probe distinguishes absent from could-not-determine' {
-    $planText = Get-FunctionText -Path $modulePath -FunctionName 'Resolve-TestSequencePlan'
 
     It 'retries the Test-VMDiskSnapshot probe instead of swallowing the first exception' {
         Assert-True ($planText -match 'Test-VMDiskSnapshot') 'the snapshot probe is present'

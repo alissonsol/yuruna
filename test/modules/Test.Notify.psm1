@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.10
+.VERSION 2026.07.14
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456703
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -24,15 +24,26 @@
     Justification = 'global:__YurunaCycleFolder is the cross-module cycle folder handle set by Test.Log.psm1''s Start-LogFile and read here as a fallback when no -CycleFolder is supplied; intentionally process-wide.')]
 param()
 
-# Send-Notification is a thin dispatcher to the active extensions
-# under test/extension/notification/. The contract is:
+# Send-YurunaNotification is a thin dispatcher to the active extensions
+# under test/extension/notification/. Each extension exports the contract verb
 #   Send-Notification -EventCode <string> -EventMessage <string> -EventNote <string>
+# and the dispatcher invokes it.
+#
+# The dispatcher is deliberately NOT called Send-Notification. Extensions are
+# imported into the GLOBAL scope, so a dispatcher sharing the contract verb's
+# name would be shadowed by the extension the moment the first one loads -- and
+# every unqualified caller from then on would reach the transport directly,
+# skipping the dispatch loop, the -EventData gate, and the delivery ledger. That
+# failure is silent by construction: the caller's own try/catch swallows the
+# parameter-binding error and the alert is simply never sent. Two distinct names
+# make the collision impossible rather than merely unlikely.
+#
 # Format-FailureMessage stays here so callers can build the EventNote
 # body from structured fields without re-implementing the format.
 
 # Import the extension loader once. Test.Extension imports the active
-# notification module(s) into the global scope so their Send-Notification
-# becomes the resolved binding.
+# notification module(s) into the global scope; the dispatcher resolves each
+# one's Send-Notification through its module object, never by bare name.
 $script:ExtensionLoader = Join-Path $PSScriptRoot 'Test.Extension.psm1'
 if (Test-Path $script:ExtensionLoader) {
     Import-Module $script:ExtensionLoader -Global -Force
@@ -59,8 +70,13 @@ function Initialize-NotificationExtension {
     the default extension handles email-via-Resend; additional transports
     are added by dropping a new <name>.psm1 next to default.psm1 and
     listing it in notification.config.yml.
+
+    Named apart from the extensions' own Send-Notification on purpose: they load
+    -Global, so a same-named dispatcher would be shadowed by the first extension
+    to load, and every unqualified caller would silently reach the transport
+    instead of this dispatch loop. See the header comment.
 #>
-function Send-Notification {
+function Send-YurunaNotification {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)][string]$EventCode,
@@ -536,11 +552,11 @@ function Send-CycleFailureNotification {
     # before the send completes, silently losing the escalation. The transport
     # is bounded (the Resend extension POSTs with -TimeoutSec 30, per subscriber),
     # so a synchronous send adds a bounded delay, never an unbounded stall.
-    Send-Notification -EventCode    'cycle.failure' `
+    Send-YurunaNotification -EventCode    'cycle.failure' `
                       -EventMessage "Yuruna Test: FAIL on $HostType / $SubjectSuffix" `
                       -EventNote    $body `
                       -EventData    $payload `
                       -Synchronous
 }
 
-Export-ModuleMember -Function Send-Notification, Format-FailureMessage, Get-FailureEventData, Write-NotificationDelivery, Send-CycleFailureNotification
+Export-ModuleMember -Function Send-YurunaNotification, Format-FailureMessage, Get-FailureEventData, Write-NotificationDelivery, Send-CycleFailureNotification

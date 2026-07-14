@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.10
+.VERSION 2026.07.14
 .GUID 42e9f0a1-b2c3-4d45-e678-9f0a1b2c3d45
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -151,10 +151,10 @@ foreach ($f in @($baseUserData, $overlayUserData, $MetaDataTemplate)) {
 Import-Module (Join-Path $repoRoot 'automation/Yuruna.CloudInitTemplate.psm1') -Force
 
 # --- REGION: Generate cloud-init seed ISO
-# Generate cloud-init seed ISO. 4-digit entropy is weak by design (10k
-# cases) but enough to defeat the deterministic-path symlink trap: an
-# attacker dropping a symlink at %TEMP%\seed_<VMName>\ before New-VM
-# runs can't predict the trailing 4 digits per run.
+# 4-digit entropy is weak by design (10k cases) but enough to defeat the
+# deterministic-path symlink trap: an attacker dropping a symlink at
+# %TEMP%\seed_<VMName>\ before New-VM runs can't predict the trailing 4
+# digits per run.
 $SeedDir = Join-Path $env:TEMP ("seed_${VMName}_{0:D4}" -f (Get-Random -Maximum 10000))
 if (Test-Path -LiteralPath $SeedDir) { Remove-Item -LiteralPath $SeedDir -Recurse -Force }
 New-Item -ItemType Directory -Force -Path $SeedDir | Out-Null

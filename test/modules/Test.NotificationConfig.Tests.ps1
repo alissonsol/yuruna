@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.10
+.VERSION 2026.07.14
 .GUID 42e8f9a0-b1c2-4d34-9e56-7a8b9c0d1e2f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -50,7 +50,12 @@ function Assert-True { param($Condition, [string]$Because = '') if (-not $Condit
 # ConvertFrom-Yaml (powershell-yaml) is resolved from the global scope by the
 # module, exactly as the production notifier arranges before calling in.
 Import-Module powershell-yaml -Force -ErrorAction SilentlyContinue
-$script:NotifModule = Import-Module $modulePath -Force -DisableNameChecking -PassThru
+
+# Unqualified (not $script:-qualified): an It block runs in a fresh script scope,
+# so `$script:NotifModule` read from a test would resolve to that new scope and
+# come back $null even though the file assigned it. Only an unqualified name
+# walks the scope chain out to the file's variables.
+$NotifModule = Import-Module $modulePath -Force -DisableNameChecking -PassThru
 
 # Invoke the internal Read-NotificationConfig in the module's session state with
 # $script:ConfigPath pointed at a temp file holding $Content, and report the
@@ -61,7 +66,7 @@ function Get-NotificationConfigShape {
     $tmp = [System.IO.Path]::GetTempFileName()
     [System.IO.File]::WriteAllText($tmp, $Content)
     try {
-        $r = & $script:NotifModule {
+        $r = & $NotifModule {
             param($Path)
             $saved = $script:ConfigPath
             $script:ConfigPath = $Path

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.10
+.VERSION 2026.07.14
 .GUID 42a3d6f5-c0b1-4478-de26-5f7a0c4d3e62
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -155,4 +155,43 @@ function Get-YurunaHostId {
     }
 }
 
-Export-ModuleMember -Function Initialize-YurunaLogDir, Initialize-YurunaRuntimeDir, Get-YurunaHostId
+function Test-PidFileIdentity {
+    <#
+    .SYNOPSIS
+        True when $Process is plausibly the process that wrote $PidFile.
+    .DESCRIPTION
+        A detached service writes its pidfile just after it starts, so a
+        genuine owner started at (or a hair before) the pidfile's mtime; a
+        process that reused the PID after the owner died started later. This
+        is the identity check that lets a kill path force-kill ONLY the real
+        server: on a long-uptime host the OS recycles PIDs, so a bare
+        "process exists and is a pwsh" test can kill an unrelated process --
+        e.g. the freshly-launched outer runner that inherited the dead
+        server's PID after a reboot. Returns $false when the process is
+        null, is not a PowerShell process, started after the pidfile, or its
+        StartTime / the pidfile mtime is unreadable -- a caller must never
+        force-kill a PID it cannot confirm. Companion of Clear-StalePidFile
+        (which clears the stale pidfile once identity is disproven).
+    .PARAMETER PidFile
+        Absolute path to the pidfile whose mtime dates the owner's launch.
+    .PARAMETER Process
+        The live process currently holding that PID (Get-Process result).
+    #>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param(
+        [Parameter(Mandatory)][string]$PidFile,
+        $Process
+    )
+    if ($null -eq $Process) { return $false }
+    if ($Process.ProcessName -notmatch 'pwsh|PowerShell') { return $false }
+    try {
+        $mtime = (Get-Item -LiteralPath $PidFile -ErrorAction Stop).LastWriteTime
+        return ($Process.StartTime -le $mtime.AddSeconds(2))
+    } catch {
+        Write-Verbose "Test-PidFileIdentity: cannot confirm identity for PID $($Process.Id): $($_.Exception.Message)"
+        return $false
+    }
+}
+
+Export-ModuleMember -Function Initialize-YurunaLogDir, Initialize-YurunaRuntimeDir, Get-YurunaHostId, Test-PidFileIdentity

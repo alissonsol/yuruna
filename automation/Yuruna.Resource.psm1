@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.10
+.VERSION 2026.07.14
 .GUID 42e3a5b6-c7d8-4901-2345-6e7f80910213
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -24,6 +24,9 @@ Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Invoke-DynamicExp
 # New-YurunaResultManifest and Test-YurunaResultManifestOk on the values
 # this module returns.
 Import-Module (Join-Path $PSScriptRoot 'Yuruna.Result.psm1') -Global -Force
+# New-YurunaTimestampedBackup: the shared timestamped-backup step, so the
+# timestamp format cannot drift between the three publishers.
+Import-Module (Join-Path $PSScriptRoot 'Yuruna.Common.psm1') -Global -Force
 # Shared retry policy with the guest-side automation/yuruna-retry.sh.
 # --- REGION: https://yuruna.link/network#defining-yuruna-retry-lib
 Import-Module (Join-Path $PSScriptRoot 'Yuruna.Retry.psm1') -Force
@@ -395,10 +398,7 @@ function Publish-ResourceList {
     $workFolder = Join-Path -Path $project_root -ChildPath ".yuruna/$config_subfolder/resources"
     $null = New-Item -ItemType Directory -Force -Path $workFolder -ErrorAction SilentlyContinue
     $workFolder = Resolve-Path -Path $workFolder
-    $dtTime = '{0}' -f ([system.string]::format('{0:yyyy-MM-dd-HH-mm-ss}',(Get-Date)))
-    $backupFile = Join-Path -Path $workFolder -ChildPath "resources.$dtTime.yml"
-    Copy-Item "$resourcesFile" -Destination $backupFile -Recurse -Container -ErrorAction SilentlyContinue
-    Write-Verbose "Backup of: $resourcesFile copied to: $backupFile"
+    New-YurunaTimestampedBackup -SourceFile $resourcesFile -WorkFolder $workFolder -Prefix 'resources'
 
     # Helper returns a result manifest -- branch on its .success key
     # (Test-YurunaResultManifestOk handles null/missing-key defensively).

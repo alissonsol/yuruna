@@ -1,5 +1,5 @@
-﻿<#PSScriptInfo
-.VERSION 2026.07.10
+<#PSScriptInfo
+.VERSION 2026.07.14
 .GUID 42634a21-7352-4663-b6f4-cff499ce7a2b
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -92,7 +92,7 @@ function Update-TransportDefault {
 # Initial load: no -Force needed -- the throttle detects the first load
 # via $TransportConfigLastRefreshUtc == MinValue.
 Update-TransportDefault
-# ── Key code maps (owned by Test.KeyCodeRegistry) ────────────────────────────
+# -- Key code maps (owned by Test.KeyCodeRegistry) ----------------------------
 # The Get-KeyCodeMap accessor returns a reference, so the $script:*
 # aliases below stay zero-copy -- existing Send-Key / Send-Text callers
 # read the same backing dictionaries they always have.
@@ -102,7 +102,7 @@ Import-Module (Join-Path $PSScriptRoot 'Test.KeyCodeRegistry.psm1') -Force -Disa
 $script:UTMKeyMap       = Get-KeyCodeMap -Kind 'UTM-Named'
 $script:MacCharKeyCodes = Get-KeyCodeMap -Kind 'UTM-Char'
 
-# ── Cached Hyper-V keyboard (reused across steps) ───────────────────────────
+# -- Cached Hyper-V keyboard (reused across steps) ---------------------------
 
 $script:CachedKb = $null
 $script:CachedKbVM = $null
@@ -132,9 +132,9 @@ function Get-HyperVKeyboard {
 $script:PS2ScanCodes  = Get-KeyCodeMap -Kind 'PS2-Named'
 $script:CharScanCodes = Get-KeyCodeMap -Kind 'PS2-Char'
 
-# ── VNC (RFB) keystroke transport ────────────────────────────────────────────
+# -- VNC (RFB) keystroke transport --------------------------------------------
 # Sends keystrokes directly to the VM's virtual display via the VNC/RFB
-# protocol, bypassing the macOS GUI entirely — no window focus required.
+# protocol, bypassing the macOS GUI entirely -- no window focus required.
 # Used for QEMU-backend UTM VMs with a built-in VNC server enabled
 # (via AdditionalArguments: -vnc localhost:0 in the plist). VMs without
 # a VNC server fall back to the AppleScript/CGEvent path in Send-TextUTM.
@@ -142,7 +142,7 @@ $script:CharScanCodes = Get-KeyCodeMap -Kind 'PS2-Char'
 $script:X11KeySyms     = Get-KeyCodeMap -Kind 'X11-Named'
 $script:X11CharKeySyms = Get-KeyCodeMap -Kind 'X11-Char'
 
-# ── Cached VNC connection (reused across steps within a sequence) ────────────
+# -- Cached VNC connection (reused across steps within a sequence) ------------
 
 $script:CachedVnc   = $null
 $script:CachedVncVM = $null
@@ -187,12 +187,12 @@ function Connect-VNC {
     # Resolve the per-VM VNC port. Hardcoding 5900 across every VM let the
     # capture path silently grab whichever QEMU bound it first, so the
     # producer (config.plist.template) and consumers (this module +
-    # Test.Screenshot.psm1) all derive the port from the VM name via
+    # Test.ScreenshotProvider.psm1) all derive the port from the VM name via
     # Get-VncPortForVm. $script:DefaultVncPort is kept as a last-resort
     # fallback for callers that don't pass a VMName.
     if ($Port -le 0) {
         if ($VMName) {
-            # Get-VncPortForVm lives in host/macos.utm/Yuruna.Host.psm1.
+            # Get-VncPortForVm lives in host/macos.utm/modules/Yuruna.Host.psm1.
             # Yuruna.Host imports VM.common, so callers that ran
             # Initialize-YurunaHost have it; otherwise import directly.
             if (-not (Get-Command Get-VncPortForVm -ErrorAction SilentlyContinue)) {
@@ -223,7 +223,7 @@ function Connect-VNC {
         # per-read ReceiveTimeout.
         $handshakeDeadline = [DateTime]::UtcNow.AddSeconds(15)
 
-        # ── RFB 3.8 handshake ──────────────────────────────────────────
+        # -- RFB 3.8 handshake ------------------------------------------
         # Server sends protocol version (12 bytes): "RFB 003.008\n"
         $verBytes = Read-VncBuffer -Stream $stream -Count 12 -Deadline $handshakeDeadline
         $serverVersion = [System.Text.Encoding]::ASCII.GetString($verBytes).Trim()
@@ -233,11 +233,11 @@ function Connect-VNC {
         $clientVer = [System.Text.Encoding]::ASCII.GetBytes("RFB 003.008`n")
         $stream.Write($clientVer, 0, 12)
 
-        # Server sends security types: [1 byte count] [count × 1 byte type]
+        # Server sends security types: [1 byte count] [count x 1 byte type]
         $countBuf = Read-VncBuffer -Stream $stream -Count 1 -Deadline $handshakeDeadline
         $numTypes = [int]$countBuf[0]
         if ($numTypes -eq 0) {
-            # Server sent an error — read the reason string
+            # Server sent an error -- read the reason string
             $reasonLenBuf = Read-VncBuffer -Stream $stream -Count 4 -Deadline $handshakeDeadline
             [Array]::Reverse($reasonLenBuf)
             $reasonLen = [BitConverter]::ToInt32($reasonLenBuf, 0)
@@ -249,7 +249,7 @@ function Connect-VNC {
         }
         $typesBuf = Read-VncBuffer -Stream $stream -Count $numTypes -Deadline $handshakeDeadline
 
-        # Select security type 1 (None) — safe for localhost-only VNC
+        # Select security type 1 (None) -- safe for localhost-only VNC
         if ($typesBuf -notcontains 1) {
             Write-Warning "VNC server does not offer 'None' auth. Available: $($typesBuf -join ', ')"
             $tcp.Dispose()
@@ -412,11 +412,11 @@ function Send-TextVNC {
     }
 }
 
-# ── AXUIElement keystroke transport (Accessibility API) ─────────────────────
+# -- AXUIElement keystroke transport (Accessibility API) ---------------------
 # NOT USED in the dispatcher chain. Kept for reference/future use.
 # AXUIElementPostKeyboardEvent targets UTM by PID and reports success, but
 # UTM's SwiftUI VM display view does not route Accessibility keyboard events
-# to the virtual machine's keyboard — keys silently vanish.
+# to the virtual machine's keyboard -- keys silently vanish.
 # If a future UTM version fixes this, re-enable in Send-Key/Send-Text.
 # Uses the same macOS virtual key codes as the AppleScript/CGEvent functions.
 
@@ -529,7 +529,7 @@ __KEYCALLS__
     return ("$result" -eq "ok")
 }
 
-# ── Hyper-V scan code helper ────────────────────────────────────────────────
+# -- Hyper-V scan code helper ------------------------------------------------
 
 function Send-ScanCode {
     <#
@@ -545,7 +545,7 @@ function Send-ScanCode {
     return ($r.ReturnValue -eq 0)
 }
 
-# ── Action: key ──────────────────────────────────────────────────────────────
+# -- Action: key --------------------------------------------------------------
 
 function Send-KeyHyperV {
     <#
@@ -589,7 +589,7 @@ function Send-KeyUTM {
     if (-not $code) { Write-Warning "Unknown key '$KeyName' for UTM"; return $false }
     # Use `key code` for everything (including Enter, code 36). The
     # `keystroke return` form for Enter sometimes fired twice when chained
-    # after a Send-Text run that left System Events' keystroke buffer warm —
+    # after a Send-Text run that left System Events' keystroke buffer warm --
     # which submitted an empty password and bounced the guest back to the
     # login prompt. `key code 36` is one synchronous event, no buffering.
     $keyAction = "key code $code"
@@ -623,7 +623,7 @@ return "window_not_found"
     return ("$result" -eq "ok")
 }
 
-# ── libvirt KVM keystroke transport: virsh send-key ──────────────────────────
+# -- libvirt KVM keystroke transport: virsh send-key --------------------------
 # We tried VNC first (Connect-VNC + Send-TextVNC, the same path UTM uses).
 # Empirically, libvirt-managed QEMU on Ubuntu 24.04 accepts our TCP connect
 # and emits its 'RFB 003.008' greeting, then drops the connection
@@ -1160,7 +1160,7 @@ function Send-ClickUtm {
         main display), so no axis flip is needed.
 
         Requires Accessibility permission for the invoking process. Without
-        it CGEventPost silently drops clicks — we probe once per session and
+        it CGEventPost silently drops clicks -- we probe once per session and
         warn loudly so the operator doesn't chase a phantom OCR bug.
     #>
     param(
@@ -1204,7 +1204,7 @@ ObjC.import('ApplicationServices');
 $.AXIsProcessTrusted() ? 'yes' : 'no';
 '@ 2>&1
         if ("$axResult".Trim() -ne 'yes') {
-            Write-Warning "Accessibility permission not granted for this terminal — CGEventPost clicks will be silently dropped."
+            Write-Warning "Accessibility permission not granted for this terminal -- CGEventPost clicks will be silently dropped."
             Write-Warning "  System Settings > Privacy & Security > Accessibility > enable your terminal"
             Write-Warning "  Then restart the terminal and re-run the test."
             $script:YurunaAxWorks = $false
@@ -1250,7 +1250,7 @@ var up = `$.CGEventCreateMouseEvent(null, `$.kCGEventLeftMouseUp,   pt, `$.kCGMo
     and returns its coordinates in the image's pixel space.
 .DESCRIPTION
     Uses Tesseract TSV mode (word-level boxes) because TSV boxes are
-    directly consumable — Vision / WinRT don't surface per-word coords in
+    directly consumable -- Vision / WinRT don't surface per-word coords in
     our existing shims. For multi-word labels, requires contiguous words
     on the same line (y-diff within half a word height). Matching is
     case-insensitive substring so low-confidence words ("lnstall") still

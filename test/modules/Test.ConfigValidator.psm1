@@ -1,5 +1,5 @@
-﻿<#PSScriptInfo
-.VERSION 2026.07.10
+<#PSScriptInfo
+.VERSION 2026.07.14
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456728
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -16,8 +16,8 @@
 
 #requires -version 7
 
-# Reusable validation primitives — schema validation, emptiness check,
-# git-tree freshness — that any check script (Test-Config.ps1 included)
+# Reusable validation primitives -- schema validation, emptiness check,
+# git-tree freshness -- that any check script (Test-Config.ps1 included)
 # can call without re-implementing.
 #
 # All callers reach Write-Pass / Write-Fail / Write-Warn / Write-Info
@@ -56,7 +56,7 @@ function Test-AgainstSchema {
         Best-effort JSON-Schema validation of a YAML config. When
         Test-Json (PS 7.4+) is unavailable, falls back to a parse-only
         check so the validator still surfaces malformed YAML. Never
-        blocks the cycle on missing schema tooling — only on actual
+        blocks the cycle on missing schema tooling -- only on actual
         content errors.
     .DESCRIPTION
         Resolves YamlPath to an absolute path so every FAIL row carries

@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.07.10
+# Version: 2026.07.14
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 set -euo pipefail
@@ -181,6 +181,12 @@ if [ -n "${YURUNA_HOST_IP:-}" ] && [ -n "${YURUNA_HOST_PORT:-}" ]; then
     PROJECT_URL=$(printf '%s' "$cfg_body" | python3 -c $'import json,sys\ntry: print((json.load(sys.stdin).get("repositories") or {}).get("projectUrl",""))\nexcept Exception: print("")' 2>/dev/null || true)
   fi
 fi
+
+# The config endpoint lives ON the host, so a guest that cannot reach the host
+# gets nothing from it -- exactly when it most needs a URL to clone from.
+# host.env carries the same two URLs, baked at New-VM time, for that case.
+: "${FRAMEWORK_URL:=${YURUNA_FRAMEWORK_URL:-}}"
+: "${PROJECT_URL:=${YURUNA_PROJECT_URL:-}}"
 
 if [ ! -d "$REAL_HOME/yuruna" ]; then
   HOST_OK=false

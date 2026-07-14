@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.10
+.VERSION 2026.07.14
 .GUID 42a2b3c4-d5e6-4f78-9012-3a4b5c6d7e95
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -164,7 +164,7 @@ if (-not $plaintextPassword) {
 } else {
     Write-Output "Password came from environment variable: YURUNA_GUEST_PASSWORD"
 }
-Import-Module (Join-Path $repoRoot 'test/modules/Test.VMUtility.psm1') -Force -DisableNameChecking
+Import-Module (Join-Path $repoRoot 'automation/Yuruna.Common.psm1') -Force -DisableNameChecking
 try {
     $pwHash = ConvertTo-Sha512CryptHash -Plaintext $plaintextPassword
 } catch {
@@ -187,13 +187,13 @@ Import-Module (Join-Path (Split-Path -Parent $ScriptDir) 'modules/Yuruna.Host.ps
 $guestBinding = Resolve-GuestHostBinding
 $networkName  = $guestBinding.NetworkName
 $hostIp       = $guestBinding.HostIp
+Import-Module (Join-Path $repoRoot 'test/modules/Test.Config.psm1') -Global -Force
 $hostPort = '8080'
 $cfg = Join-Path $repoRoot 'test/test.config.yml'
+$j = $null
 if (Test-Path -LiteralPath $cfg) {
-    try {
-        $j = Get-Content -Raw -LiteralPath $cfg | ConvertFrom-Yaml -Ordered
-        if ($j.statusService.port) { $hostPort = "$($j.statusService.port)" }
-    } catch { Write-Verbose "test.config.yml unparseable; using port $hostPort" }
+    try { $j = Read-TestConfig -Path $cfg } catch { Write-Verbose "test.config.yml unparseable; using port $hostPort" }
+    if ($j -and $j.statusService -and $j.statusService.port) { $hostPort = "$($j.statusService.port)" }
 }
 
 # --- REGION: Build the autoinstall apt block
@@ -215,28 +215,23 @@ $AptProxyBlock = @"
 
 # --- REGION: Fetch caching-proxy CA cert (base64-embedded in seed)
 # --- REGION: https://yuruna.link/network#caching-proxy-ca-cert-rc60-gate
-# An empty $CaCertBase64 is NOT a harmless no-op (curl rc=60 SSL-bump gate);
-# see feedback_sslbump_rc60_untrusted_chain_and_ca_gate_trap.
+# An empty $CaCertBase64 is NOT a harmless no-op: the seed still routes the
+# guest's HTTPS through the bump (:3129) and locks direct :443 egress, so a
+# CA-less guest fails every HTTPS with curl rc=60. Get-CachingProxyCaCertBase64
+# retries the live fetch and falls back to the last-good persisted CA for this
+# cache host; if it still comes up empty the guest boots CA-less and recovers
+# at update time via the host status-server CA self-heal. See
+# feedback_sslbump_rc60_untrusted_chain_and_ca_gate_trap and
+# project_sslbump_ca_gating_durable_fix.
 $CaCertBase64 = ""
 if ($CachingProxyUrl) {
-    Import-Module -Name (Join-Path $PSScriptRoot '../../../automation/Yuruna.Retry.psm1') -Force
+    Import-Module -Name (Join-Path $PSScriptRoot '../../../test/modules/Test.CachingProxy.psm1') -Force -DisableNameChecking
     $uri = [System.Uri]$CachingProxyUrl
     $cacheHost = if ($uri.Host -match ':') { "[$($uri.Host)]" } else { $uri.Host }
-    $cacheCaUrl = "http://$cacheHost/yuruna-squid-ca.crt"
-    $caFetch = Invoke-WithYurunaRetry -Label 'caching-proxy CA cert' -MaxAttempts 5 -InitialDelaySeconds 3 -MaxDelaySeconds 20 -ScriptBlock {
-        $caResp = Invoke-WebRequest -Uri $cacheCaUrl -UseBasicParsing -TimeoutSec 10 -ErrorAction Stop
-        if ($caResp.StatusCode -ne 200 -or $caResp.RawContentLength -le 0) {
-            throw "caching-proxy returned status=$($caResp.StatusCode) length=$($caResp.RawContentLength)"
-        }
-        $caBytes = if ($caResp.Content -is [byte[]]) { $caResp.Content } else { [System.Text.Encoding]::UTF8.GetBytes([string]$caResp.Content) }
-        [Convert]::ToBase64String($caBytes)
-    }
-    if ($caFetch.Success) {
-        $CaCertBase64 = [string]($caFetch.LastOutput | Select-Object -Last 1)
-        Write-Verbose "  Fetched caching-proxy CA from $cacheCaUrl -- embedded in seed."
-    } else {
-        Write-Warning "  Could not fetch CA cert from caching-proxy after $($caFetch.Attempts) attempt(s) : $($caFetch.LastError.Exception.Message)"
-        Write-Warning "  Guest will skip HTTPS caching (Acquire::https::Proxy); HTTP caching via :3128 unaffected."
+    $ca = Get-CachingProxyCaCertBase64 -CacheCaUrl "http://$cacheHost/yuruna-squid-ca.crt" -CacheHost $uri.Host
+    $CaCertBase64 = $ca.CaCertBase64
+    if ($ca.Exhausted) {
+        Write-Warning "  Guest boots CA-less; it will self-heal the CA from the host status server at update time. HTTP caching via :3128 unaffected."
     }
 }
 
@@ -358,7 +353,14 @@ $vmCores = [math]::Max(4, [math]::Floor($hostCores / 2))
 $installArgs = @(
     '--connect', $virshUri,
     '--name',    $VMName,
-    '--memory',  '4096',
+    # 8 GB: the ubuntu.server.24 guest runs the same single-node kubeadm
+    # cluster (control plane + containerd + pulled images ~3-4 GB) plus the
+    # dotnet-sdk build/run workload as ubuntu.server.26, which 4 GB was too
+    # tight to carry. Kept at the minimum that carries the workload rather
+    # than matching the 16 GB the Hyper-V / UTM guests use, because every
+    # extra GB per VM subtracts from how many guests this KVM host can run
+    # concurrently in a busy pool.
+    '--memory',  '8192',
     '--vcpus',   "$vmCores",
     '--cpu',     'host-passthrough',
     '--os-variant', $osVariant,

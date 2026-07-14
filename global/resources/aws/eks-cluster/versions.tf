@@ -1,7 +1,7 @@
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 terraform {
-  required_version = ">= 1.12.3"
+  required_version = ">= 1.12.4"
 
   required_providers {
     aws = {

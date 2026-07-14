@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"stash-server/internal/config"
+	"stash-server/internal/fsutil"
 )
 
 // Store roots the share-side Stash filesystem layout (hostkey/ + files/)
@@ -181,7 +182,7 @@ func (s *Store) FinalizeStaging(stagingDir, dayDir, id string, recursive bool, f
 		if err := os.Rename(src, dst); err != nil {
 			return nil, fmt.Errorf("rename single file: %w", err)
 		}
-		syncDir(dayDir) // make the rename durable before removing the staging source
+		fsutil.SyncDir(dayDir) // make the rename durable before removing the staging source
 		removeStaging(stagingDir)
 		fi, err := os.Stat(dst)
 		if err != nil {
@@ -201,7 +202,7 @@ func (s *Store) FinalizeStaging(stagingDir, dayDir, id string, recursive bool, f
 	if err := zipDir(stagingDir, dst); err != nil {
 		return nil, fmt.Errorf("zip staging: %w", err)
 	}
-	syncDir(dayDir) // make the new archive's directory entry durable before removing staging
+	fsutil.SyncDir(dayDir) // make the new archive's directory entry durable before removing staging
 	removeStaging(stagingDir)
 	fi, err := os.Stat(dst)
 	if err != nil {
@@ -406,35 +407,8 @@ func AtomicCopyFile(src, dst string) error {
 		return err
 	}
 	defer in.Close()
-	tmp, err := os.CreateTemp(filepath.Dir(dst), ".flush-*.tmp")
-	if err != nil {
+	return fsutil.AtomicCommit(dst, ".flush-*.tmp", 0, func(w io.Writer) error {
+		_, err := io.Copy(w, in)
 		return err
-	}
-	tmpName := tmp.Name()
-	defer func() { _ = os.Remove(tmpName) }() // no-op once renamed away
-	if _, err := io.Copy(tmp, in); err != nil {
-		_ = tmp.Close()
-		return err
-	}
-	if err := tmp.Sync(); err != nil {
-		_ = tmp.Close()
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		return err
-	}
-	if err := os.Rename(tmpName, dst); err != nil {
-		return err
-	}
-	syncDir(filepath.Dir(dst))
-	return nil
-}
-
-// syncDir fsyncs a directory so a rename/create within it survives a crash (Linux). Best-effort:
-// not every platform supports directory sync, and the service runs on Linux where it does.
-func syncDir(dir string) {
-	if d, err := os.Open(dir); err == nil {
-		_ = d.Sync()
-		_ = d.Close()
-	}
+	})
 }

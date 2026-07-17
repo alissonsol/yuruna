@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.14
+.VERSION 2026.07.17
 .GUID 42f6a2c8-1d3e-4b90-8a7f-2e3d4c5b6a7e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -329,5 +329,149 @@ Describe 'pool-auth-token provisioning' {
         $second = Set-UserVaultKey -LogicalUser 'demo-user' -VaultKey 'demo.key' -Confirm:$false
         Assert-True $first         'first set writes the file'
         Assert-True (-not $second) 'identical second set makes no change'
+    }
+}
+
+# ---------------------------------------------------------------------------
+# The status-server bounce must be bounded by the CHILD it starts, never by the
+# status server that child detaches.
+#
+# Start-StatusService.ps1 launches the server as a process that outlives it by
+# design. Windows turns handle inheritance ON for a child whenever a std stream
+# is redirected, so a bounce spawned that way (`& pwsh ... *> $null` redirects)
+# hands the detached server the write end of the caller's stdout pipe. The server
+# holds it for its whole lifetime, the caller's read never sees EOF, and the
+# bounce blocks on the SERVER instead of the child that exited seconds ago --
+# silently, because the same redirection swallowed every progress line. This
+# drives the real code path against a stand-in start script that detaches a
+# long-lived grandchild the same way the real one does.
+# ---------------------------------------------------------------------------
+Describe 'status-server bounce' {
+    BeforeAll {
+        $bnDir = Join-Path ([System.IO.Path]::GetTempPath()) ('yuruna-bounce-' + [guid]::NewGuid().ToString('N'))
+        New-Item -ItemType Directory -Path $bnDir -Force | Out-Null
+        $bnPidFile = Join-Path $bnDir 'grandchild.pid'
+        $bnScript  = Join-Path $bnDir 'Start-StatusService.ps1'
+        # Single-quoted here-string + placeholder: the generated script needs no
+        # escaping, so what runs is exactly what is written here.
+        $bnBody = @'
+param([switch]$Restart)
+Write-Output 'Stopped existing status server (PID 1234).'
+Write-Output 'Caching proxy: detected, port map OK'
+$dir  = '<BNDIR>'
+$sink = Join-Path $dir 'stdin.empty'
+if (-not (Test-Path $sink)) { [System.IO.File]::WriteAllBytes($sink, [byte[]]@()) }
+$spawn = @{
+    FilePath               = 'pwsh'
+    ArgumentList           = @('-NoProfile', '-WindowStyle', 'Hidden', '-Command', 'Start-Sleep -Seconds 30')
+    RedirectStandardInput  = $sink
+    RedirectStandardOutput = (Join-Path $dir 'gc.out')
+    RedirectStandardError  = (Join-Path $dir 'gc.err')
+    PassThru               = $true
+}
+$p = Start-Process @spawn
+Set-Content -Path '<BNPIDFILE>' -Value $p.Id
+Write-Output "Status server started (PID $($p.Id))."
+exit 0
+'@
+        Set-Content -LiteralPath $bnScript -Encoding utf8 `
+            -Value (($bnBody -replace '<BNDIR>', $bnDir) -replace '<BNPIDFILE>', $bnPidFile)
+    }
+
+    AfterAll {
+        if (Test-Path -LiteralPath $bnPidFile) {
+            $gcPid = (Get-Content -LiteralPath $bnPidFile -Raw).Trim()
+            if ($gcPid) { Stop-Process -Id $gcPid -Force -ErrorAction SilentlyContinue }
+        }
+        Remove-Item -LiteralPath $bnDir -Recurse -Force -ErrorAction SilentlyContinue
+    }
+
+    It 'returns when the bounce child exits, not when the detached server does' {
+        $mod = Get-Module Test.HostConfigSync
+        Assert-True $mod 'Test.HostConfigSync must be imported'
+        $sw = [System.Diagnostics.Stopwatch]::StartNew()
+        # Invoke-StatusServiceBounce is module-private; call it in module scope.
+        $r = & $mod { param($e, $s) Invoke-StatusServiceBounce -PwshExe $e -StartScript $s -TimeoutSeconds 60 } `
+                ([System.Environment]::ProcessPath) $bnScript
+        $sw.Stop()
+        Assert-True $r.ok "bounce reports success (exitCode=$($r.exitCode))"
+        Assert-True (-not $r.timedOut) 'bounce did not hit its timeout'
+        # The stand-in's grandchild lives 30 s while the child itself exits at
+        # once, so a caller pinned to the grandchild's handles sits here for 30 s.
+        Assert-True ($sw.Elapsed.TotalSeconds -lt 15) `
+            "bounce returned in $([int]$sw.Elapsed.TotalSeconds)s -- it is not waiting on the detached server"
+        Assert-True (Test-Path -LiteralPath $r.logPath) 'the child transcript is left for the operator'
+        Assert-True ((Get-Content -LiteralPath $r.logPath -Raw) -match 'Caching proxy') `
+            'the transcript carries the child progress lines the operator needs'
+    }
+}
+
+# ---------------------------------------------------------------------------
+# Reference-host response classifiers (pure; the HTTP is a thin wrapper around
+# these). Every value these decide about is one the operator would otherwise
+# type by hand, so the tests pin the two behaviors that keep the sync from
+# prompting for input it could have obtained: a serving reference is recognized
+# as serving, and a reference that cannot answer says WHY rather than returning
+# a silent $null.
+# ---------------------------------------------------------------------------
+Describe 'Get-ConfigSyncCredentialReadiness (credential capability verdict)' {
+    # A wrong-proof probe that comes back 403 is the GO signal: the reference
+    # holds a token and has a credential path for this user, so the only missing
+    # piece is the right token -- exactly what makes it safe to then ask for one.
+    It 'reads a 403 (proof mismatch) as "a correct token would work"' {
+        $r = Get-ConfigSyncCredentialReadiness -StatusCode 403 -ReferenceHost 'ref' -User 'yuruna-pool'
+        Assert-True $r.Ready 'a 403 proof-mismatch means the endpoint would serve with the right token'
+        Assert-Equal 403 $r.Status
+    }
+
+    # 503 == the reference has no token of its OWN, so no operator-supplied token
+    # can ever unlock it. The verdict must be not-ready AND name the fix.
+    It 'reads a 503 as not-ready and names the provisioning fix' {
+        $r = Get-ConfigSyncCredentialReadiness -StatusCode 503 -ServerError 'shared pool-auth-token not configured on this host' -ReferenceHost 'refbox' -User 'yuruna-pool'
+        Assert-True (-not $r.Ready) 'a reference with no token of its own can never serve a credential'
+        Assert-Equal 503 $r.Status
+        Assert-True ($r.Error -match 'Set-PoolAuthToken') 'the not-ready message points at the provisioning command'
+        Assert-True ($r.Error -match 'refbox') 'the message names the reference host'
+    }
+
+    It 'reads a transport failure (status 0) as not-ready and not-answering' {
+        $r = Get-ConfigSyncCredentialReadiness -StatusCode 0 -ServerError 'No such host is known.' -ReferenceHost 'gone' -User 'yuruna-pool'
+        Assert-True (-not $r.Ready) 'an unreachable host is not ready'
+        Assert-Equal -Expected 0 -Actual $r.Status -Because 'a transport failure has no HTTP status'
+        Assert-True ($r.Error -match 'not answering') 'the message says the host is not answering'
+    }
+
+    It 'reads a 404 as not-ready for the specific user' {
+        $r = Get-ConfigSyncCredentialReadiness -StatusCode 404 -ServerError "user not referenced by this host's networkStorage config" -ReferenceHost 'ref' -User 'ghost'
+        Assert-True (-not $r.Ready) 'a 404 means the reference will not serve this user'
+        Assert-True ($r.Error -match 'ghost') 'the message names the user'
+    }
+}
+
+Describe 'Resolve-ConfigSyncAliasResponse (alias response verdict)' {
+    It 'returns the name->IP map on a healthy 200 ok:true response' {
+        $doc = @{ ok = $true; aliases = @{ 'ypool-nas' = '192.168.7.25' }; unresolved = @() }
+        $r = Resolve-ConfigSyncAliasResponse -StatusCode 200 -Doc $doc -ReferenceHost 'ref'
+        Assert-True ($r.Map -is [System.Collections.IDictionary]) 'a 200 yields the alias map'
+        Assert-Equal '192.168.7.25' "$($r.Map['ypool-nas'])"
+        Assert-True ($null -eq $r.Warning) 'a healthy response carries no warning'
+    }
+
+    # The regression this guards: the route 500s ('not loaded in the server
+    # runspace') and the client used to swallow it with Write-Verbose and drop
+    # straight to a hand-entry prompt. It must now yield a null Map AND a warning
+    # carrying the server's own reason so the operator can fix the reference.
+    It 'yields a warning with the server reason (not a silent $null) on a 500' {
+        $doc = @{ ok = $false; error = 'Test.PoolStorage / Test.Config could not be loaded in the server runspace (see runtime/server.err)' }
+        $r = Resolve-ConfigSyncAliasResponse -StatusCode 500 -Doc $doc -ReferenceHost 'ref'
+        Assert-True ($null -eq $r.Map) 'the map is null so the caller still degrades to a prompt'
+        Assert-True ($r.Warning -match 'could not supply') 'a failure is surfaced with an explanation, not swallowed'
+        Assert-True ($r.Warning -match 'runspace') 'the warning carries the server''s own reason'
+    }
+
+    It 'warns with an HTTP-code reason when the body has no error text' {
+        $r = Resolve-ConfigSyncAliasResponse -StatusCode 503 -Doc $null -ReferenceHost 'ref'
+        Assert-True ($null -eq $r.Map) 'no map on a non-200'
+        Assert-True ($r.Warning -match 'HTTP 503') 'falls back to the status code when there is no server error text'
     }
 }

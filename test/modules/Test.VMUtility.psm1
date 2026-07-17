@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.14
+.VERSION 2026.07.17
 .GUID 42a2b3c4-d5e6-4f78-9012-3a4b5c6d7e92
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -283,12 +283,22 @@ function Get-CachingProxyExposedPort {
     Start-CachingProxy's install list cannot drift apart on the shared set.
 .DESCRIPTION
     Returns the fixed service ports -- 80 (Apache CA cert), 3000 (Grafana),
-    9302 (caching-proxy-parser live tail) -- plus the client-facing squid
-    HTTP/HTTPS ports (each defaulting to Get-CachingProxyPort). Add-PortMap is
-    clear-all-first on Windows, so any port dropped from this set goes dark on
-    the next map; owning the set here keeps the callers in lockstep. A caller
-    that re-maps a reduced set on a platform (e.g. macOS, where only Grafana is
-    re-mapped) keeps that branch and does not call this.
+    9302 (caching-proxy-parser live tail), 9400 (pool-aggregator: /metrics,
+    /api/v1/pool-status, the /go/* dashboard redirects, and the bearer-gated
+    /ingest) -- plus the client-facing squid HTTP/HTTPS ports (each defaulting
+    to Get-CachingProxyPort). Add-PortMap is clear-all-first on Windows, so any
+    port dropped from this set goes dark on the next map; owning the set here
+    keeps the callers in lockstep. A caller that re-maps a reduced set on a
+    platform (e.g. macOS, where only Grafana is re-mapped) keeps that branch and
+    does not call this.
+
+    NOTE: forwarding 9400 makes the aggregator's LAN surface reachable on the
+    NAT-fallback path, but it does NOT make the pool dashboard populate there --
+    the userspace forwarder (systemd-socket-proxyd) re-originates every
+    connection from the host, so squid sees one client (the NAT gateway) for the
+    whole LAN and the aggregator, which discovers hosts by their real client IP,
+    finds none. The pool view needs a bridged cache VM (real client IPs); see
+    host/ubuntu.kvm/guest.caching-proxy/README.md.
 .OUTPUTS
     [int[]]
 #>
@@ -298,7 +308,7 @@ function Get-CachingProxyExposedPort {
         [int]$HttpPort  = (Get-CachingProxyPort -Scheme http),
         [int]$HttpsPort = (Get-CachingProxyPort -Scheme https)
     )
-    [int[]]@(80, 3000, 9302, $HttpPort, $HttpsPort)
+    [int[]]@(80, 3000, 9302, 9400, $HttpPort, $HttpsPort)
 }
 
 function Remove-GuestVMQuietly {
@@ -328,12 +338,18 @@ function Remove-GuestVMQuietly {
     )
     $savedProgress = $global:ProgressPreference
     $global:ProgressPreference = 'SilentlyContinue'
+    # -Force: this is a stop-then-DELETE. The guest's disk is removed on the very
+    # next line, so there is nothing to flush and nothing a clean shutdown could
+    # protect -- while waiting one out costs the full guest-shutdown time (tens of
+    # seconds on a k8s guest, which must stop kubelet/containerd) on every cycle.
+    # The graceful Stop-VM is for the paths that KEEP the disk: snapshotting it, or
+    # leaving it behind for inspection.
     try {
         if ($BestEffort) {
-            if (-not $SkipStop) { Stop-VM -VMName $VMName -Confirm:$false -ErrorAction SilentlyContinue | Out-Null }
+            if (-not $SkipStop) { Stop-VM -VMName $VMName -Force -Confirm:$false -ErrorAction SilentlyContinue | Out-Null }
             Remove-VM -VMName $VMName -Confirm:$false -ErrorAction SilentlyContinue | Out-Null
         } else {
-            if (-not $SkipStop) { Stop-VM -VMName $VMName -Confirm:$false | Out-Null }
+            if (-not $SkipStop) { Stop-VM -VMName $VMName -Force -Confirm:$false | Out-Null }
             Remove-VM -VMName $VMName -Confirm:$false | Out-Null
             # Don't silently trust the teardown. On a real removal path (not the
             # pre-spawn same-name sweep, which runs against an absent VM), a VM

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.14
+.VERSION 2026.07.17
 .GUID 42b5c6d7-e8f9-4a01-b234-5c6d7e8f9a02
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -59,7 +59,7 @@ $DataDir = "$UtmDir/Data"
 $downloadDir = "$HOME/yuruna/image/ubuntu.env"
 
 # --- REGION: Environment checks
-# --- REGION: https://yuruna.link/memory#why-the-macos-utm-ubuntu-server-guest-switched-from-avf-to-qemu-and-hvf
+# --- REGION: https://yuruna.link/memory#why-the-macos-utm-ubuntu-server-guest-uses-qemu-and-hvf
 
 # Check macOS version (requires macOS 12 Monterey or later for UTM 4.x)
 $macosVersion = & sw_vers -productVersion 2>$null
@@ -214,24 +214,10 @@ Import-Module $TestSshModule -Force
 $SshAuthorizedKey = Get-YurunaSshPublicKey
 if (-not $SshAuthorizedKey) { Write-Error "Get-YurunaSshPublicKey returned empty. Module path: $TestSshModule"; exit 1 }
 
-# Detect the caching-proxy and inject its proxy URL if available.
-#
-# Cache VM is bridged to the host's physical NIC (VZBridgedNetwork-
-# DeviceAttachment in config.plist.template), so it carries its own
-# LAN DHCP IP -- e.g. http://192.168.7.150:3128. Install VMs on shared
-# NAT reach that LAN IP through VMnet's outbound NAT (same path they
-# use to reach Ubuntu mirrors), so no host-side TCP forwarder layer is
-# needed. Discovery delegates to Test-CachingProxyAvailable, which owns
-# the (state-file fast path -> LAN /24 scan -> state refresh) logic.
-#
-# Severity policy:
-#   * Test-CachingProxyAvailable returns a URL -> inject it.
-#   * utmctl sees the cache VM started
-#     but no :3128 answer on the LAN          -> ERROR, exit 1 (the cache
-#                                                came up but is not on
-#                                                LAN; bridge interface
-#                                                or DHCP problem).
-#   * Cache VM not registered / not started   -> WARNING, proceed direct.
+# --- REGION: https://yuruna.link/network#defining-utm-cache-vm-bridged-discovery
+# Detect the caching-proxy and inject its proxy URL if available. Severity:
+# URL found -> inject; cache VM started but no :3128 on LAN -> ERROR, exit 1;
+# cache VM not registered / not started -> WARNING, proceed direct.
 if ($PSBoundParameters.ContainsKey('CachingProxyUrl')) {
     # URL was forwarded by the caller (test runner). Skip the probe so this
     # script and the runner's detection agree on a single cache URL.
@@ -339,34 +325,17 @@ $AptProxyBlock = @"
 
 # --- REGION: Fetch caching-proxy CA cert (base64-embedded in seed)
 # --- REGION: https://yuruna.link/network#caching-proxy-ca-cert-rc60-gate
-# Fetch the caching-proxy CA on the host so it can be base64-embedded in
-# the autoinstall seed. Guests on VZ shared-NAT cannot reach the cache
-# VM directly, but this script runs on the host which can. Any failure
-# (no recorded cache IP, HTTP error, empty response) leaves $CaCertBase64
-# empty and the guest's HTTPS proxy block becomes a no-op.
+# An empty $CaCertBase64 is NOT a harmless no-op (curl rc=60 SSL-bump gate).
 Import-Module (Join-Path $RepoRoot "test/modules/Test.CachingProxy.psm1") -Force -DisableNameChecking
 $CaCertBase64 = ""
 $cacheVmIp = $null
 if ($Env:YURUNA_CACHING_PROXY_IP -and (Test-IpAddress $Env:YURUNA_CACHING_PROXY_IP)) {
-    # External cache: $CachingProxyUrl already points at the remote IP (no VZ-
-    # gateway rewrite), and the remote image is identical to the local one
-    # -- same Apache on :80 serving /yuruna-squid-ca.crt. The
-    # yuruna-caching-proxy state file is not updated for external caches,
-    # so read the IP straight from the environment variable.
+    # External cache: the state file is not updated for external caches; use the env IP.
     $cacheVmIp = $Env:YURUNA_CACHING_PROXY_IP.Trim()
 } elseif ($CachingProxyUrl) {
     $candidate = (Read-CachingProxyState).ipAddress
     if ($candidate -and (Test-IpAddress $candidate)) { $cacheVmIp = $candidate }
 }
-# An empty $CaCertBase64 is NOT a harmless no-op: the seed still routes the
-# guest's HTTPS through the bump (:3129) and locks direct :443 egress, so a
-# CA-less guest fails every HTTPS with curl rc=60 ("self-signed certificate in
-# certificate chain"). Get-CachingProxyCaCertBase64 retries the live fetch and
-# falls back to the last-good persisted CA for this cache host; if it still
-# comes up empty the guest boots CA-less and recovers at update time via the
-# host status-server CA self-heal. See
-# feedback_sslbump_rc60_untrusted_chain_and_ca_gate_trap and
-# project_sslbump_ca_gating_durable_fix.
 if ($CachingProxyUrl -and $cacheVmIp) {
     $cacheVmHost = Format-IpUrlHost $cacheVmIp
     $ca = Get-CachingProxyCaCertBase64 -CacheCaUrl "http://${cacheVmHost}/yuruna-squid-ca.crt" -CacheHost $cacheVmIp
@@ -375,10 +344,7 @@ if ($CachingProxyUrl -and $cacheVmIp) {
         Write-Warning "  Guest boots CA-less; it will self-heal the CA from the host status server at update time. HTTP caching via :3128 unaffected."
     }
 } elseif ($CachingProxyUrl) {
-    # Proxy URL present but no cache IP resolved (env unset AND no persisted
-    # state IP): the CA cannot be fetched host-side. Surface it rather than
-    # skipping silently -- the guest attempts the same recovery via the host
-    # /ca.crt endpoint at update time.
+    # No cache IP resolved: surface it rather than skipping silently.
     Write-Warning "  Caching proxy '$CachingProxyUrl' is set but no cache IP resolved; guest boots CA-less and will rely on the host status-server CA self-heal."
 }
 
@@ -474,7 +440,7 @@ $PlistContent = (Get-Content -Raw $TemplatePath) `
     -replace '__SEED_IMAGE_NAME__',     'seed.iso' `
     -replace '__VNC_DISPLAY__',         "$VncDisplay" `
     -replace '__CPU_COUNT__',           "$vmCores" `
-    -replace '__MEMORY_SIZE__',         '16384'
+    -replace '__MEMORY_SIZE__',         '12288'
 
 Set-Content -Path "$UtmDir/config.plist" -Value $PlistContent
 

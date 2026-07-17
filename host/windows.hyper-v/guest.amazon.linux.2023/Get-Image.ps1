@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.14
+.VERSION 2026.07.17
 .GUID 42d7e8f9-a0b1-4c23-d456-7e8f9a0b1c23
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -139,9 +139,7 @@ if (Test-Path $baseImageFile) {
 Move-Item -Path $extractedFile -Destination $baseImageFile
 
 # --- REGION: https://yuruna.link/guest-image-setup#skip-if-same-source-guard
-# Write-ImageSentinel writes the 4-line sentinel Test-DownloadAlreadyCurrent
-# requires; a legacy 3-line sentinel never matches and silently defeats the
-# skip guard (every run re-downloads).
+# Only Write-ImageSentinel emits the 4-line shape the reader matches.
 Write-ImageSentinel -SourceUrl $downloadUrl -OriginFile $baseImageOrigin -SizeBytes $downloadedSize -Confirm:$false
 Write-Output "Recorded source filename, URL, byte count, and Last-Modified to: $baseImageOrigin"
 

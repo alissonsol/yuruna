@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.14
+.VERSION 2026.07.17
 .GUID 42f1b2c3-d4e5-4f67-8901-a2b3c4d5e6f9
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -36,6 +36,14 @@
 .PARAMETER VMName
     Name of the UTM VM. Default: caching-proxy
 
+.PARAMETER MacAddress
+    Optional stable MAC for the VM's NIC (AA:BB:CC:DD:EE:FF, dashed, or
+    bare hex). Lets the operator pin the cache IP with a one-time DHCP
+    reservation on the LAN router (bridged) or macOS bootpd (Shared NAT);
+    without it every rebuilt bundle gets a fresh random MAC and the
+    lease moves. MAC-based discovery (Resolve-UtmGuestIpByMac) reads the
+    MAC from config.plist either way, so both modes keep working.
+
 .EXAMPLE
     ./Get-Image.ps1
     ./New-VM.ps1
@@ -43,7 +51,9 @@
 
 param(
     [Parameter(Position = 0)]
-    [string]$VMName = "yuruna-caching-proxy"
+    [string]$VMName = "yuruna-caching-proxy",
+    [Parameter()]
+    [string]$MacAddress
 )
 
 # Honor logLevel from Invoke-TestRunner.ps1 via $env:YURUNA_LOG_LEVEL. See docs/loglevels.md.
@@ -56,6 +66,18 @@ if ($VMName -notmatch '^[a-zA-Z0-9._-]+$') {
 }
 
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+
+# Normalize the optional stable MAC before any bundle teardown or image
+# work so a typo'd value stops the run before anything heavy or
+# destructive happens.
+if ($MacAddress) {
+    Import-Module (Join-Path $ScriptDir '../../../automation/Yuruna.Common.psm1') -Force -DisableNameChecking
+    $MacAddress = ConvertTo-YurunaMacAddress -MacAddress $MacAddress
+    if (-not $MacAddress) {
+        Write-Error "Invalid -MacAddress (see warning above). Nothing was changed."
+        exit 1
+    }
+}
 
 $GuestDir = "$HOME/yuruna/guest.nosync"
 New-Item -ItemType Directory -Force -Path $GuestDir | Out-Null
@@ -298,12 +320,17 @@ if (-not (Test-Path $TemplatePath)) {
 $VmUuid  = [guid]::NewGuid().ToString().ToUpper()
 $DiskId  = [guid]::NewGuid().ToString().ToUpper()
 $SeedId  = [guid]::NewGuid().ToString().ToUpper()
-$rng     = [System.Random]::new()
 
-$MacBytes = [byte[]]::new(6)
-$rng.NextBytes($MacBytes)
-$MacBytes[0] = ($MacBytes[0] -bor 0x02) -band 0xFE  # locally administered unicast
-$MacAddress = ($MacBytes | ForEach-Object { $_.ToString("X2") }) -join ":"
+# An operator-supplied -MacAddress (already normalized to colon form
+# above) wins; it lets a DHCP reservation pin the cache IP across
+# rebuilds. Otherwise generate a fresh random per-bundle MAC.
+if (-not $MacAddress) {
+    $rng = [System.Random]::new()
+    $MacBytes = [byte[]]::new(6)
+    $rng.NextBytes($MacBytes)
+    $MacBytes[0] = ($MacBytes[0] -bor 0x02) -band 0xFE  # locally administered unicast
+    $MacAddress = ($MacBytes | ForEach-Object { $_.ToString("X2") }) -join ":"
+}
 
 # Per-VM VNC display number (Get-VncDisplayForVm hashes the name into
 # 10..89). Get-VncPortForVm in the harness derives the same value from
@@ -351,9 +378,8 @@ if (Test-MacDefaultRouteIsWiFi) {
 }
 
 # --- REGION: https://yuruna.link/caching-proxy#cache-vm-sizing
-# 12 GB RAM, 4 vCPU -- same sizing on all three hosts, budgeted around
-# squid's `cache_mem 9 GB`; swap is masked, so undersizing is an
-# unrecoverable OOM.
+# 12 GB RAM, 4 vCPU on all three hosts, budgeted around squid's cache_mem;
+# swap is masked, so undersizing is an unrecoverable OOM.
 # --- REGION: https://yuruna.link/definition#defining-the-vm-core-count-policy
 $hostCores = [int](& /usr/sbin/sysctl -n hw.physicalcpu)
 if ($hostCores -lt 4) {

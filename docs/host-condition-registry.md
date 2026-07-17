@@ -34,7 +34,7 @@ host needed two edits in two files; today it is one
 
 | Function | Used by |
 |---|---|
-| `Register-HostConditionProvider -HostType -Set -Assert -AssertMinimum -RequiresElevation` | Facade loader; external host plugins |
+| `Register-HostConditionProvider -HostType -Set -Assert -AssertMinimum [-RequiresElevation] [-Display] [-DisplayTeardown]` | Facade loader; external host plugins |
 | `Get-HostConditionProvider -HostType` | Dispatchers; introspection |
 | `Get-HostConditionProviderMatrix` | Startup capability matrix |
 | `Clear-HostConditionProvider` | Tests only |
@@ -44,7 +44,7 @@ host needed two edits in two files; today it is one
 
 ## Provider record shape
 
-Each registration carries a five-field ordered dict:
+Each registration carries a seven-field ordered dict:
 
 ```
 @{
@@ -53,6 +53,8 @@ Each registration carries a five-field ordered dict:
     Assert            = { param([string]$HostType) ... [bool] }
     AssertMinimum     = { param() ... [bool] }
     RequiresElevation = $true   # consumed by Test-ElevationRequired
+    Display           = { param() ... }   # optional: per-cycle display-surface ensure (e.g. attach a virtual monitor on headless Hyper-V); $null when unneeded. Invoked by Initialize-HostDisplay.
+    DisplayTeardown   = { param() ... }   # optional inverse: tear the surface down; $null when unneeded. Invoked by Remove-HostDisplay.
 }
 ```
 
@@ -120,6 +122,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.14
+Last review: 2026.07.17
 
 Back to [Yuruna](../README.md)

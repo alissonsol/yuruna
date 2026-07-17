@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.07.14
+# Version: 2026.07.17
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 set -euo pipefail
@@ -49,14 +49,8 @@ apt_retry sudo apt-get install -y dotnet-sdk-10.0
 dotnet --version
 
 echo ""
-# Verify a downloaded apt signing key against a pinned PRIMARY-key fingerprint
-# allow-set before it is trusted, so a caching-proxy / CDN tamper cannot land an
-# attacker key in apt's trust store (the key is fetched over the guest's SSL-bump
-# proxy, which is a trust boundary). arg1 = key file; the remaining args are the
-# ALLOWED primary fingerprints and the FIRST is also REQUIRED to be present. Only
-# primary-key fingerprints are checked, so a vendor rotating a signing subkey
-# under a stable primary stays trusted without a pin update. Fail-closed. Mirrors
-# verify_key_fingerprints in install/ubuntu.kvm.sh.
+# --- REGION: https://yuruna.link/network#apt-signing-key-fingerprint-verification
+# arg1 = key file; remaining args = ALLOWED primary fingerprints, FIRST also required.
 _yuruna_verify_key_fpr() {
     local keyfile="$1"; shift
     local required="${1^^}" allowed=("$@") present a fpr ok found=0

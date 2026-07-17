@@ -44,7 +44,7 @@ each is a module you can grep for if you want to extend it.
   not parallel edits in two modules.
 - [Capability matrix](capability-matrix.md) — startup banner + per-cycle
   gate that refuses cycles referencing host I/O backends not wired on
-  the current host. Replaces the prior silent "Unknown host: …" mode.
+  the current host.
 - `Test.SequenceAction` — per-verb registry with `Handler` scriptblocks,
   failure-label builders, and `FailureClass` / `Severity` /
   `SuggestedRecoveries` metadata consumed by the
@@ -212,6 +212,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.14
+Last review: 2026.07.17
 
 Back to [Yuruna](../README.md)

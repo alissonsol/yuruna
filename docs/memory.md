@@ -6,8 +6,8 @@ shaped this way because of incident X on date Y" — drift out of date
 when scattered across files; gathering them in one place makes them
 easier to update and easier to cross-reference.
 
-The source files themselves stay short — each formerly large comment
-block now collapses to a single line of the form:
+The source files themselves stay short — each large comment
+block collapses to a single line of the form:
 
 ```
 # --- REGION: https://yuruna.link/memory#<topic-slug>
@@ -265,17 +265,14 @@ aarch64 has no BIOS option in QEMU, so UEFI is mandatory there.
 Source:
 [`host/ubuntu.kvm/guest.amazon.linux.2023/New-VM.ps1`](../host/ubuntu.kvm/guest.amazon.linux.2023/New-VM.ps1).
 
-### Why the macOS UTM ubuntu-server guest switched from AVF to QEMU and HVF?
+### Why the macOS UTM ubuntu-server guest uses QEMU and HVF
 
-This guest used to ride Apple Virtualization (AVF) with nested
-virtualization enabled so Docker Desktop could expose `/dev/kvm`
-inside the guest. That required macOS 15+, M3+, and UTM v4.6+. The
-backend has since moved to QEMU+HVF (see the `config.plist.template`
-comment) to get a `-vnc` RFB server for focus-independent harness
-control — HVF on Apple Silicon does NOT expose nested virtualization,
-so the `/dev/kvm`-inside-guest pathway is no longer available here.
-If a cycle depends on nested virt, that needs to move to a different
-host (Hyper-V on Windows ships nested virt for Linux guests today).
+This guest runs on QEMU+HVF (see the `config.plist.template` comment) to
+get a `-vnc` RFB server for focus-independent harness control. HVF on
+Apple Silicon does NOT expose nested virtualization, so `/dev/kvm` is
+unavailable inside the guest; a cycle that depends on nested virt must
+run on a different host (Hyper-V on Windows ships nested virt for Linux
+guests).
 
 Source:
 [`host/macos.utm/guest.ubuntu.server.24/New-VM.ps1`](../host/macos.utm/guest.ubuntu.server.24/New-VM.ps1).
@@ -331,7 +328,11 @@ silently wins in the child even when the operator cleared the var in
 the outer shell — the inner inherited the cleared state but then ran
 profile and re-wrote it. That was the exact failure mode behind a
 cycle pointing at an external (stale) cache while `Test-CachingProxy`
-reported the local cache correctly.
+reported the local cache correctly. (With config-first resolution a
+profile-injected env value only decides a cycle when
+`vmStart.cachingProxyIP` is empty or fails its probe, but the
+`-NoProfile` snapshot guard still protects every other forwarded
+knob.)
 
 Add new `YURUNA_*` knobs to `$script:ForwardEnvNames` when introduced;
 only `YURUNA_RUNNER_RELAUNCH` is intentionally outer-internal (set
@@ -777,9 +778,15 @@ The version is discovered at install time by resolving the GitHub
 `/releases/latest` redirect, so this stays current without code edits
 when Microsoft ships a new pwsh.
 
+The same install-early rationale applies to the Amazon Linux 2023
+guest. AL2023 ships no first-party pwsh package, so its update script
+installs the same GitHub release tarball the ubuntu `code.sh` script
+uses, which works on both x86_64 and aarch64.
+
 Source:
 [`guest/ubuntu.server.24/ubuntu.server.24.update.sh`](../guest/ubuntu.server.24/ubuntu.server.24.update.sh),
-[`guest/ubuntu.server.26/ubuntu.server.26.update.sh`](../guest/ubuntu.server.26/ubuntu.server.26.update.sh).
+[`guest/ubuntu.server.26/ubuntu.server.26.update.sh`](../guest/ubuntu.server.26/ubuntu.server.26.update.sh),
+[`guest/amazon.linux.2023/amazon.linux.2023.update.sh`](../guest/amazon.linux.2023/amazon.linux.2023.update.sh).
 
 ---
 
@@ -799,9 +806,27 @@ Tarball-only at this position: the git-clone fallback at the original
 position later in the script stays put because it needs `git`, which
 requires `apt-get` to work, which is exactly what may be stuck.
 
+The same rationale applies to the other supported guests:
+
+- **Amazon Linux 2023**: identical structure with `dnf` in the stuck
+  role — the early extract runs before the long dnf transaction, and
+  the git-clone fallback stays late because it needs `git`, which
+  needs a working `dnf`.
+- **Windows 11**: the update script pre-fetches the tarball before the
+  winget / Windows Update stages (the analogous stall risks), while
+  the git-clone fallback lives in the late "Materialize" section
+  because it needs `git`, which winget may only install in the update
+  stage that follows. The host coordinates (`YURUNA_HOST_IP` /
+  `YURUNA_HOST_PORT`) come from `C:\ProgramData\yuruna\host.env` — the
+  Windows-side equivalent of the Linux `host.env` injection — written
+  when the host driver supports it; when the file or the variables are
+  absent the early-extract block soft-fails into a no-op.
+
 Source:
 [`guest/ubuntu.server.24/ubuntu.server.24.update.sh`](../guest/ubuntu.server.24/ubuntu.server.24.update.sh),
-[`guest/ubuntu.server.26/ubuntu.server.26.update.sh`](../guest/ubuntu.server.26/ubuntu.server.26.update.sh).
+[`guest/ubuntu.server.26/ubuntu.server.26.update.sh`](../guest/ubuntu.server.26/ubuntu.server.26.update.sh),
+[`guest/amazon.linux.2023/amazon.linux.2023.update.sh`](../guest/amazon.linux.2023/amazon.linux.2023.update.sh),
+[`guest/windows.11/windows.11.update.ps1`](../guest/windows.11/windows.11.update.ps1).
 
 ---
 
@@ -1020,6 +1045,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.14
+Last review: 2026.07.17
 
 Back to [Yuruna](../README.md)

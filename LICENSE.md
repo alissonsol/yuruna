@@ -27,7 +27,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
-## Administrator Risk Warning
+## <span style="color:red;">Administrator Risk Warning</span>
 
 Portions of this Software are designed to run with **elevated / administrator
 privileges** (e.g., as Administrator on Windows, or via `sudo` / root on
@@ -49,6 +49,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.14
+Last review: 2026.07.17
 
 Back to [Yuruna](README.md)

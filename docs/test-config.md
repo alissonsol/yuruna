@@ -8,10 +8,19 @@ and secrets stay local). Edit it directly, or through the status-page editor
 this document is its reference (the editor + `ConvertTo-Yaml` round-trip strips
 inline comments anyway).
 
-Top-level sections: `guestSequence`, `logLevel`, `networkStorage`,
-`notification`, `pool`, `repositories`, `statusService`, `testCycle`,
-`vmCommunication`, `vmImage`, `vmStart`. Most are self-describing; the ones
-carrying non-obvious behavior are documented below.
+Top-level sections: `configService`, `guestSequence`, `logLevel`,
+`networkStorage`, `notification`, `pool`, `repositories`, `statusService`,
+`testCycle`, `vmCommunication`, `vmImage`, `vmStart`. Most are
+self-describing; the ones carrying non-obvious behavior are documented below.
+
+## configService — host mTLS credential service
+
+`configService.isEnabled` / `configService.port` (default `8443`) control the
+per-host **config service** — the mTLS endpoint that serves NAS credentials to
+the VMs this host provisions so they don't have to ship in each seed. When
+enabled, the runner ensures it per cycle (given a Config CA exists); VMs fetch
+over the `yuruna-config-fetch.sh` mTLS path and fall back to baked creds only
+if it is unreachable. See [Host Config Service](design/host-config-service-and-extension-hosts.md).
 
 ## networkStorage — optional NAS-backed durable tiers
 
@@ -213,12 +222,30 @@ consecutive-failure streak (`autoRemediationMaxAttemptsPerCycle`) so a
 deterministic failure still escalates to the normal wait-for-human pause after
 that many auto-retries.
 
+## vmStart.cachingProxyIP — external cache source (probed first)
+
+Names the external caching proxy this host should route guest installs
+through. At cycle start `Resolve-CachingProxyEndpoint` (Test.CachingProxy)
+probes this value **first**; it wins when its squid HTTP port `:3128`
+answers. `$Env:YURUNA_CACHING_PROXY_IP` is the session-scope **fallback**,
+probed only when this key is empty or its probe fails. The winner (from
+either source) is published into the env var for the rest of the cycle.
+When both sources fail their probes, the env var is cleared and local
+discovery runs — a host with its own cache VM falls back to it; a host
+with none proceeds without a caching proxy.
+
+Empty string means absent (fall through to the env var / local
+discovery). The status-page editor validates the value at save time:
+it must parse as an IPv4/IPv6 address **and** answer on TCP `:3128`,
+so a dead IP is rejected before it is ever persisted. Full cache-source
+story: [caching-proxy.md](caching-proxy.md#external-cache-override).
+
 ---
 
 LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.14
+Last review: 2026.07.17
 
 Back to [Yuruna](../README.md)

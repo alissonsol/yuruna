@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.14
+.VERSION 2026.07.17
 .GUID 42c0d1e2-f3a4-4b67-c890-1d2e3f4a5b68
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -226,7 +226,7 @@ $PlistContent = (Get-Content -Raw $TemplatePath) `
     -replace '__SEED_IDENTIFIER__', $SeedId `
     -replace '__SEED_IMAGE_NAME__', 'seed.iso' `
     -replace '__CPU_COUNT__',       "$vmCores" `
-    -replace '__MEMORY_SIZE__',     '16384'
+    -replace '__MEMORY_SIZE__',     '12288'
 
 Set-Content -Path "$UtmDir/config.plist" -Value $PlistContent
 

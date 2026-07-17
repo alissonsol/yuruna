@@ -178,7 +178,7 @@ VM adds a per-VM ACE to the shared base image and `Remove-VM` never removes
 it, so the file's DACL eventually hits the ~64 KB limit and Hyper-V can no
 longer add the next VM's ACE. The harness now prunes stale per-VM ACEs
 before each attach and during cleanup. Full explanation, manual
-remediation, and diagnostics: [Hyper-V base-image ACL bloat](hyperv-iso-ace-bloat.md).
+remediation, and diagnostics: [Hyper-V base-image ACL bloat](vmconfig.md#hyper-v-iso-ace-bloat).
 
 ## Display text scale must be 100% for OCR
 
@@ -205,6 +205,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.14
+Last review: 2026.07.17
 
 Back to [Yuruna](../README.md)

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.14
+.VERSION 2026.07.17
 .GUID 42b7e3a1-c8d9-4f56-ab12-3e4f5a6b7c8d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -265,15 +265,9 @@ if ($protectedFiles.Count -gt 0) {
 }
 
 # --- REGION: Strip stale per-VM ACEs from kept base images
-# A SHARED base image (e.g. a base install ISO reused for every VM creation)
-# gathers one per-VM access ACE per VM created against it; Hyper-V never
-# revokes them on Remove-VM, so the DACL grows until it hits the ~64 KB ACL
-# limit and the next Add-VMDvdDrive fails with 0x8007053C. Prune the ACEs of
-# VMs that no longer exist here. No-op on base VHDX images (those are copied
-# per-VM and never attached directly, so they accumulate nothing). Runs every
-# invocation, before the deletion prompt, because it is safe maintenance --
-# it only removes access for VMs that no longer exist. See
-# docs/hyperv-iso-ace-bloat.md.
+# --- REGION: https://yuruna.link/vmconfig#hyper-v-iso-ace-bloat
+# Runs every invocation, before the deletion prompt -- safe maintenance that
+# only removes access for VMs that no longer exist.
 foreach ($filePath in $protectedFiles) {
     try {
         $prunedAce = Remove-OrphanedVMFileAccess -Path $filePath

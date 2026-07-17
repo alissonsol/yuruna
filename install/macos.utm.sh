@@ -1,7 +1,7 @@
 #!/bin/bash
 # Yuruna macOS UTM bootstrap installer.
 # LICENSEURI https://yuruna.link/license
-# Version: 2026.07.14  Copyright (c) 2019-2026 by Alisson Sol et al.
+# Version: 2026.07.17  Copyright (c) 2019-2026 by Alisson Sol et al.
 # --- REGION: https://yuruna.link/install/explained
 # One-liner: /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/install/macos.utm.sh)"
 
@@ -209,17 +209,8 @@ else
   die "Homebrew installation failed -- 'brew' not found on PATH."
 fi
 
-# --- REGION: Homebrew health repair (multi-user host)
-# A fresh macOS user account on a host where Homebrew was installed by a
-# different account inherits a /opt/homebrew with mixed ownership AND
-# (often) no .git directory (tarball install). Every subsequent brew op
-# then either fails outright (`not writable`, `Can't create brew update
-# lock`) or spams the "fatal: not in a git directory" + "update-report
-# should not be called directly!" cascade triggered by Homebrew's
-# internal auto-update inside every `brew install` / `brew upgrade`.
-# Repair on this run instead of asking the operator. sudo creds are
-# already cached from the earlier `sudo -v`, so this is silent on a
-# correctly-installed host (the writability test short-circuits to no-op).
+# --- REGION: https://yuruna.link/install/explained#multi-user-homebrew-ownership-repair
+# Best-effort ownership/.git repair; sudo already cached, no-op on a healthy prefix.
 BREW_PREFIX="$(brew --prefix 2>/dev/null || true)"
 if [[ -z "$BREW_PREFIX" ]]; then
   if   [[ -x /opt/homebrew/bin/brew ]]; then BREW_PREFIX=/opt/homebrew
@@ -395,18 +386,8 @@ stop_yuruna_processes() {
     fi
   done
 
-  # Dedupe, drop our own pid, and IDENTITY-VALIDATE each candidate: keep only
-  # PIDs whose executable is actually a PowerShell interpreter. Every real
-  # target (runner / inner / detached status server) is pwsh; a PID read from a
-  # PID file a crashed run left behind holds a raw integer the kernel may since
-  # have RECYCLED to an unrelated process, and on the `-c "<script>"` /
-  # `bash <(...)` launch a pgrep -f pattern can even match THIS installer or its
-  # sudo-keepalive subshell (the script text carries the .ps1 names in argv).
-  # Killing such a match could reap this installer's own log `tee` (-> SIGPIPE ->
-  # the installer dies; there is no PIPE trap) or its sudo keepalive. Gating on
-  # the executable name (comm) -- `pwsh` for every real target, `bash`/`tee`/
-  # `sleep`/... for everything we must NOT touch -- closes that. Mirrors the
-  # PowerShell side's PID-identity check (Invoke-TestRunner.ps1 stale-pid guard).
+  # --- REGION: https://yuruna.link/install/explained#pid-identity-validation-before-kill
+  # Keep only pids whose executable (comm) is pwsh; never kill a recycled or self-matched pid.
   local -a uniq_pids=()
   local seen=" " pcomm
   for pid in "${target_pids[@]:-}"; do

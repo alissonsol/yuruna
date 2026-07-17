@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.14
+.VERSION 2026.07.17
 .GUID 42a2b3c4-d5e6-4f78-9012-3a4b5c6d7e8f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -824,12 +824,23 @@ function Get-ExternalNetwork {
     # or 'yuruna-external' if defined) is preferred when present; otherwise
     # fall back to the built-in NAT 'default' network. Callers compare the
     # returned name to the cache VM's interface in Test-CacheVMOnExternalNetwork.
+    #
+    # Only ACTIVE networks qualify: virt-install refuses an inactive
+    # network at create time, and a failed bridge build can leave
+    # 'yuruna-external' defined but deliberately stopped (see
+    # New-YurunaExternalNetwork's rebuild-failure branch). Attaching a
+    # guest to that network would strand it with no DHCP, so a candidate
+    # that is defined but inactive is skipped with a pointer at the fix.
     $candidates = @()
     if ($Env:YURUNA_EXTERNAL_NETWORK) { $candidates += $Env:YURUNA_EXTERNAL_NETWORK }
     $candidates += @('yuruna-external', 'default')
+    $active  = Invoke-Virsh -VirshArgs @('net-list', '--name')
     $defined = Invoke-Virsh -VirshArgs @('net-list', '--all', '--name')
     foreach ($c in $candidates) {
-        if ($defined -contains $c) { return $c }
+        if ($active -contains $c) { return $c }
+        if ($defined -contains $c) {
+            Write-Warning "libvirt network '$c' is defined but not active -- skipping it. Start it with 'virsh -c qemu:///system net-start $c', or re-run test/Start-CachingProxy.ps1 to rebuild/heal it."
+        }
     }
     return 'default'
 }
@@ -882,6 +893,41 @@ function Test-YurunaIfaceIsWifi {
     return (Test-Path "/sys/class/net/$Iface/wireless")
 }
 
+# Internal. The reason $Iface cannot serve as a bridge's uplink port,
+# or '' when it can. Only plain wired Ethernet works: bond/vlan/tunnel
+# devices need their own netplan sections (declaring them under
+# ethernets: misrenders or is rejected), and a name with characters
+# outside the safe set would inject into the generated netplan yaml.
+# Wi-Fi is checked separately by callers (it has its own operator-facing
+# message).
+function Get-YurunaIfaceBridgeBlocker {
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([Parameter(Mandatory)][string]$Iface)
+    if ($Iface -notmatch '^[A-Za-z0-9_.-]+$') {
+        return "its name contains characters that are unsafe to embed in netplan/nmcli configuration"
+    }
+    $typePath = "/sys/class/net/$Iface/type"
+    if (Test-Path -LiteralPath $typePath) {
+        $ifType = "$(Get-Content -LiteralPath $typePath -ErrorAction SilentlyContinue | Select-Object -First 1)".Trim()
+        # ARPHRD_ETHER == 1; anything else (tun/wireguard/ppp/...) cannot
+        # be a bridge port.
+        if ($ifType -ne '1') { return "it is not an Ethernet-framed interface (ARPHRD type $ifType)" }
+    }
+    if (Test-Path -LiteralPath "/sys/class/net/$Iface/bonding") {
+        return "it is a bond master (bonds need their own netplan 'bonds:' section)"
+    }
+    $ueventPath = "/sys/class/net/$Iface/uevent"
+    if (Test-Path -LiteralPath $ueventPath) {
+        $devtype = @(Get-Content -LiteralPath $ueventPath -ErrorAction SilentlyContinue) |
+            Where-Object { $_ -match '^DEVTYPE=(.+)$' } | Select-Object -First 1
+        if ($devtype -match '^DEVTYPE=(vlan|bond)$') {
+            return "it is a $($matches[1]) device (declare it in its own netplan section, not as a plain NIC)"
+        }
+    }
+    return ''
+}
+
 # Internal. If $Iface is already a slave of a Linux bridge, return the
 # bridge name; otherwise $null. /sys/class/net/<iface>/master is the
 # canonical kernel pointer for bridge membership.
@@ -899,6 +945,119 @@ function Get-YurunaIfaceBridgeMaster {
     return $null
 }
 
+# Internal. The MAC address currently on $Iface, or '' when unreadable.
+# /sys/class/net/<iface>/address is the kernel's canonical view.
+function Get-YurunaNicMac {
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([Parameter(Mandatory)][string]$Iface)
+    $macPath = "/sys/class/net/$Iface/address"
+    if (-not (Test-Path -LiteralPath $macPath)) { return '' }
+    $mac = (Get-Content -LiteralPath $macPath -ErrorAction SilentlyContinue | Select-Object -First 1)
+    if (-not $mac) { return '' }
+    return "$mac".Trim()
+}
+
+# Internal. The Linux bridge name a libvirt network is backed by
+# (its <bridge name='...'/> element), or $null when the network has no
+# bridge element or virsh cannot dump it.
+function Get-YurunaLibvirtNetworkBridge {
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([Parameter(Mandatory)][string]$NetworkName)
+    $xmlLines = Invoke-Virsh -VirshArgs @('net-dumpxml', $NetworkName)
+    foreach ($line in $xmlLines) {
+        if ($line -match "<bridge\s+name='([^']+)'") { return $matches[1] }
+    }
+    return $null
+}
+
+# Internal. True iff the libvirt network attaches guests to a HOST
+# bridge (<forward mode='bridge'/>). NAT/routed/isolated networks also
+# carry a <bridge name='virbrN'/> element, but that bridge is
+# libvirt-owned and legitimately has no physical uplink -- libvirt's own
+# dnsmasq serves DHCP on it directly -- so bridge-health probes and
+# rebuilds must never touch it.
+function Test-YurunaLibvirtNetworkIsBridgeMode {
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param([Parameter(Mandatory)][string]$NetworkName)
+    $xmlLines = Invoke-Virsh -VirshArgs @('net-dumpxml', $NetworkName)
+    foreach ($line in $xmlLines) {
+        if ($line -match "<forward\s+mode='bridge'") { return $true }
+    }
+    return $false
+}
+
+# Internal. The name of the NM connection currently ACTIVE on $Nic, or
+# $Nic itself when none is found (best-effort fallback so operator
+# recipes always show something actionable). Stock profiles are rarely
+# named after the device ("Wired connection 1", "netplan-eno1"), and a
+# recipe pointing at a nonexistent profile fails at the exact moment
+# the operator is disconnected.
+function Get-YurunaNicActiveProfileName {
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([Parameter(Mandatory)][string]$Nic)
+    if (-not (Get-Command nmcli -ErrorAction SilentlyContinue)) { return $Nic }
+    $activeName = (& nmcli -t -f NAME,DEVICE connection show --active 2>$null |
+                   Where-Object { $_ -match "^([^:]+):$([regex]::Escape($Nic))`$" } |
+                   ForEach-Object { ($_ -split ':', 2)[0] } |
+                   Select-Object -First 1)
+    if ($activeName) { return $activeName }
+    return $Nic
+}
+
+# Internal, pure. The operator rollback recipe for a (half-)built
+# bridge. Ordered so connectivity is RESTORED before artifacts are torn
+# down: an operator following it over SSH must not lose the session at
+# step 1 with the restoring steps still unrun (activating the NIC's own
+# profile detaches it from the bridge, so the later deletes are safe).
+function Get-YurunaBridgeRollbackRecipe {
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        [Parameter(Mandatory)][string]$BridgeName,
+        [Parameter(Mandatory)][string]$Nic,
+        [Parameter(Mandatory)][string]$NicProfile
+    )
+    return @"
+Rollback (run ALL of these, in this order -- connectivity first, so an
+SSH session survives; each is a no-op when its artifact is absent):
+  sudo nmcli device set '$Nic' managed yes
+  sudo nmcli connection modify '$NicProfile' connection.autoconnect yes
+  sudo nmcli connection up '$NicProfile'
+  sudo nmcli connection delete '$BridgeName' '$BridgeName-slave-$Nic'
+  sudo rm -f /etc/netplan/99-yuruna-external.yaml && sudo netplan apply
+  sudo ip link delete '$BridgeName'
+"@
+}
+
+# Internal. Stop (never undefine) $NetworkName when it is running --
+# called when its backing host bridge is unusable and was not rebuilt.
+# Get-ExternalNetwork only offers ACTIVE networks to guests, so stopping
+# is what actually steers them to the NAT 'default' fallback instead of
+# stranding them on a bridge that can never DHCP.
+function Stop-YurunaUnusableExternalNetwork {
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute(
+        'PSUseShouldProcessForStateChangingFunctions', '',
+        Justification = 'Private helper invoked from New-YurunaExternalNetwork''s failure paths; the public caller already gates via SupportsShouldProcess. Adding ShouldProcess here would double-prompt.')]
+    [CmdletBinding()]
+    [OutputType([void])]
+    param([Parameter(Mandatory)][string]$NetworkName)
+    $running = Invoke-Virsh -VirshArgs @('net-list', '--name')
+    if ($running -contains $NetworkName) {
+        Invoke-Virsh -VirshArgs @('net-destroy', $NetworkName) | Out-Null
+        if ($LASTEXITCODE -eq 0) {
+            Write-Warning "Stopped libvirt network '$NetworkName' (its host bridge is unusable). Guests fall back to NAT 'default' until a re-run rebuilds the bridge."
+        } else {
+            Write-Warning "Could not stop libvirt network '$NetworkName' (virsh net-destroy exit $LASTEXITCODE) -- it stays ACTIVE on an unusable bridge, and guests attached to it will not get DHCP."
+        }
+    } else {
+        Write-Warning "libvirt network '$NetworkName' remains defined but inactive; guests fall back to NAT 'default' until a re-run rebuilds the bridge."
+    }
+}
+
 # Internal. True iff NetworkManager is installed AND running. Two checks
 # rather than one: `command -v nmcli` can be present without NM active
 # (the binary survives an `apt purge network-manager-runtime`), and a
@@ -910,6 +1069,35 @@ function Test-YurunaNetworkManagerActive {
     if (-not (Get-Command nmcli -ErrorAction SilentlyContinue)) { return $false }
     $state = & nmcli -t -f RUNNING general 2>$null
     return ("$state".Trim() -eq 'running')
+}
+
+# Internal. True iff NetworkManager actually MANAGES $Nic -- not merely that
+# the NM daemon is running. On Ubuntu Server the netplan renderer defaults to
+# systemd-networkd, so NM can be RUNNING yet manage zero devices: every NIC
+# shows STATE 'unmanaged' in `nmcli device status`. Building a bridge with
+# nmcli then adds the connection profiles fine but `nmcli connection up
+# <bridge>` fails with "Failed to find a compatible device for this
+# connection", and the cache silently falls back to NAT. So the bridge-backend
+# choice must key off management of the target NIC, not the daemon's presence.
+# The $StatusLines seam lets the classification be unit-tested without a live
+# nmcli; omitted, it queries `nmcli -t -f DEVICE,STATE device status` live.
+function Test-YurunaNicManagedByNetworkManager {
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param(
+        [Parameter(Mandatory)][string]$Nic,
+        [Parameter()][AllowNull()][string[]]$StatusLines
+    )
+    if ($null -eq $StatusLines) {
+        if (-not (Get-Command nmcli -ErrorAction SilentlyContinue)) { return $false }
+        $StatusLines = @(& nmcli -t -f DEVICE,STATE device status 2>$null)
+    }
+    # Terse rows are 'DEVICE:STATE' (e.g. 'eno1:connected', 'eno1:unmanaged').
+    $line = @($StatusLines) | Where-Object { $_ -match "^$([regex]::Escape($Nic)):" } | Select-Object -First 1
+    if (-not $line) { return $false }          # NM doesn't list it -> NM doesn't manage it
+    # Every NM device state EXCEPT 'unmanaged' (unavailable/disconnected/
+    # connecting/connected/...) means NM will bind + build on the NIC.
+    return ($line -notmatch ':unmanaged(\b|$)')
 }
 
 function Test-NetworkManagerCrashedRecently {
@@ -973,62 +1161,312 @@ function Write-YurunaNmcliFailure {
     }
 }
 
+# Internal. Remove every stranded artifact a failed bridge bring-up can
+# leave behind, so the next build starts from a truly clean slate. A
+# half-built bridge strands THREE kinds of state, each from a different
+# backend, and any one of them makes the next attempt fail in a new way:
+#   * NM connection profiles ('$BridgeName' / '$BridgeName-slave-*'):
+#     re-adding on top of them errors out, and feeding NM conflicting
+#     profiles can trigger its nm-settings-utils.c assertion crash.
+#   * the netplan file (99-yuruna-external.yaml): systemd-networkd keeps
+#     claiming the bridge + NIC, and netplan's generated udev rule marks
+#     them NM_UNMANAGED -- which makes `nmcli connection up <bridge>`
+#     fail with "Failed to find a compatible device for this connection".
+#   * the kernel bridge device itself: deleting the NM profile or the
+#     netplan file does NOT remove an already-created device, and a
+#     same-named device NM does not manage also produces that same
+#     "no compatible device" nmcli failure.
+# Callers invoke this ONLY when $Nic is not enslaved to $BridgeName, so
+# nothing removed here can be carrying the host's connectivity: an
+# uplink-less bridge forwards no traffic by construction.
+function Clear-YurunaExternalBridgeResidue {
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute(
+        'PSUseShouldProcessForStateChangingFunctions', '',
+        Justification = 'Private helper invoked from New-YurunaExternalNetwork''s build path, which already gates via SupportsShouldProcess. Adding ShouldProcess here would double-prompt.')]
+    [CmdletBinding()]
+    [OutputType([void])]
+    param(
+        [Parameter(Mandatory)][string]$Nic,
+        [Parameter(Mandatory)][string]$BridgeName
+    )
+    # Safety latches, not just comments: never sweep anything that could
+    # be carrying the host's connectivity.
+    #   * $Nic enslaved to $BridgeName: that bridge IS the host's uplink.
+    #   * $Nic is itself a bridge: the caller mis-resolved (a leftover
+    #     netplan bridge holding the default route after a reboot lands
+    #     here if the reuse checks were skipped) -- deleting it would cut
+    #     the host off with nothing left to restore it.
+    #   * $BridgeName has some OTHER physical port, or holds the default
+    #     route: it is somebody's live bridge (e.g. the default route
+    #     moved to a second NIC between runs while the bridge still
+    #     enslaves the first) -- not residue.
+    if ((Get-YurunaIfaceBridgeMaster -Iface $Nic) -eq $BridgeName) {
+        Write-Warning "Residue sweep skipped: '$Nic' is currently enslaved to '$BridgeName' (the bridge is live)."
+        return
+    }
+    if (Test-Path -LiteralPath "/sys/class/net/$Nic/bridge") {
+        Write-Warning "Residue sweep skipped: '$Nic' is itself a bridge device, not a NIC. Refusing to touch host bridges."
+        return
+    }
+    if (Test-Path -LiteralPath "/sys/class/net/$BridgeName") {
+        if (Test-YurunaBridgeHasUplink -BridgeName $BridgeName) {
+            Write-Warning "Residue sweep skipped: bridge '$BridgeName' has a physical port that is not '$Nic' -- it looks live, not stale. Inspect 'ls /sys/class/net/$BridgeName/brif' and remove it manually if it really is residue."
+            return
+        }
+        $defRouteDev = Get-YurunaDefaultRouteIface
+        if ($defRouteDev -eq $BridgeName) {
+            Write-Warning "Residue sweep skipped: bridge '$BridgeName' holds the host's default route -- it looks live, not stale."
+            return
+        }
+    }
+
+    # 1. Stale NM profiles (a previous nmcli attempt, either as the picked
+    #    backend or as the pre-fallback half of a previous run).
+    if (Get-Command nmcli -ErrorAction SilentlyContinue) {
+        $staleConns = @(& nmcli -t -f NAME connection show 2>$null) |
+            Where-Object { $_ -eq $BridgeName -or $_ -like "$BridgeName-slave-*" }
+        foreach ($sc in $staleConns) {
+            Write-Information "  Residue sweep: deleting stale NetworkManager connection '$sc'."
+            & sudo nmcli connection delete $sc 2>&1 | ForEach-Object { Write-Verbose "$_" }
+        }
+    }
+
+    # 2. Stale netplan definition. Moving the file aside (netplan only
+    #    reads *.yaml, so a .bak is inert -- and it preserves any hand
+    #    edits an operator made) and regenerating drops systemd-networkd's
+    #    on-disk claim AND the udev NM_UNMANAGED rules netplan generated.
+    #    `netplan generate` only rewrites files under /run, though --
+    #    the RUNNING daemons keep their old view until udev re-evaluates
+    #    the devices and networkd reloads, so trigger both explicitly.
+    $netplanPath = '/etc/netplan/99-yuruna-external.yaml'
+    $sweptNetplan = $false
+    if ((Test-Path -LiteralPath $netplanPath) -and (Get-Command netplan -ErrorAction SilentlyContinue)) {
+        Write-Information "  Residue sweep: moving stale netplan file '$netplanPath' to '$netplanPath.bak'."
+        & sudo mv -f $netplanPath "$netplanPath.bak" 2>&1 | ForEach-Object { Write-Verbose "$_" }
+        & sudo netplan generate 2>&1 | ForEach-Object { Write-Verbose "$_" }
+        & sudo udevadm control --reload 2>&1 | ForEach-Object { Write-Verbose "$_" }
+        & sudo udevadm trigger --subsystem-match=net --action=change 2>&1 | ForEach-Object { Write-Verbose "$_" }
+        if (Get-Command networkctl -ErrorAction SilentlyContinue) {
+            & sudo networkctl reload 2>&1 | ForEach-Object { Write-Verbose "$_" }
+        }
+        $sweptNetplan = $true
+    }
+
+    # 3. Stale kernel bridge device. The latches above guarantee this
+    #    device carries no host traffic; any taps still attached belong
+    #    to guests that have no connectivity anyway. Neither `netplan
+    #    apply` nor networkd removes a netdev whose definition vanished,
+    #    so an explicit delete is the only way to clear it.
+    if (Test-Path -LiteralPath "/sys/class/net/$BridgeName") {
+        Write-Information "  Residue sweep: deleting stale kernel bridge device '$BridgeName'."
+        & sudo ip link delete $BridgeName 2>&1 | ForEach-Object { Write-Verbose "$_" }
+        if (Test-Path -LiteralPath "/sys/class/net/$BridgeName") {
+            Write-Warning "  Residue sweep: 'ip link delete $BridgeName' did not remove the device -- the coming build may fail. Check 'ip -d link show $BridgeName'."
+        }
+    }
+
+    # 4. Give the NIC back to NetworkManager when OUR netplan residue is
+    #    what had unmanaged it. Scoped on purpose: if any REMAINING
+    #    netplan file references the NIC (Ubuntu Server's cloud-init
+    #    config, an operator file), networkd is its rightful owner and
+    #    forcing NM onto it would start the exact two-daemon fight the
+    #    sweep exists to end. `nmcli device set managed` is runtime-only
+    #    state, but a previous run's 'managed no' survives for the rest
+    #    of the boot and would silently pin the backend choice to
+    #    netplan on hosts that should use nmcli.
+    if ($sweptNetplan -and (Test-YurunaNetworkManagerActive)) {
+        $nicState = @(& nmcli -t -f DEVICE,STATE device status 2>$null) |
+            Where-Object { $_ -match "^$([regex]::Escape($Nic)):unmanaged(\b|$)" }
+        if ($nicState) {
+            $nicInOtherYaml = $false
+            $otherYamls = @(Get-ChildItem -Path '/etc/netplan' -Filter '*.yaml' -ErrorAction SilentlyContinue)
+            foreach ($f in $otherYamls) {
+                $hit = & sudo grep -l -- $Nic $f.FullName 2>$null
+                if ($hit) { $nicInOtherYaml = $true; break }
+            }
+            if (-not $nicInOtherYaml) {
+                Write-Information "  Residue sweep: returning '$Nic' to NetworkManager management (only our removed netplan file had claimed it)."
+                & sudo nmcli device set $Nic managed yes 2>&1 | ForEach-Object { Write-Verbose "$_" }
+            }
+        }
+    }
+}
+
+# Internal. True iff $BridgeName has at least one physical (non-tap)
+# port. Tap ports (vnetN/tapN) are guest-side only; without a physical
+# port the bridge has no path to the upstream LAN/DHCP server.
+function Test-YurunaBridgeHasUplink {
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param([Parameter(Mandatory)][string]$BridgeName)
+    $brifDir = "/sys/class/net/$BridgeName/brif"
+    if (-not (Test-Path -LiteralPath $brifDir)) { return $false }
+    $ports = @(Get-ChildItem -LiteralPath $brifDir -ErrorAction SilentlyContinue |
+               Where-Object { $_.Name -notmatch '^(vnet|tap)\d+$' })
+    return ($ports.Count -gt 0)
+}
+
+# Internal. Wait until $BridgeName has a physical uplink port -- or, when
+# -Nic is given, until that specific NIC is enslaved. $true on success.
+# Wall-clock deadline (not an iteration count): the per-iteration probes
+# add their own latency, so a counted loop would stretch past the budget.
+function Wait-YurunaBridgeUplink {
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param(
+        [Parameter(Mandatory)][string]$BridgeName,
+        [string]$Nic,
+        [int]$TimeoutSeconds = 10
+    )
+    $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
+    while ($true) {
+        if ($Nic) {
+            if (Test-Path -LiteralPath "/sys/class/net/$BridgeName/brif/$Nic") { return $true }
+        } elseif (Test-YurunaBridgeHasUplink -BridgeName $BridgeName) {
+            return $true
+        }
+        if ((Get-Date) -ge $deadline) { return $false }
+        Start-Sleep -Milliseconds 500
+    }
+}
+
 # --- REGION: https://yuruna.link/memory#why-the-libvirt-bridge-self-heal-probes-brif-and-activates-the-slave
 function Repair-YurunaExternalBridgeSlave {
+    <#
+    .SYNOPSIS
+        Probe the host bridge behind a libvirt network; heal a missing
+        physical uplink, or report that the caller must rebuild.
+    .DESCRIPTION
+        A previous bring-up can leave the bridge half-built regardless of
+        backend: the NM bridge connection up but the slave never
+        activated, or the netplan definition applied but the NIC never
+        released by NetworkManager. Either way the libvirt network looks
+        fine to virsh while guests on it never get DHCP leases, because
+        the bridge has no path to the upstream DHCP server. This probes
+        /sys/class/net/<bridge>/brif for a physical (non-tap) port and,
+        when it is missing, heals with the backend that owns the bridge:
+          * netplan definition present -> release the NIC from
+            NetworkManager if it still holds it, re-run `netplan apply`,
+            and wait for enslavement;
+          * otherwise -> activate the NM bridge-slave connection(s)
+            whose connection.master is the bridge.
+        Healing may briefly flap the host's LAN session (the NIC migrates
+        onto the bridge), same as the original build.
+    .OUTPUTS
+        [string] 'healthy' (uplink present), 'healed' (uplink restored),
+        or 'rebuild' (bridge device missing, or uplink unrecoverable --
+        the caller must rebuild the bridge from scratch).
+    #>
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute(
         'PSUseShouldProcessForStateChangingFunctions', '',
         Justification = 'Private helper invoked from New-YurunaExternalNetwork only when its idempotency branch detects a half-built bridge. The user-facing caller (Start-CachingProxy.ps1) already opted in to network-changing behavior via New-YurunaExternalNetwork''s SupportsShouldProcess. Adding ShouldProcess here would double-prompt.')]
     [CmdletBinding()]
-    [OutputType([void])]
+    [OutputType([string])]
     param([Parameter(Mandatory)][string]$NetworkName)
 
-    if (-not (Test-YurunaNetworkManagerActive)) { return }
+    # Only <forward mode='bridge'/> networks are backed by a host bridge
+    # this module owns. NAT/routed/isolated networks also carry a
+    # <bridge name='virbrN'/> element, but that bridge is libvirt's own
+    # (dnsmasq serves DHCP on it; no physical uplink by design) --
+    # probing or rebuilding it would tear a WORKING network down.
+    if (-not (Test-YurunaLibvirtNetworkIsBridgeMode -NetworkName $NetworkName)) { return 'healthy' }
 
-    $xmlLines = Invoke-Virsh -VirshArgs @('net-dumpxml', $NetworkName)
-    $bridgeName = $null
-    foreach ($line in $xmlLines) {
-        if ($line -match "<bridge\s+name='([^']+)'") { $bridgeName = $matches[1]; break }
+    $bridgeName = Get-YurunaLibvirtNetworkBridge -NetworkName $NetworkName
+    if (-not $bridgeName) { return 'healthy' }   # no bridge element; nothing to probe
+
+    if (-not (Test-Path -LiteralPath "/sys/class/net/$bridgeName/brif")) {
+        Write-Warning "Bridge '$bridgeName' (referenced by libvirt network '$NetworkName') does not exist on the host -- it must be rebuilt."
+        return 'rebuild'
     }
-    if (-not $bridgeName) { return }
+    if (Test-YurunaBridgeHasUplink -BridgeName $bridgeName) { return 'healthy' }
 
-    $brifDir = "/sys/class/net/$bridgeName/brif"
-    if (-not (Test-Path -LiteralPath $brifDir)) {
-        Write-Warning "Bridge '$bridgeName' (referenced by libvirt network '$NetworkName') does not exist on the host. Falling through; New-YurunaExternalNetwork's bridge-build path will rebuild it."
-        return
-    }
-    $ports = @(Get-ChildItem -LiteralPath $brifDir -ErrorAction SilentlyContinue |
-               Where-Object { $_.Name -notmatch '^(vnet|tap)\d+$' })
-    if ($ports.Count -gt 0) { return }  # bridge has a real uplink already
+    Write-Warning "Bridge '$bridgeName' has no physical uplink (only tap ports attached). Self-healing..."
 
-    Write-Warning "Bridge '$bridgeName' has no physical uplink (only tap ports attached). Self-healing: activating the matching bridge-slave NM connection..."
-
-    # Find slave NM connection(s) whose connection.master equals our
-    # bridge. `nmcli -g connection.master c show <name>` returns just
-    # the value (empty for non-slaves), avoiding colon-escaping issues
-    # in NAME fields.
-    $slaveConns = @()
-    $allNames = @(& nmcli -g NAME c show 2>$null | Where-Object { $_ })
-    foreach ($n in $allNames) {
-        $master = (& nmcli -g connection.master c show $n 2>$null | Select-Object -First 1)
-        if ($master -and ("$master".Trim() -eq $bridgeName)) {
-            $slaveConns += $n
+    # Heal 1: the bridge is netplan-declared. The usual reason the uplink
+    # is missing here is that NetworkManager never released the NIC to
+    # systemd-networkd, so release it explicitly, then re-apply. The
+    # netplan file is root-owned 600 -- read it via sudo.
+    $netplanPath = '/etc/netplan/99-yuruna-external.yaml'
+    if ((Test-Path -LiteralPath $netplanPath) -and (Get-Command netplan -ErrorAction SilentlyContinue)) {
+        $netplanText = (& sudo cat $netplanPath 2>$null) -join "`n"
+        if ($netplanText -match [regex]::Escape($bridgeName)) {
+            $nic = $null
+            if ($netplanText -match 'interfaces:\s*\[\s*([^\]\s,]+)') { $nic = $matches[1] }
+            # A MAC pin in the yaml only applies when the device is
+            # CREATED ([NetDev] MACAddress is not retro-fitted), so a
+            # bridge that already exists with a generated MAC would keep
+            # it after a re-apply and the host would renumber. Rebuild
+            # instead: the sweep deletes the device and the fresh build
+            # pins the NIC's MAC at creation.
+            if ($nic) {
+                $nicMac = Get-YurunaNicMac -Iface $nic
+                $brMac  = Get-YurunaNicMac -Iface $bridgeName
+                if ($nicMac -and $brMac -and ($nicMac -ne $brMac)) {
+                    Write-Warning "Self-heal: bridge '$bridgeName' carries MAC $brMac while its uplink NIC '$nic' has $nicMac -- healing in place would leave the host renumbered. Rebuilding the bridge instead."
+                    return 'rebuild'
+                }
+            }
+            $released = $false
+            if ($nic -and (Test-YurunaNicManagedByNetworkManager -Nic $nic)) {
+                Write-Information "Self-heal: releasing '$nic' from NetworkManager (the netplan definition gives it to systemd-networkd)."
+                & sudo nmcli device set $nic managed no 2>&1 | ForEach-Object { Write-Verbose "$_" }
+                $released = $true
+            }
+            Write-Information "Self-heal: re-applying '$netplanPath' (brief outage possible)."
+            & sudo netplan apply 2>&1 | ForEach-Object { Write-Verbose "$_" }
+            if (Wait-YurunaBridgeUplink -BridgeName $bridgeName -Nic $nic) {
+                Write-Information "Self-heal: bridge '$bridgeName' has its LAN uplink again; guests on libvirt network '$NetworkName' will DHCP normally."
+                return 'healed'
+            }
+            # The failed re-apply just put the NIC under the stale
+            # definition (dhcp off, bridge member) without delivering
+            # the uplink -- undo it BEFORE handing back 'rebuild', or
+            # the host sits addressless and the caller's rebuild path
+            # cannot even resolve the default-route NIC. Moving the
+            # yaml aside + re-applying restores whatever the surviving
+            # netplan files declare for the NIC.
+            Write-Warning "Self-heal via netplan did not restore the uplink. Undoing the attempt, then rebuilding the bridge from scratch."
+            & sudo mv -f $netplanPath "$netplanPath.bak" 2>&1 | ForEach-Object { Write-Verbose "$_" }
+            & sudo netplan apply 2>&1 | ForEach-Object { Write-Verbose "$_" }
+            if ($released) {
+                & sudo nmcli device set $nic managed yes 2>&1 | ForEach-Object { Write-Verbose "$_" }
+                & sudo nmcli device connect $nic 2>&1 | ForEach-Object { Write-Verbose "$_" }
+            }
+            # Give the restored config a moment to bring the default
+            # route back, so the rebuild path can resolve the NIC.
+            $routeDeadline = (Get-Date).AddSeconds(20)
+            while (((Get-Date) -lt $routeDeadline) -and -not (Get-YurunaDefaultRouteIface)) {
+                Start-Sleep -Seconds 1
+            }
+            return 'rebuild'
         }
     }
-    if ($slaveConns.Count -eq 0) {
-        Write-Warning "No NM connection has connection.master=$bridgeName. Cannot self-heal -- the cache VM will fail to get an IP. Manual recovery: 'sudo nmcli connection delete $bridgeName' then re-run Start-CachingProxy.ps1 to rebuild from scratch."
-        return
+
+    # Heal 2: NM-built bridge -- activate the bridge-slave connection(s)
+    # whose connection.master equals our bridge. `nmcli -g
+    # connection.master c show <name>` returns just the value (empty for
+    # non-slaves), avoiding colon-escaping issues in NAME fields.
+    if (Test-YurunaNetworkManagerActive) {
+        $slaveConns = @()
+        $allNames = @(& nmcli -g NAME c show 2>$null | Where-Object { $_ })
+        foreach ($n in $allNames) {
+            $master = (& nmcli -g connection.master c show $n 2>$null | Select-Object -First 1)
+            if ($master -and ("$master".Trim() -eq $bridgeName)) {
+                $slaveConns += $n
+            }
+        }
+        foreach ($slave in $slaveConns) {
+            & sudo nmcli connection up $slave 2>&1 | ForEach-Object { Write-Verbose "$_" }
+            if (($LASTEXITCODE -eq 0) -and (Wait-YurunaBridgeUplink -BridgeName $bridgeName)) {
+                Write-Information "Self-heal: activated bridge-slave '$slave'. Bridge '$bridgeName' now has a LAN uplink; guests on libvirt network '$NetworkName' will DHCP normally."
+                return 'healed'
+            }
+            Write-Warning "Self-heal: 'sudo nmcli connection up $slave' did not restore the uplink. Trying any remaining slave candidates..."
+        }
     }
 
-    foreach ($slave in $slaveConns) {
-        & sudo nmcli connection up $slave 2>&1 | ForEach-Object { Write-Verbose "$_" }
-        if ($LASTEXITCODE -eq 0) {
-            Write-Information "Self-heal: activated bridge-slave '$slave'. Bridge '$bridgeName' now has a LAN uplink; guests on libvirt network '$NetworkName' will DHCP normally."
-            return
-        }
-        Write-Warning "Self-heal: 'sudo nmcli connection up $slave' failed (exit $LASTEXITCODE). Trying any remaining slave candidates..."
-    }
-    $slaveList = $slaveConns -join ', '
-    Write-Warning "Self-heal: none of the candidate bridge-slave connections ($slaveList) could be brought up. The cache VM will fail to get an IP. Manual recovery from the host console: 'sudo nmcli connection up <slave>', or delete the bridge with 'sudo nmcli connection delete $bridgeName' and re-run Start-CachingProxy.ps1."
+    Write-Warning "No heal path restored the uplink of '$bridgeName' -- it will be rebuilt from scratch."
+    return 'rebuild'
 }
 
 <#
@@ -1040,27 +1478,32 @@ function Repair-YurunaExternalBridgeSlave {
 .DESCRIPTION
     Idempotent. If $NetworkName is already defined in libvirt, ensures
     it's active + autostart, then runs Repair-YurunaExternalBridgeSlave
-    to self-heal a half-built host bridge (bridge NM connection up but
-    the slave NIC never enslaved -- DHCP loops, guests get no lease).
-    The self-heal is a no-op on a healthy bridge; on a broken one it
-    activates the matching bridge-slave NM connection, which may briefly
-    flap the host's LAN session. Otherwise (network not yet defined):
+    to self-heal a half-built host bridge (uplink NIC never enslaved --
+    DHCP loops, guests get no lease). The self-heal is a no-op on a
+    healthy bridge; on a broken one it re-attaches the uplink through
+    whichever backend owns the bridge (netplan re-apply or NM slave
+    activation), which may briefly flap the host's LAN session -- and
+    when even that is impossible it falls THROUGH to rebuild the bridge
+    from scratch. Otherwise (network not yet defined):
 
       1. Resolves the host's default-route NIC.
       2. Refuses Wi-Fi (most APs filter frames for the bridge-side MAC).
       3. Detects whether the NIC is already a bridge port -- reuses
          that bridge if so (no host networking change).
-      4. Else creates a new bridge ($BridgeName) and moves the NIC
-         onto it via nmcli (preferred) or netplan (fallback). THIS
-         CAUSES A BRIEF NETWORK OUTAGE while DHCP migrates IP from
-         the NIC to the bridge -- callers running over SSH on this NIC
-         should expect their session to drop and require reconnect.
+      4. Else sweeps the residue of any previous half-built attempt
+         (stale NM profiles, stale netplan file, stale bridge device --
+         each makes a fresh build fail differently), then creates a new
+         bridge ($BridgeName) and moves the NIC onto it via nmcli
+         (preferred) or netplan (fallback). THIS CAUSES A BRIEF NETWORK
+         OUTAGE while DHCP migrates IP from the NIC to the bridge --
+         callers running over SSH on this NIC should expect their
+         session to drop and require reconnect.
       5. Defines + starts a libvirt network of type bridge.
 
-    On any failure the function returns $null and logs a clear message;
-    it does NOT attempt to roll back a partial bridge config -- the
-    operator is better positioned to decide whether to clean up or
-    re-run after fixing the upstream problem.
+    On failure the function returns $null after rolling back the
+    half-built bridge state, and -- when the network was already
+    defined -- stops the network so guests fall back to NAT 'default'
+    instead of being attached to a bridge with no uplink.
 
 .OUTPUTS
     The libvirt network name on success ($NetworkName), or $null.
@@ -1114,8 +1557,37 @@ function Get-YurunaExternalNetworkPlan {
     # Step 1: libvirt network already defined?
     $defined = Invoke-Virsh -VirshArgs @('net-list', '--all', '--name')
     if ($defined -contains $NetworkName) {
-        $plan.Action      = 'reuse-network'
-        $plan.Explanation = "libvirt network '$NetworkName' already exists -- it will simply be (re)started and set to autostart. No host networking change."
+        $plan.Action = 'reuse-network'
+        # Probe the backing bridge so the plan is truthful about whether
+        # the run will flap host networking (heal/rebuild) or not. Only
+        # <forward mode='bridge'/> networks are host-bridge-backed --
+        # NAT/routed networks own their virbrN bridge (no physical
+        # uplink by design; dnsmasq serves DHCP on it) and are reused
+        # as-is.
+        if (-not (Test-YurunaLibvirtNetworkIsBridgeMode -NetworkName $NetworkName)) {
+            $plan.Explanation = "libvirt network '$NetworkName' already exists (not host-bridge-backed) -- it will be (re)started and set to autostart. No host networking change."
+            return $plan
+        }
+        $xmlBridge = Get-YurunaLibvirtNetworkBridge -NetworkName $NetworkName
+        if ($xmlBridge) { $plan.BridgeName = $xmlBridge }
+        if (-not $xmlBridge -or (Test-YurunaBridgeHasUplink -BridgeName $xmlBridge)) {
+            $plan.Explanation = "libvirt network '$NetworkName' already exists (bridge uplink verified) -- it will be (re)started and set to autostart. No host networking change."
+        } else {
+            $plan.WillChangeHostNetworking = $true
+            $plan.Nic = Get-YurunaDefaultRouteIface
+            $recipe = if ($plan.Nic) {
+                Get-YurunaBridgeRollbackRecipe -BridgeName $plan.BridgeName -Nic $plan.Nic -NicProfile (Get-YurunaNicActiveProfileName -Nic $plan.Nic)
+            } else {
+                'Rollback recipe: see the Rollback section of host/ubuntu.kvm/guest.caching-proxy/README.md.'
+            }
+            $plan.Explanation = @"
+libvirt network '$NetworkName' already exists but its backing bridge
+('$($plan.BridgeName)') is missing or has NO LAN uplink -- this run will heal
+or rebuild it, causing a brief network outage like the original build.
+
+$recipe
+"@
+        }
         return $plan
     }
 
@@ -1136,12 +1608,33 @@ function Get-YurunaExternalNetworkPlan {
         return $plan
     }
 
-    # Step 3: NIC already a bridge port?
+    # Step 3: NIC already a bridge itself, or a bridge port?
+    if (Test-Path -LiteralPath "/sys/class/net/$nic/bridge") {
+        if (-not (Test-YurunaBridgeHasUplink -BridgeName $nic)) {
+            $plan.Action      = 'fallback-nat'
+            $plan.CanBridge   = $false
+            $plan.Explanation = "Default-route interface '$nic' is a Linux bridge with NO physical uplink (stale route on a dead bridge). Roll it back per host/ubuntu.kvm/guest.caching-proxy/README.md, then re-run. Until then the cache VM will use NAT 'default' (host-only)."
+            return $plan
+        }
+        $plan.Action      = 'reuse-bridge'
+        $plan.BridgeName  = $nic
+        $plan.Explanation = "Default-route interface '$nic' is itself a Linux bridge -- it will be reused as-is. No host networking change."
+        return $plan
+    }
     $existingBridge = Get-YurunaIfaceBridgeMaster -Iface $nic
     if ($existingBridge) {
         $plan.Action      = 'reuse-bridge'
         $plan.BridgeName  = $existingBridge
         $plan.Explanation = "NIC '$nic' is already a port of bridge '$existingBridge' -- it will be reused as-is. No host networking change."
+        return $plan
+    }
+
+    # Step 3.5: only plain wired Ethernet can back the bridge.
+    $blocker = Get-YurunaIfaceBridgeBlocker -Iface $nic
+    if ($blocker) {
+        $plan.Action      = 'fallback-nat'
+        $plan.CanBridge   = $false
+        $plan.Explanation = "Default-route NIC '$nic' cannot back a bridge: $blocker. The cache VM will use NAT 'default' (host-only)."
         return $plan
     }
 
@@ -1173,21 +1666,24 @@ For LAN exposure despite the NM bug, either:
     }
 
     # The bridge would have to be built -- this is the only branch that
-    # perturbs host networking.
+    # perturbs host networking. The rollback recipe names the NIC's REAL
+    # active profile ("Wired connection 1", "netplan-eno1", ...): stock
+    # profiles are rarely named after the device, and a recipe pointing
+    # at a nonexistent profile fails at the exact moment the operator is
+    # disconnected.
+    $nicProfile = Get-YurunaNicActiveProfileName -Nic $nic
     $plan.Action                  = 'create-bridge'
     $plan.WillChangeHostNetworking = $true
     $plan.Explanation = @"
 The host's default-route NIC ($nic) will be moved onto a new Linux bridge
-($BridgeName). The bridge requests a fresh DHCP lease in place of the NIC,
-causing a brief network outage (typically 1-5 s on a responsive DHCP
-server). An SSH session over $nic will likely drop and reconnect once the
-new lease arrives.
+($BridgeName). The bridge clones the NIC's MAC and requests a DHCP lease in
+its place -- normally the SAME IP comes back -- causing a brief network
+outage (typically 1-5 s on a responsive DHCP server). An SSH session over
+$nic will likely drop and reconnect once the lease arrives. Leftovers from
+any previous half-built attempt (NetworkManager profiles, the netplan file,
+a stale '$BridgeName' device) are swept first.
 
-Rollback (NetworkManager):
-  sudo nmcli connection delete '$BridgeName'
-  sudo nmcli connection delete '$BridgeName-slave-$nic'
-  sudo nmcli connection modify '$nic' connection.autoconnect yes
-  sudo nmcli connection up '$nic'
+$(Get-YurunaBridgeRollbackRecipe -BridgeName $BridgeName -Nic $nic -NicProfile $nicProfile)
 "@
     return $plan
 }
@@ -1201,17 +1697,20 @@ Rollback (NetworkManager):
     Idempotent and self-healing. On a host where the libvirt network is
     already defined, returns the network name immediately AFTER checking
     that its backing bridge has a working LAN uplink (a previous bring-up
-    can leave the bridge half-built -- NM bridge connection up, slave
-    never activated -- and guests on it never get DHCP leases). If the
-    bridge is half-built, Repair-YurunaExternalBridgeSlave activates the
-    matching bridge-slave connection.
+    can leave the bridge half-built -- uplink NIC never enslaved -- and
+    guests on it never get DHCP leases). If the bridge is half-built,
+    Repair-YurunaExternalBridgeSlave re-attaches the uplink via the
+    backend that owns the bridge; if the bridge is unrecoverable it is
+    rebuilt from scratch under the same name.
 
     On a clean host:
       1. Resolves the default-route NIC (refuses Wi-Fi; bridges over Wi-Fi
          don't work for guest traffic the way they do over Ethernet).
-      2. Builds the Linux bridge via NetworkManager (nmcli) or netplan,
-         whichever is active on the host. Brief LAN flap (1-5 s) while
-         DHCP migrates from the bare NIC onto the bridge.
+      2. Sweeps stale residue from previous attempts, then builds the
+         Linux bridge via NetworkManager (nmcli) or netplan -- picked by
+         which backend manages the NIC. Brief LAN flap (1-5 s) while
+         DHCP migrates from the bare NIC onto the bridge (the bridge
+         clones the NIC's MAC, so the same IP normally comes back).
       3. Defines the libvirt network as a forward-mode=bridge interface
          pointing at the new host bridge, sets it autostart, starts it.
 
@@ -1249,32 +1748,55 @@ function New-YurunaExternalNetwork {
     # Fast-return when the libvirt network is already defined -- but
     # NOT before verifying the backing host bridge actually has a LAN
     # uplink. A previous bring-up can leave the bridge half-built
-    # (bridge NM connection up, slave never activated): the libvirt
-    # network looks fine to virsh, but guests on it never get DHCP
-    # leases because the bridge has no path to the upstream DHCP server.
-    # Repair-YurunaExternalBridgeSlave detects + self-heals that state.
+    # (bridge NM connection up, slave never activated; or a netplan
+    # definition NetworkManager never let converge): the libvirt network
+    # looks fine to virsh, but guests on it never get DHCP leases because
+    # the bridge has no path to the upstream DHCP server.
+    # Repair-YurunaExternalBridgeSlave detects + self-heals that state;
+    # when it reports 'rebuild' (bridge device gone, or uplink
+    # unrecoverable) fall THROUGH to the build steps below instead of
+    # returning a network that strands its guests.
     $defined = Invoke-Virsh -VirshArgs @('net-list', '--all', '--name')
-    if ($defined -contains $NetworkName) {
+    $netDefined = $defined -contains $NetworkName
+    if ($netDefined) {
         Write-Information "libvirt network '$NetworkName' already defined."
+        # Under -WhatIf report the network as-is BEFORE any mutation:
+        # even (re)starting it counts -- a previous failed run may have
+        # deliberately stopped it so guests fall back to NAT 'default',
+        # and a preview must not re-arm a dead network.
+        if ($WhatIfPreference) { return $NetworkName }
         $running = Invoke-Virsh -VirshArgs @('net-list', '--name')
         if (-not ($running -contains $NetworkName)) {
             Invoke-Virsh -VirshArgs @('net-start', $NetworkName) | Out-Null
         }
         Invoke-Virsh -VirshArgs @('net-autostart', $NetworkName) | Out-Null
-        Repair-YurunaExternalBridgeSlave -NetworkName $NetworkName
-        return $NetworkName
+        $repair = Repair-YurunaExternalBridgeSlave -NetworkName $NetworkName
+        if ($repair -ne 'rebuild') { return $NetworkName }
+        # Rebuild the bridge under the SAME name the network XML already
+        # references, so the existing definition stays valid.
+        $xmlBridge = Get-YurunaLibvirtNetworkBridge -NetworkName $NetworkName
+        if ($xmlBridge) { $BridgeName = $xmlBridge }
+        Write-Information "Rebuilding host bridge '$BridgeName' for the existing libvirt network '$NetworkName'."
     }
 
     # --- REGION: Step 2: resolve default-route NIC
+    # Every failure exit from here to the build must stop an
+    # already-defined network (Stop-YurunaUnusableExternalNetwork):
+    # the reuse branch above (re)started it BEFORE the bridge proved
+    # unusable, and leaving it active would hand guests a bridge that
+    # can never DHCP them -- the exact wedge the rebuild flow exists to
+    # clear.
     $nic = Get-YurunaDefaultRouteIface
     if (-not $nic) {
         Write-Warning "No IPv4 default route on the host. Cannot create '$NetworkName' bridge -- connect a NIC to the LAN first."
+        if ($netDefined) { Stop-YurunaUnusableExternalNetwork -NetworkName $NetworkName }
         return $null
     }
     Write-Information "Default-route interface: $nic"
 
     if (Test-YurunaIfaceIsWifi -Iface $nic) {
         Write-Warning "Default-route NIC '$nic' is Wi-Fi. Linux bridges over Wi-Fi don't work in 802.11 STA mode -- most APs drop frames for any MAC the radio didn't authenticate, so the cache VM's DHCP request will be silently dropped. Run this on a wired connection."
+        if ($netDefined) { Stop-YurunaUnusableExternalNetwork -NetworkName $NetworkName }
         return $null
     }
 
@@ -1283,9 +1805,30 @@ function New-YurunaExternalNetwork {
     # bridge, reuse it. This keeps the host networking change to zero:
     # we only need to define the libvirt network pointing at the existing
     # bridge. $BridgeName becomes a no-op suggestion in that case.
-    $existingBridge = Get-YurunaIfaceBridgeMaster -Iface $nic
+    # The default-route interface can also BE a bridge already (a
+    # netplan-built bridge holds the route after a reboot) -- reuse it
+    # directly; treating it as a NIC to enslave would try to put a
+    # bridge inside itself.
+    if (Test-Path -LiteralPath "/sys/class/net/$nic/bridge") {
+        # Only a bridge that actually has its uplink is worth reusing. A
+        # dead bridge can still hold a STALE default route (the kernel
+        # keeps routes until the old lease ages out), and reusing it
+        # would attach guests to a bridge that can never DHCP them --
+        # while its real uplink NIC cannot be derived from the route.
+        if (-not (Test-YurunaBridgeHasUplink -BridgeName $nic)) {
+            Write-Warning "Default-route interface '$nic' is a Linux bridge with NO physical uplink (its route is stale). Cannot determine the real uplink NIC. Roll the bridge back per host/ubuntu.kvm/guest.caching-proxy/README.md, then re-run."
+            if ($netDefined) { Stop-YurunaUnusableExternalNetwork -NetworkName $NetworkName }
+            return $null
+        }
+        $existingBridge = $nic
+        Write-Information "Default-route interface '$nic' is itself a Linux bridge. Reusing it (no host networking change)."
+    } else {
+        $existingBridge = Get-YurunaIfaceBridgeMaster -Iface $nic
+        if ($existingBridge) {
+            Write-Information "Interface '$nic' is already a port of bridge '$existingBridge'. Reusing it (no host networking change)."
+        }
+    }
     if ($existingBridge) {
-        Write-Information "Interface '$nic' is already a port of bridge '$existingBridge'. Reusing it (no host networking change)."
         $BridgeName = $existingBridge
     } else {
         # --- REGION: Step 4: build the bridge
@@ -1302,6 +1845,7 @@ function New-YurunaExternalNetwork {
             Write-Warning "  Yuruna fault. Skipping bridge creation to avoid crashing NM again."
             Write-Warning "  Cache VM will use libvirt NAT 'default' (host-only). For LAN exposure,"
             Write-Warning "  upgrade NetworkManager or define 'yuruna-external' manually."
+            if ($netDefined) { Stop-YurunaUnusableExternalNetwork -NetworkName $NetworkName }
             return $null
         }
 
@@ -1311,22 +1855,69 @@ function New-YurunaExternalNetwork {
         # ShouldProcess is kept so a standalone or -Confirm caller still
         # gets a gate; Start-CachingProxy passes -Confirm:$false because it
         # already explained the impact and planned the run.
-        Write-Information "Building Linux bridge '$BridgeName' on NIC '$nic' (brief network outage; rollback recipe was printed in the plan above)."
+        Write-Information "Building Linux bridge '$BridgeName' on NIC '$nic' (brief network outage; rollback recipe: the Step 0 plan above, or the Rollback section of host/ubuntu.kvm/guest.caching-proxy/README.md)."
 
-        if (-not $PSCmdlet.ShouldProcess("$nic + $BridgeName", "Move '$nic' onto new Linux bridge '$BridgeName' (brief network outage)")) {
-            Write-Warning "Bridge creation not confirmed. Cache VM will fall back to libvirt's NAT 'default' network (host-only)."
+        # Only plain wired Ethernet can be enslaved; bond/vlan/tunnel
+        # devices (or a hostile interface name) would produce a broken
+        # netplan yaml or an unactivatable nmcli slave profile.
+        $blocker = Get-YurunaIfaceBridgeBlocker -Iface $nic
+        if ($blocker) {
+            Write-Warning "Default-route NIC '$nic' cannot back the bridge: $blocker. Cache VM will use NAT 'default' (host-only)."
+            if ($netDefined) { Stop-YurunaUnusableExternalNetwork -NetworkName $NetworkName }
             return $null
         }
 
+        if (-not $PSCmdlet.ShouldProcess("$nic + $BridgeName", "Move '$nic' onto new Linux bridge '$BridgeName' (brief network outage)")) {
+            Write-Warning "Bridge creation not confirmed. Cache VM will fall back to libvirt's NAT 'default' network (host-only)."
+            if ($netDefined) {
+                Write-Warning "NOTE: libvirt network '$NetworkName' stays as-is (its bridge is unusable); stop it with 'virsh -c qemu:///system net-destroy $NetworkName' or re-run and confirm the rebuild."
+            }
+            return $null
+        }
+
+        # Refresh the sudo timestamp BEFORE the outage window opens: the
+        # build and its rollbacks issue sudo calls while host networking
+        # flaps, where an expired timestamp would hang an unattended run
+        # on an invisible password prompt. (Start-CachingProxy primes the
+        # cache up-front; this covers standalone callers and long gaps.)
+        & sudo -v 2>&1 | Out-Null
+
+        # Sweep the residue of any previous half-built attempt FIRST --
+        # stale NM profiles, a stale netplan definition, and the stale
+        # kernel bridge device each make a fresh build fail in its own
+        # way (see Clear-YurunaExternalBridgeResidue). Safe here by
+        # construction: $nic is not enslaved (checked above), so nothing
+        # the sweep removes carries the host's connectivity.
+        Clear-YurunaExternalBridgeResidue -Nic $nic -BridgeName $BridgeName
+
+        # Pick the bridge backend by whether NetworkManager actually MANAGES the
+        # NIC -- not merely whether the NM daemon is running. On Ubuntu Server the
+        # default netplan renderer is systemd-networkd, so NM can be running yet
+        # manage no devices; nmcli then builds the bridge PROFILES but
+        # `nmcli connection up` fails with "Failed to find a compatible device for
+        # this connection" and the cache silently drops to NAT (the exact failure
+        # this branch now avoids). netplan (systemd-networkd) is the native backend
+        # there. When NM does manage the NIC (desktop / NM-rendered hosts) nmcli is
+        # correct; fall back to netplan if it fails anyway so a plugin/version quirk
+        # doesn't cost the LAN exposure + pool dashboard.
         $ok = $false
-        if (Test-YurunaNetworkManagerActive) {
+        if ((Test-YurunaNetworkManagerActive) -and (Test-YurunaNicManagedByNetworkManager -Nic $nic)) {
             $ok = New-YurunaBridgeViaNmcli -Nic $nic -BridgeName $BridgeName
+            if (-not $ok) {
+                Write-Warning "  nmcli bridge build failed; falling back to the netplan (systemd-networkd) path."
+                $ok = New-YurunaBridgeViaNetplan -Nic $nic -BridgeName $BridgeName
+            }
         } else {
-            Write-Information "NetworkManager not active -- trying netplan path."
+            if (Test-YurunaNetworkManagerActive) {
+                Write-Information "NetworkManager is running but does not manage '$nic' (systemd-networkd/netplan renderer) -- using the netplan path."
+            } else {
+                Write-Information "NetworkManager not active -- trying netplan path."
+            }
             $ok = New-YurunaBridgeViaNetplan -Nic $nic -BridgeName $BridgeName
         }
         if (-not $ok) {
-            Write-Warning "Bridge creation failed. The host's original NIC config should be unchanged. See messages above for the specific tool error."
+            Write-Warning "Bridge creation failed. The host's original NIC config was restored by the failing backend's rollback. See messages above for the specific tool error."
+            if ($netDefined) { Stop-YurunaUnusableExternalNetwork -NetworkName $NetworkName }
             return $null
         }
     }
@@ -1335,30 +1926,50 @@ function New-YurunaExternalNetwork {
     # libvirt's <forward mode='bridge'/> with a <bridge name='...'/> tells
     # qemu to attach guests directly to the named bridge via a tap; the
     # guest's MAC is visible on the LAN and gets its own DHCP lease.
-    $xmlContent = @"
+    # In the rebuild flow the network is usually already defined and only
+    # needs its definition refreshed when the backing bridge name changed
+    # (the NIC turned up enslaved to a different bridge in Step 3).
+    $needsDefine = -not $netDefined
+    if ($netDefined) {
+        $xmlBridgeNow = Get-YurunaLibvirtNetworkBridge -NetworkName $NetworkName
+        if ($xmlBridgeNow -ne $BridgeName) {
+            $running = Invoke-Virsh -VirshArgs @('net-list', '--name')
+            if ($running -contains $NetworkName) {
+                Invoke-Virsh -VirshArgs @('net-destroy', $NetworkName) | Out-Null
+            }
+            Invoke-Virsh -VirshArgs @('net-undefine', $NetworkName) | Out-Null
+            $needsDefine = $true
+        }
+    }
+    if ($needsDefine) {
+        $xmlContent = @"
 <network>
   <name>$NetworkName</name>
   <forward mode='bridge'/>
   <bridge name='$BridgeName'/>
 </network>
 "@
-    $xmlPath = New-TemporaryFile
-    try {
-        Set-Content -LiteralPath $xmlPath.FullName -Value $xmlContent -NoNewline
-        Invoke-Virsh -VirshArgs @('net-define', $xmlPath.FullName) | Out-Null
-        if ($LASTEXITCODE -ne 0) {
-            Write-Warning "virsh net-define '$NetworkName' failed (exit $LASTEXITCODE)."
-            return $null
+        $xmlPath = New-TemporaryFile
+        try {
+            Set-Content -LiteralPath $xmlPath.FullName -Value $xmlContent -NoNewline
+            Invoke-Virsh -VirshArgs @('net-define', $xmlPath.FullName) | Out-Null
+            if ($LASTEXITCODE -ne 0) {
+                Write-Warning "virsh net-define '$NetworkName' failed (exit $LASTEXITCODE)."
+                return $null
+            }
+        } finally {
+            Remove-Item -LiteralPath $xmlPath.FullName -Force -ErrorAction SilentlyContinue
         }
+    }
+    $running = Invoke-Virsh -VirshArgs @('net-list', '--name')
+    if (-not ($running -contains $NetworkName)) {
         Invoke-Virsh -VirshArgs @('net-start', $NetworkName) | Out-Null
         if ($LASTEXITCODE -ne 0) {
             Write-Warning "virsh net-start '$NetworkName' failed (exit $LASTEXITCODE). Try: sudo virsh -c qemu:///system net-start $NetworkName"
             return $null
         }
-        Invoke-Virsh -VirshArgs @('net-autostart', $NetworkName) | Out-Null
-    } finally {
-        Remove-Item -LiteralPath $xmlPath.FullName -Force -ErrorAction SilentlyContinue
     }
+    Invoke-Virsh -VirshArgs @('net-autostart', $NetworkName) | Out-Null
     Write-Information "libvirt network '$NetworkName' bridged on '$BridgeName' is ready."
     return $NetworkName
 }
@@ -1377,85 +1988,85 @@ function New-YurunaBridgeViaNmcli {
         [Parameter(Mandatory)][string]$BridgeName
     )
     $slaveConn = "$BridgeName-slave-$Nic"
+    # Stale profiles/devices from previous attempts were already removed
+    # by Clear-YurunaExternalBridgeResidue in the caller's build path.
 
-    # Idempotency: a previous attempt -- or a NetworkManager crash
-    # mid-build -- can leave half-created '$BridgeName' /
-    # '$BridgeName-slave-*' connection profiles behind. Re-running
-    # `nmcli connection add` on top of those fails outright, and feeding
-    # NM a duplicate/conflicting profile is itself a trigger for the
-    # nm-settings-utils.c assertion crash. Delete every stale profile
-    # for this bridge first so the build starts from a clean slate.
-    $staleConns = @(& nmcli -t -f NAME connection show 2>$null) |
-        Where-Object { $_ -eq $BridgeName -or $_ -like "$BridgeName-slave-*" }
-    foreach ($sc in $staleConns) {
-        Write-Information "  Removing stale NetworkManager connection '$sc' (leftover from a previous attempt)."
-        & sudo nmcli connection delete $sc 2>&1 | ForEach-Object { Write-Verbose "$_" }
+    # Clone $Nic's MAC onto the bridge IN THE ADD COMMAND, for two
+    # reasons. DHCP identity: with the cloned MAC the bridge takes
+    # $Nic's place in the DHCP server's lease table and the same IP
+    # comes back, so the operator's SSH session and DNS A records
+    # survive the migration. Activation determinism: a later
+    # `connection modify` of the MAC races NM's handling of the
+    # just-added profile -- if NM has already created the device with a
+    # random MAC, re-activating a profile whose MAC no longer matches
+    # the device fails with "Failed to find a compatible device for
+    # this connection". Best-effort: if the MAC is unreadable we build
+    # without the pin and warn (the bridge still works, just with a
+    # fresh IP).
+    $nicMac = Get-YurunaNicMac -Iface $Nic
+    if (-not $nicMac) {
+        Write-Warning "Could not read /sys/class/net/$Nic/address -- not cloning MAC onto bridge. DHCP may return a different IP than '$Nic' currently holds."
     }
 
     # nmcli connection add type bridge -- creates the bridge connection
-    # profile + the kernel bridge interface. stp=no avoids the 30 s
-    # spanning-tree forwarding delay (we have exactly one physical NIC
-    # under this bridge; loops are impossible). ipv4.method=auto +
-    # ipv6.method=auto let the bridge DHCP independently after $Nic's
-    # original IP lease is dropped. nmcli output is captured (not piped
-    # to Write-Verbose) so Write-YurunaNmcliFailure can surface the
-    # verbatim error -- or diagnose a NetworkManager crash -- on failure.
-    $addOut = & sudo nmcli connection add type bridge ifname $BridgeName con-name $BridgeName `
-        bridge.stp no `
-        ipv4.method auto `
-        ipv6.method auto 2>&1
+    # profile. autoconnect=no on BOTH profiles: this build activates each
+    # profile explicitly, in order (bridge, then slave), instead of
+    # letting NM race ahead the moment a profile is added; autoconnect is
+    # switched on at the end, once the bridge verifiably holds its
+    # uplink. stp=no avoids the 30 s spanning-tree forwarding delay (we
+    # have exactly one physical NIC under this bridge; loops are
+    # impossible). ipv4.method=auto + ipv6.method=auto let the bridge
+    # DHCP independently after $Nic's original IP lease is dropped.
+    # nmcli output is captured (not piped to Write-Verbose) so
+    # Write-YurunaNmcliFailure can surface the verbatim error -- or
+    # diagnose a NetworkManager crash -- on failure.
+    $addArgs = @('connection', 'add', 'type', 'bridge',
+        'ifname', $BridgeName, 'con-name', $BridgeName,
+        'autoconnect', 'no',
+        'bridge.stp', 'no',
+        'ipv4.method', 'auto',
+        'ipv6.method', 'auto')
+    if ($nicMac) { $addArgs += @('bridge.mac-address', $nicMac) }
+    $addOut = & sudo nmcli @addArgs 2>&1
     if ($LASTEXITCODE -ne 0) {
         Write-YurunaNmcliFailure -Operation "add bridge connection '$BridgeName'" -NmcliOutput $addOut
         return $false
     }
 
-    # Clone $Nic's MAC onto the bridge BEFORE first activation. Without
-    # this, NM assigns a random locally-administered MAC to the bridge
-    # and the upstream DHCP server hands out a new IP -- breaking the
-    # operator's SSH session and any DNS A records pointing at the host.
-    # With the cloned MAC the bridge takes $Nic's place at the DHCP
-    # server's lease table and the same IP comes back. Best-effort: if
-    # /sys/class/net/<nic>/address is missing or empty we skip and warn
-    # (the bridge still works, just with a fresh IP).
-    $nicMac = $null
-    $macPath = "/sys/class/net/$Nic/address"
-    if (Test-Path -LiteralPath $macPath) {
-        $nicMac = (Get-Content -LiteralPath $macPath -ErrorAction SilentlyContinue | Select-Object -First 1)
-        if ($nicMac) { $nicMac = $nicMac.Trim() }
-    }
-    if ($nicMac) {
-        & sudo nmcli connection modify $BridgeName bridge.mac-address $nicMac 2>&1 |
-            ForEach-Object { Write-Verbose "$_" }
-        if ($LASTEXITCODE -ne 0) {
-            Write-Warning "nmcli: could not set bridge.mac-address=$nicMac on '$BridgeName'. Bridge will still come up, but DHCP may return a different IP than '$Nic' currently holds."
-        }
-    } else {
-        Write-Warning "Could not read $macPath -- not cloning MAC onto bridge. DHCP may return a different IP than '$Nic' currently holds."
-    }
-
     # Attach $Nic as a bridge-slave. This profile is the one NM will
-    # auto-activate at boot to keep the bridge populated.
+    # auto-activate at boot to keep the bridge populated (autoconnect is
+    # enabled at the end of the build).
     $slaveOut = & sudo nmcli connection add type bridge-slave ifname $Nic master $BridgeName `
-        con-name $slaveConn 2>&1
+        con-name $slaveConn autoconnect no 2>&1
     if ($LASTEXITCODE -ne 0) {
         Write-YurunaNmcliFailure -Operation "add bridge-slave connection for '$Nic'" -NmcliOutput $slaveOut
-        # Best effort: delete the orphan bridge profile so a retry is clean.
-        & sudo nmcli connection delete $BridgeName 2>&1 | Out-Null
+        # Delete the orphan bridge profile so a retry (or the netplan
+        # fallback) starts clean.
+        Clear-YurunaExternalBridgeResidue -Nic $Nic -BridgeName $BridgeName
         return $false
     }
 
-    # Disable the existing NIC profile's autoconnect so on reboot the
-    # bridge is the one that activates (not the bare NIC re-grabbing
-    # the LAN IP and starving the bridge of carrier). The OLD active
-    # connection name is whatever NM currently has bound to $Nic --
-    # query and modify in place. If no active connection (NIC was
-    # manually unbound), nothing to disable.
+    # Record which profile currently holds $Nic -- needed twice: the
+    # success epilogue disables its autoconnect (so on reboot the bridge
+    # activates, not the bare NIC re-grabbing the LAN IP and starving
+    # the bridge of carrier), and the failure paths re-activate it so a
+    # failed build NEVER strands the host without networking. It is NOT
+    # modified before activation: the explicit slave 'up' below already
+    # overrides a competing active profile, and touching autoconnect
+    # early opens a window where a failure (or crash) leaves the NIC
+    # with no profile that will ever reconnect it.
     $oldConn = (& nmcli -t -f NAME,DEVICE connection show --active 2>$null |
                 Where-Object { $_ -match "^([^:]+):$Nic`$" } |
                 ForEach-Object { ($_ -split ':', 2)[0] } |
                 Select-Object -First 1)
-    if ($oldConn -and $oldConn -ne $slaveConn -and $oldConn -ne $BridgeName) {
-        & sudo nmcli connection modify $oldConn connection.autoconnect no 2>&1 | Out-Null
+    if ($oldConn -and ($oldConn -eq $slaveConn -or $oldConn -eq $BridgeName)) { $oldConn = $null }
+    $restoreNic = {
+        Write-Warning "  Re-activating '$Nic's original connection so the host keeps its networking."
+        if ($oldConn) {
+            & sudo nmcli connection up $oldConn 2>&1 | ForEach-Object { Write-Verbose "$_" }
+        } else {
+            & sudo nmcli device connect $Nic 2>&1 | ForEach-Object { Write-Verbose "$_" }
+        }
     }
 
     # Activate the bridge profile. This creates the kernel bridge
@@ -1470,13 +2081,13 @@ function New-YurunaBridgeViaNmcli {
     $brUpOut = & sudo nmcli connection up $BridgeName 2>&1
     if ($LASTEXITCODE -ne 0) {
         Write-YurunaNmcliFailure -Operation "bring up bridge '$BridgeName'" -NmcliOutput $brUpOut
-        Write-Warning "  Recover manually: 'sudo nmcli connection up $BridgeName', or remove the"
-        Write-Warning "  half-built bridge with 'sudo nmcli connection delete $BridgeName $slaveConn'."
+        Write-Warning "  Removing the half-built bridge so the netplan fallback (or a re-run) starts clean."
+        Clear-YurunaExternalBridgeResidue -Nic $Nic -BridgeName $BridgeName
         return $false
     }
 
     # Critical: explicitly activate the slave so $Nic actually gets
-    # enslaved to the bridge. The slave profile's autoconnect=yes alone
+    # enslaved to the bridge. The slave profile's autoconnect alone
     # is NOT sufficient when another profile (netplan-<nic>, "Wired
     # connection N", etc.) currently holds $Nic -- NM will not
     # auto-deactivate a competing active profile to satisfy a slave's
@@ -1490,9 +2101,40 @@ function New-YurunaBridgeViaNmcli {
     $slUpOut = & sudo nmcli connection up $slaveConn 2>&1
     if ($LASTEXITCODE -ne 0) {
         Write-YurunaNmcliFailure -Operation "enslave '$Nic' to bridge '$BridgeName'" -NmcliOutput $slUpOut
-        Write-Warning "  Bridge is up but has no physical uplink, so guests would not get DHCP"
-        Write-Warning "  leases. Recover with 'sudo nmcli connection up $slaveConn'."
+        Write-Warning "  Bridge came up but '$Nic' would not enslave -- guests would never get DHCP."
+        Write-Warning "  Removing the half-built bridge so the netplan fallback (or a re-run) starts clean."
+        Clear-YurunaExternalBridgeResidue -Nic $Nic -BridgeName $BridgeName
+        & $restoreNic
         return $false
+    }
+
+    # Trust /sys, not nmcli's exit code, for the state that actually
+    # matters: $Nic present in the bridge's port list.
+    if (-not (Wait-YurunaBridgeUplink -BridgeName $BridgeName -Nic $Nic)) {
+        Write-Warning "  '$Nic' is not in '$BridgeName's port list even though nmcli reported success."
+        Write-Warning "  Removing the half-built bridge so the netplan fallback (or a re-run) starts clean."
+        Clear-YurunaExternalBridgeResidue -Nic $Nic -BridgeName $BridgeName
+        & $restoreNic
+        return $false
+    }
+
+    # The bridge verifiably holds its uplink -- NOW make the layout
+    # boot-persistent: both profiles autoconnect, the bridge pulls its
+    # port up with it (autoconnect-slaves), and the old NIC profile
+    # stops autoconnecting (it would otherwise re-grab the LAN IP at
+    # boot and starve the bridge of its port).
+    & sudo nmcli connection modify $BridgeName connection.autoconnect yes connection.autoconnect-slaves 1 2>&1 |
+        ForEach-Object { Write-Verbose "$_" }
+    if ($LASTEXITCODE -ne 0) {
+        Write-Warning "  Could not enable autoconnect on '$BridgeName' -- the bridge works now but will not self-assemble after a reboot ('sudo nmcli connection up $BridgeName' recovers it)."
+    }
+    & sudo nmcli connection modify $slaveConn connection.autoconnect yes 2>&1 |
+        ForEach-Object { Write-Verbose "$_" }
+    if ($LASTEXITCODE -ne 0) {
+        Write-Warning "  Could not enable autoconnect on '$slaveConn' -- after a reboot run 'sudo nmcli connection up $slaveConn'."
+    }
+    if ($oldConn) {
+        & sudo nmcli connection modify $oldConn connection.autoconnect no 2>&1 | Out-Null
     }
 
     # Wait up to 30 s for the bridge to DHCP. nmcli connection up
@@ -1511,14 +2153,64 @@ function New-YurunaBridgeViaNmcli {
         }
         Start-Sleep -Seconds 1
     }
-    Write-Warning "Bridge '$BridgeName' came up but has no IPv4 lease after 30 s. The libvirt network will still work for guests, but the host won't be able to reach them. Check 'ip -4 addr show $BridgeName' and your DHCP server."
+    Write-Warning "Bridge '$BridgeName' holds its uplink but has no IPv4 lease after 30 s. Guests on it can still DHCP (their requests bridge straight onto the LAN); only host->guest reachability is degraded. Check 'ip -4 addr show $BridgeName' and your DHCP server."
     return $true
+}
+
+# Internal, pure (no side effects): the netplan yaml that moves $Nic
+# onto $BridgeName. Three identity/ownership pins make this yaml behave
+# the same on every host:
+#   * renderer: networkd on each stanza -- a global 'renderer:
+#     NetworkManager' (standard on Ubuntu Desktop) would otherwise turn
+#     these definitions into NM keyfiles, and the build's explicit
+#     NIC handoff to systemd-networkd would then fight the very config
+#     it wrote.
+#   * macaddress: pins the bridge's MAC to the NIC's, so the upstream
+#     DHCP server re-issues the SAME lease the NIC held -- the host
+#     keeps its IP and the operator's SSH session reconnects. Without
+#     the pin, systemd's default MACAddressPolicy=persistent hands the
+#     bridge a generated MAC: the host's IP changes, and MAC-filtering
+#     DHCP setups issue nothing at all. NOTE: [NetDev] MACAddress only
+#     applies at device CREATION -- the bridge device must not already
+#     exist when this yaml is first applied.
+#   * dhcp-identifier: mac -- networkd's DHCPv4 client defaults to a
+#     machine-id-derived DUID, so even with the cloned MAC a server
+#     that keys leases on client-id would renumber the host.
+function Get-YurunaBridgeNetplanYaml {
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        [Parameter(Mandatory)][string]$Nic,
+        [Parameter(Mandatory)][string]$BridgeName,
+        [AllowEmptyString()][string]$Mac = ''
+    )
+    $macLine = if ($Mac) { "`n      macaddress: $Mac" } else { '' }
+    return @"
+network:
+  version: 2
+  ethernets:
+    ${Nic}:
+      renderer: networkd
+      dhcp4: no
+      dhcp6: no
+  bridges:
+    ${BridgeName}:
+      renderer: networkd
+      interfaces: [${Nic}]$macLine
+      dhcp4: yes
+      dhcp-identifier: mac
+      dhcp6: yes
+      parameters:
+        stp: false
+"@
 }
 
 # Internal. Build $BridgeName via netplan, with $Nic as the only port.
 # Returns $true on success. Side effect: writes a new file under
 # /etc/netplan/ and runs `netplan apply`, which renews the lease for the
-# bridge in place of $Nic.
+# bridge in place of $Nic. On failure the netplan change is rolled back,
+# keeping the "returns $false => host NIC config unchanged" contract the
+# caller advertises.
 function New-YurunaBridgeViaNetplan {
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute(
         'PSUseShouldProcessForStateChangingFunctions', '',
@@ -1529,31 +2221,73 @@ function New-YurunaBridgeViaNetplan {
         [Parameter(Mandatory)][string]$Nic,
         [Parameter(Mandatory)][string]$BridgeName
     )
-    # netplan's renderer defaults to systemd-networkd on Ubuntu Server
-    # cloud images. We do NOT set `renderer:` here so we don't force a
-    # backend swap on hosts where the operator picked NetworkManager
-    # explicitly (and Test-YurunaNetworkManagerActive returned false
-    # only because NM was momentarily not running).
+    # Stale profiles/devices from previous attempts were already removed
+    # by Clear-YurunaExternalBridgeResidue in the caller's build path.
+
+    # If NetworkManager currently manages the NIC (this path also runs as
+    # the fallback after a failed nmcli build on an NM host), hand the
+    # NIC off BEFORE apply. netplan's generated udev NM_UNMANAGED rule
+    # only takes effect on the next device event, and in the window
+    # between `netplan apply` restarting systemd-networkd and NM noticing,
+    # both daemons configure the NIC: networkd tries to enslave it while
+    # NM re-activates its profile on it -- and the bridge ends up
+    # uplink-less, so guests never see a DHCP offer. `nmcli device set
+    # managed no` releases the device immediately (runtime-only; the udev
+    # rule makes it stick), and autoconnect off on the bound profile
+    # stops NM re-grabbing it at its next restart.
+    $handedOff = $false
+    $oldConn = $null
+    if (Test-YurunaNicManagedByNetworkManager -Nic $Nic) {
+        $oldConn = (& nmcli -t -f NAME,DEVICE connection show --active 2>$null |
+                    Where-Object { $_ -match "^([^:]+):$Nic`$" } |
+                    ForEach-Object { ($_ -split ':', 2)[0] } |
+                    Select-Object -First 1)
+        if ($oldConn) {
+            & sudo nmcli connection modify $oldConn connection.autoconnect no 2>&1 | Out-Null
+        }
+        Write-Information "  Releasing '$Nic' from NetworkManager (systemd-networkd takes it over on apply)."
+        & sudo nmcli device set $Nic managed no 2>&1 | ForEach-Object { Write-Verbose "$_" }
+        $handedOff = $true
+    }
+
+    # Local rollback: put the host back exactly as it was, so a $false
+    # return never leaves a half-applied netplan layout behind (a stale
+    # one is what makes the NEXT run's nmcli path fail with "no
+    # compatible device"). `netplan apply` -- not merely generate -- is
+    # load-bearing: generate only rewrites files under /run, and the
+    # RUNNING systemd-networkd keeps the ingested bridge-slave/no-DHCP
+    # view of the NIC until told to re-read. On a pure-networkd host
+    # (the primary audience of this backend) apply is the only thing
+    # that re-hands the NIC to the surviving original netplan config and
+    # restores its DHCP; without it a failed build leaves the host
+    # addressless until a manual apply or reboot.
     $netplanPath = "/etc/netplan/99-yuruna-external.yaml"
-    $yaml = @"
-network:
-  version: 2
-  ethernets:
-    ${Nic}:
-      dhcp4: no
-      dhcp6: no
-  bridges:
-    ${BridgeName}:
-      interfaces: [${Nic}]
-      dhcp4: yes
-      dhcp6: yes
-      parameters:
-        stp: false
-"@
+    $rollback = {
+        & sudo rm -f $netplanPath 2>&1 | ForEach-Object { Write-Verbose "$_" }
+        & sudo netplan apply 2>&1 | ForEach-Object { Write-Verbose "$_" }
+        if (Test-Path -LiteralPath "/sys/class/net/$BridgeName") {
+            & sudo ip link delete $BridgeName 2>&1 | ForEach-Object { Write-Verbose "$_" }
+        }
+        if ($handedOff) {
+            & sudo nmcli device set $Nic managed yes 2>&1 | ForEach-Object { Write-Verbose "$_" }
+            if ($oldConn) {
+                & sudo nmcli connection modify $oldConn connection.autoconnect yes 2>&1 | Out-Null
+                & sudo nmcli connection up $oldConn 2>&1 | ForEach-Object { Write-Verbose "$_" }
+            }
+        }
+    }
+
+    # The yaml pins `renderer: networkd` on both stanzas (rationale in
+    # Get-YurunaBridgeNetplanYaml's header): without the pin, a global
+    # 'renderer: NetworkManager' -- standard on Ubuntu Desktop -- would
+    # turn these definitions into NM keyfiles, and the NIC handoff above
+    # would then fight the very config this path just wrote.
+    $yaml = Get-YurunaBridgeNetplanYaml -Nic $Nic -BridgeName $BridgeName -Mac (Get-YurunaNicMac -Iface $Nic)
     # netplan files are root-owned 600; write via sudo+tee.
     $yaml | & sudo tee $netplanPath > $null 2>&1
     if ($LASTEXITCODE -ne 0) {
         Write-Warning "Could not write '$netplanPath'. Are you in the sudo group?"
+        if ($handedOff) { & $rollback }
         return $false
     }
     & sudo chmod 600 $netplanPath 2>&1 | Out-Null
@@ -1563,15 +2297,36 @@ network:
     # the operator's networking stays untouched.
     & sudo netplan generate 2>&1 | ForEach-Object { Write-Verbose "$_" }
     if ($LASTEXITCODE -ne 0) {
-        Write-Warning "netplan generate failed -- the yaml at $netplanPath was rejected. Inspect it and re-run."
+        Write-Warning "netplan generate failed -- the yaml at $netplanPath was rejected. Rolling it back."
+        & $rollback
         return $false
     }
 
     Write-Information "  Applying netplan (brief outage now)..."
     & sudo netplan apply 2>&1 | ForEach-Object { Write-Verbose "$_" }
     if ($LASTEXITCODE -ne 0) {
-        Write-Warning "netplan apply failed. To roll back: sudo rm $netplanPath && sudo netplan apply."
+        Write-Warning "netplan apply failed. Rolling the netplan change back."
+        & $rollback
         return $false
+    }
+
+    # netplan apply returns before systemd-networkd finishes reassembling
+    # the link set, and enslavement of $Nic is what actually makes the
+    # bridge usable -- so verify it in /sys instead of trusting the exit
+    # code. networkd enslaves in well under a second once it owns the
+    # NIC; the wait is generous to ride out a slow daemon restart.
+    if (-not (Wait-YurunaBridgeUplink -BridgeName $BridgeName -Nic $Nic)) {
+        # One forced attempt: enslaving by hand matches exactly what the
+        # netplan config declares, so this cannot fight networkd -- it
+        # only wins the race networkd just lost (usually against a
+        # NetworkManager that had not fully released the NIC yet).
+        Write-Warning "  '$Nic' did not enslave to '$BridgeName' after netplan apply. Forcing enslavement (ip link set)..."
+        & sudo ip link set $Nic master $BridgeName 2>&1 | ForEach-Object { Write-Verbose "$_" }
+        if (-not (Wait-YurunaBridgeUplink -BridgeName $BridgeName -Nic $Nic -TimeoutSeconds 3)) {
+            Write-Warning "Bridge '$BridgeName' has NO uplink port ('$Nic' will not enslave) -- guests on it would never get a DHCP offer. Rolling the netplan change back."
+            & $rollback
+            return $false
+        }
     }
 
     # Wait up to 30 s for the bridge to DHCP. Same wall-clock deadline
@@ -1586,7 +2341,7 @@ network:
         }
         Start-Sleep -Seconds 1
     }
-    Write-Warning "Bridge '$BridgeName' came up but has no IPv4 lease after 30 s. The libvirt network will still work for guests, but the host won't be able to reach them. Check 'ip -4 addr show $BridgeName' and your DHCP server."
+    Write-Warning "Bridge '$BridgeName' holds its uplink but has no IPv4 lease after 30 s. Guests on it can still DHCP (their requests bridge straight onto the LAN); only host->guest reachability is degraded. Check 'ip -4 addr show $BridgeName' and your DHCP server."
     return $true
 }
 

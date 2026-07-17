@@ -43,10 +43,10 @@ const Y = {
     // Bound the request so a stalled daemon cannot hang the page load (and its
     // footer) forever; the abort surfaces as a thrown error the caller's catch
     // already handles. opts.timeoutMs overrides the 10s default.
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), (opts && opts.timeoutMs) || 10000);
+    const controller = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+    const timer = setTimeout(() => { if (controller) controller.abort(); }, (opts && opts.timeoutMs) || 10000);
     try {
-      const res = await fetch(path, Object.assign({}, opts, { signal: controller.signal }));
+      const res = await fetch(path, Object.assign({}, opts, { signal: controller ? controller.signal : undefined }));
       let body = null;
       try { body = await res.json(); } catch (_) { /* non-JSON */ }
       if (!res.ok || (body && body.ok === false)) {

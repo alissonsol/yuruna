@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.14
+.VERSION 2026.07.17
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456740
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -118,7 +118,12 @@ if (Test-Path $PidFile) {
         # (e.g. the freshly-launched outer runner after a reboot).
         if ($proc -and (Test-PidFileIdentity -PidFile $PidFile -Process $proc)) {
             try {
-                $null = Invoke-WebRequest -Uri "http://localhost:$Port/status.json" -TimeoutSec 3 -UseBasicParsing -ErrorAction Stop -Verbose:$false -Debug:$false
+                # Probe the SAME url as the readiness wait below. status.json is
+                # served from the runtime dir (/runtime/status.json), so a probe of
+                # /status.json 404s against a perfectly healthy server -- which
+                # reads here as dead, force-kills it, and relaunches on every call,
+                # making the compare-and-skip below unreachable.
+                $null = Invoke-WebRequest -Uri "http://localhost:$Port/status/" -TimeoutSec 3 -UseBasicParsing -ErrorAction Stop -Verbose:$false -Debug:$false
                 $serverAlive = $true
             } catch {
                 Write-Output "PID $oldPid exists but port $Port is not responding. Replacing server."
@@ -631,6 +636,37 @@ function Send-JsonError {
     `$Response.OutputStream.Write(`$b, 0, `$b.Length)
     `$Response.OutputStream.Close()
 }
+# Re-import a module a route depends on, on demand, when its commands are not in
+# this runspace. The startup imports above are best-effort by design
+# (-ErrorAction SilentlyContinue keeps one bad module from aborting the whole
+# server), but nothing retried them: a runspace that came up without a module
+# answered its routes with a hard 500 for the ENTIRE life of the process -- and
+# this server is long-lived, so the only cure was an operator restart. That is
+# how a peer running Sync-HostConfiguration gets told 'not loaded in the server
+# runspace' and silently falls back to prompting the operator for values this
+# host could have served. Routes call this immediately before they need a
+# command, so the runspace heals on the next request instead.
+function Import-RouteModule {
+    param(
+        [Parameter(Mandatory)][string]`$ModuleRelativePath,
+        [Parameter(Mandatory)][string[]]`$RequiredCommand
+    )
+    `$missing = @(`$RequiredCommand | Where-Object { -not (Get-Command `$_ -ErrorAction SilentlyContinue) })
+    if (`$missing.Count -eq 0) { return `$true }
+    try {
+        Import-Module (Join-Path `$repoRoot `$ModuleRelativePath) -Force -DisableNameChecking -Verbose:`$false -ErrorAction Stop
+    } catch {
+        Write-ServerErr "route module `$ModuleRelativePath failed to import: `$(`$_.Exception.Message)"
+        return `$false
+    }
+    foreach (`$c in `$RequiredCommand) {
+        if (-not (Get-Command `$c -ErrorAction SilentlyContinue)) {
+            Write-ServerErr "route module `$ModuleRelativePath imported but does not export '`$c'."
+            return `$false
+        }
+    }
+    return `$true
+}
 # ``git archive --format=tar.gz HEAD`` streamer shared by the two archive
 # endpoints. `$RepoDir is the tree to archive (framework repo or project/),
 # `$ErrorLabel tags the Write-ServerErr line so a failure is attributable to the
@@ -740,6 +776,21 @@ try {
             # and needs no CORS grant. A '*' here would instead let any foreign
             # web page read every response and, paired with the mutating control
             # routes below, drive cross-site requests against the host.
+            #
+            # Security headers on every response, set once here so no handler
+            # can forget them. This origin serves guest-influenced content
+            # (uploaded logs/diagnostics, dir listings with guest-chosen
+            # names, OCR-derived status.json) next to privileged control
+            # routes, so: nosniff pins each handler's explicit Content-Type,
+            # frame-ancestors 'none' stops clickjacking of the control
+            # buttons, script-src 'self' is the real XSS control (the status
+            # pages load only external yuruna.common.js by design), and
+            # style-src 'unsafe-inline' keeps the declarative style=""
+            # attributes in index.html, the dir-listing page, and the cycle
+            # transcripts rendering. Mirrors the stash-service servePage
+            # header set (test/extension/stash-service/.../handlers.go).
+            `$res.Headers.Add('X-Content-Type-Options', 'nosniff')
+            `$res.Headers.Add('Content-Security-Policy', "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self'; media-src 'self'; object-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'")
             `$path = `$req.Url.LocalPath.TrimStart('/')
             if (`$path -eq '' -or `$path -eq 'status/' -or `$path -eq 'status') { `$path = 'index.html' }
             `$path = `$path -replace '^status[/\\]', ''
@@ -796,7 +847,13 @@ try {
                 # remote-control regression class.
                 if (`$needsHeader) {
                     `$ctlLoopback = `$false
-                    try { `$ctlLoopback = [bool]`$req.RemoteEndPoint.Address.IsLoopback } catch { `$ctlLoopback = `$false }
+                    # IPAddress.IsLoopback is a STATIC method: the instance-property
+                    # form (`$addr.IsLoopback) silently resolves to `$null (it never
+                    # throws, so the catch below cannot save it), which would treat the
+                    # on-host operator as remote and 403 every control action. The
+                    # static call also returns `$true for the IPv4-mapped ::ffff:127.0.0.1
+                    # form a dual-stack listener can surface.
+                    try { `$ctlLoopback = [System.Net.IPAddress]::IsLoopback(`$req.RemoteEndPoint.Address) } catch { `$ctlLoopback = `$false }
                     if (-not `$ctlLoopback) {
                         `$ctlToken = ''
                         try {
@@ -812,7 +869,7 @@ try {
                             -not (Test-YurunaControlProof -Token `$ctlToken -Wire ([string]`$req.Headers['X-Yuruna-Control']))) {
                             `$res.ContentType = 'application/json; charset=utf-8'
                             `$res.Headers.Add('Cache-Control', 'no-store')
-                            Send-JsonError `$res 403 '{"ok":false,"error":"forbidden: control route requires a loopback caller or a valid pool control proof"}'
+                            Send-JsonError `$res 403 '{"ok":false,"error":"follow guidance at https://yuruna.link/control-proof"}'
                             continue
                         }
                     }
@@ -841,6 +898,22 @@ try {
                     }
                     try {
                         `$doc  = Read-TestConfig -Path `$testConfigFile -ThrowOnError
+                        # Redact the secrets node before serialization: this
+                        # route is LAN-readable and must never disclose
+                        # operator secrets (mirrors Hide-SecretsInConfig,
+                        # Test.ConfigSync.psm1). The node stays present-but-
+                        # empty so the tree editor keeps the key; the POST
+                        # path below re-merges the on-disk values so a UI
+                        # save round-trip cannot wipe them. Read-TestConfig
+                        # re-parses per request, so in-place removal is safe.
+                        if (`$doc -is [System.Collections.IDictionary] -and `$doc.Contains('secrets')) {
+                            `$secretsNode = `$doc['secrets']
+                            if (`$secretsNode -is [System.Collections.IDictionary]) {
+                                foreach (`$sk in @(`$secretsNode.Keys)) { `$secretsNode.Remove(`$sk) }
+                            } else {
+                                `$doc['secrets'] = [ordered]@{}
+                            }
+                        }
                         `$json = `$doc | ConvertTo-Json -Depth 20
                         `$bytes = [System.Text.Encoding]::UTF8.GetBytes(`$json)
                     } catch {
@@ -919,6 +992,34 @@ try {
                         `$errMsg = (Escape-JsonString `$cacheIpErr)
                         Send-JsonError `$res 400 ('{"ok":false,"error":"' + `$errMsg + '"}')
                         continue
+                    }
+                    # Re-merge the on-disk secrets node: the GET above serves
+                    # it redacted (present-but-empty) and the UI round-trips
+                    # the whole document, so without this splice a UI save
+                    # would overwrite the stored secrets with the empty node.
+                    # Per key: a posted non-empty value wins (the operator
+                    # typed a new secret in the editor); a missing/empty key
+                    # falls back to what is on disk. Clearing a stored secret
+                    # therefore requires editing the file directly -- the
+                    # trade accepted for making the redacted round-trip safe.
+                    try {
+                        if ((`$parsedDoc -is [System.Collections.IDictionary]) -and (Test-Path -LiteralPath `$testConfigFile)) {
+                            `$diskDoc = Read-TestConfig -Path `$testConfigFile
+                            if (`$diskDoc -is [System.Collections.IDictionary] -and `$diskDoc.Contains('secrets') -and (`$diskDoc['secrets'] -is [System.Collections.IDictionary])) {
+                                `$diskSecrets = `$diskDoc['secrets']
+                                if (-not `$parsedDoc.Contains('secrets') -or -not (`$parsedDoc['secrets'] -is [System.Collections.IDictionary])) {
+                                    `$parsedDoc['secrets'] = `$diskSecrets
+                                } else {
+                                    `$postedSecrets = `$parsedDoc['secrets']
+                                    foreach (`$sk in @(`$diskSecrets.Keys)) {
+                                        `$postedVal = if (`$postedSecrets.Contains(`$sk)) { "`$(`$postedSecrets[`$sk])" } else { '' }
+                                        if ([string]::IsNullOrEmpty(`$postedVal)) { `$postedSecrets[`$sk] = `$diskSecrets[`$sk] }
+                                    }
+                                }
+                            }
+                        }
+                    } catch {
+                        Write-ServerErr "test-config secrets re-merge failed: `$(`$_.Exception.Message)"
                     }
                     `$tmp = "`$testConfigFile.`$PID-`$([guid]::NewGuid().ToString('N')).tmp"
                     `$writeOk = `$false
@@ -1341,6 +1442,31 @@ try {
                 if (`$ipQ) {
                     try { `$ipValid = [bool](Test-IpAddress `$ipQ) } catch { `$ipValid = `$false }
                 }
+                # SSRF containment: the probe makes host-side TCP connects and
+                # an HTTP fetch against the requested target, so only targets
+                # that can plausibly be this lab's cache VM are accepted --
+                # loopback/RFC1918/link-local space or the operator-configured
+                # external cache IP. Public addresses are refused.
+                if (`$ipValid) {
+                    `$ipAllowed = `$false
+                    `$parsedIp = `$null
+                    if ([System.Net.IPAddress]::TryParse(`$ipQ, [ref]`$parsedIp)) {
+                        if ([System.Net.IPAddress]::IsLoopback(`$parsedIp)) { `$ipAllowed = `$true }
+                        elseif (`$parsedIp.AddressFamily -eq [System.Net.Sockets.AddressFamily]::InterNetwork) {
+                            `$b = `$parsedIp.GetAddressBytes()
+                            `$ipAllowed = ((`$b[0] -eq 10) -or
+                                          (`$b[0] -eq 172 -and `$b[1] -ge 16 -and `$b[1] -le 31) -or
+                                          (`$b[0] -eq 192 -and `$b[1] -eq 168) -or
+                                          (`$b[0] -eq 169 -and `$b[1] -eq 254))
+                        }
+                        elseif (`$parsedIp.IsIPv6LinkLocal -or `$parsedIp.IsIPv6UniqueLocal) { `$ipAllowed = `$true }
+                    }
+                    if (-not `$ipAllowed -and `$env:YURUNA_CACHING_PROXY_IP -and (`$ipQ -eq "`$env:YURUNA_CACHING_PROXY_IP".Trim())) { `$ipAllowed = `$true }
+                    if (-not `$ipAllowed) {
+                        Send-JsonError `$res 403 '{"ok":false,"error":"forbidden: probe target must be a private (loopback/RFC1918/link-local) address or the configured cache IP"}'
+                        continue
+                    }
+                }
                 if (-not `$ipValid) {
                     `$payload = [pscustomobject]@{
                         ok                 = `$true
@@ -1495,10 +1621,10 @@ try {
                     `$res.StatusCode = 405
                     `$res.Headers.Add('Allow', 'GET')
                     `$bytes = [System.Text.Encoding]::UTF8.GetBytes('{"ok":false,"error":"method not allowed"}')
-                } elseif (-not (Get-Command Get-PoolStorageServerName -ErrorAction SilentlyContinue) -or
-                          -not (Get-Command Read-TestConfig -ErrorAction SilentlyContinue)) {
+                } elseif (-not (Import-RouteModule -ModuleRelativePath 'test/modules/Test.PoolStorage.psm1' -RequiredCommand 'Get-PoolStorageServerName') -or
+                          -not (Import-RouteModule -ModuleRelativePath 'test/modules/Test.Config.psm1'      -RequiredCommand 'Read-TestConfig')) {
                     `$res.StatusCode = 500
-                    `$bytes = [System.Text.Encoding]::UTF8.GetBytes('{"ok":false,"error":"Test.PoolStorage / Test.Config not loaded in the server runspace"}')
+                    `$bytes = [System.Text.Encoding]::UTF8.GetBytes('{"ok":false,"error":"Test.PoolStorage / Test.Config could not be loaded in the server runspace (see runtime/server.err)"}')
                 } else {
                     try {
                         `$doc = Read-TestConfig -Path (Join-Path `$repoRoot 'test/test.config.yml') -ThrowOnError
@@ -1563,14 +1689,17 @@ try {
                     `$res.Headers.Add('Allow', 'GET')
                 } elseif (-not `$qUser -or -not `$qNonce -or -not `$qProof) {
                     `$vcStatus = 400; `$vcError = 'user, nonce and proof query parameters are required'
-                } elseif (-not (Get-Command Test-ConfigSyncProof -ErrorAction SilentlyContinue) -or
-                          -not (Get-Command Read-TestConfig -ErrorAction SilentlyContinue)) {
-                    `$vcStatus = 500; `$vcError = 'Test.HostConfigSync / Test.Config not loaded in the server runspace'
+                } elseif (-not (Import-RouteModule -ModuleRelativePath 'test/modules/Test.HostConfigSync.psm1' -RequiredCommand 'Test-ConfigSyncProof', 'Protect-ConfigSyncCredential') -or
+                          -not (Import-RouteModule -ModuleRelativePath 'test/modules/Test.Config.psm1'        -RequiredCommand 'Read-TestConfig')) {
+                    `$vcStatus = 500; `$vcError = 'Test.HostConfigSync / Test.Config could not be loaded in the server runspace (see runtime/server.err)'
                 }
                 if (-not `$vcError) {
                     # Lazy authentication-extension load: the vault only has
-                    # to be readable when a peer actually asks.
-                    if (Get-Command Import-Extension -ErrorAction SilentlyContinue) {
+                    # to be readable when a peer actually asks. Import-Extension
+                    # itself comes from a best-effort startup import, so recover
+                    # it the same way rather than reporting the vault as
+                    # unavailable when only its loader went missing.
+                    if (Import-RouteModule -ModuleRelativePath 'test/modules/Test.Extension.psm1' -RequiredCommand 'Import-Extension') {
                         try { `$null = Import-Extension -Area 'authentication' -RequireSingle } catch { `$null = `$_ }
                     }
                     if (-not (Get-Command Get-EffectiveUser -ErrorAction SilentlyContinue) -or
@@ -2027,8 +2156,11 @@ try {
                 # somehow normalized to a parent (won't happen given the
                 # checks above, but layered defence) still can't escape.
                 `$filePath = [System.IO.Path]::GetFullPath((Join-Path `$folderPath `$diagFile))
-                `$logRootFull = [System.IO.Path]::GetFullPath(`$logDir)
-                if (-not `$filePath.StartsWith(`$logRootFull)) {
+                # Separator-anchored prefix: a bare StartsWith would also
+                # admit sibling directories sharing the prefix (log-root
+                # 'log' vs 'log-evil').
+                `$logRootFull = [System.IO.Path]::GetFullPath(`$logDir).TrimEnd([System.IO.Path]::DirectorySeparatorChar) + [System.IO.Path]::DirectorySeparatorChar
+                if (-not `$filePath.StartsWith(`$logRootFull, [System.StringComparison]::Ordinal)) {
                     Send-JsonError `$res 403 '{"ok":false,"error":"path escapes log root"}'
                     continue
                 }
@@ -2164,8 +2296,10 @@ try {
                 }
                 `$uploadTarget = Join-Path `$logDir `$uploadRel
                 `$uploadFull   = [System.IO.Path]::GetFullPath(`$uploadTarget)
-                `$logDirFull   = [System.IO.Path]::GetFullPath(`$logDir)
-                if (-not `$uploadFull.StartsWith(`$logDirFull)) {
+                # Separator-anchored prefix: a bare StartsWith would also
+                # admit sibling directories sharing the prefix.
+                `$logDirFull   = [System.IO.Path]::GetFullPath(`$logDir).TrimEnd([System.IO.Path]::DirectorySeparatorChar) + [System.IO.Path]::DirectorySeparatorChar
+                if (-not `$uploadFull.StartsWith(`$logDirFull, [System.StringComparison]::Ordinal)) {
                     Send-JsonError `$res 403 '{"ok":false,"error":"path escapes log dir"}'
                     continue
                 }
@@ -2313,8 +2447,12 @@ try {
             }
             `$file = Join-Path `$root `$rel
             `$file = [System.IO.Path]::GetFullPath(`$file)
-            `$rootFull = [System.IO.Path]::GetFullPath(`$root)
-            if (-not `$file.StartsWith(`$rootFull)) {
+            `$rootFull = [System.IO.Path]::GetFullPath(`$root).TrimEnd([System.IO.Path]::DirectorySeparatorChar)
+            # Equality is legitimate here (empty `$rel serves the mount's
+            # directory index); the descendant test is separator-anchored so
+            # a sibling directory sharing the prefix (e.g. the repo root vs
+            # a '<repo>-something' checkout next to it) cannot pass.
+            if (-not ((`$file -ceq `$rootFull) -or `$file.StartsWith(`$rootFull + [System.IO.Path]::DirectorySeparatorChar, [System.StringComparison]::Ordinal))) {
                 `$res.StatusCode = 403
                 `$body = [System.Text.Encoding]::UTF8.GetBytes('Forbidden')
                 `$res.OutputStream.Write(`$body, 0, `$body.Length)

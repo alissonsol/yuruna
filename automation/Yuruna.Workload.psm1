@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.14
+.VERSION 2026.07.17
 .GUID 42b0d2e3-f4a5-4678-9012-3b4c5d6e7f80
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -385,8 +385,11 @@ function Publish-WorkloadList {
         }
     }
 
-    # Resources output is expanded for env lookup but not persisted back.
-    Set-ExpandedResourcesOutput -ResourcesOutputYaml $resourcesOutputYaml -EmitDebug
+    # Resources output values go to env verbatim (-NoExpand): they are
+    # terraform outputs plus already-expanded globals, so ExpandString is
+    # a no-op on well-formed data but would execute $(...)/backtick
+    # subexpressions echoed back by cloud resource names or tags.
+    Set-ExpandedResourcesOutput -ResourcesOutputYaml $resourcesOutputYaml -EmitDebug -NoExpand
     # Global variables expanded into env and CACHED back so the second
     # pass (per-deployment) doesn't pay re-expansion cost.
     Set-ExpandedVariableHashtable -Variables $workloadsYaml.globalVariables -DebugLabel 'globalVariables' -CacheExpanded
@@ -452,7 +455,7 @@ function Publish-WorkloadList {
             # Each layer is also pushed to env so ${env:...} references in
             # later layers resolve against the merged state.
             $deploymentVars = [ordered]@{}
-            Set-ExpandedResourcesOutput -ResourcesOutputYaml $resourcesOutputYaml -Sink $deploymentVars
+            Set-ExpandedResourcesOutput -ResourcesOutputYaml $resourcesOutputYaml -Sink $deploymentVars -NoExpand
             Set-ExpandedVariableHashtable -Variables $workloadsYaml.globalVariables -Sink $deploymentVars
             Set-ExpandedVariableHashtable -Variables $workload.variables -Sink $deploymentVars
             Set-ExpandedVariableHashtable -Variables $deployment.variables -Sink $deploymentVars -DebugLabel 'deploymentVariables' -WarnOnEmpty

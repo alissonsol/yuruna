@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.14
+.VERSION 2026.07.17
 .GUID 42a4b5c6-d7e8-4f90-8a12-4b5c6d7e8f90
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -94,5 +94,6 @@ if (-not $pub.Pushed) {
     exit $ExitFailure
 }
 
-Write-Information "Test-set '$Name' ${action}ed on pool '$PoolId' (order=$Order, cycleStrategy=$CycleStrategy)." -InformationAction Continue
+$actionPast = if ($action -eq 'add') { 'added' } else { 'updated' }
+Write-Information "Test-set '$Name' $actionPast on pool '$PoolId' (order=$Order, cycleStrategy=$CycleStrategy)." -InformationAction Continue
 exit $ExitOk

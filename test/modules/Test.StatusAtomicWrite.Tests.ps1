@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.14
+.VERSION 2026.07.17
 .GUID 42b1e7d4-9a3c-4f60-8b2e-5c1d0a9f3e26
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -31,8 +31,8 @@
     via [System.IO.File]::Move(tmp, dst, $true), an in-place rename with no unlink gap
     (MoveFileEx REPLACE_EXISTING on Windows, rename(2) on Unix), off a per-writer unique
     temp. These tests pin: no shared-state publish uses Move-Item (only the server-log
-    rotation may), each publish uses the atomic overload, the formerly fixed-name temps
-    are now unique, and the overwrite overload behaves as relied upon.
+    rotation may), each publish uses the atomic overload, the temp names
+    are unique, and the overwrite overload behaves as relied upon.
 
     The throw-based Assert-* helpers are defined at script scope and referenced from It
     blocks, so this runs under Pester 4.10.1 (Pester 5's scope split hides top-level

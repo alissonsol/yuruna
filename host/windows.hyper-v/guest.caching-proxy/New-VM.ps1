@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.14
+.VERSION 2026.07.17
 .GUID 42f1b2c3-d4e5-4f67-8901-a2b3c4d5e6f8
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -38,6 +38,12 @@
 .PARAMETER VMName
     Name of the Hyper-V VM. Default: caching-proxy
 
+.PARAMETER MacAddress
+    Optional stable MAC for the VM's NIC (AA:BB:CC:DD:EE:FF, dashed, or
+    bare hex). Lets the operator pin the cache IP with a one-time DHCP
+    reservation on the LAN router; without it Hyper-V assigns a fresh
+    dynamic MAC on every rebuild and the lease moves.
+
 .EXAMPLE
     .\Get-Image.ps1
     .\New-VM.ps1
@@ -45,7 +51,9 @@
 
 param(
     [Parameter(Position = 0)]
-    [string]$VMName = "yuruna-caching-proxy"
+    [string]$VMName = "yuruna-caching-proxy",
+    [Parameter()]
+    [string]$MacAddress
 )
 
 if ($VMName -notmatch '^[a-zA-Z0-9._-]+$') {
@@ -58,6 +66,17 @@ $global:ProgressPreference    = "SilentlyContinue"
 
 $commonModulePath = Join-Path -Path (Split-Path -Parent $PSScriptRoot) -ChildPath "modules/Yuruna.Host.psm1"
 Import-Module -Name $commonModulePath -Force
+
+# Normalize the optional stable MAC before any teardown/creation work so a
+# typo'd value stops the run while the previous VM is still intact.
+# ConvertTo-YurunaMacAddress comes from Yuruna.Common (global import above).
+if ($MacAddress) {
+    $MacAddress = ConvertTo-YurunaMacAddress -MacAddress $MacAddress
+    if (-not $MacAddress) {
+        Write-Error "Invalid -MacAddress (see warning above). Nothing was changed."
+        exit 1
+    }
+}
 
 Write-Output "This script requires elevation (Run as Administrator)."
 if (-not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator")) {
@@ -311,11 +330,18 @@ Write-Output ""
 
 # --- REGION: Create and configure Hyper-V VM
 # --- REGION: https://yuruna.link/caching-proxy#cache-vm-sizing
-# 12 GB RAM, 4 vCPU -- same sizing on all three hosts, budgeted around
-# squid's `cache_mem 9 GB`; swap is masked, so undersizing is an
-# unrecoverable OOM.
+# 12 GB RAM, 4 vCPU on all three hosts, budgeted around squid's cache_mem;
+# swap is masked, so undersizing is an unrecoverable OOM.
 Write-Output "Creating new VM '$VMName' on switch '$switchName'..."
 Hyper-V\New-VM -Name $VMName -Generation 2 -MemoryStartupBytes 12GB -SwitchName $switchName -VHDPath $vhdxFile | Out-Null
+if ($MacAddress) {
+    # Pin the NIC's MAC before first start so the very first DHCP request
+    # already carries it -- an operator DHCP reservation keyed to this MAC
+    # then gives the cache VM a known, stable IP across rebuilds.
+    # StaticMacAddress takes bare hex (no separators).
+    Set-VMNetworkAdapter -VMName $VMName -StaticMacAddress ($MacAddress -replace ':', '') | Out-Null
+    Write-Output "  NIC pinned to static MAC $MacAddress"
+}
 Set-VM -Name $VMName -MemoryStartupBytes 12GB -MemoryMinimumBytes 12GB -MemoryMaximumBytes 12GB -AutomaticCheckpointsEnabled $false | Out-Null
 Set-VMMemory -VMName $VMName -DynamicMemoryEnabled $false
 Set-VMFirmware -VMName $VMName -EnableSecureBoot Off | Out-Null

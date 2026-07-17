@@ -43,7 +43,7 @@ GitHub credentials this run doesn't have.
 
 ### Release pinning + signed integrity
 
-`VERSION` (bare CalVer, e.g. `2026.07.14`) is the source of truth for releases.
+`VERSION` (bare CalVer, e.g. `2026.07.17`) is the source of truth for releases.
 At release time `tools/Update-YurunaReleasePins.ps1` regenerates
 `install/install.sha256`, signs it (`install/install.sha256.sig`, RSA-4096),
 runs the ASCII/no-BOM gate as a hard precondition, and bumps the one tag still
@@ -88,9 +88,73 @@ so self-relaunches (UAC elevation, PS5→PS7 bootstrap) do not re-prompt.
 Re-runs of the installer must be able to upgrade installed packages and
 the repository in place. An active Yuruna test run or status server
 would fight with the upgrade for the working tree and port 8080. The
-patterns killed: `Invoke-TestRunner.ps1`, `Invoke-TestInnerRunner.ps1`,
-`Test-Sequence.ps1`, `Start-StatusService.ps1`. Port 8080 is also freed
-if the status server is still holding it.
+installer force-stops the outer runner, its per-cycle inner pwsh, and
+the detached status HTTP server, then WAITS for them to actually exit
+before the repo update renames the checkout aside — the rename fails
+while any of them still holds a handle inside the tree.
+
+Targets are collected from three channels, union-ed so a service is
+caught even when one channel misses it:
+
+1. The PID files the runner/server themselves write (`runner.pid`,
+   `inner.pid`, `server.pid` under the runtime dir). Authoritative, and
+   readable even when the process's command line is not — on Windows a
+   runner started under a different account (e.g. a dedicated
+   "Yuruna Test" user) reports an EMPTY `Win32_Process.CommandLine` to
+   the installer, so the command-line sweep (channel 2) silently skips
+   it; the PID file does not.
+2. Command-line pattern match — catches an ad-hoc runner started
+   outside the managed runtime dir, whose PID-file location can't be
+   predicted. The patterns: `Invoke-TestRunner.ps1`,
+   `Invoke-TestInnerRunner.ps1`, `Test-Sequence.ps1`,
+   `Start-StatusService.ps1`, plus the detached server's generated
+   script name `.status-service.ps1`, which does NOT contain
+   "Start-StatusService.ps1".
+3. The status port's listening owner (the configured port plus the
+   8080 default), so port 8080 is freed even if the status server was
+   started some other way.
+
+On Windows every target is terminated with its whole child tree via
+`taskkill /T /F`. `/F` is a hard TerminateProcess — NOT the soft
+console Ctrl+C that a bare `taskkill` (or a stray `^C`) sends, which
+only flips the runner into "exit after the current cycle" graceful
+shutdown. That graceful path can take many minutes (a full VM cycle)
+to actually exit, and pins the checkout the whole time — the exact
+"the install proceeds while the runner is still up" failure this step
+guards against.
+
+### PID identity validation before kill
+
+Candidate PIDs are deduplicated, the installer's own PID is dropped,
+and each survivor is identity-validated before anything is killed:
+only PIDs whose executable is actually a PowerShell interpreter
+(`pwsh` / `powershell`) are stopped, because every real target — the
+outer runner, the per-cycle inner runner, the detached status server —
+is a PowerShell process.
+
+Two ways an innocent PID reaches the candidate list:
+
+- A PID file left behind by a crashed run holds a raw integer the
+  kernel may since have RECYCLED to an unrelated process; killing that
+  match (on Windows, `taskkill /T /F` on its whole tree) would take
+  out an innocent process.
+- On the `bash <(...)` / `-c "<script>"` launch paths the installer's
+  own script text carries the `.ps1` pattern names in argv, so a
+  `pgrep -f` pattern can match THIS installer itself or its
+  sudo-keepalive subshell. Killing such a match could reap the
+  installer's own log `tee` (SIGPIPE with no PIPE trap installed — the
+  installer dies) or its sudo keepalive.
+
+Gating on the executable name closes both: `pwsh` for every real
+target; `bash` / `tee` / `sleep` / ... for everything that must NOT be
+touched. The bash installers read `ps -o comm=` — the executable name,
+NOT argv, which the launch path contaminates with the pattern names —
+using `-ww` so BSD/macOS `ps` does not truncate the output when no TTY
+is attached (the `feedback_bsd_ps_args_truncation` trap class). An
+empty `comm` for a LIVE pid means `ps` could not report it; the pid is
+kept rather than silently disabling the stop (a degrade to the
+pre-validation behavior). This mirrors the PowerShell side's
+PID-identity check (the `Invoke-TestRunner.ps1` stale-pid guard).
 
 ### Preserve the yuruna-caching-proxy VM
 
@@ -98,6 +162,14 @@ The cache VM (`yuruna-caching-proxy`) holds tens
 of GB of pre-fetched `.deb` / `.iso` content built up across test
 cycles. The installer never stops Hyper-V VMs (no `Stop-VM` / `Remove-VM`
 in any installer), so the cache survives re-runs by default.
+
+The process-stop step above cannot reach VMs either: on Windows each
+VM runs under a `vmwp.exe` worker process parented to the Hyper-V
+management service (`vmms`), not as a child of the runner, so the
+`taskkill /T` process-tree kill never reaches it. On macOS and Ubuntu
+the UTM / libvirt domains are likewise not children of the runner, and
+those installers issue no domain stop/destroy (the macOS UTM quit is
+gated separately on cache preservation, below).
 
 On macOS the detection is two-signal: a TCP-connect probe to the recorded
 cache IP on port 3128 (authoritative, Apple-Events-independent) and a
@@ -451,6 +523,23 @@ build any source-only formula.
 `/usr/local/bin/brew` on Intel. The installer probes both and `eval`s
 the right one so subsequent steps see `brew` on PATH regardless of CPU.
 
+### Multi-user Homebrew ownership repair
+
+A fresh macOS user account on a host where Homebrew was installed by a
+different account inherits a `/opt/homebrew` with mixed ownership AND
+(often) no `.git` directory (tarball-installed Homebrew). Every
+subsequent brew operation then either fails outright (`not writable`,
+`Can't create brew update lock`) or spams the `fatal: not in a git
+directory` + `update-report should not be called directly!` cascade
+triggered by Homebrew's internal auto-update inside every
+`brew install` / `brew upgrade`.
+
+The installer repairs the prefix on the current run instead of asking
+the operator to fix it by hand. sudo credentials are already cached
+from the earlier `sudo -v`, so the repair is silent on a
+correctly-installed host — the writability test short-circuits to a
+no-op.
+
 ### Quit UTM before cask upgrade, preserve cache if running
 
 `brew upgrade --cask utm` requires UTM closed. The installer
@@ -508,9 +597,8 @@ patch the current session.
 ### ERR trap + _yuruna_step tracking
 
 Under `set -euo pipefail` the shell quits silently on the first
-non-zero command. An earlier revision silently aborted right after
-"Refreshing apt index" with no message — the apt-get or apt-cache
-probe failed and the operator had no way to see why.
+non-zero command, leaving the operator with no way to see why a probe
+failed (e.g., after "Refreshing apt index").
 
 `log()` records the current phase in `$_yuruna_step`. The `ERR` trap
 fires before exit and prints the location (`$BASH_LINENO[0]`),
@@ -673,6 +761,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.14
+Last review: 2026.07.17
 
 Back to [Yuruna](../README.md)

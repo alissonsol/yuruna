@@ -16,8 +16,7 @@ multiple machines (different OS/hypervisor combos) with centralized visibility
 needs a coordination + aggregation layer the single-host design never had.
 
 This is a **starting design for review**, grounded in a code survey of the
-*current* harness (the prior plan in `project_pool_test_harness` is ~72 days old
-and substantially stale).
+current harness.
 
 ## Decisions locked (2026-06-09)
 
@@ -53,13 +52,13 @@ a dashboard tool (Grafana), so the follow-on decisions all resolved toward reuse
 7. **Test-set config UX = YAML-in-git via the admin CLI** (consistent with the
    git intent store + the existing `POST /control/test-config` validation).
 
-## Status — done vs remaining (updated 2026-06-10)
+## Status — completed and remaining work
 
 A running ledger of what is **shipped + live** on the caching-proxy vs what is
 **open**. The phased plan (§6) and the Phase-0/MVP plan (§10) carry the design
 detail; this is the at-a-glance split.
 
-### ✅ Done (shipped, deployed live)
+### Shipped and deployed (live)
 
 - **Phase 0 — host identity + capability record.** Stable `hostId`
   (`runtime/host.uuid`); `(hostId, runId, cycleId)` stamped on `status.json` and
@@ -265,7 +264,7 @@ and pool-level alerting — but every runner keeps testing and self-healing.
   `incidents:[{incidentId, startedUtc, resolvedUtc, affectedHostIds,
   failureClassHistogram, severity}]`.
 
-## 5. Components (new, reconciled against what to reuse)
+## 5. Components
 
 > **Locked-decision reframe (decided 2026-06-09: reuse).** The aggregator runs
 > on the caching-proxy machine and reuses its existing Loki/Prometheus/Grafana
@@ -551,6 +550,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.14
+Last review: 2026.07.17
 
 Back to [Yuruna](../README.md)

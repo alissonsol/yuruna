@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.14
+.VERSION 2026.07.17
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456742
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -21,15 +21,28 @@
     Brings up the yuruna-caching-proxy VM and exposes its ports
     (80, 3128, 3129, 3000, 9302) on the host. See docs/caching-proxy.md
     for remote-client setup, elevation requirements (Windows admin;
-    macOS `sudo -E` to bind :80), and the YURUNA_CACHING_PROXY_IP
-    override that makes this a no-op.
+    macOS `sudo -E` to bind :80), and the external-cache sources
+    (vmStart.cachingProxyIP probed first, YURUNA_CACHING_PROXY_IP as
+    fallback) that make this a no-op.
 
 .PARAMETER VMName   Name for the cache VM. Default: yuruna-caching-proxy.
+
+.PARAMETER MacAddress
+    Optional stable MAC address for the cache VM's NIC, accepted as
+    AA:BB:CC:DD:EE:FF, AA-BB-CC-DD-EE-FF, or AABBCCDDEEFF. Without it,
+    every rebuild gets a fresh random MAC, so the DHCP server leases a
+    new IP each time. With it, the operator can create a one-time DHCP
+    reservation on the LAN router (or libvirt/UTM NAT DHCP) and the
+    cache VM's IP is known and stable across rebuilds. Use a
+    locally-administered unicast address (first octet 02/06/0A/0E),
+    distinct per host -- two hosts on one LAN must not share a MAC.
 #>
 
 param(
     [Parameter(Position = 0)]
-    [string]$VMName = "yuruna-caching-proxy"
+    [string]$VMName = "yuruna-caching-proxy",
+    [Parameter()]
+    [string]$MacAddress
 )
 
 $global:InformationPreference = "Continue"
@@ -120,6 +133,20 @@ $RepoRoot   = $paths.RepoRoot
 $ModulesDir = $paths.ModulesDir
 Initialize-YurunaEntryPointModuleSet -For CachingProxy -ModulesDir $ModulesDir
 
+# Normalize + validate the optional stable MAC NOW, before any teardown or
+# download work, so a typo'd value stops the run while nothing has changed.
+# The canonical colon form is what every platform New-VM.ps1 accepts; each
+# reformats to its hypervisor's native notation.
+if ($MacAddress) {
+    Import-Module (Join-Path $RepoRoot 'automation/Yuruna.Common.psm1') -Force -DisableNameChecking
+    $MacAddress = ConvertTo-YurunaMacAddress -MacAddress $MacAddress
+    if (-not $MacAddress) {
+        Write-Error "Invalid -MacAddress (see warning above). Nothing was changed."
+        exit 1
+    }
+    Write-Output "Cache VM NIC will use stable MAC $MacAddress (set a DHCP reservation for it to pin the cache IP)."
+}
+
 # Auto-relaunch under sg libvirt on host.ubuntu.kvm when this shell's
 # group set is stale -- Start-CachingProxy on Linux provisions the cache
 # VM via virt-install and queries its IP via virsh, both of which need
@@ -140,7 +167,8 @@ if ($IsMacOS -or $IsLinux) {
         Write-Output "    * clear the macOS system HTTP/HTTPS proxy (networksetup)"
     } else {
         Write-Output "    * wipe machine-wide host proxy config (/etc/environment, apt)"
-        Write-Output "    * if needed, build the 'yuruna-external' libvirt bridge (nmcli)"
+        Write-Output "    * if needed, build/heal the 'yuruna-external' libvirt bridge"
+        Write-Output "      (nmcli or netplan, plus cleanup of any half-built leftovers)"
     }
 }
 
@@ -256,7 +284,13 @@ $proxyWipeReason = if ($IsMacOS) {
 }
 $sudoReasons = @($proxyWipeReason)
 if ($IsLinux -and $plannedBridge -and $plannedBridge.WillChangeHostNetworking) {
-    $sudoReasons += "build Linux bridge '$($plannedBridge.BridgeName)' on NIC '$($plannedBridge.Nic)' via nmcli"
+    # The reuse-network plan branch flags a heal/rebuild without always
+    # resolving the NIC -- don't render an empty '' into the prompt.
+    $sudoReasons += if ($plannedBridge.Nic) {
+        "build Linux bridge '$($plannedBridge.BridgeName)' on NIC '$($plannedBridge.Nic)' via nmcli/netplan (sweeping half-built leftovers first)"
+    } else {
+        "heal or rebuild Linux bridge '$($plannedBridge.BridgeName)' for the existing 'yuruna-external' network"
+    }
 }
 [void](Initialize-SudoCache -Reasons $sudoReasons)
 
@@ -345,8 +379,10 @@ if ($IsMacOS) {
     # LAN-routable DHCP lease. libvirt's NAT 'default' network keeps the
     # VM host-only (192.168.122/24, behind libvirt's masquerade), so we
     # promote to a bridged 'yuruna-external' network here. The helper is
-    # idempotent: if the network already exists it just ensures it is
-    # started + on autostart and returns.
+    # idempotent and self-healing: if the network already exists it
+    # ensures it is started + on autostart, verifies the backing bridge
+    # still has its LAN uplink, and heals or rebuilds the bridge when it
+    # does not (a brief network flap, announced by the Step 0 plan).
     #
     # This runs UNATTENDED: New-YurunaExternalNetwork is called with
     # -Confirm:$false so its ShouldProcess gate never prompts. The
@@ -407,6 +443,11 @@ Write-Output ""
 Write-Output "== Step 2: base image (Get-Image.ps1 decides cache vs refetch) =="
 $global:LASTEXITCODE = $null
 & $GetImageScript
+# $? must be captured on the VERY next statement; it detects the child
+# never having run at all (parse failure), which $LASTEXITCODE cannot see
+# -- and on a cache-hit re-run the artifact check below false-passes
+# because the image file already exists.
+$getImageInvokeOk = $?
 # $LASTEXITCODE is unreliable for a child .ps1 that ends on a cmdlet -- a cache-hit
 # Get-Image runs no native command, so $LASTEXITCODE still holds whatever a prior
 # native command left set. Reset it first and treat only a REAL non-zero as failure
@@ -420,6 +461,10 @@ $global:LASTEXITCODE = $null
 # feedback_lastexitcode_global_scope_shadow.
 if ($null -ne $LASTEXITCODE -and $LASTEXITCODE -ne 0) {
     Write-Error "Get-Image.ps1 failed (exit $LASTEXITCODE)."
+    exit 1
+}
+if (-not $getImageInvokeOk) {
+    Write-Error "Get-Image.ps1 did not run to completion (invocation failed -- e.g. parse error; see the error above)."
     exit 1
 }
 if (-not (Test-Path $ImageFile)) {
@@ -506,7 +551,18 @@ if ($cpConfigDecision.ShouldStart) {
 Write-Output ""
 Write-Output "== Step 3: create VM '$VMName' =="
 $global:LASTEXITCODE = $null
-& $NewVMScript $VMName
+# By-name (hashtable) splatting is REQUIRED here. Array splatting binds
+# every element POSITIONALLY -- a literal '-MacAddress' string element is
+# never re-parsed as a parameter name, so the child rejects it with "A
+# positional parameter cannot be found" and never runs at all. The key is
+# added conditionally so the bare call keeps each platform New-VM.ps1's
+# random-MAC default.
+$newVmParams = @{ VMName = $VMName }
+if ($MacAddress) { $newVmParams.MacAddress = $MacAddress }
+& $NewVMScript @newVmParams
+# $? must be captured on the VERY next statement; any intervening command
+# overwrites it.
+$newVmInvokeOk = $?
 # Same $LASTEXITCODE-reliability guard as Get-Image above: a child .ps1 that ends
 # on a cmdlet leaves it unset, so only a REAL non-zero is a failure. New-VM.ps1 is
 # the real gate -- it builds and (Hyper-V/KVM) starts the VM and blocks on :3128,
@@ -514,6 +570,15 @@ $global:LASTEXITCODE = $null
 # the check); the UTM branch's registration check below is a further gate.
 if ($null -ne $LASTEXITCODE -and $LASTEXITCODE -ne 0) {
     Write-Error "New-VM.ps1 failed (exit $LASTEXITCODE)."
+    exit 1
+}
+# $LASTEXITCODE cannot see a child that never RAN: a parameter-binding or
+# parse failure surfaces only as a non-terminating error on the invocation
+# ($? = $false) and leaves $LASTEXITCODE $null -- without this check the
+# run would sail on to discovery and print a false "READY" banner over a
+# VM that was never created.
+if (-not $newVmInvokeOk) {
+    Write-Error "New-VM.ps1 did not run to completion (invocation failed -- e.g. parameter-binding or parse error; see the error above)."
     exit 1
 }
 
@@ -816,7 +881,7 @@ if ($IsMacOS) {
             $hsPort = Get-CachingProxyPort -Scheme https
             # Port set: squid (3128 / 3129), Apache CA cert (80),
             # Grafana (3000), caching-proxy-parser (9302),
-            # SSH remap 8022 -> 22 for jump-host access.
+            # pool-aggregator (9400), SSH remap 8022 -> 22 for jump-host access.
             $cacheForwarded = [bool](Add-PortMap -VMIp $cacheIp `
                     -Port (Get-CachingProxyExposedPort -HttpPort $hPort -HttpsPort $hsPort) `
                     -PortRemap @{8022 = 22} -Confirm:$false)
@@ -826,6 +891,26 @@ if ($IsMacOS) {
             } else {
                 Write-Warning "  Port-forwarder setup failed -- cache is reachable from THIS host only (at $cacheIp)."
             }
+            # The pool DASHBOARD does not work on this NAT path, and the forwarder
+            # cannot make it work: systemd-socket-proxyd re-originates every
+            # connection from the host, so squid records ONE client IP (the NAT
+            # gateway 192.168.122.1) for the entire LAN. The pool-aggregator
+            # discovers hosts by their real squid-log client IP, so it discovers
+            # none and http://<this-host>:3000/d/yuruna-pool/yuruna-hosts shows
+            # "No data". A caching proxy that only caches (same-host guests) is
+            # fine on NAT; the multi-host pool view needs the cache VM BRIDGED so
+            # squid sees real client IPs (the macOS UTM / Hyper-V cache VMs are
+            # bridged, which is why their pool dashboards populate).
+            Write-Warning ""
+            Write-Warning "  POOL DASHBOARD: the 'Yuruna hosts' dashboard on this cache VM will show NO"
+            Write-Warning "  hosts while it is on the NAT 'default' network -- the host-side forwarder"
+            Write-Warning "  masks every client as the NAT gateway, so the pool-aggregator discovers"
+            Write-Warning "  nothing. To fix, put the cache VM on the bridged 'yuruna-external' network"
+            Write-Warning "  (needs a WIRED default-route NIC; Wi-Fi APs block bridging) and rebuild it:"
+            Write-Warning "    connect the host by Ethernet, then re-run ./Start-CachingProxy.ps1"
+            Write-Warning "    (it auto-builds yuruna-external + rebuilds the cache VM on the bridge),"
+            Write-Warning "    or define the bridge by hand per host/ubuntu.kvm/guest.caching-proxy/README.md."
+            Write-Warning ""
         }
     }
 } elseif ($IsWindows) {
@@ -924,6 +1009,8 @@ if ($cacheIp) {
         Write-Output "      (or on Windows: setx YURUNA_CACHING_PROXY_IP ${cacheIp})"
         Write-Output "    Quick check from the remote host:"
         Write-Output "      curl -x http://${cacheIp}:${summaryHttpPort} http://cdimage.ubuntu.com/ -I"
+        Write-Output "    NOTE: a populated vmStart.cachingProxyIP in the remote host's"
+        Write-Output "      test.config.yml is probed first and outranks the env var."
     } elseif ($IsMacOS) {
         # Wi-Fi/Shared NAT: the cache is at $cacheIp (192.168.64.x). On macOS 26
         # UTM vmnet-shared every VM joins one bridge (192.168.64.1) and guests
@@ -953,6 +1040,8 @@ if ($cacheIp) {
             Write-Output "    export YURUNA_CACHING_PROXY_IP=${cacheLanIp}    # remote host, before Invoke-TestRunner.ps1"
             Write-Output "      (or on Windows: setx YURUNA_CACHING_PROXY_IP ${cacheLanIp})"
             Write-Output "    quick check:  curl -x http://${cacheLanIp}:${summaryHttpPort} http://cdimage.ubuntu.com/ -I"
+            Write-Output "    NOTE: a populated vmStart.cachingProxyIP in the remote host's"
+            Write-Output "      test.config.yml is probed first and outranks the env var."
         }
     } else {
         # Linux / Windows. $cacheLanIp is the address LAN clients use:
@@ -974,6 +1063,8 @@ if ($cacheIp) {
             Write-Output "  Remote LAN clients (OTHER physical hosts only):"
             Write-Output "    export YURUNA_CACHING_PROXY_IP=${lanIp}    # remote host, before Invoke-TestRunner.ps1"
             Write-Output "    quick check:  curl -x http://${lanIp}:${summaryHttpPort} http://cdimage.ubuntu.com/ -I"
+            Write-Output "    NOTE: a populated vmStart.cachingProxyIP in the remote host's"
+            Write-Output "      test.config.yml is probed first and outranks the env var."
             Write-Output "  This host needs no env var: the runner auto-detects its own cache, and a"
             Write-Output "  YURUNA_CACHING_PROXY_IP naming this host's own IP is treated as local."
         }

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.14
+.VERSION 2026.07.17
 .GUID 42c9d0e1-f2a3-4b45-9678-9a0b1c2d3e42
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -104,25 +104,135 @@ function Test-GitRemoteAuthFailure {
     return [bool]($Output -match '(?i)(terminal prompts disabled|could not read (Username|Password)|Authentication failed|Invalid username or password|Permission denied \(publickey\)|Repository not found|returned error: 40[13])')
 }
 
-function Invoke-GitNetworkCommand {
+function Get-YurunaGitCredentialArg {
     <#
     .SYNOPSIS
-        Run a network-touching git command (fetch / pull / ls-remote) so it can
-        NEVER block on an interactive credential prompt and never hang the runner.
+        The `git -c ...` arguments that make git authenticate to github.com with
+        $env:GH_TOKEN, or an empty array when GH_TOKEN is unset. Pure (reads only
+        the environment variable).
     .DESCRIPTION
-        An unattended runner -- and, on the bare-pwsh path, the INTERACTIVE outer
-        loop -- would otherwise stall forever inside git the moment a stale or
-        missing GitHub credential makes git prompt for a username (the block is
-        inside the git child, so a wall-clock check in the caller can't catch it).
-        Prefers the bounded, process-tree-killing pool-sync runner when it is
-        loaded (that also caps a wedged TCP connect); otherwise neutralizes the
-        credential-prompt env (GIT_TERMINAL_PROMPT=0 + empty GIT_ASKPASS /
-        SSH_ASKPASS + GCM_INTERACTIVE=never) on this process for the duration of a
-        plain call and restores it after. A valid GH_TOKEN in the environment is
-        inherited by the child either way, so a good token still authenticates.
+        Plain `git` does NOT read GH_TOKEN -- only the GitHub CLI (`gh`) does --
+        so a host whose only GitHub credential is GH_TOKEN (a headless runner, a
+        freshly-imaged pool host, a CI box) fails every https fetch/pull/clone with
+        "could not read Username", even though the operator set the token
+        expecting git to use it. This returns an inline credential helper, SCOPED
+        to https://github.com, that answers git's credential request with the token
+        as the password for an x-access-token user.
+
+        Two properties matter:
+          * SCOPED to github.com, so the token is never offered to any other
+            remote (a private mirror, the LAN pool-intent store, a file:// URL).
+          * The helper reads $GH_TOKEN at RUN TIME from the environment git passes
+            it, so the token value never appears on a command line (visible to
+            `ps`), in git config, or in a log -- only the fixed helper string and
+            the literal variable name `$GH_TOKEN` do.
+
+        GitHub tokens are `[A-Za-z0-9_]` (classic) or `github_pat_[A-Za-z0-9_]`
+        (fine-grained), so the unquoted `$GH_TOKEN` expansion in the POSIX-sh
+        helper is shell-safe. The `!`-prefixed helper runs under git's shell
+        (`/bin/sh`, or Git-for-Windows' bundled sh), so it is cross-platform.
     .OUTPUTS
-        [hashtable] @{ ExitCode; Output }. ExitCode is 124 on a pool-sync timeout,
-        -1 when git could not be started.
+        [string[]] -- the -c argument pairs, or an empty array when no token.
+    #>
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseOutputTypeCorrectly', '',
+        Justification = 'Returns a [string[]] of git -c args; callers always wrap with @(...), so the pipeline unroll into object[] is harmless and re-collected.')]
+    [CmdletBinding()]
+    [OutputType([string[]])]
+    param()
+    if ([string]::IsNullOrWhiteSpace($env:GH_TOKEN)) { return @() }
+    # First value '' resets any inherited helper FOR github.com so only ours
+    # answers; the second installs the inline helper. Single-quoted so PowerShell
+    # keeps $GH_TOKEN literal for git's shell to expand at run time.
+    $reset  = 'credential.https://github.com.helper='
+    $helper = 'credential.https://github.com.helper=!f() { echo username=x-access-token; echo password=$GH_TOKEN; }; f'
+    return [string[]]@('-c', $reset, '-c', $helper)
+}
+
+function Get-YurunaGhCliCredentialArg {
+    <#
+    .SYNOPSIS
+        The `git -c ...` arguments that make git authenticate to github.com
+        through the GitHub CLI's stored login (`gh auth git-credential`), or an
+        empty array when gh is not on PATH.
+    .DESCRIPTION
+        `gh auth login` stores its credential in gh's own config/keyring --
+        plain git never sees it unless `gh auth setup-git` also wrote gh into
+        the user's gitconfig, a step the login flow only offers on the
+        interactive HTTPS path (and `gh repo clone` injects only for the clone
+        itself). On Linux git has no default credential store at all, so a host
+        bootstrapped with `gh auth login` + `gh repo clone` authenticates the
+        clone and then fails every later fetch/pull with "could not read
+        Username". This returns the same per-invocation injection gh itself
+        uses: gh's credential-helper plumbing, SCOPED to https://github.com so
+        the login is never offered to any other remote.
+
+        `gh auth git-credential` speaks git's credential protocol and never
+        prompts; when gh holds no login it simply answers nothing, which
+        surfaces as a normal auth failure for the caller's fallback chain.
+        The helper says bare `gh` (not a resolved absolute path): git runs
+        helpers through its shell, which inherits this process's PATH -- the
+        same PATH that just resolved gh -- and an absolute Windows path
+        ('Program Files' spaces) would need sh-side quoting.
+    .OUTPUTS
+        [string[]] -- the -c argument pairs, or an empty array when gh is absent.
+    #>
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseOutputTypeCorrectly', '',
+        Justification = 'Returns a [string[]] of git -c args; callers always wrap with @(...), so the pipeline unroll into object[] is harmless and re-collected.')]
+    [CmdletBinding()]
+    [OutputType([string[]])]
+    param()
+    if (-not (Get-Command -Name 'gh' -CommandType Application -ErrorAction SilentlyContinue)) { return @() }
+    # Same reset-then-install shape as Get-YurunaGitCredentialArg: the '' value
+    # clears inherited helpers FOR github.com so only gh answers this attempt.
+    $reset  = 'credential.https://github.com.helper='
+    $helper = 'credential.https://github.com.helper=!gh auth git-credential'
+    return [string[]]@('-c', $reset, '-c', $helper)
+}
+
+function Get-YurunaGitAuthAttemptList {
+    <#
+    .SYNOPSIS
+        The ordered credentialed attempts for a network git call against
+        github.com: the explicit GH_TOKEN first, then the gh CLI's stored
+        login. Empty when the host has neither source.
+    .DESCRIPTION
+        One place owns the source ORDER so every network-git path (the inner
+        runner's Invoke-GitNetworkCommand, the outer loop's bounded runner)
+        chains identically. GH_TOKEN outranks the gh login because an explicit
+        environment token is deliberate operator intent -- the same precedence
+        gh itself applies. Callers run these before a plain (unmodified) git
+        attempt, which stays the last resort so the machine's own credential
+        manager / SSH agent can still win.
+
+        Descriptors are hashtables, never nested bare arrays: a nested array
+        return unrolls one level on the pipeline and an empty inner array
+        vanishes entirely (see feedback_return_comma_list_plus_at_paren_double_wraps).
+    .OUTPUTS
+        [hashtable[]] -- @{ Source = <label for logs>; Args = [string[]] git -c pairs },
+        in the order the attempts should run.
+    #>
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseOutputTypeCorrectly', '',
+        Justification = 'Returns a [hashtable[]]; callers always wrap with @(...), so the pipeline unroll into object[] is harmless and re-collected.')]
+    [CmdletBinding()]
+    [OutputType([hashtable[]])]
+    param()
+    $attempts = [System.Collections.Generic.List[hashtable]]::new()
+    $token = @(Get-YurunaGitCredentialArg)
+    if ($token.Count -gt 0) { $attempts.Add(@{ Source = 'GH_TOKEN'; Args = [string[]]$token }) }
+    $ghCli = @(Get-YurunaGhCliCredentialArg)
+    if ($ghCli.Count -gt 0) { $attempts.Add(@{ Source = 'gh CLI login'; Args = [string[]]$ghCli }) }
+    return $attempts.ToArray()
+}
+
+function Invoke-GitNetworkCommandOnce {
+    <#
+    .SYNOPSIS
+        One prompt-proof network-git run (see Invoke-GitNetworkCommand). Prefers
+        the bounded, process-tree-killing pool-sync runner when it is loaded;
+        otherwise neutralizes the credential-prompt env on this process around a
+        plain call and restores it after.
+    .OUTPUTS
+        [hashtable] @{ ExitCode; Output }.
     #>
     [CmdletBinding()]
     [OutputType([hashtable])]
@@ -154,6 +264,54 @@ function Invoke-GitNetworkCommand {
     }
 }
 
+function Invoke-GitNetworkCommand {
+    <#
+    .SYNOPSIS
+        Run a network-touching git command (fetch / pull / ls-remote / clone) so
+        it can NEVER block on an interactive credential prompt, never hang the
+        runner, AND authenticate to github.com with every credential source the
+        host actually has.
+    .DESCRIPTION
+        An unattended runner -- and, on the bare-pwsh path, the INTERACTIVE outer
+        loop -- would otherwise stall forever inside git the moment a stale or
+        missing GitHub credential makes git prompt for a username (the block is
+        inside the git child, so a wall-clock check in the caller can't catch it).
+        Prompt-proofing is handled by Invoke-GitNetworkCommandOnce.
+
+        On top of that this is the ONE place the inner runner's git talks to a
+        remote, so it is where the host's GitHub credential sources are chained
+        (order owned by Get-YurunaGitAuthAttemptList): a github.com-scoped
+        GH_TOKEN helper first, then the gh CLI's stored login -- so `gh auth
+        login` alone is enough, no `gh auth setup-git` / gitconfig edit needed
+        -- and always a plain run last (the machine's credential manager or SSH
+        agent may hold a credential the other sources do not). A failed attempt
+        falls through to the next source only when the failure is
+        credential-shaped (Test-GitRemoteAuthFailure); a network outage fails
+        identically for every source, so it is returned immediately instead of
+        burning another bounded timeout per source. With no token and no gh, a
+        single plain run happens exactly as before.
+    .OUTPUTS
+        [hashtable] @{ ExitCode; Output }. ExitCode is 124 on a pool-sync timeout,
+        -1 when git could not be started.
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param(
+        [Parameter(Mandatory)][string[]]$GitArgs,
+        [Parameter()][int]$TimeoutSeconds = 60
+    )
+    foreach ($attempt in @(Get-YurunaGitAuthAttemptList)) {
+        # The -c auth args are git GLOBAL options, so they must precede the
+        # subcommand -- prepend them to whatever the caller passed (which starts
+        # with a global like -C or the subcommand itself).
+        $r = Invoke-GitNetworkCommandOnce -GitArgs (@($attempt.Args) + @($GitArgs)) -TimeoutSeconds $TimeoutSeconds
+        if ($r.ExitCode -eq 0) { return $r }
+        if (-not (Test-GitRemoteAuthFailure -Output $r.Output)) { return $r }
+        Write-Verbose "Invoke-GitNetworkCommand: the $($attempt.Source) attempt was rejected as unauthorized; trying the next credential source."
+    }
+    return Invoke-GitNetworkCommandOnce -GitArgs $GitArgs -TimeoutSeconds $TimeoutSeconds
+}
+
 function Write-GitAuthRefreshBanner {
     <#
     .SYNOPSIS
@@ -180,8 +338,8 @@ GitHub access needs refreshing.
   The cached GitHub credential is missing or expired, so 'git fetch' / 'git
   pull' would block on an interactive login prompt (which hangs an unattended
   runner). Refresh the login with ONE of, then re-run:
+    * gh auth login   (the runner picks up the gh CLI's stored login by itself)
     * export GH_TOKEN=<a valid GitHub token>
-    * gh auth login
     * refresh your git credential helper / re-enter the personal access token$said
 "@
 }
@@ -742,4 +900,4 @@ function Install-PSScriptAnalyzerIfMissing {
     return Install-YurunaGalleryModuleIfMissing -Name 'PSScriptAnalyzer' @PSBoundParameters
 }
 
-Export-ModuleMember -Function Invoke-GitPull, Get-GitUpstreamStatus, Get-CurrentGitCommit, Get-FileLockingProcess, Update-ProjectClone, Install-PowerShellYamlIfMissing, Install-PSScriptAnalyzerIfMissing, Test-GitRemoteAuthFailure, Write-GitAuthRefreshBanner
+Export-ModuleMember -Function Invoke-GitPull, Get-GitUpstreamStatus, Get-CurrentGitCommit, Get-FileLockingProcess, Update-ProjectClone, Install-PowerShellYamlIfMissing, Install-PSScriptAnalyzerIfMissing, Test-GitRemoteAuthFailure, Write-GitAuthRefreshBanner, Invoke-GitNetworkCommand, Get-YurunaGitCredentialArg, Get-YurunaGhCliCredentialArg, Get-YurunaGitAuthAttemptList

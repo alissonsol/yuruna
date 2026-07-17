@@ -204,6 +204,93 @@ func TestDeleteRemoteForbidden(t *testing.T) {
 	}
 }
 
+// Delete authorization: reads and writes stay open to any host, but
+// DELETE is allowed only from the VM itself (loopback / a local interface IP)
+// or a configured host IP. Documentation ranges (RFC 5737 TEST-NET-2/3) are
+// used for the "foreign" addresses so they can never match a real interface on
+// the machine running the test.
+func TestDeleteAuthzUnit(t *testing.T) {
+	_, ui, _ := newTestUI(t)
+	ui.deleteHostIPs = parseHostIPs("198.51.100.10, 198.51.100.11")
+	cases := []struct {
+		ip   string
+		want bool
+	}{
+		{"127.0.0.1", true},      // the VM itself (localhost UI/CLI)
+		{"::1", true},            // IPv6 loopback
+		{"198.51.100.10", true},  // configured host IP
+		{"198.51.100.11", true},  // second configured host IP
+		{"203.0.113.50", false},  // an arbitrary LAN peer
+		{"198.51.100.99", false}, // host subnet but not a configured host
+		{"", false},              // no address
+		{"not-an-ip", false},     // unparseable → fail closed
+	}
+	for _, c := range cases {
+		if got := ui.deleteAllowed(c.ip); got != c.want {
+			t.Fatalf("deleteAllowed(%q) = %v, want %v", c.ip, got, c.want)
+		}
+	}
+}
+
+func TestParseHostIPs(t *testing.T) {
+	got := parseHostIPs(" 10.0.0.1, 10.0.0.2 ;bogus\t10.0.0.3\n")
+	if len(got) != 3 {
+		t.Fatalf("parseHostIPs: got %d IPs, want 3 (%v)", len(got), got)
+	}
+	if len(parseHostIPs("")) != 0 || len(parseHostIPs("  , ; ")) != 0 {
+		t.Fatal("parseHostIPs of blank/garbage should be empty")
+	}
+}
+
+// A DELETE from a foreign LAN IP is refused (403) and leaves the stash intact;
+// the same stash deletes cleanly once that IP is a configured host IP.
+func TestDeleteForbiddenFromForeignIP(t *testing.T) {
+	ts, ui, _ := newTestUI(t)
+	resp, err := http.Post(ts.URL+"/api/stashes", "application/x-www-form-urlencoded",
+		strings.NewReader("title=n.txt&text=keepme"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var created struct {
+		Permalink string `json:"permalink"`
+	}
+	decode(t, resp, &created)
+
+	const foreign = "203.0.113.7" // TEST-NET-3, never a real interface
+	req := httptest.NewRequest(http.MethodDelete, "/api/stashes/"+tail(created.Permalink), nil)
+	req.RemoteAddr = foreign + ":44444"
+	rec := httptest.NewRecorder()
+	ui.routes().ServeHTTP(rec, req)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("foreign-IP delete = %d, want 403", rec.Code)
+	}
+	// The gate runs before the ownership branch, so the refusal must not leak
+	// the owning host id.
+	if strings.Contains(rec.Body.String(), "ownerHostId") {
+		t.Fatalf("foreign-IP refusal leaked ownership: %s", rec.Body.String())
+	}
+	g, _ := http.Get(ts.URL + "/api/stashes/" + tail(created.Permalink))
+	g.Body.Close()
+	if g.StatusCode != http.StatusOK {
+		t.Fatalf("stash gone after a refused delete: get = %d, want 200", g.StatusCode)
+	}
+
+	// Now permit that IP as the host IP; the delete succeeds and the stash 404s.
+	ui.deleteHostIPs = parseHostIPs(foreign)
+	req2 := httptest.NewRequest(http.MethodDelete, "/api/stashes/"+tail(created.Permalink), nil)
+	req2.RemoteAddr = foreign + ":44445"
+	rec2 := httptest.NewRecorder()
+	ui.routes().ServeHTTP(rec2, req2)
+	if rec2.Code != http.StatusOK {
+		t.Fatalf("host-IP delete = %d, want 200 (body %s)", rec2.Code, rec2.Body.String())
+	}
+	g2, _ := http.Get(ts.URL + "/api/stashes/" + tail(created.Permalink))
+	g2.Body.Close()
+	if g2.StatusCode != http.StatusNotFound {
+		t.Fatalf("post-delete get = %d, want 404", g2.StatusCode)
+	}
+}
+
 func TestPoolWideRemoteSidecar(t *testing.T) {
 	ts, ui, stashRoot := newTestUI(t)
 	remote := "42cccccccccccccccccccccccccccccc"

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.14
+.VERSION 2026.07.17
 .GUID 42a9d4e1-7c3b-4f08-9e21-3b6c5d8a1f02
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -96,9 +96,8 @@ function Get-HandlerScriptBlockAst {
     throw "$Name handler scriptblock not found in $Path"
 }
 
-# The 'type text -> drain N seconds -> press Enter' tail was copy-pasted across
-# inputTextAndEnter / waitForAndEnter / passwdPrompt / fetchAndExecute; it is now
-# the single Invoke-TypeDrainEnter helper. A Describe body is evaluated during
+# The 'type text -> drain N seconds -> press Enter' tail is shared by the
+# single Invoke-TypeDrainEnter helper. A Describe body is evaluated during
 # the discovery pass and its scope is discarded before any It runs, so this list
 # must be declared at file scope to reach the assertions.
 $typeDrainEnterVerbs = @('inputTextAndEnter', 'waitForAndEnter', 'passwdPrompt', 'fetchAndExecute')

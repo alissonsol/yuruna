@@ -6,8 +6,9 @@ heartbeat that an out-of-process watchdog reads. When the heartbeat
 goes stale, the watchdog kills the wedged process and the outer
 runner re-spawns the inner from a clean state.
 
-This page covers the file-on-disk protocol. For the rationale on
-splitting outer / inner, see
+This page covers the file-on-disk protocol and the PowerShell module
+([Test.RunnerWatchdog](#module-testrunnerwatchdog)) that implements
+the watchdog side. For the rationale on splitting outer / inner, see
 [Test harness](./runner-outer-loop.md).
 
 ## Layout under `$YURUNA_RUNTIME_DIR`
@@ -52,10 +53,14 @@ the spawn.
 
 The watchdog:
 
-1. Waits up to 60 s for `inner.pid` to appear.
-2. Reads `inner.pid` and arms.
+1. Waits up to 60 s for `inner.pid` to appear. If it never does,
+   logs a `[watchdog]` line to `outer.log` and exits without
+   action — preferable to picking a PID blindly.
+2. Reads `inner.pid`. If the value parses as a positive integer,
+   arms; otherwise logs and exits.
 3. Every `WatchdogPollSeconds` (default 30 s) checks both:
-   - The inner process is still alive.
+   - The inner process is still alive (`Get-Process`). If it is
+     gone, logs "exited normally; watchdog disarming" and returns.
    - `runner.stepHeartbeat`'s mtime is younger than the threshold.
 4. On a stale heartbeat: appends a `[watchdog]` line to `outer.log`
    with the observed age and threshold, then `Stop-Process -Force` on
@@ -85,12 +90,56 @@ the outer. Tightening helps on hosts where genuine slow steps complete
 under, say, 20 min; loosening protects against a known-slow first-run
 image-build step.
 
+## Module: Test.RunnerWatchdog
+
+[`test/modules/Test.RunnerWatchdog.psm1`](../test/modules/Test.RunnerWatchdog.psm1)
+holds the two functions that arm and tear down the watchdog:
+`Start-Watchdog` and `Stop-Watchdog`. Keeping them in their own
+module — rather than inline in
+[`test/Invoke-TestRunner.ps1`](../test/Invoke-TestRunner.ps1) —
+makes the heartbeat-kill logic testable in isolation: a unit test can
+`Start-Watchdog`, write a stale `runner.stepHeartbeat`, and observe
+the kill without spinning up an inner runner.
+
+| Function | Used by |
+|---|---|
+| `Start-Watchdog -StepTimeoutMinutes -RuntimeDir -PollSeconds` | [Outer-loop dispatcher](runner-outer-loop.md) per cycle |
+| `Stop-Watchdog -Job` | Outer-loop dispatcher on cycle end / spawn failure |
+
+`Start-Watchdog` returns a `System.Management.Automation.Job` whose
+own child pwsh runs the polling scriptblock. `Stop-Watchdog` is
+safe with `$null` and safe after the watchdog has already exited
+(both `Stop-Job` and `Remove-Job` are `SilentlyContinue`).
+
+### `$using:` scope discipline
+
+The scriptblock passed to `Start-Job` reads `$RuntimeDir`,
+`$thresholdSec`, and `$PollSeconds` via `$using:` rather than
+`-ArgumentList`. The `$using:` form pulls each variable straight from
+the enclosing function's scope at job-dispatch time — cleaner than
+threading them through a positional argument list, and dodges a
+PSScriptAnalyzer false positive on
+`PSUseUsingScopeModifierInNewRunspaces` when the scriptblock has its
+own `param()` declaration.
+
+The function carries an explicit
+`[Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', 'PollSeconds')]`
+because PSSA's static analyzer does not follow `$using:` references
+back to the enclosing function's param block.
+
+## Related
+
+- [Outer-loop dispatcher](runner-outer-loop.md) — the caller that
+  arms and disarms the watchdog each cycle.
+- [Runner state machine](runner-state.md) — what state the outer
+  transitions through around the watchdog arm/disarm.
+
 ---
 
 LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.14
+Last review: 2026.07.17
 
 Back to [Yuruna](../README.md)

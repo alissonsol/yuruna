@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.14
+.VERSION 2026.07.17
 .GUID 429eb9ac-a948-4c0b-b4f9-fc1974431076
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -24,13 +24,9 @@
 # fast-path capturer (e.g., a delta-only frame grabber) or a fallback
 # (e.g., when WMI / virsh screenshot times out).
 #
-# Storage is delegated to the shared Test.Registry primitive
-# (New-YurunaRegistry) so there is one registry mechanism across the
-# harness and this domain shows up in the cross-domain introspection
-# directory (Get-YurunaRegistryDirectory/Summary). The
-# $global:YurunaScreenshotProviders anchor name is reused as the
-# backing store so registrations stay cross-module-eviction-safe and
-# survive -Force re-imports.
+# --- REGION: https://yuruna.link/host-io#why-the-registry-uses-a-global-anchor
+# Storage: shared Test.Registry primitive; the $global:YurunaScreenshotProviders
+# anchor keeps registrations eviction-safe across -Force re-imports.
 #
 # The paired self-healing primitive is Repair-ScreenshotRing: clear
 # the in-memory ring-buffer file list so the next Wait-ForText poll

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.14
+.VERSION 2026.07.17
 .GUID 42a7b8c9-d0e1-4f23-4567-8a9b0c112435
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -54,6 +54,40 @@ Import-Module (Join-Path $PSScriptRoot 'Yuruna.LogLevel.psm1') -Global -Force
 Set-YurunaLogLevel -LogLevel $logLevel
 
 $problems = [System.Collections.Generic.List[string]]::new()
+
+function Get-ToolProbeOutput {
+    <#
+    .SYNOPSIS
+        Run a tool's version/query probe and return its first output line, or
+        $null when the tool is missing, not executable, or answers nothing.
+    .DESCRIPTION
+        A binary can be on PATH and still not run. A zero-length file carrying the
+        +x bit -- a truncated download, or a write lost to a crash-consistent VM
+        snapshot -- satisfies Get-Command, and bash even executes it as an empty
+        script (exit 0, no output), so shell-side probes call it healthy.
+        PowerShell execve()s it directly and raises a ResourceUnavailable "Exec
+        format error", which without this catch escapes as a raw exception
+        instead of a diagnosed problem. Treat "no output" as "not usable": every
+        tool probed here prints something when it works.
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        [Parameter(Mandatory)][string]$Name,
+        [Parameter(Mandatory)][string[]]$ToolArgs
+    )
+    if ($null -eq (Get-Command $Name -ErrorAction SilentlyContinue)) { return $null }
+    try {
+        $out = & $Name @ToolArgs 2>$null
+    } catch {
+        Write-Verbose "Probe '$Name $ToolArgs' failed to run: $($_.Exception.Message)"
+        return $null
+    }
+    if ($LASTEXITCODE -ne 0) { return $null }
+    $first = @($out) | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | Select-Object -First 1
+    if ($null -eq $first) { return $null }
+    return ([string]$first).Trim()
+}
 
 # 1. Docker -- running and healthy
 Write-Verbose "Checking Docker..."
@@ -169,38 +203,54 @@ if ($problems | Where-Object { $_ -like "KUBECTL:*" }) {
     }
 }
 
-# 4. mkcert -- local CA installed
+# 4. helm -- installed and runnable. Every chart deployment in Set-Workload
+# shells out to it, so a helm that cannot run means nothing will deploy.
+Write-Verbose "Checking helm..."
+$helmVersion = Get-ToolProbeOutput -Name 'helm' -ToolArgs @('version', '--short')
+if ([string]::IsNullOrWhiteSpace($helmVersion)) {
+    $problems.Add("HELM: helm is missing, or is present but not runnable (a zero-length or corrupt binary).")
+    $problems.Add("  -> Chart deployments cannot run without it.")
+    $problems.Add("  -> Check with: ls -l `$(command -v helm); helm version --short")
+    $problems.Add("  -> Reinstall helm: https://helm.sh/docs/intro/install/")
+} else {
+    Write-Verbose "helm is runnable: $helmVersion"
+}
+
+# 5. mkcert -- installed, runnable, and its local CA present and non-empty
 Write-Verbose "Checking mkcert local CA..."
-$mkcertAvailable = $null -ne (Get-Command mkcert -ErrorAction SilentlyContinue)
-if (-not $mkcertAvailable) {
-    $problems.Add("MKCERT: mkcert is not installed or not in PATH.")
+$caRoot = Get-ToolProbeOutput -Name 'mkcert' -ToolArgs @('-CAROOT')
+if ([string]::IsNullOrWhiteSpace($caRoot)) {
+    $problems.Add("MKCERT: mkcert is missing, or is present but not runnable (a zero-length or corrupt binary).")
+    $problems.Add("  -> Check with: ls -l `$(command -v mkcert); mkcert -version")
     $problems.Add("  -> Install mkcert: https://github.com/FiloSottile/mkcert/releases")
     $problems.Add("  -> After installing, run: mkcert -install")
 } else {
-    # mkcert -CAROOT returns the CA root directory; check rootCA.pem exists there
-    $caRoot = mkcert -CAROOT 2>&1
-    if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($caRoot)) {
-        $problems.Add("MKCERT: Could not determine mkcert CA root directory.")
-        $problems.Add("  -> Run: mkcert -install")
+    $caPem = Join-Path $caRoot "rootCA.pem"
+    $caItem = Get-Item -LiteralPath $caPem -ErrorAction SilentlyContinue
+    if (-not $caItem) {
+        $problems.Add("MKCERT: Local CA certificate not found at: $caPem")
+        $problems.Add("  -> Run (may require elevated privileges): mkcert -install")
+    } elseif ($caItem.Length -eq 0) {
+        # An existing-but-empty CA passes a bare Test-Path, then fails later as an
+        # unexplained TLS error in the ingress. Same lost-write class as the
+        # zero-length binaries above.
+        $problems.Add("MKCERT: Local CA certificate at $caPem is zero-length.")
+        $problems.Add("  -> Run (may require elevated privileges): mkcert -install")
     } else {
-        $caRoot = $caRoot.Trim()
-        $caPem  = Join-Path $caRoot "rootCA.pem"
-        if (-not (Test-Path $caPem)) {
-            $problems.Add("MKCERT: Local CA certificate not found at: $caPem")
-            $problems.Add("  -> Run (may require elevated privileges): mkcert -install")
-        } else {
-            Write-Verbose "mkcert local CA is installed at: $caRoot"
-        }
+        Write-Verbose "mkcert local CA is installed at: $caRoot"
     }
 }
 
 if ($problems.Count -gt 0) {
-    Write-Information ""
-    Write-Information "== Runtime Check: PROBLEMS FOUND =="
-    foreach ($msg in $problems) {
-        Write-Information $msg
-    }
-    Write-Information ""
+    # The failing verdict goes to the ERROR stream, not Information. The deploy
+    # entrypoints call this with the default logLevel ('Error'), which silences
+    # Information AND Warning -- a pre-flight that reported its problems there
+    # printed nothing at all, so a runtime fault (a broken tool, an unreachable
+    # cluster) became a deploy that silently did nothing. $ErrorActionPreference
+    # is left at 'Continue' by the logLevel cascade precisely so errors stay
+    # visible at every level; this is an error.
+    $report = @("", "== Runtime Check: PROBLEMS FOUND ==") + $problems + @("")
+    Write-Error ($report -join [Environment]::NewLine)
     return $false
 }
 

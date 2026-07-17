@@ -54,10 +54,14 @@ path, so both share one ID allocator (SS§5.6), one storage pipeline
 
 Consistent with the trusted-network posture of SS§11, the UI is
 **unauthenticated**: no login, no credentials. Anyone who can reach the
-VM on the HTTP port can browse, create, and delete. This is the same
-trade-off the SCP sink already accepts (SS§4.3 "none" auth). Network
-ACLs, rate limiting, and hardening remain out of scope (SS§11), as does
-CSRF protection — there is no authenticated session to forge.
+VM on the HTTP port can browse and create. This is the same trade-off the
+SCP sink already accepts (SS§4.3 "none" auth). Network ACLs, rate
+limiting, and hardening remain out of scope (SS§11), as does CSRF
+protection — there is no authenticated session to forge.
+
+The one exception is **delete**, the sole destructive verb: it is
+source-IP-restricted to the VM itself or the deploying host (§8.4), so a
+LAN peer can browse and create but never destroy the corpus over HTTP.
 
 The one defense that **is** in scope is output safety: untrusted stash
 bytes are never executed in the operator's browser (§7.4).
@@ -171,8 +175,8 @@ existing pool-aggregator** that already maintains a live, DHCP-resilient
   configuration (§11). If it is unset, unreachable, or has not yet
   discovered the owning host (its discovery is proxy-traffic-driven), the
   UI degrades to showing the plain `hostId` label (§3.3) with **no**
-  link — the operator finds the host themselves. This keeps the only
-  hard dependency the same as the daemon's (its isolated stash storage,
+  link — the operator locates the host manually. The only
+  hard dependency is the same as the daemon's (its isolated stash storage,
   `networkStorage.stash*`, SS§2).
 - Calls use the aggregator's TLS posture (HTTPS on `:9400` with the
   pool-CA leaf when present; pin via the published pool CA).
@@ -496,6 +500,26 @@ greyed-out button.
 > index rescan (§3.2). No cross-host index reconciliation is needed,
 > since no host ever deletes another host's index row.
 
+### 8.4 Delete is source-IP-restricted
+
+Reads (list/get/raw/download) and writes (create) stay open to any host
+on the trusted LAN — the stash is a drop box. Delete, the one destructive
+verb, is additionally gated on the request's **source address**: a
+`DELETE` (§9) is accepted only when it originates from
+
+- the **VM itself** — loopback, or any of the VM's own interface
+  addresses (so the local UI and on-VM tooling work); or
+- the **deploying host** — the host IP passed to the daemon at launch via
+  `--host-ip` (§11), baked from the seed's `YURUNA_HOST_IP`.
+
+Any other source is refused with **403** *before* the §8.3 ownership
+branch runs, so the refusal does not disclose the stash's owning host. An
+unparseable source, or a launch with no `--host-ip`, fails closed to
+VM-local deletes only. This bounds the *caller*; §8.1/§8.3 bound the
+*target*. It does not replace real per-host auth (still future work,
+§8.1) — it removes the "any LAN device can destroy the whole corpus"
+exposure while the trusted-LAN posture stands.
+
 ## 9. HTTP API
 
 JSON REST endpoints consumed by the front-end. All responses are
@@ -510,7 +534,7 @@ appropriate status code, mirroring the status-server convention.
 | `GET` | `/raw/{hostId}/{yyyy}/{mm}/{dd}/{id}` | Artifact bytes, inline (`Content-Type` from `mimeType`, safety headers §7.4). |
 | `GET` | `/download/{hostId}/{yyyy}/{mm}/{dd}/{id}` | Artifact bytes as attachment (`Content-Disposition`, `originalFilename`). |
 | `POST` | `/api/stashes` | Create from paste or upload (§5). `multipart/form-data` (files + optional title/author) or a JSON paste body. Returns the new stash's id/permalink. |
-| `DELETE` | `/api/stashes/{hostId}/{yyyy}/{mm}/{dd}/{id}` | Hard delete (§8). **Local host only** — returns `403` (naming the owning host) when `{hostId}` is not the serving host's own. |
+| `DELETE` | `/api/stashes/{hostId}/{yyyy}/{mm}/{dd}/{id}` | Hard delete (§8). **Source-IP-restricted** to the VM or the deploying host (§8.4) → `403` otherwise; then **local host only** — `403` (naming the owning host) when `{hostId}` is not the serving host's own. |
 | `POST` | `/api/refresh` | Force a pool-index rescan (§3.2). |
 
 The static UI pages (`/`, `/new`, `/s/…`) are served from the daemon's
@@ -558,6 +582,7 @@ host's storage):
 | Recent-list default page size | `50` | VM-side service config |
 | Inline text preview cap | `1 MB` | VM-side service config |
 | Pool-aggregator base URL | unset (host resolution disabled, §3.4) | VM-side service config |
+| Delete-authorized host IP (§8.4) | unset (VM-local deletes only) | `--host-ip` (baked from the seed's `YURUNA_HOST_IP` at bring-up) |
 
 **Constants in code:**
 
@@ -658,6 +683,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.14
+Last review: 2026.07.17
 
 Back to [Yuruna](../../README.md)

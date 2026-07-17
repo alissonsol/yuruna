@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.14
+.VERSION 2026.07.17
 .GUID 42f4e5f6-a7b8-4c9d-0123-4e5f6a7b8c9d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -42,11 +42,20 @@
 
 .PARAMETER VMName
     libvirt domain name. Default: yuruna-caching-proxy
+
+.PARAMETER MacAddress
+    Optional stable MAC for the VM's NIC (AA:BB:CC:DD:EE:FF, dashed, or
+    bare hex). Lets the operator pin the cache IP with a one-time DHCP
+    reservation on the LAN router (bridged 'yuruna-external') or in the
+    'default' network's dnsmasq (NAT fallback); without it virt-install
+    assigns a fresh random MAC on every rebuild and the lease moves.
 #>
 
 param(
     [Parameter(Position = 0)]
-    [string]$VMName = 'yuruna-caching-proxy'
+    [string]$VMName = 'yuruna-caching-proxy',
+    [Parameter()]
+    [string]$MacAddress
 )
 
 # Honor logLevel from Invoke-TestRunner.ps1 via $env:YURUNA_LOG_LEVEL. See docs/loglevels.md.
@@ -64,6 +73,17 @@ if (-not $IsLinux) {
 
 $ErrorActionPreference = 'Stop'
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+
+# Normalize the optional stable MAC before any image seek or VM work so a
+# typo'd value stops the run before anything heavy or destructive happens.
+if ($MacAddress) {
+    Import-Module (Join-Path $ScriptDir '../../../automation/Yuruna.Common.psm1') -Force -DisableNameChecking
+    $MacAddress = ConvertTo-YurunaMacAddress -MacAddress $MacAddress
+    if (-not $MacAddress) {
+        Write-Error "Invalid -MacAddress (see warning above). Nothing was changed."
+        exit 1
+    }
+}
 
 # --- REGION: libvirt-qemu search ACL on $HOME (self-heal)
 # Ubuntu 24.04+ cloud images create /home/<user> at mode 0750, which
@@ -361,12 +381,48 @@ if ($networkName -eq 'default') {
     Write-Warning "cache VM will be reachable from this host only; LAN clients"
     Write-Warning "will NOT see the cache VM at its libvirt IP."
     Write-Warning ""
-    Write-Warning "For LAN exposure (cache VM gets a real LAN IP, remote hosts"
-    Write-Warning "can point at it directly), define a bridged 'yuruna-external'"
-    Write-Warning "libvirt network -- see host/ubuntu.kvm/guest.caching-proxy/README.md."
+    Write-Warning "The multi-host POOL DASHBOARD will not work on this NAT path:"
+    Write-Warning "the host-side forwarder masks every LAN client as the NAT gateway"
+    Write-Warning "(192.168.122.1), so the pool-aggregator -- which discovers hosts by"
+    Write-Warning "their real client IP in squid's log -- discovers none, and the"
+    Write-Warning "'Yuruna hosts' Grafana dashboard shows 'No data'."
+    Write-Warning ""
+    Write-Warning "For LAN exposure AND a working pool dashboard (cache VM gets a real"
+    Write-Warning "LAN IP so squid sees real client IPs), put it on the bridged"
+    Write-Warning "'yuruna-external' network: connect the host by Ethernet and run"
+    Write-Warning "test/Start-CachingProxy.ps1 (auto-builds the bridge + rebuilds the"
+    Write-Warning "cache VM on it), or define it by hand -- see"
+    Write-Warning "host/ubuntu.kvm/guest.caching-proxy/README.md."
     Write-Warning ""
 } else {
     Write-Output "Using libvirt network: $networkName (cache VM will get a LAN-routable IP)"
+    # Fail fast on a dead bridge: a bridged network whose host bridge has
+    # no physical uplink port can never deliver a DHCP offer to the
+    # guest, so the 20-minute IP wait below would burn in full and then
+    # fail anyway. Probe /sys/class/net/<bridge>/brif for a non-tap port
+    # BEFORE creating the VM. Only <forward mode='bridge'/> networks
+    # qualify: NAT/routed/isolated networks also carry a <bridge
+    # name='virbrN'/> element, but that bridge is libvirt's own and
+    # legitimately has no physical uplink (its dnsmasq serves DHCP
+    # directly), so probing it would veto a working network.
+    $netXml = & virsh --connect $virshUri net-dumpxml $networkName 2>&1
+    $isBridgeMode = $false
+    $bridgeDev = $null
+    foreach ($line in @($netXml)) {
+        if ("$line" -match "<forward\s+mode='bridge'") { $isBridgeMode = $true }
+        if (-not $bridgeDev -and "$line" -match "<bridge\s+name='([^']+)'") { $bridgeDev = $Matches[1] }
+    }
+    if ($isBridgeMode -and $bridgeDev) {
+        $brifDir = "/sys/class/net/$bridgeDev/brif"
+        $uplink = if (Test-Path -LiteralPath $brifDir) {
+            @(Get-ChildItem -LiteralPath $brifDir -ErrorAction SilentlyContinue |
+              Where-Object { $_.Name -notmatch '^(vnet|tap)\d+$' })
+        } else { @() }
+        if ($uplink.Count -eq 0) {
+            Write-Error "libvirt network '$networkName' is backed by bridge '$bridgeDev', which is missing or has NO physical uplink port -- guests on it can never get DHCP. Re-run test/Start-CachingProxy.ps1 (it heals or rebuilds the bridge), or roll the bridge back per host/ubuntu.kvm/guest.caching-proxy/README.md."
+            exit 1
+        }
+    }
 }
 
 # --- REGION: virt-install
@@ -400,9 +456,8 @@ if ($LASTEXITCODE -eq 0) {
 }
 
 # --- REGION: https://yuruna.link/caching-proxy#cache-vm-sizing
-# 12 GB RAM, 4 vCPU -- same sizing on all three hosts, budgeted around
-# squid's `cache_mem 9 GB`; swap is masked, so undersizing is an
-# unrecoverable OOM.
+# 12 GB RAM, 4 vCPU on all three hosts, budgeted around squid's cache_mem;
+# swap is masked, so undersizing is an unrecoverable OOM.
 # --- REGION: https://yuruna.link/definition#defining-the-vm-core-count-policy
 $hostCores = [int](& nproc --all)
 if ($hostCores -lt 4) {
@@ -420,7 +475,10 @@ $installArgs = @(
     '--os-variant', $osVariant,
     '--disk',       "path=$diskImg,format=qcow2,bus=virtio",
     '--disk',       "path=$seedImg,device=cdrom",
-    '--network',    "network=$networkName,model=virtio",
+    # ",mac=" pins the NIC's MAC so an operator DHCP reservation keyed to
+    # it gives the cache VM a known, stable IP across rebuilds; empty
+    # $MacAddress keeps virt-install's per-run random MAC.
+    '--network',    ("network=$networkName,model=virtio" + $(if ($MacAddress) { ",mac=$MacAddress" } else { '' })),
     '--graphics',   'vnc,listen=127.0.0.1',
     # qemu-guest-agent socket: lets `virsh domifaddr --source agent`
     # query the guest's IPv4 directly when the host can't observe DHCP

@@ -296,7 +296,11 @@ relaxing egress (`project_sslbump_ca_gating_durable_fix`):
   each successfully fetched CA into the `yuruna-caching-proxy.yml` state
   file, keyed by cache host, and reuses it when a later live fetch flaps —
   so a guest provisioned during a flap can still bake a valid CA from a
-  prior good fetch of the same cache.
+  prior good fetch of the same cache. When even that comes up empty (retry
+  budget exhausted, nothing persisted), the `New-VM` scripts warn that the
+  guest boots CA-less and will self-heal at update time; plain-HTTP caching
+  via `:3128` is unaffected by the missing CA — only bumped `:3129` HTTPS
+  needs the trust anchor.
 - **Guest CA self-heal.** Before the first bumped HTTPS, the ubuntu update
   scripts detect an untrusted bump and re-fetch the CA from the host status
   server's `/ca.crt` endpoint over the RFC1918-permitted plain-HTTP path
@@ -308,10 +312,50 @@ relaxing egress (`project_sslbump_ca_gating_durable_fix`):
   (apt over `:3128` already succeeds), so this is the layer that turns the
   confirmed flap-during-provisioning failure into a pass. Installing the CA
   does not relax egress: HTTPS still flows through the auditable bump; the
-  self-heal only supplies the trust anchor the bump already expects.
+  self-heal only supplies the trust anchor the bump already expects. The
+  guest side is best-effort and non-fatal: a missing `host.env`, an
+  unreachable host, or an empty body leaves the guest in the original
+  rc=60 state with a clear diagnostic — never a silent pass, and never an
+  abort of the update run by the self-heal itself.
 
 On macOS UTM the fetch has an extra reason to run host-side: guests on VZ
-shared-NAT cannot reach the cache VM directly, but the host can.
+shared-NAT cannot reach the cache VM directly, but the host can. The UTM
+scripts must also resolve **which IP** serves the CA:
+
+- An **external cache** (`YURUNA_CACHING_PROXY_IP` set to a valid IP) wins:
+  `$CachingProxyUrl` already points at the remote IP (no VZ-gateway
+  rewrite), and the remote cache image is identical to the local one — the
+  same Apache on `:80` serves `/yuruna-squid-ca.crt`. The
+  `yuruna-caching-proxy.yml` state file is not updated for external caches,
+  so the IP is read straight from the environment variable.
+- Otherwise the persisted state file's `ipAddress` is used when it parses
+  as an IP.
+- When a proxy URL is set but neither source yields an IP, the script warns
+  instead of silently skipping the fetch; the guest boots CA-less and
+  relies on the update-time self-heal above.
+
+## UTM cache-VM bridged discovery
+
+### Defining utm cache vm bridged discovery
+
+The macOS UTM ubuntu `New-VM.ps1` scripts detect the caching proxy and
+inject its proxy URL into the autoinstall seed when available. The cache
+VM is bridged to the host's physical NIC
+(`VZBridgedNetworkDeviceAttachment` in `config.plist.template`), so it
+carries its own LAN DHCP IP — e.g. `http://192.168.7.150:3128`. Install
+VMs on shared NAT reach that LAN IP through VMnet's outbound NAT (the
+same path they use to reach Ubuntu mirrors), so no host-side TCP
+forwarder layer is needed. Discovery delegates to
+`Test-CachingProxyAvailable`, which owns the (state-file fast path ->
+LAN /24 scan -> state refresh) logic.
+
+Severity policy:
+
+- `Test-CachingProxyAvailable` returns a URL -> inject it.
+- `utmctl` sees the cache VM started but no `:3128` answer on the LAN ->
+  ERROR, exit 1 (the cache came up but is not on the LAN; a bridge
+  interface or DHCP problem).
+- Cache VM not registered / not started -> WARNING, proceed direct.
 
 ## Registry rate limits disguised as 400
 
@@ -336,12 +380,58 @@ guest base, or check the caching proxy's zot endpoint) and exit
 immediately instead of burning the remaining retry budget on a
 foregone conclusion.
 
+## Apt signing-key fingerprint verification
+
+The Ubuntu guest provisioning scripts (`*.k8s.sh`, `*.code.sh`) fetch
+third-party apt signing keys — Docker
+(`download.docker.com/linux/ubuntu/gpg`), Kubernetes
+(`pkgs.k8s.io/.../Release.key`), and Microsoft
+(`packages.microsoft.com/keys/microsoft.asc`) — over the guest's
+SSL-bump caching proxy, which is a **trust boundary**: a tampering proxy
+or CDN could otherwise land an attacker key in apt's trust store.
+`_yuruna_verify_key_fpr` verifies every downloaded key against a pinned
+allow-set of PRIMARY-key fingerprints before it is trusted:
+
+- Call contract: arg1 is the key file; the remaining args are the
+  ALLOWED primary fingerprints, and the FIRST of those is also REQUIRED
+  to be present in the key file.
+- Only **primary-key** fingerprints are checked, so a vendor rotating a
+  signing *subkey* under a stable primary stays trusted without a pin
+  update.
+- **Fail-closed**: an unreadable key file, any fingerprint outside the
+  allow-set, or a missing required fingerprint returns non-zero, and the
+  call sites abort the script (`NONZERO SCRIPT EXIT: ... fingerprint
+  mismatch`) rather than installing the key.
+- The helper mirrors `verify_key_fingerprints` in
+  [install/ubuntu.kvm.sh](../install/ubuntu.kvm.sh); keep the two in
+  sync when the pinning scheme changes.
+
+## Helm installer fetch
+
+The Ubuntu `*.k8s.sh` scripts install Helm via upstream's **`get-helm-4`**
+installer, never `get-helm-3`: the v3 script resolves its default version
+from `get.helm.sh/helm3-latest-version`, so it can only ever land a 3.x
+binary no matter what `Yuruna.Requirement.yml` asks for — a guest
+provisioned with it could never satisfy the Helm requirement, however that
+requirement is bumped. Passing `DESIRED_VERSION=v$YURUNA_HELM_VERSION`
+pins the exact release (the installer verifies the tarball checksum) and
+keeps the guest off the unauthenticated "latest" lookup — see
+[`Defining yuruna versions pins`](#defining-yuruna-versions-pins).
+
+The installer downloads the binary with its own un-retried curl/wget, so
+a single transient blip leaves helm uninstalled. The scripts therefore
+capture the installer script once with `curl_retry`, run it under
+`_yuruna_retry` (same capped backoff as every other fetch), and then
+verify the binary actually landed: a swallowed failure here otherwise
+surfaces far away as a `helm: not recognized` abort in the k8s.website
+workload.
+
 ---
 
 LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.14
+Last review: 2026.07.17
 
 Back to [Yuruna](../README.md)

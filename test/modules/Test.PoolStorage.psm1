@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.14
+.VERSION 2026.07.17
 .GUID 42c5e8a1-9b3d-4f27-8a6c-1d2e3f4a5b6c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -603,7 +603,30 @@ function Connect-YurunaPoolStorage {
 
 <#
 .SYNOPSIS
-Returns the operator-facing lines for the one-time Linux passwordless-sudo precondition: an /etc/sudoers.d drop-in granting the test account NOPASSWD mkdir/mount/umount (mkdir is needed when localPath sits under a root-owned parent like /mnt). Because the mount path runs `sudo -n` (never prompts) and writing under /etc/sudoers.d needs root, this CANNOT be auto-applied by the unattended runner -- the operator runs it once. Pure (caller passes the account + binary paths); returns an empty array for a blank user.
+Returns the /etc/sudoers.d drop-in specification (file path, the NOPASSWD rule line, and the resolved command list) for the Linux passwordless-sudo precondition the poolStorage mount needs. Pure (caller passes the account + binary paths); the rule grants the test account NOPASSWD mkdir/mount/umount (mkdir is needed when localPath sits under a root-owned parent like /mnt). Single source of truth shared by the operator hint and the interactive installer so they can never disagree on the rule. A blank user yields an empty Rule/Commands.
+#>
+function Get-PoolStorageSudoSpec {
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param(
+        [Parameter(Mandatory)][AllowEmptyString()][string]$User,
+        [Parameter()][string]$MkdirPath  = '/usr/bin/mkdir',
+        [Parameter()][string]$MountPath  = '/usr/bin/mount',
+        [Parameter()][string]$UmountPath = '/usr/bin/umount',
+        [Parameter()][string]$DropInName = 'yuruna-poolstorage'
+    )
+    $file = "/etc/sudoers.d/$DropInName"
+    if ([string]::IsNullOrWhiteSpace($User)) {
+        return @{ User = ''; Commands = @(); File = $file; Rule = ''; DropInName = $DropInName }
+    }
+    $commands = @(@($MkdirPath, $MountPath, $UmountPath) | Where-Object { $_ })
+    $rule = "$User ALL=(root) NOPASSWD: $($commands -join ', ')"
+    return @{ User = $User; Commands = $commands; File = $file; Rule = $rule; DropInName = $DropInName }
+}
+
+<#
+.SYNOPSIS
+Returns the operator-facing lines for the one-time Linux passwordless-sudo precondition: an /etc/sudoers.d drop-in granting the test account NOPASSWD mkdir/mount/umount (mkdir is needed when localPath sits under a root-owned parent like /mnt). The unattended RUNNER cannot self-install it (its mount path runs `sudo -n`, which never prompts, and /etc/sudoers.d needs root); an interactive operator can, via Set-PoolStorageSudoers. Pure (caller passes the account + binary paths); returns an empty array for a blank user.
 #>
 function Get-PoolStorageLinuxSudoHint {
     [CmdletBinding()]
@@ -616,15 +639,109 @@ function Get-PoolStorageLinuxSudoHint {
         [Parameter()][string]$DropInName = 'yuruna-poolstorage'
     )
     if ([string]::IsNullOrWhiteSpace($User)) { return @() }
-    $cmds = (@($MkdirPath, $MountPath, $UmountPath) | Where-Object { $_ }) -join ', '
-    $file = "/etc/sudoers.d/$DropInName"
-    $rule = "$User ALL=(root) NOPASSWD: $cmds"
+    $spec = Get-PoolStorageSudoSpec -User $User -MkdirPath $MkdirPath -MountPath $MountPath -UmountPath $UmountPath -DropInName $DropInName
     return @(
-        "Fix (one-time, run as a sudoer -- the unattended runner cannot self-install this: 'sudo -n' never prompts and /etc/sudoers.d needs root):",
-        "  echo '$rule' | sudo tee $file >/dev/null",
-        "  sudo chmod 0440 $file && sudo visudo -cf $file",
+        "Fix (one-time, run as a sudoer -- the unattended runner cannot self-install this: 'sudo -n' never prompts and /etc/sudoers.d needs root; from an interactive session Sync-HostConfiguration installs it for you):",
+        "  echo '$($spec.Rule)' | sudo tee $($spec.File) >/dev/null",
+        "  sudo chmod 0440 $($spec.File) && sudo visudo -cf $($spec.File)",
         "Then re-run Test-Config. (Adjust the binary paths if your distro differs.)"
     )
+}
+
+<#
+.SYNOPSIS
+Idempotently installs the Linux passwordless-sudo drop-in the poolStorage mount needs, prompting the operator ONCE for their sudo password. Interactive path only -- the unattended runner still cannot (and must not) self-elevate.
+.DESCRIPTION
+The mount path runs `sudo -n mount/mkdir/umount` (never prompts), so without an /etc/sudoers.d drop-in granting those NOPASSWD it fails and the runner buffers locally. An operator running Sync-HostConfiguration IS at a terminal and can supply the password once. This:
+
+  1. Is Linux-only (macOS mounts via `mount_smbfs -N` with no sudo; Windows uses SMB mappings) -- returns Action='unsupported' elsewhere.
+  2. Resolves the account (current user) and the REAL mkdir/mount/umount paths (sudo matches the fully-qualified command), so the rule matches how the mount actually invokes them.
+  3. Probes whether passwordless sudo for those commands is ALREADY in effect (`sudo -n -l <cmd>`); if so it is a no-op (Action='present').
+  4. Otherwise writes the drop-in via `sudo tee`, `chmod 0440`, and validates with `visudo -cf` (removing it again if validation fails). sudo inherits the terminal so its one password prompt reaches the operator; the cached timestamp covers the follow-up chmod/visudo.
+
+Returns @{ Action = unsupported|present|installed|failed|skipped|whatif; DropInPath; Rule; Message }. Honors -WhatIf (Action='whatif', writes nothing) and -NonInteractive (Action='skipped' with the hint -- never blocks on a password).
+#>
+function Set-PoolStorageSudoers {
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseSingularNouns', '',
+        Justification = '"sudoers" is the singular domain term for the sudo policy system (/etc/sudoers, /etc/sudoers.d); it is not a plural of "sudoer".')]
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidUsingWriteHost', '',
+        Justification = 'Interactive operator flow: the sudo password prompt and progress must reach the console the operator is watching, not an information stream a caller might capture.')]
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([hashtable])]
+    param(
+        [Parameter()][AllowEmptyString()][string]$User = '',
+        [switch]$NonInteractive
+    )
+    if (-not $IsLinux) {
+        return @{ Action = 'unsupported'; DropInPath = ''; Rule = ''; Message = 'passwordless-sudo drop-in applies to Linux only (macOS/Windows mounts need no sudo).' }
+    }
+    if ([string]::IsNullOrWhiteSpace($User)) {
+        try { $User = (& id -un 2>$null | Out-String).Trim() } catch { $User = '' }
+        if ([string]::IsNullOrWhiteSpace($User)) { $User = "$($env:USER)".Trim() }
+    }
+    if ([string]::IsNullOrWhiteSpace($User)) {
+        return @{ Action = 'failed'; DropInPath = ''; Rule = ''; Message = 'could not determine the current user to grant passwordless sudo to.' }
+    }
+
+    # Resolve the REAL binary paths -- sudoers matches the fully-qualified command
+    # sudo resolves via secure_path, so the rule must list what the mount actually
+    # runs. Fall back to the conventional /usr/bin/* when a lookup comes up empty.
+    $mkdir  = (Get-Command -CommandType Application -Name 'mkdir'  -ErrorAction SilentlyContinue | Select-Object -First 1).Source
+    $mount  = (Get-Command -CommandType Application -Name 'mount'  -ErrorAction SilentlyContinue | Select-Object -First 1).Source
+    $umount = (Get-Command -CommandType Application -Name 'umount' -ErrorAction SilentlyContinue | Select-Object -First 1).Source
+    if ([string]::IsNullOrWhiteSpace($mkdir))  { $mkdir  = '/usr/bin/mkdir' }
+    if ([string]::IsNullOrWhiteSpace($mount))  { $mount  = '/usr/bin/mount' }
+    if ([string]::IsNullOrWhiteSpace($umount)) { $umount = '/usr/bin/umount' }
+    $spec = Get-PoolStorageSudoSpec -User $User -MkdirPath $mkdir -MountPath $mount -UmountPath $umount
+
+    # Idempotency: is passwordless sudo for every command already in effect?
+    # `sudo -n -l <cmd>` exits 0 when the user may run <cmd> and never prompts (-n).
+    # Bias toward 'not configured' (offer to install) if any check is not a clean 0
+    # -- a redundant re-install just re-prompts once; a false 'present' would leave
+    # the mount broken exactly as before.
+    $already = $true
+    foreach ($c in $spec.Commands) {
+        $rc = Invoke-PoolStorageProcess -FilePath 'sudo' -ArgumentList @('-n', '-l', $c) -TimeoutSeconds 15
+        if ($rc -ne 0) { $already = $false; break }
+    }
+    if ($already) {
+        return @{ Action = 'present'; DropInPath = $spec.File; Rule = $spec.Rule; Message = "passwordless sudo for mount/mkdir/umount is already configured for '$User'." }
+    }
+
+    if ($NonInteractive) {
+        return @{ Action = 'skipped'; DropInPath = $spec.File; Rule = $spec.Rule; Message = "passwordless sudo for the poolStorage mount is not configured and -NonInteractive was set; install it manually. $((Get-PoolStorageLinuxSudoHint -User $User -MkdirPath $mkdir -MountPath $mount -UmountPath $umount) -join ' ')" }
+    }
+    if (-not $PSCmdlet.ShouldProcess($spec.File, "Install the passwordless-sudo drop-in for poolStorage mounts (grants '$User' NOPASSWD mkdir/mount/umount)")) {
+        return @{ Action = 'whatif'; DropInPath = $spec.File; Rule = $spec.Rule; Message = "would write: $($spec.Rule)" }
+    }
+
+    # Install interactively. sudo is run so its ONE password prompt reaches the
+    # operator's terminal (NOT via Invoke-PoolStorageProcess, which closes stdin
+    # and redirects the streams away from the tty); the cached credential covers
+    # the chmod/visudo that follow. Piping the rule to `sudo tee` is the same
+    # idiom the operator hint documents; PowerShell appends the trailing newline a
+    # sudoers file wants.
+    Write-Host "poolStorage: installing $($spec.File) so mounts run without a password (sudo may prompt once)..."
+    try {
+        $spec.Rule | & sudo tee $spec.File | Out-Null
+        $teeRc = $LASTEXITCODE
+        if ($teeRc -ne 0) {
+            return @{ Action = 'failed'; DropInPath = $spec.File; Rule = $spec.Rule; Message = "could not write $($spec.File) (sudo tee exit $teeRc); install it manually. $((Get-PoolStorageLinuxSudoHint -User $User -MkdirPath $mkdir -MountPath $mount -UmountPath $umount) -join ' ')" }
+        }
+        & sudo chmod 0440 $spec.File | Out-Null
+        $chmodRc = $LASTEXITCODE
+        $visudoOut = (& sudo visudo -cf $spec.File 2>&1 | Out-String).Trim()
+        $visudoRc = $LASTEXITCODE
+        if ($chmodRc -ne 0 -or $visudoRc -ne 0) {
+            # A syntactically invalid drop-in can break sudo for EVERY command, so
+            # remove it rather than leave it in place.
+            & sudo rm -f $spec.File | Out-Null
+            return @{ Action = 'failed'; DropInPath = $spec.File; Rule = $spec.Rule; Message = "the drop-in failed validation (chmod exit $chmodRc, visudo exit ${visudoRc}: $visudoOut) and was removed; install it manually. $((Get-PoolStorageLinuxSudoHint -User $User -MkdirPath $mkdir -MountPath $mount -UmountPath $umount) -join ' ')" }
+        }
+        return @{ Action = 'installed'; DropInPath = $spec.File; Rule = $spec.Rule; Message = "installed $($spec.File): '$User' may now mount/mkdir/umount without a password." }
+    } catch {
+        return @{ Action = 'failed'; DropInPath = $spec.File; Rule = $spec.Rule; Message = "installing $($spec.File) threw: $($_.Exception.Message). Install it manually. $((Get-PoolStorageLinuxSudoHint -User $User -MkdirPath $mkdir -MountPath $mount -UmountPath $umount) -join ' ')" }
+    }
 }
 
 # Join-PoolStoragePath combines a localPath base with a relative subpath. A
@@ -1417,7 +1534,7 @@ Export-ModuleMember -Function `
     ConvertFrom-PoolStorageMountLine, Find-PoolStorageConflictingMount, `
     Get-PoolStorageConflictingMount, Clear-PoolStorageConflictingMount, `
     Get-YurunaPoolStorageConfig, Get-YurunaStashStorageConfig, Test-YurunaPoolStorageMounted, Connect-YurunaPoolStorage, `
-    Get-PoolStorageLinuxSudoHint, `
+    Get-PoolStorageLinuxSudoHint, Get-PoolStorageSudoSpec, Set-PoolStorageSudoers, `
     Sync-YurunaPoolStorageFolder, Test-PoolStorageVaultDecision, Get-PoolStorageCycleIdentity, `
     Get-PoolStoragePendingSet, Merge-PoolStorageLedger, Read-PoolStorageLedger, `
     Write-PoolStorageLedger, Test-PoolStorageServerReachable, Test-PoolStorageVaultReady, `

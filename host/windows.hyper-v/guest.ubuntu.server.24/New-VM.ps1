@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.14
+.VERSION 2026.07.17
 .GUID 42d9e0f1-a2b3-4c45-d678-9e0f1a2b3c47
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -330,21 +330,12 @@ if (Test-Path -LiteralPath $YurunaTestConfig) {
 
 # --- REGION: Fetch caching-proxy CA cert (base64-embedded in seed)
 # --- REGION: https://yuruna.link/network#caching-proxy-ca-cert-rc60-gate
-# An empty $CaCertBase64 is NOT a harmless no-op (curl rc=60 SSL-bump gate);
-# see feedback_sslbump_rc60_untrusted_chain_and_ca_gate_trap.
+# An empty $CaCertBase64 is NOT a harmless no-op (curl rc=60 SSL-bump gate).
 $CaCertBase64 = ""
 if ($CachingProxyUrl) {
     Import-Module -Name (Join-Path $PSScriptRoot '../../../test/modules/Test.CachingProxy.psm1') -Force -DisableNameChecking
     $uri = [System.Uri]$CachingProxyUrl
     $cacheHost = if ($uri.Host -match ':') { "[$($uri.Host)]" } else { $uri.Host }
-    # An empty $CaCertBase64 is NOT a harmless no-op: the seed still routes the
-    # guest's HTTPS through the bump (:3129) and locks direct :443 egress, so a
-    # CA-less guest fails every HTTPS with curl rc=60. Get-CachingProxyCaCertBase64
-    # retries the live fetch and falls back to the last-good persisted CA for this
-    # cache host; if it still comes up empty the guest boots CA-less and recovers
-    # at update time via the host status-server CA self-heal. See
-    # feedback_sslbump_rc60_untrusted_chain_and_ca_gate_trap and
-    # project_sslbump_ca_gating_durable_fix.
     $ca = Get-CachingProxyCaCertBase64 -CacheCaUrl "http://$cacheHost/yuruna-squid-ca.crt" -CacheHost $uri.Host
     $CaCertBase64 = $ca.CaCertBase64
     if ($ca.Exhausted) {
@@ -384,8 +375,8 @@ Write-Verbose "Generating seed.iso with autoinstall configuration..."
 CreateIso -SourceDir $SeedDir -OutputFile $SeedIso -VolumeId "cidata"
 
 Write-Verbose "Creating new VM '$VMName' on switch '$switchName'..."
-Hyper-V\New-VM -Name $VMName -Generation 2 -MemoryStartupBytes 16384MB -SwitchName $switchName -VHDPath $vhdxFile | Out-Null
-Set-VM -Name $VMName -MemoryStartupBytes 16384MB -MemoryMinimumBytes 16384MB -MemoryMaximumBytes 16384MB -AutomaticCheckpointsEnabled $false | Out-Null
+Hyper-V\New-VM -Name $VMName -Generation 2 -MemoryStartupBytes 12288MB -SwitchName $switchName -VHDPath $vhdxFile | Out-Null
+Set-VM -Name $VMName -MemoryStartupBytes 12288MB -MemoryMinimumBytes 12288MB -MemoryMaximumBytes 12288MB -AutomaticCheckpointsEnabled $false | Out-Null
 Set-VMMemory -VMName $VMName -DynamicMemoryEnabled $false
 Set-VMFirmware -VMName $VMName -EnableSecureBoot Off | Out-Null
 
@@ -393,7 +384,7 @@ Set-VMFirmware -VMName $VMName -EnableSecureBoot Off | Out-Null
 # Hyper-V appends this VM's ACE on attach. Without it the file's DACL grows
 # unbounded across runs (Hyper-V never revokes on Remove-VM) and eventually
 # hits the ~64 KB ACL limit, failing the attach with 0x8007053C ("does not
-# have permission to open attachment"). See docs/hyperv-iso-ace-bloat.md.
+# have permission to open attachment"). See https://yuruna.link/vmconfig#hyper-v-iso-ace-bloat.
 $prunedAce = Remove-OrphanedVMFileAccess -Path $baseImageFile
 if ($prunedAce -gt 0) { Write-Verbose "Pruned $prunedAce stale per-VM ACE(s) from base image before attach." }
 Add-VMDvdDrive -VMName $VMName -Path $baseImageFile | Out-Null

@@ -63,6 +63,12 @@ Likely the best path for those using the command line and environments like Linu
        git% git clone https://github.com/alissonsol/yurunadev-project yuruna-project
      ```
 
+  - If using the command line tool and the Personal Access Token, use `gh repo` commands.
+     ```
+       git% gh repo clone https://github.com/alissonsol/yurunadev yuruna
+       git% gh repo clone https://github.com/alissonsol/yurunadev-project yuruna-project
+     ```
+
   - Configure local Git variables to ease committing and pushing changes later
     ```
     git config --global user.name "Your Name"
@@ -74,6 +80,12 @@ Likely the best path for those using the command line and environments like Linu
     - For macOS, run under a Bash shell: `macos.utm.sh`
     - For Ubuntu, run under a Bash shell: `ubuntu.kvm.sh`
     - For Windows, run under a PowerShell: `windows.hyper-v.ps1`
+
+  - Other scripts for convenience.
+    - `test/Enable-TestAutomation.ps1`: Change host settings to avoid screen savers and other disruptions for long test cycles.
+    - `test/Sync-HostConfiguration.ps1`: Copy host configuration (`test.config.yml`) parameters from another host.
+    - `test/Test-CachingProxy.ps1`: Test the connectivity to the caching proxy.
+    - `test/Test-Config.ps1`: Test if the host configuration has valid values.
 
 ## Workflow
 
@@ -119,7 +131,7 @@ No assistance will be provided to help migrate changes you made in the public re
 #### `repositories.GH_TOKEN` — reading a private framework/project repo
 
 Leave `GH_TOKEN: ""` if both `frameworkUrl` and `projectUrl` are public. You
-need it only when a guest has to read a **private** repo — either to `git clone`
+need it only when a guest has to read a **private** repo — either to clone
 the framework/project, or to fetch its update script from GitHub when the host
 status server is unreachable.
 
@@ -200,19 +212,10 @@ the empty `GH_TOKEN: ""` in the template is.
 
 ### 5. **Running Tests**
 
-If you are going to run tests, mainly continuously, run these commands under PowerShell (Administrator mode in Windows).
-
-  - Under the `host` folder, find the host type (macos.utm, ubuntu.kvm, windows.hyper-v) and run:
-    ```
-    Sync-HostConfiguration
-    ```
-
-  - After configuring the host, change the settings to enable continuous test running without interruptions like screen savers, etc.
-    ```
-    Enable-TestAutomation
-    ```
-
-  - If not using a local caching proxy, set the address of that server.
+  - If not using a local caching proxy, set the address of that server —
+    durably via `vmStart.cachingProxyIP` in `test/test.config.yml` (probed
+    first at cycle start), or for the session only via the fallback env var
+    (consulted only when the config key is empty or unreachable):
     ```
     $env:YURUNA_CACHING_PROXY_IP = 'x.y.z.a'
     ```
@@ -246,7 +249,7 @@ If you are going to run tests, mainly continuously, run these commands under Pow
 
   - Start the Yuruna caching proxy
     - Locally: `test/Start-CachingProxy.ps1`
-    - For a remote cache: `$env:YURUNA_CACHING_PROXY_IP = 'x.y.z.p'`
+    - For a remote cache: set `vmStart.cachingProxyIP` in `test/test.config.yml` (probed first), or `$env:YURUNA_CACHING_PROXY_IP = 'x.y.z.p'` when the config key is empty
     - Test: `test/Test-CachingProxy.ps1`
   - Single test loop: `test/Test-Project.ps1`
   - For running unattended tests, see the [Test Runner](docs/test-runner.md) documentation.
@@ -323,6 +326,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.14
+Last review: 2026.07.17
 
 Back to [Yuruna](README.md)

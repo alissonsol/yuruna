@@ -167,21 +167,9 @@ write_files:
       http_access allow yuruna_local
 
       # --- REGION: Snapshot-cache tuning
-      # Tuned as a replayable snapshot:
-      #   1. objects stay until the disk is nearly full (no proactive
-      #      release)
-      #   2. cache keeps serving when origin is unreachable or sends
-      #      cache-hostile headers
-      #   3. with offline_mode (flipped by runcmd after prewarm), a full
-      #      cache supports guest installs with zero internet.
-      #
-      # cache_replacement_policy MUST appear before cache_dir -- squid
-      # binds the policy at cache_dir parse time; a later override has no
-      # effect. heap LFUDA keeps frequently-used large objects
-      # (linux-firmware, kernels) over many small ones; GDSF does the
-      # same in-memory. When eviction fires, rarely-touched small objects
-      # drop first -- the big expensive-to-refetch blobs survive, which is
-      # what offline replay needs.
+      # --- REGION: https://yuruna.link/vmconfig/caching-proxy#snapshot-cache-tuning
+      # cache_replacement_policy MUST appear before cache_dir (squid binds
+      # the policy at cache_dir parse time; a later override has no effect).
       cache_replacement_policy heap LFUDA
       memory_replacement_policy heap GDSF
 
@@ -201,25 +189,12 @@ write_files:
       # it only changes the rejection threshold.
       maximum_object_size 65 GB
       maximum_object_size_in_memory 32 MB
-      # cache_mem is 7 GB (58 %) of the VM's 12 GB, keeping 2 GB free
-      # for the zot OCI registry pull-through cache
-      # (handles Docker Hub manifest HEADs that squid cannot -- see the
-      # zot block in write_files / runcmd below). This is a DEDICATED
-      # cache VM (squid + zot are the only top-priority workloads), so
-      # the memory budget is sized around these two directives rather
-      # than the other way around. Empirically squid's RSS runs ~1 GB
-      # above cache_mem (sslcrtd children + connection buffers + in-RAM
-      # hot objects), so 7 GB cache_mem ~~> 8 GB squid RSS; zot peaks at
-      # ~500 MB during heavy parallel pulls; that leaves ~2 GB for
-      # apache / grafana / prometheus / loki / promtail / squid-
-      # exporter / caching-proxy-parser / kernel / page cache. Swap is
-      # masked, so tune VM RAM + cache_mem + zot together -- 58 % on a
-      # smaller VM would OOM mid-cycle with no swap fallback.
+      # Swap is masked -- tune VM RAM + cache_mem + zot together (budget
+      # math in the snapshot-cache-tuning topic above).
       cache_mem 7 GB
 
-      # Never release unless forced: evict only when disk >99% full,
-      # stopping at 98%. Default 90/95 would evict with ~5 GB free --
-      # wrong for a sticky snapshot cache.
+      # Never release unless forced -- evict only when disk >99% full,
+      # stopping at 98%.
       cache_swap_high 99
       cache_swap_low  98
 
@@ -228,17 +203,8 @@ write_files:
       # successfully next time.
       negative_ttl 0 seconds
 
-      # Offline mode: serve cached objects without ever revalidating
-      # them with origin. Aggressive on purpose -- this VM exists to
-      # keep test cycles running when upstream registries (Docker Hub,
-      # registry.k8s.io, registry.opentofu.org, public.ecr.aws, etc.)
-      # have intermittent 5xx / rate-limit incidents. With offline_mode
-      # off (squid default), the catch-all `refresh_pattern .` still
-      # revalidates every hit and a single upstream 5xx tears down the
-      # cycle even when squid has everything else cached. With
-      # offline_mode on, cache MISSES still fall through to upstream
-      # (otherwise the VM could never warm up);
-      # only HITS are served unconditionally.
+      # Offline mode: cache MISSES still fall through to upstream (so the
+      # VM can warm up); only HITS are served unconditionally.
       offline_mode on
 
       # Expose the running config via /squid-internal-mgr/config without
@@ -310,29 +276,12 @@ write_files:
       refresh_pattern -i /dep11/.+\.yml(\.gz|\.xz)?$    0 0%  60
 
       # --- REGION: Container registry caching (OCI + Docker v2)
-      # Diagnostic against active cycles has shown identical
-      # digest-pinned blob/manifest URLs being re-fetched multiple times
-      # per cycle (per `awk '$4 ~ /MISS/' /var/log/squid/yuruna_access.log`):
-      #   * /v2/.../manifests/sha256:<hex>  ->  immutable by definition
-      #   * /v2/.../blobs/sha256:<hex>       ->  immutable by definition
-      # Registries return Cache-Control: must-revalidate (or private) on
-      # these, so the stock catch-all `refresh_pattern .` revalidates on
-      # every request. Override the headers for digest-pinned URLs only
-      # (the `sha256:` segment) and they cache for the full year like
-      # apt .deb files. Tag-based manifest URLs (`/manifests/<tag>` with
-      # no `sha256:`) stay revalidated -- tags ARE mutable, e.g. `:latest`,
-      # `:2`, `:v0.28.4`.
-      #
-      # The pattern matches the URL PATH, so it works for any registry
-      # host: registry.k8s.io, ghcr.io, registry-1.docker.io, public.ecr.
-      # aws, us-east4-docker.pkg.dev, and the CDNs they 307-redirect to
-      # (cloudfront, S3, R2 cloudflarestorage) -- those all carry the
-      # `sha256:` segment in the redirected path.
+      # --- REGION: https://yuruna.link/vmconfig/caching-proxy#snapshot-cache-tuning
+      # Digest-pinned URLs only (the `sha256:` path segment is immutable);
+      # tag-based manifest URLs stay revalidated -- tags ARE mutable.
       refresh_pattern -i /(manifests|blobs)/sha256:[0-9a-f]+ 525600 100% 525600 override-expire override-lastmod ignore-reload ignore-no-store ignore-private
-      # Tag-based manifests: short freshness window so concurrent guests
-      # in the same cycle hit cache, but a tag move within a few minutes
-      # is still picked up. collapsed_forwarding already pools parallel
-      # fetches; this just stretches the window past `must-revalidate`.
+      # Tag-based manifests: short freshness window (same-cycle guests hit
+      # cache; a tag move still lands within minutes).
       refresh_pattern -i /v2/.+/manifests/[^/]+$        5 50%  60
 
       # --- REGION: OpenTofu / Terraform provider + binary caching
@@ -408,21 +357,28 @@ write_files:
       # "Recent 100 requests" view with internal noise that has nothing
       # to do with guest traffic. The exporter still receives its
       # response (the deny is on access_log, not on http_access).
-      acl yuruna_mgr_scrape urlpath_regex ^/squid-internal-mgr/
+      #
+      # Match the exporter by SOURCE, not urlpath. The exporter runs on this
+      # VM and scrapes 127.0.0.1:3128, so loopback identifies it. A
+      # urlpath/url regex ACL cannot be evaluated for connection-level log
+      # events that carry no parsed HTTP request (CONNECT tunnels,
+      # pre-request TLS-bump errors); squid then logs "ACL is used in context
+      # without an HTTP request" to cache.log for every such event -- hundreds
+      # per minute, burying the genuine errors. `src` is always available, so
+      # the exclusion is warning-free. Guest traffic is LAN-sourced, so
+      # dropping loopback removes only the self-scrapes (and local health
+      # probes), never a guest request.
+      acl yuruna_selfscrape src 127.0.0.1/32 ::1/128
       # Squid 7 requires module prefix on access_log; without `stdio:`
       # the parser emits a deprecation WARNING at every config load.
-      access_log stdio:/var/log/squid/yuruna_access.log yuruna !yuruna_mgr_scrape
+      access_log stdio:/var/log/squid/yuruna_access.log yuruna !yuruna_selfscrape
   # --- REGION: https://yuruna.link/vmconfig/caching-proxy#prometheus-loopback-only
   - path: /etc/default/prometheus
     permissions: '0644'
     owner: root:root
     content: |
-      # 30d retention (Prometheus defaults to 15d) so the dashboard's
-      # metric-driven panels (the host x time timeline + tiles) span a month;
-      # the 2GB size cap is a disk safety net (evicts oldest first if metric
-      # cardinality ever grows). /var/lib/prometheus is on the VM root fs, so a
-      # VM REBUILD still resets history -- surviving rebuilds needs a persistent
-      # data volume.
+      # 30d retention + 2GB size-cap safety net; /var/lib/prometheus is on the
+      # VM root fs, so a VM rebuild still resets history.
       ARGS="--web.listen-address=127.0.0.1:9090 --storage.tsdb.retention.time=30d --storage.tsdb.retention.size=2GB"
   - path: /etc/prometheus/prometheus.yml
     permissions: '0644'
@@ -442,23 +398,12 @@ write_files:
         - job_name: zot
           static_configs:
             - targets: ['localhost:5000']
-        # Squid metadata: tiny systemd-timer-driven script writes a
-        # Prometheus text-format file at /var/www/html/squid-meta with
-        # two gauges (squid_listening, squid_offline_mode_configured).
-        # Apache serves it on port 80 like any static file; Prometheus
-        # scrapes it as if it were an exporter. Decoupled from squid-
-        # exporter so the offline-mode signal survives even when squid
-        # itself is down. See write_files for the script + units.
+        # Squid metadata: timer-driven script publishes /var/www/html/squid-meta (Prom text format, gauges squid_listening + squid_offline_mode_configured); Prometheus scrapes it via Apache so the offline-mode signal survives even when squid is down.
         - job_name: squid_meta
           metrics_path: /squid-meta
           static_configs:
             - targets: ['localhost:80']
-        # pool-aggregator: the multi-host pool view's collector. Exposes yuruna_pool_*
-        # on :9400. Served over HTTPS (proxy-CA leaf) when the leaf is present; the
-        # LOOPBACK scrape uses insecure_skip_verify (the connection never leaves the
-        # host, so peer authentication is moot) -- this works whether the leaf SAN lists
-        # localhost or only IPs, and degrades to a visible scrape failure (not a hang) if
-        # the aggregator ever falls back to plain HTTP.
+        # pool-aggregator: multi-host pool collector on :9400 (HTTPS via proxy-CA leaf when present, else HTTP). Loopback scrape uses insecure_skip_verify -- peer authentication is moot on 127.0.0.1 and it works whether the leaf SAN lists localhost or only IPs.
         - job_name: pool-aggregator
           scheme: https
           tls_config:
@@ -530,14 +475,9 @@ write_files:
                 - localhost
               labels:
                 job: squid
-                # yuruna_access.log is the custom logformat (defined in
-                # /etc/squid/conf.d/yuruna.conf) -- same fields as the
-                # stock `squid` format plus a quoted "%{User-Agent}>h"
-                # column at the end so the dashboard panel can split
-                # apt / curl / snap / Docker / Go-http-client traffic.
-                # The stock access.log keeps its default format for
-                # cachemgr/tail debugging; only Promtail tails the
-                # yuruna variant.
+                # Tail only squid's custom yuruna_access.log (adds a quoted
+                # User-Agent column; see the yuruna.conf logformat comment);
+                # the stock access.log keeps its default format.
                 __path__: /var/log/squid/yuruna_access.log
           pipeline_stages:
             - regex:
@@ -545,12 +485,7 @@ write_files:
             - timestamp:
                 source: ts
                 format: Unix
-        # zot logs in JSON Lines to /var/log/zot/zot.log. Ship to Loki
-        # under job=zot so {job="zot"} ad-hoc queries work from Grafana
-        # Explore. Today no dashboard consumes this stream (the
-        # community Zot dashboard installed in runcmd is Prometheus-only),
-        # but tailing is kept defensive -- a future custom panel or
-        # incident investigation can use the in-Loki history.
+        # Ship zot's JSONL /var/log/zot/zot.log to Loki as job=zot so {job="zot"} queries work in Explore; no dashboard consumes the stream today (community Zot dashboard is Prom-only).
         - job_name: zot
           static_configs:
             - targets:
@@ -576,7 +511,7 @@ write_files:
             # template stage, then drop on it via exact-value match.
             # Catches both "no path key at all" (sync errors) AND
             # "path is the empty string" (defensive). Mirrors squid's
-            # !yuruna_mgr_scrape access-log filter intent.
+            # !yuruna_selfscrape access-log filter intent.
             - template:
                 source: path
                 template: '{{ or .path "NO_HTTP_PATH" }}'
@@ -601,9 +536,7 @@ write_files:
     owner: root:root
     content: |
       #!/bin/bash
-      # Yuruna: squid meta exporter (runtime-config probe).
-      # Run periodically via squid-meta-exporter.timer; writes a Prom-
-      # format file at /var/www/html/squid-meta.
+      # Yuruna squid meta exporter: probes runtime config via cachemgr, writes /var/www/html/squid-meta (Prom text format); driven by squid-meta-exporter.timer.
       set +e
       TMP=$(mktemp)
       trap 'rm -f "$TMP"' EXIT
@@ -2382,11 +2315,7 @@ runcmd:
       ss -ltn 'sport = :3128' 2>/dev/null | grep -q 3128 && break
       sleep 1
     done
-    # Diagnostic safety net: if squid never bound :3128, dump journal
-    # into cloud-init-output.log so the operator's first
-    # `grep ERROR /var/log/cloud-init-output.log` surfaces the real cause
-    # (e.g. EADDRINUSE from a duplicate http_port). Otherwise the host
-    # just sees "can't TCP-connect" without knowing why.
+    # Diagnostic safety net: dump squid journal into cloud-init-output.log so `grep ERROR` surfaces the real cause (e.g. EADDRINUSE from a duplicate http_port) instead of a bare "can't TCP-connect".
     if ! ss -ltn 'sport = :3128' 2>/dev/null | grep -q 3128; then
       echo "== YURUNA: squid did not bind :3128 within 60s =="
       systemctl --no-pager -l status squid || true
@@ -2594,8 +2523,7 @@ runcmd:
   # host.registration.json and the pool-aggregator (which already polls every pool
   # host's registration) emits the dashboard row. So there is no @stash fetch here,
   # and no cross-host Config Service / ystash-nas credential dependency for the
-  # dashboard. (The Config Service + yuruna-config-fetch still serve ypool-nas
-  # replication above.)
+  # dashboard.
   # --- REGION: https://yuruna.link/vmconfig/caching-proxy#verify-promtail-supplementary-groups
   - |
     sleep 2
@@ -2671,9 +2599,7 @@ runcmd:
     # mode 0600 (zot:zot) -- promtail's SupplementaryGroups=zot is
     # NOT enough because group permissions are 000. ACL adds a per-user
     # read entry without touching zot's writes. Default ACL on the
-    # directory inherits to any future rotated file. `|| true` so a
-    # transient ACL/permission hiccup doesn't fail the entire runcmd
-    # phase -- the panel emptiness self-surfaces in Grafana.
+    # directory inherits to any future rotated file.
     if [ -f /var/log/zot/zot.log ]; then
       setfacl -m u:promtail:r /var/log/zot/zot.log 2>&1 || true
       setfacl -d -m u:promtail:r /var/log/zot/    2>&1 || true

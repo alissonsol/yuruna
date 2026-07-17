@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.07.14
+# Version: 2026.07.17
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 set -euo pipefail
@@ -49,14 +49,8 @@ apt_retry sudo apt-get install -y \
 sudo systemctl enable --now ssh
 sudo systemctl is-active ssh > /dev/null 2>&1 || echo "Note: SSH service status unknown"
 
-# Verify a downloaded apt signing key against a pinned PRIMARY-key fingerprint
-# allow-set before it is trusted, so a caching-proxy / CDN tamper cannot land an
-# attacker key in apt's trust store (the key is fetched over the guest's SSL-bump
-# proxy, which is a trust boundary). arg1 = key file; the remaining args are the
-# ALLOWED primary fingerprints and the FIRST is also REQUIRED to be present. Only
-# primary-key fingerprints are checked, so a vendor rotating a signing subkey
-# under a stable primary stays trusted without a pin update. Fail-closed. Mirrors
-# verify_key_fingerprints in install/ubuntu.kvm.sh.
+# --- REGION: https://yuruna.link/network#apt-signing-key-fingerprint-verification
+# arg1 = key file; remaining args = ALLOWED primary fingerprints, FIRST also required.
 _yuruna_verify_key_fpr() {
     local keyfile="$1"; shift
     local required="${1^^}" allowed=("$@") present a fpr ok found=0
@@ -377,17 +371,8 @@ kubectl --kubeconfig="${REAL_HOME}/.kube/config" config rename-context kubernete
 
 echo ""
 echo -e "\e[1;36m==== Helm ====\e[0m"
-# get-helm-4, not get-helm-3: the v3 installer resolves its default from
-# get.helm.sh/helm3-latest-version, so it can only ever land a 3.x binary no
-# matter what Yuruna.Requirement.yml asks for. DESIRED_VERSION pins the exact
-# release (the installer verifies the tarball checksum), which also keeps the
-# guest off the unauthenticated "latest" lookup.
-#
-# The installer downloads the binary with its own un-retried curl/wget, so a
-# single transient blip leaves helm uninstalled. Capture the script, run it
-# under _yuruna_retry, then verify the binary landed: a swallowed failure here
-# otherwise surfaces far away as a `helm: not recognized` abort in the
-# k8s.website workload.
+# --- REGION: https://yuruna.link/network#helm-installer-fetch
+# get-helm-4, never get-helm-3 (the v3 installer can only ever land a 3.x binary).
 curl_retry -fsSL "https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-4${YurunaCacheContent:+?nocache=${YurunaCacheContent}}" -o /tmp/get-helm-4.sh
 chmod +x /tmp/get-helm-4.sh
 DESIRED_VERSION="v${YURUNA_HELM_VERSION}" _yuruna_retry helm_install /tmp/get-helm-4.sh || true

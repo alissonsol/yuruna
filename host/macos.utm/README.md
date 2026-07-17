@@ -41,7 +41,7 @@ Manual walk-through of the installer: [macOS UTM Host Setup - Nerd-Level Details
 
 ## System requirements
 
-The installer's tested baseline is **macOS 26+ (Sequoia)**, **Apple
+The installer's tested baseline is **macOS 26+ (Tahoe)**, **Apple
 Silicon (arm64)**, **16+ physical cores**, **32 GB+ RAM**, and
 **512 GB+ free disk**. A preflight check warns and prompts for
 confirmation if any of these is not met; continuing is permitted but
@@ -62,10 +62,12 @@ TCP forwarder layer.
   outbound NAT to the LAN IP. `guest.ubuntu.server.24/New-VM.ps1` delegates
   to `Test-CachingProxyAvailable` and injects e.g.
   `http://192.168.7.150:3128` into the autoinstall seed ISO.
-- **Remote LAN hosts** set `YURUNA_CACHING_PROXY_IP=<cache-lan-ip>`
-  before `Invoke-TestRunner.ps1` and reach the cache directly. The
-  cache's LAN IP is printed in the summary line of
-  `test/Start-CachingProxy.ps1`.
+- **Remote LAN hosts** set `vmStart.cachingProxyIP: <cache-lan-ip>` in
+  their `test/test.config.yml` (probed first at cycle start) — or
+  `YURUNA_CACHING_PROXY_IP=<cache-lan-ip>` before `Invoke-TestRunner.ps1`
+  on hosts whose config key is empty; a populated, reachable config
+  value outranks the env var. The cache's LAN IP is printed in the
+  summary line of `test/Start-CachingProxy.ps1`.
 - **If the cache VM is `started` but no `:3128` answer is found on the
   host's LAN `/24`**, `New-VM.ps1` exits 1 rather than silently falling
   back — typically a Wi-Fi AP that filters the cache's locally-
@@ -75,7 +77,7 @@ TCP forwarder layer.
 `test/Repair-CachingProxyForwarder.ps1` survives as a thin "verify
 reachable + refresh state file" tool; there is no forwarder layer to
 repair anymore. `test/Stop-CachingProxy.ps1` still tears down any
-legacy forwarders left over from before the bridged-mode upgrade.
+legacy forwarders.
 
 ## Next: Create a Guest VM
 
@@ -93,6 +95,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.14
+Last review: 2026.07.17
 
 Back to [Yuruna](../../README.md)

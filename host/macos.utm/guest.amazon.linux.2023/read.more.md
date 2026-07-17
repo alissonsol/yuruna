@@ -21,12 +21,12 @@ pwsh ./Get-Image.ps1
 ## 2) Create the VM
 
 [`New-VM.ps1`](./New-VM.ps1) assembles a UTM bundle under
-`~/yuruna/guest.nosync/`. Converts qcow2 → raw (required
-by Apple Virtualization), resizes to 128 GB (thin), creates an EFI
-variable store, generates a cloud-init `seed.iso`, and writes
-`config.plist` from
-[`config.plist.template`](./config.plist.template) — Apple
-Virtualization ARM64, 4 vCPU, 16 GB RAM, UEFI, shared NAT, clipboard.
+`~/yuruna/guest.nosync/`. Copies the qcow2 directly (the QEMU backend
+reads qcow2 natively; no raw conversion), resizes to 128 GB (thin),
+generates a cloud-init `seed.iso`, and writes `config.plist` from
+[`config.plist.template`](./config.plist.template) — QEMU (HVF)
+ARM64, core-count-policy vCPUs (min 4), 12 GB RAM, UEFI, shared NAT,
+clipboard.
 
 ```
 pwsh ./New-VM.ps1                   # default hostname amazon-linux01
@@ -40,11 +40,9 @@ Install the GUI with `sudo dnf groupinstall -y "Desktop"`.
 ## Key differences from the Hyper-V version
 
 - Amazon Linux ships pre-built qcow2 KVM ARM64 images — no installer
-  ISO; the VM boots from the converted raw disk.
+  ISO; the VM boots directly from the copied qcow2 disk.
 - `seed.iso` uses cloud-init (not autoinstall).
 - `hdiutil makehybrid` replaces `Oscdimg.exe`.
-- Apple Virtualization gives better clock sync and EFI persistence
-  than QEMU.
 
 ---
 
@@ -52,6 +50,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.14
+Last review: 2026.07.17
 
 Back to [Yuruna](../../../README.md)

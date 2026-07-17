@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.07.14
+# Version: 2026.07.17
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 set -euo pipefail
@@ -30,11 +30,7 @@ esac
 export YURUNA_DNF_STALL_TIMEOUT=0
 
 # --- REGION: https://yuruna.link/memory#why-ubuntu-guest-update-scripts-install-powershell-first
-# AL2023 has no first-party pwsh package; tarball install matches what
-# ubuntu.server.24.code.sh does and works on both x86_64 and aarch64.
-# Version is discovered at install time by resolving the GitHub
-# /releases/latest redirect, so this stays current without code edits
-# when Microsoft ships a new pwsh.
+# AL2023 ships no first-party pwsh package; GitHub-release tarball (both arches).
 echo ""
 echo -e "\e[1;36m==== PowerShell ====\e[0m"
 if ! command -v pwsh >/dev/null 2>&1; then
@@ -107,18 +103,37 @@ try {
 } catch { "HEAD ERROR: $($_.Exception.Message)" }
 
 "--- Install-Module powershell-yaml (Verbose) ---"
-Install-Module -Name powershell-yaml -Scope AllUsers -Force -Verbose 4>&1
+try {
+    Install-Module -Name powershell-yaml -Scope AllUsers -Force -Verbose 4>&1
+} catch {
+    "INSTALL ERROR: $($_.Exception.Message)"
+}
 
 "--- Import + ConvertFrom-Yaml smoke ---"
-Import-Module powershell-yaml
-$null = ConvertFrom-Yaml 'k: v'
+# Install-Module can leave powershell-yaml ABSENT while writing only a
+# non-terminating error: a corrupt/truncated .nupkg trips a hash mismatch and
+# an invalid-zip "End of Central Directory record could not be found", which
+# does not stop the block, so it would otherwise print "OK" and exit 0 -- a
+# green guest with no powershell-yaml, and pwsh_retry's backoff never engages
+# against what is usually a transient bad transfer. Verify the end state (the
+# Get-Module -ListAvailable gate ConvertFrom-Content enforces at workload time)
+# and exit non-zero on any gap so a fresh download is retried.
+try {
+    Import-Module powershell-yaml -ErrorAction Stop
+    $null = ConvertFrom-Yaml 'k: v'
+} catch {
+    "SMOKE ERROR: $($_.Exception.Message)"
+    exit 1
+}
+if (-not (Get-Module -ListAvailable -Name powershell-yaml)) {
+    "VERIFY ERROR: powershell-yaml not available after install"
+    exit 1
+}
 "OK"
 PSEOF
 
 # --- REGION: https://yuruna.link/memory#why-ubuntu-guest-update-scripts-pre-extract-the-yuruna-tarball
-# Tarball-only here: the git-clone fallback at the original position
-# below stays put because it needs `git`, which requires dnf to work,
-# which is exactly what may be stuck.
+# Tarball-only here: the git-clone fallback below needs git, which needs dnf.
 echo ""
 echo -e "\e[1;36m==== yuruna framework tarball ====\e[0m"
 REAL_USER="${SUDO_USER:-$USER}"
@@ -264,8 +279,7 @@ fi
 sudo chown -R "$REAL_USER:$REAL_USER" "$REAL_HOME/yuruna" 2>/dev/null || true
 
 # --- REGION: https://yuruna.link/network#guest-update-network-convergence-before-handoff
-# dnf transactions can bounce the DHCP lease at the transaction tail;
-# settle the link (max 30 s, never fatal) before the first host->guest SSH.
+# Settle the link (max 30 s, never fatal) before the first host->guest SSH.
 echo ""
 echo -e "\e[1;36m==== Network convergence ====\e[0m"
 if systemctl is-active --quiet NetworkManager && command -v nm-online >/dev/null 2>&1; then

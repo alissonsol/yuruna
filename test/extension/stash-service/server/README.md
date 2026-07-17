@@ -53,22 +53,32 @@ go build -o stash-server .
 sudo install -m 0755 stash-server /usr/local/bin/stash-server
 ```
 
-### Detection backend (magika)
+### Magika detection backend (optional build)
 
 Content-type detection (`internal/detect`) defaults to a pure-Go heuristic
 (extension + content sniff + UTF-8 text check) — no cgo, no model, always
 built and tested. The richer **magika** backend
-([google/magika](https://github.com/google/magika/tree/main/go)) is behind
-a build tag and OFF by default because it needs cgo + the ONNX Runtime
-native library + the model assets:
+([google/magika](https://github.com/google/magika/tree/main/go),
+[stash-service-ui.md](../../../../docs/design/stash-service-ui.md) §6.1,
+§14) is built only with `-tags magika` and is EXCLUDED from the default
+build, so plain `go build` / `go test` stay pure-Go and offline. Enabling
+it requires, in the VM image build, all three of:
+
+- the Go binding: `go get github.com/google/magika/go/magika`
+- ONNX Runtime: the native shared library (cgo links against it)
+- the model assets: e.g. the `standard_v3_3` model directory
 
 ```bash
 # In the VM image build only, after vendoring ONNX Runtime + the model:
 go get github.com/google/magika/go/magika
 go build -tags magika -o stash-server .
-# Runtime: MAGIKA_ASSETS_DIR (default /usr/local/share/magika), MAGIKA_MODEL
-# (default standard_v3_3). A model/init failure degrades to the heuristic.
 ```
+
+The assets dir and model name are read from the environment so the image
+build can point at the vendored copies: `MAGIKA_ASSETS_DIR` (default
+`/usr/local/share/magika`) and `MAGIKA_MODEL` (default `standard_v3_3`).
+Any construction or scan failure degrades to the pure-Go heuristic, so a
+misconfigured model never breaks classification.
 
 The bring-up script honors `STASH_BUILD_TAGS=magika` to opt in.
 
@@ -137,7 +147,7 @@ view, delete). The JSON API it consumes
 | GET | `/raw/{hostId}/{y}/{m}/{d}/{id}` | bytes, inline (safety headers; active content served as text) |
 | GET | `/download/{…}` | bytes, attachment |
 | POST | `/api/stashes` | create (multipart `files`/`text`/`title`/`author`, urlencoded, or JSON) |
-| DELETE | `/api/stashes/{hostId}/{…}` | delete — **local host only** (foreign hostId → 403) |
+| DELETE | `/api/stashes/{hostId}/{…}` | delete — **source-IP-restricted** to the VM or the deploying host (`--host-ip`), then **local host only** (foreign hostId → 403) |
 | POST | `/api/refresh` | force a pool-index rescan |
 | GET | `/api/host?host=<id>` | best-effort hostId→stash-UI resolution (pool-aggregator) |
 
@@ -146,7 +156,8 @@ Flags (defaults): `--http-addr` (`0.0.0.0:80`, empty disables the UI),
 `--list-default-limit` (`50`), `--aggregator-url` (empty), `--listen-addr`
 (`0.0.0.0:22`, dev override when the OS sshd holds :22), `--host-id` (empty)
 and `--presence-interval` (`15m`, `0` disables) for the presence beacon
-(§4.7). The bring-up stamps the framework version via
+(§4.7), and `--host-ip` (empty) — the deploying host's IP, the one non-VM
+source allowed to `DELETE` stashes (reads/writes stay open; UI §8.4). The bring-up stamps the framework version via
 `-ldflags "-X main.version=<v>"` (shown in the UI header); ad-hoc dev builds
 show `vdev`.
 
@@ -227,6 +238,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.14
+Last review: 2026.07.17
 
 Back to [Yuruna](../../../../README.md)

@@ -3,24 +3,9 @@
 
 //go:build magika
 
-// magika detection backend (stash-service-ui.md §6.1, §14). Built only with
-// `-tags magika`; it is EXCLUDED from the default build, so `go build` /
-// `go test` stay pure-Go and offline. Enabling it requires, in the VM image
-// build, all three of:
-//
-//   - the Go binding:      go get github.com/google/magika/go/magika
-//   - ONNX Runtime:        the native shared library (cgo links against it)
-//   - the model assets:    e.g. the "standard_v3_3" model directory
-//
-// The assets dir and model name are read from the environment so the image
-// build can point at the vendored copies:
-//
-//	MAGIKA_ASSETS_DIR  (default: /usr/local/share/magika)
-//	MAGIKA_MODEL       (default: standard_v3_3)
-//
-// The scanner is constructed once at startup and is safe for concurrent
-// Scan calls. Any construction or scan failure degrades to the pure-Go
-// Heuristic, so a misconfigured model never breaks classification.
+// magika detection backend (stash-service-ui.md §6.1, §14): built only with
+// `-tags magika`, so the default `go build` / `go test` stay pure-Go and
+// offline. Build steps: see README.md#magika-detection-backend-optional-build
 package detect
 
 import (
@@ -44,6 +29,10 @@ func newBackend() Detector {
 	return &magikaDetector{sc: sc}
 }
 
+// magikaDetector wraps one magika.Scanner, constructed once at startup and
+// safe for concurrent Scan calls; any construction or scan failure degrades
+// to the pure-Go Heuristic, so a misconfigured model never breaks
+// classification.
 type magikaDetector struct {
 	sc *magika.Scanner
 }

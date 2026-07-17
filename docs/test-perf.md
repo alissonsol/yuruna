@@ -193,7 +193,7 @@ Field reference:
 | `schema` | int | Wire-format version. Readers branch on this. |
 | `cycleId` | string | ISO-8601-Z UTC at cycle start. Same value as the `status.json` cycle id; joinable across logs. |
 | `cycleStartedAtUtc` | string | `Start-PerfCycle` invocation time. May differ from `cycleId` by ms. |
-| `hostUuid` | string | `42`-prefixed 32-hex, persisted in `perf/host.uuid`. Stable per machine. |
+| `hostUuid` | string | `42`-prefixed 32-hex, persisted in `status/runtime/host.uuid`. Stable per machine. |
 | `hostname` | string | OS hostname. Can change; UUID is the durable id. |
 | `hostPlatform` | enum | `host.macos.utm`, `host.ubuntu.kvm`, `host.windows.hyper-v`. |
 | `hostInfoHash` | string\|null | sha256 of `host.diagnostic.txt` captured at cycle start. |
@@ -320,7 +320,7 @@ for tomorrow's yellow tier.
   ends, new name's begins). If it ever matters, add a manual
   `step_aliases.yml` and join through it at query time.
 - **A new host is added.** First cycle on that machine mints
-  `perf/host.uuid` (`42`-prefixed). Persists across cycles.
+  `status/runtime/host.uuid` (`42`-prefixed). Persists across cycles.
 - **A host's diagnostic changes** (kernel upgrade, hardware swap).
   `hostInfoHash` changes; cycles before / after group naturally on
   the hash.
@@ -378,6 +378,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.14
+Last review: 2026.07.17
 
 Back to [Yuruna](../README.md)

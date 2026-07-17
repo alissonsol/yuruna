@@ -55,6 +55,8 @@ the proxy can only be verified by a host that shares its token.
 ssh yuruna@<proxy> 'sudo cat /etc/yuruna/pool-auth.token'
 ```
 
+This will ask you for the caching proxy VM password. That is printed at the host for that VM under `test/status/runtime/yuruna-caching-proxy.yml`. This completes the "secure path" to set the authorization token: the operator has access to the host for the caching process.
+
 **2. Store that value on the host.**
 
 ```
@@ -66,6 +68,13 @@ verifies the round-trip through the same lookup the control gate performs — so
 is stored under one name and read under another (a silent `403`) cannot happen.
 `-BounceStatusServer` restarts the status server so the token takes effect immediately
 instead of at the next cycle; `-WhatIf` previews without touching the vault.
+
+It reports each step as it runs — vault key, store, verify, then the restart — and streams
+the status server's own start-up output through while it waits. The vault writes are
+sub-second; the restart is the slow part (it re-asserts the caching-proxy port map and
+waits for the port to answer), so expect that step to take tens of seconds. It is bounded:
+if the restart has not finished in 180 s the script says so and leaves it running, and the
+token is already stored either way — it simply takes effect at the next cycle instead.
 
 Bringing a **new** host into the pool? One command does the token and the config sync:
 
@@ -87,7 +96,12 @@ host's URL by hand does not.
 
 ## When a control button returns 403
 
-> `forbidden: control route requires a loopback caller or a valid pool control proof`
+> `follow guidance at https://yuruna.link/control-proof`
+
+In the config editor this reads `Save failed: follow guidance at https://yuruna.link/control-proof`;
+the link lands on [control-proof.md](control-proof.md), the short version of the checklist below.
+The underlying condition is always the same: the caller was neither on loopback nor carrying a
+valid control proof.
 
 - **You typed the host URL instead of following the dashboard link.** The proof lives in
   that tab's `sessionStorage`; re-enter through the dashboard host link.
@@ -118,6 +132,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.14
+Last review: 2026.07.17
 
 Back to [Yuruna](../README.md)

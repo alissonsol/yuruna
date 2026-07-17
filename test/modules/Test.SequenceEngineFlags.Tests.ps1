@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.14
+.VERSION 2026.07.17
 .GUID 42e6a1d3-9b74-4c28-8f10-6a5b4c3d2e1f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -65,8 +65,7 @@ $selfCapture = 'waitForText','waitForAndEnter','passwdPrompt','fetchAndExecute'
 # list -- the engine still captures for it, so its flag stays off.
 $engineCapture = 'sshWaitReady','sshExec','pressKey','retry','tapOn','waitForSeconds'
 
-# Source guard: the two former literal lists must be gone so a future edit
-# cannot reintroduce a drifting hard-coded set alongside the flag read.
+# Source guard: the literal list pattern must not reappear alongside the flag read.
 $engineText = Get-Content -Raw $enginePsm
 
 # Rebuild the exact exception the engine's cycle-restart gate throws so the

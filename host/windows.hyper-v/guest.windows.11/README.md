@@ -31,7 +31,7 @@ Start from Hyper-V Manager. Installer runs unattended via
 
 ## Update
 
-Auto-logon to `User` / `password` on first boot (change forced next
+Auto-logon to `ywuser1` / `password` on first boot (change forced next
 login). Elevated PowerShell:
 
 ```
@@ -55,6 +55,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.14
+Last review: 2026.07.17
 
 Back to [Yuruna](../../../README.md)

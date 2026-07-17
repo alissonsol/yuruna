@@ -1,7 +1,7 @@
 /*
   LICENSEURI https://yuruna.link/license
   Copyright (c) 2019-2026 by Alisson Sol et al.
-  Version: 2026.07.14
+  Version: 2026.07.17
   --- REGION: https://yuruna.link/definition#defining-the-status-page-browser-baseline
   --- REGION: https://yuruna.link/definition#defining-the-status-page-header-anatomy
   --- REGION: https://yuruna.link/definition#defining-the-status-page-mobile-and-dark-mode-hardening
@@ -169,7 +169,10 @@ body {
   /* Horizontal padding folds in iPhone safe-area-inset so content stays
      readable under the notch when viewport-fit=cover lets the header
      background extend edge-to-edge. env() falls back to 0 on
-     non-notched devices. */
+     non-notched devices. The plain-value line first is the fallback for
+     engines without max()/env() (Safari < 11.2): they keep the 2rem gutter
+     instead of dropping the whole declaration and rendering flush to the edge. */
+  padding: .75rem 2rem;
   padding: .75rem max(2rem, env(safe-area-inset-right)) .75rem max(2rem, env(safe-area-inset-left));
   display: flex; align-items: center; flex-wrap: wrap;
 }
@@ -226,7 +229,8 @@ button {
    is shared so narrow-viewport behavior stays in lockstep. */
 #banner {
   display: flex; align-items: center;
-  /* Same safe-area-inset pattern as .page-header. */
+  /* Same safe-area-inset pattern as .page-header, plain-value fallback first. */
+  padding: .75rem 2rem;
   padding: .75rem max(2rem, env(safe-area-inset-right)) .75rem max(2rem, env(safe-area-inset-left)); font-weight: 600; font-size: .875rem;
   transition: background .3s;
 }
@@ -276,6 +280,7 @@ button {
    collide. */
 @media (max-width: 600px) {
   .page-header {
+    padding: .75rem .75rem;
     padding: .75rem max(.75rem, env(safe-area-inset-right)) .75rem max(.75rem, env(safe-area-inset-left));
   }
   #header-machine {
@@ -311,15 +316,16 @@ button {
 
 /* Responsive sequence/guest-card grid. iOS 9 Safari lacks grid; without the
    @supports guard the block-flow fallback (one card per row) kicks in
-   automatically. Explicit -column-gap / -row-gap (NOT the shorthand
-   `gap:`) keeps Safari < 10.1 happy on devices that DO have grid. The list
+   automatically. The legacy grid-row-gap longhand (NOT the shorthand
+   `gap:`) covers Safari 10.1-11.x, which have grid but lack the unified
+   row-gap. The list
    holds .sequence-card in the per-sequence view and bare .guest-card in the
    flat fallback, so both are reset here. */
 @supports (display: grid) {
   #sequence-list {
     display: grid;
     grid-template-columns: 1fr;
-    -webkit-row-gap: .625rem; row-gap: .625rem;
+    grid-row-gap: .625rem; row-gap: .625rem;
   }
   #sequence-list > .sequence-card,
   #sequence-list > .guest-card { margin-bottom: 0; }

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.14
+.VERSION 2026.07.17
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456821
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -448,8 +448,10 @@ function Resolve-CachingProxyEndpoint {
     .DESCRIPTION
         The runner accepts a caching proxy from two operator-controlled
         sources, in priority order:
-          1. $env:YURUNA_CACHING_PROXY_IP   -- session-scope env var
-          2. $Config.vmStart.cachingProxyIP -- persistent UI-edited key
+          1. $Config.vmStart.cachingProxyIP -- persistent UI-edited key
+          2. $env:YURUNA_CACHING_PROXY_IP   -- session-scope env var,
+             probed only when the config candidate is absent or its
+             HTTP proxy port does not answer
         Each candidate is validated as an IP (Test-IpAddress) and then
         probed with the full Invoke-CachingProxyProbe suite. The first
         candidate whose HTTP proxy port (:3128) is reachable wins -- that
@@ -467,9 +469,10 @@ function Resolve-CachingProxyEndpoint {
         the inner runner and Test-Sequence must share so a syntactically
         valid but dead IP can't survive into guest cidata.
     .PARAMETER EnvIp
-        Value of $env:YURUNA_CACHING_PROXY_IP (or ''), highest priority.
+        Value of $env:YURUNA_CACHING_PROXY_IP (or ''), second priority:
+        probed only when ConfigIp is absent or fails its probe.
     .PARAMETER ConfigIp
-        Value of $Config.vmStart.cachingProxyIP (or ''), second priority.
+        Value of $Config.vmStart.cachingProxyIP (or ''), highest priority.
     .OUTPUTS
         [hashtable] {
             EffectiveIp = the accepted IP, or '' when none answered / none set
@@ -492,8 +495,8 @@ function Resolve-CachingProxyEndpoint {
     $result.Probed = $true
     $effectiveCacheIp = ''
     foreach ($cand in @(
-        @{ Ip = $envIpTrim;    Source = '$env:YURUNA_CACHING_PROXY_IP' }
         @{ Ip = $configIpTrim; Source = 'vmStart.cachingProxyIP'        }
+        @{ Ip = $envIpTrim;    Source = '$env:YURUNA_CACHING_PROXY_IP' }
     )) {
         if (-not $cand.Ip) { continue }
         if (-not (Test-IpAddress $cand.Ip)) {

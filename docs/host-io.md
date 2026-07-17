@@ -40,10 +40,14 @@ recurs across the workspace: [SequenceAction](handler-schema.md)
 (verb registry), [Component registry login](component-registry.md)
 and [Host-condition registry](host-condition-registry.md) (provider
 matrices), [Remediation dispatcher](remediation.md) (failure-class
-handlers). All five domains share the
+handlers). Four of the five share the
 [`New-YurunaRegistry`](../test/modules/Test.Registry.psm1) primitive
 and surface through `Get-YurunaRegistryDirectory` for autonomous
-tooling.
+tooling; the component-login credential-provider registry uses the same
+eviction-safe global-anchor pattern but is hand-rolled in
+[`automation/Yuruna.CredentialProvider.psm1`](../automation/Yuruna.CredentialProvider.psm1)
+(so it is not in `Get-YurunaRegistryDirectory`) — keeping it out of
+`test/`, which `New-YurunaRegistry` lives under.
 
 ## Backends today
 
@@ -112,6 +116,16 @@ empty the table. See repo memory
 `feedback_module_force_import_evicts_global.md` for the trap that
 caught this in development.
 
+The paired provider registries (`Test.ScreenshotProvider`,
+`Test.VncProvider`, …) follow the same pattern: each delegates storage
+to the shared `Test.Registry` primitive (`New-YurunaRegistry`) so there
+is one registry mechanism across the harness and every domain shows up
+in the cross-domain introspection directory
+(`Get-YurunaRegistryDirectory`/`Summary`), and each reuses a `$global:`
+anchor name (`$global:YurunaScreenshotProviders`,
+`$global:YurunaVncProviders`, …) as the backing store so registrations
+stay cross-module-eviction-safe and survive `-Force` re-imports.
+
 ## Backend module layout
 
 [`Test.Transport.psm1`](../test/modules/Test.Transport.psm1) holds the
@@ -162,6 +176,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.14
+Last review: 2026.07.17
 
 Back to [Yuruna](../README.md)

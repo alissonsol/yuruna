@@ -6,7 +6,7 @@
 > implementation time. Several choices are deliberately left as operator
 > DECISIONS rather than decided here — see the Decisions-required table.
 >
-> **Operator decisions folded into this revision:** (1) **Item 4** is reduced
+> **Operator decisions:** (1) **Item 4** is reduced
 > to a one-line transparency message in `fetch-and-execute.sh`; guest-side
 > sha/sidecar verification is **declined** — the guest is a disposable test VM
 > fetching from the same trust domain, so per-fetch verification adds OCR
@@ -46,14 +46,14 @@ supply-chain hops left for the P1 follow-on.
 | 6 | No-BOM regression on the Windows bootstrap | A stray BOM bricks PS5.1 `irm\|iex` at the param block (denial-of-bootstrap) | Item 6 (enforce existing gate at commit/release) | Pre-commit hook is advisory; release gate is the real backstop |
 | 7 | Host tool/image downloads — Get-Image ISOs/cloud images (warn-only checksum) and the Windows 11 ISO via `Fido.ps1` (no checksum) | A poisoned base image/ISO compromises **every guest** built from it | Item 7 (hard-fail checksums + Ubuntu `SHA256SUMS` GPG verify + pin `Fido.ps1` to a commit) | Different trust axis (vendor CDNs/keys, not the project `main`), so ranked low on *likelihood* despite high blast radius; Windows 11 has no stable upstream hash |
 
-**Doc corrections folded in:** (a) Item 3's proposed `-EncodedCommand` is
+**Design notes:** (a) Item 3's `-EncodedCommand` approach is
 **infeasible** — the 44,367-byte installer base64-encodes to ~118,000
 chars, ~3.6× over the 32,767 CreateProcess command-line cap. The real fix
 is one BOM-less temp file via `-File`. (b) Item 4 has been **reduced to a
 transparency message** — guest-side verification is declined (operator
-decision), so the earlier analysis of where a sha check would have to live is
+decision), so the analysis of where a sha check could live is
 now moot. (c)
-Item 6 is **~80% already built** — `test/Test-AsciiNoBom.ps1` exists and is
+Item 6 is largely built — `test/Test-AsciiNoBom.ps1` is
 wired into the per-cycle `Test-Config.ps1` gate; what is missing is
 commit-time / release-time enforcement.
 
@@ -66,7 +66,7 @@ policy or security-posture choice.
 | # | Decision | Recommendation | Why it is an operator call |
 |---|---|---|---|
 | D1 | Root of trust for the first fetch (Item 1): sha256 only, or a real signature? | sha256 now (closes cache-poisoning / partial / corruption / `main`-drift and gives Item 4 a working hash primitive); open a **P1 for a detached signature** so the operator consciously owns the residual MITM gap | A signature adds key management and a new trust surface |
-| D2 | Canonical tag scheme (Item 2). Three live dialects: tag `2026.05.29` (no `v`), tag `v2026.05.22` (with `v`), installer `.VERSION 2026.07.14` | Bare CalVer `YYYY.MM.DD` — already matches the newest tag AND the installer's own `.VERSION`, minimizing churn. Pin URLs/clones to the tag **and record the tag→commit SHA** in the manifest | Tag naming is project policy; do not pick unilaterally |
+| D2 | Canonical tag scheme (Item 2). Three live dialects: tag `2026.05.29` (no `v`), tag `v2026.05.22` (with `v`), installer `.VERSION 2026.07.17` | Bare CalVer `YYYY.MM.DD` — already matches the newest tag AND the installer's own `.VERSION`, minimizing churn. Pin URLs/clones to the tag **and record the tag→commit SHA** in the manifest | Tag naming is project policy; do not pick unilaterally |
 | D3 | Pin granularity: tag name vs full commit SHA | Tag in URLs/clones for readability; record + (optionally) verify the tag→SHA mapping in `install.sha256`; pair with D5 | Trades usability vs immutability |
 | D4 | `main`-fallback policy when the pinned tag clone fails | Fall back to `main` **only on explicit operator opt-in** (`-YurunaBranch main` / env var) with a loud warning — never silently | Silent fallback re-opens the moving-target hole |
 | D5 | Fail-hard vs warn on mismatch (Items 4, 5, and the clone fallback) | **Hard-fail** on guest sha mismatch (Item 4) and key-fingerprint mismatch (Item 5) — a mismatch there is corruption or attack, never benign. **Warn-and-fall-back** on a missing clone tag (Item 2 / D4), since a missing tag on a fresh checkout is an operational reality | Hard-fail trades availability for integrity on upstream rotations |
@@ -137,7 +137,7 @@ convenience one-liner stays unverified by construction.
 
 **Effort.** Small-to-Medium. Generator + README edits ≈ 0.5–1 day.
 
-**Implementation (Item 1 done; D1 upgraded to signature-now).** `install/install.sha256`
+**Item 1 — Implementation & design choice upgrade:** `install/install.sha256`
 (SHA-256 of the three installers) is generated + signed by
 `tools/Update-YurunaReleasePins.ps1` into `install/install.sha256.sig` — a
 detached RSA-4096 PKCS#1 v1.5 / SHA-256 signature. The bundled public key
@@ -220,7 +220,7 @@ elevated/SYSTEM context. The benign analogue is just as real: `main`
 advancing between fetches means the elevated child can run a different
 installer version than the operator launched (silent version-skew).
 
-**Current (file:line).** Confirmed against the file this session.
+**Current state:**
 Elevation no-`$PSCommandPath` branch L225–235 builds a here-string that
 hardcodes the `refs/heads/main` URL and runs `Invoke-RestMethod` +
 `[scriptblock]::Create` + `& $sb` in the elevated child (re-fetch #2). PS7
@@ -360,7 +360,7 @@ re-verifying packages against the pinned key — but that is exactly what the
 TOFU key fetch undermines: trust the wrong key once and apt validates the
 attacker's packages forever. The tarball has no such backstop.
 
-**Current (file:line).** Confirmed this session. L332–334
+**Current state (L332–334):**
 `curl …/microsoft.asc \| sudo gpg --dearmor` — no fingerprint check. L355
 `curl …/v${ver}/${pkg}` tarball — no checksum. L578–581 `curl
 …/githubcli-archive-keyring.gpg \| sudo dd` — no fingerprint check.
@@ -433,7 +433,7 @@ load-bearing: a bulk re-encode that adds a UTF-8 BOM makes PS5.1 `irm\|iex`
 die at line 1, before the param block — bricking first-install on every
 fresh Windows host (denial-of-bootstrap).
 
-**Current (file:line) — doc is stale.** Item 6 is ~80% already built.
+**Current state:** Item 6 is largely built.
 `test/Test-AsciiNoBom.ps1` **exists** (UTF-8 BOM, UTF-16 BOM, and
 first-non-ASCII-byte checks; default targets `install/windows.hyper-v.ps1`
 + `guest/windows.11/*.ps1`) and is **already wired** into the per-cycle
@@ -561,7 +561,7 @@ script SHA-256 `24c86067fa399d2fd75ef0693a2ec79ca8db162827f808caac03541cbf640c13
 verified before execution (mismatch → manual-download fallback). AL2023
 (`cdn.amazonlinux.com`) stays hash-only — AWS publishes no detached signature.
 
-## 5. Missed supply-chain hops — P1 follow-on (now closed)
+## 5. Supply-chain hops addressed by follow-on P1 items
 
 The tracked items left four hops of the **same `curl\|bash` / unchecked-
 download shape**. All four are now addressed:
@@ -732,6 +732,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.14
+Last review: 2026.07.17
 
 Back to [Yuruna](../README.md)

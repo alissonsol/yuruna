@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.14
+.VERSION 2026.07.17
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456706
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -400,8 +400,9 @@ Import-Module (Join-Path $ModulesDir 'Test.CachingProxy.psm1') -Global -Force -D
 # in Test.CachingProxy.psm1: :3128 / :3129 / :80 / :3000 TCP probes plus
 # /yuruna-squid-ca.crt fetch) against the two operator-specified sources,
 # in priority order:
-#   1. $env:YURUNA_CACHING_PROXY_IP   -- session-scope env var
-#   2. $Config.vmStart.cachingProxyIP -- persistent UI-edited config key
+#   1. $Config.vmStart.cachingProxyIP -- persistent UI-edited config key
+#   2. $env:YURUNA_CACHING_PROXY_IP   -- session-scope env var, probed
+#      only when the config candidate is absent or fails its probe
 # Acceptance criterion: the cache's HTTP proxy port (:3128) is reachable
 # -- the only requirement the runner actually depends on (it routes guest
 # installs through this port). The other probes (:3129 ssl-bump, :3000
@@ -429,7 +430,10 @@ if ($envCacheIp -or $configCacheIp) {
     foreach ($line in $endpoint.Lines) { Write-Output $line }
     # Publish the effective IP (or clear if no candidate had a reachable
     # :3128) so the rest of the cycle sees a coherent view via
-    # $env:YURUNA_CACHING_PROXY_IP.
+    # $env:YURUNA_CACHING_PROXY_IP. A reachable config IP therefore
+    # overwrites an operator-exported env IP for the rest of THIS cycle;
+    # the outer runner re-asserts the launch-shell value before the next
+    # cycle, so the env candidate is re-offered as fallback every cycle.
     $env:YURUNA_CACHING_PROXY_IP = $endpoint.EffectiveIp
 }
 

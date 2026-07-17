@@ -1,7 +1,7 @@
 /*
   LICENSEURI https://yuruna.link/license
   Copyright (c) 2019-2026 by Alisson Sol et al.
-  Version: 2026.07.14
+  Version: 2026.07.17
 
   Shared helpers for the Yuruna status pages. Mounted on window.Yuruna.
   --- REGION: https://yuruna.link/definition#defining-the-status-page-browser-baseline
@@ -10,7 +10,7 @@
 (function() {
   'use strict';
 
-  var VERSION = '2026.07.14';
+  var VERSION = '2026.07.17';
 
   // --- REGION: control-route auth (proof from the Caching Proxy /go/host redirect)
   // A Grafana deep-link routes through the Caching Proxy's /go/host, which appends a
@@ -95,6 +95,39 @@
     return String(s)
       .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
       .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  }
+
+  // Scheme-validate a URL before it is placed in an href/src. escHtml alone
+  // stops attribute break-out but not a javascript:/data:/vbscript: payload
+  // in status.json / caching-proxy.txt (both host-generated but influenced
+  // by guest-supplied names), so a click on a poisoned link would execute.
+  // The status pages deep-link almost entirely with DOCUMENT-RELATIVE paths
+  // (log/..., index.html, hostinfo.html), so a strict ^https?:// gate would
+  // break every results/log link -- instead allow same-origin relative paths
+  // and absolute http(s), reject everything else. ES5 only (iOS 9.3 baseline,
+  // no URL constructor): returns '' for anything not provably safe so callers
+  // fall back to rendering plain text.
+  function safeUrl(v) {
+    if (v === null || typeof v === 'undefined') { return ''; }
+    var s = String(v);
+    if (s === '') { return ''; }
+    // Detect the scheme on a probe with every char <= space removed:
+    // browsers strip TAB/CR/LF (and NUL) from a URL before parsing its
+    // scheme, so a raw check would let 'java\tscript:...' through. Stripping
+    // is for detection only; the original value is what gets returned.
+    var probe = s.replace(/[\s\S]/g, function(c){ return c.charCodeAt(0) > 32 ? c : ''; });
+    if (probe === '') { return ''; }
+    // Reject protocol-relative (//host) -- inherits the page scheme but points
+    // off-origin, which none of our links need.
+    if (probe.charAt(0) === '/' && probe.charAt(1) === '/') { return ''; }
+    // A leading scheme must be http/https; a colon after only scheme-valid
+    // chars signals one. Relative paths (log/..., index.html) have none.
+    var schemeMatch = probe.match(/^([a-zA-Z][a-zA-Z0-9+.-]*):/);
+    if (schemeMatch) {
+      var scheme = schemeMatch[1].toLowerCase();
+      if (scheme !== 'http' && scheme !== 'https') { return ''; }
+    }
+    return s.replace(/^\s+/, '');
   }
 
   var STATUS_CLASSES = ['idle','running','pass','fail','skipped','pending','paused','stopped'];
@@ -410,8 +443,8 @@
       var noEl   = document.getElementById('banner-dash-noproxy');
       if (!linkEl || !noEl) return;
       var m = cachingProxyHtml.match(/href="([^"]+)"/i);
-      if (m && m[1]) {
-        var url = m[1].replace(/&amp;/g, '&');
+      var url = (m && m[1]) ? safeUrl(m[1].replace(/&amp;/g, '&')) : '';
+      if (url) {
         linkEl.setAttribute('href', url);
         linkEl.classList.remove('hidden');
         noEl.classList.add('hidden');
@@ -461,6 +494,29 @@
       }
     }
 
+    // Refusal notice for a control POST the host would not accept. A 403 is a
+    // RESOLVED fetch (not a network error), so it never reaches .catch -- the
+    // old code fell straight through to loadStatus() and the click looked like a
+    // silent no-op. The mutating /control/* routes are loopback-or-proof: an
+    // on-host browser (http://localhost:<port>) is trusted; a browser on another
+    // machine needs the short-lived token the pool dashboard grants. Tell the
+    // operator that instead of doing nothing. Static markup (no data interpolated).
+    function hideControlNotice() {
+      var n = document.getElementById('control-notice');
+      if (n) { n.hidden = true; }
+    }
+    function showControlNotice() {
+      var n = document.getElementById('control-notice');
+      if (!n) { return; }
+      n.innerHTML =
+        'Control refused. This host accepts control only from a browser <b>on the host itself</b> ' +
+        '(<code>http://localhost:&lt;port&gt;</code>), or one opened through the <b>Yuruna hosts ' +
+        'dashboard</b> link (which grants a short-lived token). To drive it from another machine, ' +
+        'open it via the dashboard, or set the shared pool token — see ' +
+        '<a href="https://yuruna.link/control-routes" target="_blank" rel="noopener">control-route setup</a>.';
+      n.hidden = false;
+    }
+
     function controlAction(kind, action) {
       var btn = document.getElementById(kind + '-pause-btn');
       if (btn) btn.disabled = true;
@@ -468,6 +524,9 @@
       // X-Yuruna marks this as a same-origin UI call: any cross-origin copy
       // becomes a preflighted request the server refuses, blocking drive-by CSRF.
       fetch(endpoint, { method: 'POST', cache: 'no-store', headers: yurunaControlHeaders() })
+        .then(function(res) {
+          if (res && res.status === 403) { showControlNotice(); } else { hideControlNotice(); }
+        })
         ['catch'](function(e) {
           safeWarn(endpoint + ' failed:', e);
         })
@@ -677,9 +736,9 @@
       // Stop-LogFile rename, so this always matches the on-disk path).
       // g.failureArtifacts records the post-rename URL; using it mid-cycle
       // 404s while the folder is still `<base>.incomplete/<VMName>/`.
-      var folderUrl = (data.cycleFolderUrl && g.vmName)
+      var folderUrl = safeUrl((data.cycleFolderUrl && g.vmName)
         ? (data.cycleFolderUrl + g.vmName + '/')
-        : (g.failureArtifacts || '');
+        : (g.failureArtifacts || ''));
       var titleHtml = folderUrl
         ? ('<a href="' + escHtml(folderUrl) + '" target="_blank" title="Open results folder for ' + escHtml(g.guestKey) + '" style="color:inherit;text-decoration:underline dotted">' + escHtml(g.guestKey) + '</a>')
         : escHtml(g.guestKey);
@@ -722,7 +781,7 @@
         return seqs.map(function(s) {
           var status = (s && s.status) || '';
           var name   = (s && s.name) || '';
-          var folder = (s && s.folderUrl) || '';
+          var folder = safeUrl((s && s.folderUrl) || '');
           var pill   = '<span class="badge ' + cls(status) + '">' + escHtml(name) + '</span>';
           if (folder) {
             return '<a href="' + escHtml(folder) + '" target="_blank" title="Open results folder for ' + escHtml(name) + '" style="text-decoration:none">' + pill + '</a>';
@@ -740,7 +799,7 @@
       return Object.keys(gs).map(function(k) {
         var v        = gs[k];
         var status   = (typeof v === 'string') ? v : (v && v.status) || '';
-        var debugUrl = (typeof v === 'object' && v) ? v.failureArtifacts : '';
+        var debugUrl = safeUrl((typeof v === 'object' && v) ? v.failureArtifacts : '');
         var seqNames = guestToSeq && guestToSeq[k];
         var label    = (seqNames && seqNames.length) ? seqNames.join(' + ') : k.replace('guest.','');
         var pillHtml = '<span class="badge ' + cls(status) + '">' + escHtml(label) + '</span>';
@@ -823,8 +882,8 @@
         document.getElementById('sec-cycle').style.display = '';
         var liveCommits = gitCommitsForRender(data, data.repoUrl);
         document.getElementById('cycle-commit').innerHTML = renderCommitLinks(liveCommits);
-        var cycleIdLabel = (liveCycleId || '—').slice(0, 19).replace('T', ' T');
-        var cycleLogUrl  = logFileUrl(liveCycleId, (data.hostId || data.hostname), primaryShaForLog(data), data.cycleFolderUrl);
+        var cycleIdLabel = escHtml((liveCycleId || '—').slice(0, 19).replace('T', ' T'));
+        var cycleLogUrl  = safeUrl(logFileUrl(liveCycleId, (data.hostId || data.hostname), primaryShaForLog(data), data.cycleFolderUrl));
         var cycleCell = cycleLogUrl
           ? ('<a href="' + escHtml(cycleLogUrl) + '" target="_blank" style="color:inherit;text-decoration:underline dotted">' + cycleIdLabel + '</a>')
           : cycleIdLabel;
@@ -846,7 +905,8 @@
             var fcHtml = parts.join(' &middot; ');
             if (lf.reproCommand) { fcHtml += '<div class="repro"><code>' + escHtml(lf.reproCommand) + '</code></div>'; }
             if (lf.relPath && data.cycleFolderUrl && lf.vmName) {
-              fcHtml += '<div><a href="' + escHtml(data.cycleFolderUrl + lf.vmName + '/' + lf.relPath) + '">last_failure.json</a></div>';
+              var lfUrl = safeUrl(data.cycleFolderUrl + lf.vmName + '/' + lf.relPath);
+              if (lfUrl) { fcHtml += '<div><a href="' + escHtml(lfUrl) + '">last_failure.json</a></div>'; }
             }
             fcEl.innerHTML = fcHtml;
             fcEl.style.display = '';
@@ -921,8 +981,10 @@
           // URL into history. Strip on read so those rows resolve to
           // the post-rename folder on disk.
           var hCycleFolderUrl = stripCycleFolderSuffix(h.cycleFolderUrl);
-          var hLogUrl     = logFileUrl(hCycleId, (h.hostId || h.hostname), primaryShaForLog(h), hCycleFolderUrl);
-          var hCycleLabel = (hCycleId || '—').slice(0, 19).replace('T', ' <wbr>T');
+          var hLogUrl     = safeUrl(logFileUrl(hCycleId, (h.hostId || h.hostname), primaryShaForLog(h), hCycleFolderUrl));
+          // Escape the id BEFORE inserting the literal <wbr> so an id carrying
+          // markup can't inject, while the intended line-break hint survives.
+          var hCycleLabel = escHtml((hCycleId || '—').slice(0, 19)).replace('T', ' <wbr>T');
           var hCycleCell  = hLogUrl
             ? ('<a href="' + escHtml(hLogUrl) + '" target="_blank" style="color:inherit;text-decoration:underline dotted">' + hCycleLabel + '</a>')
             : hCycleLabel;
@@ -1170,7 +1232,7 @@
       head.className = 'cycle-row-head';
       var when  = fmtDateLocal(cyc.cycleStartedAtUtc) || (cyc.cycleId || '');
       var label = when.replace(/^\d{4}-/, '').replace(/:\d{2}Z?$/, '');   // MM-DD HH:MM
-      var url   = (cycleLinks && cyc.cycleId) ? cycleLinks[cyc.cycleId] : '';
+      var url   = safeUrl((cycleLinks && cyc.cycleId) ? cycleLinks[cyc.cycleId] : '');
       var failCount = +cyc.failCount || 0;
       var whenEl;
       if (url) {
@@ -1783,7 +1845,7 @@
 
       var refreshHint = null;
       if (key === 'cachingProxyIP') {
-        input.placeholder = 'e.g. 192.168.1.42 (empty = no external cache)';
+        input.placeholder = 'e.g. 192.168.1.42 (probed first; empty = env-var fallback, else local discovery)';
         // url inputmode gives mobile keyboards the dot + digits row first,
         // matching the IPv4 / IPv6 / FQDN values this field accepts.
         input.inputMode = 'url';
@@ -1816,7 +1878,7 @@
         editRow.appendChild(editMark);
         wrap.appendChild(editRow);
 
-        var editProbe = makeCacheIpProbeDriver(editMark, input);
+        var editProbe = makeCacheIpProbeDriver(editMark);
         var originalOnInput = input.oninput;
         input.oninput = function() {
           if (originalOnInput) originalOnInput();
@@ -1845,19 +1907,19 @@
         envInput.setAttribute('autocapitalize', 'off');
         envInput.tabIndex = -1;
         envInput.value = '(loading…)';
-        envInput.title = 'Process-environment value the status server inherited at startup. Read-only here; export it in the shell that launches Invoke-TestRunner.ps1 (or set vmStart.cachingProxyIP above) to take effect.';
+        envInput.title = 'Process-environment value the status server inherited at startup. Read-only here; fallback source only: at cycle start the vmStart.cachingProxyIP field above is probed first and wins when its :3128 answers. Export this in the shell that launches Invoke-TestRunner.ps1 for hosts whose config field is empty.';
         var envMark = buildCacheIpMark();
         envRow.appendChild(envLabel);
         envRow.appendChild(envInput);
         envRow.appendChild(envMark);
         wrap.appendChild(envRow);
 
-        var envProbe = makeCacheIpProbeDriver(envMark, null);
+        var envProbe = makeCacheIpProbeDriver(envMark);
         fetchRuntimeEnv().then(function(envObj) {
           var v = (envObj && typeof envObj.YURUNA_CACHING_PROXY_IP === 'string') ? envObj.YURUNA_CACHING_PROXY_IP : '';
           envInput.value = v === '' ? '(unset)' : v;
           envProbe(v, true);
-        }).catch(function() {
+        })['catch'](function() {
           envInput.value = '(unavailable)';
           envProbe('', true);
         });
@@ -1883,20 +1945,10 @@
       return mark;
     }
 
-    function makeCacheIpProbeDriver(markEl, inputEl) {
+    function makeCacheIpProbeDriver(markEl) {
       var debounceTimer    = null;
       var latestId         = 0;
-      var lockedByMe       = false;
       var lastProbedValue  = null;
-
-      function unlockInput() {
-        if (inputEl && lockedByMe) {
-          var hadFocus = (document.activeElement === inputEl);
-          inputEl.disabled = false;
-          lockedByMe = false;
-          if (hadFocus) { try { inputEl.focus(); } catch (e) { /* ignore */ } }
-        }
-      }
 
       return function(ip, trigger) {
         if (debounceTimer) { clearTimeout(debounceTimer); debounceTimer = null; }
@@ -1904,7 +1956,6 @@
         var v = (ip || '').trim();
 
         if (v === '' || !isIpAddressLike(v)) {
-          unlockInput();
           lastProbedValue = null;
           markEl.setCacheIpState('disabled',
             v === '' ? 'No IP set — nothing to test.'
@@ -1914,7 +1965,6 @@
 
         if (!trigger) {
           if (v === lastProbedValue) return;
-          unlockInput();
           markEl.setCacheIpState('disabled', 'Leave the field to test caching proxy from host.');
           return;
         }
@@ -1924,16 +1974,28 @@
         markEl.setCacheIpState('pending', 'Testing caching proxy from host…');
         debounceTimer = setTimeout(function() {
           if (myId !== latestId) return;
-          if (inputEl) { inputEl.disabled = true; lockedByMe = true; }
+          // Deliberately do NOT disable the field while probing. The current
+          // value can be a dead cache whose host-side test runs ~40 s (4 ports
+          // x 3 attempts x 3 s timeouts); disabling the input then makes it
+          // impossible to edit the field to move OFF that dead value. The
+          // myId/latestId guard already discards a stale probe once the value
+          // changes, so the mark just updates in the background while the
+          // operator keeps typing. Bound the fetch (AbortController where
+          // available) so a black-holed cache resolves to a failed mark instead
+          // of an indefinite pending one.
+          var ctrl     = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+          var timedOut = false;
+          var timer    = setTimeout(function() { timedOut = true; if (ctrl) { ctrl.abort(); } }, 15000);
           fetch('control/test-caching-proxy?ip=' + encodeURIComponent(v) + '&_=' + Date.now(),
-                { method: 'POST', cache: 'no-store', headers: yurunaControlHeaders() })
+                { method: 'POST', cache: 'no-store', headers: yurunaControlHeaders(),
+                  signal: ctrl ? ctrl.signal : undefined })
             .then(function(r) {
+              clearTimeout(timer);
               if (!r.ok) throw new Error('HTTP ' + r.status);
               return r.json();
             })
             .then(function(j) {
               if (myId !== latestId) return;
-              unlockInput();
               if (!j || j.valid !== true) {
                 lastProbedValue = null;
                 markEl.setCacheIpState('disabled', 'Server reports IP not valid — test skipped.');
@@ -1952,10 +2014,12 @@
               }
             })
             ['catch'](function(e) {
+              clearTimeout(timer);
               if (myId !== latestId) return;
-              unlockInput();
               lastProbedValue = null;
-              markEl.setCacheIpState('disabled', 'Caching-proxy test endpoint unavailable: ' + e.message);
+              markEl.setCacheIpState('disabled',
+                timedOut ? 'Caching-proxy test timed out (15 s) — not reachable from this host?'
+                         : 'Caching-proxy test endpoint unavailable: ' + e.message);
             });
         }, 350);
       };

@@ -48,7 +48,7 @@ Three sourcing options:
 - Generates an `autounattend.xml` seed ISO labeled `OEMDRV`.
 - Writes `config.plist` from
   [`config.plist.template`](./config.plist.template) — QEMU aarch64,
-  4 vCPU, 16 GB RAM, UEFI + TPM, NVMe, USB CD, virtio-net-pci,
+  4 vCPU, 12 GB RAM, UEFI + TPM, NVMe, USB CD, virtio-net-pci,
   intel-hda, clipboard.
 - Copies the UTM Guest Tools ISO (`spice.iso`) so SPICE + VirtIO can
   install offline.
@@ -149,6 +149,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.14
+Last review: 2026.07.17
 
 Back to [Yuruna](../../../README.md)

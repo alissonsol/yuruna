@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.14
+.VERSION 2026.07.17
 .GUID 42f0a1b2-c3d4-4e56-f789-0a1b2c3d4e11
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -40,7 +40,6 @@ Write-Output "== Installing Kubernetes requirements for Windows 11 =="
 Write-Output ""
 Write-Output ">>> Installing Basic Tools (Git, OpenSSH)..."
 winget install --id Git.Git --accept-source-agreements --accept-package-agreements --silent
-# Enable built-in OpenSSH server
 Add-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0 -ErrorAction SilentlyContinue
 Start-Service sshd -ErrorAction SilentlyContinue
 Set-Service -Name sshd -StartupType Automatic -ErrorAction SilentlyContinue

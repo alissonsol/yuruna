@@ -55,9 +55,8 @@ write_files:
     content: |
       username=YSTASH_NAS_NETWORK_USER_PLACEHOLDER
       password=YSTASH_NAS_PASSWORD_PLACEHOLDER
-  # Host coordinates so the daemon source is fetched from the deploying
-  # host's status server (the live working tree) rather than the public
-  # github mirror. Empty IP/PORT (status service off) falls back to github.
+  # Host status-server coordinates for the daemon source fetch; empty
+  # IP/PORT falls back to the public github mirror.
   - path: /etc/yuruna/host.env
     permissions: '0644'
     owner: root:root

@@ -565,6 +565,18 @@ func (s *Server) handleDelete(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "invalid stash path")
 		return
 	}
+	// Reads and writes are open to any host, but DELETE is the one
+	// destructive verb, so it is restricted to the VM itself (loopback / a
+	// local interface IP) or the deploying host IP (--host-ip). Checked before
+	// the ownership branch so an unauthorized peer gets a generic refusal that
+	// does not disclose the stash's owning host.
+	if !s.deleteAllowed(clientIP(r)) {
+		writeJSON(w, http.StatusForbidden, map[string]any{
+			"ok":    false,
+			"error": "delete is permitted only from this VM or its host",
+		})
+		return
+	}
 	// §8.3: local-host-only. A foreign hostId is refused server-side with a
 	// 403 naming the owning host — the ownership boundary is a real contract
 	// (and the seam for future per-host auth), not just a disabled button.

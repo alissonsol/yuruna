@@ -26,15 +26,17 @@ Every host's caching-proxy `New-VM.ps1` creates the cache VM with **12 GB
 RAM, 4 vCPU** — matched explicitly across Hyper-V, macOS UTM, and Ubuntu
 KVM so a cache rebuilt on any host has the same headroom.
 
-This is a DEDICATED cache VM (one job: serve the squid object cache to
-every guest), so the memory budget is sized around squid's `cache_mem 9 GB`
-(= 75 % of VM RAM, per the `host/vmconfig/caching-proxy.base.user-data`
-tuning). Empirically a 1 GB `cache_mem` on this VM put squid's RSS at
-~2 GB during active cycles (sslcrtd children + connection buffers + in-RAM
-hot objects = ~1 GB beyond `cache_mem`), so 9 GB `cache_mem` implies
-~10 GB peak squid + ~1.5 GB for the rest of the stack (apache, grafana,
-prometheus, loki, promtail, squid-exporter, caching-proxy-parser, systemd,
-page cache). 12 GB leaves ~500 MB of OS headroom.
+This is a DEDICATED cache VM (squid and the zot OCI pull-through registry
+are its only top-priority workloads), so the memory budget is sized around
+those two directives rather than the other way around. Per the
+`host/vmconfig/caching-proxy.base.user-data` tuning, squid's `cache_mem` is
+**7 GB** (58 % of the VM's 12 GB), leaving 2 GB for zot — which handles the
+Docker Hub manifest HEADs squid cannot. Empirically squid's RSS runs ~1 GB
+above `cache_mem` (sslcrtd children + connection buffers + in-RAM hot
+objects), so 7 GB implies ~8 GB squid RSS; zot peaks at ~500 MB during heavy
+parallel pulls. That leaves ~2 GB for the rest of the stack (apache, grafana,
+prometheus, loki, promtail, squid-exporter, caching-proxy-parser, kernel,
+page cache).
 
 4 vCPU stays — caching is I/O- and memory-bound, not CPU-bound; raising
 the vCPU count without raising RAM wouldn't help. Swap is masked in
@@ -151,9 +153,56 @@ Remote clients point at `http://<host-lan-ip>:3128` (apt) or
 `192.168/16`). Public-IP clients stay denied even if firewall + portproxy
 let the packets through. Not an open internet proxy.
 
+## Pinning the cache VM's IP (stable MAC + DHCP reservation)
+
+Every `Start-CachingProxy.ps1` run rebuilds the VM with a fresh random
+MAC, so the DHCP server leases a new IP each time and consumers must
+re-discover it. There is no reliable way to *request* a specific IP
+from DHCP across the three hypervisors (on the preferred bridged
+networks the DHCP server is the LAN router, which no host API can
+program), so the supported path keeps DHCP as the source of truth and
+pins the *MAC* instead:
+
+```
+pwsh ./Start-CachingProxy.ps1 -MacAddress 02:11:22:33:44:55
+```
+
+`-MacAddress` (accepted as `AA:BB:CC:DD:EE:FF`, `AA-BB-CC-DD-EE-FF`, or
+bare `AABBCCDDEEFF`; also on each platform's
+`guest.caching-proxy/New-VM.ps1` directly) gives the VM's NIC the same
+MAC on every rebuild: Hyper-V `Set-VMNetworkAdapter -StaticMacAddress`,
+virt-install `--network ...,mac=`, and the UTM bundle's `config.plist`.
+Create a one-time DHCP reservation for that MAC on the LAN router (or
+in libvirt's `default`-network dnsmasq / macOS `bootpd` on the NAT
+fallback paths) and the cache IP becomes known and stable — a natural
+fit for `vmStart.cachingProxyIP` (below).
+
+Rules of thumb:
+
+- Use a **locally-administered unicast** address: first octet `02`,
+  `06`, `0A`, or `0E`. Multicast and all-zero MACs are rejected at
+  validation; a globally-unique OUI draws a warning (it can collide
+  with real hardware).
+- Pick a **distinct MAC per host** — two hosts on one LAN each running
+  a cache VM must not share one.
+- Some Wi-Fi access points drop locally-administered MACs, the same
+  limitation that already applies to bridged cache networking on Wi-Fi.
+
 ## External cache override
 
-A client machine uses a remote cache by exporting one env var:
+A client machine names a remote cache through two sources, resolved at
+cycle start by `Resolve-CachingProxyEndpoint` (Test.CachingProxy) —
+shared by `Invoke-TestInnerRunner.ps1` and
+[Test-Sequence.ps1](../test/Test-Sequence.ps1);
+[Invoke-TestRunner.ps1](../test/Invoke-TestRunner.ps1) and
+[Test-Project.ps1](../test/Test-Project.ps1) both funnel into the
+former. In priority order:
+
+1. `vmStart.cachingProxyIP` in `test/test.config.yml` — persistent key,
+   editable on the status page (which also probe-validates it at save
+   time). Probed first; wins when its squid HTTP port `:3128` answers.
+2. `$Env:YURUNA_CACHING_PROXY_IP` — session-scope env var, probed only
+   when the config key is empty or its probe fails:
 
 ```
 # Windows
@@ -165,23 +214,29 @@ $Env:YURUNA_CACHING_PROXY_IP = '10.0.0.5'
 export YURUNA_CACHING_PROXY_IP=10.0.0.5
 ```
 
-When set, [Invoke-TestRunner.ps1](../test/Invoke-TestRunner.ps1) and
-[Start-StatusService.ps1](../test/Start-StatusService.ps1) skip local discovery and
-route everything through the remote IP. Guest `New-VM.ps1` inherits the
-URL, fetches the CA from `http://<remote>/yuruna-squid-ca.crt`, and
-configures apt with:
+The winner (from either source) is published into
+`$Env:YURUNA_CACHING_PROXY_IP` for the rest of the cycle, so
+[Start-StatusService.ps1](../test/Start-StatusService.ps1) and every
+downstream consumer route through the remote IP. Guest `New-VM.ps1`
+inherits the URL, fetches the CA from
+`http://<remote>/yuruna-squid-ca.crt`, and configures apt with:
 
 - `apt.proxy = http://<remote>:3128` (HTTP)
 - `Acquire::https::Proxy "http://<remote>:3129";` (HTTPS body caching)
 
-Un-set (or empty) to fall back to local discovery.
+When both sources are empty — or both fail their `:3128` probes (the
+env var is then cleared) — local discovery runs unchanged: a host
+running its own cache VM falls back to it, and a host with none
+proceeds without a caching proxy.
 
 ## Port-map dispatch by host topology
 
 `Invoke-TestInnerRunner.ps1` picks one of three branches when wiring
 clients up to the cache:
 
-1. **External cache** (`$Env:YURUNA_CACHING_PROXY_IP` set). The remote
+1. **External cache** (an external cache resolved from
+   `vmStart.cachingProxyIP` or `$Env:YURUNA_CACHING_PROXY_IP`; the
+   winner is published into the env var at cycle start). The remote
    serves all four ports. Install VMs default to `Yuruna-External` and
    sit on the LAN, so they reach the remote IP directly via outbound
    NAT — no host-side forwarder needed. Any leftover portproxy from a
@@ -239,9 +294,18 @@ pwsh test/Test-CachingProxy.ps1
 pwsh test/Test-CachingProxy.ps1 -CacheIp 10.0.0.5   # ad-hoc, no env var
 ```
 
-With no arguments and no env var, falls back to local discovery (same
-path `Invoke-TestRunner.ps1` uses). Exit 1 on any required-port failure
-— suitable for a `&&` chain.
+With no `-CacheIp`, the script resolves the cache in the **same order
+the runner does at cycle start**, through the same
+`Resolve-CachingProxyEndpoint` resolver: `vmStart.cachingProxyIP`
+(test.config.yml) probed first, then `$Env:YURUNA_CACHING_PROXY_IP`,
+then local discovery — so the IP it smoke-tests is the IP
+`Invoke-TestRunner.ps1` will actually pick. A configured source with no
+reachable HTTP proxy port is reported (WARN) and the script falls back
+to local discovery, exactly as the runner would; unlike the runner, the
+script never publishes the winner into `$Env:YURUNA_CACHING_PROXY_IP`
+(read-only probe). `-CacheIp` bypasses the resolution to probe an
+arbitrary IP. Exit 1 on any required-port failure — suitable for a
+`&&` chain.
 
 ## Promoting to the host system proxy
 
@@ -269,9 +333,9 @@ every network call it makes (Get-Image's `Invoke-WebRequest`,
 osinfo, `qemu-img`/`genisoimage` reaching the public internet) must
 go DIRECTLY to the public Internet. .NET's `HttpClient` honors
 `HTTP_PROXY` / `HTTPS_PROXY` / `ALL_PROXY` from the process
-environment. If the caller's shell exports any of those pointing at a
-previous cycle's cache IP that no longer hosts squid (stale after a
-host reboot, wrong LAN, or a cache VM that just got destroyed by
+environment. If the caller's shell exports any of those pointing at
+a cache IP that no longer hosts squid (stale after a
+host reboot, wrong LAN, or a cache VM destroyed by
 `Stop-CachingProxy.ps1`), every download fails with "Network is
 unreachable" — well before the cache we're about to build exists.
 `YURUNA_CACHING_PROXY_IP` belongs in the same bucket: downstream
@@ -283,12 +347,20 @@ The script therefore drops `HTTP_PROXY`, `http_proxy`, `HTTPS_PROXY`,
 `YURUNA_CACHING_PROXY_IP` from THIS process and its children. The
 user's shell is untouched — anything they exported for OTHER scripts
 (later runs of `Invoke-TestRunner.ps1`, `Test-CachingProxy.ps1` with
-the remote-cache override) is still set in the next shell. Step 1's
+the remote-cache env fallback) is still set in the next shell. Step 1's
 `Remove-HostProxy` handles the persistent OS-level state (WinINet
 registry, `/etc/environment`, `networksetup`); this in-process gap is
 what `Remove-HostProxy` cannot reach. The behavior is uniform across
 ubuntu.kvm / windows.hyper-v / macos.utm — all three run the same
 .NET `HttpClient`.
+
+## Migrating to a replacement cache VM
+
+[Move-CachingProxy.ps1](../test/Move-CachingProxy.ps1) hands a warm
+cache from an old cache VM to its replacement through a temporary
+parent-child squid hierarchy, then retires the old VM. Full operator
+guide: [Caching-proxy migration](caching-proxy-migration.md)
+(short link: <https://yuruna.link/caching-proxy-migration>).
 
 ---
 
@@ -296,6 +368,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.14
+Last review: 2026.07.17
 
 Back to [Yuruna](../README.md)

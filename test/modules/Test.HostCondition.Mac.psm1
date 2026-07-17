@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.14
+.VERSION 2026.07.17
 .GUID 42d4a3b2-c1f0-4e89-5678-9a0b1c2d3e40
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -616,7 +616,7 @@ function Set-MacHostConditionSet {
     # A drifting mouse during an unattended test can land in a corner
     # and trigger screensaver / display-sleep / lock -- making the UTM
     # window vanish from the CG window list. The dangerous-code map is
-    # shared with Assert-ScreenLock (Get-MacDangerousHotCorners) so the
+    # shared with Assert-ScreenLock (Get-MacDangerousHotCornerMap) so the
     # gate flags exactly the bindings this path neutralizes; safe codes
     # (0=none, Mission Control, Launchpad, ...) are absent and left alone.
     $dangerousCorners = Get-MacDangerousHotCornerMap

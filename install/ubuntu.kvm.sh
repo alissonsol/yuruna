@@ -1,7 +1,7 @@
 #!/bin/bash
 # Yuruna Ubuntu KVM/libvirt bootstrap installer.
 # LICENSEURI https://yuruna.link/license
-# Version: 2026.07.14  Copyright (c) 2019-2026 by Alisson Sol et al.
+# Version: 2026.07.17  Copyright (c) 2019-2026 by Alisson Sol et al.
 # --- REGION: https://yuruna.link/install/explained
 # One-liner: bash <(curl -fsSL https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/install/ubuntu.kvm.sh)
 # Supported target: Ubuntu 26.04 (Resolute) or newer on x86_64 (aarch64 supported but UNTESTED -- see preflight).
@@ -303,18 +303,8 @@ stop_yuruna_processes() {
     fi
   done
 
-  # Dedupe, drop our own pid, and IDENTITY-VALIDATE each candidate: keep only
-  # PIDs whose executable is actually a PowerShell interpreter. Every real
-  # target (runner / inner / detached status server) is pwsh; a PID read from a
-  # PID file a crashed run left behind holds a raw integer the kernel may since
-  # have RECYCLED to an unrelated process, and on the `bash <(...)` /
-  # `-c "<script>"` launch a pgrep -f pattern can even match THIS installer or
-  # its sudo-keepalive subshell (the script text carries the .ps1 names in argv).
-  # Killing such a match could reap this installer's own log `tee` (-> SIGPIPE ->
-  # the installer dies; there is no PIPE trap) or its sudo keepalive. Gating on
-  # the executable name (comm) -- `pwsh` for every real target, `bash`/`tee`/
-  # `sleep`/... for everything we must NOT touch -- closes that. Mirrors the
-  # PowerShell side's PID-identity check (Invoke-TestRunner.ps1 stale-pid guard).
+  # --- REGION: https://yuruna.link/install/explained#pid-identity-validation-before-kill
+  # Keep only pids whose executable (comm) is pwsh; never kill a recycled or self-matched pid.
   local -a uniq_pids=()
   local seen=" " pcomm
   for pid in "${target_pids[@]:-}"; do

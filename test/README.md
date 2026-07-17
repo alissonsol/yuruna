@@ -88,7 +88,10 @@ Each check prints `[PASS]`, `[WARN]`, or `[FAIL]`.
 ## Remote caching proxy
 
 The runner auto-discovers a local `caching-proxy` VM. Point at a remote
-proxy:
+proxy by setting `vmStart.cachingProxyIP` in `test/test.config.yml`
+(or on the status page) — it is probed first at cycle start and wins
+when its `:3128` answers. The session-scope alternative is the env
+var, consulted only when the config key is empty or unreachable:
 
 ```
 $Env:YURUNA_CACHING_PROXY_IP = '10.0.0.5'
@@ -147,6 +150,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.14
+Last review: 2026.07.17
 
 Back to [Yuruna](../README.md)

@@ -46,6 +46,16 @@
     main { max-width: 860px; width: 100%; margin: 1.75rem auto; padding: 0 1.5rem; }
     section { margin-bottom: 2rem; }
 
+    /* Refusal notice for a control action the host would not accept (403). */
+    .control-notice {
+      background: var(--bg-elevated); border: 1px solid var(--border);
+      border-left: 3px solid var(--link-strong); border-radius: .5rem;
+      padding: .7rem 1rem; margin-bottom: 1.25rem; font-size: .8125rem; line-height: 1.5;
+    }
+    .control-notice a    { color: var(--link-strong); }
+    .control-notice code { font-family: var(--font-mono); }
+    .control-notice[hidden] { display: none; }
+
     .meta-grid {
       display: flex; flex-wrap: wrap;
     }
@@ -125,8 +135,8 @@
       .meta-grid {
         display: grid;
         grid-template-columns: repeat(2, minmax(0, 1fr));
-        -webkit-column-gap: .375rem; column-gap: .375rem;
-        -webkit-row-gap: .375rem;    row-gap: .375rem;
+        grid-column-gap: .375rem; column-gap: .375rem;
+        grid-row-gap: .375rem;    row-gap: .375rem;
       }
       .meta-grid > .meta-card,
       .meta-grid > .meta-card:nth-child(odd) {
@@ -227,6 +237,11 @@
 </div>
 
 <main>
+
+  <!-- Shown by controlAction() when a /control/* POST is refused (403): the
+       on-host operator has loopback control; a browser on another machine needs
+       a short-lived token the pool dashboard grants (see control-routes). -->
+  <div id="control-notice" class="control-notice" role="alert" hidden></div>
 
   <section id="sec-cycle" style="display:none">
     <div class="section-title with-controls">

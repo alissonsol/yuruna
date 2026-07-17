@@ -31,7 +31,7 @@ across sibling docs:
 Comments that live *inside* the deployed artifacts (the squid.conf directives,
 the embedded Python rewriter, the runcmd shell scripts, the systemd units) stay
 with their file -- they ship to the guest and are read in place when debugging
-the running VM. Only the cloud-init-level structural rationale moved here.
+the running VM. This document covers the cloud-init-level structural rationale.
 
 Sections are ordered to match the top-to-bottom flow of the user-data
 (cloud-config keys, then `write_files`, then `runcmd`), so the file and this
@@ -63,15 +63,11 @@ Replace the Ubuntu cloud image's default `ubuntu` user with `yuruna`. Listing a 
 
 ### Grafana apt repo inline GPG key
 
-Grafana OSS repo: inline ASCII-armored key. The obvious alternative (keyid B53AE77BADB630A683046005963FA27710458545 from keyserver.ubuntu.com) returns "gpg: keyserver receive failed: End of file" intermittently, which cascades apt_configure -> package_update _upgrade_install -> scripts_user failure, leaving squid stopped on the stale apt-postinst start. Rotate by refetching from https://apt.grafana.com/gpg.key when Grafana publishes a new key (verify fingerprint B53A E77B ADB6 30A6 8304 6005 963F A277 1045 8545).
+Grafana OSS repo: inline ASCII-armored key (keyserver.ubuntu.com access is intermittently unreliable; inline key avoids cascade failures during package-update). Rotate by refetching from https://apt.grafana.com/gpg.key when Grafana publishes a new key (verify fingerprint B53A E77B ADB6 30A6 8304 6005 963F A277 1045 8545).
 
 ### Package squid-openssl not squid
 
 squid-openssl: OpenSSL-linked build. Ubuntu's default `squid` package is built WITHOUT --with-openssl (Debian packaging split over OpenSSL vs GPL licensing), so its http_port parser rejects `ssl-bump`, `tls-cert=`, etc. with a "Bungled" FATAL at config-load and squid.service never binds a socket. squid-openssl ships the same /usr/sbin/squid and squid.service unit, and Conflicts: squid.
-
-### Package squid-cgi for cachemgr
-
-squid-cgi provides cachemgr.cgi, hosted by apache2 (cgi-bin/ is wired up by the default conf.d/serve-cgi-bin.conf once runcmd enables mod_cgi). Low-overhead fallback to the Prometheus+Grafana UI for raw cachemgr queries.
 
 ### squidclient and apache2
 
@@ -81,7 +77,7 @@ squidclient (/usr/bin/squidclient) ships in squid-common (already pulled in by s
 
 Monitoring stack: Prometheus scrapes squid-exporter (localhost:9301); Grafana on :3000 (anonymous Viewer). squid-exporter has no apt package and no stable GitHub release-asset URL, so golang-go is pulled in just long enough to `go install` it; both build tools are purged at the end of runcmd (~400 MB reclaimed). The compiled binary stays.
 
-loki + promtail back the "Recent 100 requests" Grafana panel -- Prometheus only stores aggregates, so per-request client IP / target URL are not available there. Promtail tails /var/log/squid/access.log and ships to Loki on localhost:3100. Both come from apt.grafana.com (same repo as grafana) -- no extra source needed.
+loki + promtail back the "Recent 100 requests" Grafana panel -- Prometheus only stores aggregates, so per-request client IP / target URL are not available there. Promtail tails /var/log/squid/yuruna_access.log (squid's custom `logformat yuruna` stream) and ships to Loki on localhost:3100. Both come from apt.grafana.com (same repo as grafana) -- no extra source needed.
 
 ### Package acl for promtail log read
 
@@ -111,10 +107,6 @@ Retry apt fetches on transient network errors. Cloud-init's default is one-shot;
 
 unattended-upgrades enable flags. Both timers (apt-daily.timer + apt-daily-upgrade.timer) ship with the apt package and are enabled by default -- this dropin is what turns the upgrade phase on. Update-Package-Lists = run `apt-get update` daily; Unattended-Upgrade = run the upgrade phase daily. Auto-clean keeps /var/cache/apt from growing without bound between cycles. The default /etc/apt/apt.conf.d/50unattended-upgrades scopes upgrades to the security pocket only -- leave that conservative; widening to all pockets risks pulling in a kernel that needs a reboot we can't schedule on a long-lived cache box.
 
-### Restrict cachemgr to RFC1918
-
-Restrict cachemgr.cgi to RFC1918, matching the squid ACL. Apache's default cgi-bin/ is open to all; aligning policy with squid means a misconfigured host network can't accidentally expose cachemgr.
-
 ### Pool intent store over read-only HTTP
 
 Pool intent store (Phase 3): serve the bare git repo READ-ONLY over the LAN via apache's static (dumb-HTTP) git protocol. Pooled hosts clone/pull http://<proxy>/pool-intent.git to learn pool membership + desiredState. The repo holds only NON-SECRET intent (pools.yml / test-sets / guests.compatibility); writes go through the admin CLI on the proxy (a local/file:// path), never this HTTP route. RFC1918 only, mirroring the cachemgr access policy.
@@ -122,6 +114,81 @@ Pool intent store (Phase 3): serve the bare git repo READ-ONLY over the LAN via 
 ### Squid drop-in config approach
 
 Drop-in overrides on top of Ubuntu's stock /etc/squid/squid.conf. conf.d files include after the main config so same-named directives here win. Keeping this a drop-in (not a full replacement) means future squid package upgrades still get their default refresh_pattern and ACL baseline -- we only override what's specific to yuruna.
+
+### Snapshot cache tuning
+
+The `/etc/squid/conf.d/yuruna.conf` drop-in tunes squid as a **replayable
+snapshot** rather than a churn-optimized web cache:
+
+1. objects stay until the disk is nearly full (no proactive release),
+2. the cache keeps serving when origin is unreachable or sends
+   cache-hostile headers,
+3. with `offline_mode` (flipped by runcmd after prewarm), a full cache
+   supports guest installs with zero internet.
+
+**Replacement policies.** `cache_replacement_policy heap LFUDA` keeps
+frequently-used large objects (linux-firmware, kernels) over many small
+ones; `memory_replacement_policy heap GDSF` does the same in-memory. When
+eviction fires, rarely-touched small objects drop first -- the big,
+expensive-to-refetch blobs survive, which is what offline replay needs.
+The ordering constraint is load-bearing (and stays inline beside the
+directive): `cache_replacement_policy` MUST appear before `cache_dir` --
+squid binds the policy at `cache_dir` parse time, so a later override has
+no effect.
+
+**cache_mem budget math.** `cache_mem 7 GB` is 58 % of the VM's 12 GB,
+keeping 2 GB free for the zot OCI registry pull-through cache (which
+handles the Docker Hub manifest HEADs squid cannot -- see the zot topics
+below). This is a DEDICATED cache VM (squid + zot are the only
+top-priority workloads), so the memory budget is sized around these two
+directives rather than the other way around. Empirically squid's RSS runs
+~1 GB above `cache_mem` (sslcrtd children + connection buffers + in-RAM
+hot objects), so 7 GB `cache_mem` implies ~8 GB squid RSS; zot peaks at
+~500 MB during heavy parallel pulls; that leaves ~2 GB for apache /
+grafana / prometheus / loki / promtail / squid-exporter /
+caching-proxy-parser / kernel / page cache. Swap is masked, so tune VM
+RAM + `cache_mem` + zot together -- 58 % on a smaller VM would OOM
+mid-cycle with no swap fallback. The VM-side numbers (12 GB / 4 vCPU on
+every host) are in
+[caching-proxy.md -> Cache VM sizing](caching-proxy.md#cache-vm-sizing).
+
+**Objects until near-full.** `cache_swap_high 99` / `cache_swap_low 98`:
+never release unless forced -- evict only when the disk is more than 99 %
+full, stopping at 98 %. The squid defaults (90/95) would start evicting
+with ~5 GB still free, which is wrong for a sticky snapshot cache.
+
+**offline_mode replay.** `offline_mode on` serves cached objects without
+ever revalidating them with origin. Aggressive on purpose -- this VM
+exists to keep test cycles running when upstream registries (Docker Hub,
+registry.k8s.io, registry.opentofu.org, public.ecr.aws, etc.) have
+intermittent 5xx / rate-limit incidents. With `offline_mode` off (the
+squid default), the catch-all `refresh_pattern .` still revalidates every
+hit, so a single upstream 5xx tears down the cycle even when squid has
+everything else cached. With `offline_mode` on, cache MISSes still fall
+through to upstream (otherwise the VM could never warm up); only HITs are
+served unconditionally. See also "Flip squid into offline mode" below for
+the post-prewarm runcmd flip.
+
+**Container-registry digest caching (OCI + Docker v2).** Diagnostics
+against active cycles showed identical digest-pinned blob/manifest URLs
+being re-fetched multiple times per cycle (per
+`awk '$4 ~ /MISS/' /var/log/squid/yuruna_access.log`):
+`/v2/.../manifests/sha256:<hex>` and `/v2/.../blobs/sha256:<hex>` are
+immutable by definition, yet registries return
+`Cache-Control: must-revalidate` (or `private`) on them, so the stock
+catch-all `refresh_pattern .` revalidates on every request. The override
+targets digest-pinned URLs only (the `sha256:` segment); those cache for
+the full year like apt `.deb` files. Tag-based manifest URLs
+(`/manifests/<tag>` with no `sha256:`) stay revalidated -- tags ARE
+mutable, e.g. `:latest`, `:2`, `:v0.28.4`. They get only a short
+freshness window (`5 50% 60`) so concurrent guests in the same cycle hit
+cache while a tag move within a few minutes is still picked up --
+`collapsed_forwarding` already pools the parallel fetches; the window
+just stretches past `must-revalidate`. The digest pattern matches the URL
+PATH, so it works for any registry host: registry.k8s.io, ghcr.io,
+registry-1.docker.io, public.ecr.aws, us-east4-docker.pkg.dev, and the
+CDNs they 307-redirect to (cloudfront, S3, R2 cloudflarestorage) -- those
+all carry the `sha256:` segment in the redirected path.
 
 ### Prometheus loopback only
 
@@ -178,7 +245,7 @@ Yuruna hosts dashboard (Phase 1). INLINED (like squid.json) so it deploys from t
 
 ### Yuruna hosts dashboard panel autofit
 
-Grafana panel heights are fixed in the dashboard JSON (`gridPos.h`); there is no "fit to content" height. The three per-host panels -- Cycle outcome over time, Pool hosts, Extension hosts -- carry one row per host, so any fixed height is wrong for some pool size: a table sized for 8 hosts scrolls once a 9th host joins, and one sized for a large pool shows dead whitespace on a small one. `yuruna-fit-pool-dashboard.py` reads the host count the collector is reporting (Prometheus + Loki on loopback), recomputes each panel's height from the dashboard grid geometry (a panel of `h` units is `38h - 8` px tall, less the chrome, the table header row, and -- on the timeline -- the x-axis and legend), re-stacks the panels below it, and rewrites `/var/lib/grafana/dashboards/pool.json` atomically. Heights round UP: a panel a few px too tall shows blank space, one a few px too short shows a scrollbar, and only the scrollbar is a defect. The `gridPos.h` values inlined above are only the pre-collector default. A collector that is down reports no hosts, which is indistinguishable from an empty pool, so a zero count leaves the file untouched rather than collapsing every panel to its header. Row counts track the dashboard's DEFAULT 24h window; a wider range picked in the time picker can still surface an older host and scroll.
+Panel heights are fixed in dashboard JSON; a fixed height per row doesn't scale across pool sizes. The autofit script recomputes heights based on host count. `yuruna-fit-pool-dashboard.py` reads the host count the collector is reporting (Prometheus + Loki on loopback), recomputes each panel's height from the dashboard grid geometry (a panel of `h` units is `38h - 8` px tall, less the chrome, the table header row, and -- on the timeline -- the x-axis and legend), re-stacks the panels below it, and rewrites `/var/lib/grafana/dashboards/pool.json` atomically. Heights round UP: a panel a few px too tall shows blank space, one a few px too short shows a scrollbar, and only the scrollbar is a defect. The `gridPos.h` values inlined above are only the pre-collector default. A collector that is down reports no hosts, which is indistinguishable from an empty pool, so a zero count leaves the file untouched rather than collapsing every panel to its header. Row counts track the dashboard's DEFAULT 24h window; a wider range picked in the time picker can still surface an older host and scroll.
 
 ### Squid dashboard inlined
 
@@ -221,10 +288,6 @@ Resolve the Yuruna hosts dashboard's aggregator base URL. The timeline's "open c
 security_file_certgen's `-c` is create-new and errors if the DB already exists, so the existence check guards re-runs. DB holds leaf certs minted per SNI hostname -- 4 MB is generous (each entry ~1 KB).
 
 The `install -d` for /var/lib/squid is NOT redundant: on Ubuntu the squid-openssl postinst doesn't guarantee this directory, and security_file_certgen's Create() makes only the leaf `ssl_db/` dir, not the parent. Without `install -d` the helper FATALs with "Cannot create /var/lib/squid/ssl_db", sslcrtd children crash-loop on every spawn, squid bails with "The sslcrtd_program helpers are crashing too rapidly, need help!" and squid-parent blocks restart for 3600s. Running as `proxy` avoids a follow-up chown and confirms write access.
-
-### Enable cachemgr monitoring
-
-Enable cachemgr.cgi monitoring a2enmod cgi wires mod_cgi into Apache; a2enconf enables the RFC1918 ACL dropin. Squid's default squid.conf has `http_access allow manager localhost` + `http_access deny manager`, so manager queries from 127.0.0.1 (Apache) succeed while remote mgr: URLs are rejected.
 
 ### Publish squid CA cert
 
@@ -300,7 +363,7 @@ Yuruna pool intent store (Phase 3): a bare git repo pooled hosts clone + pull RE
 
 ### Wait for grafana-server to bind
 
-3000 and dump journal if it doesn't. On a slow first boot, grafana can take ~15s to come up after `restart` returns. Without this check, a failed start only surfaces when an operator tries the dashboard and gets "connection refused" -- by which time cloud-init logs may be rotated. Mirrors the squid:3128 diagnostic net so both failure modes surface the same way in /var/log/cloud-init-output.log.
+Wait for grafana-server to bind :3000 and dump journal if it doesn't. On a slow first boot, grafana can take ~15s to come up after `restart` returns. Without this check, a failed start only surfaces when an operator tries the dashboard and gets "connection refused" -- by which time cloud-init logs may be rotated. Mirrors the squid:3128 diagnostic net so both failure modes surface the same way in /var/log/cloud-init-output.log.
 
 ### Enable yuruna hosts dashboard panel autofit
 
@@ -354,6 +417,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.14
+Last review: 2026.07.17
 
 Back to [Yuruna](../README.md)

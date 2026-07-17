@@ -398,6 +398,51 @@ were the user's original.
 Source:
 [`host/windows.hyper-v/modules/Yuruna.Host.psm1`](../host/windows.hyper-v/modules/Yuruna.Host.psm1).
 
+### Defining the tofu external hook shell choice
+
+The tofu resources under `global/resources/localhost/` run their
+host-side checks through `data "external"` blocks whose `program` is
+`["bash", "<hook>.sh"]` — POSIX bash plus the tool each check actually
+needs (`kubectl`, `docker inspect`, `python3` + PyYAML). A
+`null_resource` + `provisioner "local-exec" { interpreter = pwsh }`
+is deliberately avoided: spawning pwsh from a tofu provisioner is a
+recurring failure point under pwsh 7.6.x / .NET 10 (observed on
+7.6.1) — the child pwsh crashes at process startup with a
+`FileLoadException` on `System.Collections.Specialized` carrying a
+truncated `PublicKeyToken`, before any script line runs. The trap
+class is captured in the memory file
+`feedback_pwsh_provisioner_assemblyname_flake.md`; the
+`global/resources/azure/aks-cluster` hooks share the same rationale.
+
+**Plan-time execution.** `Set-Resource`'s planfile-pinned apply means
+a `data "external"` program runs at plan time only: its result is
+captured once into the plan, and the apply pass never re-invokes it.
+
+**Stdin query protocol.** tofu serializes the block's `query` map as
+a single JSON object on the program's stdin — and it sends a JSON
+object even when `query` is unset, so a hook that takes no arguments
+must still drain stdin. The program answers with exactly one JSON
+object of string values on stdout; diagnostics go to stderr, and a
+non-zero exit fails the plan with them.
+
+The localhost hooks:
+
+- [`context-copy.sh`](../global/resources/localhost/context-copy/context-copy.sh)
+  (wired by
+  [`context-copy.tf`](../global/resources/localhost/context-copy/context-copy.tf))
+  copies a kube context bundle — cluster + user + context — from the
+  query's `sourceContext` under `destinationContext` inside
+  `~/.kube/config`, renaming the entries with python3/PyYAML.
+- [`localhost-registry-check.sh`](../global/resources/localhost/registry/localhost-registry-check.sh)
+  (wired by
+  [`localhost-registry.tf`](../global/resources/localhost/registry/localhost-registry.tf))
+  only **verifies** the local docker `registry` container is up
+  (`docker inspect -f '{{.State.Running}}'`) and bubbles a meaningful
+  error otherwise. Starting the container — with retry and rate-limit
+  diagnostics — is the job of the workload bash script (e.g.
+  `ubuntu.server.24.workload.k8s.website.sh`), which runs BEFORE
+  `Set-Resource`.
+
 ---
 
 ## Guest-side container runtime contracts
@@ -681,9 +726,60 @@ still be ≥ 4 or `New-VM.ps1` exits with the same error.
 
 Source files (each implements the policy in line):
 
-- `host/macos.utm/guest.<amazon.linux.2023|ubuntu.server.24|windows.11|caching-proxy|macos.26>/New-VM.ps1`
-- `host/windows.hyper-v/guest.<amazon.linux.2023|ubuntu.server.24|windows.11|caching-proxy>/New-VM.ps1`
-- `host/ubuntu.kvm/guest.<amazon.linux.2023|ubuntu.server.24|windows.11|caching-proxy>/New-VM.ps1`
+- `host/macos.utm/guest.<amazon.linux.2023|ubuntu.server.24|ubuntu.server.26|windows.11|caching-proxy|stash-service|macos.26>/New-VM.ps1`
+- `host/windows.hyper-v/guest.<amazon.linux.2023|ubuntu.server.24|ubuntu.server.26|windows.11|caching-proxy|stash-service>/New-VM.ps1`
+- `host/ubuntu.kvm/guest.<amazon.linux.2023|ubuntu.server.24|ubuntu.server.26|windows.11|caching-proxy|stash-service>/New-VM.ps1`
+
+### Defining the VM memory policy
+
+Unlike the core count, memory is **not** derived from the host: each
+`New-VM.ps1` writes a fixed value for its guest. The default is **12 GB**;
+the exceptions are deliberate.
+
+| Guest               | Hyper-V | macOS UTM        | Ubuntu KVM |
+|---------------------|---------|------------------|------------|
+| `amazon.linux.2023` | 12 GB   | 12 GB            | 4 GB       |
+| `ubuntu.server.24`  | 12 GB   | 12 GB            | 8 GB       |
+| `ubuntu.server.26`  | 12 GB   | 12 GB            | 8 GB       |
+| `windows.11`        | 12 GB   | 12 GB            | 8 GB       |
+| `caching-proxy`     | 12 GB   | 12 GB            | 12 GB      |
+| `stash-service`     | 8 GB    | 8 GB             | 8 GB       |
+| `macos.26`          | —       | 8 GB (`-MemoryMb`) | —        |
+
+**Rationale.** 12 GB carries the heaviest guest workload the cycles run: a
+single-node `kubeadm` cluster (control plane + containerd + pulled images,
+~3–4 GB) alongside a `dotnet-sdk` build/run. It is a ceiling, not a
+reservation the guest is expected to fill.
+
+**Hyper-V reserves the full amount.** `Set-VM` sets Startup = Minimum =
+Maximum, i.e. dynamic memory is off, so a guest holds its whole allocation
+for the life of the VM. That is why a leftover guest from a previous cycle
+starves the next one with `0x800705AA` (insufficient system resources)
+until it is torn down — the runner's cleanup paths exist for exactly that.
+
+**KVM guests are sized down** to the minimum that carries the workload
+rather than matching the Hyper-V / UTM allocation, because every extra GB
+per VM subtracts from how many guests a KVM host can run concurrently in a
+busy pool.
+
+**The caching-proxy 12 GB is load-bearing**, not a default that happens to
+match: squid's `cache_mem` is tuned to 7 GB (58 % of the VM) with 2 GB left
+for the zot registry cache, and swap is masked, so an OOM is unrecoverable.
+Tune VM RAM, `cache_mem`, and zot together — see
+[caching-proxy.md](caching-proxy.md).
+
+**Changing it.** Edit the guest's `New-VM.ps1`; the value is expressed
+differently per host — Hyper-V takes `-MemoryStartupBytes` /
+`-MemoryMinimumBytes` / `-MemoryMaximumBytes`, which must move **together**
+(a Startup above Maximum is rejected); macOS UTM substitutes
+`__MEMORY_SIZE__` (MB) into the `config.plist` template; KVM passes
+`--memory` (MB) to `virt-install`. A change affects **newly created** VMs
+only — an existing guest keeps its allocation until it is recreated, or is
+resized in place per [host/read.more.md](../host/read.more.md).
+
+Host sizing assumes this: the 32 GB host minimum in
+[install.md](install.md) is what lets a cycle hold a guest plus the cache
+VM without the host itself swapping.
 
 ---
 
@@ -693,10 +789,14 @@ Source files (each implements the policy in line):
 
 The Yuruna status pages (`test/status/index.html`,
 `test/status/test.config.html`, and any future page mounted under
-`test/status/`) are written so they render correctly on Safari iOS
-9.x as well as current browsers. iOS 9.0–9.2 ship an ES5-only
-JavaScript parser and a partial CSS implementation; supporting them
-rules out:
+`test/status/`) are written so they render correctly on **Safari iOS
+9.3 / Safari 9.1** as well as current browsers. That is the real hard
+floor: every color token is a CSS custom property (`var(--…)`), and
+custom properties first ship in iOS 9.3 / Safari 9.1 — below that the
+palette is undefined and the pages do not render. The JavaScript is
+still authored to the stricter ES5-only bar (the pages predate a hard
+9.3 decision and the defensive style costs nothing), so the code
+avoids:
 
 - **JavaScript:** ES2015+ syntax (arrow functions, template literals,
   `async`/`await`, destructuring, optional chaining, nullish
@@ -704,12 +804,16 @@ rules out:
   Wrap each page's code in an IIFE to keep helpers off the global
   object.
 - **CSS:** the `inset` shorthand (iOS 14.5+), flex `gap` (iOS 14.5+),
-  grid `gap` (iOS 10.3+), CSS Grid (iOS 10.3+), and CSS custom
-  properties / variables (iOS 9.3+). Use margins, explicit
-  `top/right/bottom/left`, and flex-wrap instead.
+  grid `gap` (iOS 10.3+), and CSS Grid (iOS 10.3+). Use margins,
+  explicit `top/right/bottom/left`, and flex-wrap instead. CSS custom
+  properties (iOS 9.3+) ARE used and define the baseline above.
+  `env()` / `max()` safe-area insets (iOS 11.2+) are a progressive
+  enhancement: every rule that uses them declares a plain-value
+  `padding` fallback first, so iOS 9.3–11.1 keeps its gutter and only
+  loses the notch inset.
 - **DOM API:** `KeyboardEvent.key` landed in iOS 10.3 — read `.key`,
   fall through to `.keyCode` (`27 == Escape`) and `.which`. Use the
-  bracket form `['catch'](...)` on promises because iOS 9.0–9.2
+  bracket form `['catch'](...)` on promises because older iOS
   strict-mode parsers still treat `catch` as reserved in member
   position.
 
@@ -971,7 +1075,7 @@ Page-specific behavior:
 
 - **60 s poll with visible countdown.** `setInterval` ticks every
   second and decrements a `#countdown` badge; reaching zero re-fires
-  `loadStatus()` which sequences four soft fetches —
+  `loadStatus()` which sequences three soft fetches —
   `runtime/status.json`, `runtime/current-action.json`, and
   `control/runner-status` — before re-rendering. 404s are tolerated
   (`null` propagates and the renderer falls through to "no data" /
@@ -1105,10 +1209,11 @@ Page-specific behavior:
 - **Env-var mirror.** Beneath the editable `vmStart.cachingProxyIP`
   row, a read-only mirror shows whatever
   `$env:YURUNA_CACHING_PROXY_IP` the status server inherited at
-  startup. The env-var takes precedence over the persisted value at
-  cycle start (see `Invoke-TestInnerRunner.ps1`), so surfacing both
-  side-by-side makes it obvious which one the next run will actually
-  use.
+  startup. At cycle start the persisted value is probed first and
+  wins when its `:3128` answers; the env var is the fallback probed
+  only when the config value is absent or unreachable (see
+  `Resolve-CachingProxyEndpoint`). Surfacing both side-by-side makes
+  it obvious which one the next run will actually use.
 - **Save and start cycle.** Destructive: orange button at the far
   left of the footer (hard to click by accident). Confirms with
   `window.confirm()` only when a runner is currently alive — starting
@@ -1591,12 +1696,16 @@ schema-validated `runner_state_transition` NDJSON event.
 
 ```
 idle        -> cycle-start, fault   (fault only from boot recovery)
-cycle-start -> in-cycle, fault
+cycle-start -> in-cycle, fault, paused
 in-cycle    -> cycle-end, fault
 cycle-end   -> idle
 fault       -> paused, idle
-paused      -> idle
+paused      -> idle, cycle-start
 ```
+
+The `cycle-start <-> paused` pair is the healthy pool-hold loop
+(`desiredState=paused` gates a started cycle; each ~30s re-poll
+re-enters `cycle-start`).
 
 `Test-RunnerStateTransition` is the predicate. An out-of-band write
 (e.g. an extension that ships its own state pump) that goes through
@@ -1700,6 +1809,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.14
+Last review: 2026.07.17
 
 Back to [Yuruna](../README.md)

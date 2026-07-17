@@ -197,7 +197,7 @@ APT_PROXY_BLOCK_PLACEHOLDER
     - |
       printf '%s' "YURUNA_NETWORK_BASE64_PLACEHOLDER" | base64 -d > /target/usr/local/lib/yuruna/yuruna-network.sh
       chmod 0755 /target/usr/local/lib/yuruna/yuruna-network.sh
-    # --- REGION: https://yuruna.link/vmconfig#git-credentials-from-gh-token
+    # --- REGION: https://yuruna.link/definition#defining-the-two-source-scheme-for-framework-and-project-urls
     # git does NOT read GH_TOKEN. That name is a gh(1) convention, so a bare
     # `git clone https://github.com/owner/private-repo` still prompts for a
     # username -- which hangs an unattended guest, or fails outright under

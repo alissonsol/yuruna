@@ -503,6 +503,7 @@ operator who needs the ID at upload time can use `scp -O` (legacy).
 | Presence re-announce period (§4.7) | `15m` (`0` disables) | `--presence-interval` (`STASH_PRESENCE_INTERVAL` at bring-up) |
 | Presence identity (§4.7) | owning host's `hostId` from the stash storage seed | `--host-id` (baked at bring-up) |
 | Aggregator base URL (§4.7, UI §3.4) | baked from the host's caching-proxy state | `--aggregator-url` (`STASH_AGGREGATOR_URL` overrides) |
+| Delete-authorized host IP (UI §8.4) | baked from the seed's `YURUNA_HOST_IP` | `--host-ip` (`STASH_HOST_IP` overrides) |
 
 **Dependency:** `networkStorage.stashNetworkPath` + `stashNetworkUser`
 + `stashLocalPath` (+ a stored vault password for `stashNetworkUser`)
@@ -557,9 +558,9 @@ change to the password alphabet, length, or storage.
   items here: see §13 of the UI spec.)
 - Cross-day and cross-host ID uniqueness.
 
-## 13. Resolved Decisions
+## 13. Design Decisions
 
-These items were left open in earlier drafts and are now resolved:
+Key design decisions:
 
 - **Disallowed characters in an extension (§6.3, rule 5):** discard the
   entire extension and store as `<id>` only (the simplest, safest
@@ -580,6 +581,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.14
+Last review: 2026.07.17
 
 Back to [Yuruna](../../README.md)

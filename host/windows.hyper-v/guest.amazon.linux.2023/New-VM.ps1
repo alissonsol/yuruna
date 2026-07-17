@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.14
+.VERSION 2026.07.17
 .GUID 42e9f0a1-b2c3-4d45-e678-9f0a1b2c3d45
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -232,8 +232,8 @@ $VolumeId = "cidata"
 CreateIso -SourceDir $SeedDir -OutputFile $SeedIso -VolumeId $VolumeId
 
 Write-Verbose "Creating new VM '$VMName' on switch '$switchName'..."
-Hyper-V\New-VM -Name $VMName -Generation 2 -MemoryStartupBytes 16384MB -SwitchName $switchName -VHDPath $vhdxFile | Out-Null
-Set-VM -Name $VMName -MemoryStartupBytes 16384MB -MemoryMinimumBytes 16384MB -MemoryMaximumBytes 16384MB -AutomaticCheckpointsEnabled $false | Out-Null
+Hyper-V\New-VM -Name $VMName -Generation 2 -MemoryStartupBytes 12288MB -SwitchName $switchName -VHDPath $vhdxFile | Out-Null
+Set-VM -Name $VMName -MemoryStartupBytes 12288MB -MemoryMinimumBytes 12288MB -MemoryMaximumBytes 12288MB -AutomaticCheckpointsEnabled $false | Out-Null
 Set-VMMemory -VMName $VMName -DynamicMemoryEnabled $false
 Set-VMFirmware -VMName $VMName -EnableSecureBoot Off | Out-Null
 Add-VMDvdDrive -VMName $VMName -Path $SeedIso | Out-Null

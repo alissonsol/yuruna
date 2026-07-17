@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.14
+.VERSION 2026.07.17
 .GUID 4288bcbc-ede3-4dda-bb77-b9782c7615ad
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -31,10 +31,16 @@ function New-YurunaTimestampedBackup {
         The one timestamped-backup step the component/resource/workload publishers
         share. The caller keeps ownership of the work-folder lifecycle
         (New-Item / Resolve-Path) because it reuses that folder for other artifacts;
-        only the timestamp + copy + verbose line live here so the timestamp format
-        cannot drift between publishers. Best-effort by contract: -ErrorAction
-        SilentlyContinue on the copy, and nothing is emitted to the pipeline so a
-        publisher's singular result-manifest return stays clean.
+        only the timestamp + copy + retention + verbose line live here so the
+        timestamp format cannot drift between publishers. Best-effort by contract:
+        -ErrorAction SilentlyContinue on the copy and the retention sweep, and
+        nothing is emitted to the pipeline so a publisher's singular
+        result-manifest return stays clean.
+
+        Retention: only the newest $KeepCount backups per prefix are kept. The
+        publishers run every cycle, so without a cap the dated copies accumulate
+        without bound. The timestamp format sorts lexicographically ==
+        chronologically, so the sweep needs no date parsing.
     #>
     [CmdletBinding()]
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
@@ -42,12 +48,25 @@ function New-YurunaTimestampedBackup {
     param(
         [Parameter(Mandatory)][string]$SourceFile,
         [Parameter(Mandatory)][string]$WorkFolder,
-        [Parameter(Mandatory)][string]$Prefix
+        [Parameter(Mandatory)][string]$Prefix,
+        [int]$KeepCount = 20
     )
     $dtTime = '{0}' -f ([system.string]::format('{0:yyyy-MM-dd-HH-mm-ss}', (Get-Date)))
     $backupFile = Join-Path -Path $WorkFolder -ChildPath "$Prefix.$dtTime.yml"
     Copy-Item "$SourceFile" -Destination $backupFile -Recurse -Container -ErrorAction SilentlyContinue
     Write-Verbose "Backup of: $SourceFile copied to: $backupFile"
+    if ($KeepCount -gt 0) {
+        # The name filter is deliberately narrow (exact prefix + the dated-yml
+        # shape) so the sweep can never touch the live config or any
+        # non-backup artifact sharing the work folder.
+        $stale = @(Get-ChildItem -LiteralPath $WorkFolder -File -Filter "$Prefix.*.yml" -ErrorAction SilentlyContinue |
+            Where-Object { $_.Name -match ('^' + [regex]::Escape($Prefix) + '\.\d{4}(-\d{2}){5}\.yml$') } |
+            Sort-Object -Property Name -Descending |
+            Select-Object -Skip $KeepCount)
+        foreach ($old in $stale) {
+            Remove-Item -LiteralPath $old.FullName -Force -ErrorAction SilentlyContinue
+        }
+    }
 }
 
 function Get-HostProxyBackupPath {
@@ -425,4 +444,59 @@ function ConvertTo-Sha512CryptHash {
     throw "ConvertTo-Sha512CryptHash: no working openssl with SHA-512 (-6) support found. Tried: $($candidates -join ', '). Install OpenSSL >= 1.1 (Linux/macOS) or Git for Windows."
 }
 
-Export-ModuleMember -Function New-YurunaTimestampedBackup, Get-HostProxyBackupPath, ConvertTo-ProxyHostPort, Get-PortMapStatePath, Test-IsAdministrator, Get-CachingProxyPort, Test-Ipv4Address, Test-Ipv6Address, Format-IpUrlHost, Test-IpAddress, ConvertTo-Sha512CryptHash
+function ConvertTo-YurunaMacAddress {
+<#
+.SYNOPSIS
+    Normalize and validate a MAC address to canonical AA:BB:CC:DD:EE:FF.
+.DESCRIPTION
+    Accepts the three common notations -- colon-separated, dash-separated,
+    and bare 12-hex-digit -- and returns the canonical uppercase
+    colon-separated form. Callers reformat from the canonical form to
+    their platform's native notation (Hyper-V StaticMacAddress takes bare
+    hex; virt-install and UTM config.plist take colons).
+
+    Returns $null (with a Warning naming the reason) when the input is
+    not a usable unicast MAC:
+      * not 12 hex digits after separator removal, or mixed separators;
+      * multicast (first octet's least-significant bit set) -- DHCP
+        cannot lease to a multicast source address;
+      * all-zeros -- rejected by every hypervisor.
+
+    Additionally warns (but still returns the MAC) when the
+    locally-administered bit (0x02 of the first octet) is NOT set: a
+    globally-unique OUI address can collide with real hardware on the
+    LAN. Pick from the x2/x6/xA/xE second-hex-digit ranges to stay safe.
+.OUTPUTS
+    [string] canonical MAC, or $null when invalid.
+.EXAMPLE
+    ConvertTo-YurunaMacAddress '02-11-22-33-44-55'   # '02:11:22:33:44:55'
+#>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([Parameter(Mandatory)][string]$MacAddress)
+
+    $trimmed = $MacAddress.Trim()
+    # One notation at a time: colon-separated, dash-separated, or bare.
+    # A permissive strip-all-separators pass would accept mixed forms
+    # like '02:11-22...' that are more likely typos than intent.
+    if ($trimmed -notmatch '^([0-9A-Fa-f]{2}(:[0-9A-Fa-f]{2}){5}|[0-9A-Fa-f]{2}(-[0-9A-Fa-f]{2}){5}|[0-9A-Fa-f]{12})$') {
+        Write-Warning "MAC address '$MacAddress' is not valid. Use AA:BB:CC:DD:EE:FF, AA-BB-CC-DD-EE-FF, or AABBCCDDEEFF (12 hex digits)."
+        return $null
+    }
+    $bare = ($trimmed -replace '[:-]', '').ToUpperInvariant()
+    if ($bare -eq '000000000000') {
+        Write-Warning "MAC address '$MacAddress' is all-zeros; hypervisors reject it."
+        return $null
+    }
+    $firstOctet = [Convert]::ToInt32($bare.Substring(0, 2), 16)
+    if ($firstOctet -band 0x01) {
+        Write-Warning "MAC address '$MacAddress' is multicast (first octet's low bit is set); a NIC cannot source from it, so DHCP would never lease. Use an even first octet (e.g. 02:...)."
+        return $null
+    }
+    if (-not ($firstOctet -band 0x02)) {
+        Write-Warning "MAC address '$MacAddress' does not have the locally-administered bit set (first octet 0x02); it may collide with real hardware on the LAN. Consider a first octet like 02, 06, 0A, or 0E."
+    }
+    return (($bare -split '(..)' | Where-Object { $_ }) -join ':')
+}
+
+Export-ModuleMember -Function New-YurunaTimestampedBackup, Get-HostProxyBackupPath, ConvertTo-ProxyHostPort, Get-PortMapStatePath, Test-IsAdministrator, Get-CachingProxyPort, Test-Ipv4Address, Test-Ipv6Address, Format-IpUrlHost, Test-IpAddress, ConvertTo-Sha512CryptHash, ConvertTo-YurunaMacAddress

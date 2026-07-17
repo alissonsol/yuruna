@@ -8,7 +8,7 @@ Artifact Registry, Docker Hub, generic Docker login) each use a
 different CLI and a different credential model. The dispatcher in
 [`automation/Yuruna.Component.Registry.psm1`](../automation/Yuruna.Component.Registry.psm1)
 asks the credential-provider registry in
-[`test/modules/Test.CredentialProvider.psm1`](../test/modules/Test.CredentialProvider.psm1)
+[`automation/Yuruna.CredentialProvider.psm1`](../automation/Yuruna.CredentialProvider.psm1)
 "what is the login command for `<host>`?" and pipes the answer
 through the same `Invoke-ComponentCommand` wrapper that handles
 build / tag / push — so the `registryLogin` phase shares
@@ -21,23 +21,29 @@ kind (ECR, GAR, Docker Hub, Harbor, Nexus, …) is one
 `Register-CredentialProvider` call; nothing in `Yuruna.Component`
 changes.
 
-## Cross-tree boundary
+## Layering
 
-Yuruna.Component lives in `automation/`; the credential-provider
-registry lives in `test/modules/`. This is the only `automation/ ->
-test/` import edge in the codebase, and it is justified because the
-providers are deployment-time knowledge, not test-time knowledge —
-the module naming is what places the registry under
-`test/modules/`. The bridge file
+Both `Yuruna.Component` and the credential-provider registry now live in
+`automation/`: the registry (the `$global:YurunaCredentialProviders`
+anchor, `Register-CredentialProvider`, `Get-CredentialProvider`, and the
+five built-in provider registrations) is in
+[`automation/Yuruna.CredentialProvider.psm1`](../automation/Yuruna.CredentialProvider.psm1),
+so the runtime component-push pipeline no longer imports from `test/` —
+there is no `automation/ -> test/` import edge. The test-only helpers
+(`Get-CredentialProviderMatrix`, `Repair-Credential`,
+`Clear-CredentialProvider`) stay in
+[`test/modules/Test.CredentialProvider.psm1`](../test/modules/Test.CredentialProvider.psm1),
+which imports the automation module `-Global` and re-exposes
+`Register`/`Get` to test callers. The bridge file
 [`automation/Yuruna.Component.Registry.psm1`](../automation/Yuruna.Component.Registry.psm1)
-concentrates the boundary so future readers see it in one place.
+concentrates the dispatch so future readers see it in one place.
 
 ## Public surface
 
 | Function | Module | Used by |
 |---|---|---|
-| `Register-CredentialProvider -Type -Pattern -Authenticator [-LoginCommand]` | `Test.CredentialProvider` | Built-in registrations at module load; external modules can add more |
-| `Get-CredentialProvider -Target` | `Test.CredentialProvider` | Dispatcher; introspection |
+| `Register-CredentialProvider -Type -Pattern -Authenticator [-LoginCommand]` | `Yuruna.CredentialProvider` | Built-in registrations at module load; external modules can add more |
+| `Get-CredentialProvider -Target` | `Yuruna.CredentialProvider` | Dispatcher; introspection |
 | `Get-CredentialProviderMatrix` | `Test.CredentialProvider` | Startup capability matrix |
 | `Repair-Credential -Target` | `Test.CredentialProvider` | Self-heal path: re-auth after a 401 mid-push |
 | `Clear-CredentialProvider` | `Test.CredentialProvider` | Tests only |
@@ -68,7 +74,7 @@ Each provider exposes two scriptblocks with disjoint use cases:
 
 Order matters and is preserved: more specific patterns precede the
 catch-all `docker-generic`. The path-suffix tolerance
-(`(/$|$)`) lets `foo.azurecr.io/myimage` match the same provider as
+(`(/|$)`) lets `foo.azurecr.io/myimage` match the same provider as
 the bare host.
 
 ## Credential env vars
@@ -95,7 +101,7 @@ any registry without provider-supplied credentials.
 2. Implement both scriptblocks (self-heal `Authenticator` and batch
    `LoginCommand`); return `[bool]` and `[string]` respectively.
 3. Call `Register-CredentialProvider` at the bottom of
-   [`Test.CredentialProvider`](../test/modules/Test.CredentialProvider.psm1)
+   [`Yuruna.CredentialProvider`](../automation/Yuruna.CredentialProvider.psm1)
    in registration order — more specific patterns first.
 4. The push pipeline picks up the new provider on the next outer
    restart; nothing in `Yuruna.Component` changes.
@@ -112,6 +118,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.14
+Last review: 2026.07.17
 
 Back to [Yuruna](../README.md)

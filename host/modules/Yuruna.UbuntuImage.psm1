@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.14
+.VERSION 2026.07.17
 .GUID 42b1e7d3-c9a4-4f82-a571-6c8d3e5f9a01
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -236,12 +236,16 @@ function Test-UbuntuServerImageChecksum {
 
     .DESCRIPTION
         Returns $true when the SHA256SUMS line for $IsoFileName matches
-        $DownloadFile. Returns $true with a warning when no checksum
-        file or matching line is available -- missing publisher
-        checksum information is treated as a soft pass so a transient
-        mirror outage doesn't block image refresh. Returns $false on
-        an actual hash mismatch (the LOUD case: tampering, bit rot,
-        partial download); the caller chooses whether to keep the file.
+        $DownloadFile. Returns $true with a warning only when the
+        publisher genuinely provides no checksum (HTTP 403/404/410 on
+        the checksum file, or no line for this ISO) -- that soft pass
+        keeps mirrors without checksums usable. A transient checksum
+        fetch failure is retried on a bounded backoff budget and, if it
+        never clears, returns $false: unverifiable is not the same as
+        unpublished, and the caller must not promote bytes it cannot
+        check. Also returns $false on an actual hash mismatch (the LOUD
+        case: tampering, bit rot, partial download); the caller chooses
+        whether to keep the file.
     #>
     param(
         [Parameter(Mandatory)][string]$ChecksumUrl,
@@ -277,11 +281,55 @@ function Test-UbuntuServerImageChecksum {
             }
         }
     }
-    try {
-        $checksumContent = (Invoke-WebRequest -Uri $ChecksumUrl -ErrorAction Stop).Content
-    } catch {
-        Write-Warning "Could not download checksum file: $($_.Exception.Message)"
-        return $true
+    # SHA256SUMS fetch: bounded retries absorb transient mirror failures so
+    # they are not conflated with "mirror publishes no checksums". A
+    # definitive HTTP 403/404/410 means the checksum file genuinely is not
+    # published -> soft pass, same class as the missing-line case below.
+    # Any other failure that survives the retry budget leaves the
+    # just-downloaded bytes unverifiable -> $false so the caller aborts
+    # instead of promoting an unverified image.
+    if (-not (Get-Command Invoke-WithYurunaRetry -ErrorAction SilentlyContinue)) {
+        $retryModule = [System.IO.Path]::GetFullPath((Join-Path -Path $PSScriptRoot -ChildPath '../../automation/Yuruna.Retry.psm1'))
+        if (Test-Path -LiteralPath $retryModule) { Import-Module $retryModule -ErrorAction SilentlyContinue }
+    }
+    $checksumContent = $null
+    $fetchError = $null
+    if (Get-Command Invoke-WithYurunaRetry -ErrorAction SilentlyContinue) {
+        $fetch = Invoke-WithYurunaRetry -Label 'SHA256SUMS fetch' `
+            -ScriptBlock { (Invoke-WebRequest -Uri $ChecksumUrl -TimeoutSec 60 -ErrorAction Stop).Content }.GetNewClosure() `
+            -MaxAttempts 4 -InitialDelaySeconds 5 -MaxDelaySeconds 20 `
+            -ShouldRetry {
+                param($info)
+                $code = $null
+                try { $code = [int]$info.Error.Exception.Response.StatusCode } catch { $code = $null }
+                return -not ($code -in 403, 404, 410)
+            }
+        if ($fetch.Success) { $checksumContent = [string]($fetch.LastOutput -join "`n") }
+        else { $fetchError = $fetch.LastError }
+    }
+    else {
+        # Retry helper unavailable (module tree incomplete): single attempt,
+        # same missing-vs-transient classification below.
+        try { $checksumContent = (Invoke-WebRequest -Uri $ChecksumUrl -TimeoutSec 60 -ErrorAction Stop).Content }
+        catch { $fetchError = $_ }
+    }
+    if ($null -eq $checksumContent) {
+        $status = $null
+        if ($fetchError) {
+            try { $status = [int]$fetchError.Exception.Response.StatusCode } catch { $status = $null }
+        }
+        if ($status -in 403, 404, 410) {
+            Write-Warning "Checksum file not published at $ChecksumUrl (HTTP $status); skipping verification."
+            return $true
+        }
+        Write-Warning ('=' * 72)
+        Write-Warning "  CHECKSUM FILE FETCH FAILED"
+        Write-Warning "  Source   : $ChecksumUrl"
+        Write-Warning "  Error    : $(if ($fetchError) { $fetchError.Exception.Message } else { 'no content returned' })"
+        Write-Warning "  Transient fetch failure persisted through retries; the download"
+        Write-Warning "  cannot be verified and is NOT treated as checksum-less."
+        Write-Warning ('=' * 72)
+        return $false
     }
     $checksumLine = ($checksumContent -split "`n") | Where-Object { $_ -match [regex]::Escape($IsoFileName) } | Select-Object -First 1
     if (-not $checksumLine) {
@@ -436,16 +484,15 @@ function Save-UbuntuServerImage {
     $downloadedSize = (Get-Item -LiteralPath $downloadFile).Length
 
     if (-not (Test-UbuntuServerImageChecksum -ChecksumUrl $checksumUrl -IsoFileName $isoFileName -DownloadFile $downloadFile)) {
-        # Hard-fail on a genuine checksum MISMATCH: a present-and-wrong
-        # publisher hash is corruption or tamper, never benign, so the
-        # downloaded ISO is deleted and the refresh aborts rather than
-        # promoting unverified bytes to the base image. A MISSING upstream
-        # checksum or a transient SHA256SUMS fetch failure stays a soft pass
-        # (publisher mirrors occasionally lag by minutes) -- that path
-        # returns $true from Test-UbuntuServerImageChecksum and never reaches
-        # here. The mismatch banner is printed above.
+        # Hard-fail on a genuine checksum MISMATCH (corruption or tamper,
+        # never benign) and on a SHA256SUMS fetch that stays failing through
+        # the bounded retry budget (unverifiable bytes must not be promoted).
+        # Only a definitively MISSING upstream checksum (HTTP 403/404/410 or
+        # no line for this ISO) stays a soft pass -- that path returns $true
+        # from Test-UbuntuServerImageChecksum and never reaches here. The
+        # failure banner is printed above.
         Remove-Item -LiteralPath $downloadFile -Force -ErrorAction SilentlyContinue
-        throw "Image checksum mismatch for $isoFileName (see banner above): the downloaded ISO did not match the publisher SHA256SUMS. Deleted the bad download and aborted; re-run once the publisher checksum catches up."
+        throw "Image checksum verification failed for $isoFileName (see banner above): mismatch or unverifiable download. Deleted the download and aborted; re-run once the publisher checksum is reachable."
     }
 
     $previousFile = Join-Path $DownloadDir "$BaseImageName.previous.iso"

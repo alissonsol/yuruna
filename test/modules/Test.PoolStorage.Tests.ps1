@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.14
+.VERSION 2026.07.17
 .GUID 42d6f9b2-0c4e-4a38-9b7d-2e3f4a5b6c7d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -282,6 +282,45 @@ Describe 'Get-PoolStorageLinuxSudoHint (Linux sudo precondition hint)' {
     }
     It 'returns an empty array for a blank user (nothing actionable)' {
         Assert-Equal -Expected 0 -Actual (@(Get-PoolStorageLinuxSudoHint -User '').Count) -Because 'blank user -> empty'
+    }
+}
+
+Describe 'Get-PoolStorageSudoSpec (shared rule/file spec)' {
+    It 'builds the file, rule, and command list the installer and hint both use' {
+        $spec = Get-PoolStorageSudoSpec -User 'ytest' -MkdirPath '/usr/bin/mkdir' -MountPath '/usr/bin/mount' -UmountPath '/usr/bin/umount'
+        Assert-Equal -Expected '/etc/sudoers.d/yuruna-poolstorage' -Actual $spec.File
+        Assert-Equal -Expected 'ytest ALL=(root) NOPASSWD: /usr/bin/mkdir, /usr/bin/mount, /usr/bin/umount' -Actual $spec.Rule
+        Assert-Equal -Expected 3 -Actual (@($spec.Commands).Count) -Because 'mkdir + mount + umount'
+    }
+    It 'is the single source of truth behind the operator hint (rule text matches)' {
+        # The hint must not drift from the spec -- the hint should quote the exact rule.
+        $spec = Get-PoolStorageSudoSpec -User 'ytest'
+        $hint = (Get-PoolStorageLinuxSudoHint -User 'ytest') -join "`n"
+        Assert-True ($hint -match [regex]::Escape($spec.Rule)) 'the hint quotes the spec rule verbatim'
+        Assert-True ($hint -match [regex]::Escape($spec.File)) 'the hint quotes the spec drop-in path'
+    }
+    It 'yields an empty rule for a blank user' {
+        $spec = Get-PoolStorageSudoSpec -User ''
+        Assert-Equal -Expected '' -Actual $spec.Rule
+        Assert-Equal -Expected 0 -Actual (@($spec.Commands).Count)
+    }
+}
+
+Describe 'Set-PoolStorageSudoers (interactive drop-in installer)' {
+    It 'is a no-op on non-Linux platforms (macOS/Windows mounts need no sudo)' {
+        # This guard is specifically about the non-Linux path; on Linux the
+        # behavior is environment-dependent (probe + ShouldProcess) and is
+        # covered by the -WhatIf test below.
+        if ($IsLinux) { return }
+        $r = Set-PoolStorageSudoers
+        Assert-Equal -Expected 'unsupported' -Actual $r.Action -Because 'only Linux needs the sudo mount drop-in'
+    }
+    It 'never prompts and never writes under -WhatIf' {
+        # -WhatIf must not reach the sudo tee write. On Linux ShouldProcess returns
+        # the whatif verdict; on other platforms it short-circuits as unsupported.
+        # Either way the Action is never "installed" and nothing is written.
+        $r = Set-PoolStorageSudoers -WhatIf
+        Assert-True ($r.Action -in @('whatif', 'unsupported', 'present')) "WhatIf must not install (got '$($r.Action)')"
     }
 }
 

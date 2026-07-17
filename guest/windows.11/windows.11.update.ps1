@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.14
+.VERSION 2026.07.17
 .GUID 42f0a1b2-c3d4-4e56-f789-0a1b2c3d4e10
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -91,13 +91,7 @@ Write-Output "<<< PowerShell module: powershell-yaml installation complete."
 
 # --- REGION: Early yuruna framework extraction (host-side diagnostic prereq)
 # --- REGION: https://yuruna.link/memory#why-ubuntu-guest-update-scripts-pre-extract-the-yuruna-tarball
-# Tarball-only here; the git-clone fallback lives in the late Materialize
-# section below (which needs `git`, which winget may install in the Update
-# system packages stage that follows).
-# YURUNA_HOST_IP / YURUNA_HOST_PORT come from the host.env injection
-# mechanism the Linux guests use, mapped to a Windows-side equivalent
-# (C:\ProgramData\yuruna\host.env) when the host driver supports it;
-# until then this block soft-fails (no env vars => no-op).
+# Tarball-only here; the git-clone fallback lives in the Materialize section below.
 Write-Output ""
 Write-Output ">>> Pre-fetching yuruna framework tarball (for diagnostic availability)..."
 $yurunaRoot = Join-Path $env:USERPROFILE 'yuruna'

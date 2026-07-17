@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.14
+.VERSION 2026.07.17
 .GUID 42e1a9c4-2d63-4f58-9a17-3c8e0b6d5f24
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -58,10 +58,20 @@ param(
 $ErrorActionPreference = 'Stop'
 $InformationPreference = 'Continue'
 
+$elapsed = [System.Diagnostics.Stopwatch]::StartNew()
+$plan = if ($BounceStatusServer) {
+    'users.yml vaultKey -> store token -> verify round-trip -> restart status server'
+} else {
+    'users.yml vaultKey -> store token -> verify round-trip (status server NOT bounced)'
+}
+Write-Information "pool-auth-token: provisioning the vault on '$([System.Net.Dns]::GetHostName())'." -InformationAction Continue
+Write-Information "Steps: $plan" -InformationAction Continue
+
 # The authentication extension supplies Set-Password / Set-UserVaultKey /
 # Test-VaultEntry; Test.HostConfigSync supplies the Set-PoolAuthToken
 # orchestrator. -Global -Force mirrors Import-Extension so a nested import
 # does not evict the module from the global scope.
+Write-Information 'Importing the authentication extension and the config-sync module ...' -InformationAction Continue
 Import-Module (Join-Path $PSScriptRoot 'extension/authentication/default.psm1') -Global -Force -DisableNameChecking
 Import-Module (Join-Path $PSScriptRoot 'modules/Test.HostConfigSync.psm1') -Global -Force -DisableNameChecking
 
@@ -76,16 +86,19 @@ if ($WhatIfPreference) {
     exit 0
 }
 
+$took = "{0:N1}s" -f $elapsed.Elapsed.TotalSeconds
 if ($provision.ok) {
-    $msg = "pool-auth-token stored and verified (vaultKey '$($provision.vaultKey)')."
+    $msg = "Done in ${took}: pool-auth-token stored and verified (vaultKey '$($provision.vaultKey)')."
     if ($provision.bounced) {
-        $msg += ' Status server restarted.'
+        $msg += ' Status server restarted, so the token is live now.'
     } elseif ($BounceStatusServer) {
         $msg += ' Status-server bounce did not complete; the token takes effect at the next cycle.'
+    } else {
+        $msg += ' Re-run with -BounceStatusServer (or wait for the next cycle) to make the running status server pick it up.'
     }
     Write-Information $msg -InformationAction Continue
     exit 0
 }
 
-Write-Error "pool-auth-token provisioning did not verify (keyChanged=$($provision.keyChanged), verified=$($provision.verified))."
+Write-Error "pool-auth-token provisioning did not verify after ${took} (keyChanged=$($provision.keyChanged), verified=$($provision.verified)). The token is not usable for control proofs on this host."
 exit 1

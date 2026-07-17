@@ -1,19 +1,10 @@
 #!/usr/bin/env bash
-# Version: 2026.07.14
+# Version: 2026.07.17
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 #
-# tofu data "external" hook -- copy a kube context bundle (cluster + user +
-# context) from $sourceContext under $destinationContext inside
-# ~/.kube/config. POSIX bash + kubectl + python3+PyYAML, no pwsh: a
-# null_resource provisioner spawning pwsh here hits the FileLoadException
-# trap class documented in feedback_pwsh_provisioner_assemblyname_flake.md
-# (pwsh 7.6.x / .NET 10 crashes at startup on System.Collections.Specialized
-# with a truncated PublicKeyToken). Same rationale as localhost-registry.tf.
-# Set-Resource's planfile-pinned apply means this runs at plan time only.
-#
-# Reads tofu's data "external" query JSON from stdin:
-#   { "sourceContext": "...", "destinationContext": "..." }
+# --- REGION: https://yuruna.link/definition#defining-the-tofu-external-hook-shell-choice
+# tofu data "external" hook: copy the kube context bundle at the stdin query's sourceContext under destinationContext inside ~/.kube/config.
 set -euo pipefail
 
 err() { printf 'context-copy: %s\n' "$*" >&2; exit 1; }

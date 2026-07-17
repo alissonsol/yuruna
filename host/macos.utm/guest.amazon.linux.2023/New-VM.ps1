@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.14
+.VERSION 2026.07.17
 .GUID 42e0f1a2-b3c4-4d56-e789-0f1a2b3c4d56
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -213,7 +213,7 @@ $PlistContent = (Get-Content -Raw $TemplatePath) `
     -replace '__SEED_IMAGE_NAME__',     'seed.iso' `
     -replace '__VNC_DISPLAY__',         "$VncDisplay" `
     -replace '__CPU_COUNT__',           "$vmCores" `
-    -replace '__MEMORY_SIZE__',         '16384'
+    -replace '__MEMORY_SIZE__',         '12288'
 
 Set-Content -Path "$UtmDir/config.plist" -Value $PlistContent
 

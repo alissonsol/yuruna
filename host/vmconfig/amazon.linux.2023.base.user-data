@@ -45,7 +45,7 @@ write_files:
     encoding: base64
     content: YURUNA_NETWORK_BASE64_PLACEHOLDER
     permissions: '0755'
-  # --- REGION: https://yuruna.link/vmconfig#git-credentials-from-gh-token
+  # --- REGION: https://yuruna.link/definition#defining-the-two-source-scheme-for-framework-and-project-urls
   # git does NOT read GH_TOKEN. That name is a gh(1) convention, so a bare
   # `git clone https://github.com/owner/private-repo` still prompts for a
   # username -- which hangs an unattended guest, or fails outright under
@@ -103,7 +103,7 @@ runcmd:
     YURUNA_PROJECT_URL=YURUNA_PROJECT_URL_PLACEHOLDER
     EOF
   - bash -c 'grep -q yuruna-host /etc/hosts || echo "YURUNA_HOST_IP_PLACEHOLDER yuruna-host" >> /etc/hosts'
-  # --- REGION: https://yuruna.link/vmconfig#git-credentials-from-gh-token
+  # --- REGION: https://yuruna.link/definition#defining-the-two-source-scheme-for-framework-and-project-urls
   # The token opens a private frameworkUrl/projectUrl for both the GitHub
   # fallback in fetch-and-execute.sh and the git clone in the guest update
   # script. It arrives on the seed ISO -- never over the console the host

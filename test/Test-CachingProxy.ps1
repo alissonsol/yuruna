@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.14
+.VERSION 2026.07.17
 .GUID 42a1b2c3-d4e5-4f67-8901-bc012345674a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -21,10 +21,13 @@
     Smoke-tests a caching-proxy (local or remote) before Invoke-TestRunner.
     Probes :3128, :3129, :80, :3000 and GETs /yuruna-squid-ca.crt, PASS/
     FAIL/WARN per check. See docs/caching-proxy.md for the full story.
-    Falls back to local discovery when $Env:YURUNA_CACHING_PROXY_IP and
-    -CacheIp are unset.
+    Resolves the cache in the SAME order Invoke-TestRunner does at cycle
+    start: vmStart.cachingProxyIP (test.config.yml) first, then
+    $Env:YURUNA_CACHING_PROXY_IP, then local discovery -- so the IP this
+    script probes is the IP the runner will actually pick.
 
-.PARAMETER CacheIp         Override the env var and local discovery.
+.PARAMETER CacheIp         Probe this IP instead, bypassing the runner's
+                           config/env/local resolution order.
 .PARAMETER SetHostProxy    On success, promote to host proxy (Windows:
                            user WinINet; macOS: networksetup, needs sudo).
                            Wipes any stale WinINet ProxyServer + proxy
@@ -73,10 +76,19 @@ function Write-Fail { param([string]$msg) Write-Output "  [FAIL] $msg"; $script:
 function Write-Warn { param([string]$msg) Write-Output "  [WARN] $msg"; $script:WarnCount++ }
 
 # === Resolve the cache IP ===============================================
-# Priority: -CacheIp parameter > $Env:YURUNA_CACHING_PROXY_IP > local
-# discovery via Test-CachingProxyAvailable. Each source settles $resolvedIp
-# before the port probes run; failure at this stage is a hard FAIL because
-# nothing else the script does is meaningful without an IP to target.
+# Priority mirrors Invoke-TestRunner's cycle-start resolution:
+#   -CacheIp parameter            (explicit override, this script only)
+#   vmStart.cachingProxyIP        (test/test.config.yml, probed first)
+#   $Env:YURUNA_CACHING_PROXY_IP  (probed when config absent/unreachable)
+#   local discovery via Test-CachingProxyAvailable
+# The config/env legs run through Resolve-CachingProxyEndpoint -- the SAME
+# resolver Invoke-TestInnerRunner.ps1 and Test-Sequence.ps1 use -- so the
+# acceptance policy (first source whose HTTP proxy port answers) cannot
+# drift from the runner's. Two differences, both deliberate: this
+# diagnostic never publishes the winner into $env:YURUNA_CACHING_PROXY_IP
+# (read-only probe, no session mutation), and a rejected source is
+# surfaced as a WARN before falling back to local discovery exactly as
+# the runner would.
 
 Write-Output ""
 Write-Output "== Yuruna caching proxy probe =="
@@ -91,37 +103,58 @@ if ($CacheIp) {
     }
     $resolvedIp   = $CacheIp
     $resolvedFrom = "-CacheIp parameter"
-} elseif ($Env:YURUNA_CACHING_PROXY_IP) {
-    $externIp = $Env:YURUNA_CACHING_PROXY_IP.Trim()
-    if (-not (Test-IpAddress $externIp)) {
-        Write-Fail "Env:YURUNA_CACHING_PROXY_IP='$externIp' is not a valid IPv4 or IPv6 address."
-        exit 1
-    }
-    $resolvedIp   = $externIp
-    $resolvedFrom = "`$Env:YURUNA_CACHING_PROXY_IP"
 } else {
-    # Local discovery via the Yuruna.Host contract. The host driver knows
-    # the per-platform quirks (Hyper-V ARP+KVP, UTM 192.168.64.1 gateway
-    # rewrite) -- no point duplicating them here.
-    Import-Module (Join-Path $PSScriptRoot 'modules/Test.HostContract.psm1') -Force
-    $RepoRoot = Split-Path -Parent $PSScriptRoot
-    try {
-        [void](Initialize-YurunaHost -RepoRoot $RepoRoot)
-    } catch {
-        Write-Fail "Initialize-YurunaHost failed: $_. Set `$Env:YURUNA_CACHING_PROXY_IP or pass -CacheIp to probe remotely."
-        exit 1
+    # Same source extraction as Invoke-TestInnerRunner.ps1: env var
+    # trimmed, config key read defensively (file or key may be absent --
+    # Read-TestConfig returns $null on a missing/broken file).
+    $envCacheIp    = if ($Env:YURUNA_CACHING_PROXY_IP) { $Env:YURUNA_CACHING_PROXY_IP.Trim() } else { '' }
+    $configCacheIp = ''
+    Import-Module (Join-Path $ModulesDir 'Test.Config.psm1') -Global -Force
+    $cpConfig = Read-TestConfig -Path (Join-Path $PSScriptRoot 'test.config.yml')
+    if ($cpConfig -and $cpConfig.vmStart -is [System.Collections.IDictionary] -and $cpConfig.vmStart.Contains('cachingProxyIP')) {
+        $configCacheIp = "$($cpConfig.vmStart.cachingProxyIP)".Trim()
     }
-    $proxyUrl = Test-CachingProxyAvailable
-    if (-not $proxyUrl) {
-        Write-Fail "Test-CachingProxyAvailable returned no cache. Either Start-CachingProxy.ps1 hasn't been run, or the cache VM is not listening on :3128."
-        exit 1
+    if ($envCacheIp -or $configCacheIp) {
+        $endpoint = Resolve-CachingProxyEndpoint -EnvIp $envCacheIp -ConfigIp $configCacheIp
+        foreach ($line in $endpoint.Lines) { Write-Output $line }
+        Write-Output ""
+        if ($endpoint.EffectiveIp) {
+            $resolvedIp   = $endpoint.EffectiveIp
+            # Config credit when both sources name the winning IP -- same
+            # precedence the resolver applied.
+            $resolvedFrom = if ($resolvedIp -eq $configCacheIp) {
+                "vmStart.cachingProxyIP (test.config.yml)"
+            } else {
+                "`$Env:YURUNA_CACHING_PROXY_IP"
+            }
+        } else {
+            Write-Warn "Configured cache source(s) rejected (no reachable HTTP proxy port; see probe above) -- falling back to local discovery, as Invoke-TestRunner would."
+        }
     }
-    if ($proxyUrl -match '^http://([0-9.]+):') {
-        $resolvedIp   = $matches[1]
-        $resolvedFrom = "Test-CachingProxyAvailable ($proxyUrl)"
-    } else {
-        Write-Fail "Test-CachingProxyAvailable returned '$proxyUrl' (could not parse IP)."
-        exit 1
+    if (-not $resolvedIp) {
+        # Local discovery via the Yuruna.Host contract. The host driver knows
+        # the per-platform quirks (Hyper-V ARP+KVP, UTM 192.168.64.1 gateway
+        # rewrite) -- no point duplicating them here.
+        Import-Module (Join-Path $PSScriptRoot 'modules/Test.HostContract.psm1') -Force
+        $RepoRoot = Split-Path -Parent $PSScriptRoot
+        try {
+            [void](Initialize-YurunaHost -RepoRoot $RepoRoot)
+        } catch {
+            Write-Fail "Initialize-YurunaHost failed: $_. Set vmStart.cachingProxyIP / `$Env:YURUNA_CACHING_PROXY_IP or pass -CacheIp to probe remotely."
+            exit 1
+        }
+        $proxyUrl = Test-CachingProxyAvailable
+        if (-not $proxyUrl) {
+            Write-Fail "Test-CachingProxyAvailable returned no cache. Either Start-CachingProxy.ps1 hasn't been run, or the cache VM is not listening on :3128."
+            exit 1
+        }
+        if ($proxyUrl -match '^http://([0-9.]+):') {
+            $resolvedIp   = $matches[1]
+            $resolvedFrom = "Test-CachingProxyAvailable ($proxyUrl)"
+        } else {
+            Write-Fail "Test-CachingProxyAvailable returned '$proxyUrl' (could not parse IP)."
+            exit 1
+        }
     }
 }
 

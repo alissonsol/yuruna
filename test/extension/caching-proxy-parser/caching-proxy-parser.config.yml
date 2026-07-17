@@ -3,7 +3,7 @@
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 # Active provider for the caching-proxy-parser extension. Single-provider
-# area; the Go source under default.go gets fetched + built into the
+# area; the Go source under main.go gets fetched + built into the
 # caching-proxy VM via that VM's cloud-init user-data.
 active:
   - default

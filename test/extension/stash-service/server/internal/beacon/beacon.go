@@ -2,22 +2,13 @@
 // Copyright (c) 2019-2026 by Alisson Sol et al.
 
 // Package beacon self-announces this stash server's presence to the
-// pool-aggregator (POST /announce) so the dashboard's Extension hosts row
-// exists independently of the owning HOST's status server. The registration
-// path (host.registration.json -> aggregator poll) requires a live status
-// server on the host; after a host reboot that process is often not running,
-// and the row would silently vanish even though the stash VM auto-started and
-// serves fine. The beacon closes that gap from the service's own side: hello
-// at startup, a re-announce every Interval (so the aggregator's announce TTL
-// never expires while the service lives, and an aggregator restart re-learns
-// the row within one period), and a best-effort goodbye at shutdown so a
-// deliberately stopped service drops off the panel immediately instead of
-// aging out.
+// pool-aggregator (POST /announce), keeping the dashboard's Extension hosts
+// row alive independently of the owning HOST's status server: hello at
+// startup, a re-announce every Interval (which also means an aggregator
+// restart re-learns the row within one period), and a best-effort goodbye
+// at shutdown.
 //
-// Identity: the announce carries the OWNING HOST's hostId (the same namespace
-// as the pool table) plus this daemon's UI port; the aggregator derives the
-// service URL from the connection's source address, so the beacon never has
-// to discover its own IP and an announcer can only ever advertise itself.
+// Design: https://yuruna.link/stash-service (section 4.7).
 package beacon
 
 import (

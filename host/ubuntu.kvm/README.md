@@ -18,7 +18,8 @@ same script, but `bash <(curl ...)` keeps the script as a real file
 argument for bash, which sidesteps a stdin/sudo-prompt edge case some
 Ubuntu terminals trip on.)
 
-Installs `qemu-kvm`, `libvirt-daemon-system`, `virtinst`, `swtpm`,
+Installs `qemu-system-x86` / `qemu-system-arm` (per arch) + `qemu-utils`,
+`libvirt-daemon-system`, `virtinst`, `swtpm`,
 `ovmf` (or `qemu-efi-aarch64`), `genisoimage`, `whois`, `git`, `pwsh`,
 and `tesseract-ocr`; clones the repo to `~/git/yuruna`; enables
 `libvirtd` + `virtlogd`; sets the libvirt `default` network to
@@ -51,12 +52,29 @@ install.
 - [Ubuntu Server 26.04](guest.ubuntu.server.26/README.md)
 - [Windows 11](guest.windows.11/README.md)
 
+
+## Installing the Ubuntu Host
+
+The really short guide. A self-serving memory!
+
+- Download the latest [Ubuntu Server](https://ubuntu.com/download/server).
+- Create a bootable USB, with tools like [Rufus](https://rufus.ie).
+- Install the Ubuntu Server. Create some "test account" that is not a real person account as the local admin.
+- Login and update.
+  - `sudo apt update`
+  - `sudo apt upgrade -y`
+- Install the desktop.
+  - `sudo apt install -y ubuntu-desktop`
+  - `sudo reboot now`
+
+It may be wise to run the commands to update again (now that several packages have been added to the environment).
+
 ---
 
 LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.14
+Last review: 2026.07.17
 
 Back to [Yuruna](../../README.md)

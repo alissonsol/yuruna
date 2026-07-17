@@ -190,9 +190,13 @@ prefixes.
 The harness exposes five registries that the operator, a project,
 or a future recovery loop can extend without forking the framework.
 Each is enumerated at startup by the [capability matrix](capability-matrix.md);
-all five share the
+four of the five share the
 [`New-YurunaRegistry`](../test/modules/Test.Registry.psm1) primitive
-and surface through `Get-YurunaRegistryDirectory`:
+and surface through `Get-YurunaRegistryDirectory`. The exception is the
+component-login credential-provider registry, which uses the same
+eviction-safe global-anchor pattern but is hand-rolled in
+[`automation/Yuruna.CredentialProvider.psm1`](../automation/Yuruna.CredentialProvider.psm1)
+(so it stays out of `test/` and is not in `Get-YurunaRegistryDirectory`):
 
 - [OCR providers](ocr.md) — `Register-OcrProvider`
 - [Host I/O registry](host-io.md) — `Register-HostIOProvider`
@@ -212,7 +216,7 @@ The runner lifecycle itself is observable through the explicit
 cycle boundary; NDJSON `runner_state_transition` events). The
 operational outer-runner loop and its heartbeat-watchdog are split
 into [Test.RunnerOuterLoop](runner-outer-loop.md) and
-[Test.RunnerWatchdog](runner-watchdog.md) so both can be unit-tested
+[Test.RunnerWatchdog](watchdog.md#module-testrunnerwatchdog) so both can be unit-tested
 independently of the entry-point script.
 
 Cloud-init seed rendering goes through the
@@ -424,6 +428,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.14
+Last review: 2026.07.17
 
 Back to [Yuruna](../README.md)

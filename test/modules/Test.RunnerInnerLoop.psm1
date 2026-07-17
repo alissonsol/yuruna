@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.14
+.VERSION 2026.07.17
 .GUID 42d15e27-b2c3-4d4e-9f50-6b7c8d9e0f1a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -946,7 +946,7 @@ function Remove-CycleStartOrphanVM {
         the cycle.
     .DESCRIPTION
         The per-guest "Cleanup previous VM" inside the loop only clears the SAME-
-        named VM, so a leftover guest from cycle N-1 (16 GB Startup, dynamic memory
+        named VM, so a leftover guest from cycle N-1 (12 GB Startup, dynamic memory
         disabled) could starve cycle N's first guests with 0x800705AA before its own
         iteration evicted it. Running Remove-TestVMFiles.ps1 here makes the cycle
         start from a clean slate without relying on the previous cycle's teardown.
@@ -2632,7 +2632,7 @@ function Invoke-GuestProvisionIteration {
         if ($StopOnFailure) { $IterState.Control = 'break'; return }
         # Clean up so a partial Hyper-V definition (Hyper-V\New-VM
         # succeeded but a later Set-VM*/Add-VMDvdDrive threw) doesn't
-        # hold its 16 GB Startup reservation against the next guest.
+        # hold its 12 GB Startup reservation against the next guest.
         # Mirrors the Start-GuestOS/Start-GuestWorkload failure branches;
         # Stop-VM and Remove-VM are both safe no-ops on an absent VM.
         Write-Output "  Cleaning up VM '$VMName' after failure..."
@@ -2680,7 +2680,7 @@ function Invoke-GuestProvisionIteration {
         Copy-FailureArtifactsToStatusLog -VMName $VMName -GuestKey $GuestKey -RepoRoot $RepoRoot -ModulesDir $ModulesDir -LogFile $LogFile
         if ($StopOnFailure) { $IterState.Control = 'break'; return }
         # Start-VM failed but New-VM passed, so the VM is defined (Off
-        # state) and still holds its 16 GB Startup reservation. Tear it
+        # state) and still holds its 12 GB Startup reservation. Tear it
         # down so the next guest in this cycle doesn't hit
         # 0x800705AA (insufficient system resources). Mirrors the
         # Start-GuestOS/Start-GuestWorkload failure branches.
@@ -2853,7 +2853,10 @@ function Invoke-GuestProvisionIteration {
     Write-Verbose "  Stopping VM '$VMName'..."
     $savedProgress = $global:ProgressPreference
     $global:ProgressPreference = 'SilentlyContinue'
-    Stop-VM -VMName $VMName -Confirm:$false | Out-Null
+    # -Force: stop-then-DELETE. Remove-VM takes the disk on the next line, so a
+    # clean guest shutdown protects nothing here and would add its full duration
+    # (tens of seconds on a k8s guest) to every cycle's teardown.
+    Stop-VM -VMName $VMName -Force -Confirm:$false | Out-Null
     Write-Verbose "  Removing VM '$VMName'..."
     Remove-VM -VMName $VMName -Confirm:$false | Out-Null
     $global:ProgressPreference = $savedProgress

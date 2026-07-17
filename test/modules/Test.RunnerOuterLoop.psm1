@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.14
+.VERSION 2026.07.17
 .GUID 42e5f6a7-b8c9-4d12-9345-6e7f8a9b0c1d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -57,6 +57,57 @@ function Get-OuterCommitSha {
     return ([string]$sha).Trim()
 }
 
+function Invoke-OuterNetworkGit {
+    <#
+    .SYNOPSIS
+        One bounded, credential-prompt-proof network git run for the outer loop,
+        trying every GitHub credential source the host has: GH_TOKEN, then the
+        gh CLI's stored login, then plain git (machine credential helper / SSH
+        agent). Returns @{ ExitCode; StdOut; StdErr; Output }.
+    .DESCRIPTION
+        Execution stays on Invoke-PoolSyncGitCapture (wall-clock cap +
+        process-tree kill + neutralized credential prompts), so nothing here can
+        hang the (bare-pwsh-INTERACTIVE) outer loop. The credential sources
+        (Get-YurunaGitAuthAttemptList) and the auth classifier
+        (Test-GitRemoteAuthFailure) live in Test.HostGit; both are
+        Get-Command-guarded like the module's other cross-module calls, so a
+        session without Test.HostGit degrades to a single plain bounded run.
+        A failed credentialed attempt falls through to the next source only when
+        the failure is credential-shaped -- a network outage fails identically
+        for every source, so it is returned immediately instead of burning
+        another bounded timeout per source.
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param(
+        [Parameter(Mandatory)][string[]]$ArgumentList,
+        [Parameter()][int]$TimeoutSeconds = 30
+    )
+    # Classifier captured as CommandInfo once, so the foreign-module call works
+    # regardless of import scope (see feedback_closure_foreign_module_command_resolution).
+    $classifier = Get-Command Test-GitRemoteAuthFailure -ErrorAction SilentlyContinue
+    $attempts   = @()
+    if (Get-Command Get-YurunaGitAuthAttemptList -ErrorAction SilentlyContinue) {
+        $attempts = @(Get-YurunaGitAuthAttemptList)
+    }
+    foreach ($attempt in $attempts) {
+        # The -c credential args are git GLOBAL options -- they precede the caller's args.
+        $r   = Invoke-PoolSyncGitCapture -ArgumentList (@($attempt.Args) + @($ArgumentList)) -TimeoutSeconds $TimeoutSeconds
+        $out = ((@($r.StdOut, $r.StdErr) | Where-Object { $_ }) -join "`n").Trim()
+        $hit = @{ ExitCode = [int]$r.ExitCode; StdOut = [string]$r.StdOut; StdErr = [string]$r.StdErr; Output = $out }
+        if ($hit.ExitCode -eq 0) { return $hit }
+        if (-not ($classifier -and (& $classifier -Output $out))) { return $hit }
+        Write-Verbose "Invoke-OuterNetworkGit: the $($attempt.Source) attempt was rejected as unauthorized; trying the next credential source."
+    }
+    $r = Invoke-PoolSyncGitCapture -ArgumentList $ArgumentList -TimeoutSeconds $TimeoutSeconds
+    return @{
+        ExitCode = [int]$r.ExitCode
+        StdOut   = [string]$r.StdOut
+        StdErr   = [string]$r.StdErr
+        Output   = ((@($r.StdOut, $r.StdErr) | Where-Object { $_ }) -join "`n").Trim()
+    }
+}
+
 function Test-OuterNewCommitsAvailable {
     <#
     .SYNOPSIS
@@ -70,10 +121,11 @@ function Test-OuterNewCommitsAvailable {
         [Parameter(Mandatory)][string]$RepoRoot,
         [Parameter(Mandatory)][string]$BaselineSha
     )
-    # Bounded + credential-prompt-proof: a wedged / half-dead remote or a
-    # credential prompt must never hang the outer loop (the watchdog only guards
-    # the inner). rev-parse below is local -- no network -- so it stays raw.
-    if ((Invoke-PoolSyncGit -ArgumentList @('-C', $RepoRoot, 'fetch', '--quiet', 'origin') -TimeoutSeconds 45) -ne 0) { return $false }
+    # Bounded + credential-prompt-proof + credential-chained: a wedged /
+    # half-dead remote or a credential prompt must never hang the outer loop
+    # (the watchdog only guards the inner). rev-parse below is local -- no
+    # network -- so it stays raw.
+    if ((Invoke-OuterNetworkGit -ArgumentList @('-C', $RepoRoot, 'fetch', '--quiet', 'origin') -TimeoutSeconds 45).ExitCode -ne 0) { return $false }
     $upstream = & git -C $RepoRoot rev-parse '@{u}' 2>$null
     if ($LASTEXITCODE -ne 0 -or -not $upstream) { return $false }
     return (([string]$upstream).Trim() -ne $BaselineSha)
@@ -88,23 +140,23 @@ function Invoke-OuterGitPull {
     [CmdletBinding()]
     [OutputType([bool])]
     param([Parameter(Mandatory)][string]$RepoRoot)
-    # Bounded + credential-prompt-proof (see Test-OuterNewCommitsAvailable). The
-    # capture variant preserves git's (already --quiet) output for the console.
+    # Bounded + credential-prompt-proof + credential-chained (see
+    # Invoke-OuterNetworkGit). The capture shape preserves git's (already
+    # --quiet) output for the console.
     # Stream via Write-Information, NOT Write-Output: this function's contract is a
     # single [bool], and git's stderr on a failure would otherwise ride the pipeline
     # and turn the caller's `-not (Invoke-OuterGitPull ...)` into `-not <array>`
     # ($false), masking the failure. See feedback_powershell_writeoutput_pipeline_pollution.
-    $pull = Invoke-PoolSyncGitCapture -ArgumentList @('-C', $RepoRoot, 'pull', '--ff-only', '--quiet') -TimeoutSeconds 60
+    $pull = Invoke-OuterNetworkGit -ArgumentList @('-C', $RepoRoot, 'pull', '--ff-only', '--quiet') -TimeoutSeconds 60
     if ($pull.StdOut) { Write-Information ($pull.StdOut.TrimEnd()) -InformationAction Continue }
     if ($pull.StdErr) { Write-Information ($pull.StdErr.TrimEnd()) -InformationAction Continue }
     if ($pull.ExitCode -ne 0) {
         # A stale/expired GitHub credential is the one failure worth naming: surface
         # the same refresh-your-login guidance the inner pull uses so an operator
         # fixes it in one step instead of chasing a generic pull error or a hang.
-        $combined = ((@($pull.StdOut, $pull.StdErr) | Where-Object { $_ }) -join "`n")
-        if ((Get-Command Test-GitRemoteAuthFailure -ErrorAction SilentlyContinue) -and (Test-GitRemoteAuthFailure -Output $combined)) {
+        if ((Get-Command Test-GitRemoteAuthFailure -ErrorAction SilentlyContinue) -and (Test-GitRemoteAuthFailure -Output $pull.Output)) {
             $remoteUrl = & git -C $RepoRoot config --get remote.origin.url 2>$null
-            Write-GitAuthRefreshBanner -RemoteUrl ("$remoteUrl".Trim()) -GitOutput $combined
+            Write-GitAuthRefreshBanner -RemoteUrl ("$remoteUrl".Trim()) -GitOutput $pull.Output
         }
     }
     return ($pull.ExitCode -eq 0)
@@ -122,9 +174,9 @@ function Get-OuterRemoteSha {
     [OutputType([string])]
     param([Parameter(Mandatory)][AllowEmptyString()][string]$RemoteUrl)
     if ([string]::IsNullOrWhiteSpace($RemoteUrl)) { return $null }
-    # Bounded + credential-prompt-proof: ls-remote reaches an arbitrary remote
-    # that may hang or prompt; it must not block the pause loop.
-    $ls = Invoke-PoolSyncGitCapture -ArgumentList @('ls-remote', $RemoteUrl, 'HEAD') -TimeoutSeconds 30
+    # Bounded + credential-prompt-proof + credential-chained: ls-remote reaches
+    # an arbitrary remote that may hang or prompt; it must not block the pause loop.
+    $ls = Invoke-OuterNetworkGit -ArgumentList @('ls-remote', $RemoteUrl, 'HEAD') -TimeoutSeconds 30
     if ($ls.ExitCode -ne 0) { return $null }
     $line = ($ls.StdOut -split "`r?`n" | Where-Object { $_ }) | Select-Object -First 1
     if ([string]::IsNullOrWhiteSpace($line)) { return $null }
@@ -1113,7 +1165,7 @@ function Invoke-RunnerOuterLoop {
 }
 
 Export-ModuleMember -Function `
-    Get-OuterCommitSha, Test-OuterNewCommitsAvailable, Invoke-OuterGitPull, `
+    Get-OuterCommitSha, Test-OuterNewCommitsAvailable, Invoke-OuterGitPull, Invoke-OuterNetworkGit, `
     Get-OuterRemoteSha, Get-OuterConfigMtime, Get-OuterStepTimeoutMinute, Get-OuterProjectUrl, `
     Get-OuterPoolTestCycleOverride, Get-OuterAutoRemediation, Test-OuterNoServerForwarded, `
     Sync-ForwardEnv, Write-OuterLog, `

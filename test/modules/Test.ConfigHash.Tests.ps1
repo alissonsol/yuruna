@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.14
+.VERSION 2026.07.17
 .GUID 42e4a5b6-7c81-4d92-a3b4-5c6d7e8f9a0b
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -120,7 +120,7 @@ Describe 'config-hash -- the SHA-256->hex converter lives once in the Test.Hash 
 }
 
 Describe 'config-hash -- Test.Config delegates to the shared converter' {
-    It 'Test.Config no longer defines ConvertTo-LowerHex (it moved to Test.Hash)' {
+    It 'Test.Config delegates ConvertTo-LowerHex to Test.Hash' {
         Assert-True ($null -eq (Get-FunctionAst -RootAst $rootAst -FunctionName 'ConvertTo-LowerHex')) `
             'the converter must not be re-defined in Test.Config'
         Assert-True ((Get-BitConverterToStringCount -Ast $rootAst) -eq 0) `

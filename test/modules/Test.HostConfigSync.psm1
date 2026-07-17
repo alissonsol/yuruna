@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.14
+.VERSION 2026.07.17
 .GUID 42d7f3b9-5c1e-4a80-9e2d-7f8a9b0c1d2e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -487,6 +487,14 @@ function Get-ConfigSyncReferenceConfig {
     GET /control/host-aliases. Returns $null when the endpoint is missing
     (older framework on the reference) or unreachable -- callers fall back
     to prompting the operator.
+.DESCRIPTION
+    A failure here is REPORTED, not swallowed. Every value this endpoint
+    serves is one the operator would otherwise have to type in by hand, so a
+    silent $null turns a serviceable reference host into an unexplained
+    prompt -- the operator has no way to tell "the reference does not know
+    this name" (nothing to do) from "the reference could not answer"
+    (fixable, and worth fixing). The reason is surfaced as a warning and the
+    caller still degrades to the prompt.
 #>
 function Get-ConfigSyncReferenceAliasMap {
     [CmdletBinding()]
@@ -498,16 +506,72 @@ function Get-ConfigSyncReferenceAliasMap {
     )
     $url = "http://${ReferenceHost}:${Port}/control/host-aliases"
     try {
-        $resp = Invoke-WebRequest -Uri $url -Method Get -TimeoutSec $TimeoutSeconds
-        $doc  = $resp.Content | ConvertFrom-Json -AsHashtable
-        if ($doc -is [System.Collections.IDictionary] -and $doc['ok'] -and
-            $doc['aliases'] -is [System.Collections.IDictionary]) {
-            return $doc['aliases']
-        }
+        # -SkipHttpErrorCheck: a 4xx/5xx carries the server's {"ok":false,
+        # "error":...} explanation in its BODY. Letting Invoke-WebRequest throw
+        # on status would discard exactly the text that tells the operator what
+        # to repair on the reference host.
+        $resp = Invoke-WebRequest -Uri $url -Method Get -TimeoutSec $TimeoutSeconds -SkipHttpErrorCheck
     } catch {
-        Write-Verbose "host-aliases fetch from $url failed: $($_.Exception.Message)"
+        Write-Warning "host-aliases: $ReferenceHost is not answering ($($_.Exception.Message)). Any networkStorage name that does not resolve here has to be entered by hand."
+        return $null
     }
-    return $null
+    $doc = $null
+    try { $doc = $resp.Content | ConvertFrom-Json -AsHashtable } catch { $null = $_ }
+    $resolved = Resolve-ConfigSyncAliasResponse -StatusCode ([int]$resp.StatusCode) -Doc $doc -ReferenceHost $ReferenceHost
+    if ($resolved.Warning) { Write-Warning $resolved.Warning }
+    return $resolved.Map
+}
+
+<#
+.SYNOPSIS
+    Classifies a /control/host-aliases response into an alias map plus an
+    optional operator warning. Pure (no I/O); the HTTP wrapper does the fetch
+    and emits the warning.
+.DESCRIPTION
+    A non-200 or ok:false response is turned into a warning that carries the
+    server's own reason, NOT a silent $null. The route 500s
+    ('...not loaded in the server runspace') on a status server that started
+    without its modules, and the client used to swallow that and drop straight
+    to a hand-entry prompt -- hiding a one-restart fix on the reference behind
+    an unexplained request for input.
+.OUTPUTS
+    [hashtable] @{ Map = [IDictionary] or $null; Warning = [string] or $null }.
+#>
+function Resolve-ConfigSyncAliasResponse {
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param(
+        [Parameter(Mandatory)][int]$StatusCode,
+        [Parameter()][AllowNull()]$Doc,
+        [Parameter(Mandatory)][string]$ReferenceHost
+    )
+    $isMap = $Doc -is [System.Collections.IDictionary]
+    if ($StatusCode -ne 200 -or -not $isMap -or -not $Doc['ok']) {
+        $reason = if ($isMap -and $Doc['error']) { [string]$Doc['error'] } else { "HTTP $StatusCode" }
+        return @{ Map = $null; Warning = "host-aliases: $ReferenceHost could not supply its networkStorage name->IP map ($reason). Any name that does not resolve here has to be entered by hand; restarting the status server on $ReferenceHost (test/Start-StatusService.ps1 -Restart) usually clears this." }
+    }
+    $map = if ($Doc['aliases'] -is [System.Collections.IDictionary]) { $Doc['aliases'] } else { $null }
+    return @{ Map = $map; Warning = $null }
+}
+
+# The IPv4-first address this host currently resolves $Name to, or '' when it
+# does not resolve. Mirrors the pick order of the reference host's
+# /control/host-aliases route, so the two ends are comparable and a re-run can
+# tell "already correct" from "mapped to a stale address".
+function Get-ConfigSyncLocalAddress {
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([Parameter()][AllowEmptyString()][string]$Name)
+    if ([string]::IsNullOrWhiteSpace($Name)) { return '' }
+    try {
+        $addrs = @([System.Net.Dns]::GetHostAddresses($Name))
+        $pick  = $addrs | Where-Object { $_.AddressFamily -eq 'InterNetwork' } | Select-Object -First 1
+        if (-not $pick) { $pick = $addrs | Select-Object -First 1 }
+        if ($pick) { return $pick.ToString() }
+    } catch {
+        Write-Verbose "Get-ConfigSyncLocalAddress($Name): $($_.Exception.Message)"
+    }
+    return ''
 }
 
 <#
@@ -550,6 +614,102 @@ function Request-ConfigSyncVaultCredential {
     } catch {
         return @{ Ok = $false; Password = $null; Error = "vault-credential for '$User': decrypt failed (token mismatch or tampered payload)" }
     }
+}
+
+<#
+.SYNOPSIS
+    Classifies a /control/vault-credential probe response into a readiness
+    verdict. Pure (no I/O); the HTTP wrapper below feeds it the observed status.
+.DESCRIPTION
+    The route checks its preconditions in a fixed order -- user referenced by
+    this host's config (404), pool-auth-token configured here (503), proof
+    verifies (403), stored credential exists (404) -- so everything up to the
+    proof check is observable WITHOUT the token. A deliberately wrong proof that
+    comes back 403 therefore means "a correct token would have worked", which is
+    the readiness signal. $StatusCode 0 denotes a transport failure (the host
+    did not answer at all).
+.OUTPUTS
+    [hashtable] @{ Ready; Status; Error } -- Ready=$true when only the token
+    stands between the caller and the password; Error is operator-actionable.
+#>
+function Get-ConfigSyncCredentialReadiness {
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param(
+        [Parameter(Mandatory)][int]$StatusCode,
+        [Parameter()][AllowEmptyString()][string]$ServerError = '',
+        [Parameter(Mandatory)][string]$ReferenceHost,
+        [Parameter(Mandatory)][string]$User
+    )
+    switch ($StatusCode) {
+        0 {
+            $why = if ($ServerError) { $ServerError } else { 'no response' }
+            return @{ Ready = $false; Status = 0; Error = "$ReferenceHost is not answering on the status port ($why)." }
+        }
+        403 {
+            # Proof mismatch is the SUCCESS case for a probe: the reference holds
+            # a pool-auth-token and has a credential path for this user -- the
+            # only thing standing between us and the password is the right token.
+            return @{ Ready = $true; Status = 403; Error = $null }
+        }
+        503 {
+            return @{ Ready = $false; Status = 503; Error = "$ReferenceHost has no shared pool-auth-token configured, so it cannot serve credentials to a peer. Provision one on BOTH hosts (on ${ReferenceHost}: pwsh test/Set-PoolAuthToken.ps1 -Token <shared-secret> -BounceStatusServer), then re-run this sync." }
+        }
+        404 {
+            return @{ Ready = $false; Status = 404; Error = "$ReferenceHost cannot serve the credential for '$User' ($ServerError)." }
+        }
+        200 {
+            # Unreachable in practice (an all-zero proof cannot verify); treat a
+            # 200 as a serving endpoint rather than pretending it is broken.
+            return @{ Ready = $true; Status = 200; Error = $null }
+        }
+        default {
+            $why = if ($ServerError) { $ServerError } else { "HTTP $StatusCode" }
+            return @{ Ready = $false; Status = $StatusCode; Error = "$ReferenceHost could not serve credentials ($why)." }
+        }
+    }
+}
+
+<#
+.SYNOPSIS
+    Asks the reference host whether it could serve the credential for $User at
+    all -- before the operator is asked for the shared token that would unlock it.
+.DESCRIPTION
+    Sends a deliberately wrong proof (the route rejects it at the proof check
+    and never serves anything, so the probe cannot leak a credential even
+    against a host that HAS the token) and hands the observed status to
+    Get-ConfigSyncCredentialReadiness. This keeps the sync from begging for
+    input it cannot use: a reference host with no pool-auth-token of its own can
+    never serve a credential, so prompting for the token -- and then for every
+    password once the operator skips it -- would demand by hand precisely the
+    values this sync exists to copy.
+.OUTPUTS
+    [hashtable] @{ Ready; Status; Error }.
+#>
+function Test-ConfigSyncCredentialEndpoint {
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param(
+        [Parameter(Mandatory)][string]$ReferenceHost,
+        [Parameter()][int]$Port = 8080,
+        [Parameter(Mandatory)][string]$User,
+        [Parameter()][int]$TimeoutSeconds = 15
+    )
+    $nonce = [Convert]::ToBase64String([System.Security.Cryptography.RandomNumberGenerator]::GetBytes(16))
+    $proof = [Convert]::ToBase64String([byte[]]::new(32))
+    $url = "http://${ReferenceHost}:${Port}/control/vault-credential" +
+        "?user=$([uri]::EscapeDataString($User))" +
+        "&nonce=$([uri]::EscapeDataString($nonce))" +
+        "&proof=$([uri]::EscapeDataString($proof))"
+    try {
+        $resp = Invoke-WebRequest -Uri $url -Method Get -TimeoutSec $TimeoutSeconds -SkipHttpErrorCheck
+    } catch {
+        return Get-ConfigSyncCredentialReadiness -StatusCode 0 -ServerError $_.Exception.Message -ReferenceHost $ReferenceHost -User $User
+    }
+    $doc = $null
+    try { $doc = $resp.Content | ConvertFrom-Json -AsHashtable } catch { $null = $_ }
+    $serverError = if ($doc -is [System.Collections.IDictionary] -and $doc['error']) { [string]$doc['error'] } else { '' }
+    return Get-ConfigSyncCredentialReadiness -StatusCode ([int]$resp.StatusCode) -ServerError $serverError -ReferenceHost $ReferenceHost -User $User
 }
 
 # --- REGION: Side-channel reconciliation (hosts file + vault)
@@ -595,8 +755,15 @@ function Invoke-ConfigSyncHostAlias {
     }
 }
 
-# Ensures every networkStorage server name in the converted config resolves
-# locally: reference host first, operator prompt as fallback.
+# Converges every networkStorage server name in the converted config onto the
+# address the REFERENCE host resolves it to: the reference is the source of
+# truth for the sync, so its answer is consulted for every name, not only for
+# the ones that fail to resolve here. Skipping the lookup whenever a name
+# resolved locally made the sync a one-shot bootstrap -- a NAS that moved to a
+# new address left a stale hosts entry that still "resolved", so no re-run could
+# ever repair it, and the mounts kept failing against the old IP. Now a re-run
+# rewrites a mapping that disagrees with the reference and writes nothing when
+# they already agree. Operator prompt remains the last resort.
 function Sync-ConfigSyncHostAlias {
     [CmdletBinding(SupportsShouldProcess)]
     param(
@@ -613,37 +780,51 @@ function Sync-ConfigSyncHostAlias {
         $server = Get-PoolStorageServerName -NetworkPath $np
         if ($server -and $names -notcontains $server) { [void]$names.Add($server) }
     }
-    $referenceAliases = $null
-    $referenceAliasesFetched = $false
+    if ($names.Count -eq 0) { return }
+
+    $referenceAliases = Get-ConfigSyncReferenceAliasMap -ReferenceHost $ReferenceHost -Port $Port
     foreach ($name in $names) {
-        if (Test-PoolStorageHostResolvable -ServerName $name) {
-            Write-Information "networkStorage server '$name' already resolves." -InformationAction Continue
-            continue
-        }
-        if (-not $referenceAliasesFetched) {
-            $referenceAliases = Get-ConfigSyncReferenceAliasMap -ReferenceHost $ReferenceHost -Port $Port
-            $referenceAliasesFetched = $true
-        }
-        $ip = ''
+        $localIp = Get-ConfigSyncLocalAddress -Name $name
+        $refIp   = ''
         if ($referenceAliases -is [System.Collections.IDictionary] -and $referenceAliases.Contains($name)) {
-            $ip = "$($referenceAliases[$name])".Trim()
-            if ($ip) { Write-Information "networkStorage server '$name': reference host resolves it to $ip." -InformationAction Continue }
+            $refIp = "$($referenceAliases[$name])".Trim()
         }
-        if (-not $ip) {
+
+        if (-not $refIp) {
+            # The reference could not name an address (endpoint unavailable, or
+            # it does not resolve the name either). A working local mapping is
+            # still a working local mapping -- keep it rather than re-prompting.
+            if ($localIp) {
+                Write-Information "networkStorage server '$name' resolves to $localIp here; the reference host did not supply an address, so the local mapping is kept." -InformationAction Continue
+                continue
+            }
             if ($NonInteractive) {
                 Write-Warning "networkStorage server '$name' does not resolve locally and the reference host could not supply an address; add it to the hosts file manually (automation/Set-HostAlias.ps1)."
                 continue
             }
-            $ip = (Read-Host "networkStorage server '$name' does not resolve. IP address to map it to (Enter to skip)").Trim()
-            if (-not $ip) { continue }
+            $typed = (Read-Host "networkStorage server '$name' does not resolve. IP address to map it to (Enter to skip)").Trim()
+            if (-not $typed) { continue }
+            $refIp = $typed
         }
+
         $parsed = [System.Net.IPAddress]::Any
-        if (-not [System.Net.IPAddress]::TryParse($ip, [ref]$parsed)) {
-            Write-Warning "'$ip' is not a valid IP address; skipping the '$name' alias."
+        if (-not [System.Net.IPAddress]::TryParse($refIp, [ref]$parsed)) {
+            Write-Warning "'$refIp' is not a valid IP address; skipping the '$name' alias."
             continue
         }
-        if (Invoke-ConfigSyncHostAlias -RepoRoot $RepoRoot -Name $name -IPAddress $parsed.ToString() -NonInteractive:$NonInteractive) {
-            Write-Information "hosts file: mapped '$name' -> $($parsed.ToString())." -InformationAction Continue
+        $target = $parsed.ToString()
+
+        if ($localIp -eq $target) {
+            Write-Information "networkStorage server '$name' already resolves to $target (the reference agrees); no change." -InformationAction Continue
+            continue
+        }
+        if ($localIp) {
+            Write-Information "networkStorage server '$name' resolves to $localIp here but the reference host maps it to $target; updating the hosts entry." -InformationAction Continue
+        } else {
+            Write-Information "networkStorage server '$name': the reference host resolves it to $target." -InformationAction Continue
+        }
+        if (Invoke-ConfigSyncHostAlias -RepoRoot $RepoRoot -Name $name -IPAddress $target -NonInteractive:$NonInteractive) {
+            Write-Information "hosts file: mapped '$name' -> $target." -InformationAction Continue
         }
     }
 }
@@ -658,10 +839,28 @@ function Read-ConfigSyncSecret {
     return (ConvertFrom-SecureString -SecureString $secure -AsPlainText)
 }
 
-# Ensures every networkStorage user in the converted config has a local vault
-# entry: reference host (token-gated, encrypted) first, operator prompt as
-# fallback. Requires the authentication extension; degrades to warnings when
-# it cannot be loaded.
+# Converges every networkStorage user's vault entry onto the credential the
+# REFERENCE host holds: fetched over the token-gated, encrypted endpoint, with
+# an operator prompt only for what the reference genuinely cannot supply.
+#
+# Two rules earn their keep here:
+#
+#   * Ask the reference what it can do BEFORE asking the operator for anything.
+#     The shared pool-auth-token unlocks the fetch, but a reference host that
+#     has no token of its own can never serve a credential no matter what the
+#     operator types -- so prompting for the token, and then for every password
+#     once the operator skips it, demands by hand precisely the values this sync
+#     exists to copy. The capability probe needs no token and turns that into
+#     one sentence naming the fix.
+#   * An existing vault entry is not a reason to stop. Skipping every user who
+#     already had one made the sync a one-shot bootstrap: a NAS password rotated
+#     on the reference could never reach a host that had the old one, and the
+#     mount failed with a credential the sync was staring right at. The fetched
+#     value is compared against the stored one and written only when they
+#     differ, so a re-run converges and a no-op run writes nothing.
+#
+# Requires the authentication extension; degrades to warnings when it cannot be
+# loaded.
 function Sync-ConfigSyncVaultCredential {
     [CmdletBinding(SupportsShouldProcess)]
     param(
@@ -686,54 +885,112 @@ function Sync-ConfigSyncVaultCredential {
         if ($u -and $users -notcontains $u) { [void]$users.Add($u) }
     }
 
+    # -WhatIf must not prompt either: a prompt is an operator-visible side effect,
+    # and a rehearsal that stops to demand a password is not a rehearsal.
+    $canPrompt = (-not $NonInteractive) -and (-not $WhatIfPreference)
+
+    # Acquire the shared token WITHOUT prompting: an explicit -SharedToken wins,
+    # else this host's own stored pool-auth-token. Prompting is deferred to the
+    # point a genuinely MISSING credential needs it, so a re-run where every entry
+    # is already present -- the common case -- never stops to ask for a token, yet
+    # a token that is available (passed or stored) is still used to refresh a
+    # rotated password silently.
     $token = $SharedToken
-    $tokenProbed = [bool]$token
+    if (-not $token) {
+        try {
+            $tm = Get-EffectiveUser -LogicalUser 'pool-auth-token'
+            if ($tm.vaultKey -and (Test-VaultEntry -VaultKey $tm.vaultKey)) {
+                $token = Get-Password -Username 'pool-auth-token'
+                Write-Information "vault: using this host's stored pool-auth-token to fetch credentials from $ReferenceHost." -InformationAction Continue
+            }
+        } catch { $null = $_ }
+    }
+    $tokenPromptTried = $false
+
     foreach ($user in $users) {
         $vaultKey = ''
         try { $vaultKey = [string](Get-EffectiveUser -LogicalUser $user).vaultKey } catch { $null = $_ }
         $resolvedKey = if ([string]::IsNullOrWhiteSpace($vaultKey)) { $user } else { $vaultKey }
-        if (Test-VaultEntry -VaultKey $resolvedKey) {
-            Write-Information "vault: '$user' already has a stored credential." -InformationAction Continue
+        $hasEntry = [bool](Test-VaultEntry -VaultKey $resolvedKey)
+
+        # No shared token to fetch a possibly-rotated value with, and a working
+        # entry is already here: keep it, with no network round-trip and no prompt.
+        # Fetching (hence refreshing) is impossible without the token by design, so
+        # there is nothing the reference could tell us that would change the outcome.
+        # Pass -SharedToken (or store a pool-auth-token here) to have re-runs refresh
+        # this against the reference.
+        if (-not $token -and $hasEntry) {
+            Write-Information "vault: '$user' has a stored credential; keeping it (no shared token available to check it against $ReferenceHost)." -InformationAction Continue
             continue
         }
-        if (-not $PSCmdlet.ShouldProcess("vault entry '$resolvedKey'", "Store the credential for networkStorage user '$user'")) { continue }
 
-        if (-not $tokenProbed) {
-            $tokenProbed = $true
-            # The reference endpoint is gated by the operator-set shared
-            # pool-auth-token (the same one that gates the aggregator's
-            # push ingest); use the local copy when this host already has
-            # it, otherwise ask once.
-            try {
-                $tm = Get-EffectiveUser -LogicalUser 'pool-auth-token'
-                if ($tm.vaultKey -and (Test-VaultEntry -VaultKey $tm.vaultKey)) {
-                    $token = Get-Password -Username 'pool-auth-token'
-                }
-            } catch { $null = $_ }
-            if (-not $token -and -not $NonInteractive) {
+        $capability = Test-ConfigSyncCredentialEndpoint -ReferenceHost $ReferenceHost -Port $Port -User $user
+        $password = ''
+        if ($capability.Ready) {
+            # Prompt for the token only when it is needed to BOOTSTRAP a missing
+            # entry -- never merely to check an existing one for rotation, which
+            # would nag on every re-run. Asked once, and only when the reference
+            # can actually serve (Ready), so the prompt is never a dead end.
+            if (-not $token -and -not $tokenPromptTried -and -not $hasEntry -and $canPrompt) {
+                $tokenPromptTried = $true
                 $token = Read-ConfigSyncSecret -Prompt "Shared pool-auth-token to fetch credentials from $ReferenceHost (Enter to skip)"
             }
+            if ($token) {
+                $r = Request-ConfigSyncVaultCredential -ReferenceHost $ReferenceHost -Port $Port -User $user -Token $token
+                if ($r.Ok) {
+                    $password = $r.Password
+                } else {
+                    Write-Warning $r.Error
+                }
+            } elseif (-not $hasEntry) {
+                # Serviceable, but we have no token and cannot (or were told not to)
+                # get one. Only worth flagging when the entry is missing; an entry
+                # that already exists is kept quietly below.
+                Write-Warning "vault: $ReferenceHost can serve the '$user' credential but this host has no shared pool-auth-token to unlock it; pass -SharedToken, or provision one here (pwsh test/Set-PoolAuthToken.ps1 -Token <shared-secret>)."
+            }
+        } else {
+            Write-Warning "vault: the '$user' credential cannot be fetched from the reference host -- $($capability.Error)"
         }
 
-        $password = ''
-        if ($token) {
-            $r = Request-ConfigSyncVaultCredential -ReferenceHost $ReferenceHost -Port $Port -User $user -Token $token
-            if ($r.Ok) {
-                $password = $r.Password
-                Write-Information "vault: fetched the '$user' credential from $ReferenceHost." -InformationAction Continue
-            } else {
-                Write-Warning $r.Error
+        if ($password) {
+            # Get-Password AUTO-GENERATES a junk credential when the user has no
+            # vault entry and an empty vaultKey, so it is only ever called behind
+            # a confirmed entry.
+            $current = ''
+            if ($hasEntry) {
+                try { $current = [string](Get-Password -Username $user) } catch { $current = '' }
             }
+            if ($hasEntry -and $current -eq $password) {
+                Write-Information "vault: '$user' already matches the credential on $ReferenceHost; no change." -InformationAction Continue
+                continue
+            }
+            $action = if ($hasEntry) { 'Update' } else { 'Store' }
+            if ($PSCmdlet.ShouldProcess("vault entry '$resolvedKey'", "$action the '$user' credential fetched from $ReferenceHost")) {
+                Set-Password -Username $resolvedKey -NewPassword $password
+                $done = if ($hasEntry) { 'updated (the reference has a newer credential)' } else { 'stored' }
+                Write-Information "vault: $done the credential for '$user' (key '$resolvedKey') from $ReferenceHost." -InformationAction Continue
+            }
+            continue
         }
-        if (-not $password -and -not $NonInteractive) {
-            $password = Read-ConfigSyncSecret -Prompt "Password for networkStorage user '$user' (Enter to skip)"
+
+        # Nothing came back from the reference. An entry already here still works
+        # -- keep it rather than making the operator retype what it holds.
+        if ($hasEntry) {
+            Write-Information "vault: '$user' has a stored credential and the reference host supplied nothing to replace it; keeping the local one." -InformationAction Continue
+            continue
         }
-        if (-not $password) {
+        $typed = ''
+        if ($canPrompt) {
+            $typed = Read-ConfigSyncSecret -Prompt "Password for networkStorage user '$user' (Enter to skip)"
+        }
+        if (-not $typed) {
             Write-Warning "vault: no credential stored for '$user'; the networkStorage mount will stay skipped until one is set (Set-Password -Username '$resolvedKey')."
             continue
         }
-        Set-Password -Username $resolvedKey -NewPassword $password
-        Write-Information "vault: stored the credential for '$user' (key '$resolvedKey')." -InformationAction Continue
+        if ($PSCmdlet.ShouldProcess("vault entry '$resolvedKey'", "Store the credential for networkStorage user '$user'")) {
+            Set-Password -Username $resolvedKey -NewPassword $typed
+            Write-Information "vault: stored the credential for '$user' (key '$resolvedKey')." -InformationAction Continue
+        }
     }
 }
 
@@ -817,6 +1074,29 @@ function Sync-HostConfiguration {
         Sync-ConfigSyncVaultCredential -RepoRoot $RepoRoot -NetworkStorage $ns `
             -ReferenceHost $ReferenceHost -Port $StatusPort -SharedToken $SharedToken `
             -NonInteractive:$NonInteractive
+
+        # On Linux the poolStorage mount runs `sudo -n mount/mkdir/umount`, which
+        # fails without an /etc/sudoers.d drop-in granting those NOPASSWD -- the
+        # WARN the operator saw at the end of validation, after which the runner
+        # buffers locally. The unattended runner cannot self-elevate, but THIS is
+        # an interactive operator session, so offer to install the drop-in now
+        # (one sudo prompt) rather than let the mount fail. Idempotent (a no-op
+        # when already configured), Linux-only (macOS mounts via mount_smbfs -N and
+        # Windows via SMB mappings need no sudo), and gated on a configured mount.
+        $needsMount = $false
+        foreach ($k in @('poolNetworkPath', 'stashNetworkPath')) {
+            if ($ns.Contains($k) -and -not [string]::IsNullOrWhiteSpace("$($ns[$k])")) { $needsMount = $true; break }
+        }
+        if ($needsMount -and $IsLinux -and -not $WhatIfPreference -and (Get-Command Set-PoolStorageSudoers -ErrorAction SilentlyContinue)) {
+            $sudo = Set-PoolStorageSudoers -NonInteractive:$NonInteractive
+            switch ($sudo.Action) {
+                'installed' { Write-Information "poolStorage: $($sudo.Message)" -InformationAction Continue }
+                'present'   { Write-Information "poolStorage: $($sudo.Message)" -InformationAction Continue }
+                'skipped'   { Write-Warning $sudo.Message }
+                'failed'    { Write-Warning "poolStorage: $($sudo.Message)" }
+                default     { Write-Verbose "poolStorage sudoers: $($sudo.Action) -- $($sudo.Message)" }
+            }
+        }
     }
 
     $validationExit = $null
@@ -835,6 +1115,133 @@ function Sync-HostConfiguration {
         Warnings       = $merge.Warnings
         ValidationExit = $validationExit
     }
+}
+
+# Byte-offset tail of a file another process is still writing. Returns the lines
+# appended since $Offset plus the new offset, so a caller can poll it in a loop
+# to stream a live transcript. FileShare ReadWrite+Delete because the writer
+# holds the file open; a trailing fragment with no newline yet is left in place
+# rather than emitted as half a line, and the offset is always counted from the
+# UNTRIMMED text so a stripped BOM cannot desynchronize it.
+function Get-BounceLogDelta {
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param(
+        [Parameter(Mandatory)][string]$Path,
+        [long]$Offset = 0
+    )
+    $result = @{ Offset = $Offset; Lines = @() }
+    if (-not (Test-Path -LiteralPath $Path)) { return $result }
+    $stream = $null
+    try {
+        $stream = [System.IO.FileStream]::new(
+            $Path, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read,
+            ([System.IO.FileShare]::ReadWrite -bor [System.IO.FileShare]::Delete))
+    } catch {
+        Write-Debug "bounce transcript not readable yet: $($_.Exception.Message)"
+        return $result
+    }
+    try {
+        if ($stream.Length -lt $Offset) { $Offset = 0 }   # writer truncated/rotated it
+        $pending = $stream.Length - $Offset
+        if ($pending -le 0) { return $result }
+        [void]$stream.Seek($Offset, [System.IO.SeekOrigin]::Begin)
+        $buffer = [byte[]]::new($pending)
+        $read   = $stream.Read($buffer, 0, $buffer.Length)
+        if ($read -le 0) { return $result }
+        $text = [System.Text.Encoding]::UTF8.GetString($buffer, 0, $read)
+        $cut  = $text.LastIndexOf("`n")
+        if ($cut -lt 0) { return $result }
+        $complete = $text.Substring(0, $cut + 1)
+        $result.Offset = $Offset + [System.Text.Encoding]::UTF8.GetByteCount($complete)
+        $result.Lines  = @($complete.TrimStart([char]0xFEFF) -split "`r?`n" | Where-Object { $_ -ne '' })
+    } finally {
+        $stream.Dispose()
+    }
+    return $result
+}
+
+# Run Start-StatusService.ps1 -Restart in a child pwsh, streaming its output back
+# as it lands, WITHOUT handing that child -- or the status server it detaches --
+# a handle to any pipe this process is reading.
+#
+# Windows turns handle inheritance ON for a child whenever a std stream is
+# redirected, and `& pwsh ... *> $null` redirects. The status server is a
+# grandchild that outlives the bounce by design, so it inherits the write end of
+# the caller's stdout pipe and holds it open for its whole lifetime: the read
+# never reaches EOF and the bounce blocks on the SERVER, not on the child that
+# actually exited seconds ago. The redirection that caused it also swallowed
+# every progress line, so the symptom is a silent, unbounded hang. Redirecting
+# the child's streams to files does NOT close the hole -- an inheritable pipe
+# further up the ancestry (any caller that captures our output) is passed down
+# all the same.
+#
+# Spawning with neither -Redirect* nor -NoNewWindow makes PowerShell use
+# ShellExecute, which passes no inheritable handles at all, so nothing downstream
+# can pin a pipe anywhere in the chain. The child therefore writes its own
+# transcript with Tee-Object and this function tails that file while it waits.
+# -NonInteractive so a prompt in the child fails fast instead of blocking against
+# a hidden window nobody can answer.
+#
+# Unix has no ShellExecute, but its detached server is nohup'd onto /dev/null +
+# server.err and cannot pin our streams, so redirecting the child's own streams
+# to files there is safe and gives the same live tail.
+function Invoke-StatusServiceBounce {
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param(
+        [Parameter(Mandatory)][string]$PwshExe,
+        [Parameter(Mandatory)][string]$StartScript,
+        [ValidateRange(10, 900)][int]$TimeoutSeconds = 180
+    )
+    $logPath = Join-Path ([System.IO.Path]::GetTempPath()) "yuruna-status-bounce-$PID.log"
+    $result  = @{ ok = $false; exitCode = -1; timedOut = $false; logPath = $logPath }
+    Remove-Item -LiteralPath $logPath -Force -ErrorAction SilentlyContinue
+    # '' escapes an embedded quote so a path with an apostrophe survives the
+    # child's re-parse of this command string.
+    $inner = "& '{0}' -Restart *>&1 | Tee-Object -FilePath '{1}'" -f `
+        ($StartScript -replace "'", "''"), ($logPath -replace "'", "''")
+    $spawn = @{
+        FilePath     = $PwshExe
+        ArgumentList = @('-NoProfile', '-NonInteractive', '-Command', $inner)
+        PassThru     = $true
+    }
+    if ($IsWindows) {
+        $spawn.WindowStyle = 'Hidden'
+    } else {
+        $spawn.RedirectStandardOutput = "$logPath.out"
+        $spawn.RedirectStandardError  = "$logPath.err"
+    }
+    $proc = $null
+    try {
+        $proc = Start-Process @spawn
+    } catch {
+        Write-Warning "Status-server bounce could not start: $($_.Exception.Message)"
+        return $result
+    }
+    $deadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
+    $offset   = [long]0
+    $exited   = $false
+    while (-not $exited) {
+        # WaitForExit(ms) waits on THIS process only. Start-Process -Wait would
+        # instead wait on the whole descendant tree -- which includes the status
+        # server -- and reintroduce the unbounded wait from the other direction.
+        $exited = $proc.WaitForExit(500)
+        $delta  = Get-BounceLogDelta -Path $logPath -Offset $offset
+        $offset = $delta.Offset
+        foreach ($line in $delta.Lines) {
+            Write-Information "        $line" -InformationAction Continue
+        }
+        if (-not $exited -and [DateTime]::UtcNow -ge $deadline) {
+            # Left running on purpose: it may be mid-launch, and a tree kill here
+            # would take down the very server it is bringing up.
+            $result.timedOut = $true
+            return $result
+        }
+    }
+    $result.exitCode = [int]$proc.ExitCode
+    $result.ok       = ($result.exitCode -eq 0)
+    return $result
 }
 
 <#
@@ -860,8 +1267,9 @@ function Sync-HostConfiguration {
     optionally restarts the status server (in an isolated child pwsh) so the
     running process re-reads users.yml now instead of next cycle --
     Import-Extension skips re-import once loaded, so the edit is otherwise
-    invisible to the live server. Returns @{ ok; vaultKey; keyChanged;
-    verified; bounced }.
+    invisible to the live server. Each step is announced on the Information
+    stream, and the bounce streams the child's transcript through as it runs.
+    Returns @{ ok; vaultKey; keyChanged; verified; bounced; bounceLog }.
 
     Requires the authentication extension loaded (Set-Password et al.).
 #>
@@ -870,7 +1278,8 @@ function Set-PoolAuthToken {
     [OutputType([hashtable])]
     param(
         [Parameter(Mandatory)][string]$Token,
-        [switch]$BounceStatusServer
+        [switch]$BounceStatusServer,
+        [ValidateRange(10, 900)][int]$BounceTimeoutSeconds = 180
     )
     $logical = 'pool-auth-token'
     foreach ($fn in @('Set-UserVaultKey', 'Set-Password', 'Get-Password', 'Test-VaultEntry', 'Get-EffectiveUser', 'Reset-UsersConfigCache')) {
@@ -878,31 +1287,49 @@ function Set-PoolAuthToken {
             throw "Set-PoolAuthToken requires the authentication extension: '$fn' is not available. Import test/extension/authentication/default.psm1 first."
         }
     }
-    $result = @{ ok = $false; vaultKey = $logical; keyChanged = $false; verified = $false; bounced = $false }
+    $result = @{ ok = $false; vaultKey = $logical; keyChanged = $false; verified = $false; bounced = $false; bounceLog = $null }
     if (-not $PSCmdlet.ShouldProcess("host vault ($logical)", 'Provision shared pool-auth-token')) {
         return $result
     }
+    # Each step is announced on the Information stream before it runs. The vault
+    # writes are sub-second, but the status-server bounce routinely takes tens of
+    # seconds (port map + readiness wait), and a silent script in that window is
+    # indistinguishable from a wedged one -- the operator needs to see which step
+    # owns the wait.
+    $steps = if ($BounceStatusServer) { 4 } else { 3 }
+
     # vaultKey == the logical name so Set-Password's -Username and the gate's
     # vaultKey resolution address the identical vault slot.
+    Write-Information "[1/$steps] users.yml: pointing logical user '$logical' at vault key '$logical' ..." -InformationAction Continue
     $result.keyChanged = [bool](Set-UserVaultKey -LogicalUser $logical -VaultKey $logical)
+    $keyNote = if ($result.keyChanged) { 'vaultKey updated' } else { 'vaultKey already correct, file unchanged' }
+    Write-Information "[1/$steps] users.yml: $keyNote." -InformationAction Continue
+
+    Write-Information "[2/$steps] vault: storing the shared token under '$logical' ..." -InformationAction Continue
     $null = Set-Password -Username $logical -NewPassword $Token
     $null = Reset-UsersConfigCache -Confirm:$false
+    Write-Information "[2/$steps] vault: token stored." -InformationAction Continue
+
+    Write-Information "[3/$steps] vault: verifying the round-trip through the same resolution the control gate uses ..." -InformationAction Continue
     $tm = Get-EffectiveUser -LogicalUser $logical
     $result.verified = [bool]($tm.vaultKey -and (Test-VaultEntry -VaultKey $tm.vaultKey) -and ((Get-Password -Username $logical) -eq $Token))
+    $verifyNote = if ($result.verified) { 'round-trip verified' } else { 'round-trip FAILED -- the token cannot be read back' }
+    Write-Information "[3/$steps] vault: $verifyNote." -InformationAction Continue
+
     if ($BounceStatusServer) {
         $startScript = Join-Path (Split-Path -Parent $PSScriptRoot) 'Start-StatusService.ps1'
         $pwshExe = [System.Environment]::ProcessPath
         if ((Test-Path -LiteralPath $startScript) -and $pwshExe -and (Test-Path -LiteralPath $pwshExe)) {
-            # Child process so the entry-point script's own `exit` and its
-            # -Global module (re)imports cannot disturb this runspace.
-            try {
-                & $pwshExe -NoProfile -File $startScript -Restart *> $null
-                $result.bounced = ($LASTEXITCODE -eq 0)
-                if (-not $result.bounced) {
-                    Write-Warning "Status-server bounce exited $LASTEXITCODE; the token is stored and takes effect at the next cycle."
-                }
-            } catch {
-                Write-Warning "Status-server bounce failed ($($_.Exception.Message)); the token is stored and takes effect at the next cycle."
+            Write-Information "[4/$steps] status server: restarting so the running process re-reads users.yml now (up to ${BounceTimeoutSeconds}s) ..." -InformationAction Continue
+            $bounce = Invoke-StatusServiceBounce -PwshExe $pwshExe -StartScript $startScript -TimeoutSeconds $BounceTimeoutSeconds
+            $result.bounced   = $bounce.ok
+            $result.bounceLog = $bounce.logPath
+            if ($bounce.ok) {
+                Write-Information "[4/$steps] status server: restarted." -InformationAction Continue
+            } elseif ($bounce.timedOut) {
+                Write-Warning "Status-server bounce is still running after ${BounceTimeoutSeconds}s; it was left alone (killing it would take the server down with it). Transcript: $($bounce.logPath). The token is stored and takes effect at the next cycle."
+            } else {
+                Write-Warning "Status-server bounce exited $($bounce.exitCode) (transcript: $($bounce.logPath)); the token is stored and takes effect at the next cycle."
             }
         } else {
             Write-Warning "Cannot bounce the status server (Start-StatusService.ps1 or the pwsh executable was not found); the token is stored and takes effect at the next cycle."
@@ -915,5 +1342,6 @@ function Set-PoolAuthToken {
 Export-ModuleMember -Function `
     Get-ConfigSyncLocalPathDefault, Convert-ConfigSyncNetworkStorage, Merge-ConfigSyncReferenceConfig, `
     Get-ConfigSyncProof, Test-ConfigSyncProof, Get-YurunaControlProof, Test-YurunaControlProof, Protect-ConfigSyncCredential, Unprotect-ConfigSyncCredential, `
-    Get-ConfigSyncReferenceConfig, Get-ConfigSyncReferenceAliasMap, Request-ConfigSyncVaultCredential, `
+    Get-ConfigSyncReferenceConfig, Get-ConfigSyncReferenceAliasMap, Resolve-ConfigSyncAliasResponse, `
+    Request-ConfigSyncVaultCredential, Test-ConfigSyncCredentialEndpoint, Get-ConfigSyncCredentialReadiness, `
     Sync-HostConfiguration, Set-PoolAuthToken

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.14
+.VERSION 2026.07.17
 .GUID 4295730e-1cff-47df-b4d6-b3fd3578c818
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -31,13 +31,9 @@
 # the cached handle is feeding frozen frames) and available to any
 # host_io_blocked recovery path.
 #
-# Storage is delegated to the shared Test.Registry primitive
-# (New-YurunaRegistry) so there is one registry mechanism across the
-# harness and this domain shows up in the cross-domain introspection
-# directory (Get-YurunaRegistryDirectory/Summary). The
-# $global:YurunaVncProviders anchor name is reused as the backing store
-# so registrations stay cross-module-eviction-safe and survive -Force
-# re-imports.
+# --- REGION: https://yuruna.link/host-io#why-the-registry-uses-a-global-anchor
+# Storage: shared Test.Registry primitive; the $global:YurunaVncProviders
+# anchor keeps registrations eviction-safe across -Force re-imports.
 
 Import-Module (Join-Path $PSScriptRoot 'Test.Registry.psm1') -Force -DisableNameChecking -Global
 

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.14
+.VERSION 2026.07.17
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456727
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -202,10 +202,11 @@ function Write-Section {
 function Write-Summary {
     <#
     .SYNOPSIS
-        End-of-run banner. Always prints the PASS/WARN/FAIL tally; when
-        FAIL > 0 also prints a numbered FAILURES block with the section
-        + message + optional FullPath for each, so the operator never
-        has to scroll back to find the one FAIL line.
+        End-of-run banner. Always prints the PASS/WARN/FAIL tally; then a
+        numbered WARNINGS block (every WARN, grouped by section) when WARN > 0,
+        and a numbered FAILURES block (section + message + optional FullPath)
+        when FAIL > 0 -- so the operator never has to scroll back through the
+        log to find every WARN and FAIL sign.
     #>
     [CmdletBinding()]
     param()
@@ -213,6 +214,35 @@ function Write-Summary {
     Write-Output "-----------------------------------------"
     Write-Output ("  PASS: {0,3}   WARN: {1,3}   FAIL: {2,3}" -f $script:State.PassCount, $script:State.WarnCount, $script:State.FailCount)
     Write-Output "-----------------------------------------"
+    if ($script:State.WarnCount -gt 0) {
+        # Reprint every WARN (grouped by section, in section order) so the
+        # operator sees the full advisory list at the end without scrolling the
+        # log. WarningsBySection captures every Write-Warn issued inside a
+        # section, which is the normal path.
+        $allWarns = New-Object System.Collections.Generic.List[pscustomobject]
+        foreach ($sectionKey in $script:State.WarningsBySection.Keys) {
+            foreach ($w in $script:State.WarningsBySection[$sectionKey]) {
+                $allWarns.Add([pscustomobject]@{ Section = $sectionKey; Message = $w })
+            }
+        }
+        if ($allWarns.Count -gt 0) {
+            Write-Output ""
+            Write-Output "============================================================"
+            Write-Output "  WARNINGS ($($allWarns.Count)) -- advisory; the cycle can still start:"
+            Write-Output "============================================================"
+            $wi = 0
+            foreach ($wentry in $allWarns) {
+                $wi++
+                Write-Output ""
+                Write-Output ("  [{0}/{1}] in section: {2}" -f $wi, $allWarns.Count, $wentry.Section)
+                Write-Output ("        {0}" -f $wentry.Message)
+            }
+            Write-Output ""
+            Write-Output "============================================================"
+            Write-Output "  END OF WARNINGS ($($allWarns.Count))"
+            Write-Output "============================================================"
+        }
+    }
     if ($script:State.FailCount -gt 0) {
         Write-Output ""
         Write-Output "============================================================"

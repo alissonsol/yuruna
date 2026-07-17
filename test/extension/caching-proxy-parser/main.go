@@ -3,17 +3,12 @@
 
 // caching-proxy-parser: a tail-and-serve daemon for the caching-proxy VM.
 //
-// Replaces loki + promtail for the Grafana dashboard's "Recent 100
-// requests" panel. Tails /var/log/squid/yuruna_access.log (the
-// yuruna logformat written by /etc/squid/conf.d/yuruna.conf), parses
-// each line, keeps the last 100 entries in an in-memory ring, and
-// serves them as JSON + a self-contained HTML page.
+// Replaces loki + promtail for the Grafana dashboard's "Recent 100 requests"
+// panel: tails the squid yuruna access log into a 100-entry in-memory ring,
+// served as JSON + a self-contained HTML page. Single host, one log, one
+// panel — no tenancy, no persistence, no auth, no LogQL.
 //
-// Optimized for one specific scenario (single host, one squid access
-// log, one panel) — no tenancy, no persistence, no auth, no LogQL.
-//
-// Built and installed from the caching-proxy cloud-init user-data; see
-// test/extension/caching-proxy-parser/README.md.
+// Full design and operator guide: https://yuruna.link/caching-proxy-parser (README.md).
 //
 // Linux-only: inodeOf() uses syscall.Stat_t to detect logrotate. The
 // build tag keeps `go vet` happy on the harness-host Windows toolchain

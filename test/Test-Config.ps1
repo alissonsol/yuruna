@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.14
+.VERSION 2026.07.17
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456709
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -513,25 +513,20 @@ if (Test-IsSet $projectUrlConfigured) {
         }
         Write-Warn "projectUrl is a file:// URL -- only the host can resolve it. Guests that hit the tarball-fallback path (status server 404 on /yuruna-project-archive.tar.gz) will attempt 'git clone $projectUrlConfigured' on their OWN Linux filesystem and fail. Use an HTTPS/SSH URL guests can reach if you rely on the guest fallback."
     } elseif ($projectUrlConfigured -match '^(?i)(https?|ssh|git)://') {
-        # Cheap, no-fetch reachability probe. GIT_TERMINAL_PROMPT=0
-        # makes a private/missing repo exit non-zero instead of blocking
-        # on a credential dialog (Git Credential Manager on Windows).
-        $prevPrompt = $env:GIT_TERMINAL_PROMPT
-        $env:GIT_TERMINAL_PROMPT = '0'
+        # Cheap, no-fetch reachability probe routed through the shared network-git
+        # helper: it is prompt-proof (a private/missing repo exits non-zero instead
+        # of blocking on a Git Credential Manager dialog) AND authenticates with
+        # GH_TOKEN when set, which plain git does not do on its own -- so a private
+        # projectUrl reachable only via the token no longer reports as unreachable.
         try {
-            $lsOut = & git ls-remote --exit-code --quiet $projectUrlConfigured HEAD 2>&1
-            $lsRc  = $LASTEXITCODE
-            if ($lsRc -eq 0) {
+            $ls  = Invoke-GitNetworkCommand -GitArgs @('ls-remote', '--exit-code', '--quiet', $projectUrlConfigured, 'HEAD') -TimeoutSeconds 30
+            if ($ls.ExitCode -eq 0) {
                 Write-Pass "projectUrl reachable (git ls-remote HEAD exit 0): $projectUrlConfigured"
             } else {
-                $msg = ($lsOut | Out-String).Trim()
-                Write-Fail "projectUrl='$projectUrlConfigured' is not reachable (git ls-remote exit $lsRc). Common causes: typo, private repo without cached credentials, or repo doesn't exist. ls-remote output: $msg" -FullPath $ConfigPath
+                Write-Fail "projectUrl='$projectUrlConfigured' is not reachable (git ls-remote exit $($ls.ExitCode)). Common causes: typo, private repo without cached credentials, or repo doesn't exist. ls-remote output: $($ls.Output)" -FullPath $ConfigPath
             }
         } catch {
             Write-Fail "projectUrl='$projectUrlConfigured': ls-remote threw -- $($_.Exception.Message)" -FullPath $ConfigPath
-        } finally {
-            if ($null -eq $prevPrompt) { Remove-Item Env:GIT_TERMINAL_PROMPT -ErrorAction SilentlyContinue }
-            else                       { $env:GIT_TERMINAL_PROMPT = $prevPrompt }
         }
     } else {
         # No scheme -- accept a bare local path (rare, but git clone
@@ -970,8 +965,9 @@ if ($IsWindows) {
 # Linux-only: print the EXACT one-time passwordless-sudo setup the mount path
 # needs (resolved to this account + binary paths) the first time a mount-stage
 # pre-flight fails. Once per run -- the pool and stash shares share one drop-in.
-# It cannot be auto-applied: `sudo -n` never prompts and writing /etc/sudoers.d
-# needs root, so the precise command is the most a non-root validator can do.
+# The unattended RUNNER cannot self-apply it (`sudo -n` never prompts and
+# /etc/sudoers.d needs root), so this hint is its fallback; an INTERACTIVE
+# operator is offered the install directly by Invoke-LinuxSudoInstallOffer.
 $script:LinuxSudoHintShown = $false
 function Show-LinuxSudoHintOnce {
     if (-not $IsLinux -or $script:LinuxSudoHintShown) { return }
@@ -990,6 +986,33 @@ function Show-LinuxSudoHintOnce {
         -MountPath  (& $resolve 'mount'  '/usr/bin/mount') `
         -UmountPath (& $resolve 'umount' '/usr/bin/umount')
     foreach ($line in $hint) { Write-Info $line }
+}
+
+# Linux + interactive only: offer to install the passwordless-sudo drop-in the
+# mount needs, right now, prompting once for sudo. Returns $true ONLY when the
+# drop-in was actually installed (so the caller retries the mount); a decline, a
+# headless session, or any non-install outcome returns $false and the caller
+# falls through to Show-LinuxSudoHintOnce. The unattended runner never reaches
+# this (not interactive) and must not self-elevate.
+function Invoke-LinuxSudoInstallOffer {
+    if (-not $IsLinux) { return $false }
+    if (-not (Get-Command Set-PoolStorageSudoers -ErrorAction SilentlyContinue)) { return $false }
+    $canPrompt = $false
+    try { $canPrompt = ([Environment]::UserInteractive -and -not [Console]::IsInputRedirected) } catch { $canPrompt = $false }
+    if (-not $canPrompt) { return $false }
+    $ans = Read-Host "networkStorage: install the passwordless-sudo drop-in now so the mount works (sudo will prompt once for your password)? [y/N]"
+    if ($ans -notmatch '^\s*(y|yes)\s*$') { return $false }
+    try {
+        $result = Set-PoolStorageSudoers -Confirm:$false
+    } catch {
+        Write-Info "Interactive sudoers install could not run: $($_.Exception.Message) -- use the manual steps below."
+        return $false
+    }
+    switch ($result.Action) {
+        'installed' { Write-Info "Installed $($result.DropInPath). Retrying the mount pre-flight..."; return $true }
+        'present'   { Write-Info "Passwordless sudo is already configured -- the mount is failing for another reason (share name / credential); see the details below."; return $false }
+        default     { Write-Info "Passwordless-sudo install did not complete ($($result.Action)): $($result.Message)"; return $false }
+    }
 }
 
 # A bare drive-letter (e.g. 'z:') is a localPath value, never a valid SMB
@@ -1118,15 +1141,22 @@ if (-not (Test-Path $poolMod)) {
                     Write-Warn "networkStorage pool: could not resolve this host's id (runtime/host.uuid) -- skipping the mount + per-host-folder pre-flight. Replication still runs at cycle end; check it has not silently failed."
                 } else {
                     $poolReady = Initialize-PoolStorageHostFolder -Config $psCfg -HostId $poolHostId -Confirm:$false
+                    # A mount-stage failure on Linux is the passwordless-sudo
+                    # precondition. From an interactive session, offer to install
+                    # the drop-in now (sudo prompts once) and retry, so the
+                    # operator ends with a working mount instead of instructions.
+                    if (-not $poolReady.ok -and $poolReady.stage -eq 'mount' -and (Invoke-LinuxSudoInstallOffer)) {
+                        $poolReady = Initialize-PoolStorageHostFolder -Config $psCfg -HostId $poolHostId -Confirm:$false
+                    }
                     if ($poolReady.ok) {
                         Write-Pass "networkStorage pool: localPath mounted and per-host folder ready ('$($poolReady.folder)')."
                     } else {
                         $rmsg = "networkStorage pool: localPath '$($psCfg.LocalPath)' / per-host folder pre-flight FAILED -- $($poolReady.error). Replication would silently never happen this way."
                         if ($psReplicate) { Write-Fail $rmsg -FullPath $ConfigPath }
                         else              { Write-Warn "$rmsg (Advisory: replicate is false, so this won't block the cycle -- fix before enabling.)" }
-                        # A mount-stage failure on Linux is the passwordless-sudo
-                        # precondition; print the exact one-time fix (a folder-stage
-                        # failure is a share-permission issue, not sudo).
+                        # Interactive install was declined/unavailable or did not
+                        # resolve it; print the exact one-time manual fix (a
+                        # folder-stage failure is a share-permission issue, not sudo).
                         if ($poolReady.stage -eq 'mount') { Show-LinuxSudoHintOnce }
                     }
                 }

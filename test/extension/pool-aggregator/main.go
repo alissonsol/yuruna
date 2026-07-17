@@ -3,37 +3,13 @@
 
 // pool-aggregator: read-only multi-host pool view for the Yuruna test harness.
 //
-// Runs on the caching-proxy machine (the pool services host). It needs NO host
-// list: it AUTO-DISCOVERS pool members from the squid access log -- every host
-// that pulls packages/images through the proxy shows up there -- then probes
-// each recent client IP's status server (/runtime/status.json) and keeps the
-// ones that answer. Discovery yields IPs, but IDENTITY is the stable hostId
-// (runtime/host.uuid), so the design is robust to a DHCP-served LAN:
-//   * a host that changes IP simply reappears at the new IP and resolves to the
-//     SAME hostId (one pool member, not two);
-//   * one host that cycles through many IPs over a short (e.g. 30-min) DHCP
-//     lease collapses to a single hostId;
-//   * no DNS dependency -- everything keys off IPs seen in the log + hostId.
-// A host is kept alive in the view (re-probing its last-known IP) for hostTTL
-// even when momentarily idle, so a between-cycles host doesn't blink out. The
-// in-memory view is otherwise volatile, so on restart it is RE-SEEDED from Loki
-// (each host's last-known IP, from the cycle-transition feed + the on-discovery
-// presence beacon), and a host's address is beaconed to Loki whenever it is first
-// discovered or changes IP. This keeps a host that is up + reachable but pulling
-// nothing through the proxy right now (a paused runner, or a stash-only host that
-// runs no test cycles) discoverable across a restart -- the squid log alone would
-// not re-find it until it next pulled through the proxy.
+// Runs on the caching-proxy machine (the pool services host). Auto-discovers
+// pool members from the squid access log (no host list), identifies them by
+// the stable hostId (DHCP-resilient, no DNS), and ships cycle transitions +
+// per-step events to Loki/Prometheus for the Grafana pool dashboard.
+// Read-only: killing it leaves every runner testing unaffected.
 //
-// On a transition it ships a line to Loki ({pool,hostId,cycleId}, ingest-clock
-// stamped) and bumps Prometheus counters; Grafana renders the 24h pool view and
-// deep-links back to each host's OWN status server. Read-only: killing it leaves
-// every runner testing unaffected.
-//
-// Built + installed from the caching-proxy cloud-init user-data; see
-// test/extension/pool-aggregator/README.md. Stdlib-only (a static binary, no Go
-// toolchain at runtime) and cross-platform (no host-specific syscalls) so the
-// harness Windows toolchain builds + vets it identically to the Linux target.
-
+// Full design and operator guide: https://yuruna.link/pool-aggregator (README.md).
 package main
 
 import (
@@ -789,7 +765,7 @@ func (s *poolState) pollOnce(client *http.Client, squidLog, lokiURL string, now 
 	s.last = now
 	s.mu.Unlock()
 
-	// Phase 2: tail each reachable host's current-cycle NDJSON events into Loki.
+	// Tail each reachable host's current-cycle NDJSON events into Loki.
 	// eventCur is only touched here (single poll goroutine), so no lock needed.
 	for _, hid := range deleted {
 		delete(s.eventCur, hid)
@@ -862,7 +838,7 @@ func fetchStatus(client *http.Client, base string) (*hostStatus, error) {
 // served by the status server at /yuruna-repo/VERSION -- the SAME source the
 // host's own status pages read for their header (their getHostInfo() fetches
 // yuruna-repo/VERSION via JS, so the version is not embedded in the HTML). A tiny
-// plain-text file (one CalVer line, e.g. "2026.07.14"), so it is lighter than any
+// plain-text file (one CalVer line, e.g. "2026.07.17"), so it is lighter than any
 // status HTML page and fetchable server-side without a JS engine. Returns
 // ("", err) on any failure; the caller keeps the prior version on a transient
 // miss (the version is stable across polls). The value is capped + first-line
@@ -1593,7 +1569,7 @@ func (s *poolState) applyAnnounceLines(streams [][][2]string, now time.Time) int
 // tailEvents pulls a host's current-cycle NDJSON event file
 // (<baseUrl>/<cycleFolderUrl>cycle.events.ndjson) and ships any lines beyond the
 // per-host byte cursor to Loki under {pool,hostId,src=event}. This is the
-// Phase-2 incident drill-down feed: step_failure/step_end and the typed sub-
+// incident drill-down feed: step_failure/step_end and the typed sub-
 // events become queryable cross-host. The Loki entry timestamp is the event's
 // OWN `timestamp`, so a collector restart that re-pushes the in-flight cycle is
 // idempotent (Loki drops exact (ts,line) duplicates). The cursor avoids
@@ -2899,7 +2875,7 @@ func fileReadable(path string) bool {
 	return err == nil && fi.Mode().IsRegular() && fi.Size() > 0
 }
 
-// handleIngest is the Phase-6 push surface: a runner-side forwarder POSTs its cycle's
+// handleIngest is the push surface: a runner-side forwarder POSTs its cycle's
 // NDJSON event lines here so they reach Loki without waiting for the next pull
 // (closing the between-poll trailing-event gap). It SUPPLEMENTS pull, never replaces
 // it -- a pushed line and the later-pulled copy carry the event's own timestamp

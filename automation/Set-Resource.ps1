@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.14
+.VERSION 2026.07.17
 .GUID 42b2c3d4-e5f6-4a78-9012-3b4c5d6e7f80
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -61,7 +61,14 @@ Set-YurunaLogLevel -LogLevel $logLevel
 # Resolve yuruna/project/config roots (+ Env:) before evicting Yuruna.* -- the resolver
 # lives in the Yuruna.LogLevel leaf imported above, which the eviction then sweeps up.
 $roots = Resolve-YurunaRootSet -ScriptRoot $PSScriptRoot -ProjectRoot $project_root -ConfigSubfolder $config_subfolder
-if (-not $roots) { return $false }
+if (-not $roots) {
+    # `exit 1`, never `return $false`: a bare `return` at script scope leaves the
+    # PROCESS exit code at 0, and the guest wrappers run this entrypoint under
+    # `set -euo pipefail` -- a zero exit reads as "provisioned" and the sequence
+    # marches on. Same contract as Complete-YurunaRun's failure tail.
+    Write-Warning "Root resolution failed; no resource was provisioned."
+    exit 1
+}
 $yuruna_root = $roots.YurunaRoot
 $project_root = $roots.ProjectRoot
 Get-Module Yuruna.* | Remove-Module *>&1 | Write-Verbose

@@ -17,7 +17,7 @@ automatically.
 
 ## 2) Create the VM
 
-[`New-VM.ps1`](./New-VM.ps1) creates a Gen 2 VM (16 GB RAM, max(4, host
+[`New-VM.ps1`](./New-VM.ps1) creates a Gen 2 VM (12 GB RAM, max(4, host
 cores / 2) virtual processors with nested virtualization, UEFI + Secure
 Boot with the Microsoft Windows template, Yuruna-External vSwitch when
 available -- falls back to Default Switch, virtual TPM), mounts the
@@ -30,7 +30,7 @@ and enables Guest Service Interface.
 ```
 
 The autounattend sets locale `en-US`, keyboard `en-US`, UEFI/GPT, and
-enables Remote Desktop. Default credentials: `User` / `password`
+enables Remote Desktop. Default credentials: `ywuser1` / `password`
 (auto-logon first boot only). Generic Windows 11 Pro key — see
 [Windows 11 ...](./vmconfig/README.md) for KMS keys and activation.
 
@@ -47,6 +47,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.14
+Last review: 2026.07.17
 
 Back to [Yuruna](../../../README.md)

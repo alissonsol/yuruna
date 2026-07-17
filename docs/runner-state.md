@@ -31,12 +31,16 @@ shape.
 
 ```
 idle         -> cycle-start, fault   (fault when boot recovery sees a stale prior state)
-cycle-start  -> in-cycle, fault
+cycle-start  -> in-cycle, fault, paused
 in-cycle     -> cycle-end, fault
 cycle-end    -> idle
 fault        -> paused, idle
-paused       -> idle
+paused       -> idle, cycle-start
 ```
+
+The `cycle-start <-> paused` pair is the healthy pool-hold loop: when a
+pulled pool intent has `desiredState=paused`, a started cycle moves to
+`paused`, and each ~30s intent re-poll re-enters `cycle-start`.
 
 The validator never rejects — an unrecognized pair logs a
 `Write-Warning` and writes the new state anyway. Same contract as the
@@ -92,6 +96,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.14
+Last review: 2026.07.17
 
 Back to [Yuruna](../README.md)

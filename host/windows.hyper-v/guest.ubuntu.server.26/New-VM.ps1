@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.14
+.VERSION 2026.07.17
 .GUID 4236e7f8-a9b0-4c23-d678-9e0f1a2b3c48
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -51,6 +51,15 @@ if ($VMName -notmatch '^[a-zA-Z0-9._-]+$') {
 }
 
 $ProgressPreference = 'SilentlyContinue'
+# Abort at the first failed cmdlet: this script runs as a child pwsh -File
+# process whose non-zero exit is the caller's only failure signal. Without
+# Stop, a non-terminating error from the disk/VM-config sequence (New-VHD,
+# Set-VM*, Add-VMDvdDrive) prints red and the script marches on, failing
+# confusingly at a later step against a half-configured VM. Module
+# functions keep their own error handling (preference variables do not
+# cross the module boundary), so this hardens exactly the direct cmdlet
+# calls in this file.
+$ErrorActionPreference = 'Stop'
 
 # Honor logLevel from Invoke-TestRunner.ps1 via $env:YURUNA_LOG_LEVEL. See docs/loglevels.md.
 $_logLevelMod = Join-Path $PSScriptRoot '../../../test/modules/Test.LogLevel.psm1'
@@ -177,6 +186,10 @@ if (Test-Path -Path $vhdxFile) {
 # host/vmconfig/ubuntu.server.base.user-data so the root LV consumes the whole PV.
 Write-Verbose "Creating 64GB dynamically expanding VHDX..."
 New-VHD -Path $vhdxFile -SizeBytes 64GB -Dynamic | Out-Null
+if (-not (Test-Path -LiteralPath $vhdxFile)) {
+    Write-Error "New-VHD reported success but '$vhdxFile' does not exist; aborting before VM creation."
+    exit 1
+}
 
 # Autoinstall seed ISO. 4-digit entropy is weak by design (10k cases)
 # but enough to defeat the deterministic-path symlink trap: an attacker
@@ -313,14 +326,7 @@ if (Test-Path -LiteralPath $YurunaTestConfig) {
 
 # --- REGION: Fetch caching-proxy CA cert (base64-embedded in seed)
 # --- REGION: https://yuruna.link/network#caching-proxy-ca-cert-rc60-gate
-# An empty $CaCertBase64 is NOT a harmless no-op: the seed still routes the
-# guest's HTTPS through the bump (:3129) and locks direct :443 egress, so a
-# CA-less guest fails every HTTPS with curl rc=60. Get-CachingProxyCaCertBase64
-# retries the live fetch and falls back to the last-good persisted CA for this
-# cache host; if it still comes up empty the guest boots CA-less and recovers
-# at update time via the host status-server CA self-heal. See
-# feedback_sslbump_rc60_untrusted_chain_and_ca_gate_trap and
-# project_sslbump_ca_gating_durable_fix.
+# An empty $CaCertBase64 is NOT a harmless no-op (curl rc=60 SSL-bump gate).
 $CaCertBase64 = ""
 if ($CachingProxyUrl) {
     Import-Module -Name (Join-Path $PSScriptRoot '../../../test/modules/Test.CachingProxy.psm1') -Force -DisableNameChecking
@@ -365,8 +371,12 @@ Write-Verbose "Generating seed.iso with autoinstall configuration..."
 CreateIso -SourceDir $SeedDir -OutputFile $SeedIso -VolumeId "cidata"
 
 Write-Verbose "Creating new VM '$VMName' on switch '$switchName'..."
-Hyper-V\New-VM -Name $VMName -Generation 2 -MemoryStartupBytes 16384MB -SwitchName $switchName -VHDPath $vhdxFile | Out-Null
-Set-VM -Name $VMName -MemoryStartupBytes 16384MB -MemoryMinimumBytes 16384MB -MemoryMaximumBytes 16384MB -AutomaticCheckpointsEnabled $false | Out-Null
+Hyper-V\New-VM -Name $VMName -Generation 2 -MemoryStartupBytes 12288MB -SwitchName $switchName -VHDPath $vhdxFile | Out-Null
+if (-not (Hyper-V\Get-VM -Name $VMName -ErrorAction SilentlyContinue)) {
+    Write-Error "Hyper-V\New-VM completed but '$VMName' is not registered; aborting before configuration."
+    exit 1
+}
+Set-VM -Name $VMName -MemoryStartupBytes 12288MB -MemoryMinimumBytes 12288MB -MemoryMaximumBytes 12288MB -AutomaticCheckpointsEnabled $false | Out-Null
 Set-VMMemory -VMName $VMName -DynamicMemoryEnabled $false
 Set-VMFirmware -VMName $VMName -EnableSecureBoot Off | Out-Null
 
@@ -386,7 +396,7 @@ Set-VMNetworkAdapter -VMName $VMName -MacAddressSpoofing On | Out-Null
 # Hyper-V appends this VM's ACE on attach. Without it the file's DACL grows
 # unbounded across runs (Hyper-V never revokes on Remove-VM) and eventually
 # hits the ~64 KB ACL limit, failing the attach with 0x8007053C ("does not
-# have permission to open attachment"). See docs/hyperv-iso-ace-bloat.md.
+# have permission to open attachment"). See https://yuruna.link/vmconfig#hyper-v-iso-ace-bloat.
 $prunedAce = Remove-OrphanedVMFileAccess -Path $baseImageFile
 if ($prunedAce -gt 0) { Write-Verbose "Pruned $prunedAce stale per-VM ACE(s) from base image before attach." }
 Add-VMDvdDrive -VMName $VMName -Path $baseImageFile | Out-Null

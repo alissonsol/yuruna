@@ -1,24 +1,15 @@
 #!/bin/bash
-# Version: 2026.07.14
+# Version: 2026.07.17
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 #
-# Bring up the Yuruna Stash Service daemon on this VM (stash storage-backed
-# model). Compiles the Go source under the cloned repo's
-# test/extension/stash-service/server/, installs the binary at
-# /usr/local/bin/stash-server, disables the OS sshd so the custom server
-# can bind :22, provisions the VM-local metadata + buffer dirs, and
-# registers a systemd unit ordered after the cifs share mount.
-#
-# Storage layout (see https://yuruna.link/stash-service §6.1):
-#   share (durable): <YSTASH_NAS_MOUNT>/stash/<hostId>   (hostkey/ + files/ + sidecars)
-#   VM-local:        /var/lib/stash-server/{metadata,buffer}
-# The share itself is mounted by the cloud-init bring-up; this script
-# only consumes it. When stash storage is not configured (e.g. a dev/test
-# guest with no NAS), it falls back to a local share folder so the daemon
-# still starts -- data is then NOT durable across reimage.
-#
+# Bring up the Yuruna Stash Service daemon: build the in-repo Go stash-server,
+# bind :22, and register its systemd unit (the cifs share is mounted by the
+# cloud-init bring-up, not here). Design + storage layout:
 # --- REGION: https://yuruna.link/stash-service
+# With no stash storage configured (e.g. a dev/test guest with no NAS) the
+# daemon falls back to a local share folder -- it still starts, but data is
+# then NOT durable across reimage.
 set -euo pipefail
 
 # cloud-init's runcmd runs this as root with a MINIMAL environment where
@@ -99,6 +90,12 @@ HTTP_ADDR="${STASH_HTTP_ADDR-0.0.0.0:80}"
 POOL_WINDOW_DAYS="${STASH_POOL_WINDOW_DAYS:-30}"
 AGGREGATOR_URL_SEED=$(sed -nE "s/^YURUNA_AGGREGATOR_URL='(.*)'\$/\1/p" /etc/yuruna/pool.env 2>/dev/null | head -n1 || true)
 AGGREGATOR_URL="${STASH_AGGREGATOR_URL:-$AGGREGATOR_URL_SEED}"
+# Host IP (the deploying host): the one non-VM source allowed to DELETE stashes;
+# reads and writes stay open to any host. Sed-extracted from the seed's
+# host.env (never sourced); empty leaves deletes VM-local-only. An operator
+# STASH_HOST_IP export wins for a dev launch off the seed.
+HOST_IP_SEED=$(sed -nE 's/^YURUNA_HOST_IP=(.*)$/\1/p' /etc/yuruna/host.env 2>/dev/null | head -n1 || true)
+HOST_IP="${STASH_HOST_IP:-$HOST_IP_SEED}"
 # Presence beacon (§4.7): the daemon self-announces to the aggregator on
 # boot, every PRESENCE_INTERVAL, and at shutdown, so the pool dashboard's
 # Extension hosts row exists without the owning host's status server. The
@@ -238,6 +235,7 @@ HTTP_ADDR=$HTTP_ADDR
 POOL_WINDOW_DAYS=$POOL_WINDOW_DAYS
 AGGREGATOR_URL=$AGGREGATOR_URL
 HOST_ID=$HOST_ID
+HOST_IP=$HOST_IP
 PRESENCE_INTERVAL=$PRESENCE_INTERVAL
 ENV
 
@@ -260,7 +258,7 @@ Wants=network-online.target
 Type=simple
 User=$SERVICE_USER
 EnvironmentFile=/etc/yuruna/stash.env
-ExecStart=/usr/local/bin/stash-server --share-folder \${SHARE_FOLDER} --metadata-dir \${METADATA_DIR} --buffer-dir \${BUFFER_DIR} --http-addr=\${HTTP_ADDR} --pool-window-days=\${POOL_WINDOW_DAYS} --aggregator-url=\${AGGREGATOR_URL} --host-id=\${HOST_ID} --presence-interval=\${PRESENCE_INTERVAL}
+ExecStart=/usr/local/bin/stash-server --share-folder \${SHARE_FOLDER} --metadata-dir \${METADATA_DIR} --buffer-dir \${BUFFER_DIR} --http-addr=\${HTTP_ADDR} --pool-window-days=\${POOL_WINDOW_DAYS} --aggregator-url=\${AGGREGATOR_URL} --host-id=\${HOST_ID} --host-ip=\${HOST_IP} --presence-interval=\${PRESENCE_INTERVAL}
 Restart=on-failure
 RestartSec=5
 StandardOutput=journal

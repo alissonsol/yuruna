@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.14
+.VERSION 2026.07.17
 .GUID 42e060d7-36ff-4d1a-8a46-0ee20e443f51
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -98,6 +98,10 @@ $ValidTransitionCase = @(
     @{ From = 'fault'; To = 'paused' }
     @{ From = 'fault'; To = 'idle' }
     @{ From = 'paused'; To = 'idle' }
+    # The healthy pool-hold loop: a started cycle is gated to 'paused' by a
+    # pulled desiredState=paused, and each 30s poll re-enters 'cycle-start'.
+    @{ From = 'cycle-start'; To = 'paused' }
+    @{ From = 'paused'; To = 'cycle-start' }
 )
 
 $InvalidTransitionCase = @(
@@ -107,8 +111,7 @@ $InvalidTransitionCase = @(
     @{ From = 'cycle-start'; To = 'cycle-end' }
     @{ From = 'in-cycle'; To = 'idle' }       # must pass through cycle-end or fault
     @{ From = 'cycle-end'; To = 'in-cycle' }
-    @{ From = 'paused'; To = 'fault' }        # a pause resolves to idle, never straight back to fault
-    @{ From = 'paused'; To = 'cycle-start' }
+    @{ From = 'paused'; To = 'fault' }        # a pause resolves to idle or re-polls, never straight back to fault
     @{ From = 'fault'; To = 'in-cycle' }
     @{ From = 'not-a-state'; To = 'idle' }    # unknown source state
 )

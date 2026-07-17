@@ -98,9 +98,10 @@ pwsh .\New-VM.ps1
   downloads Ubuntu Server Resolute (amd64), converts qcow2→VHDX via
   `qemu-img`, resizes to 512 GB.
 - [New-VM.ps1](../host/windows.hyper-v/guest.caching-proxy/New-VM.ps1)
-  creates Gen 2 VM `caching-proxy` on the Default Switch, attaches a
-  cloud-init seed ISO that installs and configures squid, and waits until
-  port 3128 responds. Prints the proxy URL on ready.
+  creates Gen 2 VM `caching-proxy` on the Yuruna-External vSwitch
+  (falling back to the Default Switch when no LAN-routable NIC is
+  available), attaches a cloud-init seed ISO that installs and configures
+  squid, and waits until port 3128 responds. Prints the proxy URL on ready.
 
 ### macOS UTM
 
@@ -348,9 +349,8 @@ The VM runs these services alongside squid:
 | Grafana OSS     | 3000 | 0.0.0.0                  | Primary dashboard UI; anonymous Viewer. |
 | Prometheus      | 9090 | 127.0.0.1                | Metrics datastore. |
 | Loki            | 3100 | 127.0.0.1                | Log datastore — backs the access-log panel. |
-| Promtail        | 9080 | 127.0.0.1                | Tails `/var/log/squid/access.log` into Loki. |
+| Promtail        | 9080 | 127.0.0.1                | Tails `/var/log/squid/yuruna_access.log` into Loki. |
 | squid-exporter  | 9301 | 127.0.0.1                | Reads squid cachemgr over `:3128`. |
-| cachemgr.cgi    | 80   | 0.0.0.0, RFC1918         | Raw cachemgr UI fallback. |
 | CA cert         | 80   | 0.0.0.0                  | `/yuruna-squid-ca.crt` via Apache. |
 | Squid HTTP      | 3128 | 0.0.0.0, RFC1918         | Plain HTTP + HTTPS CONNECT. |
 | Squid HTTPS     | 3129 | 0.0.0.0, RFC1918         | SSL-bump — caches HTTPS bodies. |
@@ -392,7 +392,8 @@ is the OSS build from `apt.grafana.com stable main`.
 Explore. Scrapes `:9090` and `:9301` every 15 s.
 
 **Loki + Promtail** — loopback-only, same repo. Promtail tails
-`/var/log/squid/access.log` and ships every line to Loki on
+`/var/log/squid/yuruna_access.log` (squid's custom `logformat yuruna`
+stream) and ships every line to Loki on
 `127.0.0.1:3100` with the single stream label `job=squid`. Retention
 capped at 7d. Verify with
 `curl -G 'http://127.0.0.1:3100/loki/api/v1/query_range' --data-urlencode 'query={job="squid"}' --data-urlencode 'limit=5'`.
@@ -547,10 +548,11 @@ at the UTM Shared NAT network layer, not by Apache. Only the public
 cert is copied; `ca.key` stays inside `/etc/squid/ssl_cert/` with
 mode `600 proxy:proxy`.
 
-**cachemgr.cgi (fallback)** — `http://<vm-ip>/cgi-bin/cachemgr.cgi`,
-Cache Host `localhost`, Port `3128`. Reports: `info`, `utilization`,
-`storedir`, `mem`, `client_list`, `objects`. Restricted to RFC1918 at
-Apache; squid's `manager` ACL allows only `localhost`.
+**cachemgr (CLI only)** — the `squid-cgi` (`cachemgr.cgi`) web UI was
+dropped in Ubuntu 26.04 / Squid 7, so cache-manager data is read with
+`squidclient mgr:<page>` on the VM instead (`info`, `utilization`,
+`storedir`, `mem`, `client_list`, `objects`). Squid's `manager` ACL
+allows only `localhost`.
 
 **CLI** inside the VM:
 
@@ -891,6 +893,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.14
+Last review: 2026.07.17
 
 Back to [Yuruna](../README.md)

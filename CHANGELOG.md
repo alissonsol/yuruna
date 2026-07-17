@@ -4,9 +4,26 @@ Yuruna uses [Calendar Versioning](https://calver.org/): `YYYY.MM.DD`.
 Tags are cut from the `main` branch; entries below summarize each
 tagged release.
 
+## 2026.07.17
+
+- **The cache VM's IP can be pinned across rebuilds: `-MacAddress` on
+  `Start-CachingProxy.ps1`.** Each rebuild booted with a random [MAC address](https://en.wikipedia.org/wiki/MAC_address), so [DHCP](https://en.wikipedia.org/wiki/Dynamic_Host_Configuration_Protocol) leased a new IP. The optional parameter pins the MAC on all three
+  hypervisors; a one-time DHCP reservation keeps the cache IP stable. See
+  [caching-proxy.md](docs/caching-proxy.md).
+- **`gh auth login` (or `GH_TOKEN`) now works for git, everywhere the runner
+  talks to GitHub.** Plain `git` reads neither, so fresh hosts failed the
+  first cycle's framework pull. Every network git call now chains the host's
+  credential sources — github.com-scoped `GH_TOKEN`, then
+  `gh auth git-credential`, then plain git.
+- **Also in this release:** `Sync-HostConfiguration` installs the Linux
+  sudoers drop-in and converges aliases/credentials on the reference host;
+  on-host control clicks work again; stash DELETE requires an authorized
+  source; `Set-PoolAuthToken.ps1` reports progress and no longer hangs; new
+  guest VMs ask for 12 GB instead of 16 GB.
+
 ## 2026.07.14
 
-- **Yuruna hosts dashboard panels fit the pool.** The caching-proxy VM now ships Python scripts that every 5minutes will read the live host count from Prometheus + Loki on loopback,
+- **Yuruna hosts dashboard panels fit the pool.** The caching-proxy VM now ships Python scripts that every 5 minutes will read the live host count from Prometheus + Loki on loopback,
   recompute each panel's `gridPos.h` from the dashboard grid geometry, re-stack
   the panels below it, and rewrite the provisioned dashboard, which the Grafana
   provider re-reads within 30s.
@@ -145,7 +162,7 @@ tagged release.
 - **Ctrl+C cleanup in Test-Sequence.** Interrupts now stop the VM cleanly instead of orphaning a half-baked guest; the disk is retained for post-mortem via virsh/vmconnect/utmctl.
 - **Single-instance guard for dev entry points.** Test-Sequence and Test-Project refuse to start when an Invoke-TestRunner already owns `runner.pid`, avoiding pidfile/status.json races on the same runtime dir.
 - **Shared cloud-init base + per-host overlays for Ubuntu Server.** Six drifting per-platform user-data files collapse to one base plus three overlays; orphan/undefined anchors throw at merge time so a typo can't ship a broken guest install.
-- **Removed broken `test/Train-Screenshots.ps1`.** The trainer aborted at module-load after an earlier split; runtime screenshot testing stays via `Invoke-ScreenshotTest`.
+- **Removed broken `test/Train-Screenshots.ps1`.** Runtime screenshot testing stays via `Invoke-ScreenshotTest`.
 
 ## 2026.05.29
 
@@ -170,6 +187,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.14
+Last review: 2026.07.17
 
 Back to [Yuruna](README.md)

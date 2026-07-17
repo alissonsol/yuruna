@@ -28,7 +28,7 @@ pwsh ./New-VM.ps1 -CachingProxyUrl http://192.168.122.10:3128
    `CachingProxyUrl`, and the host's coordinates for the dev iteration
    loop.
 2. Builds a CIDATA seed ISO with `genisoimage`.
-3. Creates an empty 32 G qcow2 install target.
+3. Creates an empty 64 G qcow2 install target.
 4. Defines + starts the VM via `virt-install` against `qemu:///system`,
    booting from the live-server ISO with the seed CD attached. After
    subiquity finishes the install, the VM reboots and lands at the
@@ -40,8 +40,8 @@ pwsh ./New-VM.ps1 -CachingProxyUrl http://192.168.122.10:3128
 |------|---------|----------|
 | Name | `ubuntu-server01` | `-VMName` |
 | RAM  | 8 GiB | (edit script) |
-| vCPU | 2     | (edit script) |
-| Disk | 32 G qcow2 (empty install target) | (edit script) |
+| vCPU | max(4, host cores ÷ 2) | (edit script) |
+| Disk | 64 G qcow2 (empty install target) | (edit script) |
 | User | `yuuser26` / `<vault-managed>` | `-Username` / `$env:YURUNA_GUEST_PASSWORD` |
 | Net  | libvirt `default` (NAT 192.168.122.0/24) | (edit script) |
 
@@ -69,6 +69,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.14
+Last review: 2026.07.17
 
 Back to [Yuruna](../../../README.md)

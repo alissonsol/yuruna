@@ -157,11 +157,11 @@ give the guest the host IP/port; the Config Service port is added there too.
 
 ### 4.4 Rotation flow (the problem this fixes)
 
-Today: `New-VM.ps1` bakes `YPOOL_NAS_PASSWORD_PLACEHOLDER` once
+Currently, `New-VM.ps1` bakes `YPOOL_NAS_PASSWORD_PLACEHOLDER` once,
 ([New-VM.ps1:285-289](../../host/windows.hyper-v/guest.caching-proxy/New-VM.ps1#L285-L289))
 → a later vault rotation never reaches the running VM → replication breaks.
 
-After: rotate the vault password (`Set-Password`). On the guest's next poll the
+After rotation via `Set-Password`, on the guest's next poll the
 Config Service returns the new password (resolved live), the guest rewrites the
 cred file and remounts. **No rebuild, no manual SSH.**
 
@@ -216,7 +216,7 @@ survive a host reboot on its own. The correct fix is a **boot-persistent
 supervisor on the caching-proxy host** (Windows Scheduled Task at startup / Linux
 systemd / macOS launchd), registered by `Start-CachingProxy`, mirroring however
 the host already auto-starts the caching proxy VM + the runner at boot — **runner-
-independent**. Until that lands, re-running `Start-CachingProxy.ps1` after a reboot
+independent**. Re-running `Start-CachingProxy.ps1` after a reboot
 re-establishes it (Step 2.6 is idempotent). **Guest side:** the fetch runs at boot
 (`OnBootSec=30s`) + hourly with a short **retry burst** (the host service may not
 be up when the VM boots), publishes a `/var/www/html/config-fetch-<name>-status`
@@ -226,13 +226,6 @@ Service down" for diagnosis.
 ## 5. GOAL 2 — Extension hosts panel + discovery
 
 ### 5.1 Discovery: registration-driven (no ystash-nas mount)
-
-> **Superseded design note.** An earlier revision had the aggregator *mount and
-> scan ystash-nas* for per-`hostId` folders. That made the dashboard listing
-> depend on the aggregator's host running a Config Service and holding ystash-nas
-> creds — a fragile cross-host dependency that broke whenever the aggregator ran on
-> a different host than the stash server (the common pool topology). It is replaced
-> by the registration-driven path below; the aggregator no longer mounts ystash-nas.
 
 - The host that runs a stash-server VM **advertises it**: `Start-StashServer.ps1`
   writes `runtime/stash-server.json`; `Write-HostRegistrationRecord`
@@ -274,7 +267,7 @@ state a host reboot routinely leaves behind, since the service VM auto-starts
 under the hypervisor but the harness does not — the row vanishes even though
 the stash service is up and serving. And because the aggregator's own host
 view is volatile, an aggregator restart in the same window (e.g. a whole-lab
-reboot) erases the row instantly rather than after `hostTTL`.
+reboot) erases the row immediately instead of aging it out after `hostTTL`.
 
 The **service VM therefore announces itself**: the stash server POSTs
 `{hostId, area, targetPort}` to the aggregator's **`POST /announce`** at boot,
@@ -318,9 +311,9 @@ row wins (it carries the host's status `baseUrl`).
 ## 6. Implementation surface (file-by-file)
 
 **GOAL 3 — Host Config Service**
-- `test/Start-HostConfigService.ps1` *(new)* — `TcpListener`+`SslStream` mTLS
+- `test/Start-HostConfigService.ps1` — `TcpListener`+`SslStream` mTLS
   server; resolves `networkStorage.*` + `Get-Password` per request.
-- `test/modules/Test.HostConfigCA.psm1` *(new)* — mint/persist the per-host
+- `test/modules/Test.HostConfigCA.psm1` — mint/persist the per-host
   Config CA; issue server leaf + per-VM client leaf.
 - `host/*/guest.caching-proxy/New-VM.ps1` ×3 and the stash-service New-VM path —
   issue a per-VM client cert, bake cert/key + Config CA + port into the seed
@@ -376,6 +369,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.14
+Last review: 2026.07.17
 
 Back to [Yuruna](../../README.md)

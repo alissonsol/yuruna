@@ -134,8 +134,8 @@ steps:
 Snippets are defined in a `_snippets.yml` library — a map of
 `name → [steps]` — sitting in the same mode dir as sequences:
 
-- **Framework:** `test/sequences/gui/_snippets.yml`,
-  `test/sequences/ssh/_snippets.yml`
+- **Framework:** `test/sequences/gui/_snippets.yml` (ssh sequences reuse
+  the gui/ library via the mode-dir fallback)
 - **Project:** `project/<…>/test/gui/_snippets.yml` (any example's test tree)
 
 ```yaml
@@ -706,6 +706,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.14
+Last review: 2026.07.17
 
 Back to [Yuruna](../README.md)

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.14
+.VERSION 2026.07.17
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456728
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -128,10 +128,17 @@ function Test-RepoFreshness {
         Write-Warn "${Label}: not a git working tree ($Path) -- skipping freshness check."
         return
     }
+    # Fetch through the shared network-git helper: it neutralizes every
+    # interactive credential prompt (so a private/rate-limited remote can't stop
+    # this check dead on a 'Username for https://github.com:' prompt -- a config
+    # sync that runs this as its final validation would otherwise hang on a
+    # GitHub question unrelated to the sync) AND chains the host's GitHub
+    # credential sources (GH_TOKEN, the gh CLI login), which plain git does not
+    # read on its own. See Invoke-GitNetworkCommand.
     try {
-        $null = & git -C $Path fetch --quiet 2>&1
-        if ($LASTEXITCODE -ne 0) {
-            Write-Warn "${Label}: git fetch failed (offline?); cannot determine staleness."
+        $fetch = Invoke-GitNetworkCommand -GitArgs @('-C', $Path, 'fetch', '--quiet') -TimeoutSeconds 60
+        if ($fetch.ExitCode -ne 0) {
+            Write-Warn "${Label}: git fetch failed (offline, or the remote needs credentials this host does not have); cannot determine staleness."
             return
         }
         $st = Get-GitUpstreamStatus -Path $Path

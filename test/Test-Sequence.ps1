@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.14
+.VERSION 2026.07.17
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456708
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -459,17 +459,17 @@ if ($effectiveUser -and (Get-Command Set-GuestSshUserOverride -ErrorAction Silen
     Set-GuestSshUserOverride -GuestKey $GuestKey -Username $effectiveUser
 }
 
-# --- REGION: Resolve the caching-proxy endpoint from env + config
-# Invoke-TestInnerRunner reads BOTH $env:YURUNA_CACHING_PROXY_IP and
-# $Config.vmStart.cachingProxyIP (the persistent UI-edited key), probes
-# each with the full suite, keeps the first whose HTTP proxy port is
-# reachable, and clears the env when none answers. Test-Sequence runs the
-# SAME Resolve-CachingProxyEndpoint so a syntactically valid but dead IP
+# --- REGION: Resolve the caching-proxy endpoint from config + env
+# Invoke-TestInnerRunner reads BOTH $Config.vmStart.cachingProxyIP (the
+# persistent UI-edited key, probed first) and $env:YURUNA_CACHING_PROXY_IP
+# (session-scope fallback, probed only when the config candidate is
+# absent or fails), keeps the first whose HTTP proxy port is reachable,
+# and clears the env when none answers. Test-Sequence runs the SAME
+# Resolve-CachingProxyEndpoint so a syntactically valid but dead IP
 # configured via the status server's Edit-config page can't survive into
-# guest cidata here either -- previously this path only Test-IpAddress'd
-# the config value and promoted it unprobed. When neither source is set,
-# the resolver is a no-op and the local-discovery path in
-# Test-CachingProxyAvailable below runs unchanged.
+# guest cidata here either. When neither source is set, the resolver is
+# a no-op and the local-discovery path in Test-CachingProxyAvailable
+# below runs unchanged.
 $envCacheIp    = if ($env:YURUNA_CACHING_PROXY_IP) { $env:YURUNA_CACHING_PROXY_IP.Trim() } else { '' }
 $configCacheIp = ''
 if ($Config.vmStart -is [System.Collections.IDictionary] -and $Config.vmStart.Contains('cachingProxyIP')) {
@@ -711,11 +711,12 @@ try {
     # utmctl stays available; only the running process is reclaimed.
     if ($script:CancelState -and $script:CancelState['Requested'] -and $VMName) {
         try {
-            $stopResult = Stop-VM -VMName $VMName -Confirm:$false -ErrorAction Stop
-            if ($stopResult -and $stopResult.success) {
+            # Contract Stop-VM returns [bool] (only Start-VM returns the
+            # { success; errorMessage } hashtable shape).
+            if (Stop-VM -VMName $VMName -Confirm:$false -ErrorAction Stop) {
                 Write-Output "Stopped VM '$VMName' after Ctrl+C (disk retained for inspection)."
-            } elseif ($stopResult) {
-                Write-Warning "Stop-VM '$VMName' after Ctrl+C reported: $($stopResult.errorMessage)"
+            } else {
+                Write-Warning "Stop-VM '$VMName' after Ctrl+C did not confirm the stop; the guest may still be running."
             }
         } catch {
             Write-Warning "Could not stop VM '$VMName' after Ctrl+C: $($_.Exception.Message)"

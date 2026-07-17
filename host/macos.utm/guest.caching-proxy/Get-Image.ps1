@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.14
+.VERSION 2026.07.17
 .GUID 42f2c3d4-e5f6-4a78-b901-c2d3e4f5a6b8
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -29,16 +29,9 @@ if (Test-Path $_logLevelMod) { Import-Module $_logLevelMod -Global -Force; Use-L
 $sourceUrl = "https://cloud-images.ubuntu.com/resolute/current/resolute-server-cloudimg-arm64.img"
 $downloadDir = "$HOME/yuruna/image/caching-proxy"
 $baseImageName = "host.macos.utm.guest.caching-proxy"
-# Final artifact is qcow2: these bundles run on UTM's QEMU backend, which
-# boots qcow2 natively, so no raw conversion is needed. qcow2 is also
-# required for correctness on macOS -- UTM attaches read-write disks with
-# discard=unmap,detect-zeroes=unmap, and QEMU's macOS file-posix backend
-# services those discards via fcntl(F_PUNCHHOLE), which rejects any
-# request not aligned to the APFS 4 KiB block size with EINVAL ("Invalid
-# argument"). A raw image punches holes at the guest's 512-byte discard
-# granularity and trips that; qcow2 only ever punches at its 64 KiB
-# cluster boundaries, which are always 4 KiB-aligned. See
-# feedback_macos-qemu-punchhole-alignment.md.
+# --- REGION: https://yuruna.link/vmconfig#macos-utm-qcow2-punchhole-alignment
+# Final artifact stays qcow2 -- a raw disk trips the macOS F_PUNCHHOLE
+# 4 KiB-alignment EINVAL under UTM's discard=unmap.
 $baseImageFile = Join-Path $downloadDir "$baseImageName.qcow2"
 
 New-Item -ItemType Directory -Force -Path $downloadDir | Out-Null
@@ -99,11 +92,9 @@ if ($fileSize -lt 100MB) {
 }
 
 # --- REGION: Resize the qcow2 to 512 GB
-# No raw conversion: UTM's QEMU backend boots qcow2 directly, and qcow2
-# avoids the macOS F_PUNCHHOLE-alignment EINVAL a raw disk hits under
-# UTM's discard=unmap,detect-zeroes=unmap (see the header note and
-# feedback_macos-qemu-punchhole-alignment.md). Resize a staging copy of
-# the downloaded qcow2, then promote it in the finalize block below.
+# --- REGION: https://yuruna.link/vmconfig#macos-utm-qcow2-punchhole-alignment
+# Resize a staging copy of the downloaded qcow2; the finalize block below
+# promotes it.
 $convertedFile = Join-Path $downloadDir "$baseImageName.staging.qcow2"
 Remove-Item $convertedFile -Force -ErrorAction SilentlyContinue
 Copy-Item -LiteralPath $downloadFile -Destination $convertedFile

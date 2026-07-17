@@ -35,16 +35,26 @@ order:
 On first invocation it:
 
 1. Resolves the host's default-route NIC (refuses Wi-Fi).
-2. Builds a Linux bridge (`yuruna-br0`) and moves the NIC onto it via
-   NetworkManager (`nmcli`) or netplan, whichever is active on the host.
-3. Defines and starts the `yuruna-external` libvirt network pointing at
-   that bridge, and sets autostart.
+2. Sweeps any half-built leftovers from previous attempts (stale
+   NetworkManager profiles, a stale
+   `/etc/netplan/99-yuruna-external.yaml`, a stale `yuruna-br0`
+   device — each makes a fresh build fail in its own way).
+3. Builds a Linux bridge (`yuruna-br0`) and moves the NIC onto it via
+   NetworkManager (`nmcli`) or netplan — picked by which backend
+   manages the NIC. The bridge clones the NIC's MAC, so the DHCP
+   server normally re-issues the same IP the NIC held.
+4. Verifies the NIC actually enslaved to the bridge before defining
+   and starting the `yuruna-external` libvirt network pointing at it
+   (autostart on). A bridge that never got its uplink is rolled back
+   instead of being handed to libvirt.
 
 The helper is idempotent — re-running `Start-CachingProxy.ps1` after
-the bridge already exists is a no-op for host networking. The bridge
-build does cause a brief network outage (typically 1–5 s) while DHCP
-migrates the IP from the bare NIC onto the bridge; SSH sessions over
-the NIC will reconnect once the lease arrives.
+the bridge already exists is a no-op for host networking, and if the
+bridge exists but lost its LAN uplink the helper heals it (or rebuilds
+it from scratch). The bridge build does cause a brief network outage
+(typically 1–5 s) while DHCP migrates the IP from the bare NIC onto
+the bridge; SSH sessions over the NIC will reconnect once the lease
+arrives.
 
 Set `YURUNA_EXTERNAL_BRIDGE_SKIP=1` before `Start-CachingProxy.ps1` if
 you intend to keep the cache VM host-only (libvirt's NAT `default`
@@ -81,30 +91,55 @@ sudo virsh net-list --all
 
 ### Rollback
 
-If the bridge causes networking problems and you want to revert:
+If the bridge causes networking problems and you want to revert, run
+ALL of the blocks below **in this order** — connectivity is restored
+FIRST so an SSH session survives the teardown steps. A previous run may
+have left artifacts from either backend; each command is a no-op when
+its artifact is absent.
 
 ```
-# Remove the libvirt network
+# 1. Restore the NIC's own connection BEFORE tearing anything down.
+#    NOTE: the NIC's profile is usually NOT named after the device --
+#    find the real name with `nmcli -f NAME,DEVICE connection show`
+#    (e.g. "Wired connection 1", "netplan-eno1").
+sudo nmcli device set eno1 managed yes                         # substitute your NIC
+sudo nmcli connection modify '<nic-profile-name>' connection.autoconnect yes
+sudo nmcli connection up '<nic-profile-name>'   # detaches the NIC from the bridge
+
+# 2. Remove the libvirt network
 sudo virsh net-destroy yuruna-external
 sudo virsh net-undefine yuruna-external
 
-# Remove the bridge (NetworkManager path)
-sudo nmcli connection delete yuruna-br0
-sudo nmcli connection delete yuruna-br0-slave-eno1   # substitute your NIC
-sudo nmcli connection modify eno1 connection.autoconnect yes
-sudo nmcli connection up eno1
+# 3. Remove the bridge (NetworkManager path)
+sudo nmcli connection delete yuruna-br0 yuruna-br0-slave-eno1  # substitute your NIC
 
-# Remove the bridge (netplan path)
-sudo rm /etc/netplan/99-yuruna-external.yaml
+# 4. Remove the bridge (netplan path)
+sudo rm -f /etc/netplan/99-yuruna-external.yaml
 sudo netplan apply
+
+# 5. Remove a leftover bridge device (neither netplan apply nor deleting
+#    NM profiles removes an already-created kernel device)
+sudo ip link delete yuruna-br0
 ```
 
 If the cache is created without the bridge in place, New-VM.ps1 falls
 back to libvirt's NAT `default` network. The cache still works for
 guests on the same host, but remote LAN clients can't reach it at its
 libvirt IP without a host-side port forwarder (Start-CachingProxy.ps1
-will set one up automatically for ports 80 / 3000 / 9302 / 3128 /
+will set one up automatically for ports 80 / 3000 / 9302 / 9400 / 3128 /
 3129).
+
+**The multi-host pool dashboard requires the bridge.** On the NAT
+fallback the forwarder is `systemd-socket-proxyd`, a userspace TCP proxy
+that re-originates every connection from the host — so squid records a
+single client IP (the NAT gateway `192.168.122.1`) for the whole LAN.
+The pool-aggregator discovers hosts by their real client IP in squid's
+log, so on NAT it discovers none and `…/d/yuruna-pool/yuruna-hosts`
+shows "No data" no matter how many hosts point at the proxy. Bridging is
+the only reliable fix (the macOS UTM and Hyper-V cache VMs are bridged,
+which is why their pool dashboards populate); forwarding `:9400` exposes
+the aggregator API but cannot recover the client IPs the forwarder
+already erased.
 
 ## Cross-host state
 
@@ -120,6 +155,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.14
+Last review: 2026.07.17
 
 Back to [Yuruna](../../../README.md)

@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.07.14
+# Version: 2026.07.17
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 set -euo pipefail
@@ -32,18 +32,8 @@ esac
 export YURUNA_APT_STALL_TIMEOUT=0
 
 # --- REGION: https://yuruna.link/network#caching-proxy-ca-cert-rc60-gate
-# CA self-heal: if this guest is routed through the SSL-bump proxy (:3129) but
-# does not trust its CA -- e.g. the caching proxy was unreachable when the host
-# built this guest's seed, so an empty CA was baked -- every HTTPS returns a
-# "self-signed certificate in certificate chain" error (curl rc=60) and the run
-# aborts on the first github HTTPS below. By now the cache has typically
-# recovered, so the CA is re-fetchable from the host status server (which
-# live-reads the current cache) over the RFC1918-permitted plain-HTTP path.
-# Installing it does NOT relax egress: HTTPS still flows through the auditable
-# bump; this only supplies the trust anchor the bump already expects.
-# Best-effort and non-fatal -- a missing host, empty body, or absent host.env
-# degrades to the existing rc=60 with a clear diagnostic, never a silent pass.
-# See project_sslbump_ca_gating_durable_fix.
+# CA self-heal: an untrusted SSL-bump (empty CA baked at seed time) would rc=60
+# the first HTTPS below; re-fetch the CA from the host status server. Non-fatal.
 yuruna_ca_selfheal() {
   # Guard on the bump port with a boundary so a no-cache/direct guest (empty
   # https_proxy) or a proxy on some other port is a hard no-op.
@@ -140,11 +130,32 @@ try {
 } catch { "HEAD ERROR: $($_.Exception.Message)" }
 
 "--- Install-Module powershell-yaml (Verbose) ---"
-Install-Module -Name powershell-yaml -Scope AllUsers -Force -Verbose 4>&1
+try {
+    Install-Module -Name powershell-yaml -Scope AllUsers -Force -Verbose 4>&1
+} catch {
+    "INSTALL ERROR: $($_.Exception.Message)"
+}
 
 "--- Import + ConvertFrom-Yaml smoke ---"
-Import-Module powershell-yaml
-$null = ConvertFrom-Yaml 'k: v'
+# Install-Module can leave powershell-yaml ABSENT while writing only a
+# non-terminating error: a corrupt/truncated .nupkg trips a hash mismatch and
+# an invalid-zip "End of Central Directory record could not be found", which
+# does not stop the block, so it would otherwise print "OK" and exit 0 -- a
+# green guest with no powershell-yaml, and pwsh_retry's backoff never engages
+# against what is usually a transient bad transfer. Verify the end state (the
+# Get-Module -ListAvailable gate ConvertFrom-Content enforces at workload time)
+# and exit non-zero on any gap so a fresh download is retried.
+try {
+    Import-Module powershell-yaml -ErrorAction Stop
+    $null = ConvertFrom-Yaml 'k: v'
+} catch {
+    "SMOKE ERROR: $($_.Exception.Message)"
+    exit 1
+}
+if (-not (Get-Module -ListAvailable -Name powershell-yaml)) {
+    "VERIFY ERROR: powershell-yaml not available after install"
+    exit 1
+}
 "OK"
 PSEOF
 

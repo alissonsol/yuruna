@@ -22,9 +22,11 @@ don't apply to the running process.
 
 ## VM sizing and connectivity
 
-Every VM is **16 GB RAM, 4 vCPU, 512 GB disk (dynamic/thin)**. Change
-for **new VMs**: edit `New-VM.ps1` (Hyper-V: replace `16384MB`; UTM:
-replace `__MEMORY_SIZE__`).
+Most VMs are **12 GB RAM, 4 vCPU, 512 GB disk (dynamic/thin)**; the
+service guests are smaller (caching-proxy 12 GB, stash-service 8 GB) and
+the KVM guests are sized down further. Change for **new VMs**: edit
+`New-VM.ps1` (Hyper-V: replace `12288MB`; UTM: replace
+`__MEMORY_SIZE__`; KVM: replace `--memory`).
 
 Existing VMs:
 
@@ -58,6 +60,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.14
+Last review: 2026.07.17
 
 Back to [Yuruna](../README.md)

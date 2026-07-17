@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.14
+.VERSION 2026.07.17
 .GUID 428c1a6d-4b29-4e07-9d51-7a2c8e0b5f31
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -81,6 +81,24 @@ Describe 'Get-OuterRemoteSha (bounded ls-remote parsing)' {
     It 'returns $null for an empty remote URL without invoking git' {
         Mock -ModuleName Test.RunnerOuterLoop Invoke-PoolSyncGitCapture { throw 'ls-remote must not run for an empty URL' }
         Assert-Equal $null (Get-OuterRemoteSha -RemoteUrl '')
+    }
+}
+
+Describe 'Invoke-OuterNetworkGit (bounded, credential-chained runner)' {
+    # Execution must stay on Invoke-PoolSyncGitCapture (wall-clock cap +
+    # process-tree kill), whatever credential sources are loaded -- these pin
+    # that, plus the immediate surfacing of credential-independent failures.
+    It 'returns the bounded runner result with a combined Output' {
+        Mock -ModuleName Test.RunnerOuterLoop Invoke-PoolSyncGitCapture { @{ ExitCode = 0; StdOut = "ok`n"; StdErr = '' } }
+        $r = Invoke-OuterNetworkGit -ArgumentList @('fetch')
+        Assert-Equal -Expected 0 -Actual $r.ExitCode -Because 'the bounded runner exit code is surfaced'
+        Assert-Equal -Expected 'ok' -Actual $r.Output -Because 'StdOut+StdErr are combined and trimmed into Output'
+    }
+    It 'surfaces a credential-independent failure (timeout) from a single bounded run' {
+        Mock -ModuleName Test.RunnerOuterLoop Invoke-PoolSyncGitCapture { @{ ExitCode = 124; StdOut = ''; StdErr = '' } }
+        $r = Invoke-OuterNetworkGit -ArgumentList @('fetch') -TimeoutSeconds 5
+        Assert-Equal -Expected 124 -Actual $r.ExitCode -Because 'the timeout exit code is surfaced as-is'
+        Assert-MockCalled -ModuleName Test.RunnerOuterLoop Invoke-PoolSyncGitCapture -Exactly -Times 1 -Scope It
     }
 }
 

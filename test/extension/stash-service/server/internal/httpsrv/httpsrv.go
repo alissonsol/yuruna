@@ -13,6 +13,7 @@ package httpsrv
 import (
 	"context"
 	"errors"
+	"net"
 	"net/http"
 	"path/filepath"
 	"strconv"
@@ -38,6 +39,7 @@ type Server struct {
 	defaultLimit  int
 	version       string
 	listener      *http.Server
+	deleteHostIPs []net.IP // host IPs permitted to DELETE; nil = VM-only
 }
 
 // New builds the UI server. stashRoot and localHostID are derived from the
@@ -54,6 +56,11 @@ type Options struct {
 	PoolRefresh    time.Duration
 	DefaultLimit   int
 	Version        string
+	// HostIP is the deploying host's IP address (the --host-ip launch flag):
+	// the one non-VM source permitted to DELETE stashes. Reads and
+	// writes stay open to any host. A comma-separated list is accepted; empty
+	// means only the VM itself may delete.
+	HostIP string
 }
 
 func New(sshServer *sshsrv.Server, opts Options) *Server {
@@ -74,6 +81,7 @@ func New(sshServer *sshsrv.Server, opts Options) *Server {
 		resolver:      newHostResolver(),
 		defaultLimit:  defaultLimit,
 		version:       opts.Version,
+		deleteHostIPs: parseHostIPs(opts.HostIP),
 	}
 	s.listener = &http.Server{
 		Addr:    opts.Addr,

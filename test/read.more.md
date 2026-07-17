@@ -271,9 +271,11 @@ Test-Sequence mirrors the relevant runner-side resolutions:
   each `Invoke-Sequence` call so a workload-level `username: webuser`
   propagates into the baseline's `${username}` substitutions.
 * `Test-CachingProxyAvailable` is consulted and the resolved URL is
-  forwarded as `-CachingProxyUrl` to `New-VM`. `vmStart.cachingProxyIP`
-  from test.config.yml is promoted to `$Env:YURUNA_CACHING_PROXY_IP`
-  before the probe (same precedence the runner uses).
+  forwarded as `-CachingProxyUrl` to `New-VM`. Before that, the shared
+  `Resolve-CachingProxyEndpoint` probes `vmStart.cachingProxyIP` from
+  test.config.yml first and `$Env:YURUNA_CACHING_PROXY_IP` only on its
+  failure, publishing the winner into the env var (same precedence the
+  runner uses).
 * `control.cycle-restart` is consumed at startup so leftover state from a
   Ctrl-C'd runner can't make a clean Test-Sequence run look broken.
 * `-ShowSensitive` is OFF by default (matches Invoke-TestRunner's masked
@@ -326,6 +328,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.14
+Last review: 2026.07.17
 
 Back to [Yuruna](../README.md)

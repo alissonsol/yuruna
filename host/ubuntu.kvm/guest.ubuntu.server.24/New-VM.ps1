@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.14
+.VERSION 2026.07.17
 .GUID 42a2b3c4-d5e6-4f78-9012-3a4b5c6d7e95
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -357,7 +357,7 @@ $installArgs = @(
     # cluster (control plane + containerd + pulled images ~3-4 GB) plus the
     # dotnet-sdk build/run workload as ubuntu.server.26, which 4 GB was too
     # tight to carry. Kept at the minimum that carries the workload rather
-    # than matching the 16 GB the Hyper-V / UTM guests use, because every
+    # than matching the 12 GB the Hyper-V / UTM guests use, because every
     # extra GB per VM subtracts from how many guests this KVM host can run
     # concurrently in a busy pool.
     '--memory',  '8192',

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.14
+.VERSION 2026.07.17
 .GUID 42e6c9b2-7d18-4a53-8f01-2b4c6e9d0a37
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -48,13 +48,13 @@ Describe 'caching-proxy exposed-port set is single-sourced' {
         Assert-True ($null -ne (Get-Command Get-CachingProxyExposedPort -ErrorAction SilentlyContinue)) 'the helper must be exported'
     }
 
-    It 'returns the fixed service ports plus the passed http/https ports' {
+    It 'returns the fixed service ports (incl. 9400 pool-aggregator) plus the passed http/https ports' {
         $r = Get-CachingProxyExposedPort -HttpPort 3128 -HttpsPort 3129
-        Assert-Equal -Expected '80,3000,9302,3128,3129' -Actual ($r -join ',')
+        Assert-Equal -Expected '80,3000,9302,9400,3128,3129' -Actual ($r -join ',')
     }
 
     It 'defaults the http/https ports to Get-CachingProxyPort' {
-        $exp = @(80, 3000, 9302, (Get-CachingProxyPort -Scheme http), (Get-CachingProxyPort -Scheme https)) -join ','
+        $exp = @(80, 3000, 9302, 9400, (Get-CachingProxyPort -Scheme http), (Get-CachingProxyPort -Scheme https)) -join ','
         Assert-Equal -Expected $exp -Actual ((Get-CachingProxyExposedPort) -join ',')
     }
 

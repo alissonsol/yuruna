@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.14
+.VERSION 2026.07.17
 .GUID 42f3d4e5-f6a7-4b89-c012-3d4e5f6a7b8c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -56,8 +56,8 @@ $sourceUrl     = "https://cloud-images.ubuntu.com/resolute/current/resolute-serv
 $downloadDir   = "$HOME/yuruna/image/caching-proxy"
 $baseImageName = "host.ubuntu.kvm.guest.caching-proxy"
 # libvirt-qemu boots qcow2 natively; no format conversion needed (unlike
-# the Hyper-V variant which produces VHDX and the macOS UTM variant which
-# produces raw). Keep the cloud-image's native qcow2 and just resize it
+# the Hyper-V variant which produces VHDX; the macOS UTM variant also
+# keeps qcow2). Keep the cloud-image's native qcow2 and just resize it
 # to 512 GB sparse so the squid `cache_dir 393216 16 256` (= 384 GB) +
 # OS/logs headroom fits.
 $baseImageFile = Join-Path $downloadDir "$baseImageName.qcow2"

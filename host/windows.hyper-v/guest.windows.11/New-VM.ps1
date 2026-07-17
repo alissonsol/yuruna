@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.14
+.VERSION 2026.07.17
 .GUID 42d9e0f1-a2b3-4c45-d678-9e0f1a2b3c46
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -212,8 +212,8 @@ if (-not $switchName) {
 }
 
 Write-Verbose "Creating new VM '$VMName' on switch '$switchName'..."
-Hyper-V\New-VM -Name $VMName -Generation 2 -MemoryStartupBytes 16384MB -SwitchName $switchName -VHDPath $vhdxFile | Out-Null
-Set-VM -Name $VMName -MemoryStartupBytes 16384MB -MemoryMinimumBytes 16384MB -MemoryMaximumBytes 16384MB -AutomaticCheckpointsEnabled $false | Out-Null
+Hyper-V\New-VM -Name $VMName -Generation 2 -MemoryStartupBytes 12288MB -SwitchName $switchName -VHDPath $vhdxFile | Out-Null
+Set-VM -Name $VMName -MemoryStartupBytes 12288MB -MemoryMinimumBytes 12288MB -MemoryMaximumBytes 12288MB -AutomaticCheckpointsEnabled $false | Out-Null
 Set-VMMemory -VMName $VMName -DynamicMemoryEnabled $false
 
 # Enable Secure Boot with Microsoft Windows certificate (required for Windows 11)
@@ -227,7 +227,7 @@ Enable-VMTPM -VMName $VMName
 # Hyper-V appends this VM's ACE on attach. Without it the file's DACL grows
 # unbounded across runs (Hyper-V never revokes on Remove-VM) and eventually
 # hits the ~64 KB ACL limit, failing the attach with 0x8007053C ("does not
-# have permission to open attachment"). See docs/hyperv-iso-ace-bloat.md.
+# have permission to open attachment"). See https://yuruna.link/vmconfig#hyper-v-iso-ace-bloat.
 $prunedAce = Remove-OrphanedVMFileAccess -Path $baseImageFile
 if ($prunedAce -gt 0) { Write-Verbose "Pruned $prunedAce stale per-VM ACE(s) from base image before attach." }
 Add-VMDvdDrive -VMName $VMName -Path $baseImageFile | Out-Null

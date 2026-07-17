@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.14
+.VERSION 2026.07.17
 .GUID 42d4e5f6-a7b8-4c90-1d23-4e5f6a7b8c91
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -86,7 +86,7 @@ function Show-Remediation {
 # --- REGION: 1. host.env exists and parses
 if (-not (Test-Path $HostEnvFile)) {
     Write-Result 'FAIL' "host.env not found at $HostEnvFile"
-    Write-Result 'INFO' 'This guest was provisioned BEFORE the yuruna-host injection landed.'
+    Write-Result 'INFO' 'This guest does not have the yuruna-host configuration.'
     Show-Remediation
     exit 1
 }

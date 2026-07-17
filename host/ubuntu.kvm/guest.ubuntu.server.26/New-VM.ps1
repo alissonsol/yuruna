@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.14
+.VERSION 2026.07.17
 .GUID 4214c5d6-e7f8-4a91-b234-5c6d7e8f9a03
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -346,7 +346,7 @@ $installArgs = @(
     # 8 GB: the ubuntu.server.26 guest runs a single-node kubeadm cluster
     # (control plane + containerd + pulled images ~3-4 GB) plus a dotnet-sdk
     # build/run workload; 4 GB was too tight for that combination. Kept at the
-    # minimum that carries the workload rather than matching the 16 GB the
+    # minimum that carries the workload rather than matching the 12 GB the
     # Hyper-V / UTM guests use, because every extra GB per VM subtracts from how
     # many guests this KVM host can run concurrently in a busy pool. The KVM
     # provisioning cycle exercises the real k8s + dotnet workload, so it is the

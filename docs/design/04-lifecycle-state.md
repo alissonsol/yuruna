@@ -22,12 +22,14 @@ stateDiagram-v2
     idle --> fault : stale prior state
     cycle_start --> in_cycle : inner spawned
     cycle_start --> fault : spawn failed
+    cycle_start --> paused : pool hold (desiredState=paused)
     in_cycle --> cycle_end : inner exit 0
     in_cycle --> fault : non-zero / watchdog kill
     cycle_end --> idle
     fault --> paused : await commit / edit / cap
     fault --> idle
     paused --> idle : trigger fired
+    paused --> cycle_start : re-poll intent (~30s)
 ```
 
 State `runner.state.json` is written atomically on every transition and
@@ -69,4 +71,4 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.14
+Last review: 2026.07.17

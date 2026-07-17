@@ -8,7 +8,7 @@ sequence, then loops:
 1. `git pull` the framework repo.
 2. Wipe last cycle's `inner.pid` / `runner.stepHeartbeat` /
    `last_failure.json` / `break-active.json`.
-3. Arm the [watchdog](runner-watchdog.md).
+3. Arm the [watchdog](watchdog.md).
 4. Spawn the inner runner via the call operator.
 5. On `exitCode == 0`, loop immediately. On non-zero, pause until
    one of four break-out triggers fires.
@@ -96,6 +96,7 @@ transition table live in [Runner state machine](runner-state.md).
 | Watchdog armed | `cycle-start -> in-cycle` |
 | Inner exited 0 | `in-cycle -> cycle-end -> idle` |
 | Inner exited non-zero | `in-cycle -> fault` |
+| Pool `desiredState=paused` (hold) | `cycle-start -> paused`, then `paused -> cycle-start` on the ~30s intent re-poll |
 | Entering failure-pause | `fault -> paused` |
 | Pause broke out | `paused -> idle` |
 
@@ -115,8 +116,7 @@ the force-touch is harmless when the wipe succeeded.
 
 ## Related
 
-- [Watchdog protocol](watchdog.md) — files-on-disk side.
-- [Watchdog module](runner-watchdog.md) — the PowerShell-side contract for `Start-Watchdog`/`Stop-Watchdog`.
+- [Watchdog protocol and module](watchdog.md) — the files-on-disk side plus the PowerShell contract for `Start-Watchdog`/`Stop-Watchdog`.
 - [Runner state machine](runner-state.md) — enum + transition table.
 - [Remediation dispatcher](remediation.md) — what runs *after* a `fault`.
 
@@ -126,6 +126,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.14
+Last review: 2026.07.17
 
 Back to [Yuruna](../README.md)

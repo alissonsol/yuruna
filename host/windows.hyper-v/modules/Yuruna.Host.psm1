@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.14
+.VERSION 2026.07.17
 .GUID 42a2b3c4-d5e6-4f78-9012-3a4b5c6d7e90
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -770,10 +770,13 @@ function Stop-HyperVVMForce {
 Force-stop and delete a Hyper-V VM along with its disk directory.
 
 .DESCRIPTION
-Brings the VM to Off via Stop-HyperVVMForce, calls Remove-VM, and then
-removes the per-VM subdirectory under Get-VMHost.VirtualHardDiskPath.
-Returns $true only when the VM is no longer registered after Remove-VM
-returns; disk-cleanup failures are warned but do not flip the result.
+Brings the VM to Off via Stop-HyperVVMForce, closes any vmconnect
+viewer attached to the VM (deleting a VM with its viewer open leaves a
+modal "has been deleted" dialog that blocks until dismissed by hand),
+calls Remove-VM, and then removes the per-VM subdirectory under
+Get-VMHost.VirtualHardDiskPath. Returns $true only when the VM is no
+longer registered after Remove-VM returns; disk-cleanup failures are
+warned but do not flip the result.
 #>
 function Remove-HyperVTestVM {
     [CmdletBinding(SupportsShouldProcess)]
@@ -784,6 +787,15 @@ function Remove-HyperVTestVM {
     $registryRemoved = $true
     if ($vm) {
         $null = Stop-HyperVVMForce -VMName $VMName -Confirm:$false
+        # Close the VM's vmconnect viewer before unregistering. vmconnect has
+        # no setting to suppress the modal "The virtual machine ... has been
+        # deleted" dialog it raises when its VM disappears, and that dialog
+        # blocks until a human clicks Exit. Must happen pre-delete: once the
+        # dialog is up the window title no longer carries the VM name, so the
+        # title match below would miss it.
+        Get-Process -Name "vmconnect" -ErrorAction SilentlyContinue |
+            Where-Object { $_.MainWindowTitle -match [regex]::Escape($VMName) } |
+            Stop-Process -Force -ErrorAction SilentlyContinue
         try {
             Hyper-V\Remove-VM -Name $VMName -Force -Confirm:$false -ErrorAction Stop 6>$null
             if (Hyper-V\Get-VM -Name $VMName -ErrorAction SilentlyContinue) {
@@ -848,24 +860,104 @@ function Start-HyperVVM {
 
 <#
 .SYNOPSIS
-Stop a Hyper-V VM and close any matching vmconnect window.
+Ask the guest OS to shut itself down, and wait for the VM to reach Off.
 
 .DESCRIPTION
-Delegates the Off transition to Stop-HyperVVMForce (with a 20-second
-timeout and vmwp.exe escalation), then kills any vmconnect process
-whose window title references this VM so the desktop doesn't accumulate
-stale viewer windows. Returns whether the VM actually reached Off.
+Hyper-V's Stop-VM WITHOUT -TurnOff is served by the Shutdown integration
+component, so the guest unmounts and flushes before the disk stops
+changing. -Force here only suppresses the logged-on-user confirmation
+prompt; it does NOT turn the semantics into a power cut.
+
+That distinction is load-bearing whenever the stop is followed by a
+checkpoint. A -TurnOff is a virtual power cut: an ext4 guest with delayed
+allocation loses every write still inside its writeback window (30s by
+default), and files created in that window come back with their metadata
+intact and size 0 -- while the same files' data blocks were never
+allocated. Those zero-length files are then baked into the checkpoint and
+reappear on every later restore. A 0-byte file with the +x bit still
+executes as an empty script under bash (exit 0, no output), so a truncated
+tool can survive a whole provisioning run without anything complaining.
+
+The shutdown request runs in a background job so a hung vmms cannot block
+the caller. A guest that cannot answer (no integration services, stuck at a
+firmware prompt) makes Stop-VM return quickly without ever reaching Off; the
+job-completed check below stops waiting out the full timeout in that case.
+
+Returns $true when the VM is gone or reached Off, $false when the guest did
+not follow through -- the caller decides whether to escalate.
+#>
+function Request-HyperVVMShutdown {
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([bool])]
+    param(
+        [Parameter(Mandatory)][string]$VMName,
+        [int]$ShutdownTimeoutSeconds = 120
+    )
+    $vm = Hyper-V\Get-VM -Name $VMName -ErrorAction SilentlyContinue
+    if (-not $vm) { return $true }
+    if ($vm.State -in @('Off', 'Saved', 'OffCritical')) { return $true }
+    if (-not $PSCmdlet.ShouldProcess($VMName, 'Request guest shutdown (Stop-VM, no -TurnOff)')) { return $false }
+
+    $shutdownJob = Start-Job -ScriptBlock {
+        Hyper-V\Stop-VM -Name $using:VMName -Force -ErrorAction SilentlyContinue -WarningAction SilentlyContinue
+    }
+    try {
+        $deadline    = (Get-Date).AddSeconds($ShutdownTimeoutSeconds)
+        $jobDoneAt   = $null
+        # Grace after the request returns: Stop-VM can hand back before the VM's
+        # state has settled to Off, so a completed job is not by itself a refusal.
+        $graceSeconds = 5
+        while ((Get-Date) -lt $deadline) {
+            $vm = Hyper-V\Get-VM -Name $VMName -ErrorAction SilentlyContinue
+            if (-not $vm -or $vm.State -eq 'Off') { return $true }
+            if ($shutdownJob.State -notin @('NotStarted', 'Running')) {
+                if ($null -eq $jobDoneAt) { $jobDoneAt = Get-Date }
+                elseif (((Get-Date) - $jobDoneAt).TotalSeconds -gt $graceSeconds) {
+                    Write-Verbose "Request-HyperVVMShutdown: shutdown request for '$VMName' completed but the VM is '$($vm.State)'; the guest is not honoring it."
+                    return $false
+                }
+            }
+            Start-Sleep -Milliseconds 500
+        }
+    } finally {
+        Stop-Job   -Job $shutdownJob -ErrorAction SilentlyContinue
+        Remove-Job -Job $shutdownJob -Force -ErrorAction SilentlyContinue
+    }
+    return $false
+}
+
+<#
+.SYNOPSIS
+Stop a Hyper-V VM cleanly and close any matching vmconnect window.
+
+.DESCRIPTION
+Asks the guest to shut itself down first (Request-HyperVVMShutdown) so its
+filesystem is flushed and consistent, and only escalates to
+Stop-HyperVVMForce -- a -TurnOff plus vmwp.exe kill -- when the guest does
+not reach Off in time. Callers that genuinely want the power cut (teardown,
+where the disk is about to be deleted) call Stop-HyperVVMForce directly.
+
+Then kills any vmconnect process whose window title references this VM so
+the desktop doesn't accumulate stale viewer windows. Returns whether the VM
+actually reached Off.
 #>
 function Stop-HyperVVM {
     [CmdletBinding(SupportsShouldProcess)]
     [OutputType([bool])]
-    param([Parameter(Mandatory)][string]$VMName)
-    if (-not $PSCmdlet.ShouldProcess($VMName, 'Stop Hyper-V VM')) { return $true }
+    param(
+        [Parameter(Mandatory)][string]$VMName,
+        [int]$ShutdownTimeoutSeconds = 120
+    )
+    if (-not $PSCmdlet.ShouldProcess($VMName, 'Stop Hyper-V VM (guest shutdown, escalating to force)')) { return $true }
     $stopped = $false
     try {
-        $stopped = [bool](Stop-HyperVVMForce -VMName $VMName -StopTimeoutSeconds 20 -Confirm:$false)
+        $stopped = [bool](Request-HyperVVMShutdown -VMName $VMName -ShutdownTimeoutSeconds $ShutdownTimeoutSeconds -Confirm:$false)
+        if (-not $stopped) {
+            Write-Warning "Guest shutdown did not bring '$VMName' to Off within ${ShutdownTimeoutSeconds}s; escalating to a force-stop. Writes still inside the guest's writeback window will be lost."
+            $stopped = [bool](Stop-HyperVVMForce -VMName $VMName -StopTimeoutSeconds 20 -Confirm:$false)
+        }
     } catch {
-        Write-Warning "Stop-HyperVVMForce threw for '$VMName': $_"
+        Write-Warning "Stopping Hyper-V VM '$VMName' threw: $_"
         $stopped = $false
     }
     Get-Process -Name "vmconnect" -ErrorAction SilentlyContinue |
@@ -2326,8 +2418,21 @@ function Save-VMDiskSnapshot {
         [Parameter(Mandatory)][string]$Id
     )
     if (-not $PSCmdlet.ShouldProcess($VMName, "Save disk snapshot '$Id' and rename to '$Id'")) { return $false }
-    if ((Get-VMState -VMName $VMName) -eq 'running') {
+    # The checkpoint is only as good as the disk under it: the guest has to
+    # flush before the bytes are frozen, or the snapshot is crash-consistent
+    # and silently missing the tail of whatever the sequence just installed
+    # (see Request-HyperVVMShutdown). A force-stop here still beats leaving the
+    # VM running -- Checkpoint-VM on a live VM would capture the same dirty
+    # state -- but it makes the snapshot untrustworthy, so say so loudly rather
+    # than persisting a corrupt baseline every later restore inherits.
+    # Gate on "not genuinely off" rather than -eq 'running': Get-VMState
+    # reports transitional Hyper-V states (Paused, Starting, Stopping, ...)
+    # as 'unknown', and skipping the stop for those would checkpoint a
+    # non-Off guest -- the same dirty-state capture the warning below is
+    # about, taken silently.
+    if ((Get-VMState -VMName $VMName) -notin @('stopped', 'absent')) {
         if (-not (Stop-VM -VMName $VMName)) {
+            Write-Warning "Save-VMDiskSnapshot: '$VMName' would not shut down cleanly; force-stopping. Checkpoint '$Id' may be crash-consistent -- files written in the last seconds before the stop can be zero-length in it."
             [void](Stop-VMForce -VMName $VMName)
         }
     }
@@ -2398,10 +2503,14 @@ function Restore-VMDiskSnapshot {
         Write-Warning "Restore-VMDiskSnapshot: no checkpoint '$Id' on '$VMName'."
         return $false
     }
-    if ((Get-VMState -VMName $VMName) -eq 'running') {
-        if (-not (Stop-VM -VMName $VMName)) {
-            [void](Stop-VMForce -VMName $VMName)
-        }
+    # Force-stop deliberately: the running guest's disk state is about to be
+    # rolled back to the checkpoint, so flushing it first buys nothing and a
+    # guest shutdown would only add its full timeout to every restore.
+    # Gate on "not genuinely off" rather than -eq 'running': transitional
+    # states (Paused, Starting, Stopping, ...) surface as 'unknown', and
+    # Restore-VMCheckpoint against a non-Off VM fails.
+    if ((Get-VMState -VMName $VMName) -notin @('stopped', 'absent')) {
+        [void](Stop-VMForce -VMName $VMName)
     }
     try {
         Hyper-V\Restore-VMCheckpoint -VMName $VMName -Name $Id -Confirm:$false -ErrorAction Stop
@@ -3110,25 +3219,15 @@ function Remove-OrphanedVMFileAccess {
         Strip stale per-VM access ACEs from a file's ACL, keeping only the
         ACEs of VMs that still exist. Returns the number removed.
     .DESCRIPTION
-        When a VM is granted access to a file it attaches (an ISO via
-        Add-VMDvdDrive, a directly-attached VHDX, ...), Hyper-V appends an
-        explicit ACE for that VM's per-machine virtual account -- SID family
-        S-1-5-83-1-* , displayed as 'NT VIRTUAL MACHINE\<VM-GUID>' (the name
-        form) or as the raw SID once the VM is gone. Removing the VM does NOT
-        remove the ACE. A SHARED, persistent file -- e.g. a base install ISO
-        reused for every VM creation -- therefore accumulates one orphaned ACE
-        per VM ever created, without bound. A Windows DACL is capped at ~64 KB;
-        once a shared image's DACL fills, SetNamedSecurityInfo can no longer
-        build a larger ACL to add the next VM's ACE and the attach fails with
-        0x8007053C / 0x80070005 -- independent of caller elevation, because the
-        gate is the file's (full) ACL, not the caller's token.
-
-        This removes only the explicit per-VM ACEs whose virtual account does
-        not match a currently-existing VM. Inherited ACEs, admin/SYSTEM ACEs,
-        the all-VMs group (S-1-5-83-0), capability SIDs, and live VMs' own ACEs
-        are left untouched, so it is safe to run while other VMs use the file.
-        Set-Acl writes a SMALLER descriptor, so it succeeds even when the
-        on-disk ACL is already at the limit. See docs/hyperv-iso-ace-bloat.md.
+        Guards against Hyper-V shared-image DACL bloat: each attach appends a
+        per-VM ACE (SID family S-1-5-83-1-*) that Remove-VM never revokes,
+        until the ~64 KB DACL cap fails the next attach with 0x8007053C /
+        0x80070005 regardless of caller elevation. Only stale per-VM ACEs are
+        removed -- inherited ACEs, admin/SYSTEM, the all-VMs group
+        (S-1-5-83-0), capability SIDs, and live VMs' own ACEs stay, so it is
+        safe to run while other VMs use the file. Set-Acl writes a SMALLER
+        descriptor, so it succeeds even when the on-disk ACL is already at
+        the limit. See https://yuruna.link/vmconfig#hyper-v-iso-ace-bloat.
     .OUTPUTS
         System.Int32 -- the number of stale per-VM ACEs removed.
     #>
@@ -3215,7 +3314,7 @@ Export-ModuleMember -Function `
     Test-DownloadAlreadyCurrent, Resolve-CacheHostIp, `
     Save-CachedHttpUri, Assert-HyperVEnabled, `
     Confirm-HyperVVMCreated, Stop-HyperVVMForce, Remove-HyperVTestVM, `
-    Start-HyperVVM, Stop-HyperVVM, Confirm-HyperVVMStarted, `
+    Start-HyperVVM, Stop-HyperVVM, Request-HyperVVMShutdown, Confirm-HyperVVMStarted, `
     Resolve-VMConnectAnotherUserDialog, Restart-HyperVConnect, `
     Test-WindowsProxyIsYurunaManaged, Read-WindowsProxyState, Invoke-WinInetRefresh, `
     Set-WindowsHostProxy, Restore-WindowsHostProxy, Disable-WindowsHostProxy, Remove-WindowsHostProxy, `

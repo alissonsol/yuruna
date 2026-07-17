@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.14
+.VERSION 2026.07.17
 .GUID 429ebfcd-3e45-4b08-a1ee-faef5b1735e2
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -22,12 +22,9 @@
     Set-Component / Set-Workload entrypoints is centralized in one
     Complete-YurunaRun helper, not copy-pasted.
 .DESCRIPTION
-    Each entrypoint used to inline the same tail -- test the result manifest via
-    Test-YurunaResultManifestOk, and on failure write the compact result JSON +
-    transcript and `exit 1` so bash `set -e` wrappers see the non-zero exit. That
-    block is now Complete-YurunaRun (in automation/Yuruna.Result.psm1, exported and
-    imported -Global by the Yuruna.Component/Resource/Workload modules), called as a
-    single statement by each entrypoint. These guards assert the helper exists +
+    Structural Pester guard: the failure-reporting tail of the Set-Resource /
+    Set-Component / Set-Workload entrypoints is centralized in one
+    Complete-YurunaRun helper, not copy-pasted. These guards assert the helper exists +
     is exported, all three entrypoints delegate to it, and none of them still
     open-codes the failure-report JSON. Source-text only. Runs under Pester 4.10.1.
 #>

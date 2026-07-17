@@ -203,6 +203,17 @@ the mount). Example drop-in (adjust binary paths to your distro):
 test ALL=(root) NOPASSWD: /usr/bin/mkdir, /usr/bin/mount, /usr/bin/umount
 ```
 
+**`Sync-HostConfiguration` installs this for you.** The unattended runner cannot
+self-elevate, but the config sync is an interactive operator session, so it
+offers to install the drop-in once — resolving the account and the real
+`mkdir`/`mount`/`umount` paths, writing the rule via `sudo tee` (one password
+prompt), and validating it with `visudo -cf` (removing it again if it does not
+validate). It is idempotent (a no-op when passwordless sudo is already in effect,
+detected via `sudo -n -l`), Linux-only (macOS mounts via `mount_smbfs -N` and
+Windows via SMB mappings need no sudo), and skipped under `-NonInteractive` (which
+falls back to printing the drop-in to install by hand). The same step is available
+directly as `Set-PoolStorageSudoers`.
+
 ## What is — and isn't — replicated
 
 - **Replicated:** each host's finished **cycle output** (logs, screenshots, NDJSON
@@ -289,26 +300,55 @@ What it does, in order:
    (`file://` projectUrl, absolute `pool.localClonePath`) are kept local
    with a warning. The write is atomic and the previous file lands in
    `test.config.yml.backup`.
-2. **Hosts-file alias.** A networkStorage server name (e.g. `ypool-nas`)
-   that does not resolve locally is looked up on the reference host
-   (`GET /control/host-aliases` — the reference's own resolution of the
-   names its config uses) and written via `automation/Set-HostAlias.ps1`
-   (sudo on Linux/macOS). Prompt as fallback when the reference can't
-   supply it.
-3. **Vault credential.** A networkStorage user with no local vault entry is
-   fetched from the reference's `GET /control/vault-credential`. That route
-   is gated by the operator-set shared `pool-auth-token` (the same one that
+2. **Hosts-file alias.** Each networkStorage server name (e.g. `ypool-nas`)
+   is reconciled against the reference host's own resolution of it
+   (`GET /control/host-aliases`) — the reference is the source of truth, so
+   its address is adopted whenever it disagrees with what this host resolves
+   the name to, not only when the name fails to resolve here. That makes a
+   re-run repair a **stale** alias (a NAS that moved address) instead of
+   leaving the old entry in place because it still "resolves". Written via
+   `automation/Set-HostAlias.ps1` (sudo on Linux/macOS); nothing is written
+   when the two already agree. If the reference can't supply an address, a
+   working local mapping is kept and only a genuinely-unresolved name
+   prompts. A failed alias fetch is reported with the server's reason (e.g.
+   the 500 a status server that started without its modules returns — restart
+   it on the reference) rather than silently dropping to a prompt.
+3. **Vault credential.** Each networkStorage user's credential is reconciled
+   against the reference's `GET /control/vault-credential`. That route is
+   gated by the operator-set shared `pool-auth-token` (the same one that
    gates the aggregator's push ingest, and 503 until it is configured):
    the request proves token knowledge via an HMAC (the token never crosses
    the wire) and the response password is AES-GCM encrypted with a key
    derived from the token, so nothing crosses the plain-HTTP LAN in
-   cleartext. Prompt as fallback; the value is stored with `Set-Password`.
-4. **Validate.** Runs `pwsh test/Test-Config.ps1` (skippable with
+   cleartext. Because that gate is mandatory, **credentials sync only once a
+   `pool-auth-token` is provisioned on BOTH hosts** — the reference (so it
+   will serve) and this host (so it can unlock). Before asking the operator
+   for anything, the sync probes the reference: a reference with no token of
+   its own says so in one actionable line (naming
+   `Set-PoolAuthToken.ps1`) instead of prompting for a token and then a
+   password it could never have used. With the token in place a re-run
+   **refreshes a rotated password** — the fetched value is compared to the
+   stored one and rewritten only when they differ. A user that already has a
+   local entry and no token available is kept as-is (pass `-SharedToken`, or
+   store a `pool-auth-token`, to have re-runs check it against the
+   reference). Values are stored with `Set-Password`; an operator prompt is
+   the last resort, only for a missing entry the reference cannot serve.
+4. **Mount prerequisite (Linux).** Offers to install the passwordless-sudo
+   drop-in the poolStorage mount needs, so validation's mount succeeds instead
+   of warning and the runner buffering locally. See the Linux precondition
+   above; no-op on macOS/Windows and when already configured.
+5. **Validate.** Runs `pwsh test/Test-Config.ps1` (skippable with
    `-SkipValidation`) so a wrong password / share typo / missing sudo rule
-   surfaces immediately — the same gate described below.
+   surfaces immediately — the same gate described below. Its framework/project
+   freshness and `projectUrl` reachability checks authenticate to github.com
+   with `GH_TOKEN` when set (plain `git` does not read `GH_TOKEN` on its own),
+   so a private remote no longer fails the check or blocks it on a credential
+   prompt.
 
 `-NonInteractive` never prompts (skips with warnings instead);
-`-WhatIf` previews. A repeat run with nothing to change writes nothing.
+`-WhatIf` previews. A repeat run with nothing to change writes nothing — the
+sync is idempotent and re-runnable to pull updated values (a moved NAS, a
+rotated password) from the reference host.
 
 ## Operating & troubleshooting
 
@@ -413,6 +453,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.14
+Last review: 2026.07.17
 
 Back to [Yuruna](../README.md)

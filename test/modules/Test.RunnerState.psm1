@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.14
+.VERSION 2026.07.17
 .GUID 42bc8a7d-e6f5-4d23-9180-3a4b5c6d7e95
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -39,11 +39,15 @@
 
       idle        -> cycle-start, fault   (fault when boot recovery
                                            sees a stale prior state)
-      cycle-start -> in-cycle, fault
+      cycle-start -> in-cycle, fault, paused
       in-cycle    -> cycle-end, fault
       cycle-end   -> idle
       fault       -> paused, idle
-      paused      -> idle
+      paused      -> idle, cycle-start
+
+    The cycle-start<->paused pair is the healthy pool-hold loop: a
+    started cycle is gated to paused by a pulled desiredState=paused,
+    and each ~30s intent re-poll re-enters cycle-start.
 
     Each transition writes runner.state.json atomically (via the
     state-file helper) and emits a `runner_state_transition` NDJSON
@@ -72,13 +76,20 @@ $script:StateEnum = @('idle', 'cycle-start', 'in-cycle', 'cycle-end', 'fault', '
 # Adjacency map of valid transitions. Last writer in the same
 # transition stays; a fault-from-anywhere fallback comes from the
 # boot-recovery synthetic transitions below.
+#
+# The healthy pool-hold loop enters each iteration at 'cycle-start'
+# (set before the intent pull) and, on a pulled desiredState=paused,
+# moves to 'paused', then re-enters 'cycle-start' on the next 30s poll.
+# Both edges are legitimate, so they are in the map -- otherwise every
+# hold iteration logged two "not in the canonical adjacency map"
+# warnings, flooding the outer log for the duration of the hold.
 $script:ValidTransition = @{
     'idle'        = @('cycle-start', 'fault')
-    'cycle-start' = @('in-cycle', 'fault')
+    'cycle-start' = @('in-cycle', 'fault', 'paused')
     'in-cycle'   = @('cycle-end', 'fault')
     'cycle-end'   = @('idle')
     'fault'       = @('paused', 'idle')
-    'paused'      = @('idle')
+    'paused'      = @('idle', 'cycle-start')
 }
 
 # Cap on the in-file transition log. The NDJSON stream is the canonical

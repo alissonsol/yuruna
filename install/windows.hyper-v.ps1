@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.14
+.VERSION 2026.07.17
 .GUID 42c2a1aa-2e97-414a-9393-0d097d2e2a2c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -509,39 +509,9 @@ function Get-StatusServicePort {
     return 0
 }
 
-# --- REGION: Stop running Yuruna host services
-# Force-stop anything that would hold the checkout open or block the upgrade
-# (the outer runner, its per-cycle inner pwsh, and the detached status HTTP
-# server), then WAIT for it to actually exit before the caller renames the
-# checkout aside.
-#
-# Hyper-V VMs (the yuruna-caching-proxy cache) are NEVER touched here: they
-# run under vmwp.exe parented to the Hyper-V management service, not as
-# children of the runner, so the process-tree kill below never reaches them,
-# and this installer issues no Stop-VM / Remove-VM.
-#
-# Three resolution channels, union-ed so a service is caught even when one
-# channel misses it:
-#   1. The PID files the runner/server themselves write (runner.pid,
-#      inner.pid, server.pid under the runtime dir). Authoritative, and
-#      readable even when the process's WMI CommandLine is not -- a runner
-#      started under a different account (e.g. a dedicated "Yuruna Test"
-#      user) reports an EMPTY Win32_Process.CommandLine to this installer, so
-#      the command-line sweep (channel 2) silently skips it; the PID file
-#      does not.
-#   2. Command-line pattern match -- catches an ad-hoc runner started outside
-#      the managed runtime dir, whose PID-file location we can't predict.
-#      Includes the detached server's generated script name
-#      (.status-service.ps1), which does NOT contain "Start-StatusService.ps1".
-#   3. The status port's listening owner (configured port + the 8080 default).
-#
-# Every target is terminated with its whole child tree via `taskkill /T /F`.
-# /F is a hard TerminateProcess -- NOT the soft console Ctrl+C that a bare
-# taskkill (or a stray ^C) sends, which only flips the runner into "exit
-# after the current cycle" graceful shutdown. That graceful path can take
-# many minutes (a full VM cycle) to actually exit, and pins the checkout the
-# whole time -- the exact "the install proceeds while the runner is still
-# up" failure this guards against.
+# --- REGION: https://yuruna.link/install/explained#stop-running-yuruna-processes-before-updating
+# taskkill /T /F is deliberate: a soft Ctrl+C only requests "exit after the
+# current cycle", which can pin the checkout for a full VM cycle. VMs untouched.
 function Stop-YurunaProcess {
     [CmdletBinding(SupportsShouldProcess)]
     param([string]$YurunaDir)

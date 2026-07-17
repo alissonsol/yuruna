@@ -47,7 +47,7 @@ requirements:
     # unreachable, which is the failure mode the diagnostic catches.
     command: |-
       ((docker --version) -replace '^Docker version ','' -replace ',\s*build.*$','')
-    version: "29.6.1"
+    version: "29.6.2"
     releases: "https://docs.docker.com/desktop/"
   - tool: "Docker buildx"
     command: |-
@@ -69,7 +69,7 @@ requirements:
     # `code -v` prints three lines (version / commit / arch); first line
     # is the version.
     command: "(code -v | Select-Object -First 1)"
-    version: "1.128.0"
+    version: "1.129.0"
     releases: "https://code.visualstudio.com/Download"
   - tool: "mkcert"
     # mkcert writes its version banner to stderr -- the `2>&1` redirect
@@ -112,7 +112,7 @@ requirements:
     # the first whitespace is environment context, not version.
     command: |-
       ((aws --version) -replace '\s.*$','')
-    version: "aws-cli/2.35.22"
+    version: "aws-cli/2.36.1"
     releases: "https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html"
   - tool: "Azure cli"
     command: "($(az version) | ConvertFrom-Json).\"azure-cli\""
@@ -122,5 +122,5 @@ requirements:
     # No `-q` and no 2>&1 capture: a broken bundled-python install fails
     # silently rather than dumping a traceback into the version column.
     command: "(gcloud -v | Select-Object -First 1)"
-    version: "Google Cloud SDK 575.0.1"
+    version: "Google Cloud SDK 576.0.0"
     releases: "https://cloud.google.com/sdk/docs/install-sdk"

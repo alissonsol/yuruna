@@ -9,7 +9,7 @@ Test-harness wrappers (`Start-CachingProxy.ps1`,
 Scripts and config in this folder:
 
 - [Get-Image.ps1](Get-Image.ps1) — base Ubuntu Server cloud image
-  (arm64, qcow2 → raw, resized to 512 GB sparse).
+  (arm64, qcow2, resized to 512 GB sparse).
 - [New-VM.ps1](New-VM.ps1) — assembles the UTM bundle and seeds via
   cloud-init.
 - [host/vmconfig/caching-proxy.base.user-data](../../vmconfig/caching-proxy.base.user-data) — shared
@@ -27,6 +27,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.14
+Last review: 2026.07.17
 
 Back to [Yuruna](../../../README.md)

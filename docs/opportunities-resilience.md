@@ -56,7 +56,7 @@ or proxy is saturated.
 
 ## 1b. Empirical grounding (860-cycle corpus)
 
-The a-priori ranking above was checked against the actual run history:
+Validation against actual run history shows:
 **860 per-cycle event streams, 2026-05-21 → 2026-06-08, single host
 (ALIUS-ALIEN01).** The result re-ranks the menu sharply.
 
@@ -182,7 +182,7 @@ attaches to (so none of this is greenfield).
   hashing, or vault layout (see `feedback_no_unauthorized_security_changes`).
   **Effort M · Value Med.**
 
-## 4. Recommendation (data-driven, supersedes the a-priori tiers)
+## 4. Recommendation (data-driven)
 
 The 860-cycle history splits the menu by **horizon**. The fork is the operator's
 to pick: does #7 buy down *today's* failures or build *tomorrow's* topology?
@@ -283,6 +283,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.14
+Last review: 2026.07.17
 
 Back to [Yuruna](../README.md)

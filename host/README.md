@@ -62,9 +62,11 @@ Host setup starts with a single `irm … | iex` (Windows),
 `curl … | bash` (macOS), or `bash <(curl ...)` (Ubuntu) line. Each
 host's installer reads `YurunaCacheContent` — see
 [Caching](../docs/caching.md) for scope, persistence, and
-the optional Squid VM. All installers are idempotent, request
-elevation once with an up-front banner, and run
-`Enable-TestAutomation.ps1` to keep the display on during screenshots.
+the optional Squid VM. All installers are idempotent and request
+elevation once with an up-front banner. Enabling the host as a test
+host with `Enable-TestAutomation.ps1` (which keeps the display on
+during screenshots) is a separate, manual opt-in step — the installers
+only print it as a next-step hint, they do not run it automatically.
 
 After the installer finishes:
 
@@ -106,9 +108,11 @@ wrappers (`Start-CachingProxy.ps1`, `Test-CachingProxy.ps1`,
 ## VM sizing and connectivity
 
 VM size varies by guest and hypervisor; all disks are dynamic/thin
-(qcow2 sparse or Dynamic VHDX). Most guests get **16 GB RAM, 4 vCPU**;
+(qcow2 sparse or Dynamic VHDX). Most guests get **12 GB RAM, 4 vCPU**;
 the exceptions are macOS 26 (defaults to 8 GB RAM, configurable via
-`-MemoryMb`) and the KVM Windows 11 guest (8 GB RAM). Disk sizes:
+`-MemoryMb`), the stash-service guest (8 GB RAM), and the KVM guests,
+which are sized down to the minimum that carries the workload (8 GB,
+or 4 GB for Amazon Linux 2023). Disk sizes:
 Ubuntu Server 24/26 are **64 GB** on every host; Windows 11 is
 **512 GB** on macOS UTM and Hyper-V but **64 GB** on KVM; Amazon
 Linux 2023 is **128 GB** on macOS UTM and sized to the base image
@@ -144,6 +148,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.14
+Last review: 2026.07.17
 
 Back to [Yuruna](../README.md)

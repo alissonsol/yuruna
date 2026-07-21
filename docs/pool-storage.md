@@ -219,7 +219,7 @@ directly as `Set-PoolStorageSudoers`.
 - **Replicated:** each host's finished **cycle output** (logs, screenshots, NDJSON
   events, diagnostics) — the per-cycle folders.
 - **Not replicated:** the **squid cache** (`/var/spool/squid`). It is fully
-  rebuildable from upstream and is handled by squid's own pooling; copying it would
+  rebuildable from upstream and is handled by squid itself; copying it would
   be churn with no durability value.
 - **Service data (caching-proxy):** the proxy's **Loki, Prometheus, and Grafana**
   data — archived to ypool-nas by the guest itself (see *Service replication* below).
@@ -453,6 +453,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.17
+Last review: 2026.07.21
 
 Back to [Yuruna](../README.md)

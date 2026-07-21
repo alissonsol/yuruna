@@ -86,12 +86,91 @@ already serves `.10`. Fix when it bites: replace the string sort in
 or grab the version from `releases.ubuntu.com/<codename>/SHA256SUMS`
 ordering. One edit in the shared module covers every per-guest caller.
 
+## A detached grandchild pins the caller's pipe on Windows
+
+Spawning a child pwsh with any std stream redirected (including
+`& pwsh ... *> $null`)
+turns handle inheritance ON for that child. `Invoke-StatusServiceBounce` in
+[`test/modules/Test.HostConfigSync.psm1`](../test/modules/Test.HostConfigSync.psm1)
+runs `Start-StatusService.ps1 -Restart` in a child pwsh, and the status
+server it starts is a grandchild that outlives the bounce by design. With
+inheritance on, that server inherits the write end of the caller's stdout
+pipe and holds it open for its whole lifetime: the read never reaches EOF,
+so the bounce blocks on the SERVER, not on the child that exited seconds
+ago. The same redirection also swallows every progress line, so the symptom
+is a silent, unbounded hang. Redirecting the child's own streams to files
+does NOT close the hole — an inheritable pipe further up the ancestry (any
+caller that captures our output) is passed down all the same.
+
+The fix is to spawn with neither `-Redirect*` nor `-NoNewWindow`, which makes
+PowerShell use `ShellExecute`; that passes no inheritable handles at all, so
+nothing downstream can pin a pipe anywhere in the chain. The child writes its
+own transcript with `Tee-Object` and the caller tails that file while it
+waits. `-NonInteractive` goes on the child so a prompt fails fast instead of
+blocking against a hidden window nobody can answer. Waiting must use
+`Process.WaitForExit(ms)` on the child alone — `Start-Process -Wait` waits on
+the whole descendant tree, which includes the status server, and reintroduces
+the unbounded wait from the other direction.
+
+Unix has no `ShellExecute`, but its detached server is `nohup`'d onto
+`/dev/null` + `server.err` and cannot pin the caller's streams, so
+redirecting the child's own streams to files there is safe and gives the same
+live tail.
+
+## Nested non-global import evicts a caller's view of a module
+
+PowerShell keeps **one active version per module** in a session. When a
+module is re-imported *without* `-Global` from inside another module, that
+nested copy takes over the active-version slot and the original caller's
+view of the exported functions disappears. The next call fails with
+`The term '<Function>' is not recognized`.
+
+The trap fires in both directions:
+
+- **Caller loses its view.** `Initialize-YurunaHost` (from
+  `test/modules/Test.HostContract.psm1`) cascades into
+  `host/<host type>/modules/Yuruna.Host.psm1`, which nested-imports
+  `test/modules/Test.CachingProxy.psm1` **without** `-Global`. Any script
+  that imported `Test.CachingProxy` for itself loses
+  `Read-CachingProxyState`, `Save-CachingProxyState`,
+  `Invoke-CachingProxyProbe`, and `Get-CachingProxyStatePath` the moment
+  `Initialize-YurunaHost` runs.
+- **Foreign modules lose theirs.** A script `&`-invoked from a module
+  context (the inner cycle runner calling `Remove-TestVMFiles.ps1`, or the
+  status service calling into the host contract) that does a `-Force`
+  import *without* `-Global` pulls the module out of the global table for
+  every unrelated module, so a later contract call from `Invoke-Sequence`
+  fails to resolve. This is the *legacy-eviction regression class*.
+
+**The rule:** re-import with `-Global -Force` immediately **after** every
+`Initialize-YurunaHost` call and before touching the affected exports, and
+always pass `-Global` when a script that may be invoked from a module
+context imports a shared module.
+
+Sites that depend on this ordering: `test/Start-CachingProxy.ps1`,
+`test/Stop-CachingProxy.ps1`, `test/Repair-CachingProxyForwarder.ps1`,
+`test/Test-CachingProxy.ps1`, `test/Start-StatusService.ps1`,
+`test/Remove-TestVMFiles.ps1`, `test/Set-PoolAuthToken.ps1`.
+
+Symptoms when the re-import is missing are silent rather than loud,
+because the surrounding `try` usually swallows the resolution error:
+
+- `Start-StatusService.ps1` leaves `runtime/caching-proxy.txt` at whatever
+  the previous run wrote, so the status-page banner reports "not detected"
+  while the runner's own banner — running in `Yuruna.Host`'s session, where
+  `Read-CachingProxyState` *is* visible — correctly reports "detected".
+- `Start-CachingProxy.ps1` skips persisting the discovered cache IP, so
+  guest provisioners and the status server's fast path re-run full
+  discovery on every cycle.
+
+Durable capture: `feedback_module_force_import_evicts_global`.
+
 ---
 
 LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.17
+Last review: 2026.07.21
 
 Back to [Yuruna](../README.md)

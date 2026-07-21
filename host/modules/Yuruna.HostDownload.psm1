@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.17
+.VERSION 2026.07.21
 .GUID 42e0d1c8-9b3a-4f52-8c61-7d2e4a9b0f33
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -16,20 +16,10 @@
 
 #requires -version 7
 
-# Shared squid caching-proxy download stack for the host drivers
-# (Test-DownloadAlreadyCurrent, Get-CacheProxyForHostDownload, Save-CachedHttpUri,
-# Invoke-HttpsViaSquidBump, plus the TCP port probe). Defined once here so a
-# hardening fix to the X509 chain-validation callback lands in one place and
-# cannot drift between drivers. The only genuinely platform-specific piece --
-# discovering the cache VM's IP -- stays per-driver (Resolve-CacheHostIp) and is
-# INJECTED as a scriptblock so this module never reaches across a module boundary
-# by name (which would be fragile under -Force re-imports; see
-# feedback_module_force_import_evicts_global.md).
-#
-# Each driver imports this module (non-Global) into its own scope, keeps its own
-# Resolve-CacheHostIp, and re-exports the names its callers use. The driver's
-# thin Save-CachedHttpUri wrapper passes { Resolve-CacheHostIp } so the closure
-# resolves the driver's own discovery while executing inside this module.
+# Shared squid caching-proxy download stack for the host drivers. Why
+# Resolve-CacheHostIp is injected rather than called by name, and the per-driver
+# import/re-export contract:
+# docs/guest-image-setup.md#cache-routed-downloads-yurunahostdownloadpsm1
 
 # Own the dependencies (Get-CachingProxyPort, Format-IpUrlHost) rather than
 # assuming a caller imported Yuruna.Common into a visible scope.

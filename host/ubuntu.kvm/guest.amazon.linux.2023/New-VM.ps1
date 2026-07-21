@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.17
+.VERSION 2026.07.21
 .GUID 42a2b3c4-d5e6-4f78-9012-3a4b5c6d7e97
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -35,13 +35,23 @@ param(
     # scripts that declare it, so omitting it here is contract-safe.
     # Greppable test user added on top of ec2-user; force-expired by
     # cloud-init chpasswd default so the rotation flow runs.
-    [string]$Username = 'yauser1'
+    [string]$Username = 'yauser1',
+    # cloud-init local-hostname for the guest. Empty means "follow the VM
+    # name", which keeps host-side lookups that assume hostname == VM name
+    # working for every caller that does not ask for a specific hostname.
+    [string]$Hostname = ''
 )
 
 if ($VMName -notmatch '^[a-zA-Z0-9._-]+$') {
     Write-Error "Invalid VMName '$VMName'. Only alphanumerics, dots, hyphens, underscores."
     exit 1
 }
+
+if ($Hostname -and $Hostname -notmatch '^[a-zA-Z0-9.-]+$') {
+    Write-Error "Invalid Hostname '$Hostname'. Only alphanumeric characters, dots, and hyphens are allowed."
+    exit 1
+}
+$GuestHostname = if ($Hostname) { $Hostname } else { $VMName }
 if (-not $IsLinux) {
     Write-Error "host/ubuntu.kvm/guest.amazon.linux.2023/New-VM.ps1 only runs on Linux."
     exit 1
@@ -149,10 +159,10 @@ if (-not $plaintextPassword) { Write-Error "Get-LocalOsPassword returned empty f
 Write-Output "Password came from authentication mechanism: $_authActiveName"
 Write-Output "See configuration at: $(Resolve-ExtensionAreaDir -Area 'authentication')"
 
-# Build-CloudInitUserData merges base+overlay, auto-bakes yuruna-retry.sh /
+# New-CloudInitUserData merges base+overlay, auto-bakes yuruna-retry.sh /
 # fetch-and-execute.sh / yuruna-network.sh from $repoRoot/automation/ as base64
 # write_files entries, then resolves the per-cycle placeholders below.
-$userData = Build-CloudInitUserData `
+$userData = New-CloudInitUserData `
     -BasePath    $baseUserData `
     -OverlayPath $overlayUserData `
     -RepoRoot    $repoRoot `
@@ -164,7 +174,7 @@ $userData = Build-CloudInitUserData `
         YURUNA_HOST_PORT_PLACEHOLDER   = $hostPort
     } -Confirm:$false
 $metaData = (Get-Content -Raw -LiteralPath $metaDataTemplate).
-    Replace('HOSTNAME_PLACEHOLDER', $VMName)
+    Replace('INSTANCE_ID_PLACEHOLDER', $VMName).Replace('HOSTNAME_PLACEHOLDER', $GuestHostname)
 
 # --- REGION: Generate cloud-init seed ISO
 $seedDir = Join-Path $vmDir 'seed.src'
@@ -207,7 +217,8 @@ Write-Verbose "virsh destroy '$VMName' exit=$LASTEXITCODE output='$($destroyOut 
 $undefineOut = & virsh --connect $virshUri undefine --nvram $VMName 2>&1
 Write-Verbose "virsh undefine '$VMName' exit=$LASTEXITCODE output='$($undefineOut -join '; ')'"
 # Post-condition: virsh destroy/undefine on a non-existing domain is
-# idempotent (returns non-zero, swallowed by `2>$null`). But if either
+# idempotent (returns non-zero; stderr captured and shown only at
+# -Verbose). But if either
 # op failed while the domain remains defined, the next virt-install
 # fails with "domain already defined" and the outer loop has no signal
 # to recover. Fail-loud now with dominfo so the operator can act.
@@ -242,7 +253,8 @@ if ($LASTEXITCODE -eq 0) {
 # symmetric and survives any future virt-install default change. The
 # AL2023 boot path doesn't reboot during cloud-init's first run, so this
 # only matters for the `sudo reboot now` at the end of
-# Test-Start.guest.amazon.linux.2023.json -- with `restart`, QEMU performs
+# test/sequences/gui/start.guest.amazon.linux.2023.yml (and its ssh/
+# sibling) -- with `restart`, QEMU performs
 # system_reset rather than exiting, the VNC socket stays alive, and the
 # harness's screenshot loop / virt-viewer window survive the reboot.
 # --- REGION: https://yuruna.link/definition#defining-the-vm-core-count-policy
@@ -251,7 +263,14 @@ if ($hostCores -lt 4) {
     Write-Error "Host has $hostCores cores; Yuruna requires at least 4. See https://yuruna.link/definition#defining-the-vm-core-count-policy"
     exit 1
 }
-$vmCores = [math]::Max(4, [math]::Floor($hostCores / 2))
+# Floor-half of the host is the target, clamped so a guest never takes
+# every thread of a small host: nproc counts hardware threads, and on a
+# 4-thread host an unclamped 4-core floor hands EVERY guest the whole
+# machine. At least one thread must stay for the host itself (runner,
+# OCR polling, VM management) or a busy sibling guest can deschedule an
+# installer's vCPUs for seconds at a time and its console appears
+# frozen until the step timeout gives up.
+$vmCores = [math]::Min($hostCores - 1, [math]::Max(2, [math]::Floor($hostCores / 2)))
 
 $installArgs = @(
     '--connect', $virshUri,

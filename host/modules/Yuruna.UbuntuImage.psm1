@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.17
+.VERSION 2026.07.21
 .GUID 42b1e7d3-c9a4-4f82-a571-6c8d3e5f9a01
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -31,15 +31,10 @@
     here pin the codename in the path to stay aligned.
 #>
 
-# Save-CachedHttpUri and Test-DownloadAlreadyCurrent are exported from each
-# per-host Yuruna.Host.psm1 driver (all three: KVM, macOS/UTM, Windows/Hyper-V).
-# When a caller has imported its driver, Save-UbuntuServerImage routes downloads
-# through the squid cache (HTTPS via the SSL-bump port with per-process trust of
-# the freshly-fetched yuruna CA, HTTP via the proxy port; fall-through to direct
-# Invoke-WebRequest when no cache is reachable) and reads/writes the shared
-# 4-line sentinel. A bare caller that imports only this module (no host driver)
-# falls back to a direct Invoke-WebRequest with the inline 3-line same-source
-# guard.
+# Downloads route through the squid cache only when the caller has imported a
+# per-host Yuruna.Host.psm1 driver; a bare caller falls back to a direct fetch.
+# Both paths and the sentinel formats:
+# docs/guest-image-setup.md#ubuntu-iso-downloads-yurunaubuntuimagepsm1
 
 function Write-UbuntuImageExceptionDetail {
     param($Record)

@@ -42,11 +42,6 @@ type Server struct {
 	deleteHostIPs []net.IP // host IPs permitted to DELETE; nil = VM-only
 }
 
-// New builds the UI server. stashRoot and localHostID are derived from the
-// daemon's share folder (<mount>/stash/<hostId>): the parent holds every
-// host's stash, the base is this host's id. aggregatorURL is the optional
-// pool-aggregator base for hostId→stash-URL resolution (§3.4); empty
-// disables it (best-effort, never a hard dependency).
 // Options carries the VM-side configurable knobs (stash-service-ui.md §11).
 // Zero values fall back to the spec defaults.
 type Options struct {
@@ -63,6 +58,11 @@ type Options struct {
 	HostIP string
 }
 
+// New builds the UI server. stashRoot and localHostID are derived from the
+// daemon's share folder (<mount>/stash/<hostId>): the parent holds every
+// host's stash, the base is this host's id. aggregatorURL is the optional
+// pool-aggregator base for hostId→stash-URL resolution (§3.4); empty
+// disables it (best-effort, never a hard dependency).
 func New(sshServer *sshsrv.Server, opts Options) *Server {
 	shareFolder := sshServer.Store.Folder
 	stashRoot := filepath.Dir(shareFolder)

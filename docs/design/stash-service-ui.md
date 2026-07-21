@@ -132,7 +132,7 @@ The pool index is a cache, not a source of truth — the share sidecars
 and each host's local index remain authoritative. A stale pool index
 self-heals on the next rescan; a removed sidecar (e.g. a remote delete,
 §8.3) drops out of the cache on rescan. This deliberately overlaps the
-planned pool harness ([opportunities-hostpool.md](../opportunities-hostpool.md));
+planned pool harness ([opportunities.md](../opportunities.md));
 the host-resolution piece already reuses the pool-aggregator (§3.4), and
 if a fuller pool index service later lands this scan can read against it.
 
@@ -610,7 +610,7 @@ extension rules, UTC dates (SS§5.5, SS§6.3, SS§7, SS§10).
 - A standalone cross-host **stash-index** aggregator service — the pool
   *listing/search* scans sidecars directly (§3.2); replacing that with a
   dedicated stash index is future work
-  ([opportunities-hostpool.md](../opportunities-hostpool.md)). (Host
+  ([opportunities.md](../opportunities.md)). (Host
   *address* resolution does already reuse the existing pool-aggregator,
   §3.4 — that is the only aggregator dependency, and it is best-effort.)
 
@@ -683,6 +683,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.17
+Last review: 2026.07.21
 
 Back to [Yuruna](../../README.md)

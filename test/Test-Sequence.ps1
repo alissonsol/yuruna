@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.17
+.VERSION 2026.07.21
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456708
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -435,6 +435,7 @@ if ($plan.resolveFailed) { exit $ExitFailure }
 $ChainEntries       = $plan.chainEntries
 $ChainPlan          = $plan.chainPlan
 $effectiveUser      = $plan.effectiveUser
+$effectiveHost      = $plan.effectiveHost
 $ChainTotalSteps    = $plan.chainTotalSteps
 $requiredSnapshotId = $plan.requiredSnapshotId
 # Warm path targets the persisted snapshot VM by its recorded id. An
@@ -501,18 +502,22 @@ if ((Get-VMState -VMName $VMName) -ne 'absent') {
     Write-Output "VM '$VMName' already exists. Reusing."
 } else {
     Write-Output "VM '$VMName' not found. Creating..."
-    # Forward -Username when the sequence declares one. Mirrors
-    # Invoke-TestInnerRunner's effectiveUsername forward (the cascade-walk
-    # is not feasible standalone, but the sequence's own variables.username
-    # is the only override Test-Sequence can honor without the planner).
-    # Empty $effectiveUser falls through to the per-host New-VM default --
-    # matches today's behavior when no plan resolves.
+    # Forward -Username / -Hostname when the sequence declares them. Mirrors
+    # Invoke-TestInnerRunner's cascade forward (the cascade-walk is not
+    # feasible standalone, but the sequence's own variables.username /
+    # variables.hostname are the overrides Test-Sequence can honor without
+    # the planner). Empty values fall through to the per-host New-VM
+    # defaults (the account default and the VM name, respectively).
+    $newVmArgs = @{ GuestKey = $GuestKey; RepoRoot = $RepoRoot; VMName = $VMName; CachingProxyUrl = $newVmProxy }
     if ($effectiveUser) {
         Write-Verbose "Forwarding -Username '$effectiveUser' from $($SequenceName).variables.username."
-        $r = New-VM -GuestKey $GuestKey -RepoRoot $RepoRoot -VMName $VMName -Username $effectiveUser -CachingProxyUrl $newVmProxy -Confirm:$false
-    } else {
-        $r = New-VM -GuestKey $GuestKey -RepoRoot $RepoRoot -VMName $VMName -CachingProxyUrl $newVmProxy -Confirm:$false
+        $newVmArgs.Username = $effectiveUser
     }
+    if ($effectiveHost) {
+        Write-Verbose "Forwarding -Hostname '$effectiveHost' from $($SequenceName).variables.hostname."
+        $newVmArgs.Hostname = $effectiveHost
+    }
+    $r = New-VM @newVmArgs -Confirm:$false
     if (-not $r.success) {
         Write-Error "New-VM failed: $($r.errorMessage)"
         exit $ExitFailure

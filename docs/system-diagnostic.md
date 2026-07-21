@@ -72,6 +72,17 @@ upstream target). The reply timing approximates
 `client → proxy + proxy → target` without doing a full TLS
 handshake, which would skew the number with crypto cost.
 
+The CONNECT matrix proves the tunnel path at most. Package managers
+fetch their `http://` origins through the proxy's GET/cache path
+(`http_proxy`), which wedges independently of CONNECT: a cache
+revalidation can stall after response headers, where no connect or
+read-gap timeout fires and the client hangs mid-body (the
+stalled-transfer trap class). The diagnostic therefore also fetches a
+small body END TO END per mirror origin, with revalidation forced
+(`Cache-Control: no-cache`) so the probe exercises the proxy's
+upstream fetch instead of a cache hit. A healthy CONNECT column plus
+failures on this probe isolates the wedge to the GET/cache path.
+
 ## Section-by-section rationale
 
 ### 1. HOST — software-probe resilience
@@ -112,8 +123,7 @@ columns then avoid having to count spaces in the cmd field. ETIME
 (wall-clock since process start, in `[[dd-]hh:]mm:ss`) is left as
 the raw string for human readability.
 
-Related: [bsd_ps_args_truncation](https://yuruna.link/memory)
-captures the same trap class.
+Related: the `bsd_ps_args_truncation` trap class.
 
 ### 11b. INSTALL & EARLY-BOOT TIMELINE (Linux)
 
@@ -192,6 +202,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.17
+Last review: 2026.07.21
 
 Back to [Yuruna](../README.md)

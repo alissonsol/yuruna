@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.17
+.VERSION 2026.07.21
 .GUID 42f6a7b8-c9d0-4e13-9456-7f8a9b0c1d2e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -114,7 +114,7 @@ Describe 'Inner runner honors the canonical failure exit contract' {
     It 'has no bare `exit 1` failure path' {
         (Get-ExitArgCount -Ast (Get-ScriptAst) -ArgText '1') | Should -Be 0
     }
-    It 'exits failure paths with $ExitFailure (all 7 sites: 6 converted + the pidfile-race path)' {
+    It 'exits failure paths with $ExitFailure (all 7 sites, including the pidfile-race path)' {
         # Floor at today's exact count so a single $ExitFailure -> $ExitOk revert on
         # a failure path (which is not a bare `exit 1`) still drops below the floor.
         (Get-ExitArgCount -Ast (Get-ScriptAst) -ArgText '$ExitFailure') | Should -BeGreaterOrEqual 7

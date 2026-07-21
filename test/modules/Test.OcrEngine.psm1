@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.17
+.VERSION 2026.07.21
 .GUID 42b8c9d0-e1f2-4a34-b5c6-7d8e9f0a1b2c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -159,7 +159,7 @@ function Get-EnabledOcrProvider {
         Filters out providers that are not available on the current platform.
 
         Default ORDER matters: callers compose this list with combine mode
-        'Or' (see Get-OcrCombineMode in Invoke-Sequence.psm1), which
+        'Or' (see Get-OcrCombineMode in Test.OcrMatch.psm1), which
         short-circuits on the first engine that finds the search pattern.
         So the first engine listed here is the primary; later engines are
         fallbacks invoked only when the primary's text didn't match.

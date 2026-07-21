@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.17
+.VERSION 2026.07.21
 .GUID 42f0a1b2-c3d4-4e56-f789-0a1b2c3d4e12
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -33,16 +33,36 @@ if (-not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdent
     exit 1
 }
 
-# --- REGION: Install JDK (OpenJDK via Microsoft Build)
+# --- REGION: Install JDK (latest LTS OpenJDK, Eclipse Temurin)
 Write-Output ""
-Write-Output ">>> Installing JDK (Microsoft OpenJDK)..."
-winget install --id Microsoft.OpenJDK.21 --accept-source-agreements --accept-package-agreements --silent
+Write-Output ">>> Installing JDK (latest LTS OpenJDK)..."
+# winget OpenJDK/Temurin ids are all major-versioned (no float), so resolve
+# the current LTS from the Adoptium API and install its MSI -- no pinned major.
+$jdkArch = if ($env:PROCESSOR_ARCHITECTURE -eq 'ARM64') { 'aarch64' } else { 'x64' }
+$jdkLts = (Invoke-RestMethod -UseBasicParsing -Uri 'https://api.adoptium.net/v3/info/available_releases').most_recent_lts
+$jdkMsi = Join-Path $env:TEMP 'temurin-jdk.msi'
+Invoke-WebRequest -UseBasicParsing -Uri "https://api.adoptium.net/v3/installer/latest/$jdkLts/ga/windows/$jdkArch/jdk/hotspot/normal/eclipse" -OutFile $jdkMsi
+# Temurin MSI features: FeatureMain=JDK, FeatureEnvironment=add to PATH, FeatureJavaHome=set JAVA_HOME (all machine-level).
+Start-Process msiexec.exe -ArgumentList "/i `"$jdkMsi`" /qn /norestart ADDLOCAL=FeatureMain,FeatureEnvironment,FeatureJavaHome" -Wait
+Remove-Item $jdkMsi -Force -ErrorAction SilentlyContinue
 Write-Output "<<< JDK installation complete."
 
-# --- REGION: Install .NET SDK
+# --- REGION: Install .NET SDK (latest LTS via dotnet-install.ps1)
 Write-Output ""
 Write-Output ">>> Installing .NET SDK..."
-winget install --id Microsoft.DotNet.SDK.10 --accept-source-agreements --accept-package-agreements --silent
+# winget DotNet.SDK ids are major-versioned (no float); use Microsoft's
+# dotnet-install.ps1 -Channel LTS to track the current LTS with no pin.
+$dotnetDir = Join-Path $env:ProgramFiles 'dotnet'
+$dotnetScript = Join-Path $env:TEMP 'dotnet-install.ps1'
+Invoke-WebRequest -UseBasicParsing -Uri 'https://dot.net/v1/dotnet-install.ps1' -OutFile $dotnetScript
+& $dotnetScript -Channel LTS -InstallDir $dotnetDir
+Remove-Item $dotnetScript -Force -ErrorAction SilentlyContinue
+# dotnet-install.ps1 does not touch PATH/DOTNET_ROOT; register them machine-wide.
+[Environment]::SetEnvironmentVariable('DOTNET_ROOT', $dotnetDir, 'Machine')
+$machPath = [Environment]::GetEnvironmentVariable('Path', 'Machine')
+if ($machPath -notlike "*$dotnetDir*") {
+    [Environment]::SetEnvironmentVariable('Path', ($machPath.TrimEnd(';') + ';' + $dotnetDir), 'Machine')
+}
 Write-Output "<<< .NET SDK installation complete."
 
 # --- REGION: Install Git

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.17
+.VERSION 2026.07.21
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456715
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -72,7 +72,12 @@ function Start-GuestWorkload {
         # Planner-cascaded variable overrides; see Start-GuestOS / Test.SequencePlanner.
         # IDictionary (not [hashtable]) preserves planner ordering.
         [System.Collections.IDictionary]$EffectiveVariables,
-        [bool]$ShowOutput = $true
+        [bool]$ShowOutput = $true,
+        # Warm-resume passthrough: restart at ResumeFromSequence/ResumeFromStep
+        # instead of running the whole list from the top. Default ('' / 1) is the
+        # normal full run. See Invoke-GuestSequenceList.
+        [string]$ResumeFromSequence = '',
+        [int]$ResumeFromStep = 1
     )
     # ShowOutput is a transitional shim. The flag has never been read inside
     # this function, but a long-running macOS runner re-imports modules each
@@ -84,7 +89,8 @@ function Start-GuestWorkload {
     # verbatim with Start-GuestOS; only the failure-message phase label differs.
     return Invoke-GuestSequenceList -PhaseLabel 'Workload' `
         -HostType $HostType -GuestKey $GuestKey -VMName $VMName -RepoRoot $RepoRoot `
-        -SequencesDir $SequencesDir -SequenceNames $SequenceNames -EffectiveVariables $EffectiveVariables
+        -SequencesDir $SequencesDir -SequenceNames $SequenceNames -EffectiveVariables $EffectiveVariables `
+        -ResumeFromSequence $ResumeFromSequence -ResumeFromStep $ResumeFromStep
 }
 
 Export-ModuleMember -Function Start-GuestWorkload

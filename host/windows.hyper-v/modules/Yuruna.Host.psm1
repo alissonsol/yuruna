@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.17
+.VERSION 2026.07.21
 .GUID 42a2b3c4-d5e6-4f78-9012-3a4b5c6d7e90
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -2265,12 +2265,16 @@ function New-VM {
         # AND (b) the target script declares a -Username parameter -- some
         # guests (windows.11, caching-proxy, macos.26) don't take one and
         # would error on the unexpected arg.
-        [string]$Username
+        [string]$Username,
+        # Planner-cascaded guest hostname (variables.hostname), forwarded
+        # under the same declare-or-drop rule as -Username. Empty leaves the
+        # per-guest script on its VM-name default.
+        [string]$Hostname
     )
     # Thin wrapper over the shared per-guest runner; the host subdir is the
     # only platform variable. Splatting $PSBoundParameters preserves the
-    # conditional -CachingProxyUrl/-Username forwarding (the runner checks
-    # ContainsKey) and propagates -WhatIf/-Confirm to its ShouldProcess.
+    # conditional -CachingProxyUrl/-Username/-Hostname forwarding (the runner
+    # checks ContainsKey) and propagates -WhatIf/-Confirm to its ShouldProcess.
     Invoke-PerGuestNewVm -HostSubdir 'host\windows.hyper-v' @PSBoundParameters
 }
 

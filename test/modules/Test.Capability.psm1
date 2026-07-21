@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.17
+.VERSION 2026.07.21
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456725
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -393,7 +393,7 @@ function Write-HostRegistrationRecord {
         $global:__YurunaHostId (set by the entry point) rather than calling into
         Test.YurunaDir, to avoid foreign-module command-resolution surprises.
         capacity/ipPool/disk/supportedGuests are reserved (null) for Horizon B
-        (F1/F2/F4) + the pool-planner, so those become a data-population step
+        + the pool-planner, so those become a data-population step
         rather than a re-architecture. Atomic temp+rename so a polling consumer
         never reads a half-written record.
     .OUTPUTS
@@ -487,7 +487,8 @@ function Write-HostRegistrationRecord {
             pid             = $PID
             statusPort      = $statusPort
             writtenAtUtc    = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
-            # Reserved for Horizon B (F1 IP/capacity, F2 proxy breaker, F4 disk)
+            # Reserved for the Horizon B resilience gates (IP/capacity admission,
+            # caching-proxy circuit breaker, disk headroom -- docs/opportunities.md)
             # + the pool-planner's host selection; populated when those land.
             capacity        = $null
             ipPool          = $null

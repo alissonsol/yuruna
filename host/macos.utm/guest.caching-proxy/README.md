@@ -18,8 +18,9 @@ Scripts and config in this folder:
 - [host/vmconfig/caching-proxy.meta-data](../../vmconfig/caching-proxy.meta-data) — shared
   cloud-init instance metadata.
 - [config.plist.template](config.plist.template) — UTM VM template
-  (Apple Virtualization, 12 GB RAM / 4 vCPU; dedicated cache box sized
-  so squid's `cache_mem` can take 75 % of RAM).
+  (QEMU backend with `-vnc`, 12 GB RAM / core-count-policy vCPUs
+  (min 4); dedicated cache box
+  budgeted around squid's 7 GB `cache_mem` — 58 % of RAM).
 
 ---
 
@@ -27,6 +28,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.17
+Last review: 2026.07.21
 
 Back to [Yuruna](../../../README.md)

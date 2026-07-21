@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.17
+.VERSION 2026.07.21
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456712
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -34,9 +34,10 @@
     Authentication strategy (intentional, ordered, cross-platform):
       1. password via `sshpass -e` -- the password is loaded into the
          SSHPASS env var of the spawned job so it never reaches the
-         process arg list / ps output. This is the path the user asked
-         for: "use the currently stored password for the current user
-         of the test sequence that failed."
+         process arg list / ps output. Password auth is preferred
+         because it exercises the same stored vault credential the
+         failed test sequence actually used, so the capture reflects
+         that credential's state.
       2. fallback to the harness's per-host ed25519 key when sshpass is
          not installed (Windows out-of-box). Pure pwsh ssh works on
          every host so we get diagnostics even where the password path
@@ -71,6 +72,24 @@ Import-Module (Join-Path $PSScriptRoot 'Test.Extension.psm1')  -Force -Global
 # Resolve-StatusServiceEndpoint doesn't reparse test.config.yml on
 # every diagnostic call.
 Import-Module (Join-Path $PSScriptRoot 'Test.Config.psm1')     -Force -DisableNameChecking -Global
+
+# OCR is used only to verify the echo of the console one-liner before it is
+# submitted. It is strictly an accuracy aid on a best-effort debugging path,
+# so the import is allowed to fail: a host without the OCR chain must still
+# be able to collect diagnostics, just without the pre-Enter check. Every
+# consumer re-probes with Get-Command and degrades to 'unknown', so a failed
+# import here costs verification and nothing else.
+#
+# -Global is required, not stylistic. A bare -Force re-import evicts an
+# already-global module into THIS module's private scope, and the next
+# Get-EnabledOcrProvider call from any other caller then fails with "not
+# recognized" (feedback_module_force_import_evicts_global.md).
+try {
+    Import-Module (Join-Path $PSScriptRoot 'Test.OcrMatch.psm1')  -Force -DisableNameChecking -Global -ErrorAction Stop
+    Import-Module (Join-Path $PSScriptRoot 'Test.OcrEngine.psm1') -Force -DisableNameChecking -Global -ErrorAction Stop
+} catch {
+    Write-Verbose "Test.Diagnostic: OCR modules unavailable; console echo verification will be skipped. $($_.Exception.Message)"
+}
 
 # Remote script path. We deliberately use $HOME (shell-expanded on the
 # guest) rather than a hardcoded /home/<user>/ -- works for ec2-user,
@@ -506,6 +525,396 @@ function Wait-DiagnosticsFile {
     return $null
 }
 
+function Clear-GuestTtyLine {
+<#
+.SYNOPSIS
+    Sends Ctrl-U to the guest console so the tty's line buffer is empty
+    before a command is typed into it.
+.DESCRIPTION
+    Ctrl-U is VKILL in canonical mode: it discards the current input line
+    and nothing else. It signals no process, so it is safe to send
+    unconditionally -- at a shell prompt, at `login:`, at a password
+    prompt, or into a boot console that ignores it entirely. That safety
+    is the reason Ctrl-U (and not a bare Enter) opens the console path:
+    an Enter would SUBMIT whatever residue is already on the line rather
+    than discard it, which is exactly how a partial line becomes an
+    executed command.
+
+    In raw-mode full-screen applications (vi, less, a curses installer)
+    ^U is a half-page scroll instead of a line kill. That is a benign
+    no-op for our purpose, and it is why this is not gated on any
+    screen-state check: gating tty hygiene on OCR would make the
+    emergency path depend on the OCR path, whose degradation is itself
+    a modelled failure class.
+
+    Never throws -- cleanup must not convert a soft diagnostic failure
+    into a thrown exception, and a failed clear must not stop the
+    payload from being typed.
+.PARAMETER VMName
+    Guest VM whose console receives the chord.
+#>
+    [CmdletBinding()]
+    [OutputType([void])]
+    param([Parameter(Mandatory)][string]$VMName)
+    try {
+        [void](Send-Key -VMName $VMName -Key 'CtrlU' -Mechanism gui)
+        Start-Sleep -Milliseconds 200
+    } catch {
+        Write-Verbose "  Diagnostics: console line-buffer clear (Ctrl-U) failed: $($_.Exception.Message)"
+    }
+}
+
+function Reset-GuestTtyPrompt {
+<#
+.SYNOPSIS
+    Sends Ctrl-C then Enter to the guest console so the next sequence
+    step starts on a fresh prompt.
+.DESCRIPTION
+    Called only after the console rung has already typed its payload
+    into the tty. By that point the line is dirty regardless, so this is
+    strictly cleanup: without it a partially typed or keystroke-corrupted
+    command stays on the line and the FOLLOWING sequence step's text is
+    appended to it, landing as extra arguments on a command nobody asked
+    for.
+
+    Order is load-bearing. Ctrl-C first DISCARDS the pending line; Enter
+    first would EXECUTE it. Ctrl-C is also what makes the resulting guest
+    state predictable across contexts -- at a shell it prints ^C and
+    redraws, at `login:` or a password prompt it restarts the prompt, and
+    at a boot console with no foreground process group it is ignored. The
+    trailing Enter then forces the prompt to redraw, the same benign
+    nudge sequences already use to make agetty repaint a login.
+
+    Deliberately NOT sent from the rung's pre-typing guards: a Ctrl-C
+    into a guest we never touched could interrupt a healthy foreground
+    command for no benefit.
+
+    Never throws.
+.PARAMETER VMName
+    Guest VM whose console receives the chords.
+#>
+    [CmdletBinding()]
+    [OutputType([void])]
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute(
+        'PSUseShouldProcessForStateChangingFunctions', '',
+        Justification = 'Best-effort console cleanup on an already-dirty tty inside the soft-failing diagnostics path; a -Confirm prompt would stall an unattended failure path and leave the guest console dirty.')]
+    param([Parameter(Mandatory)][string]$VMName)
+    try {
+        [void](Send-Key -VMName $VMName -Key 'CtrlC' -Mechanism gui)
+        Start-Sleep -Milliseconds 200
+        [void](Send-Key -VMName $VMName -Key 'Enter' -Mechanism gui)
+        Write-Verbose "  Diagnostics: console tty restored (Ctrl-C + Enter) after a failed console rung."
+    } catch {
+        Write-Verbose "  Diagnostics: console tty restore (Ctrl-C + Enter) failed: $($_.Exception.Message)"
+    }
+}
+
+# Tuning constants for the pre-Enter console echo check. Named rather than
+# inline so the unit tests can state the same numbers the rung enforces.
+#
+# GramSize 4 is the smallest window that makes a run of one repeated
+# character unexplainable while still surviving OCR noise: a single
+# misread character invalidates at most GramSize consecutive windows, so
+# scattered noise can never accumulate into a long unexplained run.
+$script:ConsoleEchoGramSize = 4
+# Longest tolerated run of consecutive normalized characters that the
+# expected command cannot account for. Calibrated against real captures:
+# a correctly typed line yields 16 (the shell prompt, which is genuinely
+# not part of the command), while the mildest real keystroke corruption
+# yields 135 and the severe one 4362. 80 sits 5x above the healthy value
+# and 1.7x below the mildest observed corruption.
+$script:ConsoleEchoMaxUnexplainedRun = 80
+# Fraction of the command's distinct grams that must appear somewhere in
+# the OCR text. Guards gross truncation, where the screen shows only the
+# first few characters. Real captures put a healthy line at 52-87% and a
+# truncated fragment at 3.5%, so the floor is far from both boundaries.
+$script:ConsoleEchoMinCoveragePercent = 20
+# Below this many normalized characters there is not enough signal to
+# judge, and the verdict is 'unknown' rather than 'corrupt'. This is the
+# Vision-returns-nothing case, which happens precisely on the WORST
+# corruption (the Swift path crops to the densest text cluster and a wall
+# of repeated glyphs defeats it), so an empty read must never be scored as
+# healthy either.
+$script:ConsoleEchoMinNormalizedLength = 32
+# Hard wall-clock cap on one verification round trip (capture + up to two
+# OCR engines). Tesseract costs ~1.7s on a clean frame and ~5.4s on a
+# corrupted one -- the garbage is slowest to read precisely when it
+# matters -- and the screenshot path is separately bounded at 5s.
+$script:ConsoleEchoVerifyCapSeconds = 15
+# The file-wait window is never shortened below this, no matter how much
+# wall clock verification and a retype consumed. A retype that starved the
+# upload wait would turn a recovered line into a false timeout.
+$script:ConsoleMinFileWaitSeconds = 30
+
+function Get-OcrGramSet {
+<#
+.SYNOPSIS
+    Returns the set of distinct fixed-length character windows in a string.
+.DESCRIPTION
+    Module-private helper for Test-ConsoleEchoIntact. A HashSet is returned
+    by reference (via the unary comma) because PowerShell would otherwise
+    unroll it to an object array and cost the O(1) lookup the caller's inner
+    loop depends on.
+.PARAMETER Text
+    Already-normalized text to window.
+.PARAMETER Size
+    Window length in characters.
+#>
+    [CmdletBinding()]
+    [OutputType([System.Collections.Generic.HashSet[string]])]
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute(
+        'PSUseOutputTypeCorrectly', '',
+        Justification = 'The unary-comma return is what preserves the HashSet across the pipeline; the analyzer reads the wrapper array as the return type, while every caller receives the declared HashSet.')]
+    param(
+        [Parameter(Mandatory)][AllowEmptyString()][string]$Text,
+        [Parameter(Mandatory)][int]$Size
+    )
+    $set = [System.Collections.Generic.HashSet[string]]::new()
+    for ($i = 0; $i -le $Text.Length - $Size; $i++) {
+        [void]$set.Add($Text.Substring($i, $Size))
+    }
+    return ,$set
+}
+
+function Test-ConsoleEchoIntact {
+<#
+.SYNOPSIS
+    Judges whether the console echo of a typed command, as read by OCR,
+    is the command we typed -- returning 'intact', 'corrupt' or 'unknown'.
+.DESCRIPTION
+    Pure function: no screenshot, no OCR engine, no host contact. Given the
+    text that was typed and the text OCR read off the screen, it returns a
+    verdict. Keeping it pure is what makes the failure signature testable
+    against captured samples with no VM in the loop.
+
+    THE HARD CONSTRAINT IS THAT OCR OF A CONSOLE IS VERY NOISY. On a real
+    healthy capture the correctly typed line came back as
+    "HFhttp:/7192.168.64.1:8080:F=..." -- 'H=' read as 'HF', '//' as '/7',
+    ';' as ':', 'curl' as 'cur', '2>&1' as '2>81'. It was also cut off
+    two thirds of the way through, because the rest had scrolled or fallen
+    outside the recognized region. Any check resembling equality, or any
+    check demanding the whole command be visible, rejects every healthy
+    capture and makes this last-resort rung strictly worse than no check.
+
+    So the test is not "does the screen match the command" but "does the
+    screen contain a long stretch the command cannot explain":
+
+      1. Both strings are normalized through Get-OCRNormalized, which folds
+         the known confusion groups (o/O/0/@, l/I/1/i, S/5/s, :/;/. ...) and
+         drops the characters OCR routinely invents or loses.
+      2. The command's distinct GramSize-character windows form the set of
+         everything the screen is allowed to show.
+      3. Walking the OCR text, each position is 'explained' if its window is
+         in that set. The longest run of consecutive UNEXPLAINED positions is
+         the corruption signal. This is the discriminating measure because
+         isolated OCR noise can only ever produce a run of at most GramSize,
+         whereas a stuck key produces one continuous run hundreds of
+         characters long. Measurement starts at the first explained position
+         so the shell prompt printed before the command is not counted.
+      4. Independently, the fraction of the command's windows that appear
+         anywhere in the OCR text is the truncation signal.
+
+    Deliberately NOT used: Test-OCRMatch. It answers "is this prompt on
+    screen", splitting its pattern on whitespace and punctuation and
+    requiring only that each fragment appear somewhere. Measured against
+    the fully corrupted frame it returns true for the pattern
+    'rm -f y.ps1 y.txt' -- a predicate built on it never fires.
+
+    Also deliberately not used: the longest run of one repeated character.
+    It reads as the obvious test for a stuck key and does not work. On the
+    real frames the longest same-character run was 24 on the corrupted
+    capture against 25 on the other -- no discrimination at all, because
+    ~1400 stuck glyphs do not survive OCR as a clean run; tesseract renders
+    them as 'PUPPY PY BBY PPP YB BP...' across 65 lines. Those lines are
+    still unexplainable by the command, which is why (3) catches them.
+
+    'unknown' is a first-class verdict and always means "proceed". It is
+    returned when the OCR text is too short to judge and when the
+    normalizer itself is unavailable. The caller must press Enter on
+    'unknown': this is the last-resort diagnostics path, and refusing to
+    submit a line we simply could not read loses the capture outright.
+.PARAMETER Expected
+    The exact text handed to Send-Text.
+.PARAMETER OcrText
+    Text an OCR engine read from the console screenshot.
+.PARAMETER GramSize
+    Window length used to decide whether a position is explained.
+.PARAMETER MaxUnexplainedRun
+    Longest run of unexplained normalized characters still called 'intact'.
+.PARAMETER MinCoveragePercent
+    Minimum percentage of the command's windows that must appear in the OCR
+    text before the echo is considered present at all.
+.PARAMETER MinNormalizedLength
+    OCR text shorter than this yields 'unknown'.
+.OUTPUTS
+    [string] one of 'intact', 'corrupt', 'unknown'.
+#>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        [Parameter(Mandatory)][AllowEmptyString()][string]$Expected,
+        [Parameter(Mandatory)][AllowEmptyString()][string]$OcrText,
+        [int]$GramSize            = $script:ConsoleEchoGramSize,
+        [int]$MaxUnexplainedRun   = $script:ConsoleEchoMaxUnexplainedRun,
+        [int]$MinCoveragePercent  = $script:ConsoleEchoMinCoveragePercent,
+        [int]$MinNormalizedLength = $script:ConsoleEchoMinNormalizedLength
+    )
+
+    # The normalizer lives in Test.OcrMatch, whose import is allowed to
+    # fail. Without it there is no noise-tolerant comparison to make, and
+    # guessing is worse than declining to judge.
+    if (-not (Get-Command Get-OCRNormalized -ErrorAction SilentlyContinue)) {
+        Write-Verbose '  Diagnostics: Get-OCRNormalized unavailable; console echo verification skipped.'
+        return 'unknown'
+    }
+    if ([string]::IsNullOrWhiteSpace($Expected)) { return 'unknown' }
+
+    $normExpected = Get-OCRNormalized -Text $Expected
+    $normOcr      = Get-OCRNormalized -Text $OcrText
+
+    if ($normExpected.Length -lt $GramSize) { return 'unknown' }
+    # Too little text to distinguish "the screen was unreadable" from "the
+    # line was destroyed". Both reach here; only the second is actionable,
+    # and we cannot tell them apart, so we decline.
+    if ($normOcr.Length -lt $MinNormalizedLength) { return 'unknown' }
+
+    $expectedGrams = Get-OcrGramSet -Text $normExpected -Size $GramSize
+    if ($expectedGrams.Count -eq 0) { return 'unknown' }
+
+    # Truncation signal first: if the command is barely on screen at all,
+    # the run measurement below has nothing meaningful to anchor to.
+    $ocrGrams = Get-OcrGramSet -Text $normOcr -Size $GramSize
+    $seen = 0
+    foreach ($gram in $expectedGrams) {
+        if ($ocrGrams.Contains($gram)) { $seen++ }
+    }
+    $coveragePercent = 100.0 * $seen / $expectedGrams.Count
+    if ($coveragePercent -lt $MinCoveragePercent) {
+        Write-Verbose ('  Diagnostics: console echo coverage {0:N1}% below {1}% floor -- echo truncated or absent.' -f $coveragePercent, $MinCoveragePercent)
+        return 'corrupt'
+    }
+
+    # Corruption signal: the longest stretch the command cannot account
+    # for. Counting starts only once something HAS been explained, so the
+    # prompt and any banner printed ahead of the command are excluded --
+    # they are legitimately not part of the command and are unbounded in
+    # length.
+    $longestRun  = 0
+    $currentRun  = 0
+    $anyExplained = $false
+    $lastStart   = $normOcr.Length - $GramSize
+    for ($i = 0; $i -le $lastStart; $i++) {
+        if ($expectedGrams.Contains($normOcr.Substring($i, $GramSize))) {
+            $anyExplained = $true
+            $currentRun = 0
+        } elseif ($anyExplained) {
+            $currentRun++
+            if ($currentRun -gt $longestRun) { $longestRun = $currentRun }
+        }
+    }
+
+    if ($longestRun -gt $MaxUnexplainedRun) {
+        Write-Verbose ('  Diagnostics: console echo has a {0}-character stretch the command cannot explain (limit {1}) -- keystroke corruption.' -f $longestRun, $MaxUnexplainedRun)
+        return 'corrupt'
+    }
+    Write-Verbose ('  Diagnostics: console echo verified (coverage {0:N1}%, longest unexplained run {1}).' -f $coveragePercent, $longestRun)
+    return 'intact'
+}
+
+function Get-ConsoleEchoVerdict {
+<#
+.SYNOPSIS
+    Screenshots the guest console, OCRs it, and returns the
+    Test-ConsoleEchoIntact verdict for the command just typed.
+.DESCRIPTION
+    All of the I/O for the echo check, kept out of the predicate so the
+    predicate stays unit-testable. Every failure here -- no host driver, no
+    OCR engine, a throw from either, or the wall-clock cap -- resolves to
+    'unknown', which the caller treats as "proceed". Nothing in this
+    function may abort the capture: a broken verifier must cost accuracy,
+    never the diagnostic itself.
+
+    Engine order is a cost decision. Vision runs first because it costs
+    ~250-390ms regardless of what is on screen, and on a healthy frame its
+    verdict ends the check. Tesseract is consulted only when Vision
+    declined or flagged, because it costs ~1.7s on a clean frame and ~5.4s
+    on a corrupted one. That second opinion is not optional: on the most
+    severely corrupted real frame Vision returned an EMPTY string (its
+    densest-text-cluster crop is defeated by a wall of repeated glyphs),
+    and tesseract is the only engine that saw the damage.
+
+    A 'corrupt' verdict from either engine wins. The screen genuinely holds
+    text the command cannot explain, and the recovery it triggers is one
+    bounded retype.
+.PARAMETER VMName
+    Guest whose console is captured.
+.PARAMETER Expected
+    The text that was typed, passed straight through to the predicate.
+.OUTPUTS
+    [string] one of 'intact', 'corrupt', 'unknown'.
+#>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        [Parameter(Mandatory)][string]$VMName,
+        [Parameter(Mandatory)][AllowEmptyString()][string]$Expected
+    )
+
+    # Get-VMScreenshot only exists once Initialize-YurunaHost has loaded a
+    # driver, so it cannot be a module-scope import; probe it at call time,
+    # the same way the rung probes Send-Text / Send-Key.
+    $screenshot = Get-Command Get-VMScreenshot  -ErrorAction SilentlyContinue
+    $ocr        = Get-Command Invoke-OcrProvider -ErrorAction SilentlyContinue
+    if (-not $screenshot -or -not $ocr) {
+        Write-Verbose '  Diagnostics: screenshot or OCR provider unavailable; console echo verification skipped.'
+        return 'unknown'
+    }
+
+    $deadline = (Get-Date).AddSeconds($script:ConsoleEchoVerifyCapSeconds)
+    $imagePath = $null
+    try {
+        $imagePath = Get-VMScreenshot -VMName $VMName -Source frame
+        if (-not $imagePath -or -not (Test-Path -LiteralPath $imagePath -PathType Leaf)) {
+            Write-Verbose '  Diagnostics: console screenshot unavailable; echo verification skipped.'
+            return 'unknown'
+        }
+
+        $verdict = 'unknown'
+        foreach ($engine in 'macos-vision', 'tesseract') {
+            if ((Get-Date) -ge $deadline) {
+                Write-Verbose "  Diagnostics: console echo verification hit its ${script:ConsoleEchoVerifyCapSeconds}s cap; proceeding unverified."
+                break
+            }
+            if (-not (Test-OcrProviderAvailable -Name $engine)) { continue }
+            $text = ''
+            try {
+                $text = [string](Invoke-OcrProvider -Name $engine -ImagePath $imagePath)
+            } catch {
+                Write-Verbose "  Diagnostics: OCR engine '$engine' failed during echo verification: $($_.Exception.Message)"
+                continue
+            }
+            $engineVerdict = Test-ConsoleEchoIntact -Expected $Expected -OcrText $text
+            Write-Verbose "  Diagnostics: console echo verdict from '$engine': $engineVerdict"
+            # Corruption is decisive -- act on it without paying for the
+            # slower engine. 'intact' from the fast engine also ends the
+            # check; only 'unknown' is worth a second opinion.
+            if ($engineVerdict -eq 'corrupt') { return 'corrupt' }
+            if ($engineVerdict -eq 'intact')  { return 'intact' }
+        }
+        return $verdict
+    } catch {
+        Write-Verbose "  Diagnostics: console echo verification errored: $($_.Exception.Message)"
+        return 'unknown'
+    } finally {
+        # The frame is a transient artifact of the check, not a cycle
+        # screenshot the operator will look for; the cycle's own screen
+        # captures are written elsewhere by the sequence runner.
+        if ($imagePath) {
+            Remove-Item -LiteralPath $imagePath -Force -ErrorAction SilentlyContinue
+        }
+    }
+}
+
 function Invoke-RemoteDiagnosticsConsole {
 <#
 .SYNOPSIS
@@ -573,29 +982,106 @@ function Invoke-RemoteDiagnosticsConsole {
         try { $baselineMtimeUtc = (Get-Item -LiteralPath $targetFile).LastWriteTimeUtc } catch { $null = $_ }
     }
 
-    # Send-Text returns $true on success per the host facade; we tolerate
-    # $false because some hosts (KVM virsh send-key) don't bubble up a
-    # useful status. The deciding signal is whether the file lands on
-    # disk before the timeout.
+    # tty hygiene bracket. Everything from the first keystroke onwards runs
+    # inside a try/finally so that every way this rung can fail after it has
+    # touched the console -- injection throw, upload timeout, or an error
+    # from Wait-DiagnosticsFile itself -- leaves the guest on a clean prompt.
+    # The guards above return BEFORE this bracket on purpose: nothing was
+    # typed there, so there is no dirt to clear and no reason to interrupt
+    # the guest.
+    $typed     = $false
+    $succeeded = $false
     try {
-        [void](Send-Text -VMName $VMName -Text $cmd -Mechanism gui)
-        # Brief settle so the last typed char registers before Enter.
-        Start-Sleep -Milliseconds 200
-        [void](Send-Key -VMName $VMName -Key 'Enter' -Mechanism gui)
-    } catch {
-        Write-Warning "Invoke-RemoteDiagnosticsConsole: keystroke injection threw: $($_.Exception.Message)"
-        return $failResult
-    }
+        # Pre-type: discard anything already sitting in the tty's line
+        # buffer. Without this, residue concatenates with the first
+        # characters of the one-liner and the command is malformed before
+        # it is ever submitted.
+        Clear-GuestTtyLine -VMName $VMName
 
-    $bytes = Wait-DiagnosticsFile -FailureFolderPath $FailureFolderPath `
-            -DiagnosticsFileName $DiagnosticsFileName -TimeoutSeconds $TimeoutSeconds `
-            -NewerThanUtc $baselineMtimeUtc
-    if ($null -eq $bytes) {
-        Write-Warning "Invoke-RemoteDiagnosticsConsole: diagnostics file did not arrive within ${TimeoutSeconds}s."
-        return $failResult
+        # Send-Text returns $true on success per the host facade; we tolerate
+        # $false because some hosts (KVM virsh send-key) don't bubble up a
+        # useful status. The deciding signal is whether the file lands on
+        # disk before the timeout.
+        # Wall clock spent typing and verifying, deducted from the upload
+        # wait below so the rung's total stays inside the caller's budget.
+        $preEnterClock = [System.Diagnostics.Stopwatch]::StartNew()
+        try {
+            # Marked before the call, not after: a throw part-way through
+            # Send-Text has still delivered some characters to the tty, and
+            # that half-line is exactly what the restore has to clear.
+            $typed = $true
+            [void](Send-Text -VMName $VMName -Text $cmd -Mechanism gui)
+            # Brief settle so the last typed char registers before Enter.
+            Start-Sleep -Milliseconds 200
+
+            # Verify the echo BEFORE submitting. The transport posts
+            # per-character HID events to a global event source, and a key
+            # that sticks in autorepeat appends hundreds of copies of one
+            # character to the line. Submitting that runs a command nobody
+            # wrote; catching it here costs one retype.
+            $verdict = Get-ConsoleEchoVerdict -VMName $VMName -Expected $cmd
+            if ($verdict -eq 'corrupt') {
+                Write-Warning "Invoke-RemoteDiagnosticsConsole: console echo does not match the typed command; clearing the line and retyping once."
+                # Ctrl-U discards the corrupted line without submitting it.
+                # An Enter here would execute exactly the malformed command
+                # we just detected.
+                Clear-GuestTtyLine -VMName $VMName
+                [void](Send-Text -VMName $VMName -Text $cmd -Mechanism gui)
+                Start-Sleep -Milliseconds 200
+                $verdict = Get-ConsoleEchoVerdict -VMName $VMName -Expected $cmd
+                if ($verdict -eq 'corrupt') {
+                    # A second corrupted echo means the tty is not taking
+                    # dictation reliably; more typing only burns budget that
+                    # the remaining rungs and the cycle still need. Return
+                    # the standard failure -- the finally block restores the
+                    # prompt, which is what stops the NEXT sequence step from
+                    # being appended to this line.
+                    Write-Warning "Invoke-RemoteDiagnosticsConsole: console echo still corrupt after one retype; abandoning the console path without submitting."
+                    return $failResult
+                }
+                Write-Verbose '  Diagnostics: console echo verified after retype.'
+            }
+            [void](Send-Key -VMName $VMName -Key 'Enter' -Mechanism gui)
+        } catch {
+            Write-Warning "Invoke-RemoteDiagnosticsConsole: keystroke injection threw: $($_.Exception.Message)"
+            return $failResult
+        }
+        $preEnterClock.Stop()
+
+        # TimeoutSeconds is the caller's budget for the whole rung, not just
+        # for the upload wait. Echo verification and a possible retype run
+        # before that wait, so their measured cost is deducted from the
+        # budget rather than added on top -- otherwise a verified-and-
+        # retyped capture would overrun the per-command budget that
+        # Save-GuestDiagnostic derives from the cycle's total.
+        #
+        # The floor exists because the deduction must not be able to starve
+        # the wait: the guest still has to fetch, run and POST the capture
+        # after Enter, and a wait shorter than that is a guaranteed false
+        # timeout on a line that was successfully repaired.
+        $waitSeconds = $TimeoutSeconds - [int][math]::Ceiling($preEnterClock.Elapsed.TotalSeconds)
+        if ($waitSeconds -lt $script:ConsoleMinFileWaitSeconds) {
+            $waitSeconds = [math]::Min($script:ConsoleMinFileWaitSeconds, $TimeoutSeconds)
+        }
+
+        $bytes = Wait-DiagnosticsFile -FailureFolderPath $FailureFolderPath `
+                -DiagnosticsFileName $DiagnosticsFileName -TimeoutSeconds $waitSeconds `
+                -NewerThanUtc $baselineMtimeUtc
+        if ($null -eq $bytes) {
+            Write-Warning "Invoke-RemoteDiagnosticsConsole: diagnostics file did not arrive within ${waitSeconds}s."
+            return $failResult
+        }
+        Write-Verbose "  Diagnostics: console path succeeded (${bytes} bytes uploaded by guest)."
+        $succeeded = $true
+        return @{ success = $true; output = ''; exitCode = 0; mechanism = 'console' }
+    } finally {
+        # On success the guest ran the one-liner and returned to its prompt
+        # by itself, so an interrupt would be gratuitous. Only a failed rung
+        # leaves something on the line worth discarding.
+        if ($typed -and -not $succeeded) {
+            Reset-GuestTtyPrompt -VMName $VMName
+        }
     }
-    Write-Verbose "  Diagnostics: console path succeeded (${bytes} bytes uploaded by guest)."
-    return @{ success = $true; output = ''; exitCode = 0; mechanism = 'console' }
 }
 
 function Select-MoreInformativeDiagResult {
@@ -637,9 +1123,9 @@ function Save-GuestDiagnostic {
     entry, all degrade to a Write-Warning and a return value of $false.
     The outer failure path must NOT be re-thrown by this collection step.
 
-    The function tries password auth first (the operator's stated
-    preference) and falls back to key auth so a Windows host without
-    sshpass still gets a diagnostic.
+    The function tries password auth first (it exercises the stored
+    vault credential the failed sequence used) and falls back to key
+    auth so a Windows host without sshpass still gets a diagnostic.
 
 .PARAMETER VMName
     Guest VM name as registered with the host hypervisor.
@@ -996,4 +1482,5 @@ Export-ModuleMember -Function `
     Save-GuestDiagnostic, `
     Get-DiagnosticsFileName, `
     Resolve-StatusServiceEndpoint, `
-    New-DiagnosticsConsoleCommand
+    New-DiagnosticsConsoleCommand, `
+    Test-ConsoleEchoIntact

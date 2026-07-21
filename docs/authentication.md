@@ -83,8 +83,7 @@ backed by DPAPI / system keyring / a real secret manager. Today's
 
 Implementation:
 [`test/extension/authentication/default.psm1`](../test/extension/authentication/default.psm1)
-(search for "Threat model" near the top of the module for the same
-text in code).
+(its header comment carries a one-line pointer back to this section).
 
 ---
 
@@ -92,6 +91,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.17
+Last review: 2026.07.21
 
 Back to [Yuruna](../README.md)

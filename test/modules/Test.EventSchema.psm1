@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.17
+.VERSION 2026.07.21
 .GUID 42f8a7b6-c5d4-4e83-9210-3f4a5b6c7d81
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -105,6 +105,16 @@ $script:TypedField = @{
     runnerState         = 'string'
     fromState           = 'string'
     toState             = 'string'
+    # Retry telemetry (the retry_attempt / retry_exhausted events from the three
+    # retry stacks: the bash lib via the SSH-marker path, Yuruna.Retry, and the
+    # sequence retry verb).
+    stack               = 'string'
+    attempt             = 'int'
+    maxAttempts         = 'int'
+    transient           = 'bool'
+    permanent           = 'bool'
+    sleepSeconds        = 'int-or-null'
+    exitCode            = 'int'
 }
 
 # FailureClass / Severity enums, sourced from the canonical Test.FailureTaxonomy

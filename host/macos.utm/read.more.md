@@ -79,8 +79,8 @@ template line; producer and consumer pick up the port automatically.
 ### Running across macOS Spaces (desktops)
 
 QEMU+VNC guests are Space-independent end-to-end: capture and
-keystrokes flow through TCP. AVF guests (`guest.ubuntu.server.24`,
-`guest.amazon.linux.2023`) capture via `screencapture -l <windowID>`; the
+keystrokes flow through TCP. The Apple-backend guest (`guest.macos.26`)
+captures via `screencapture -l <windowID>`; the
 windowID lookup uses `kCGWindowListOptionAll` to find UTM windows on
 other Spaces, and `Enable-TestAutomation.ps1` flips
 `AppleSpacesSwitchOnActivation` so UTM activation doesn't yank the
@@ -120,7 +120,7 @@ open -a UTM      # surfaces any first-run dialogs
 See [Hosts — ...](../README.md#optional-squid-cache-vm) and
 [Caching](../../docs/caching.md). After provision,
 double-click
-`~/yuruna/guest.nosync/caching-proxy.utm` to register
+`~/yuruna/guest.nosync/yuruna-caching-proxy.utm` to register
 the bundle with UTM and start the VM.
 
 ## 9) Run the Test Harness
@@ -135,6 +135,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.17
+Last review: 2026.07.21
 
 Back to [Yuruna](../../README.md)

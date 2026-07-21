@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.17
+.VERSION 2026.07.21
 .GUID 42d15e27-b2c3-4d4e-9f50-6b7c8d9e0f1a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -223,12 +223,28 @@ function Get-RunnerReloadableConfig {
     $tc = if ($Config -is [System.Collections.IDictionary]) { $Config['testCycle'] } else { $null }
     $vs = if ($Config -is [System.Collections.IDictionary]) { $Config['vmStart'] }  else { $null }
     $vi = if ($Config -is [System.Collections.IDictionary]) { $Config['vmImage'] }  else { $null }
+    $gq = if ($tc -is [System.Collections.IDictionary]) { $tc['guestQuarantine'] } else { $null }
+    $wr = if ($tc -is [System.Collections.IDictionary]) { $tc['warmResume'] } else { $null }
     return [ordered]@{
         StopOnFailure        = if ($tc -is [System.Collections.IDictionary] -and $tc.Contains('shouldStopOnFailure')) { [bool]$tc['shouldStopOnFailure'] } else { $false }
         VmStartTimeout       = if ($vs -is [System.Collections.IDictionary] -and $vs['startTimeoutSeconds']) { [int]$vs['startTimeoutSeconds'] } else { 120 }
         VmBootDelay          = if ($vs -is [System.Collections.IDictionary] -and $vs['bootDelaySeconds'])    { [int]$vs['bootDelaySeconds'] }    else { 15 }
         GetImageRefreshHours = if ($vi -is [System.Collections.IDictionary] -and $vi['refreshHours'])        { [int]$vi['refreshHours'] }        else { 24 }
         CycleDelay           = if ($tc -is [System.Collections.IDictionary] -and $tc['cycleDelaySeconds'])   { [int]$tc['cycleDelaySeconds'] }   else { $CycleDelayFallback }
+        # Guest quarantine / circuit breaker: default ON. A guest that fails N
+        # times in a row with the SAME failureClass is skipped for up to
+        # SkipCycles cycles or until a framework/project commit changes, so a
+        # deterministically-broken guest stops costing a full provision+deploy
+        # every cycle. Set enabled:false to disable.
+        GuestQuarantineEnabled    = if ($gq -is [System.Collections.IDictionary] -and $gq.Contains('enabled')) { [bool]$gq['enabled'] } else { $true }
+        GuestQuarantineFailures   = if ($gq -is [System.Collections.IDictionary] -and $gq['failuresToQuarantine']) { [int]$gq['failuresToQuarantine'] } else { 3 }
+        GuestQuarantineSkipCycles = if ($gq -is [System.Collections.IDictionary] -and $gq['skipCycles'])           { [int]$gq['skipCycles'] }           else { 5 }
+        # Warm-resume: default ON. On an eligible transient workload failure the
+        # failed sequence is re-run from its last-good step on the same live VM
+        # (up to maxAttempts) before the guest is torn down, so a late-step blip
+        # doesn't redo the whole install. Set enabled:false to disable.
+        WarmResumeEnabled     = if ($wr -is [System.Collections.IDictionary] -and $wr.Contains('enabled')) { [bool]$wr['enabled'] } else { $true }
+        WarmResumeMaxAttempts = if ($wr -is [System.Collections.IDictionary] -and $wr['maxAttempts'])      { [int]$wr['maxAttempts'] }      else { 2 }
     }
 }
 
@@ -264,6 +280,11 @@ function New-RunnerConfigState {
         VmBootDelay          = $defaults.VmBootDelay
         GetImageRefreshHours = $defaults.GetImageRefreshHours
         CycleDelay           = $defaults.CycleDelay
+        GuestQuarantineEnabled    = $defaults.GuestQuarantineEnabled
+        GuestQuarantineFailures   = $defaults.GuestQuarantineFailures
+        GuestQuarantineSkipCycles = $defaults.GuestQuarantineSkipCycles
+        WarmResumeEnabled         = $defaults.WarmResumeEnabled
+        WarmResumeMaxAttempts     = $defaults.WarmResumeMaxAttempts
         # Consecutive Sync-RunnerCycleConfig 'failed' reloads and a one-shot latch,
         # so a sustained config-reload outage (the runner coasting on stale config)
         # is surfaced once instead of degrading silently. Reset on any good reload.
@@ -333,6 +354,11 @@ function Sync-RunnerCycleConfig {
     $State.VmBootDelay          = $knobs.VmBootDelay
     $State.GetImageRefreshHours = $knobs.GetImageRefreshHours
     $State.CycleDelay           = $knobs.CycleDelay
+    $State.GuestQuarantineEnabled    = $knobs.GuestQuarantineEnabled
+    $State.GuestQuarantineFailures   = $knobs.GuestQuarantineFailures
+    $State.GuestQuarantineSkipCycles = $knobs.GuestQuarantineSkipCycles
+    $State.WarmResumeEnabled         = $knobs.WarmResumeEnabled
+    $State.WarmResumeMaxAttempts     = $knobs.WarmResumeMaxAttempts
     return 'resolved'
 }
 
@@ -1738,6 +1764,17 @@ do {
             if ($maybe -and $maybe -ne 'unknown') { $ProjectGitCommit = $maybe }
         }
     }
+    # The gitCommits entry's repoUrl is a commit deep-link base, and the status
+    # page / pool dashboard only link http(s) values. repositories.projectUrl may
+    # legitimately be a local clone path or an ssh remote (both valid clone
+    # sources), so resolve it to the underlying web URL for the link; keep the
+    # raw value when nothing resolves so the project SHA still shows (unlinked)
+    # rather than dropping out of the Commit column.
+    $projLinkUrl = $projUrl
+    if ($ProjectGitCommit) {
+        $resolvedProjUrl = Resolve-GitRepositoryWebUrl -Url $projUrl
+        if ($resolvedProjUrl) { $projLinkUrl = $resolvedProjUrl }
+    }
 
     # --- REGION: Unconditional working-tree-drift warning
     # /yuruna-archive.tar.gz and /yuruna-project-archive.tar.gz only ship
@@ -1894,7 +1931,7 @@ do {
     # which then cannot parse the host's status.json at all.
     $GitCommitsList = New-CycleGitCommitList -GitCommit $GitCommit `
         -FrameworkUrl $Config.repositories.frameworkUrl `
-        -ProjectGitCommit $ProjectGitCommit -ProjectUrl $projUrl
+        -ProjectGitCommit $ProjectGitCommit -ProjectUrl $projLinkUrl
     $CycleId = Initialize-StatusDocument `
         -StatusFilePath $StatusFile `
         -HostType       $HostType `
@@ -2061,6 +2098,22 @@ do {
     # --- REGION: Test each guest sequentially: cleanup -> create -> start -> verify -> screenshots -> pool test -> stop
     # One guest VM at a time, so failures don't leave other VMs active.
     foreach ($GuestKey in $GuestList) {
+        # Circuit breaker: a guest quarantined by earlier same-class failures is
+        # skipped (up to SkipCycles cycles or until a framework/project commit
+        # changes) so it stops burning a full provision+deploy every cycle. The
+        # gate persists its own skip-budget decrement / release; the loud
+        # dashboard flag keeps the skipped guest visible, not silently passing.
+        if ($cfg.GuestQuarantineEnabled -and (Get-Command Invoke-GuestQuarantineGate -ErrorAction SilentlyContinue)) {
+            $qGate = Invoke-GuestQuarantineGate -RuntimeDir $env:YURUNA_RUNTIME_DIR -GuestKey $GuestKey `
+                -GitCommit $GitCommit -ProjectGitCommit $ProjectGitCommit
+            if ($qGate.Skip) {
+                Write-Output ""
+                Write-Output "== $GuestKey (skipped -- quarantined after repeated same-class failures) =="
+                Set-GuestStatus     -GuestKey $GuestKey -Status 'skipped'
+                Set-GuestQuarantine -GuestKey $GuestKey -Quarantined $true -UntilCommit $GitCommit
+                continue
+            }
+        }
         $guestIterState = @{
             OverallPassed  = $OverallPassed
             FailedGuest    = $FailedGuest
@@ -2086,6 +2139,33 @@ do {
             $FailedStep = $guestIterState.FailedStep
             $FailureMessage = $guestIterState.FailureMessage
             $Config = $cfg.Config; $StopOnFailure = $cfg.StopOnFailure; $GetImageRefreshHours = $cfg.GetImageRefreshHours; $CycleDelay = $cfg.CycleDelay
+        }
+        # Fold this guest's outcome into the quarantine circuit breaker. A failed
+        # guest sets $guestIterState.FailedGuest to its own key (a pass leaves it
+        # unchanged and keys are unique this cycle, so equality is a reliable
+        # "this guest failed" signal); 'proceed' with no failure is a clean pass
+        # that clears any streak. A quarantine-skipped guest already `continue`d
+        # above and never reaches here.
+        if ($cfg.GuestQuarantineEnabled -and (Get-Command Register-GuestQuarantineOutcome -ErrorAction SilentlyContinue)) {
+            if ($guestIterState.FailedGuest -eq $GuestKey) {
+                $qClass = 'unknown'
+                if (Get-Command Get-FailureEventData -ErrorAction SilentlyContinue) {
+                    try {
+                        $qfe = Get-FailureEventData -HostType $HostType -Hostname (hostname) -GuestKey $GuestKey `
+                            -StepName ([string]$guestIterState.FailedStep) -ErrorMessage ([string]$guestIterState.FailureMessage)
+                        if ($qfe -and $qfe.failureClass) { $qClass = [string]$qfe.failureClass }
+                    } catch { $null = $_ }
+                }
+                $qOut = Register-GuestQuarantineOutcome -RuntimeDir $env:YURUNA_RUNTIME_DIR -GuestKey $GuestKey -Outcome 'fail' `
+                    -FailureClass $qClass -VmName ([string]$VMNames[$GuestKey]) -GitCommit $GitCommit -ProjectGitCommit $ProjectGitCommit `
+                    -HostType $HostType -FailuresToQuarantine ([int]$cfg.GuestQuarantineFailures) -SkipCycles ([int]$cfg.GuestQuarantineSkipCycles)
+                if ($qOut.NewlyQuarantined) {
+                    Set-GuestQuarantine -GuestKey $GuestKey -Quarantined $true -UntilCommit $GitCommit
+                    Write-Output "  QUARANTINE: $GuestKey hit $($qOut.ConsecutiveFailures)x '$($qOut.FailureClass)' -- skipping it for up to $($cfg.GuestQuarantineSkipCycles) cycles or until a new commit."
+                }
+            } elseif ($guestIterState.Control -eq 'proceed') {
+                [void](Register-GuestQuarantineOutcome -RuntimeDir $env:YURUNA_RUNTIME_DIR -GuestKey $GuestKey -Outcome 'pass')
+            }
         }
         if ($guestIterState.Control -eq 'break') { break }
         if ($guestIterState.Control -eq 'continue') { continue }
@@ -2562,6 +2642,38 @@ function Invoke-GuestProvisionIteration {
     Remove-Item -LiteralPath $staleScreen -Force -ErrorAction SilentlyContinue
     Remove-Item -LiteralPath $staleOcr    -Force -ErrorAction SilentlyContinue
 
+    # --- REGION: Constrained-host guest serialization
+    # On hosts with only a few hardware threads, guests still running
+    # from earlier sequences compete with this guest's OS install: vCPU
+    # totals above the host's thread count plus guest RAM above physical
+    # can deschedule an installer's vCPUs for seconds at a time, so the
+    # autoinstall console appears frozen until the step timeout gives up
+    # on it. Stop the cycle's other test guests first -- the guest sweep
+    # runs one full lifecycle at a time, so guests before this one are
+    # already past their sequences. Scoped to $VMNames (this cycle's
+    # guests only) so infra VMs -- e.g. the caching proxy, which every
+    # step asserts reachable -- are never touched. Force, because a
+    # guest sitting in an installer ignores ACPI shutdown.
+    # No continue/break in this loop: the enclosing helper's control-flow
+    # invariant (see Test.RunnerInnerLoop.Tests.ps1) reserves loop escapes
+    # for $IterState.Control signalling, so the skip logic nests instead.
+    if (([Environment]::ProcessorCount -le 4) -and $VMNames -and $VMNames.Count -gt 1 -and
+        (Get-Command Get-VMState -ErrorAction SilentlyContinue) -and
+        (Get-Command Stop-VM -ErrorAction SilentlyContinue)) {
+        foreach ($otherKey in @($VMNames.Keys)) {
+            $otherVM = if ($otherKey -ne $GuestKey) { [string]$VMNames[$otherKey] } else { '' }
+            if ($otherVM -and ($otherVM -ne $VMName)) {
+                $otherState = ''
+                try { $otherState = [string](Get-VMState -VMName $otherVM) } catch { $otherState = '' }
+                if ($otherState -eq 'running') {
+                    Write-Output "  Constrained host ($([Environment]::ProcessorCount) threads): stopping '$otherVM' before provisioning $GuestKey"
+                    try { Stop-VM -VMName $otherVM -Force -Confirm:$false | Out-Null }
+                    catch { Write-Warning "  Could not stop '$otherVM': $($_.Exception.Message)" }
+                }
+            }
+        }
+    }
+
     # --- REGION: Cleanup previous VM
     Remove-GuestVMQuietly -VMName $VMName -SkipStop
 
@@ -2598,19 +2710,35 @@ function Invoke-GuestProvisionIteration {
     # to the per-host New-VM.ps1 default, preserving today's
     # behavior when no plan has been resolved (legacy guestSequence
     # path).
+    #
+    # variables.hostname cascades the same way and becomes the guest's
+    # cloud-init local-hostname, which is the name the guest DHCP-registers
+    # under. Empty leaves the guest named after the VM. When it is set, the
+    # UTM dhcpd_leases lookup must key on the pinned name: blocks under the
+    # VM name are then predecessors' and resolve to dead addresses. The host
+    # driver reads the pinned name back out of the bundle's seed ISO, so it
+    # does not have to be threaded down from here.
     $effectiveUser = ''
+    $effectiveHost = ''
     if ($script:CyclePlan -and $script:CyclePlan.Count -gt 0) {
         $mergedPlan = Get-CyclePlanSequencesForGuest -Plan $script:CyclePlan -GuestKey $GuestKey
         if ($mergedPlan -and $mergedPlan.effectiveUsername) {
             $effectiveUser = [string]$mergedPlan.effectiveUsername
         }
+        if ($mergedPlan -and $mergedPlan.effectiveHostname) {
+            $effectiveHost = [string]$mergedPlan.effectiveHostname
+        }
     }
+    $newVmArgs = @{ GuestKey = $GuestKey; RepoRoot = $RepoRoot; VMName = $VMName; CachingProxyUrl = $newVmProxy }
     if ($effectiveUser) {
         Write-Verbose "Cascaded username for $GuestKey -> $effectiveUser (overrides per-host New-VM.ps1 default)"
-        $r = New-VM -GuestKey $GuestKey -RepoRoot $RepoRoot -VMName $VMName -Username $effectiveUser -CachingProxyUrl $newVmProxy -Confirm:$false
-    } else {
-        $r = New-VM -GuestKey $GuestKey -RepoRoot $RepoRoot -VMName $VMName -CachingProxyUrl $newVmProxy -Confirm:$false
+        $newVmArgs.Username = $effectiveUser
     }
+    if ($effectiveHost) {
+        Write-Verbose "Cascaded hostname for $GuestKey -> $effectiveHost (overrides the VM-name default)"
+        $newVmArgs.Hostname = $effectiveHost
+    }
+    $r = New-VM @newVmArgs -Confirm:$false
     Sync-RunnerStepConfig -State $cfg -ConfigPath $ConfigPath
     $StopOnFailure = $cfg.StopOnFailure; $VmStartTimeout = $cfg.VmStartTimeout; $VmBootDelay = $cfg.VmBootDelay
     if ($r.success) {
@@ -2796,7 +2924,45 @@ function Invoke-GuestProvisionIteration {
     if ($hasExtensions) {
         Assert-CachingProxyStillReachable -ProxyUrl $cachingProxyUrl -StepName "Start-GuestWorkload" -GuestKey $GuestKey
         Set-StepStatus -GuestKey $GuestKey -StepName "Start-GuestWorkload" -Status "running"
+        $wlStartUtc = [DateTime]::UtcNow
         $r = Start-GuestWorkload -HostType $HostType -GuestKey $GuestKey -VMName $VMName -RepoRoot $RepoRoot -SequencesDir $SequencesDir -SequenceNames $workSeqs -EffectiveVariables $cascadeVarsMap
+        # Warm-resume: on an eligible transient failure, re-run the failed sequence
+        # from its last-good step on the SAME still-alive VM (the teardown below
+        # fires only on the FINAL result), up to WarmResumeMaxAttempts, before
+        # falling through to today's teardown + cold re-provision. A recovered run
+        # reaches the pass branch; the warm_resume event keeps a resumed pass
+        # observable rather than a silent one.
+        if ($cfg.WarmResumeEnabled -and -not $r.success -and -not $r.skipped `
+                -and (Get-Command Read-WarmResumeCheckpoint -ErrorAction SilentlyContinue)) {
+            # Break-free loop: the iteration signals escapes via $IterState.Control,
+            # never a break (which, absent a loop, would escape the guest foreach) --
+            # so $wrDone carries the stop condition instead.
+            $wrAttempt = 0
+            $wrDone    = $false
+            while (-not $wrDone -and $wrAttempt -lt [int]$cfg.WarmResumeMaxAttempts) {
+                $wrCp  = Read-WarmResumeCheckpoint -LogDir $env:YURUNA_LOG_DIR -NotBeforeUtc $wlStartUtc
+                $wrDec = Get-WarmResumeDecision -Enabled $true -FailureClass $wrCp.FailureClass `
+                    -SequenceName $wrCp.SequenceName -ResumeFromStep ([int]$wrCp.ResumeFromStep) -WorkloadSequences $workSeqs
+                if (-not $wrDec.ShouldResume) {
+                    $wrDone = $true
+                } else {
+                    $wrAttempt++
+                    Write-Output "  WARM-RESUME ($wrAttempt/$($cfg.WarmResumeMaxAttempts)): '$($wrDec.ResumeSequence)' failed transiently ($($wrCp.FailureClass)); resuming at step $($wrCp.ResumeFromStep) on VM '$VMName' instead of redoing it from the top."
+                    if (Get-Command Send-CycleEventSafely -ErrorAction SilentlyContinue) {
+                        $wrEv = New-WarmResumeEvent -GuestKey $GuestKey -VmName $VMName -SequenceName $wrDec.ResumeSequence `
+                            -ResumeFromStep ([int]$wrCp.ResumeFromStep) -FailureClass $wrCp.FailureClass -Attempt $wrAttempt -HostType $HostType
+                        Send-CycleEventSafely -EventRecord ([hashtable]$wrEv)
+                    }
+                    $r = Start-GuestWorkload -HostType $HostType -GuestKey $GuestKey -VMName $VMName -RepoRoot $RepoRoot `
+                        -SequencesDir $SequencesDir -SequenceNames $workSeqs -EffectiveVariables $cascadeVarsMap `
+                        -ResumeFromSequence $wrDec.ResumeSequence -ResumeFromStep ([int]$wrCp.ResumeFromStep)
+                    if ($r.success) {
+                        Write-Output "  WARM-RESUME: '$($wrDec.ResumeSequence)' recovered after $wrAttempt attempt(s)."
+                        $wrDone = $true
+                    }
+                }
+            }
+        }
         Sync-RunnerStepConfig -State $cfg -ConfigPath $ConfigPath
         $StopOnFailure = $cfg.StopOnFailure; $VmStartTimeout = $cfg.VmStartTimeout; $VmBootDelay = $cfg.VmBootDelay
         if ($r.skipped) {

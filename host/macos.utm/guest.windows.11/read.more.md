@@ -20,8 +20,10 @@ Hypervisor) to run a Windows 11 ARM64 VM.
 ## 1) Get the image
 
 Prerequisites: `brew install --cask utm`, `brew install powershell qemu`.
-Unlike Ubuntu, the Windows 11 ARM64 ISO has no direct download URL.
-[`Get-Image.ps1`](./Get-Image.ps1) prints instructions and checks for an
+Unlike Ubuntu, the Windows 11 ARM64 ISO has no stable direct download
+URL. [`Get-Image.ps1`](./Get-Image.ps1) first attempts an automated
+download via a hash-pinned Fido release (pbatard/Fido v1.70), then
+falls back to printing manual instructions and checking for an
 existing ISO in `~/yuruna/image/windows.env/`:
 
 ```
@@ -48,10 +50,11 @@ Three sourcing options:
 - Generates an `autounattend.xml` seed ISO labeled `OEMDRV`.
 - Writes `config.plist` from
   [`config.plist.template`](./config.plist.template) — QEMU aarch64,
-  4 vCPU, 12 GB RAM, UEFI + TPM, NVMe, USB CD, virtio-net-pci,
-  intel-hda, clipboard.
-- Copies the UTM Guest Tools ISO (`spice.iso`) so SPICE + VirtIO can
-  install offline.
+  core-count-policy vCPUs (min 4), 12 GB RAM, UEFI + TPM, NVMe, USB CD,
+  virtio-net-pci, intel-hda, clipboard.
+- Warns if the UTM Guest Tools ISO (`spice.iso`) is missing — it is
+  attached manually after install (see 2.1), never during the initial
+  install.
 
 ```
 pwsh ./New-VM.ps1                    # default windows11-01
@@ -101,7 +104,7 @@ Find the active interface: `route get default | grep interface`.
 
 ### 2.3) Defaults and activation
 
-Default credentials: `User` / `password`, auto-logon on first boot.
+Default credentials: `ywuser1` / `password`, auto-logon on first boot.
 The autounattend sets computer name, locale `en-US`, keyboard `en-US`,
 UEFI/GPT, and enables Remote Desktop. Generic Windows 11 Pro key — not
 activated until a purchased key or KMS is applied.
@@ -149,6 +152,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.17
+Last review: 2026.07.21
 
 Back to [Yuruna](../../../README.md)

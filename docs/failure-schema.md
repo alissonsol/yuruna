@@ -126,9 +126,9 @@ outside a normal step:
 
 Host stages that fail outside the sequence engine (GitPull, ProjectClone,
 Resolve-CyclePlan, capability gate, folder-check, GetImage, New-VM,
-Start-VM, New-VM.Resource) now write a schema-v2 `last_failure.json` +
-`step_failure` event via `New-InfraFailureRecord`, where before they left
-none and the remediation loop was blind to them. They carry `reason` =
+Start-VM, New-VM.Resource) write a schema-v2 `last_failure.json` +
+`step_failure` event via `New-InfraFailureRecord`, so the remediation
+loop can route on them like any other failure. They carry `reason` =
 `infra`, `classificationSource` = `infra-stage`, `stepNumber` = `0`, and
 `actionVerb` = the stage name. The class maps the stage to a routable
 recovery: `provisioning_failure` (New-VM/Start-VM — `retry_with_backoff`),
@@ -165,6 +165,80 @@ passing cycle is queryable instead of reading as a clean pass. Fields:
 best-effort (`Send-CycleEventSafely`) and never fails the cycle. A stream
 consumer that counts only failures should skip this event type.
 
+## `guest_quarantined` event (circuit breaker)
+
+The guest-quarantine circuit breaker (`Test.GuestQuarantine.psm1`) tracks a
+per-guest consecutive-failure count keyed by `failureClass` in
+`runner.quarantine.json` (sibling of `runner.gating.json` in the runtime dir,
+surviving the single-cycle inner respawn). After `failuresToQuarantine`
+failures of the **same** class (default 3), the guest is skipped for up to
+`skipCycles` cycles (default 5) or until a framework/project commit changes —
+whichever comes first — so a deterministically-broken guest stops costing a
+full provision+deploy every cycle, while a guest that fails a *different* way
+each time is never trapped. Enabled by default; set
+`testCycle.guestQuarantine.enabled: false` to disable. When a failure trips the
+threshold, one `guest_quarantined` event is emitted with `event` =
+`guest_quarantined`, `timestamp`, `guestKey`, `failureClass`,
+`consecutiveFailures`, `skipCycles`, `quarantinedUntilCommit` (and
+`vmName` / `hostType` / `quarantinedUntilProjectCommit` when known). The
+skipped guest is also flagged on `status.json` (`guests[].quarantined` +
+`quarantinedUntilCommit`) so the dashboard shows a **quarantined** pill — the
+skip is loud, never a silent pass. The emit is best-effort
+(`Send-CycleEventSafely`) and never fails the cycle.
+
+## `warm_resume` event (checkpoint resume)
+
+Warm-resume checkpointing (`Test.WarmResume.psm1`) turns a late-step transient
+into an in-place retry instead of redoing the whole install. When a workload
+sequence fails with a **transient** class (`network_timeout`, `wait_timeout`,
+`instrumentation_failure`, `host_io_blocked` — the outer-loop remediation
+allow-list), the runner re-runs the *failed* sequence from `repro.resumeFromStep`
+on the **same still-alive VM** (the teardown fires only on the final result),
+up to `testCycle.warmResume.maxAttempts` (default 2), then continues any
+remaining workload sequences. On exhaustion or an ineligible class it falls
+through to today's teardown + cold re-provision, so warm-resume is
+safe-on-failure. Enabled by default; set `testCycle.warmResume.enabled: false`
+to disable. Each attempt emits a `warm_resume` event: `event` = `warm_resume`,
+`timestamp`, `guestKey`, `sequenceName`, `resumeFromStep`, `attempt`, plus
+`failureClass` / `vmName` / `hostType` when known — so a run that only passed
+because it resumed stays queryable, never a silent pass.
+
+Soundness rests on the runner running each workload sequence as a **single
+file** (`Invoke-SequenceByName` → `Invoke-Sequence`), so `resumeFromStep` (file-
+local) maps directly onto `Invoke-Sequence -StartStep` (file-local). This is
+exactly the "warm / no unbuilt baseline" case the [`repro`](#repro) note calls
+out — Test-Sequence's chain runner concatenates baselines and is *not* this
+case, which is why `repro.command` still omits `-StartStep`.
+
+## `retry_attempt` / `retry_exhausted` events (retry telemetry)
+
+The three retry stacks emit a structured attempt record so a flaky retry is
+queryable in `cycle.events.ndjson`, not just buried in the human log:
+
+- **`Yuruna.Retry`** (host-side pwsh: tofu init/plan/apply, helm/kubectl fetches)
+  emits `retry_attempt` before each backoff and `retry_exhausted` on the final
+  failure — best-effort (`Send-CycleEventSafely` is Get-Command-guarded, so a
+  standalone tofu run that never loaded `Test.Log` is unaffected).
+- **The sequence `retry` verb** emits `retry_attempt` per failed inner pass and
+  `retry_exhausted` on exhaustion, the latter carrying the deepest inner
+  `failureClass` (the outer class collapses to `retry_exhausted`).
+- **The guest bash lib** (`automation/yuruna-retry.sh`) can't reach the host
+  stream, so it prints a `YURUNA_RETRY {stack,label,attempt,maxAttempts,rc,
+  permanent}` marker to stderr; on the SSH verbs (`sshExec` /
+  `sshFetchAndExecute`) the host parses those markers into `retry_attempt`
+  events via `Publish-GuestRetryMarker`. The console/OCR fetch path keeps its
+  log guest-local, so that path is not covered.
+
+Fields (all additive; the schema is open): `event`, `timestamp`, `stack`
+(`pwsh` / `sequence` / `bash`), `attempt`, `maxAttempts`, `exitCode`,
+`description` (the label), and optionally `transient` / `permanent` /
+`sleepSeconds` / `failureClass` / `guestKey` / `vmName`.
+
+The cross-language fetch-and-execute failure sentinel `NONZERO SCRIPT EXIT:`
+(the string the guest wrapper prints and the `fetchAndExecute` verb matches) is
+a declared constant on each side (`Get-NonzeroScriptExitSentinel` + the bash
+producer) with a drift-guard test, so the two sides can't silently diverge.
+
 ## status.json `lastFailure` summary
 
 For the live dashboard, `Set-LastFailureSummary` records a denormalized
@@ -190,6 +264,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.17
+Last review: 2026.07.21
 
 Back to [Yuruna](../README.md)

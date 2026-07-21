@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.17
+.VERSION 2026.07.21
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456770
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -330,6 +330,20 @@ function Send-Click {
     return (Invoke-HostIODispatch -HostType $HostType -Action 'Send-Click' -Arguments @{ VMName=$VMName; X=$X; Y=$Y; Capture=$Capture })
 }
 
+<#
+.SYNOPSIS
+    Runs OCR on an image, finds the bounding box of a button-label pattern,
+    and returns its coordinates in the image's pixel space.
+.DESCRIPTION
+    Uses Tesseract TSV mode (word-level boxes) because TSV boxes are
+    directly consumable -- Vision / WinRT don't surface per-word coords in
+    our existing shims. For multi-word labels, requires contiguous words
+    on the same line (y-diff within half a word height). Matching is
+    case-insensitive substring so low-confidence words ("lnstall") still
+    resolve.
+.OUTPUTS
+    Hashtable @{ x; y; w; h; centerX; centerY; text } or $null if not found.
+#>
 function Find-TextLocation {
     param(
         [Parameter(Mandatory)] [string]$ImagePath,
@@ -779,13 +793,13 @@ function Wait-ForText {
     $consoleRestarts        = 0
     $frozenFeedSeconds      = 45
     $maxConsoleRestarts     = 2
-    # F6 degradation-trend: the two self-heals above are reactive at a fixed
+    # Degradation-trend early action: the two self-heals above are reactive at a fixed
     # threshold. Once the feed has proven flaky (a console restart fired), drop
     # the freeze threshold so the next stall is caught sooner -- acting on the
     # trend rather than re-waiting the full window. And grant the deadline a
     # bounded grace per self-heal so a feed that IS recovering isn't killed
     # mid-recovery by the original deadline (the false ocr_timeout); the cap
-    # keeps a dead feed bounded. Each proactive action emits an F3 `degradation`
+    # keeps a dead feed bounded. Each proactive action emits a `degradation`
     # event so a degraded-but-passing wait is queryable, not silent.
     $deadlineGrantedSeconds  = 0
     $maxDeadlineGrantSeconds = [math]::Min([int]$TimeoutSeconds, 120)
@@ -930,7 +944,7 @@ function Wait-ForText {
                         if ($ringRepaired) {
                             $ringRepairs++
                             Write-Verbose "      Wait-ForText: no OCR text for 4 polls; self-heal repair $ringRepairs/2 (clear VNC handle + screenshot ring)."
-                            # F6: grant bounded grace so the reset feed can deliver text before the
+                            # Grant bounded grace so the reset feed can deliver text before the
                             # deadline, and record the degradation.
                             $grace = Get-OcrDegradationGrace -Action 'ring-repair' -AlreadyGrantedSeconds $deadlineGrantedSeconds -MaxGrantSeconds $maxDeadlineGrantSeconds -BaseWindowSeconds $frozenFeedSeconds
                             if ($grace -gt 0) { $deadlineUtc = $deadlineUtc.AddSeconds($grace); $deadlineGrantedSeconds += $grace }
@@ -972,14 +986,14 @@ function Wait-ForText {
                             $frameUnchangedSinceUtc = [DateTime]::UtcNow
                         } elseif ($frameUnchangedSinceUtc) {
                             $frozenSecs = [int]([DateTime]::UtcNow - $frameUnchangedSinceUtc).TotalSeconds
-                            # F6 trend-aware threshold: the first stall waits the
+                            # Trend-aware threshold: the first stall waits the
                             # full window, but once a restart has fired the feed
                             # is known-flaky, so catch the next stall at half the
                             # window instead of re-waiting the full one.
                             $effectiveFreezeThreshold = if ($consoleRestarts -gt 0) { [int][math]::Ceiling($frozenFeedSeconds / 2.0) } else { $frozenFeedSeconds }
                             if ($frozenSecs -ge $effectiveFreezeThreshold -and $consoleRestarts -lt $maxConsoleRestarts) {
                                 $consoleRestarts++
-                                # F6: grant bounded grace so the relaunched viewer
+                                # Grant bounded grace so the relaunched viewer
                                 # can deliver a fresh frame before the deadline.
                                 $grace = Get-OcrDegradationGrace -Action 'console-restart' -AlreadyGrantedSeconds $deadlineGrantedSeconds -MaxGrantSeconds $maxDeadlineGrantSeconds -BaseWindowSeconds $frozenFeedSeconds
                                 if ($grace -gt 0) { $deadlineUtc = $deadlineUtc.AddSeconds($grace); $deadlineGrantedSeconds += $grace }
@@ -1125,7 +1139,11 @@ function Invoke-SequenceByName {
         # `username: yauser1`. The `${username}` placeholder fails to
         # resolve and the literal string ends up as a vault key.
         [System.Collections.IDictionary]$EffectiveVariables,
-        [switch]$ShowSensitive
+        [switch]$ShowSensitive,
+        # File-local 1-based start step, forwarded to Invoke-Sequence. The
+        # runner's warm-resume path uses it to restart this single sequence at
+        # its last-good step; default 1 = whole sequence (every other caller).
+        [int]$StartStep = 1
     )
     $sequenceFile = Resolve-SequencePath -SequencesDir $SequencesDir -Name $Name -HostType $HostType -RepoRoot $RepoRoot
     if (-not $sequenceFile) {
@@ -1150,7 +1168,7 @@ function Invoke-SequenceByName {
     # return is strictly [bool].
     Write-Information "[$GuestKey] Running sequence: $Name on $HostType (VM: $VMName)" -InformationAction Continue
     Write-Verbose "    Sequence file: $sequenceFile"
-    $result = Invoke-Sequence -HostType $HostType -GuestKey $GuestKey -VMName $VMName -SequencePath $sequenceFile -EffectiveVariables $EffectiveVariables -ShowSensitive:$ShowSensitive
+    $result = Invoke-Sequence -HostType $HostType -GuestKey $GuestKey -VMName $VMName -SequencePath $sequenceFile -EffectiveVariables $EffectiveVariables -ShowSensitive:$ShowSensitive -StartStep $StartStep
     # Normalize: only $true is success. Anything else -- $null, objects,
     # arrays -- fails. A sane Invoke-Sequence returns $true / $false and
     # this is a no-op; a broken one no longer slips past.
@@ -1226,15 +1244,31 @@ function Invoke-GuestSequenceList {
         [Parameter(Mandatory)][string]$RepoRoot,
         [Parameter(Mandatory)][string]$SequencesDir,
         [string[]]$SequenceNames = @(),
-        [System.Collections.IDictionary]$EffectiveVariables
+        [System.Collections.IDictionary]$EffectiveVariables,
+        # Warm-resume: skip every sequence before ResumeFromSequence (they passed
+        # on the prior attempt), restart ResumeFromSequence at ResumeFromStep, and
+        # run the rest from step 1. Default ('' / 1) runs the whole list normally.
+        [string]$ResumeFromSequence = '',
+        [int]$ResumeFromStep = 1
     )
     if (-not $SequenceNames -or $SequenceNames.Count -eq 0) {
         return @{ success=$true; skipped=$true; errorMessage=$null }
     }
+    $resuming      = -not [string]::IsNullOrEmpty($ResumeFromSequence)
+    $reachedResume = -not $resuming
     foreach ($s in $SequenceNames) {
-        Write-Information "  Running: $s" -InformationAction Continue
+        if ($resuming -and -not $reachedResume) {
+            if ($s -eq $ResumeFromSequence) {
+                $reachedResume = $true
+            } else {
+                Write-Information "  Skipping (passed before warm-resume point): $s" -InformationAction Continue
+                continue
+            }
+        }
+        $thisStart = if ($resuming -and $s -eq $ResumeFromSequence) { [int]$ResumeFromStep } else { 1 }
+        Write-Information ("  Running: $s" + $(if ($thisStart -gt 1) { " (warm-resume at step $thisStart)" } else { '' })) -InformationAction Continue
         $seqStartUtc = [DateTime]::UtcNow
-        $ok = Invoke-SequenceByName -HostType $HostType -GuestKey $GuestKey -VMName $VMName -SequencesDir $SequencesDir -RepoRoot $RepoRoot -Name $s -EffectiveVariables $EffectiveVariables
+        $ok = Invoke-SequenceByName -HostType $HostType -GuestKey $GuestKey -VMName $VMName -SequencesDir $SequencesDir -RepoRoot $RepoRoot -Name $s -EffectiveVariables $EffectiveVariables -StartStep $thisStart
         if (-not $ok) {
             $errMsg = "$PhaseLabel sequence '$s' failed"
             # -Global: a nested -Force without -Global evicts Test.YurunaDir from
@@ -1277,6 +1311,12 @@ function Invoke-GuestSequenceList {
             Write-Information "  VM renamed mid-chain: '$VMName' -> '$finishedVm'." -InformationAction Continue
             $VMName = $finishedVm
         }
+    }
+    if ($resuming -and -not $reachedResume) {
+        # The resume target is not in this list -- refuse to report success (every
+        # sequence would have been silently skipped). The runner re-derives the
+        # target from last_failure.json, so this only trips on a bad call.
+        return @{ success=$false; skipped=$false; errorMessage="warm-resume target sequence '$ResumeFromSequence' not found in the workload list" }
     }
     return @{ success=$true; skipped=$false; errorMessage=$null }
 }
@@ -1403,23 +1443,15 @@ function Invoke-Sequence {
     Remove-Item (Join-Path $logDir "last_failure.json") -Force -ErrorAction SilentlyContinue
 
     # Build variables table: built-ins first, then YAML-defined entries
-    # evaluated EAGERLY in file order. Each entry can reference any
-    # variable declared above it, plus the built-ins. ${ext:...} inside
-    # a value is invoked once at definition time and the resolved value
-    # is stored, so two step references to the same variable always
-    # type the same value (even though ${ext:...} itself is no longer
-    # memoized -- pinning a generated value across multiple steps is now
-    # an explicit, file-visible operation rather than implicit caching).
-    #
-    # Planner-cascaded overrides (-EffectiveVariables) REPLACE same-named
-    # YAML entries: a workload.*.yml that defines `username: webuser`
-    # propagates that value into every sequence in its dependency chain,
-    # so the baseline `start.*.yml` still saying `username: yuuser26`
-    # silently runs with `webuser` whenever the workload is the cycle's
-    # top-level. Sequence YAML stays self-contained -- the local
-    # variables: block remains the standalone-invocation fallback for
-    # Test-Sequence.ps1 runs with no cascade context.
-    $vars = @{ "vmName" = $VMName; "hostType" = $HostType; "guestKey" = $GuestKey }
+    # evaluated EAGERLY in file order (full contract:
+    # docs/test-sequences.md#variable-substitution-rules -- the Markdown
+    # is the contract). ${ext:...} in a value runs once at definition
+    # time, so pinning a generated value across steps is an explicit,
+    # file-visible operation. Planner overrides (-EffectiveVariables)
+    # REPLACE same-named YAML entries; ${hostname} is seeded from
+    # -VMName and overwritten by the sequence's variables: block or the
+    # cascade when declared.
+    $vars = @{ "vmName" = $VMName; "hostType" = $HostType; "guestKey" = $GuestKey; "hostname" = $VMName }
     if ($sequence.variables) {
         foreach ($_varKey in $sequence.variables.Keys) {
             # .Contains() (not .ContainsKey) so OrderedDictionary works

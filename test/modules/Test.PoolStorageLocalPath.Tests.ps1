@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.17
+.VERSION 2026.07.21
 .GUID 42b1c2d3-e4f5-4061-8a72-3b4c5d6e7f80
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -22,9 +22,9 @@
     trim + leading-'~' expansion is shared by one Expand-YurunaLocalPath helper,
     not duplicated across the pool and stash storage-config readers.
 .DESCRIPTION
-    Get-YurunaPoolStorageConfig and Get-YurunaStashStorageConfig each open-coded
-    the same trim + '~'-expansion block; a drift in the '~' rule would silently
-    break one storage tier's mount path. These guards assert the block is now in
+    Get-YurunaPoolStorageConfig and Get-YurunaStashStorageConfig must share one
+    trim + '~'-expansion block; a drift in the '~' rule would silently
+    break one storage tier's mount path. These guards assert the block lives in
     one private helper, both readers delegate, the '~'-match regex appears exactly
     once, and the helper stays private. Source-text only. Runs under Pester 4.10.1.
 #>

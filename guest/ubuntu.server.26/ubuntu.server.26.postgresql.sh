@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.07.17
+# Version: 2026.07.21
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 set -euo pipefail
@@ -40,6 +40,8 @@ sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y
 
 apt_retry sudo apt-get update -y
 
+# PostgreSQL major is pinned deliberately: a major upgrade needs a dump/restore
+# migration, so never float this to a newer major via an unattended apt-get.
 apt_retry sudo apt-get install -y postgresql-18 postgresql-contrib-18
 
 # Stop PostgreSQL if running and wait for full shutdown before re-creating cluster

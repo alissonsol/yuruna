@@ -20,10 +20,7 @@
       echo "${GW} hyperv-host" >> /etc/hosts
     fi
 # === YURUNA_OVERLAY_RUNCMD_HOST_AGENT ===
-  # Install hyperv-daemons tolerantly (see packages: note). Re-run
-  # apt-get update because hyperv-daemons' linux-cloud-tools-$(uname -r)
-  # dep can show up after a refresh. If it still fails, discovery falls
-  # back to ARP -- don't abort the rest of runcmd.
+  # Re-run apt-get update first (the linux-cloud-tools dep can appear only after a refresh), then tolerate failure -- IP discovery falls back to ARP.
   - DEBIAN_FRONTEND=noninteractive apt-get update || true
   # Single-quoted so YAML doesn't parse `yuruna:` inside the echo as a
   # mapping key and abort runcmd with a shellify TypeError.

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.17
+.VERSION 2026.07.21
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456702
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -258,6 +258,14 @@ function Initialize-StatusDocument {
             # into history.guestSummary at Complete-Run so the dashboard
             # can hyperlink the per-guest pill straight to the artifacts.
             failureArtifacts   = ''
+            # Circuit-breaker flag: true when this guest has been quarantined
+            # after repeated same-failureClass failures and is being skipped (or
+            # was quarantined on this cycle's failure). quarantinedUntilCommit
+            # records the framework commit in effect when it tripped; a new commit
+            # releases it. Additive fields; the dashboard renders a "quarantined"
+            # pill when set, so a skipped guest stays visible, not a silent pass.
+            quarantined            = $false
+            quarantinedUntilCommit = ''
         }
     }
 
@@ -334,6 +342,28 @@ function Set-GuestStatus {
     if ($PSCmdlet.ShouldProcess($GuestKey, "Set guest status to '$Status'")) {
         $g = $script:Doc.guests | Where-Object { $_.guestKey -eq $GuestKey }
         if ($g) { $g.status = $Status }
+        Write-StatusJson
+    }
+}
+
+<#
+.SYNOPSIS
+    Sets the circuit-breaker quarantine flag (+ the commit it is pinned to) on a
+    guest and flushes status.json, so the dashboard renders a "quarantined" pill.
+#>
+function Set-GuestQuarantine {
+    [CmdletBinding(SupportsShouldProcess)]
+    param(
+        [string]$GuestKey,
+        [bool]$Quarantined,
+        [string]$UntilCommit = ''
+    )
+    if ($PSCmdlet.ShouldProcess($GuestKey, "Set guest quarantine to '$Quarantined'")) {
+        $g = $script:Doc.guests | Where-Object { $_.guestKey -eq $GuestKey }
+        if ($g) {
+            $g.quarantined            = $Quarantined
+            $g.quarantinedUntilCommit = $UntilCommit
+        }
         Write-StatusJson
     }
 }
@@ -633,19 +663,6 @@ function Set-LastGetImageTime {
     }
 }
 
-<#
-.SYNOPSIS
-    Records the base-image provenance (downloaded filename + source URL) for
-    a guest and flushes status.json.
-.DESCRIPTION
-    The UI swaps the guest-card title from "guest.ubuntu.server.24" to the
-    actual ISO filename (e.g. "ubuntu-24.04.4-live-server-amd64.iso")
-    when provenanceFilename is populated; a blank value means fall back
-    to guestKey. provenanceUrl is informational (not rendered today;
-    kept in the document so operators inspecting track/status.json can
-    see where the ISO came from without cross-referencing
-    host/*/*.txt sidecars).
-#>
 function Get-CycleNumber {
 <#
 .SYNOPSIS
@@ -803,4 +820,4 @@ function Get-GuestProvenance {
     }
 }
 
-Export-ModuleMember -Function Reset-StatusDocumentForCycleStart, Initialize-StatusDocument, Set-GuestVMName, Set-GuestStatus, Set-StepStatus, Set-LastFailureSummary, Set-GuestProvenance, Get-GuestProvenance, Set-GuestTopLevel, Set-GuestFailureArtifact, Set-CycleFolderUrl, Get-CycleNumber, Complete-Run, Write-StatusJson, Get-LastGetImageTime, Set-LastGetImageTime
+Export-ModuleMember -Function Reset-StatusDocumentForCycleStart, Initialize-StatusDocument, Set-GuestVMName, Set-GuestStatus, Set-GuestQuarantine, Set-StepStatus, Set-LastFailureSummary, Set-GuestProvenance, Get-GuestProvenance, Set-GuestTopLevel, Set-GuestFailureArtifact, Set-CycleFolderUrl, Get-CycleNumber, Complete-Run, Write-StatusJson, Get-LastGetImageTime, Set-LastGetImageTime

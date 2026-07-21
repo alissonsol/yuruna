@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.17
+.VERSION 2026.07.21
 .GUID 42e6f7a8-b9c0-4d12-9345-6e7f8a9b0c1d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -75,6 +75,7 @@ baseline:
   windows.11: []
 variables:
   username: baseuser
+  hostname: basehost
   region: us
 steps: []
 "@ | Set-Content (Join-Path $seqGui 'install.yml')
@@ -167,6 +168,20 @@ Describe 'Get-CyclePlanSequencesForGuest keystrokeMechanism merge (pure)' {
     }
 }
 
+Describe 'Get-CyclePlanSequencesForGuest effectiveHostname merge (pure)' {
+    It 'returns the first non-empty hostname, or empty when none' {
+        $plan = @(
+            [pscustomobject]@{ guestKey='guest.a'; fullChain=@('s1'); effectiveVariables=[ordered]@{}; effectiveUsername=''; effectiveHostname='' },
+            [pscustomobject]@{ guestKey='guest.a'; fullChain=@('s2'); effectiveVariables=[ordered]@{}; effectiveUsername=''; effectiveHostname='pinned' }
+        )
+        Assert-Equal -Expected 'pinned' -Actual (Get-CyclePlanSequencesForGuest -Plan $plan -GuestKey 'guest.a').effectiveHostname -Because 'first non-empty wins'
+        # A plan entry built before the field existed must not throw here: the
+        # guest simply keeps the VM-name default.
+        $legacy = @([pscustomobject]@{ guestKey='guest.b'; fullChain=@('s1'); effectiveVariables=[ordered]@{}; effectiveUsername='' })
+        Assert-Equal -Expected '' -Actual (Get-CyclePlanSequencesForGuest -Plan $legacy -GuestKey 'guest.b').effectiveHostname -Because 'absent field -> empty'
+    }
+}
+
 Describe 'Manifest readers + Write-YurunaPoolManifest' {
     It 'reads a valid pool manifest and returns $null on missing/bad' {
         $d = New-TempDir
@@ -197,7 +212,7 @@ Describe 'Manifest readers + Write-YurunaPoolManifest' {
     }
 }
 
-Describe 'Resolve-CyclePlan parity (refactor preserved single-host behavior)' {
+Describe 'Resolve-CyclePlan parity (single-host behavior matches the test-set path)' {
     It 'produces one entry per baseline guest with the cascaded variables and null keystroke' {
         $fx = New-PlannerFixture
         try {
@@ -223,6 +238,7 @@ Describe 'Resolve-TestSetCyclePlan (perGuestOverrides + RestrictGuests)' {
             Assert-Equal -Expected 'eu' -Actual $u.effectiveVariables['region'] -Because 'variables override wins'
             Assert-Equal -Expected 'SSH' -Actual $u.keystrokeMechanism -Because 'keystroke override tagged (upper)'
             Assert-Equal -Expected 'webuser' -Actual $u.effectiveUsername -Because 'effectiveUsername reflects override'
+            Assert-Equal -Expected 'basehost' -Actual $u.effectiveHostname -Because 'effectiveHostname promoted from the cascade'
             $w = $plan | Where-Object { $_.guestKey -eq 'guest.windows.11' } | Select-Object -First 1
             Assert-Equal -Expected 'baseuser' -Actual $w.effectiveVariables['username'] -Because 'unoverridden guest keeps cascade'
             Assert-Null $w.keystrokeMechanism 'unoverridden guest -> null keystroke'

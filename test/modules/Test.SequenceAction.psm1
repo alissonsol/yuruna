@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.17
+.VERSION 2026.07.21
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456726
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -112,14 +112,7 @@ function Register-SequenceAction {
         # Engine behavior flags each verb declares once, so the sequence
         # engine reads a property instead of matching against a literal
         # verb-name list (which silently drifts as verbs are added).
-        # UsesWaitSignals: the verb populates the shared
-        # $script:Fail.WaitForTextMatchedFailurePattern signal on an
-        # early anti-pattern abort, so the engine appends "-- matched
-        # failurePattern ..." to its failure label.
-        # CapturesOwnFailureScreenshot: the verb's own failure path
-        # already writes failure_screenshot_<vm>.png, so the engine skips
-        # its generic post-failure capture (avoids overwriting the
-        # verb's richer, in-context frame with a later one).
+        # Flag semantics: the .PARAMETER help above.
         [bool]$UsesWaitSignals = $false,
         [bool]$CapturesOwnFailureScreenshot = $false
     )
@@ -245,8 +238,7 @@ function Get-SequenceActionFailureLabel {
     .SYNOPSIS
         Build the human-readable failure label for a failed step. Returns
         the verb name when no FailureLabel scriptblock is registered or
-        the action isn't in the registry -- same default the prior switch's
-        fall-through used.
+        the action isn't in the registry.
     .PARAMETER Step
         The parsed YAML step (an IDictionary; access fields via dot
         notation or .Contains/.Item).

@@ -4,6 +4,11 @@ Yuruna uses [Calendar Versioning](https://calver.org/): `YYYY.MM.DD`.
 Tags are cut from the `main` branch; entries below summarize each
 tagged release.
 
+## 2026.07.21
+
+- **A test sequence can name its guest: `variables.hostname` now sets the VM's hostname**. The chain cascade carried `username` to cloud-init but dropped `hostname`; declaring it on any sequence now reaches the guest's `local-hostname` on all three hypervisors. Sequences declaring none follow the VM name. See [vmconfig.md](docs/vmconfig.md).
+- **Also in this release**: the npm requirement now matches pinned Node 24 LTS (`11.16.0`, was `12.0.1`), so provisioned hosts stop failing their own check; `docs/syntax.md` folded into [architecture.md](docs/architecture.md) and [loglevels.md](docs/loglevels.md), completing the CLI reference. A supply-chain and resilience sweep landed too: the Microsoft RPM signing key and guest PowerShell tarball are verified against published hashes, managed-cluster API endpoints restricted, guests quarantine after repeated failures, late-step failures warm-resume in place, and stale-lease IP discovery falls back to `utmctl`/ARP. Retry paths gained jitter and transient/permanent telemetry.
+
 ## 2026.07.17
 
 - **The cache VM's IP can be pinned across rebuilds: `-MacAddress` on
@@ -80,7 +85,7 @@ tagged release.
   opt-in via `-PinVersion` (Windows) / `PIN_VERSION=1` / `--pin-version`
   (macOS, Ubuntu), which reads the repo's own `VERSION` as the single source of
   truth. See [install.md](docs/install.md) and
-  [opportunities-installer.md](docs/opportunities-installer.md).
+  [opportunities.md](docs/opportunities.md).
 - **Reliability & self-healing hardening sweep.** Roughly 66 review findings plus
   targeted fixes across the automation and diagnostic paths: hard wall-clock
   bounds on the VNC handshake, `Wait-SshReady`, and the persistent OCR WinRT
@@ -88,7 +93,7 @@ tagged release.
   delete); bounded retries on guest provisioning; crash-counter persistence
   across respawn; stale-PID and stale `last_failure.json` misattribution guards;
   and more diagnosable OCR, transport, and workload failure paths. See
-  [opportunities-resilience.md](docs/opportunities-resilience.md).
+  [opportunities.md](docs/opportunities.md).
 - **Commit column on the Yuruna hosts dashboard.** The Pool hosts table now shows
   each host's current framework and project short SHAs with per-repo deep-links,
   sourced from every host's `status.json` — the same data the host status page's
@@ -118,7 +123,7 @@ tagged release.
   `500`s on helm/kubectl/tofu fetches, in-guest Kubernetes install steps retry,
   and the three platform installers are hardened (arm64 hard gate, brew
   `NONINTERACTIVE`, Windows `git clone` exit-code checks). See
-  [install.md](docs/install.md) and [opportunities-installer.md](docs/opportunities-installer.md).
+  [install.md](docs/install.md) and [opportunities.md](docs/opportunities.md).
 
 ## 2026.06.19
 
@@ -141,14 +146,14 @@ tagged release.
   sequences and reporting under one `poolId`, driven by a read-only intent store
   with no central dispatcher (default-off, falls back to standalone). A
   self-discovering aggregator feeds the **Yuruna hosts** Grafana dashboard. See
-  [pool-admin.md](docs/pool-admin.md) and [opportunities-hostpool.md](docs/opportunities-hostpool.md).
+  [pool-admin.md](docs/pool-admin.md) and [opportunities.md](docs/opportunities.md).
 - **poolStorage (ypsp) NAS replication.** Pool observability data replicates to a
   NAS share over SMB on Windows, Ubuntu, and macOS — async, fail-fast, atomic,
   hardware-fingerprinted identity. See [pool-storage.md](docs/pool-storage.md).
 - **Signed installer integrity.** The three platform installers gain a SHA-256
   manifest with a detached release signature, verified against a committed
   RSA-4096 key, plus in-guest hash checks and an ASCII/BOM pre-commit gate. See
-  [install.md](docs/install.md) and [opportunities-installer.md](docs/opportunities-installer.md).
+  [install.md](docs/install.md) and [opportunities.md](docs/opportunities.md).
 - **Converged cloud-init.** AL2023 and Ubuntu guests collapse drifting per-platform
   `user-data`/`meta-data` into one shared base plus per-host overlays; orphaned
   anchors throw at merge time. See [cloud-init-template.md](docs/cloud-init-template.md).
@@ -183,10 +188,10 @@ tagged release.
 
 ---
 
-LICENSEURI https://yuruna.link/license
+LICENSEURI <https://yuruna.link/license>
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.17
+Last review: 2026.07.21
 
 Back to [Yuruna](README.md)

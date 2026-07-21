@@ -23,12 +23,12 @@ exports the matched triplet plus a few platform-specific helpers
 (TCC grants on macOS, firewall rules on Windows, libvirt diagnostics
 on Linux).
 
-Before the registry pattern landed, the facade carried an `if/elseif`
-chain on `$HostType` inside `Assert-HostConditionSet`, and
-[`Test.HostDetection`](../test/modules/Test.HostDetection.psm1) had a
-parallel `switch ($HostType)` in `Test-HostRequirement`. Adding a new
-host needed two edits in two files; today it is one
-`Register-HostConditionProvider` call.
+The registry replaces parallel per-host dispatch chains — an
+`if/elseif` on `$HostType` inside `Assert-HostConditionSet` plus a
+`switch ($HostType)` in `Test-HostRequirement`
+([`Test.HostDetection`](../test/modules/Test.HostDetection.psm1)):
+inline dispatch needs two edits in two files per new host; the
+registry needs one `Register-HostConditionProvider` call.
 
 ## Public surface
 
@@ -112,7 +112,7 @@ use.
 
 ## Related
 
-- [Component registry login](component-registry.md) — same `New-YurunaRegistry` primitive, different domain.
+- [Component registry login](component-registry.md) — same eviction-safe global-anchor pattern, hand-rolled in `automation/Yuruna.CredentialProvider.psm1` rather than on `New-YurunaRegistry`.
 - [Host I/O registry](host-io.md) — the older two-level registry that established the pattern.
 - [macOS host](host-macos.md), [Hyper-V host](host-hyperv.md) — per-platform deep dives.
 
@@ -122,6 +122,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.17
+Last review: 2026.07.21
 
 Back to [Yuruna](../README.md)

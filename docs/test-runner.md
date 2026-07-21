@@ -100,12 +100,69 @@ guard, and the failure-pause back-off all live in
 [Watchdog](watchdog.md). Per-step visibility is controlled by
 [Log levels](loglevels.md).
 
+## Startup gates
+
+`Invoke-TestRunner.ps1` refuses to enter the eternal loop when either of
+two conditions holds. Both are hard stops rather than warnings, because
+the failure mode they guard against is a loop that keeps running and
+keeps producing near-empty cycles — expensive to notice, expensive to
+diagnose after the fact.
+
+### powershell-yaml must be installed
+
+The cycle planner (`Test.SequencePlanner.Resolve-CyclePlan`) parses
+`project/test/test.runner.yml` through `powershell-yaml`. When the module
+is missing, the inner runner's `try`/`catch` turns the throw into a
+`Write-Warning` — a stream the per-cycle log does not capture — and falls
+back to the legacy `guestSequence` list. That fallback leaves
+`Start-GuestOS` with no sequence names, so the step is recorded as
+`skipped` in `status.json` with no line in the cycle log at all.
+
+The condition is not transient, so the outer runner surfaces it once at
+startup and exits instead of spinning an eternal loop of degraded cycles.
+The reason goes through `Write-OuterLog` so it lands in `outer.log`, not
+only in the transient console Warning stream. Fix with:
+
+```
+Install-Module powershell-yaml -Scope CurrentUser
+```
+
+or re-run `host/<host type>/Enable-TestAutomation.ps1`.
+
+### Pre-cycle config gate
+
+The gate blocks startup when `test.config.yml`, the extension configs,
+`vault.yml`, or `users.yml` are in a state that would make the first
+cycle's `New-VM`/`Start-GuestOS` fail in a confusing way.
+[`Test-Config.ps1`](../test/Test-Config.ps1) is the single source of
+validation rules — schema, completeness, and cross-references — and
+calling it as a startup gate is what turns it from an operator tool into
+a hard production guardrail (`users.yml` strict mode, the
+vaultKey-resolves-in-`vault.yml` check, and the rest).
+
+The gate always runs `Test-Config.ps1` with `-SkipSend`. Its notification
+path is a smoke test for an operator-initiated run, not a cycle event;
+delivering an email on every outer relaunch would flood the
+`subscribers["config.smoke"]` list.
+
+Bypass with `-NoConfigGate` for ad-hoc runs and for dev iteration against
+an in-progress edit:
+
+```
+pwsh test/Invoke-TestRunner.ps1 -NoConfigGate
+```
+
+A failed gate logs the raw `Test-Config.ps1` exit code for diagnostics but
+exits through the canonical Ok/Failure contract, like every other exit
+path in the entry point: the exit surface is binary (0 = ran a cycle loop,
+1 = refused or failed) so CI consumers need no per-script code lookup.
+
 ---
 
 LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.17
+Last review: 2026.07.21
 
 Back to [Yuruna](../README.md)

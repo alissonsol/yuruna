@@ -6,7 +6,7 @@ provider "azurerm" {
 
   # More information on the authentication methods supported by
   # the AzureRM Provider can be found here:
-  # http://terraform.io/docs/providers/azurerm/index.html
+  # https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs
 
   # subscription_id = "..."
   # client_id       = "..."

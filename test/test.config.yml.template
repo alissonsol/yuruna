@@ -33,9 +33,29 @@ testCycle:
   autoRemediationEnabled: false
   autoRemediationMaxAttemptsPerCycle: 2
   cycleDelaySeconds: 300
+  # Circuit breaker: skip a guest that keeps failing the same way, so it stops
+  # burning a full provision+deploy every cycle. After failuresToQuarantine
+  # consecutive failures of the SAME failureClass, the guest is skipped for up
+  # to skipCycles cycles or until a framework/project commit changes (whichever
+  # comes first), emitting a guest_quarantined event + a dashboard flag. Set
+  # enabled:false to disable.
+  guestQuarantine:
+    enabled: true
+    failuresToQuarantine: 3
+    skipCycles: 5
   recentDisplayCount: 30
   shouldStopOnFailure: false
   stepTimeoutMinutes: 45
+  # Warm-resume checkpointing: on an eligible transient workload failure
+  # (network_timeout / wait_timeout / instrumentation_failure / host_io_blocked),
+  # re-run the failed sequence from its last-good step on the same live VM
+  # instead of tearing the guest down and redoing the whole install. Up to
+  # maxAttempts in-place tries; on exhaustion it falls back to the normal
+  # teardown + cold re-provision. Emits a warm_resume event. enabled:false
+  # disables it.
+  warmResume:
+    enabled: true
+    maxAttempts: 2
 vmCommunication:
   allowGuiFallback: false
   characterDelayMs: 10

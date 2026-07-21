@@ -16,6 +16,12 @@ locals {
   # group-defaults input, so each group states these explicitly.
   default_ami_type       = "AL2023_x86_64_STANDARD"
   default_instance_types = ["m6i.large", "m5.large", "m5n.large", "m5zn.large"]
+
+  # Parse the comma-separated CIDR allow-list (a single tfvars string, since
+  # the pipeline emits every variable as a quoted string) into the list the
+  # EKS module wants. trimspace + drop-empties tolerates trailing commas and
+  # spaces.
+  authorized_cidrs = [for c in split(",", var.apiServerAuthorizedCidrs) : trimspace(c) if trimspace(c) != ""]
 }
 
 data "aws_caller_identity" "current" {}
@@ -32,6 +38,11 @@ module "eks" {
   kubernetes_version      = local.cluster_version
   endpoint_private_access = true
   endpoint_public_access  = true
+
+  # Restrict the public API endpoint to the pinned admin CIDRs instead of the
+  # module default 0.0.0.0/0 (whole internet). Private access stays on for
+  # in-VPC node/pod traffic; the external kubectl/helm deploy uses this list.
+  endpoint_public_access_cidrs = local.authorized_cidrs
 
   # EKS does not grant the cluster-creating identity Kubernetes API access on
   # its own; the kubectl/helm steps of the workload pipeline run as that same

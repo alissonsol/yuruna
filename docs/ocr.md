@@ -27,7 +27,7 @@ this order, when `$env:YURUNA_OCR_ENGINES` is unset:
 
 Why ordering matters: the default combine mode is `Or` (see
 `Get-OcrCombineMode` in
-[`Invoke-Sequence.psm1`](../test/modules/Invoke-Sequence.psm1)), which
+[`Test.OcrMatch.psm1`](../test/modules/Test.OcrMatch.psm1)), which
 short-circuits on the first engine that finds the search pattern. So
 the first engine listed is the primary; later engines are fallbacks
 invoked only when the primary's text did not match.
@@ -100,6 +100,30 @@ Two non-obvious transforms protect every macOS UTM screenshot before
 not natural language, and language correction was actively rewriting
 valid OCR into nonsense.
 
+## Why Tesseract runs at --psm 6
+
+`--psm 6` (single uniform block of text) is the only page-segmentation
+mode that reads a terminal screenshot end-to-end. Terminal captures ARE
+uniform blocks -- monospace, equal-size lines, top-aligned -- and PSM 6
+walks the whole image as one block, so a sparse top-of-image text region
+with empty space below still gets read in full.
+
+Every neighbouring mode drops text the harness depends on:
+
+- **`--psm 4`** (single column of variable sizes): on screens with two
+  visually-distinct content regions -- e.g. a tiny login prompt at the
+  top plus a cloud-init dump rendered as a virtual second column at the
+  bottom on retried boots -- PSM 4 picks ONE region as "the column" and
+  silently drops the text in the other. The visible symptom is a
+  `<hostname> login:` line missing from the OCR output even though the
+  screenshot plainly shows it.
+- **`--psm 3`** (fully automatic, Tesseract's default): does its own
+  multi-column detection and re-orders/merges adjacent UI regions, with
+  the same `login:` drop-out as PSM 4.
+- **`--psm 11`** (sparse text): fragments every word onto its own output
+  line, which breaks the `Wait-ForText -ContainsString` substring match
+  the test harness relies on.
+
 ## Adding a new provider
 
 1. Implement `Invoke-<Whatever>Ocr -ImagePath <path>` in a module or
@@ -126,6 +150,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.17
+Last review: 2026.07.21
 
 Back to [Yuruna](../README.md)

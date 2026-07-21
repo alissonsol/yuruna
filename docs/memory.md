@@ -16,8 +16,8 @@ block collapses to a single line of the form:
 The fragment resolves to a `### Why <topic>?` heading in this file.
 Slugs follow the standard GitHub Markdown rule: lowercase the heading
 text, strip everything that isn't `[a-z0-9_ -]`, then replace spaces
-with hyphens. So `### Why we patch virt-install's phase-1 XML?` becomes
-`#why-we-patch-virt-installs-phase-1-xml`.
+with hyphens. So `### Why we patch virt-install's phase-1 XML on KVM` becomes
+`#why-we-patch-virt-installs-phase-1-xml-on-kvm`.
 
 This file is the sibling of [Yuruna definitions](definition.md) (for
 terminology entries) and of [vmconfig topic reference](vmconfig.md)
@@ -768,7 +768,7 @@ Source:
 ### Why ubuntu guest update scripts install PowerShell first?
 
 [`guest/ubuntu.server.24/ubuntu.server.24.update.sh`](../guest/ubuntu.server.24/ubuntu.server.24.update.sh)
-and its 26 sibling install `pwsh` as early as possible so that even
+and its `ubuntu.server.26` sibling install `pwsh` as early as possible so that even
 if a later step in the script aborts under `set -euo pipefail`, the
 host-side failure diagnostic (which shells back into the guest as
 `pwsh -NoProfile -File $HOME/yuruna/automation/Get-SystemDiagnostic.ps1`)
@@ -1045,6 +1045,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.17
+Last review: 2026.07.21
 
 Back to [Yuruna](../README.md)

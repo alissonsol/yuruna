@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.17
+.VERSION 2026.07.21
 .GUID 42a1b2c3-d4e5-4f67-8901-bc012345672a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -35,6 +35,26 @@ Import-Module (Join-Path $PSScriptRoot 'Test.SequenceAction.psm1') -Force -Disab
 # an installer crash as a plain timeout. See Test.SequenceFailureState.psm1.
 Import-Module (Join-Path $PSScriptRoot 'Test.SequenceFailureState.psm1') -Force -Global
 $script:Fail = Get-SequenceFailureState
+
+# Cross-language fetch-and-execute failure sentinel. The guest wrapper
+# (automation/fetch-and-execute.sh) and the guest install scripts PRINT this
+# exact string on a non-zero child exit; the fetchAndExecute verb below MATCHES
+# it via Wait-ForText -FailurePattern for a seconds-fast crash detection.
+# Declared here (and mirrored bash-side) so the coupling is one named constant
+# per language rather than two bare literals that can silently drift; the
+# Test.NonzeroExitSentinel drift-guard asserts the bash producer agrees.
+$script:NonzeroScriptExitSentinel = 'NONZERO SCRIPT EXIT:'
+
+function Get-NonzeroScriptExitSentinel {
+    <#
+    .SYNOPSIS
+        The cross-language fetch-and-execute failure sentinel produced by
+        automation/fetch-and-execute.sh and matched by the fetchAndExecute verb.
+    #>
+    [OutputType([string])]
+    param()
+    return $script:NonzeroScriptExitSentinel
+}
 
 # OCR-tolerant matching: sshWaitReady's slow path scans the console for
 # installer-failure patterns via Test-CombinedOcrMatch. It lives in
@@ -918,7 +938,7 @@ Register-SequenceAction -Name 'fetchAndExecute' -HostIORequirement @('Send-Text'
             # 'fetch-and-execute.sh ...' command line on the first poll and fail
             # a healthy run in ~4 s); "NONZERO" cannot collide with a command or
             # normal script output. A step can still override via failPattern.
-            $failPatterns = @('NONZERO SCRIPT EXIT:')
+            $failPatterns = @($script:NonzeroScriptExitSentinel)
         }
         Write-Debug "      fetchAndExecute: waiting for '$waitPattern' (timeout: ${timeout}s, freshMatch); failurePatterns=$($failPatterns -join ', ')"
         return [bool](Wait-ForText -HostType $c.HostType -VMName $c.VMName -Pattern @($waitPattern) `
@@ -1048,6 +1068,49 @@ Register-SequenceAction -Name 'sshWaitReady' -HostIORequirement @() -OcrRequired
         return $false
     }
 
+function Publish-GuestRetryMarker {
+    <#
+    .SYNOPSIS
+        Parse YURUNA_RETRY {json} markers out of captured guest SSH output and
+        re-emit each as a retry_attempt NDJSON event, so guest-side retries on the
+        SSH path become queryable in the cycle stream (the bash lib emits the
+        markers but cannot reach the host stream itself). Best-effort; a malformed
+        marker line is skipped.
+    .OUTPUTS
+        [int] the number of markers published.
+    #>
+    [OutputType([int])]
+    param(
+        [AllowNull()]$Output,
+        [string]$GuestKey,
+        [string]$VmName
+    )
+    if ($null -eq $Output) { return 0 }
+    if (-not (Get-Command Send-CycleEventSafely -ErrorAction SilentlyContinue)) { return 0 }
+    $text  = (@($Output) | ForEach-Object { [string]$_ }) -join "`n"
+    $count = 0
+    foreach ($line in ($text -split "`r?`n")) {
+        $m = [regex]::Match($line, '^\s*YURUNA_RETRY\s+(\{.*\})\s*$')
+        if (-not $m.Success) { continue }
+        try { $obj = $m.Groups[1].Value | ConvertFrom-Json -ErrorAction Stop } catch { continue }
+        $rec = @{
+            timestamp = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
+            event     = 'retry_attempt'
+            stack     = 'bash'
+        }
+        if ($obj.label)                 { $rec['description'] = [string]$obj.label }
+        if ($null -ne $obj.attempt)     { $rec['attempt']     = [int]$obj.attempt }
+        if ($null -ne $obj.maxAttempts) { $rec['maxAttempts'] = [int]$obj.maxAttempts }
+        if ($null -ne $obj.rc)          { $rec['exitCode']    = [int]$obj.rc }
+        if ($null -ne $obj.permanent)   { $rec['permanent']   = [bool]$obj.permanent }
+        if ($GuestKey) { $rec['guestKey'] = [string]$GuestKey }
+        if ($VmName)   { $rec['vmName']   = [string]$VmName }
+        Send-CycleEventSafely -EventRecord ([hashtable]$rec)
+        $count++
+    }
+    return $count
+}
+
 Register-SequenceAction -Name 'sshExec' -HostIORequirement @() -OcrRequired $false `
     -FailureClass 'script_error' -Severity 'hard' -SuggestedRecoveries @('pause_and_inspect') `
     -Description 'Run a one-shot command over SSH.' `
@@ -1060,6 +1123,7 @@ Register-SequenceAction -Name 'sshExec' -HostIORequirement @() -OcrRequired $fal
         Write-Debug "      sshExec: $masked"
         $result  = Invoke-GuestSsh -VMName $c.VMName -GuestKey $c.GuestKey -Command $cmd -TimeoutSeconds $timeout
         Write-Debug "      sshExec output: $($result.output)"
+        [void](Publish-GuestRetryMarker -Output $result.output -GuestKey $c.GuestKey -VmName $c.VMName)
         if (-not $result.success) {
             if ($c.Step.allowFailure -eq $true) {
                 Write-Debug "      sshExec exit=$($result.exitCode) (allowFailure=true)"
@@ -1084,6 +1148,7 @@ Register-SequenceAction -Name 'sshFetchAndExecute' -HostIORequirement @() -OcrRe
         Write-Debug "      sshFetchAndExecute: $cmd"
         $result  = Invoke-GuestSsh -VMName $c.VMName -GuestKey $c.GuestKey -Command $cmd -TimeoutSeconds $timeout
         Write-Debug "      sshFetchAndExecute output: $($result.output)"
+        [void](Publish-GuestRetryMarker -Output $result.output -GuestKey $c.GuestKey -VmName $c.VMName)
         if (-not $result.success) {
             Write-Warning "      sshFetchAndExecute failed (exit=$($result.exitCode)): $cmd"
             if ($result.output) { Write-Warning "      output: $($result.output)" }
@@ -1147,6 +1212,19 @@ Register-SequenceAction -Name 'retry' -HostIORequirement @() -OcrRequired $false
                 Write-Information ("    [{0}/{1}] retry succeeded on attempt {2}/{3}" -f $c.StepNum, $c.StepCount, $attempt, $maxAttempts)
                 break
             }
+            # Structured per-attempt record so a flaky retry is queryable in the
+            # cycle NDJSON stream, not just the human log.
+            if (Get-Command Send-CycleEventSafely -ErrorAction SilentlyContinue) {
+                Send-CycleEventSafely -EventRecord @{
+                    timestamp   = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
+                    event       = 'retry_attempt'
+                    stack       = 'sequence'
+                    attempt     = [int]$attempt
+                    maxAttempts = [int]$maxAttempts
+                    description = [string]$c.Description
+                    ok          = $false
+                }
+            }
             if ($attempt -lt $maxAttempts) {
                 Write-Warning ("    [{0}/{1}] retry attempt {2}/{3} failed; restarting from step 1 of {4}" -f $c.StepNum, $c.StepCount, $attempt, $maxAttempts, $innerSteps.Count)
                 # Back off before the next attempt. Re-running instantly
@@ -1185,6 +1263,20 @@ Register-SequenceAction -Name 'retry' -HostIORequirement @() -OcrRequired $false
             $script:Fail.LastInnerSuggestedRecoveries = [string[]]@()
             if ($innerVerbEntry -and $null -ne $innerVerbEntry.SuggestedRecoveries) {
                 $script:Fail.LastInnerSuggestedRecoveries = [string[]]@($innerVerbEntry.SuggestedRecoveries)
+            }
+            # Retry ladder exhausted -- emit a structured terminal record carrying
+            # the deepest inner cause (the outer class collapses to retry_exhausted).
+            if (Get-Command Send-CycleEventSafely -ErrorAction SilentlyContinue) {
+                Send-CycleEventSafely -EventRecord @{
+                    timestamp    = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
+                    event        = 'retry_exhausted'
+                    stack        = 'sequence'
+                    attempt      = [int]$maxAttempts
+                    maxAttempts  = [int]$maxAttempts
+                    description  = [string]$c.Description
+                    failureClass = [string]$script:Fail.LastInnerFailureClass
+                    severity     = [string]$script:Fail.LastInnerSeverity
+                }
             }
             $script:Fail.LastFailureLabel     = "retry exhausted ($maxAttempts attempts): $($script:Fail.LastFailureLabel)"
             $script:Fail.LastFailedStepNumber = $c.StepNum

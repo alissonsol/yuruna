@@ -71,7 +71,7 @@ The registry uses the shared
 [`New-YurunaRegistry`](../test/modules/Test.Registry.psm1)
 primitive, so it appears in `Get-YurunaRegistryDirectory` alongside
 `SequenceAction`, `HostIO`, `OcrProvider`,
-[`CredentialProvider`](component-registry.md), and
+and
 [`HostCondition`](host-condition-registry.md) — autonomous tooling
 enumerates every routing surface through one API.
 
@@ -128,6 +128,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.17
+Last review: 2026.07.21
 
 Back to [Yuruna](../README.md)

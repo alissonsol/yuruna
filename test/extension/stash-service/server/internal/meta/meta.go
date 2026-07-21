@@ -6,7 +6,7 @@
 //
 // The driver is modernc.org/sqlite (pure-Go), so the daemon builds
 // without CGO_ENABLED=1. Substring search on originalFilename /
-// pathMetadata uses LIKE %x% with no FTS index in v1; the future
+// pathMetadata uses LIKE %x% with no FTS index in v1; the
 // in-VM UI may add FTS5 if the corpus grows beyond what LIKE handles.
 package meta
 
@@ -399,7 +399,7 @@ func escapeLike(s string) string {
 	// ESCAPE '\\' to the LIKE call... but we use the simpler form
 	// "LIKE ?" without ESCAPE. For v1 we accept that a literal % in a
 	// search term is treated as a wildcard. Trusted-network tradeoff;
-	// the future in-VM UI controls the search input shape.
+	// the in-VM UI controls the search input shape.
 	return s
 }
 
@@ -449,13 +449,10 @@ func scanRow(s scanner) (*Record, error) {
 	return &r, nil
 }
 
-// ErrNotFound is returned by Get when no row matches.
-var ErrNotFound = errors.New("meta: record not found")
-
 // Sidecar is the on-disk JSON record written next to each committed
 // artifact on the share (§8.5). It is the durable, reimage-surviving form
 // of a metadata record, deliberately decoupled from the SQLite schema so
-// the on-disk format and the index can evolve independently. The future
+// the on-disk format and the index can evolve independently. The
 // UI and the rebuild path (RebuildFromSidecars) both read it.
 type Sidecar struct {
 	ID               string     `json:"id"`

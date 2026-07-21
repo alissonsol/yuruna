@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.17
+.VERSION 2026.07.21
 .GUID 42b0c62a-e89b-4a4d-88a0-ec973bcf58f3
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -23,13 +23,12 @@
     lives in ONE place -- ConvertFrom-PoolStorageMountLine -- and the live-mount
     detector Test-PoolStorageMountMatch reuses it instead of re-implementing it.
 .DESCRIPTION
-    Test-PoolStorageMountMatch used to open-code the same ' on ' split, the Linux
-    ' type ' vs macOS ' (' branch, and the remote-bare normalization that
-    ConvertFrom-PoolStorageMountLine already performs, so a format quirk fixed in
-    one parser could silently diverge from the other and misdetect a live mount.
-    These guards assert the detector now delegates to the general parser and that
-    each parse token appears exactly once in the module (it appeared twice while
-    the parse was duplicated). Source-text only. Runs under Pester 4.10.1
+    Test-PoolStorageMountMatch must not open-code the ' on ' split, the Linux
+    ' type ' vs macOS ' (' branch, or the remote-bare normalization that
+    ConvertFrom-PoolStorageMountLine already performs -- a format quirk fixed in
+    one parser would silently diverge from the other and misdetect a live mount.
+    These guards assert the detector delegates to the general parser and that
+    each parse token appears exactly once in the module. Source-text only. Runs under Pester 4.10.1
     (script-scoped throw helper).
 #>
 

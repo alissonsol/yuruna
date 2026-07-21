@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.17
+.VERSION 2026.07.21
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456706
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -325,7 +325,7 @@ Write-Output "Host type: $HostType"
 
 # Externalize this host's identity + capabilities to runtime/host.registration.json
 # (served at /runtime/host.registration.json) for the multi-host pool aggregator.
-# Once per cycle, main runspace, best-effort. See docs/opportunities-hostpool.md.
+# Once per cycle, main runspace, best-effort. See docs/opportunities.md.
 if (Get-Command Write-HostRegistrationRecord -ErrorAction SilentlyContinue) {
     $null = Write-HostRegistrationRecord -HostType $HostType -RepoRoot $RepoRoot
 }
@@ -396,26 +396,16 @@ if (Get-Command Clear-StaleControlState -ErrorAction SilentlyContinue) {
 Import-Module (Join-Path $ModulesDir 'Test.CachingProxy.psm1') -Global -Force -DisableNameChecking -Verbose:$false
 
 # --- REGION: Cycle-start caching-proxy gate
-# Run the full Test-CachingProxy.ps1 probe suite (Invoke-CachingProxyProbe
-# in Test.CachingProxy.psm1: :3128 / :3129 / :80 / :3000 TCP probes plus
-# /yuruna-squid-ca.crt fetch) against the two operator-specified sources,
-# in priority order:
-#   1. $Config.vmStart.cachingProxyIP -- persistent UI-edited config key
-#   2. $env:YURUNA_CACHING_PROXY_IP   -- session-scope env var, probed
-#      only when the config candidate is absent or fails its probe
-# Acceptance criterion: the cache's HTTP proxy port (:3128) is reachable
-# -- the only requirement the runner actually depends on (it routes guest
-# installs through this port). The other probes (:3129 ssl-bump, :3000
-# Grafana, :80 + CA cert) still run for operator visibility, but failing
-# them does NOT reject the cache. Keying on full probe Success
-# (FailCount == 0) instead would reject barebones-squid caches that
-# lack Grafana/ssl-bump and silently destroy $env:YURUNA_CACHING_PROXY_IP
-# for downstream code.
-# Empty/whitespace in either source is treated as absent. If neither
-# source is set, the env var is left untouched and the original
-# local-discovery path in Test-CachingProxyAvailable below runs unchanged.
-# If sources are set but :3128 is unreachable on each, the env var is
-# cleared so the same local-discovery fallback applies.
+# Probe the two operator sources in priority order (persistent
+# vmStart.cachingProxyIP config key, then the session env var) --
+# source priority and probe policy are documented on
+# Resolve-CachingProxyEndpoint (Test.CachingProxy.psm1). Acceptance is
+# :3128 reachability ONLY: keying on full probe Success would reject
+# barebones-squid caches that lack Grafana/ssl-bump and silently
+# destroy $env:YURUNA_CACHING_PROXY_IP for downstream code. With no
+# source set the env var is untouched (local discovery below runs
+# unchanged); with sources set but :3128 unreachable on each, the env
+# var is cleared so the same local-discovery fallback applies.
 $envCacheIp    = if ($env:YURUNA_CACHING_PROXY_IP) { $env:YURUNA_CACHING_PROXY_IP.Trim() } else { '' }
 $configCacheIp = ''
 if ($Config.vmStart -is [System.Collections.IDictionary] -and $Config.vmStart.Contains('cachingProxyIP')) {
@@ -446,6 +436,20 @@ $cachingProxyUrl = Test-CachingProxyAvailable
 # Port-map dispatch (external / Yuruna-External fast path /
 # Default-Switch fallback) and the Windows-vs-macOS port-list shape:
 # https://yuruna.link/caching-proxy
+#
+# Serialize this per-cycle port-map write against a caching-proxy
+# bring-up. Try-once (non-blocking): if Start-CachingProxy holds the lock (a
+# rebuild), skip this cycle's port-map -- the rebuild owns the maps and the
+# cache is down mid-rebuild anyway; the next cycle re-applies once it releases.
+# Get-Command-guarded so a long-running runner that predates the lock module
+# degrades to the unlocked behavior instead of erroring.
+$cpPortLock = if (Get-Command Enter-CachingProxyLock -ErrorAction SilentlyContinue) {
+    Enter-CachingProxyLock -RuntimeDir $env:YURUNA_RUNTIME_DIR -Role 'portmap' -TimeoutSeconds 0
+} else { @{ Acquired = $true; PidPath = $null } }
+if (-not $cpPortLock.Acquired) {
+    Write-Output "Caching proxy: a caching-proxy bring-up holds the lock -- deferring this cycle's port-map refresh to it."
+} else {
+    try {
 if ($cachingProxyUrl) {
     $vmIp = if ($cachingProxyUrl -match '^http://([0-9.]+):') { $matches[1] } else { $null }
     $isExternal = [bool]$Env:YURUNA_CACHING_PROXY_IP
@@ -540,6 +544,10 @@ if ($cachingProxyUrl) {
         Write-Output "Caching proxy: keeping existing port maps (YURUNA_CACHING_PROXY_IP '$envCacheIp' is not positively external; treating the probe miss as transient)."
     } else {
         [void](Remove-PortMap -Confirm:$false)
+    }
+}
+    } finally {
+        if (Get-Command Exit-CachingProxyLock -ErrorAction SilentlyContinue) { [void](Exit-CachingProxyLock -Handle $cpPortLock) }
     }
 }
 

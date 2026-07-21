@@ -77,34 +77,62 @@ script runs. Guest scripts source it after their arch-detection block:
 . /usr/local/lib/yuruna/yuruna-retry.sh
 ```
 
-The library exports four functions:
+The library exports five functions:
 
 | Function | Wraps | Notes |
 |---|---|---|
 | `apt_retry`  | `apt-get …` | Ubuntu 24/26 guests |
 | `dnf_retry`  | `dnf …`     | Amazon Linux 2023 guests |
 | `curl_retry` | `curl …`    | Any caller; prepends `--retry 3 --retry-connrefused --retry-delay 5` so curl handles transient HTTP 5xx + connection-refused in-process before the outer attempt loop fires. Deliberately NOT `--retry-all-errors`: that would also retry 4xx (auth failures, 404s), which are non-transient and only waste attempts. |
+| `wget_try`   | `wget …`    | wget analogue of `curl_retry`: prepends `--tries=3 --waitretry=5 --retry-connrefused` for in-process transient handling and shares the transient/permanent gate below. |
 | `pwsh_retry` | `sudo pwsh …` | Body on stdin (here-doc), piped to `sudo pwsh -NoProfile -Command -`. All pwsh streams (stdout, stderr, verbose, warning, information) appended to a caller-supplied log file under `/var/log/yuruna/` with a UTC-stamped per-attempt header. The log is the failure-collector handoff — see [`Defining Get-SystemDiagnostic`](definition.md#defining-get-systemdiagnostic), GUEST PROVISIONING section. Body must `throw` / `exit 1` on its own failure conditions (retry is driven by pwsh's exit code). Stdin pipe instead of a positional `-Command` arg avoids both the [32 K CreateProcess cmdline cap](memory.md#why-the-bootstrap-installer-must-stay-ascii-only) class and the quote-escaping pit. |
 
-**Outer-loop behavior** (all three wrappers share `_yuruna_retry`):
+**Outer-loop behavior** (all five wrappers share `_yuruna_retry`):
 
 1. Runs up to **5 attempts** (override via `YURUNA_RETRY_MAX_ATTEMPTS`).
-2. Sleeps with **exponential backoff**: 10 s, 20 s, 40 s, 80 s, 160 s
-   between attempts (override via `YURUNA_RETRY_DELAY`). Max total
-   wait if all attempts fail: ~5 min.
+2. Sleeps with **exponential backoff + equal jitter**: a random point
+   in `[delay/2, delay]` rather than exactly `delay` (base 10 s, 20 s,
+   40 s, 80 s, 160 s; override via `YURUNA_RETRY_DELAY`), so parallel
+   guests that failed in lock-step — a shared caching-proxy blip, a
+   mirror 429 burst — don't all wake and retry on the same instant and
+   re-form the thundering herd that caused the failure. The jitter
+   never exceeds the base delay, so the ~5-min worst-case total is
+   unchanged.
 3. Streams the wrapped command's stdout/stderr normally so the log
    shows exactly what the wrapped tool is doing.
 4. Prints `!! <name>: attempt N/5 failed (rc=…)` banners between
    attempts so the log makes the retry visible.
 5. After the final attempt returns the real exit code; `set -e` then
    aborts the script with a diagnosable failure.
+6. **Transient/permanent gate** (`curl_retry` + `wget_try`): stops the
+   ladder immediately on a deterministic **HTTP 404** (or other 4xx bar
+   429) and a malformed URL, instead of burning all 5 attempts on
+   something that cannot succeed. curl (exit 22) and wget (exit 8) both
+   collapse every HTTP error to one exit code, so on that code the gate
+   re-probes the status (a bounded, output-discarding GET through the
+   same proxy env) to tell a permanent 4xx from a retryable one; `429`,
+   `5xx`, timeouts, and network/SSL errors still retry. Conservative by
+   design — any ambiguity retries, so a healthy fetch is never hardened
+   into a failure. `YURUNA_RETRY_NO_TRANSIENT_GATE=1` restores
+   retry-everything; `apt_retry`/`dnf_retry` keep retry-everything (they
+   funnel every failure into one generic exit code, so a package-not-
+   found gate would need stderr classification — not implemented).
+7. **Structured attempt record.** Each failed attempt emits a
+   machine-readable `YURUNA_RETRY {…}` line to stderr (`stack`, `label`,
+   `attempt`, `maxAttempts`, `rc`, `permanent`). On the SSH verbs the
+   host parses these into `retry_attempt` NDJSON events on the cycle
+   stream; the host-side stacks (`Yuruna.Retry`, the sequence `retry`
+   verb) emit the same `retry_attempt` / `retry_exhausted` events
+   directly. See [Failure record schema](failure-schema.md).
 
 For `curl_retry`, curl's own `--retry 3 --retry-connrefused` fires
 first (sub-30 s for transient 5xx + ECONNREFUSED). Combined budget:
 5 outer × 3 inner = 15 effective attempts — still bounded, sized for
 a one-shot provisioning script under `set -euo pipefail`. 4xx
-responses are NOT retried by curl (intentional — see the table above);
-they propagate to the caller immediately.
+responses are not retried by curl's inner `--retry`, and the outer
+loop's transient gate (item 6 above) now also fails fast on them
+rather than re-running the whole fetch 5 times — so a deterministic
+404 costs one attempt, not the full ~5-min ladder.
 
 **Call signature.** Generic — the wrapper takes the full command,
 including the caller's `sudo` and any options:
@@ -432,6 +460,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.17
+Last review: 2026.07.21
 
 Back to [Yuruna](../README.md)

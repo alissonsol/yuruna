@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.17
+.VERSION 2026.07.21
 .GUID 42f0a1b2-c3d4-4e56-f789-0a1b2c3d4e10
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -75,6 +75,8 @@ if (-not $pwshPath) {
 # never swallow a missing parser with a soft note.
 Write-Output ""
 Write-Output ">>> Installing PowerShell module: powershell-yaml..."
+# 2.8.5.201 is Microsoft's documented TLS-1.2-capable NuGet provider
+# bootstrap floor, not a workload pin.
 $yamlInstall = "if (-not (Get-PackageProvider -Name NuGet -ErrorAction SilentlyContinue)) { Install-PackageProvider -Name NuGet -MinimumVersion 2.8.5.201 -Force -Scope AllUsers | Out-Null }; Set-PSRepository -Name PSGallery -InstallationPolicy Trusted; Install-Module -Name powershell-yaml -Scope AllUsers -Force -Confirm:`$false"
 $yamlOk = $false
 for ($attempt = 1; $attempt -le 3 -and -not $yamlOk; $attempt++) {
@@ -152,6 +154,8 @@ Write-Output "<<< winget package update complete."
 Write-Output ""
 Write-Output ">>> Installing Windows Update module..."
 if (-not (Get-PackageProvider -Name NuGet -ErrorAction SilentlyContinue)) {
+    # 2.8.5.201 is Microsoft's documented TLS-1.2-capable NuGet provider
+    # bootstrap floor, not a workload pin.
     Install-PackageProvider -Name NuGet -MinimumVersion 2.8.5.201 -Force -Scope AllUsers | Out-Null
 }
 Set-PSRepository -Name PSGallery -InstallationPolicy Trusted
@@ -192,13 +196,6 @@ Write-Output "<<< Git ready."
 
 # --- REGION: Materialize the yuruna framework and project repos
 # --- REGION: https://yuruna.link/definition#defining-the-two-source-scheme-for-framework-and-project-urls
-# Two-stage materialization, identical in spirit to the Linux scripts:
-#   1. Tarball from the host status server when YURUNA_HOST_IP/PORT are
-#      set (typically populated by C:\ProgramData\yuruna\host.env --
-#      the early-extract block above reads the same file).
-#   2. git clone of FRAMEWORK_URL / PROJECT_URL when the tarball path
-#      isn't available or fails, with the URLs sourced from the host
-#      status server's /control/test-config JSON endpoint.
 # The $yurunaRoot existence guards make this a no-op when the early
 # extract already succeeded.
 $frameworkUrl = ''

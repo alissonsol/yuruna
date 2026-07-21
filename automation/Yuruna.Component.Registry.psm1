@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.17
+.VERSION 2026.07.21
 .GUID 42d2e3f4-a5b6-4789-0123-4d5e6f7a8b9c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -25,7 +25,7 @@
 .DESCRIPTION
     Both surfaces -- the runtime push pipeline here and the self-heal path
     after a 401 -- need exactly the same answer to "what is the login
-    command for &lt;registry&gt;?". Hosting the providers in one
+    command for <registry>?". Hosting the providers in one
     automation-layer module ([Yuruna.CredentialProvider]) means a new
     registry kind (a private repo on a corp Nexus, a Harbor instance, ...)
     is registered in one place and picked up by both surfaces, with no
@@ -62,7 +62,7 @@ function Resolve-ComponentRegistryLogin {
         credential provider.
     .PARAMETER RegistryLocation
         Hostname (or hostname/path) read from the per-component
-        componentVars["&lt;registryName&gt;.registryLocation"]. Empty / $null
+        componentVars["<registryName>.registryLocation"]. Empty / $null
         is silently a no-op.
     .OUTPUTS
         [string] login command, or $null.

@@ -20,10 +20,7 @@ is enumerable at startup.
 | `Send-Click` | `-HostType -VMName -X -Y [-Capture]`                             | sequence engine, `Yuruna.Host\Send-Click` contract |
 
 Each dispatcher is a five-line `try { Invoke-HostIOAction … } catch
-{ Write-Warning; return $false }` wrapper over `Test.HostIO`. Before
-the registry pattern landed, each dispatcher held a hand-rolled
-`if/elseif` chain on `$HostType` and adding a new host required three
-edits across the same module.
+{ Write-Warning; return $false }` wrapper over `Test.HostIO`.
 
 ## Why the registry over inline dispatch
 
@@ -61,6 +58,16 @@ The macOS Send-Key VNC-first / AppleScript-fallback decision lives in
 the registered scriptblock, in one place — not a branch repeated across
 three dispatchers.
 
+`KeyName` also accepts a modifier chord (`CtrlU`, `CtrlC`) on every
+host. A chord is a named key rather than a separate modifier parameter
+so the dispatcher, the registry scriptblocks and the three
+`Yuruna.Host\Send-Key` facades keep forwarding one string. Chords
+resolve from their own `*-Chord` map family: the `*-Named` maps hold a
+single code per name and every backend dereferences them as a scalar,
+so a chord cannot live there. On macOS a chord takes the CGEvent path
+even when AppleScript would serve a plain key — `key code` cannot hold
+a modifier down across the base key.
+
 ## The registry API
 
 ```
@@ -78,8 +85,11 @@ Each `Implementation` is a `param([hashtable]$a)` scriptblock returning
 
 1. Implement the per-host backend functions (the actual keystroke
    delivery mechanism — WMI / VNC / virsh / something new).
-2. Register at the bottom of `Invoke-Sequence.psm1` alongside the
-   existing blocks:
+2. Add a per-host module `test/modules/Test.HostIO.<NewHost>.psm1`
+   owning its `Register-HostIOProvider` calls (mirror
+   `Test.HostIO.HyperV.psm1` / `Test.HostIO.Utm.psm1` /
+   `Test.HostIO.Kvm.psm1`), and add its `Import-Module` line to
+   `Invoke-Sequence.psm1`:
 
    ```powershell
    Register-HostIOProvider -HostType 'host.your.new.host' -Action 'Send-Key' -Implementation {
@@ -137,7 +147,8 @@ per-host I/O backends consumed by the registry:
   `script:CachedKb`/`KbVM`; `Connect-VNC` / `Disconnect-VNC` + the
   cached VNC handle.
 - **Send-Key backends** — `Send-KeyHyperV` / `Send-KeyVNC` /
-  `Send-KeyUTM` / `Send-KeyKvm` / `Send-KeyAXUI`.
+  `Send-KeyUTM` / `Send-KeyKvm` / `Send-KeyAXUI`, plus `Send-ChordUTM`
+  for the macOS modifier-chord path.
 - **Send-Text backends** — `Send-TextHyperV` / `Send-TextVNC` /
   `Send-TextUTM` / `Send-TextKvm` / `Send-TextAXUI`, plus the
   `Test-HardCharsInText` + `ConvertTo-ShellEscapedText` helpers used
@@ -148,8 +159,8 @@ per-host I/O backends consumed by the registry:
 
 The public surface is unchanged: `Invoke-Sequence.psm1` exports the
 three dispatchers (`Send-Key`, `Send-Text`, `Send-Click`) and routes
-them through `Test.HostIO`'s registry; the registered scriptblocks at
-the bottom of `Invoke-Sequence.psm1` call the bare backend names above,
+them through `Test.HostIO`'s registry; the registered scriptblocks in
+the per-host `Test.HostIO.<Host>.psm1` modules call the bare backend names above,
 which resolve via the global session table once `Test.Transport` is
 imported with `-Global`.
 
@@ -176,6 +187,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.17
+Last review: 2026.07.21
 
 Back to [Yuruna](../README.md)

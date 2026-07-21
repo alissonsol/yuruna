@@ -4,7 +4,7 @@
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 # Interaction sequence for driving VM installation.
 # See possible actions in the actions.yml file.
-# ${vmName}, ${hostType}, ${guestKey} are built-in. Use ${varName} in step
+# ${vmName}, ${hostType}, ${guestKey}, ${hostname} are built-in. Use ${varName} in step
 # parameters. ${ext:area.Method(args)} invokes the active extension under
 # test/extension/<area>/.
 

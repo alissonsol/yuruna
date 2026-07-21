@@ -12,7 +12,7 @@ import (
 
 // handleHostInfo returns the lightweight host facts the shared UI footer
 // renders (stash-service-ui.md §2.3): this host's id, the daemon version, and
-// the server's own LAN IP addresses. It is page-agnostic on purpose — every UI
+// the server's own LAN IP addresses. It is page-agnostic on purpose — any UI
 // page drives the same footer module (assets/common.js initFooter) from this
 // one endpoint, so the footer needs no page-specific data shape — and it is
 // intentionally cheap so the footer's periodic poll stays trivial.

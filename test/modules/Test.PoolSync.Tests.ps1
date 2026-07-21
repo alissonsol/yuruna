@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.17
+.VERSION 2026.07.21
 .GUID 42e3f4a5-b6c7-4d89-9e01-3f4a5b6c7d8e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -152,9 +152,5 @@ Describe 'Write-YurunaPoolState (gating round-trips through pool.state.json)' {
         $null = Write-YurunaPoolState -PoolId 'lab' -DesiredState 'run' -IntentOk:$true -Confirm:$false
         $state = Get-Content -Raw -LiteralPath (Join-Path $script:StateRuntimeDir 'pool.state.json') | ConvertFrom-Json
         Assert-Null $state.gating 'gating null when not supplied'
-    }
-    AfterAll {
-        $env:YURUNA_RUNTIME_DIR = $SavedRuntimeDir
-        Remove-Item -LiteralPath $StateRuntimeDir -Recurse -Force -ErrorAction SilentlyContinue
     }
 }

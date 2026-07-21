@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.17
+.VERSION 2026.07.21
 .GUID 42f1b2c3-d4e5-4f67-8901-a2b3c4d5e681
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -154,10 +154,10 @@ $ystashNas = Get-YurunaStashSeedValue -Config $tc
 $aggregatorSeedUrl = Get-PoolAggregatorSeedUrl
 
 # Render user-data from the shared base + UTM overlay (host/vmconfig/
-# stash-service.*). Build-CloudInitUserData resolves placeholders with literal
+# stash-service.*). New-CloudInitUserData resolves placeholders with literal
 # .Replace(), so values carrying regex-special chars are safe.
 Import-Module (Join-Path $_repoRoot 'automation/Yuruna.CloudInitTemplate.psm1') -Force
-$UserData = Build-CloudInitUserData `
+$UserData = New-CloudInitUserData `
     -BasePath    (Join-Path $_repoRoot 'host/vmconfig/stash-service.base.user-data') `
     -OverlayPath (Join-Path $_repoRoot 'host/vmconfig/stash-service.utm.overlay.yml') `
     -RepoRoot    $_repoRoot `
@@ -183,7 +183,7 @@ if ($LASTEXITCODE -ne 0) {
     exit 1
 }
 
-# --- REGION: config.plist (Apple Virtualization backend)
+# --- REGION: config.plist (QEMU backend)
 $TemplatePath = Join-Path $ScriptDir "config.plist.template"
 if (-not (Test-Path $TemplatePath)) {
     Write-Error "Template not found at '$TemplatePath'."
@@ -274,14 +274,13 @@ Next steps:
   2. Start the VM and wait 1-3 minutes for cloud-init:
        utmctl start __VM_NAME__
 
-  3. Find the VM's IP. `utmctl ip-address` does NOT work for Apple
-     Virtualization VMs (returns "Operation not supported by the
-     backend") -- use one of these instead:
-     a) Apple's shared-NAT DHCP leases:
-          awk -F'[ =]' '/name=__VM_NAME__/{found=1} found && /ip_address/{print $NF; exit}' \
-              /var/db/dhcpd_leases
-     b) Look in the UTM window console; eth0 prints its IP at the
+  3. Find the VM's IP. `utmctl ip-address` needs the qemu-guest-agent
+     inside the guest (not installed by this seed) -- use one of these
+     instead:
+     a) Look in the UTM window console; eth0 prints its IP at the
         login prompt after DHCP.
+     b) Your LAN router's DHCP leases (the VM is bridged, so macOS's
+        /var/db/dhcpd_leases does not contain it).
 
   4. Watch the bring-up (harness key authorized until the daemon takes
      over :22; cloud-init mounts the share, fetches the framework, and

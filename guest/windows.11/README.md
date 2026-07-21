@@ -28,7 +28,7 @@ before running other workloads.
 | Script | Workload |
 |--------|----------|
 | `windows.11.update.ps1` | System update |
-| `windows.11.code.ps1` | [Code](../../docs/code.md): Java JDK, .NET SDK, Git, VS Code |
+| `windows.11.code.ps1` | [Code](../../docs/guest-workloads.md#code): Java JDK, .NET SDK, Git, VS Code |
 | `windows.11.k8s.ps1` | [k8s](../../docs/kubernetes.md#guest-side-prerequisites): Docker, Kubernetes, Helm, OpenTofu, cloud CLIs |
 
 The `n8n`, `openclaw`, and `postgresql` workloads are intentionally out
@@ -47,6 +47,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.17
+Last review: 2026.07.21
 
 Back to [Yuruna](../../README.md)

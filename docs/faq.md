@@ -9,7 +9,7 @@
     - Stop the Web service: `net stop http`.
       - Blocked by [HTTP services can't be stopped when the Microsoft Web Deployment Service is installed](https://learn.microsoft.com/en-us/troubleshoot/iis/http-service-fail-stopped) → also `net stop msdepsvc`, reboot, retry.
     - If `BranchCache` keeps needing a stop, disable it via [`Disable-BC`](https://learn.microsoft.com/en-us/powershell/module/branchcache/disable-bc).
-  - Browser [HSTS](https://en.wikipedia.org/wiki/HTTP_Strict_Transport_Security): remove localhost (or your dev site) from the [preloaded HSTS list](https://www.chromium.org/hsts/). In the browser, open `about://net-internals#hsts` → under "Delete domain security policies" type the site → Delete.
+  - Browser [HSTS](https://en.wikipedia.org/wiki/HTTP_Strict_Transport_Security): remove localhost (or your dev site) from the [preloaded HSTS list](https://www.chromium.org/hsts/). In the browser, open `chrome://net-internals/#hsts` (Chromium; `edge://net-internals/#hsts` in Edge) → under "Delete domain security policies" type the site → Delete.
 
 ### Why does browsing to a container work via port forward but not via the ingress in a localhost deployment?
 
@@ -50,6 +50,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.17
+Last review: 2026.07.21
 
 Back to [Yuruna](../README.md)

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.17
+.VERSION 2026.07.21
 .GUID 42d7f3b9-5c1e-4a80-9e2d-7f8a9b0c1d2e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -1165,27 +1165,12 @@ function Get-BounceLogDelta {
 # as it lands, WITHOUT handing that child -- or the status server it detaches --
 # a handle to any pipe this process is reading.
 #
-# Windows turns handle inheritance ON for a child whenever a std stream is
-# redirected, and `& pwsh ... *> $null` redirects. The status server is a
-# grandchild that outlives the bounce by design, so it inherits the write end of
-# the caller's stdout pipe and holds it open for its whole lifetime: the read
-# never reaches EOF and the bounce blocks on the SERVER, not on the child that
-# actually exited seconds ago. The redirection that caused it also swallowed
-# every progress line, so the symptom is a silent, unbounded hang. Redirecting
-# the child's streams to files does NOT close the hole -- an inheritable pipe
-# further up the ancestry (any caller that captures our output) is passed down
-# all the same.
-#
-# Spawning with neither -Redirect* nor -NoNewWindow makes PowerShell use
-# ShellExecute, which passes no inheritable handles at all, so nothing downstream
-# can pin a pipe anywhere in the chain. The child therefore writes its own
-# transcript with Tee-Object and this function tails that file while it waits.
-# -NonInteractive so a prompt in the child fails fast instead of blocking against
-# a hidden window nobody can answer.
-#
-# Unix has no ShellExecute, but its detached server is nohup'd onto /dev/null +
-# server.err and cannot pin our streams, so redirecting the child's own streams
-# to files there is safe and gives the same live tail.
+# On Windows the spawn shape below is load-bearing: adding -Redirect* or
+# -NoNewWindow here turns on handle inheritance, the detached status server
+# inherits and pins the caller's stdout pipe, and the bounce hangs silently and
+# unboundedly. Full trap description and why file redirection does not fix it:
+# docs/workarounds.md#a-detached-grandchild-pins-the-callers-pipe-on-windows
+# (also captured in feedback_windows-detached-grandchild-pins-pipe.md).
 function Invoke-StatusServiceBounce {
     [CmdletBinding()]
     [OutputType([hashtable])]

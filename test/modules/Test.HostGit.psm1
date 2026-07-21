@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.17
+.VERSION 2026.07.21
 .GUID 42c9d0e1-f2a3-4b45-9678-9a0b1c2d3e42
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -814,6 +814,75 @@ function Update-ProjectClone {
     return @{ success = $true; skipped = $false; errorMessage = $null }
 }
 
+function Resolve-GitRepositoryWebUrl {
+    <#
+    .SYNOPSIS
+    Resolve a configured repository URL/path to a browser-routable https URL, or $null.
+    .DESCRIPTION
+    The status document's gitCommits[].repoUrl is a deep-link base: the status
+    page and the pool dashboard build <repoUrl>/commit/<sha> anchors from it,
+    and both only link when the value is http(s). A repository setting may
+    legitimately be something a browser cannot open:
+
+      - a local clone path (a host cloning the project under test from a
+        sibling checkout instead of over the network),
+      - an scp-like ssh remote (git@github.com:owner/repo.git),
+      - an ssh:// remote.
+
+    This helper walks those forms back to the underlying web remote:
+    ssh forms are rewritten to https, and a local path is followed through
+    the clone chain's remote.origin.url (bounded hops, so an origin cycle
+    cannot loop). http(s) inputs are normalized for linking: embedded
+    userinfo credentials are stripped (repoUrl lands on unauthenticated
+    status surfaces) and a trailing .git is removed (the /commit/<sha> web
+    route is not served under the .git repository path).
+
+    Returns $null when no web URL can be derived; callers keep their raw
+    value so a non-linkable repo still renders as plain text.
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        [AllowNull()][AllowEmptyString()][string]$Url,
+        [int]$MaxHops = 3
+    )
+    $current = $Url
+    for ($hop = 0; $hop -le $MaxHops; $hop++) {
+        if ([string]::IsNullOrWhiteSpace($current)) { return $null }
+        $current = $current.Trim()
+
+        if ($current -match '^(?<scheme>https?://)(?:[^/@]+@)?(?<rest>.+)$') {
+            $web = $Matches['scheme'] + $Matches['rest']
+            return ($web -replace '/+$', '' -replace '\.git$', '')
+        }
+        if ($current -match '^ssh://(?:[^@/]+@)?(?<hostname>[^/:]+)(?::\d+)?/(?<path>.+)$') {
+            $web = 'https://' + $Matches['hostname'] + '/' + ($Matches['path'] -replace '^/+', '')
+            return ($web -replace '/+$', '' -replace '\.git$', '')
+        }
+        # scp-like remote. The user@ prefix is required so a Windows drive
+        # path (C:/git/...) can never match as host:path.
+        if ($current -match '^[^@/\\]+@(?<hostname>[^:/\\]+):(?<path>.+)$') {
+            $web = 'https://' + $Matches['hostname'] + '/' + ($Matches['path'] -replace '^/+', '')
+            return ($web -replace '/+$', '' -replace '\.git$', '')
+        }
+
+        # Local clone path: follow its origin one hop and re-classify.
+        if (-not (Test-Path -LiteralPath $current)) { return $null }
+        $originUrl = $null
+        try {
+            $originUrl = & git -C $current config --get remote.origin.url 2>$null
+            if ([int]$LASTEXITCODE -ne 0) { $originUrl = $null }
+        } catch { $originUrl = $null }
+        if ([string]::IsNullOrWhiteSpace($originUrl)) { return $null }
+        $originUrl = @($originUrl)[0].Trim()
+        # An origin pointing back at the same path would spin until the hop
+        # cap; cut the obvious self-cycle immediately.
+        if ($originUrl -eq $current) { return $null }
+        $current = $originUrl
+    }
+    return $null
+}
+
 # Shared PSGallery module-install policy for the two dependency bootstrappers below:
 # return $true when already discoverable, honor -WhatIf via ShouldProcess, else
 # Install-Module at CurrentUser scope with -Force -AllowClobber (-Force suppresses the
@@ -900,4 +969,4 @@ function Install-PSScriptAnalyzerIfMissing {
     return Install-YurunaGalleryModuleIfMissing -Name 'PSScriptAnalyzer' @PSBoundParameters
 }
 
-Export-ModuleMember -Function Invoke-GitPull, Get-GitUpstreamStatus, Get-CurrentGitCommit, Get-FileLockingProcess, Update-ProjectClone, Install-PowerShellYamlIfMissing, Install-PSScriptAnalyzerIfMissing, Test-GitRemoteAuthFailure, Write-GitAuthRefreshBanner, Invoke-GitNetworkCommand, Get-YurunaGitCredentialArg, Get-YurunaGhCliCredentialArg, Get-YurunaGitAuthAttemptList
+Export-ModuleMember -Function Invoke-GitPull, Get-GitUpstreamStatus, Get-CurrentGitCommit, Get-FileLockingProcess, Update-ProjectClone, Resolve-GitRepositoryWebUrl, Install-PowerShellYamlIfMissing, Install-PSScriptAnalyzerIfMissing, Test-GitRemoteAuthFailure, Write-GitAuthRefreshBanner, Invoke-GitNetworkCommand, Get-YurunaGitCredentialArg, Get-YurunaGhCliCredentialArg, Get-YurunaGitAuthAttemptList

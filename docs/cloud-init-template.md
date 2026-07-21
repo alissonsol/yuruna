@@ -9,8 +9,8 @@ are described below. The seed ISO they generate contains a
 a per-cycle replacement table. The rendering pipeline lives in
 [`automation/Yuruna.CloudInitTemplate.psm1`](../automation/Yuruna.CloudInitTemplate.psm1).
 
-Before the pipeline landed, each of the six `New-VM.ps1` scripts
-(3 platforms × {Ubuntu Server 24, Ubuntu Server 26}) carried its own
+Without the pipeline, each of the six `New-VM.ps1` scripts
+(3 platforms × {Ubuntu Server 24, Ubuntu Server 26}) would carry its own
 near-identical `vmconfig/user-data` file (~240 lines each) plus a
 600-character `.Replace(...).Replace(...)...` chain across 11
 placeholders plus a 3-line base64 dance for the two guest-side helper
@@ -26,7 +26,7 @@ contributor memory.
 | 2. **Base64-encode** | `Get-YurunaGuestScriptBase64` | `<RepoRoot>/automation/{yuruna-retry.sh,yuruna-versions.sh,fetch-and-execute.sh,yuruna-network.sh}` | `@{ RetryLib = '<base64>'; VersionsLib = '<base64>'; FetchAndExecute = '<base64>'; NetworkLib = '<base64>' }` |
 | 3. **Resolve** | `Resolve-CloudInitPlaceholder` | Merged template + replacement hashtable | Final user-data string |
 
-`Build-CloudInitUserData` is the high-level wrapper every per-guest
+`New-CloudInitUserData` is the high-level wrapper every per-guest
 `New-VM.ps1` calls — it chains the three stages, auto-populates the
 `YURUNA_*_BASE64_PLACEHOLDER` entries from the guest scripts, and
 optionally writes the result to `-OutputPath` (UTF-8 without BOM, LF
@@ -94,7 +94,8 @@ autoinstall with a confusing diagnostic.
 
 | Placeholder | Source |
 |---|---|
-| `HOSTNAME_PLACEHOLDER` | `-VMName` (caller) |
+| `HOSTNAME_PLACEHOLDER` | `-Hostname` (caller), falling back to `-VMName` when empty |
+| `INSTANCE_ID_PLACEHOLDER` | `-VMName` (caller — meta-data only; stays pinned to the VM name so two guests sharing a hostname keep distinct cloud-init instance identities) |
 | `USERNAME_PLACEHOLDER` | `-Username` (caller) |
 | `HASH_PLACEHOLDER` | `-PasswordHash` (caller — passlib-format SHA-512 crypt) |
 | `PLAINTEXT_PASSWORD_PLACEHOLDER` | `-Password` (caller — AL2023 path only; feeds the `chpasswd.list` directive) |
@@ -115,7 +116,7 @@ autoinstall with a confusing diagnostic.
    forgot.
 3. If the value derives from the repo (a new bundled helper
    script), add it to `Get-YurunaGuestScriptBase64` and let
-   `Build-CloudInitUserData` auto-populate.
+   `New-CloudInitUserData` auto-populate.
 
 ## Adding a new platform overlay
 
@@ -123,13 +124,13 @@ autoinstall with a confusing diagnostic.
    the four anchor headers (empty payloads for anchors the platform
    doesn't use).
 2. Add a `New-VM.ps1` under `host/<platform>/guest.ubuntu.server.{24,26}/`
-   that calls `Build-CloudInitUserData` with the new overlay path.
+   that calls `New-CloudInitUserData` with the new overlay path.
 3. The merger validates anchor coverage at merge time — a missing
    anchor in the overlay raises.
 
 ## Output encoding
 
-`Build-CloudInitUserData -OutputPath <file>` writes UTF-8 without a
+`New-CloudInitUserData -OutputPath <file>` writes UTF-8 without a
 BOM and LF line endings. cloud-init >= 22 tolerates `\r\n` but older
 guests trip on CR-sensitive shell heredocs in the rendered
 `late-commands` block, so the LF-only output is the durable choice.
@@ -146,6 +147,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.17
+Last review: 2026.07.21
 
 Back to [Yuruna](../README.md)

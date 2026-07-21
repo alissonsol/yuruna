@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.17
+.VERSION 2026.07.21
 .GUID 4236e7f8-a9b0-4c23-d678-9e0f1a2b3c48
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -42,13 +42,23 @@ param(
     # is noisy in any text search) and version-tagged so 24.04 and 26.04
     # guests don't collide in shared logs. Additional users are expected to
     # come from a manifest rather than an override here.
-    [string]$Username = 'yuuser26'
+    [string]$Username = 'yuuser26',
+    # cloud-init local-hostname for the guest. Empty means "follow the VM
+    # name", which keeps host-side lookups that assume hostname == VM name
+    # working for every caller that does not ask for a specific hostname.
+    [string]$Hostname = ''
 )
 
 if ($VMName -notmatch '^[a-zA-Z0-9._-]+$') {
     Write-Output "Invalid VMName '$VMName'. Only alphanumeric characters, dots, hyphens, and underscores are allowed."
     exit 1
 }
+
+if ($Hostname -and $Hostname -notmatch '^[a-zA-Z0-9.-]+$') {
+    Write-Output "Invalid Hostname '$Hostname'. Only alphanumeric characters, dots, and hyphens are allowed."
+    exit 1
+}
+$GuestHostname = if ($Hostname) { $Hostname } else { $VMName }
 
 $ProgressPreference = 'SilentlyContinue'
 # Abort at the first failed cmdlet: this script runs as a child pwsh -File
@@ -293,7 +303,7 @@ To intentionally skip the cache:
 # (automation/Yuruna.GuestSeed.psm1). Hyper-V pins the archive.ubuntu.com mirror
 # (x86_64). See feedback_macos_utm_apt_block_resolute_curtin_trap.md.
 # --- REGION: https://yuruna.link/vmconfig#apt-proxy-block
-$AptProxyBlock = Build-AptProxyBlock -PrimaryUri 'http://archive.ubuntu.com/ubuntu' -CachingProxyUrl $CachingProxyUrl
+$AptProxyBlock = New-AptProxyBlock -PrimaryUri 'http://archive.ubuntu.com/ubuntu' -CachingProxyUrl $CachingProxyUrl
 
 # Pick a vSwitch FIRST -- prefer Yuruna-External (LAN-bridged) so the
 # install VM gets a real LAN IP via DHCP and can reach the squid cache
@@ -344,13 +354,13 @@ if ($CachingProxyUrl) {
 # Bake yuruna-retry.sh + fetch-and-execute.sh into the seed as base64-encoded
 # write_files entries. Eliminates the legacy network-dependent wget+wget
 # bootstrap and ensures both files are on disk before any guest script runs.
-$null = Build-CloudInitUserData `
+$null = New-CloudInitUserData `
     -BasePath    $BaseUserData `
     -OverlayPath $OverlayUserData `
     -RepoRoot    $RepoRoot `
     -OutputPath  "$SeedDir/user-data" `
     -Replacement @{
-        HOSTNAME_PLACEHOLDER           = $VMName
+        HOSTNAME_PLACEHOLDER           = $GuestHostname
         USERNAME_PLACEHOLDER           = $Username
         HASH_PLACEHOLDER               = $PasswordHash
         SSH_AUTHORIZED_KEY_PLACEHOLDER = $SshAuthorizedKey
@@ -362,7 +372,8 @@ $null = Build-CloudInitUserData `
     } -Confirm:$false
 
 $MetaData = (Get-Content -Raw $MetaDataTemplate) `
-    -replace 'HOSTNAME_PLACEHOLDER', $VMName
+    -replace 'INSTANCE_ID_PLACEHOLDER', $VMName `
+    -replace 'HOSTNAME_PLACEHOLDER', $GuestHostname
 Set-Content -Path "$SeedDir/meta-data" -Value $MetaData -NoNewline
 
 # --- REGION: Generate cloud-init seed ISO

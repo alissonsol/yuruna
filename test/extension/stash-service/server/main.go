@@ -3,7 +3,8 @@
 
 // Yuruna Stash Service daemon. Spec: https://yuruna.link/stash-service.
 //
-// Single binary, single listener on TCP/22. In production the daemon is
+// Single binary with two listeners: the SCP/SFTP sink on TCP/22 and the
+// UI/API HTTP server (default :80). In production the daemon is
 // supervised by a systemd unit (Restart=on-failure) installed during
 // bring-up (§4.6); it can also be launched directly for local runs.
 // Operational logs go to stderr, which journald captures under systemd.

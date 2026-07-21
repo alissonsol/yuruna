@@ -13,7 +13,7 @@ Group=proxy
 # -tls-cert/-tls-key activate HTTPS on :9400 (proxy-CA leaf minted in cloud-init);
 # absent/empty -> plain HTTP. -auth-token-file gates POST /ingest; absent/empty ->
 # /ingest disabled. All three flags are always present and self-gate on the files, so
-# an unconfigured proxy degrades to the plain-HTTP, no-ingest Phase-5 behavior.
+# an unconfigured proxy degrades to plain HTTP with /ingest disabled.
 ExecStart=/usr/local/bin/pool-aggregator -tls-cert /etc/squid/ssl_cert/pool-aggregator.crt -tls-key /etc/squid/ssl_cert/pool-aggregator.key -auth-token-file /etc/yuruna/pool-auth.token
 Restart=on-failure
 RestartSec=5

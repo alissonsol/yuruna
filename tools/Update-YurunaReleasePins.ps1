@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.17
+.VERSION 2026.07.21
 .GUID 42e1f2a3-b4c5-4d67-8901-aabbccddee01
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -35,7 +35,7 @@
     The ASCII/no-BOM gate (test/Test-AsciiNoBom.ps1) runs FIRST and hard-fails
     the release if a byte-parsed bootstrap script carries a BOM or a non-ASCII
     byte -- the authoritative backstop the per-cycle gate and the pre-commit
-    hook (Item 6) point at for the published artifact.
+    hook point at for the published artifact.
 
     It also repoints the one release pin that is still hard-coded -- the README
     verified-path snippet (the signed-download URL) to `refs/tags/<VERSION>`.
@@ -134,12 +134,9 @@ function Update-ReleasePin {
     $utf8   = [System.Text.UTF8Encoding]::new($false)
     $calver = '\d{4}\.\d{2}\.\d{2}(?:\.\d+)?'
     $edits = @(
-        # The installers read the release from the repo's VERSION file at install
-        # time (and the clone DEFAULT stays on 'main' for auto-update), so there
-        # is no baked installer version to bump -- a release never re-pins a fresh
-        # install. Only the README verified-path snippet hard-codes a tag in its
-        # signed-download URL; bump that to the new release. The convenience
-        # one-liners deliberately stay on refs/heads/main (unverified latest).
+        # Only the README verified-path snippet hard-codes a tag in its
+        # signed-download URL; the convenience one-liners deliberately stay on
+        # refs/heads/main (unverified latest).
         @{ file = 'install/README.md';           pat = '(alissonsol/yuruna/)refs/tags/' + $calver; rep = '${1}refs/tags/' + $Version }
     )
     foreach ($e in $edits) {
@@ -177,9 +174,8 @@ if (Test-Path -LiteralPath $asciiGate) {
 }
 
 # --- REGION: Pin the README verified-download path to the release tag
-# Run by default; -SkipPins regenerates the manifest without touching it. The installers read
-# the release from the repo's VERSION file at install time and their clone
-# DEFAULT stays on `main`, so nothing in the installer scripts needs repinning.
+# Run by default; -SkipPins regenerates the manifest without touching the ref
+# (why only the README needs repinning: the Update-ReleasePin preamble).
 # The per-release work is: bump VERSION, then run this with `-Commit -Tag -Push`
 # -- which pins, signs, commits, and creates+pushes the bare-CalVer tag for you
 # (no hand-typed tag name; see the publish block).
@@ -279,8 +275,8 @@ if ($Commit -or $Tag -or $Push) {
 
     # --- REGION: Tag
     if ($Tag) {
-        # Guard 1: never allow a variant tag (e.g. v<version>) -- the exact past
-        # slip. One bare-CalVer tag per release is the invariant.
+        # Guard 1: never allow a variant tag (e.g. v<version>). One bare-CalVer
+        # tag per release is the invariant every installer ref resolver assumes.
         if ((Invoke-GitChecked -GitArgs @('rev-parse', '--verify', '--quiet', "refs/tags/v$version") -AllowFail) -eq 0) {
             throw "A variant tag 'v$version' exists. Releases use the bare CalVer tag '$version'. Remove the variant first: git tag -d v$version ; git push $Remote :refs/tags/v$version"
         }

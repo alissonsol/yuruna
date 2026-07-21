@@ -34,7 +34,8 @@ pwsh ./New-VM.ps1 -VMName myhost
 ```
 
 Double-click `<hostname>.utm` to import and start. Cloud-init applies
-config on first boot. Default credentials: `ec2-user` / `amazonlinux`.
+config on first boot. Default credentials: `yauser1` / vault-managed
+(per-cycle authentication vault; expired on first login).
 Install the GUI with `sudo dnf groupinstall -y "Desktop"`.
 
 ## Key differences from the Hyper-V version
@@ -50,6 +51,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.17
+Last review: 2026.07.21
 
 Back to [Yuruna](../../../README.md)

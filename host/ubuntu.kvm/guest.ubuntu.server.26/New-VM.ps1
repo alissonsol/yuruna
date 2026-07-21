@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.17
+.VERSION 2026.07.21
 .GUID 4214c5d6-e7f8-4a91-b234-5c6d7e8f9a03
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -57,13 +57,23 @@ param(
     # cloud-image default 'ubuntu', which collides with anything Ubuntu)
     # and version-tagged so 24.04 and 26.04 guests don't collide in
     # shared logs.
-    [string]$Username = 'yuuser26'
+    [string]$Username = 'yuuser26',
+    # cloud-init local-hostname for the guest. Empty means "follow the VM
+    # name", which keeps host-side lookups that assume hostname == VM name
+    # working for every caller that does not ask for a specific hostname.
+    [string]$Hostname = ''
 )
 
 if ($VMName -notmatch '^[a-zA-Z0-9._-]+$') {
     Write-Error "Invalid VMName '$VMName'. Only alphanumerics, dots, hyphens, underscores."
     exit 1
 }
+
+if ($Hostname -and $Hostname -notmatch '^[a-zA-Z0-9.-]+$') {
+    Write-Error "Invalid Hostname '$Hostname'. Only alphanumeric characters, dots, and hyphens are allowed."
+    exit 1
+}
+$GuestHostname = if ($Hostname) { $Hostname } else { $VMName }
 if (-not $IsLinux) {
     Write-Error "host/ubuntu.kvm/guest.ubuntu.server.26/New-VM.ps1 only runs on Linux."
     exit 1
@@ -201,7 +211,7 @@ if (Test-Path -LiteralPath $cfg) {
 # Shared builder (automation/Yuruna.GuestSeed.psm1); $primaryUri is the arch-
 # resolved mirror knob.
 Import-Module (Join-Path $repoRoot 'automation/Yuruna.GuestSeed.psm1') -Force
-$AptProxyBlock = Build-AptProxyBlock -PrimaryUri $primaryUri -CachingProxyUrl $CachingProxyUrl
+$AptProxyBlock = New-AptProxyBlock -PrimaryUri $primaryUri -CachingProxyUrl $CachingProxyUrl
 
 # --- REGION: Fetch caching-proxy CA cert (base64-embedded in seed)
 # --- REGION: https://yuruna.link/network#caching-proxy-ca-cert-rc60-gate
@@ -245,15 +255,15 @@ Import-Module (Join-Path $repoRoot 'automation/Yuruna.CloudInitTemplate.psm1') -
 # Bake the guest-side lib scripts into the seed as base64-encoded write_files
 # entries. Eliminates the legacy network-dependent wget+wget bootstrap and
 # ensures the files are on disk before any guest script runs.
-# Build-CloudInitUserData reads + base64-encodes the scripts under
+# New-CloudInitUserData reads + base64-encodes the scripts under
 # $repoRoot/automation/, populates their *_BASE64_PLACEHOLDER tokens, then
 # renders the merged template with the per-cycle replacements below.
-$userData = Build-CloudInitUserData `
+$userData = New-CloudInitUserData `
     -BasePath    $baseUserData `
     -OverlayPath $overlayUserData `
     -RepoRoot    $repoRoot `
     -Replacement @{
-        HOSTNAME_PLACEHOLDER           = $VMName
+        HOSTNAME_PLACEHOLDER           = $GuestHostname
         USERNAME_PLACEHOLDER           = $Username
         SSH_AUTHORIZED_KEY_PLACEHOLDER = $sshPub
         HASH_PLACEHOLDER               = $pwHash
@@ -264,7 +274,7 @@ $userData = Build-CloudInitUserData `
         YURUNA_HOST_PORT_PLACEHOLDER   = $hostPort
     } -Confirm:$false
 $metaData = (Get-Content -Raw -LiteralPath $metaDataTemplate).
-    Replace('HOSTNAME_PLACEHOLDER', $VMName)
+    Replace('INSTANCE_ID_PLACEHOLDER', $VMName).Replace('HOSTNAME_PLACEHOLDER', $GuestHostname)
 
 $seedDir = Join-Path $vmDir 'seed.src'
 New-Item -ItemType Directory -Force -Path $seedDir | Out-Null
@@ -301,7 +311,8 @@ Write-Verbose "virsh destroy '$VMName' exit=$LASTEXITCODE output='$($destroyOut 
 $undefineOut = & virsh --connect $virshUri undefine --nvram $VMName 2>&1
 Write-Verbose "virsh undefine '$VMName' exit=$LASTEXITCODE output='$($undefineOut -join '; ')'"
 # Post-condition: virsh destroy/undefine on a non-existing domain is
-# idempotent (returns non-zero, swallowed by `2>$null`). But if either
+# idempotent (returns non-zero; stderr captured and shown only at
+# -Verbose). But if either
 # op failed while the domain remains defined, the next virt-install
 # fails with "domain already defined" and the outer loop has no signal
 # to recover. Fail-loud now with dominfo so the operator can act.
@@ -338,7 +349,14 @@ if ($hostCores -lt 4) {
     Write-Error "Host has $hostCores cores; Yuruna requires at least 4. See https://yuruna.link/definition#defining-the-vm-core-count-policy"
     exit 1
 }
-$vmCores = [math]::Max(4, [math]::Floor($hostCores / 2))
+# Floor-half of the host is the target, clamped so a guest never takes
+# every thread of a small host: nproc counts hardware threads, and on a
+# 4-thread host an unclamped 4-core floor hands EVERY guest the whole
+# machine. At least one thread must stay for the host itself (runner,
+# OCR polling, VM management) or a busy sibling guest can deschedule an
+# installer's vCPUs for seconds at a time and its console appears
+# frozen until the step timeout gives up.
+$vmCores = [math]::Min($hostCores - 1, [math]::Max(2, [math]::Floor($hostCores / 2)))
 
 $installArgs = @(
     '--connect', $virshUri,

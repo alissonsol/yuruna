@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.17
+.VERSION 2026.07.21
 .GUID 42e5b4c3-d2a1-4f9a-6789-0b1c2d3e4f51
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -1373,7 +1373,7 @@ function Set-WindowsHostConditionSet {
                 Remove-NetFirewallRule -DisplayName $statusRuleName -ErrorAction SilentlyContinue
                 $null = New-NetFirewallRule `
                     -DisplayName $statusRuleName `
-                    -Description "Allow inbound TCP on the yuruna status-service port so LAN clients can reach http://<host>:$statusPort/status/. Created by Yuruna Enable-TestAutomation (test/modules/Test.HostContract.psm1)." `
+                    -Description "Allow inbound TCP on the yuruna status-service port so LAN clients can reach http://<host>:$statusPort/status/. Created by Yuruna Enable-TestAutomation (test/modules/Test.HostCondition.Windows.psm1)." `
                     -Direction Inbound `
                     -Action Allow `
                     -Protocol TCP `
@@ -1395,7 +1395,7 @@ function Set-WindowsHostConditionSet {
             Write-Information "Creating firewall rule: $statusRuleName (all profiles)..."
             $null = New-NetFirewallRule `
                 -DisplayName $statusRuleName `
-                -Description "Allow inbound TCP on the yuruna status-service port so LAN clients can reach http://<host>:$statusPort/status/. Created by Yuruna Enable-TestAutomation (test/modules/Test.HostContract.psm1)." `
+                -Description "Allow inbound TCP on the yuruna status-service port so LAN clients can reach http://<host>:$statusPort/status/. Created by Yuruna Enable-TestAutomation (test/modules/Test.HostCondition.Windows.psm1)." `
                 -Direction Inbound `
                 -Action Allow `
                 -Protocol TCP `

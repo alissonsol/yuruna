@@ -1,7 +1,7 @@
 # pool-aggregator
 
-The read-only multi-host **pool view** for the Yuruna test harness — Phase 1
-(MVP) of the pool harness (see [docs/opportunities-hostpool.md](../../../docs/opportunities-hostpool.md)).
+The read-only multi-host **pool view** for the Yuruna test harness — the
+MVP of the pool harness (see [docs/opportunities.md](../../../docs/opportunities.md)).
 
 ## What it does
 
@@ -17,7 +17,7 @@ Every `-interval` (default 30s) it:
 2. **Probes** each candidate IP's status server (`http://<ip>:8080/runtime/status.json`)
    and keeps the ones that answer with a `hostId`. Non-runners (guests, other
    clients) don't serve it and are dropped.
-3. **Identifies on the stable `hostId`** (Phase 0's `runtime/host.uuid`), not the
+3. **Identifies on the stable `hostId`** (the persistent `runtime/host.uuid`), not the
    IP. This makes the pool **DHCP-resilient**: a host that changes IP reappears
    at the new IP and resolves to the **same** `hostId` (one member, not two); a
    host that cycles through many IPs over short leases collapses to one `hostId`;
@@ -26,7 +26,7 @@ Every `-interval` (default 30s) it:
    (`/loki/api/v1/push` on `127.0.0.1:3100`) with labels `{pool,hostId,cycleId,src=cycle}`
    and the proxy-side **ingest clock** as the timestamp (defends against host
    clock skew); the line carries the host's current `baseUrl` for drill-down.
-4b. **Tails per-step events (Phase 2):** for each reachable host it fetches the
+4b. **Tails per-step events:** for each reachable host it fetches the
    current cycle's NDJSON event log
    (`<baseUrl>/<cycleFolderUrl>cycle.events.ndjson`) and ships new lines to Loki
    under `{pool,hostId,src=event}` — `cycle_start`/`step_end`/`step_failure`/typed
@@ -44,8 +44,8 @@ Every `-interval` (default 30s) it:
    the current cycle's short SHAs (framework, project) from `status.json`'s
    `gitCommits`, with `commitUrl`/`projectCommitUrl` the per-repo
    `…/commit/<sha>` deep-links the table's Commit column resolves),
-   `yuruna_pool_host_status` (numeric 0–4:
-   unreachable/running/pass/fail/idle), and `yuruna_pool_host_last_seen_seconds`.
+   `yuruna_pool_host_status` (numeric 0–5:
+   unreachable/running/pass/fail/idle/paused), and `yuruna_pool_host_last_seen_seconds`.
    Served at `/metrics`. The whole pool telemetry is **hostname-free** (see below).
 5b. **Discovers extension hosts (registration-driven).** Each poll it reads every
    pool host's `host.registration.json` (already fetched for poolId/gating) and, for
@@ -191,7 +191,7 @@ the leaf is absent.
 | `/healthz` | GET | none | `ok` liveness |
 | `/metrics` | GET | none | Prometheus text (`yuruna_pool_*`) — scraped by the local Prometheus |
 | `/api/v1/pool-status` | GET | none | JSON snapshot of every discovered host's last poll |
-| `/go/cycle?host=<hostId>&t=<epochMs>` | GET | none | dashboard timeline click → 302 to that host's cycle-results folder. Resolves the host's **current** IP from the live view (so the link survives a host IP change) and the cycle covering `t` (current cycle in-memory, else the Loki transition feed); degrades to the host's status root when the folder can't be resolved |
+| `/go/cycle?host=<hostId>&t=<epochMs>` | GET | none | dashboard timeline click → 302 to that host's cycle-results folder. Resolves the host's **current** IP from the live view (so the link survives a host IP change) and the cycle covering `t` (current cycle in-memory, else the host's `/log/` listing, else the Loki transition feed); degrades to the host's status root when the folder can't be resolved |
 | `/go/host?host=<hostId>` | GET | none | dashboard timeline click → 302 to that host's status-page **root**. Same `host` uuid → **current** IP resolution as `/go/cycle` (survives a host IP change), but always lands on the status page rather than a cycle folder — the IP-free state-timeline rows can't carry the IP, so the link resolves it here |
 | `/go/stash?host=<hostId>&area=<area>` | GET | none | 302 to that host's extension-service UI (default `area=stash-service`, the stash VM), resolved from the URL the host **advertised** in `extensionTargets` (refreshed each cycle / on `Start-StashServer` via `Get-VMIp`). For IP-free, hostId-only consumers — the dashboard table itself links directly via the `target` label. Unknown host/target → 404 |
 | `/ingest` | POST | Bearer | runner-side push of NDJSON events (supplements pull); disabled (503) until a shared bearer token is configured |
@@ -233,19 +233,19 @@ curl -sk https://localhost:9400/metrics            # -> yuruna_pool_* lines
 # Grafana 'Yuruna hosts' dashboard renders the 24h cross-host view.
 ```
 
-## MVP limits (Phase 1)
+## MVP limits
 
 - **Initial** discovery is **proxy-traffic-driven**: a host first appears only
   once it (or its guests) has pulled through the proxy. A host that has never
-  routed through the proxy won't be discovered (Phase 3 adds registration-driven
-  discovery). Once discovered, though, a host is remembered — re-probed at its
+  routed through the proxy won't be discovered (registration-driven
+  discovery is planned). Once discovered, though, a host is remembered — re-probed at its
   last-known IP while idle (`hostTTL`) and re-seeded from Loki's presence beacon
   across a collector restart — so an idle / stash-only host stays on the dashboard
   without fresh proxy traffic. The **Extension hosts** row additionally has a
   discovery-independent path: the service VM's own `/announce` beacon (point 5c)
   keeps that row (and `/go/stash`) alive even when the owning host is neither
   probeable nor generating proxy traffic.
-- Per-step NDJSON events are tailed into Loki (Phase 2, done) for the
+- Per-step NDJSON events are tailed into Loki for the
   step-failure / event-stream drill-down, surfaced as Loki logs panels.
 - Incident correlation covers **per-host** (N-failures-in-M-minutes) and
   **cross-host / pool-wide** (K hosts failing within a short window). The
@@ -262,8 +262,8 @@ curl -sk https://localhost:9400/metrics            # -> yuruna_pool_* lines
   cycle's pass/fail outcome is still captured via the status.json transition).
 - Assumes each host's status server is on `:8080` (`-status-port`); a host on a
   remapped port isn't probed correctly until the registration record carries the
-  real port (Phase 3).
-- Phase 6 added TLS on `:9400` (proxy-CA leaf) + a bearer-gated `POST /ingest` push
+  real port (planned).
+- TLS on `:9400` (proxy-CA leaf) + a bearer-gated `POST /ingest` push
   route that SUPPLEMENTS pull (closing the trailing-event gap; Loki dedups the overlap).
   Push is default-off (disabled until a shared `pool-auth-token` is configured);
   `/metrics`, `/healthz`, `/api/v1/pool-status` stay open + unauthenticated for the
@@ -309,4 +309,4 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.17
+Last review: 2026.07.21

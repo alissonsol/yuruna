@@ -20,7 +20,7 @@
 .SYNOPSIS
     Hands a warm squid cache from an old caching-proxy VM to its
     replacement via a temporary parent-child cache hierarchy, then
-    retires the old VM. Operator guide: docs/caching-proxy-migration.md
+    retires the old VM. Operator guide: docs/caching-proxy.md#migrating-to-a-replacement-cache-vm
     (https://yuruna.link/caching-proxy-migration).
 
 .DESCRIPTION
@@ -86,7 +86,7 @@
 
 [CmdletBinding()]
 [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidUsingUsernameAndPasswordParams', '',
-    Justification = 'Operator-facing migration tool for throwaway lab-VM credentials; masked prompts cover the interactive path. See docs/caching-proxy-migration.md.')]
+    Justification = 'Operator-facing migration tool for throwaway lab-VM credentials; masked prompts cover the interactive path. See docs/caching-proxy.md#migrating-to-a-replacement-cache-vm.')]
 [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidUsingPlainTextForPassword', 'OldPassword',
     Justification = 'Throwaway lab-VM credential; masked Read-Host prompt when omitted.')]
 [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidUsingPlainTextForPassword', 'NewPassword',

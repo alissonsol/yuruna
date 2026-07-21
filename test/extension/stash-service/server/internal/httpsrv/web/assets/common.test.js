@@ -85,5 +85,5 @@ assert.ok(Y && typeof Y.api === 'function', 'Y with api should be exposed after 
   assert.match(source, /async api\(path, opts\)[\s\S]*?new AbortController\(\)/, 'api bounds the fetch with an AbortController');
   assert.match(source, /humanSize\(n\)[\s\S]*?Number\.isFinite\(v\)/, 'humanSize guards non-finite sizes');
 
-  console.log('PASS: common.js -- 18 assertions');
+  console.log('PASS: common.js');
 })().catch(function (e) { console.error(e && e.stack || e); process.exit(1); });

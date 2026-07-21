@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.17
+.VERSION 2026.07.21
 .GUID 42e3a5b6-c7d8-4901-2345-6e7f80910218
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -56,20 +56,9 @@ $script:RetryDefaults = @{
 }
 
 # Shared transient-failure classifier: the single source of truth for "is
-# this failure worth retrying?" across tofu init/plan/apply/output and
-# helm/kubectl fetches. A deterministic config / plan / auth / NotFound
-# error does NOT match, so callers gating on it fail fast instead of
-# spending the whole backoff budget on an error that will never clear.
-#   * network blips:  failed to fetch, i/o timeout, connection refused/reset,
-#                     TLS handshake, 500/502/503/504/429, too many requests, ...
-#   * backend locks:  tofu remote-state contention ("Error acquiring the
-#                     state lock", DynamoDB ConditionalCheckFailedException).
-# 500 sits alongside the gateway 5xx because the read-only manifest/chart
-# fetches gated here (helm/kubectl `-f <URL>`, tofu provider/registry GETs)
-# hit upstream CDNs/registries -- GitHub release assets in particular return
-# transient bare 500s that clear on retry. A genuinely deterministic 500
-# just burns the backoff budget and then fails, the same as any other code
-# in this list, so including it costs at most one backoff cycle.
+# this failure worth retrying?" across every network-touching phase.
+# What each token covers, why a bare 500 is in the list, and the per-phase
+# gating: docs/architecture.md#shared-transient-failure-retry-policy
 #
 # The codes are matched with word boundaries (\b429\b ... \b504\b) so "HTTP 500"
 # matches wherever the code stands alone (mid-line or end-of-line) while "1500"/
@@ -126,6 +115,38 @@ function Test-YurunaTransientFailure {
     if ($null -eq $Output) { return $false }
     $text = (@($Output) | ForEach-Object { [string]$_ }) -join "`n"
     return ($text -match $script:TransientFailurePattern)
+}
+
+# Structured retry telemetry (best-effort). Emits a machine-readable
+# retry_attempt / retry_exhausted NDJSON record when this host-side retry runs
+# inside a process that also loaded Test.Log; a no-op otherwise (Send-Cycle-
+# EventSafely is Get-Command-guarded), so the standalone tofu-init / on-host
+# probe paths that don't import Test.Log are unaffected. Private (not exported).
+function Send-YurunaRetryEvent {
+    param(
+        [Parameter(Mandatory)][string]$EventName,
+        [string]$Label,
+        [int]$Attempt,
+        [int]$MaxAttempts,
+        [int]$ExitCode,
+        [AllowNull()][Nullable[bool]]$Transient,
+        [AllowNull()][Nullable[int]]$SleepSeconds,
+        [AllowNull()][Nullable[bool]]$Permanent
+    )
+    if (-not (Get-Command Send-CycleEventSafely -ErrorAction SilentlyContinue)) { return }
+    $rec = @{
+        timestamp   = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
+        event       = $EventName
+        stack       = 'pwsh'
+        description = [string]$Label
+        attempt     = [int]$Attempt
+        maxAttempts = [int]$MaxAttempts
+        exitCode    = [int]$ExitCode
+    }
+    if ($null -ne $Transient)    { $rec['transient']    = [bool]$Transient }
+    if ($null -ne $SleepSeconds) { $rec['sleepSeconds'] = [int]$SleepSeconds }
+    if ($null -ne $Permanent)    { $rec['permanent']    = [bool]$Permanent }
+    Send-CycleEventSafely -EventRecord $rec
 }
 
 <#
@@ -224,11 +245,13 @@ function Invoke-WithYurunaRetry {
                 }
                 if (-not $retryThis) {
                     Write-Information "!! ${Label}: failure not retryable (exit=${lastExit}); failing fast"
+                    Send-YurunaRetryEvent -EventName 'retry_exhausted' -Label $Label -Attempt $attempt -MaxAttempts $MaxAttempts -ExitCode $lastExit -Permanent $true
                     break
                 }
             }
             $sleep = Get-YurunaRetryBackoff -BaseDelay $delay -MaxDelay $MaxDelaySeconds -JitterFraction $JitterFraction
             Write-Information "!! ${Label}: attempt ${attempt}/${MaxAttempts} failed (exit=${lastExit}); sleeping ${sleep}s before retry"
+            Send-YurunaRetryEvent -EventName 'retry_attempt' -Label $Label -Attempt $attempt -MaxAttempts $MaxAttempts -ExitCode $lastExit -Transient ([bool](Test-YurunaTransientFailure -Output $lastOutput)) -SleepSeconds $sleep
             if ($OnRetry) {
                 try { & $OnRetry @{ Attempt = $attempt; MaxAttempts = $MaxAttempts; SleepSeconds = $sleep; ExitCode = $lastExit } } catch { $null = $_ }
             }
@@ -236,6 +259,7 @@ function Invoke-WithYurunaRetry {
             $delay = [Math]::Min([int]($delay * 2), $MaxDelaySeconds)
         } else {
             Write-Information "!! ${Label}: all ${MaxAttempts} attempts exhausted (exit=${lastExit})"
+            Send-YurunaRetryEvent -EventName 'retry_exhausted' -Label $Label -Attempt $attempt -MaxAttempts $MaxAttempts -ExitCode $lastExit -Permanent $false
         }
         $attempt++
     }

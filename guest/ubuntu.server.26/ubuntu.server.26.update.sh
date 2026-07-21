@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.07.17
+# Version: 2026.07.21
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 set -euo pipefail
@@ -94,6 +94,38 @@ if ! command -v pwsh >/dev/null 2>&1; then
   echo "Installing PowerShell ${PS_VER} (${PS_ARCH}) from ${PS_URL}"
 
   curl_retry -fsSL -o /tmp/powershell.tar.gz "$PS_URL"
+  # Verify the pwsh tarball against the release's published
+  # hashes.sha256 before unpacking it (pwsh is the interpreter for all
+  # downstream automation). The asset is UTF-16 LE (BOM+CRLF, Windows-
+  # generated) -> normalize to UTF-8/LF. A genuine MISMATCH is fatal
+  # (corruption/tamper); a hashes.sha256 that can't be fetched or parsed
+  # after retries only WARNs and proceeds so a transient GitHub blip never
+  # fails every guest's provisioning.
+  PS_PKG="powershell-${PS_VER}-linux-${PS_ARCH}.tar.gz"
+  if curl_retry -fsSL -o /tmp/pwsh-hashes.sha256 \
+       "https://github.com/PowerShell/PowerShell/releases/download/${PS_TAG}/hashes.sha256"; then
+    PS_B2=$(od -An -tx1 -N2 /tmp/pwsh-hashes.sha256 2>/dev/null | tr -d ' \n' || true)
+    if [ "$PS_B2" = "fffe" ] || [ "$PS_B2" = "feff" ]; then
+      iconv -f UTF-16 -t UTF-8 /tmp/pwsh-hashes.sha256 2>/dev/null | tr -d '\r' > /tmp/pwsh-hashes.norm || true
+    else
+      tr -d '\r' < /tmp/pwsh-hashes.sha256 > /tmp/pwsh-hashes.norm || true
+    fi
+    PS_WANT=$(LC_ALL=C awk -v p="$PS_PKG" 'index($0,p){print $1; exit}' /tmp/pwsh-hashes.norm 2>/dev/null || true)
+    PS_GOT=$(sha256sum /tmp/powershell.tar.gz 2>/dev/null | awk '{print $1}' || true)
+    if [ -z "$PS_WANT" ]; then
+      echo "PowerShell ${PS_VER}: no checksum line for ${PS_PKG} in hashes.sha256; proceeding unverified." >&2
+    elif [ -z "$PS_GOT" ]; then
+      echo "PowerShell ${PS_VER}: could not compute local SHA-256; proceeding unverified." >&2
+    elif [ "$PS_WANT" = "$PS_GOT" ]; then
+      echo "PowerShell ${PS_VER}: tarball SHA-256 verified."
+    else
+      echo "PowerShell ${PS_VER}: tarball SHA-256 MISMATCH (want ${PS_WANT}, got ${PS_GOT}); possible tamper/corruption -- aborting." >&2
+      exit 1
+    fi
+    rm -f /tmp/pwsh-hashes.sha256 /tmp/pwsh-hashes.norm
+  else
+    echo "PowerShell ${PS_VER}: could not fetch hashes.sha256 after retries; proceeding unverified." >&2
+  fi
   sudo mkdir -p /opt/microsoft/powershell/7
   sudo tar zxf /tmp/powershell.tar.gz -C /opt/microsoft/powershell/7
   sudo chmod +x /opt/microsoft/powershell/7/pwsh

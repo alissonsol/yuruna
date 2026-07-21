@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.17
+.VERSION 2026.07.21
 .GUID 42d5e6f7-a8b9-4c01-9234-ef6789012abc
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -19,7 +19,7 @@
 <#
 .SYNOPSIS
     Default pool-aggregator extension: the VM-side Go pull-collector that
-    powers the multi-host pool view (Phase 1, docs/opportunities-hostpool.md).
+    powers the multi-host pool view (docs/opportunities.md).
 
 .DESCRIPTION
     The bulk of the extension is the Go source under this folder (main.go,

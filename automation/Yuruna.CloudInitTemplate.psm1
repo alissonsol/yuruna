@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.17
+.VERSION 2026.07.21
 .GUID 42c9d0e1-b3a4-4f56-9b67-78c2e3f4d5a6
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -17,7 +17,7 @@
 #requires -version 7
 
 # Get-YurunaGitHubSource: which repository/commit this host serves, and the token
-# that opens it. Build-CloudInitUserData bakes those into every guest seed.
+# that opens it. New-CloudInitUserData bakes those into every guest seed.
 Import-Module (Join-Path $PSScriptRoot 'Yuruna.GitHubSource.psm1') -Force -DisableNameChecking
 
 <#
@@ -39,7 +39,7 @@ Import-Module (Join-Path $PSScriptRoot 'Yuruna.GitHubSource.psm1') -Force -Disab
     in isolation.
 
     Anchor contract: each anchor line in the base file looks like
-    `# === YURUNA_OVERLAY_&lt;NAME&gt; ===` (case-sensitive ASCII). The overlay
+    `# === YURUNA_OVERLAY_<NAME> ===` (case-sensitive ASCII). The overlay
     file uses the same line format as section headers; the lines between
     one header and the next (or end-of-file) are the substitution payload
     for that anchor. An empty payload deletes the anchor line outright.
@@ -263,7 +263,7 @@ function Resolve-CloudInitPlaceholder {
     return $result
 }
 
-function Build-CloudInitUserData {
+function New-CloudInitUserData {
     <#
     .SYNOPSIS
         End-to-end cloud-init user-data render: merge the shared base
@@ -368,4 +368,4 @@ function Build-CloudInitUserData {
     return $resolved
 }
 
-Export-ModuleMember -Function Merge-CloudInitUserData, Read-OverlaySection, Get-YurunaGuestScriptBase64, Resolve-CloudInitPlaceholder, Build-CloudInitUserData
+Export-ModuleMember -Function Merge-CloudInitUserData, Read-OverlaySection, Get-YurunaGuestScriptBase64, Resolve-CloudInitPlaceholder, New-CloudInitUserData

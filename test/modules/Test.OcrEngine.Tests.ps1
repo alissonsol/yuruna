@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.17
+.VERSION 2026.07.21
 .GUID 421e2a7b-3d84-4f61-9a05-8e6d2b9c4f17
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -21,7 +21,7 @@
     Structural Pester guards on Test.OcrEngine.psm1's fallback-path observability
     and error classification.
 .DESCRIPTION
-    Three cap-ocr-engine hardening invariants, asserted on the parsed AST so a
+    Three OCR-engine hardening invariants, asserted on the parsed AST so a
     comment that merely names a token cannot keep a guard green after the code is
     removed:
       1. The WinRT worker->one-shot fallback increments a module-scoped counter
@@ -185,7 +185,7 @@ $rootAst   = Get-ModuleAst -Path $modulePath
 $invokeWin = Get-FunctionAst -RootAst $rootAst -FunctionName 'Invoke-WinRtOcr'
 $getVision = Get-FunctionAst -RootAst $rootAst -FunctionName 'Get-VisionOcrBinaryPath'
 
-Describe 'cap-ocr-engine item 1 -- WinRT worker fallback emits a counted structured event' {
+Describe 'WinRT worker fallback emits a counted structured event' {
     It 'declares a module-scoped worker fallback counter' {
         Assert-True (Test-AstAssignsVar -Ast $rootAst -VarName 'WinRtOcrWorkerFallbackCount') `
             'a chronic worker fallback must be counted, not just Verbose-logged'
@@ -196,7 +196,7 @@ Describe 'cap-ocr-engine item 1 -- WinRT worker fallback emits a counted structu
     }
 }
 
-Describe 'cap-ocr-engine item 2 -- Vision swiftc negative cache + one-time slow-path event' {
+Describe 'Vision swiftc negative cache + one-time slow-path event' {
     It 'declares a module-scoped negative-probe flag' {
         Assert-True (Test-AstAssignsVar -Ast $rootAst -VarName 'VisionOcrBinaryProbeFailed') `
             'a missing/broken swiftc must be probed once, not on every OCR poll'
@@ -223,7 +223,7 @@ Describe 'cap-ocr-engine item 2 -- Vision swiftc negative cache + one-time slow-
     }
 }
 
-Describe 'cap-ocr-engine item 3 -- WinRT one-shot is EAP-guarded and diagnosable' {
+Describe 'WinRT one-shot is EAP-guarded and diagnosable' {
     It 'Invoke-WinRtOcr pins the native-command EAP' {
         Assert-True (Test-FunctionPinsNativeEap -FuncAst $invokeWin) `
             'without the pin a non-zero powershell.exe exit throws NativeCommandExitException before the diagnostic branch on PS 7.4+'

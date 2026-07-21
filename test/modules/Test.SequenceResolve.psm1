@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.17
+.VERSION 2026.07.21
 .GUID 42c7d3a9-5e1b-4f80-9a2c-6d8e3f1b0a47
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -110,7 +110,7 @@ function Read-SequenceFile {
     "SSH" -> "ssh", anything else -> "gui". Callers use this to build
     mode-specific paths like <sequencesDir>/<mode>/<name>.yml. Reads the
     mechanism from $env:YURUNA_KEYSTROKE_MECHANISM, which Invoke-Sequence
-    mirrors from its config value at load (this module no longer shares the
+    mirrors from its config value at load (this module does not share the
     engine's $script: scope), mirroring the YURUNA_LOG_LEVEL pattern.
 #>
 function Get-SequenceMode {
@@ -178,9 +178,9 @@ function Get-ProjectTestSearchDir {
     )
     $projectRoot = Join-Path $RepoRoot 'project'
     if (-not (Test-Path $projectRoot)) { return @() }
-    # The planner resolves 50+ chain members repeatedly per cycle and each call
-    # previously re-ran a full recursive Get-ChildItem over the whole project
-    # clone. Cache the search-dir list keyed by RepoRoot+Mode, invalidated by the
+    # The planner resolves 50+ chain members repeatedly per cycle; without
+    # this cache each call would re-run a full recursive Get-ChildItem over
+    # the whole project clone. Cache the search-dir list keyed by RepoRoot+Mode, invalidated by the
     # project root's mtime (which changes when the clone is refreshed between
     # cycles), parallel to $script:SequenceFileCache. The test/<mode>/ directory
     # set is static within a cycle, so this is safe; individual sequence files

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.17
+.VERSION 2026.07.21
 .GUID 42b6d9f1-3c75-4e82-a0d4-6f8b1c2e3a49
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -20,7 +20,7 @@
 .SYNOPSIS
     Pester coverage for Write-HostRegistrationRecord (Test.Capability.psm1): the
     runtime/host.registration.json the pool aggregator reads (Phase 0 of the
-    multi-host pool harness, docs/opportunities-hostpool.md).
+    multi-host pool harness, docs/opportunities.md).
 .DESCRIPTION
     Throw-based assertions (OS-bundled Pester 3.4 / Pester 5+). The fixture points
     $env:YURUNA_RUNTIME_DIR at a temp dir and seeds the $global:__Yuruna* identity

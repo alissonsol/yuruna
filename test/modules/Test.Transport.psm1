@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.17
+.VERSION 2026.07.21
 .GUID 42634a21-7352-4663-b6f4-cff499ce7a2b
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -141,6 +141,15 @@ $script:CharScanCodes = Get-KeyCodeMap -Kind 'PS2-Char'
 
 $script:X11KeySyms     = Get-KeyCodeMap -Kind 'X11-Named'
 $script:X11CharKeySyms = Get-KeyCodeMap -Kind 'X11-Char'
+
+# Modifier chords ('CtrlU', 'CtrlC') resolve from a separate map family: the
+# -Named maps hold one scalar code per name and are dereferenced as scalars
+# everywhere, so a chord cannot live there. Each Send-Key* backend checks its
+# chord map first and falls through to its named map, which keeps a chord
+# name from being mistaken for an unknown key.
+$script:UtmChords = Get-KeyCodeMap -Kind 'UTM-Chord'
+$script:Ps2Chords = Get-KeyCodeMap -Kind 'PS2-Chord'
+$script:X11Chords = Get-KeyCodeMap -Kind 'X11-Chord'
 
 # -- Cached VNC connection (reused across steps within a sequence) ------------
 
@@ -340,11 +349,31 @@ function Send-KeyVNC {
         pair. Returns $false on unknown key or transport failure.
     #>
     param([string]$VMName, [string]$KeyName, [int]$Port = 0)
-    $keySym = $script:X11KeySyms[$KeyName]
-    if (-not $keySym) { Write-Warning "Unknown VNC key '$KeyName'"; return $false }
+    # Chord names are checked before the named map so 'CtrlU' is not reported
+    # as an unknown key. A chord holds [modifierKeysym, baseKeysym]; the
+    # modifier must be held DOWN across the base key's press and release or
+    # the guest's tty sees a bare 'u' instead of the VKILL control code.
+    $chord = $script:X11Chords[$KeyName]
+    $keySym = if ($chord) { $null } else { $script:X11KeySyms[$KeyName] }
+    if (-not $chord -and -not $keySym) { Write-Warning "Unknown VNC key '$KeyName'"; return $false }
     $tcp = Connect-VNC -VMName $VMName -Port $Port
     if (-not $tcp) { return $false }
     try {
+        if ($chord) {
+            $modSym  = [int]$chord[0]
+            $baseSym = [int]$chord[1]
+            # Same 20ms-down / 10ms-up modifier settle Send-TextVNC uses for
+            # Shift: UTM's QEMU VNC needs the modifier to land before the
+            # base key, and needs it released after.
+            Send-VncKeyEvent -Client $tcp -KeySym $modSym -Down $true
+            Start-Sleep -Milliseconds 20
+            Send-VncKeyEvent -Client $tcp -KeySym $baseSym -Down $true
+            Send-VncKeyEvent -Client $tcp -KeySym $baseSym -Down $false
+            Start-Sleep -Milliseconds 10
+            Send-VncKeyEvent -Client $tcp -KeySym $modSym -Down $false
+            Write-Debug "      VNC chord='$KeyName' mod=0x$($modSym.ToString('X4')) key=0x$($baseSym.ToString('X4'))"
+            return $true
+        }
         Send-VncKeyEvent -Client $tcp -KeySym $keySym -Down $true
         Send-VncKeyEvent -Client $tcp -KeySym $keySym -Down $false
         Write-Debug "      VNC key='$KeyName' sym=0x$($keySym.ToString('X4'))"
@@ -557,11 +586,32 @@ function Send-KeyHyperV {
         modifier-reset prefix -- see Send-TextHyperV for that.
     #>
     param([string]$VMName, [string]$KeyName)
-    $scanCode = $script:PS2ScanCodes[$KeyName]
-    if (-not $scanCode) { Write-Warning "Unknown key '$KeyName' for Hyper-V"; return $false }
+    # Chord names resolve first: 'CtrlU' is not in the scalar named map and
+    # would otherwise be rejected as unknown.
+    $chord = $script:Ps2Chords[$KeyName]
+    $scanCode = if ($chord) { $null } else { $script:PS2ScanCodes[$KeyName] }
+    if (-not $chord -and -not $scanCode) { Write-Warning "Unknown key '$KeyName' for Hyper-V"; return $false }
     $kb = Get-HyperVKeyboard -VMName $VMName
     if (-not $kb) { return $false }
     try {
+        if ($chord) {
+            # Modifier make, base make, base break, modifier break -- the
+            # modifier's break MUST be last so the PS/2 controller's flat
+            # per-code "is down" state does not leave Ctrl latched into the
+            # next keystroke (the same latching Send-TextHyperV's release
+            # prefix defends against).
+            $modMake  = [byte]$chord[0]
+            $baseMake = [byte]$chord[1]
+            [byte[]]$chordCodes = @(
+                $modMake,
+                $baseMake,
+                [byte]($baseMake -bor 0x80),
+                [byte]($modMake -bor 0x80)
+            )
+            $chordOk = Send-ScanCode -Keyboard $kb -Codes $chordCodes
+            Write-Debug "      TypeScancodes chord='$KeyName' mod=0x$($modMake.ToString('X2')) key=0x$($baseMake.ToString('X2')) ok=$chordOk"
+            return $chordOk
+        }
         # Send make + break (press + release) as raw PS/2 scan codes
         [byte[]]$codes = @([byte]$scanCode, [byte]($scanCode -bor 0x80))
         $ok = Send-ScanCode -Keyboard $kb -Codes $codes
@@ -571,6 +621,110 @@ function Send-KeyHyperV {
         Write-Warning "Hyper-V TypeScancodes failed: $_"
         return $false
     }
+}
+
+function Send-ChordUTM {
+    <#
+    .SYNOPSIS
+        Press one named modifier chord (e.g. CtrlU) in a UTM VM via JXA
+        CGEvent posting.
+    .DESCRIPTION
+        Chords go through CGEvent rather than AppleScript's
+        `key code ... using control down`: the System Events keystroke
+        buffer has a documented double-fire mode when chained after a
+        Send-Text run (see Send-KeyUTM), and a duplicated Ctrl-C is a
+        second interrupt delivered to whatever the guest started next.
+
+        The event shape mirrors Send-TextUTM's shifted-character branch:
+        modifier down (flagged), base key down/up (flagged), modifier up
+        UNFLAGGED so the global HID modifier state clears for the next
+        key. The delays match that branch because those are the values
+        that tested clean against UTM's guest input path.
+    .PARAMETER VMName
+        UTM VM whose window is raised before the chord is posted.
+    .PARAMETER KeyName
+        Chord name resolved through the UTM-Chord key map.
+    #>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param([Parameter(Mandatory)][string]$VMName, [Parameter(Mandatory)][string]$KeyName)
+    $chord = $script:UtmChords[$KeyName]
+    if (-not $chord) { Write-Warning "Unknown UTM chord '$KeyName'"; return $false }
+    $modCode  = [int]$chord[0]
+    $baseCode = [int]$chord[1]
+    $modFlag  = [int]$chord[2]
+
+    # Only integers are interpolated into the template below: it is assembled
+    # with -replace, whose REPLACEMENT string is substitution-aware ($&, $1),
+    # so a non-numeric value could be reinterpreted rather than inserted.
+    $jxaTemplate = @'
+ObjC.import('CoreGraphics');
+
+var se = Application('System Events');
+var utm = Application('UTM');
+utm.activate();
+delay(0.3);
+var proc = se.processes['UTM'];
+proc.frontmost = true;
+var wins = proc.windows();
+var found = false;
+for (var i = 0; i < wins.length; i++) {
+    if (wins[i].name().indexOf('__VMNAME__') >= 0) {
+        wins[i].actions['AXRaise'].perform();
+        found = true;
+        break;
+    }
+}
+if (!found) {
+    'window_not_found';
+} else {
+    delay(0.3);
+    var src = $.CGEventSourceCreate(1);  // kCGEventSourceStateHIDSystemState
+
+    function sendChord(modKeyCode, modFlag, keyCode) {
+        var modDn = $.CGEventCreateKeyboardEvent(src, modKeyCode, true);
+        $.CGEventSetFlags(modDn, modFlag);
+        $.CGEventPost(0, modDn);
+        delay(0.08);
+
+        var down = $.CGEventCreateKeyboardEvent(src, keyCode, true);
+        $.CGEventSetFlags(down, modFlag);
+        $.CGEventPost(0, down);
+        delay(0.02);
+        var up = $.CGEventCreateKeyboardEvent(src, keyCode, false);
+        $.CGEventSetFlags(up, modFlag);
+        $.CGEventPost(0, up);
+        delay(0.06);
+
+        // Release the modifier with no flag set so the HID-system source
+        // clears the held state for whatever key is posted next.
+        var modUp = $.CGEventCreateKeyboardEvent(src, modKeyCode, false);
+        $.CGEventPost(0, modUp);
+        delay(0.02);
+    }
+    sendChord(__MODCODE__, __MODFLAG__, __BASECODE__);
+    // Final drain: the macOS event queue needs time to deliver the last
+    // CGEvent to the guest before osascript exits. Without it the modifier
+    // release is the event that gets lost, leaving Ctrl latched.
+    delay(0.3);
+    'ok';
+}
+'@
+    $safeJxaVMName = $VMName -replace '\\', '\\\\' -replace "'", "\'"
+    $jxaScript = $jxaTemplate -replace '__VMNAME__', $safeJxaVMName `
+                              -replace '__MODCODE__', $modCode `
+                              -replace '__MODFLAG__', $modFlag `
+                              -replace '__BASECODE__', $baseCode
+
+    $tmpFile = [System.IO.Path]::Combine([System.IO.Path]::GetTempPath(), "yuruna_utm_$([System.IO.Path]::GetRandomFileName()).js")
+    try {
+        [System.IO.File]::WriteAllText($tmpFile, $jxaScript)
+        $result = & osascript -l JavaScript $tmpFile 2>&1
+    } finally {
+        Remove-Item $tmpFile -ErrorAction SilentlyContinue
+    }
+    Write-Debug "      JXA CGEvent chord='$KeyName': $result"
+    return ("$result" -eq "ok")
 }
 
 function Send-KeyUTM {
@@ -585,6 +739,11 @@ function Send-KeyUTM {
         login prompt.
     #>
     param([string]$VMName, [string]$KeyName)
+    # Modifier chords need a held modifier around the base key, which
+    # `key code` alone cannot express; they take the CGEvent path instead.
+    if ($script:UtmChords[$KeyName]) {
+        return (Send-ChordUTM -VMName $VMName -KeyName $KeyName)
+    }
     $code = $script:UTMKeyMap[$KeyName]
     if (-not $code) { Write-Warning "Unknown key '$KeyName' for UTM"; return $false }
     # Use `key code` for everything (including Enter, code 36). The
@@ -654,14 +813,22 @@ function Send-KeyKvm {
         RFB handshake mid-stream.
     #>
     param([string]$VMName, [string]$KeyName)
-    # Named-key map lives in Test.KeyCodeRegistry (KVM-Named) alongside the char
-    # map. Anything not in the table passes through verbatim so a sequence can
-    # write KEY_LEFTMETA, KEY_F2, etc. directly.
-    $code = (Get-KeyCodeMap -Kind 'KVM-Named')[$KeyName]
-    if (-not $code) { $code = $KeyName }
-    $out = & virsh --connect qemu:///system send-key $VMName $code 2>&1
+    # Chord map first (KVM-Chord), then the named map (KVM-Named). Anything in
+    # neither passes through verbatim so a sequence can write KEY_LEFTMETA,
+    # KEY_F2, etc. directly.
+    #
+    # `virsh send-key` presses every positional keycode simultaneously and
+    # releases them together, so a chord is just a multi-element argument
+    # list -- it must be SPLATTED, not stringified, or the two names collapse
+    # into one unrecognized argument.
+    $codes = @((Get-KeyCodeMap -Kind 'KVM-Chord')[$KeyName])
+    if (-not $codes -or -not $codes[0]) {
+        $codes = @((Get-KeyCodeMap -Kind 'KVM-Named')[$KeyName])
+    }
+    if (-not $codes -or -not $codes[0]) { $codes = @($KeyName) }
+    $out = & virsh --connect qemu:///system send-key $VMName @codes 2>&1
     if ($LASTEXITCODE -ne 0) {
-        Write-Warning "Send-KeyKvm: virsh send-key '$code' failed for '$VMName': $((@($out) | Out-String).Trim())"
+        Write-Warning "Send-KeyKvm: virsh send-key '$($codes -join ' ')' failed for '$VMName': $((@($out) | Out-String).Trim())"
         return $false
     }
     return $true
@@ -1244,21 +1411,6 @@ var up = `$.CGEventCreateMouseEvent(null, `$.kCGEventLeftMouseUp,   pt, `$.kCGMo
     return $true
 }
 
-<#
-.SYNOPSIS
-    Runs OCR on an image, finds the bounding box of a button-label pattern,
-    and returns its coordinates in the image's pixel space.
-.DESCRIPTION
-    Uses Tesseract TSV mode (word-level boxes) because TSV boxes are
-    directly consumable -- Vision / WinRT don't surface per-word coords in
-    our existing shims. For multi-word labels, requires contiguous words
-    on the same line (y-diff within half a word height). Matching is
-    case-insensitive substring so low-confidence words ("lnstall") still
-    resolve.
-.OUTPUTS
-    Hashtable @{ x; y; w; h; centerX; centerY; text } or $null if not found.
-#>
-
 # Send-KeyAXUI / Send-TextAXUI are intentionally NOT exported: AXUI keyboard
 # events do not route to UTM's SwiftUI guest display, so they are dead as a
 # transport. Kept as private functions (their docstrings record the finding)
@@ -1266,7 +1418,7 @@ var up = `$.CGEventCreateMouseEvent(null, `$.kCGEventLeftMouseUp,   pt, `$.kCGMo
 # public entry point.
 Export-ModuleMember -Function Get-HyperVKeyboard, Read-VncBuffer, Connect-VNC, Disconnect-VNC, `
     Send-VncKeyEvent, Send-KeyVNC, Send-TextVNC, `
-    Send-ScanCode, Send-KeyHyperV, Send-KeyUTM, Send-KeyKvm, `
+    Send-ScanCode, Send-KeyHyperV, Send-KeyUTM, Send-ChordUTM, Send-KeyKvm, `
     Send-TextKvm, Send-TextHyperV, Test-HardCharsInText, ConvertTo-ShellEscapedText, `
     Send-TextUTM, Initialize-HyperVMouseType, Send-ClickHyperV, Send-ClickUtm, `
     Update-TransportDefault

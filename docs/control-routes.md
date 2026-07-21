@@ -55,7 +55,7 @@ the proxy can only be verified by a host that shares its token.
 ssh yuruna@<proxy> 'sudo cat /etc/yuruna/pool-auth.token'
 ```
 
-This will ask you for the caching proxy VM password. That is printed at the host for that VM under `test/status/runtime/yuruna-caching-proxy.yml`. This completes the "secure path" to set the authorization token: the operator has access to the host for the caching process.
+This will ask you for the caching proxy VM password, which is recorded on the proxy VM's host under `test/status/runtime/yuruna-caching-proxy.yml` (and printed in `New-VM.ps1`'s ready banner). This completes the "secure path" to set the authorization token: the operator has access to the host for the caching process.
 
 **2. Store that value on the host.**
 
@@ -99,19 +99,24 @@ host's URL by hand does not.
 > `follow guidance at https://yuruna.link/control-proof`
 
 In the config editor this reads `Save failed: follow guidance at https://yuruna.link/control-proof`;
-the link lands on [control-proof.md](control-proof.md), the short version of the checklist below.
-The underlying condition is always the same: the caller was neither on loopback nor carrying a
-valid control proof.
+that short link lands on this section. The underlying condition is always the same: the caller
+was neither on loopback nor carrying a valid control proof. Work through these in order:
 
-- **You typed the host URL instead of following the dashboard link.** The proof lives in
-  that tab's `sessionStorage`; re-enter through the dashboard host link.
-- **The tab has been open longer than the proof's life.** Reload through the link.
-- **The host's token does not match the proxy's.** Re-run `Set-PoolAuthToken.ps1` with the
-  value from `/etc/yuruna/pool-auth.token`.
-- **The host has no `pool-auth-token` vault entry** (or an empty vault key) — non-loopback
-  control is refused by design until you set one.
-- **The host clock is skewed** by more than the proof window, so the expiry check fails.
-  Fix time sync on the host.
+1. **You typed the host URL instead of following the dashboard link.** The proof lives in
+   that tab's `sessionStorage`; re-enter through the dashboard host link. This also covers a
+   **proof that expired** — a minted proof lasts about 5 minutes; reload through the link.
+2. **The host's token does not match the proxy's.** Re-run `Set-PoolAuthToken.ps1` with the
+   value from `/etc/yuruna/pool-auth.token` (both commands are in
+   [Enabling remote control on a host](#enabling-remote-control-on-a-host) above).
+3. **The caching-proxy / dashboard VM is stale.** An old aggregator can mint a proof this
+   host cannot verify, or hand off the link without the `#yctl=…` fragment at all. If the
+   token matches and the link still won't drive the host, update the caching-proxy VM
+   ([caching-proxy.md](caching-proxy.md#migrating-to-a-replacement-cache-vm)).
+4. **The host has no `pool-auth-token` vault entry** (or an empty vault key) — non-loopback
+   control is refused by design until you set one. Or just drive it from the host itself:
+   `http://localhost:<port>` has full control with no token and no proof.
+5. **The host clock is skewed** by more than the proof window, so every proof looks expired.
+   Fix time sync on the host.
 
 A different message — `forbidden: missing X-Yuruna request header` — is the cross-site
 request guard, not the proof: it means a non-browser client (`curl`) called a control route
@@ -132,6 +137,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.17
+Last review: 2026.07.21
 
 Back to [Yuruna](../README.md)

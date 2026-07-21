@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.17
+.VERSION 2026.07.21
 .GUID 42a2b3c4-d5e6-4f78-9012-3a4b5c6d7e8f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -21,7 +21,7 @@
     Drives guest VMs on a Linux host running libvirt + KVM. Sibling
     implementations live at host/macos.utm/modules/Yuruna.Host.psm1
     (macOS UTM) and host/windows.hyper-v/modules/Yuruna.Host.psm1
-    (Windows Hyper-V). Same 38-function contract on all three; the
+    (Windows Hyper-V). Same 36-function contract on all three; the
     test harness is host-agnostic.
 
     All libvirt calls go through `qemu:///system` (the system
@@ -119,12 +119,15 @@ function New-VM {
         [string]$CachingProxyUrl,
         # Planner-cascaded username override; forwarded only when the
         # per-guest script declares -Username (introspected below).
-        [string]$Username
+        [string]$Username,
+        # Planner-cascaded guest hostname (variables.hostname); same
+        # declare-or-drop forwarding rule as -Username.
+        [string]$Hostname
     )
     # Thin wrapper over the shared per-guest runner; the host subdir is the
     # only platform variable. Splatting $PSBoundParameters preserves the
-    # conditional -CachingProxyUrl/-Username forwarding (the runner checks
-    # ContainsKey) and propagates -WhatIf/-Confirm to its ShouldProcess.
+    # conditional -CachingProxyUrl/-Username/-Hostname forwarding (the runner
+    # checks ContainsKey) and propagates -WhatIf/-Confirm to its ShouldProcess.
     Invoke-PerGuestNewVm -HostSubdir 'host/ubuntu.kvm' @PSBoundParameters
 }
 
@@ -627,27 +630,25 @@ function Send-Key {
         Write-Warning "Send-Key -Mechanism ssh: not meaningful for SSH (use Send-Text with the typed command)."
         return $false
     }
-    # `virsh send-key` accepts Linux input event names (KEY_ENTER, KEY_TAB,
-    # KEY_LEFTMETA, ...) and QEMU keycodes. Map the few names the harness
-    # actually emits to KEY_*; pass anything else through verbatim so an
-    # operator can use the underlying kernel name directly.
-    $map = @{
-        'Enter'     = 'KEY_ENTER'
-        'Return'    = 'KEY_ENTER'
-        'Tab'       = 'KEY_TAB'
-        'Escape'    = 'KEY_ESC'
-        'Esc'       = 'KEY_ESC'
-        'Space'     = 'KEY_SPACE'
-        'Backspace' = 'KEY_BACKSPACE'
-        'Up'        = 'KEY_UP'
-        'Down'      = 'KEY_DOWN'
-        'Left'      = 'KEY_LEFT'
-        'Right'     = 'KEY_RIGHT'
+    # Defer to Invoke-Sequence's host-aware dispatcher rather than mapping key
+    # names here. A local map holds only single keycodes, so a modifier chord
+    # (which `virsh send-key` expresses as several positional keycodes pressed
+    # together) degrades silently to one keypress -- Ctrl-U arriving as a bare
+    # 'u' typed into the guest. The dispatcher's Send-KeyKvm backend owns both
+    # the chord table and the splat.
+    $invokeSequence = Join-Path $script:TestModulesDir 'Invoke-Sequence.psm1'
+    if (Test-Path $invokeSequence) {
+        # Import only when the dispatcher isn't already resolvable: a -Force
+        # import evicts the global Invoke-Sequence (and its nested modules)
+        # the outer loop still calls
+        # (feedback_module_force_import_evicts_global).
+        if (-not (Get-Command 'Invoke-Sequence\Send-Key' -ErrorAction SilentlyContinue)) {
+            Import-Module $invokeSequence -Force -DisableNameChecking -Global
+        }
+        return [bool](Invoke-Sequence\Send-Key -HostType $script:HostTag -VMName $VMName -KeyName $Key)
     }
-    $code = $map[$Key]
-    if (-not $code) { $code = $Key }   # pass-through
-    Invoke-Virsh -VirshArgs @('send-key', $VMName, $code) | Out-Null
-    return ($LASTEXITCODE -eq 0)
+    Write-Warning "Send-Key -Mechanism gui: Invoke-Sequence.psm1 not found at '$invokeSequence'."
+    return $false
 }
 
 <#

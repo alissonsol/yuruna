@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.17
+.VERSION 2026.07.21
 .GUID 42a1b2c3-d4e5-4f67-8901-bc012345674a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -173,12 +173,10 @@ Write-Output ""
 # PASS/WARN/FAIL classification (single source of truth in
 # Invoke-CachingProxyProbe).
 
-# Re-import Test.CachingProxy -Global -Force so Invoke-CachingProxyProbe
-# resolves: the local-discovery branch above calls Initialize-YurunaHost,
-# which cascades into the host module's nested non-global import of
-# Test.CachingProxy and evicts this script's view of it
-# (feedback_module_force_import_evicts_global). No-op for the -CacheIp and
-# env-var branches, which never load the host module.
+# Re-import so Invoke-CachingProxyProbe resolves after the local-discovery
+# branch above ran Initialize-YurunaHost:
+# docs/workarounds.md#nested-non-global-import-evicts-a-callers-view-of-a-module
+# No-op for the -CacheIp and env-var branches, which never load the host module.
 Import-Module (Join-Path $ModulesDir 'Test.CachingProxy.psm1') -Global -Force -Verbose:$false
 $probe = Invoke-CachingProxyProbe -CacheIp $resolvedIp
 foreach ($line in $probe.Lines) { Write-Output $line }

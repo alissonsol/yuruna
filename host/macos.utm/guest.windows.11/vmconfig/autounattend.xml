@@ -16,8 +16,9 @@
              password-change challenge in the SSH protocol).
          Items NOT in this file that DO appear in ubuntu.kvm:
            * Microsoft-Windows-PnpCustomizationsWinPE / DriverPaths
-             (virtio-win bus drivers for QEMU/KVM only; Apple Virtualization
-             ships native disk drivers in the Windows ISO).
+             (virtio-win bus drivers needed for KVM's virtio disk bus only;
+             the macOS UTM plist attaches the disk as NVMe, which Windows
+             drives with its in-box driver).
            * Three extra FirstLogonCommands installing OpenSSH Server and
              opening inbound :22 (KVM-only; macOS uses UTM's display window
              for console access instead of SSH). -->

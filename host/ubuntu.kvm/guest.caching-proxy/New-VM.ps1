@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.17
+.VERSION 2026.07.21
 .GUID 42f4e5f6-a7b8-4c9d-0123-4e5f6a7b8c9d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -150,7 +150,8 @@ New-Item -ItemType Directory -Force -Path $vmDir | Out-Null
 # --- REGION: Remove existing VM
 # Idempotent rebuild: destroy + undefine (with --nvram so the EFI vars
 # go with the domain) before laying down new files. virsh returns
-# non-zero when the domain isn't defined; swallow that via `2>$null`.
+# non-zero when the domain isn't defined; stderr is captured and
+# surfaced only at -Verbose.
 $virshUri = 'qemu:///system'
 # Capture stdout+stderr + exit code for each call so an operator
 # running with -Verbose sees the per-call outcome. The post-condition
@@ -161,7 +162,8 @@ Write-Verbose "virsh destroy '$VMName' exit=$LASTEXITCODE output='$($destroyOut 
 $undefineOut = & virsh --connect $virshUri undefine --nvram $VMName 2>&1
 Write-Verbose "virsh undefine '$VMName' exit=$LASTEXITCODE output='$($undefineOut -join '; ')'"
 # Post-condition: virsh destroy/undefine on a non-existing domain is
-# idempotent (returns non-zero, swallowed by `2>$null`). But if either
+# idempotent (returns non-zero; stderr captured and shown only at
+# -Verbose). But if either
 # op failed while the domain remains defined, the next virt-install
 # fails with "domain already defined" and the outer loop has no signal
 # to recover. Fail-loud now with dominfo so the operator can act.
@@ -310,11 +312,11 @@ try {
 }
 
 # Render user-data from the shared base + KVM overlay (host/vmconfig/
-# caching-proxy.*). Build-CloudInitUserData resolves the SSH-key and
+# caching-proxy.*). New-CloudInitUserData resolves the SSH-key and
 # password placeholders with literal .Replace(), so regex-special chars
 # in the values are safe.
 Import-Module (Join-Path $repoRoot 'automation/Yuruna.CloudInitTemplate.psm1') -Force
-$userData = Build-CloudInitUserData `
+$userData = New-CloudInitUserData `
     -BasePath    $baseUserData `
     -OverlayPath $overlayUserData `
     -RepoRoot    $repoRoot `

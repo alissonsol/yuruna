@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.07.17
+# Version: 2026.07.21
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 set -euo pipefail
@@ -35,13 +35,13 @@ echo ""
 echo -e "\e[1;36m==== NVM and Node.js ====\e[0m"
 # NVM and npm handle architecture automatically
 bash << 'EOF'
-# Install NVM (installer is idempotent — updates existing installation)
+# NVM installer is idempotent — re-running updates an existing install
 export NVM_DIR="$HOME/.nvm"
 wget_try -qO- "https://raw.githubusercontent.com/nvm-sh/nvm/v${YURUNA_NVM_VERSION}/install.sh${YurunaCacheContent:+?nocache=${YurunaCacheContent}}" | bash
 [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
 [ -s "$NVM_DIR/bash_completion" ] && . "$NVM_DIR/bash_completion"
 
-# Install Node.js (nvm reinstalls gracefully if already present)
+# nvm reinstalls Node gracefully if already present
 nvm install "${YURUNA_NODE_MAJOR}"
 
 echo ""

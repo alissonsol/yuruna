@@ -62,8 +62,8 @@ $defs:
       testSets:
         type: array
         description: >
-          Test-sets assigned to this pool (authored now; executed in a later
-          phase). Each names a test-set manifest (test-set.schema.yml).
+          Test-sets assigned to this pool; pooled runners execute them each
+          cycle. Each names a test-set manifest (test-set.schema.yml).
         items:
           type: object
           required: [name]
@@ -133,7 +133,7 @@ $defs:
         type: string
         enum: [run, paused, drain]
         description: >
-          The ONLY field a runner acts on today (pulled intent, mirroring the
+          Gates the runner (pulled intent, mirroring the
           local control.cycle-restart flag). run = cycle normally; paused = finish
           the in-flight cycle then hold; drain = stop after the current cycle.
           Default "run" when absent.

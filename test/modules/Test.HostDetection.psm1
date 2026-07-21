@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.17
+.VERSION 2026.07.21
 .GUID 42a7b8c9-d0e1-4f23-9456-7e8f9a0b1c20
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -265,10 +265,26 @@ function Get-TestVMName {
     # multiple pool members on a SHARED store never collide. ABSENT (legacy /
     # single-host) -> byte-identical to the old name. The segment is alphanumeric,
     # satisfying the per-host New-VM.ps1 name validator.
-    if ([string]::IsNullOrWhiteSpace($HostId)) { return "${Prefix}${stem}-01" }
-    $h = ($HostId -replace '[^0-9A-Za-z]', '')
-    if ($h.Length -gt 8) { $h = $h.Substring(0, 8) }
-    return "${Prefix}${stem}-${h}-01"
+    if ([string]::IsNullOrWhiteSpace($HostId)) {
+        $vmName = "${Prefix}${stem}-01"
+    }
+    else {
+        $h = ($HostId -replace '[^0-9A-Za-z]', '')
+        if ($h.Length -gt 8) { $h = $h.Substring(0, 8) }
+        $vmName = "${Prefix}${stem}-${h}-01"
+    }
+    # Shell-safety guard at the composition ingest point. The VM name flows
+    # into interpolated commands downstream -- a KVM `bash -c` virt-viewer
+    # invocation and hypervisor CLIs on every platform. The stem and HostId
+    # segments are already reduced to [A-Za-z0-9-], but the
+    # operator-configurable prefix (vmStart.testVmNamePrefix) is NOT: a prefix
+    # carrying a space or shell metacharacter would ride through the
+    # interpolation. Reject here so a metacharacter name can never reach a
+    # command string, whichever host type ends up running it.
+    if ($vmName -notmatch '^[A-Za-z0-9._-]+$') {
+        throw "Composed VM name '$vmName' has characters outside [A-Za-z0-9._-]; fix vmStart.testVmNamePrefix ('$Prefix') -- VM names must be shell-safe."
+    }
+    return $vmName
 }
 
 function Test-ElevationRequired {

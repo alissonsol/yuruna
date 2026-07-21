@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.07.17
+# Version: 2026.07.21
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 set -euo pipefail
@@ -56,17 +56,11 @@ if ! command -v pwsh >/dev/null 2>&1; then
 fi
 pwsh --version
 
-# So the in-guest sequence planner (when one exists for macOS 26) can
-# read YAML sequence files. Same contract
-# Test.HostContract.Install-PowerShellYamlIfMissing applies on the host side.
-# macOS has no pwsh_retry library (that lives in the Linux guests'
-# yuruna-retry.sh), but Install-Module hits the same PSGallery edge that
-# flaps transiently for the Linux guests -- so ride it out with the same
-# 3-attempt / 60s loop this script already uses for git clone rather than
-# aborting the cycle on a one-shot blip. The trailing Import-Module check
-# is the real fail-fast gate: it still aborts (set -e) when the manifest
-# landed but the module won't load, which Install-Module reports as
-# success, and when all install attempts were exhausted.
+# --- REGION: https://yuruna.link/memory#why-ubuntu--al2023-guest-update-scripts-wrap-install-module-powershell-yaml-with-pwsh_retry
+# macOS has no pwsh_retry library, so the PSGallery-flap ride-out is
+# inlined as the same 3-attempt / 60s loop this script uses for git
+# clone; the trailing Import-Module check is the real fail-fast gate
+# (Install-Module can report success with the module unloadable).
 echo ""
 echo -e "\e[1;36m==== powershell-yaml ====\e[0m"
 for attempt in 1 2 3; do

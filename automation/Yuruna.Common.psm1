@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.17
+.VERSION 2026.07.21
 .GUID 4288bcbc-ede3-4dda-bb77-b9782c7615ad
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -499,4 +499,302 @@ function ConvertTo-YurunaMacAddress {
     return (($bare -split '(..)' | Where-Object { $_ }) -join ':')
 }
 
-Export-ModuleMember -Function New-YurunaTimestampedBackup, Get-HostProxyBackupPath, ConvertTo-ProxyHostPort, Get-PortMapStatePath, Test-IsAdministrator, Get-CachingProxyPort, Test-Ipv4Address, Test-Ipv6Address, Format-IpUrlHost, Test-IpAddress, ConvertTo-Sha512CryptHash, ConvertTo-YurunaMacAddress
+function ConvertTo-Ipv4UInt32 {
+<#
+.SYNOPSIS
+    Convert a dotted-quad IPv4 string to its 32-bit numeric value.
+.DESCRIPTION
+    Folds the four octets by hand rather than going through
+    [System.Net.IPAddress]::GetAddressBytes() + [BitConverter]::ToUInt32.
+    GetAddressBytes returns network (big-endian) order, and BitConverter
+    reads host order, so on a little-endian machine that pair silently
+    reverses the octets. The reversed value still compares cleanly against
+    another reversed value, but NOT against a mask -- the bug surfaces only
+    as a wrong subnet verdict, never as an exception. Manual folding has no
+    endianness to get wrong.
+
+    Returns $null when the input is not a strict dotted-quad, so callers
+    can treat "unparseable" and "out of range" identically.
+.OUTPUTS
+    [System.Nullable[uint32]] the numeric address, or $null.
+.EXAMPLE
+    ConvertTo-Ipv4UInt32 '192.168.64.2'   # 3232251394
+#>
+    [CmdletBinding()]
+    [OutputType([uint32])]
+    param(
+        [Parameter(Position = 0)]
+        [AllowEmptyString()]
+        [AllowNull()]
+        [string]$Address
+    )
+    if (-not (Test-Ipv4Address $Address)) { return $null }
+    $o = $Address -split '\.'
+    return [uint32](([uint32]$o[0] * 16777216) + ([uint32]$o[1] * 65536) + ([uint32]$o[2] * 256) + [uint32]$o[3])
+}
+
+function Get-HostIpv4Subnet {
+<#
+.SYNOPSIS
+    Enumerate the live IPv4 subnets the host is directly attached to.
+.DESCRIPTION
+    Returns one object per usable IPv4 interface address, carrying the
+    numeric address, numeric mask and numeric network so callers can do
+    membership tests without re-parsing.
+
+    Parses `/sbin/ifconfig` on macOS rather than using
+    [System.Net.NetworkInformation.NetworkInterface]::GetAllNetworkInterfaces()
+    or `ipconfig getiflist`. Both of those OMIT the vmnet bridge (bridge100)
+    that every UTM guest is attached to, so a membership test built on them
+    rejects every legitimate guest address. `ifconfig` with no arguments is
+    the only enumeration on macOS that lists it.
+
+    macOS prints the netmask in HEX (`netmask 0xffffff00`), not dotted-quad.
+    Code that parses it as an address yields a mask of 0, which makes every
+    candidate compare as on-link -- a guard that looks like it works and
+    silently permits nothing. The hex form is required here.
+
+    Loopback (127.0.0.0/8) and link-local (169.254.0.0/16) addresses are
+    excluded: a candidate must never be judged reachable because it happens
+    to share a subnet with lo0 or an autoconfigured stub.
+
+    On a non-macOS host, or when the enumeration yields nothing, an EMPTY
+    array is returned. Callers must treat empty as "unknown", never as
+    "nothing is on-link" -- see Get-Ipv4OnLinkVerdict.
+.PARAMETER IfconfigText
+    Pre-captured `ifconfig` output to parse instead of invoking it. Lets
+    callers and tests exercise the parser against a fixed interface table.
+.OUTPUTS
+    [pscustomobject[]] with Address, AddressValue, MaskValue, NetworkValue,
+    PrefixLength.
+#>
+    [CmdletBinding()]
+    [OutputType([object[]])]
+    param([string]$IfconfigText)
+
+    $text = $IfconfigText
+    if (-not $PSBoundParameters.ContainsKey('IfconfigText')) {
+        if (-not $IsMacOS) { return @() }
+        try {
+            $text = (& /sbin/ifconfig 2>$null) -join "`n"
+        } catch {
+            Write-Debug "Get-HostIpv4Subnet: ifconfig enumeration failed: $($_.Exception.Message)"
+            return @()
+        }
+    }
+    if ([string]::IsNullOrWhiteSpace($text)) { return @() }
+
+    $result = @()
+    foreach ($line in ($text -split "`r?`n")) {
+        if ($line -notmatch '^\s+inet (\d+\.\d+\.\d+\.\d+)\s+netmask\s+0x([0-9a-fA-F]{8})') { continue }
+        $addr = $Matches[1]
+        $maskHex = $Matches[2]
+        if ($addr -match '^(127\.|169\.254\.)') { continue }
+        $addrVal = ConvertTo-Ipv4UInt32 $addr
+        if ($null -eq $addrVal) { continue }
+        $maskVal = [uint32][Convert]::ToUInt32($maskHex, 16)
+        # A zero mask would make every candidate on-link. Treat it as an
+        # unusable entry rather than an all-permitting one.
+        if ($maskVal -eq [uint32]0) { continue }
+        $prefix = 0
+        for ($bit = 31; $bit -ge 0; $bit--) {
+            if (($maskVal -shr $bit) -band [uint32]1) { $prefix++ } else { break }
+        }
+        $result += [pscustomobject]@{
+            Address      = $addr
+            AddressValue = $addrVal
+            MaskValue    = $maskVal
+            NetworkValue = [uint32]($addrVal -band $maskVal)
+            PrefixLength = $prefix
+        }
+    }
+    return , ([pscustomobject[]]$result)
+}
+
+function Get-Ipv4OnLinkVerdict {
+<#
+.SYNOPSIS
+    Decide whether an IPv4 address sits on a subnet the host is attached to.
+.DESCRIPTION
+    Returns one of three values:
+      'onlink'  -- the address is inside a live host interface's subnet;
+      'offlink' -- host subnets are known and the address is in none of them;
+      'unknown' -- no host subnet could be enumerated, or the address is
+                   unparseable.
+
+    The tri-state is deliberate. An address that is not on any live subnet
+    can only leave the host by the default route, where nothing answers for
+    it -- rejecting it converts a long connect-timeout into an immediate
+    "not found" and lets the caller keep looking. But an enumeration that
+    comes back empty proves nothing, and collapsing that to 'offlink' would
+    reject every address and turn a working discovery into a hard failure.
+    Callers must act only on 'offlink' and let 'unknown' pass through.
+
+    Membership is exact netmask arithmetic, not a leading-octet string
+    compare: a /20 or /23 bridge is common enough that a hardcoded /24
+    assumption both admits and rejects the wrong addresses.
+.PARAMETER IpAddress
+    The candidate IPv4 address.
+.PARAMETER Subnet
+    Pre-enumerated host subnets from Get-HostIpv4Subnet. Supplied by
+    callers that test many candidates against one table, and by tests that
+    need a fixed table.
+.OUTPUTS
+    [string] 'onlink' | 'offlink' | 'unknown'
+.EXAMPLE
+    Get-Ipv4OnLinkVerdict -IpAddress '192.168.65.42'   # 'offlink' when the
+                                                       # host has no such NIC
+#>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        [Parameter(Mandatory, Position = 0)][AllowEmptyString()][AllowNull()][string]$IpAddress,
+        [pscustomobject[]]$Subnet
+    )
+    $candidate = ConvertTo-Ipv4UInt32 $IpAddress
+    if ($null -eq $candidate) { return 'unknown' }
+    $table = $Subnet
+    if (-not $PSBoundParameters.ContainsKey('Subnet')) { $table = Get-HostIpv4Subnet }
+    if (-not $table -or $table.Count -eq 0) { return 'unknown' }
+    foreach ($s in $table) {
+        if (([uint32]($candidate -band $s.MaskValue)) -eq $s.NetworkValue) { return 'onlink' }
+    }
+    return 'offlink'
+}
+
+function Select-DhcpLeaseIpAddress {
+<#
+.SYNOPSIS
+    Pick the live guest IPv4 out of macOS `/var/db/dhcpd_leases` text.
+.DESCRIPTION
+    The macOS shared-NAT DHCP server files each lease as a `{ ... }` block
+    keyed by the name the guest sent, and NEVER prunes blocks for guests
+    that no longer exist. Two things follow, and both have bitten:
+
+    1. The name is the guest's own hostname, which is the VM name only when
+       no sequence pinned `variables.hostname`. When one is pinned the guest
+       registers under THAT name, and every block still filed under the VM
+       name belongs to a predecessor. Those blocks match, so a VM-name
+       lookup does not come back empty -- it comes back with a dead address,
+       frequently on a subnet the host has since stopped serving. Callers
+       pass -Name in priority order (pinned hostname first, VM name second)
+       so the guest is found whichever name it registered under.
+
+    2. Several blocks can carry the same name: the live guest plus stale
+       leases from deleted predecessors that reused the name. The lease's
+       hw_address is a DHCP DUID rather than the bundle's link MAC, so it
+       cannot disambiguate. The live guest keeps RENEWING while a dead one's
+       lease only ages, so the largest `lease=` expiry is the live one. A
+       block with no parseable `lease=` cannot prove it is renewing and is
+       skipped outright rather than allowed to displace one that can.
+
+    Candidates are additionally filtered by -OnLinkVerdict. Only an explicit
+    'offlink' rejects; 'unknown' is accepted, so a host whose interfaces
+    cannot be enumerated keeps the pre-existing behavior instead of
+    discarding every candidate.
+.PARAMETER LeaseText
+    Full text of the lease file.
+.PARAMETER Name
+    Names to try, most specific first. The first name that yields an
+    acceptable address wins; later names are not consulted.
+.PARAMETER OnLinkVerdict
+    Scriptblock taking one IPv4 string and returning 'onlink' | 'offlink' |
+    'unknown'. Defaults to Get-Ipv4OnLinkVerdict against the live host.
+.OUTPUTS
+    [string] the selected IPv4, or $null when no name yields one.
+#>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        [Parameter(Mandatory)][AllowEmptyString()][AllowNull()][string]$LeaseText,
+        [Parameter(Mandatory)][string[]]$Name,
+        [scriptblock]$OnLinkVerdict
+    )
+    if ([string]::IsNullOrWhiteSpace($LeaseText)) { return $null }
+    if (-not $OnLinkVerdict) {
+        # Enumerate once for the whole scan; Get-VMIp runs inside polling
+        # loops, and shelling out per candidate block would be a real cost.
+        $subnetTable = Get-HostIpv4Subnet
+        $OnLinkVerdict = { param($ip) Get-Ipv4OnLinkVerdict -IpAddress $ip -Subnet $subnetTable }.GetNewClosure()
+    }
+    $blocks = [regex]::Matches($LeaseText, '\{[^}]*\}')
+    foreach ($candidateName in $Name) {
+        if ([string]::IsNullOrWhiteSpace($candidateName)) { continue }
+        # Compile the name pattern once per name; building it inside the
+        # block loop forces a fresh regex compile for every block.
+        $namePattern = "(?m)^\s*name=$([regex]::Escape($candidateName))\s*$"
+        $bestIp = $null
+        $bestLease = [int64]-1
+        foreach ($b in $blocks) {
+            $text = $b.Value
+            if ($text -notmatch $namePattern) { continue }
+            if ($text -notmatch "(?m)^\s*ip_address=(\d+\.\d+\.\d+\.\d+)\s*$") { continue }
+            $ip = [string]$Matches[1]
+            if (-not (Test-Ipv4Address $ip)) { continue }
+            if ($text -notmatch "(?m)^\s*lease=0x([0-9a-fA-F]+)\s*$") { continue }
+            $leaseVal = [Convert]::ToInt64($Matches[1], 16)
+            if ((& $OnLinkVerdict $ip) -eq 'offlink') {
+                Write-Debug "Select-DhcpLeaseIpAddress: rejecting lease $ip for '$candidateName' -- not on any live host interface subnet, so it is unreachable except by the default route."
+                continue
+            }
+            # Strict -gt so an equal or lower expiry block later in the file
+            # cannot displace a more recently renewed one already recorded.
+            if ($leaseVal -gt $bestLease) { $bestLease = $leaseVal; $bestIp = $ip }
+        }
+        if ($bestIp) { return $bestIp }
+    }
+    return $null
+}
+
+function Get-UtmGuestSeedHostname {
+<#
+.SYNOPSIS
+    Read the hostname a UTM guest was seeded with, or fall back to the VM name.
+.DESCRIPTION
+    A sequence can pin `variables.hostname`, which the per-guest New-VM
+    substitutes into the cloud-init meta-data as `local-hostname:` before
+    baking the seed ISO. The guest then DHCP-registers under that name, not
+    under the VM name, so anything keyed on the VM name is looking for the
+    wrong string.
+
+    The baked seed at <bundle>/Data/seed.iso is the only durable record of
+    that value on the host: the staging directory under
+    $HOME/yuruna/image/<image>/seed_temp/ is deleted at the end of New-VM.
+    ISO9660 stores the file uncompressed, so the raw bytes can be searched
+    directly -- no `hdiutil attach` and no mount point to clean up.
+
+    Degrades to $VMName and never throws. Guests whose meta-data hardcodes
+    a hostname, guests with no cloud-init seed at all, and a bundle that has
+    not been built yet must all keep working; a missing seed means "no
+    hostname was pinned", which is exactly the VM-name case.
+.PARAMETER VMName
+    The VM name, used both to locate the bundle and as the fallback.
+.PARAMETER BundleRoot
+    Directory holding the `<VMName>.utm` bundles.
+.OUTPUTS
+    [string] the pinned hostname, or $VMName.
+#>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        [Parameter(Mandatory)][string]$VMName,
+        [string]$BundleRoot = (Join-Path $HOME 'yuruna/guest.nosync')
+    )
+    try {
+        $seedPath = Join-Path $BundleRoot "$VMName.utm" -AdditionalChildPath 'Data', 'seed.iso'
+        if (-not (Test-Path -LiteralPath $seedPath)) { return $VMName }
+        # Latin1 round-trips every byte to a char, so a binary image can be
+        # regexed without a decoder rejecting or substituting anything.
+        $bytes = [System.IO.File]::ReadAllBytes($seedPath)
+        $text = [System.Text.Encoding]::Latin1.GetString($bytes)
+        if ($text -match '(?m)^local-hostname:\s*(\S+)\s*$') {
+            $pinned = $Matches[1]
+            if (-not [string]::IsNullOrWhiteSpace($pinned)) { return [string]$pinned }
+        }
+    } catch {
+        Write-Debug "Get-UtmGuestSeedHostname: seed read failed for ${VMName}: $($_.Exception.Message)"
+    }
+    return $VMName
+}
+
+Export-ModuleMember -Function New-YurunaTimestampedBackup, Get-HostProxyBackupPath, ConvertTo-ProxyHostPort, Get-PortMapStatePath, Test-IsAdministrator, Get-CachingProxyPort, Test-Ipv4Address, Test-Ipv6Address, Format-IpUrlHost, Test-IpAddress, ConvertTo-Sha512CryptHash, ConvertTo-YurunaMacAddress, ConvertTo-Ipv4UInt32, Get-HostIpv4Subnet, Get-Ipv4OnLinkVerdict, Select-DhcpLeaseIpAddress, Get-UtmGuestSeedHostname

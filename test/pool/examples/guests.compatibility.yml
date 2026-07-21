@@ -2,8 +2,9 @@
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 #
 # Example guest-to-hypervisor compatibility rules. Validates against
-# test/schemas/guests.compatibility.schema.yml. Authored now; the pool-planner
-# enforces these in a later phase.
+# test/schemas/guests.compatibility.schema.yml. The pool planner drops guests
+# whose hypervisor is not listed for the current host (permissive when a guest
+# has no rule).
 schemaVersion: 1
 rules:
   - guestKey: guest.amazon.linux.2023

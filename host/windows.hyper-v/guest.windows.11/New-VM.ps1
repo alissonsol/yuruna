@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.17
+.VERSION 2026.07.21
 .GUID 42d9e0f1-a2b3-4c45-d678-9e0f1a2b3c46
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -36,7 +36,7 @@ $commonModulePath = Join-Path -Path (Split-Path -Parent $ScriptDir) -ChildPath "
 Import-Module -Name $commonModulePath -Force
 
 # Get-YurunaGitHubSource: the token that opens a private frameworkUrl/projectUrl.
-# The Linux guests get it from Build-CloudInitUserData; Windows has no cloud-init,
+# The Linux guests get it from New-CloudInitUserData; Windows has no cloud-init,
 # so this seed resolves it directly.
 $repoRoot = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))
 Import-Module (Join-Path $repoRoot 'automation/Yuruna.GitHubSource.psm1') -Force -DisableNameChecking

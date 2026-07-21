@@ -204,7 +204,7 @@ func writeCapped(path string, content io.Reader) (truncated bool, err error) {
 // removes the artifact (share or buffer), its on-share sidecar, and the
 // local index row. The HTTP layer enforces the local-host-only boundary
 // (foreign hostId → 403, §8.3) before calling this; here we operate purely
-// on the local index by ID. Returns meta.ErrNotFound when the id is unknown.
+// on the local index by ID. Returns sql.ErrNoRows when the id is unknown.
 func (s *Server) DeleteLocal(id string) error {
 	// Serialize against the flush worker so we never act on a record whose
 	// buffered/share location is changing under us (orphan-on-flush race).

@@ -209,6 +209,84 @@ feature availability, and
 [`docs/caching-proxy.md`](caching-proxy.md) and
 [`docs/caching.md`](caching.md).
 
+## Shared host-driver modules
+
+Three modules under [`host/modules/`](../host/modules/) hold the parts
+of the `New-VM.ps1` / `Get-Image.ps1` stack that are identical across
+the host drivers, so a fix lands in one place instead of drifting
+between `windows.hyper-v`, `macos.utm`, and `ubuntu.kvm`.
+
+### Per-guest provisioning: `Yuruna.HostProvision.psm1`
+
+Holds the `New-VM` child-process runner and the `Get-Image` console +
+HTML-log line writer. A fix to the child-arg forwarding, the
+%-complete line filter, or the log-line HTML encoding lands here once.
+
+The **only** platform variable in the New-VM runner is the host
+subdirectory string literal, so it is a plain `-HostSubdir` parameter;
+each driver's thin wrapper supplies its constant value.
+
+Each driver imports the module **non-Global**, into its own scope:
+`New-VM` becomes a thin wrapper passing its host subdir, and
+`Get-Image` calls the imported `Write-GetImageLine` directly. The
+driver-private pieces a shared body cannot see are **injected** as
+`CommandInfo` objects or scriptblocks rather than called by name:
+
+- `Get-VMIp` (used by `Invoke-WaitVmIp`)
+- `Get-ImagePath` (used by `Invoke-GetImage`)
+- the KVM-only `Write-Information` log writer
+
+Injection is required because a name typed inside the shared module
+resolves in *that* module's session state, not the importing driver's
+— a bare-name call to a driver-private command would silently fail to
+bind. See `feedback_closure_foreign_module_command_resolution.md`.
+
+The caching-proxy probe's cross-module dependencies are the exception:
+`Get-CachingProxyPort`, `Test-IpAddress`, and `Format-IpUrlHost` from
+`Yuruna.Common`, plus `Read-CachingProxyState` from
+`Test.CachingProxy`, are called **by name**, so the module owns those
+imports itself rather than assuming a driver imported them into a
+visible scope. This mirrors the `Yuruna.HostDownload.psm1`
+self-import pattern. A load-time check warns if any of the four failed
+to resolve, so a broken or moved module surfaces at import instead of
+on the one caching-proxy probe per cycle — where it would look like a
+cache outage.
+
+### Cache-routed downloads: `Yuruna.HostDownload.psm1`
+
+Holds the shared squid caching-proxy download stack:
+`Test-DownloadAlreadyCurrent`, `Get-CacheProxyForHostDownload`,
+`Save-CachedHttpUri`, `Invoke-HttpsViaSquidBump`, and the TCP port
+probe. Centralizing them means a hardening fix to the X509
+chain-validation callback cannot drift between drivers.
+
+The one genuinely platform-specific piece — discovering the cache VM's
+IP — stays per-driver as `Resolve-CacheHostIp` and is **injected** as a
+scriptblock, so this module never reaches across a module boundary by
+name. A by-name reach would be fragile under `-Force` re-imports; see
+`feedback_module_force_import_evicts_global.md`.
+
+Each driver imports the module non-Global into its own scope, keeps its
+own `Resolve-CacheHostIp`, and re-exports the names its callers use.
+The driver's thin `Save-CachedHttpUri` wrapper passes
+`{ Resolve-CacheHostIp }` so the closure resolves the driver's own
+discovery while executing inside the shared module.
+
+### Ubuntu ISO downloads: `Yuruna.UbuntuImage.psm1`
+
+Centralizes the resolve / download / verify / swap workflow for
+`host/<HOST>/guest.ubuntu.server.<CODENAME>/Get-Image.ps1`.
+
+`Save-CachedHttpUri` and `Test-DownloadAlreadyCurrent` are exported
+from each per-host `Yuruna.Host.psm1` driver. When a caller has
+imported its driver, `Save-UbuntuServerImage` routes downloads through
+the squid cache — HTTPS via the SSL-bump port with per-process trust of
+the freshly-fetched yuruna CA, HTTP via the proxy port, falling through
+to a direct `Invoke-WebRequest` when no cache is reachable — and
+reads/writes the shared 4-line sentinel. A bare caller that imports
+only this module, with no host driver, falls back to a direct
+`Invoke-WebRequest` with the inline 3-line same-source guard.
+
 ## Cleanup
 
 Removing a guest is the inverse of stage 4:
@@ -234,6 +312,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.17
+Last review: 2026.07.21
 
 Back to [Yuruna](../README.md)

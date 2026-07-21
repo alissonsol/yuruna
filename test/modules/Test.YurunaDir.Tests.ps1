@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.17
+.VERSION 2026.07.21
 .GUID 42a1c8e7-5b34-4d29-9f06-1e7d3a2b4c58
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -20,7 +20,7 @@
 .SYNOPSIS
     Pester coverage for Get-YurunaHostId (Test.YurunaDir.psm1): the stable
     per-host pool identity persisted in runtime/host.uuid (Phase 0 of the
-    multi-host pool harness, docs/opportunities-hostpool.md).
+    multi-host pool harness, docs/opportunities.md).
 .DESCRIPTION
     Throw-based assertions (OS-bundled Pester 3.4 / Pester 5+). Each case points
     $env:YURUNA_RUNTIME_DIR at a fresh temp dir (an env var, not a $global:, so

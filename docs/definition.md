@@ -139,8 +139,8 @@ omit.
 `HttpListener`-backed status server RSTs HEAD on endpoints that
 declare `Content-Length` and write a body (HTTP.sys closes the
 connection rather than truncating the body). The `/livecheck` body is
-87 bytes — discarding to `/dev/null` is cheap. The server-side fix
-shipped alongside this change; the client probe stays GET-based
+87 bytes — discarding to `/dev/null` is cheap. The server handles
+HEAD safely today, but the client probe stays GET-based
 defensively so future HEAD-RST regressions in any handler don't
 silently push every guest back to GitHub.
 
@@ -307,7 +307,8 @@ scheme so framework + project URLs are NOT duplicated across guest
 scripts:
 
 1. Read host coordinates from `/etc/yuruna/host.env`
-   (cloud-init-populated).
+   (cloud-init-populated; Windows guests read the same keys from
+   `C:\ProgramData\yuruna\host.env`).
 2. Pull `repositories.frameworkUrl` / `repositories.projectUrl` from
    the host status server's `/control/test-config` endpoint.
 3. Fall back to `YURUNA_FRAMEWORK_URL` / `YURUNA_PROJECT_URL` in
@@ -684,20 +685,28 @@ Source:
 
 ### Defining the VM core-count policy
 
-Every `New-VM.ps1` script in this repo assigns vCPUs to its guest using
-the same uniform policy:
+Every `New-VM.ps1` script in this repo assigns vCPUs to its guest from
+the host's capacity. The baseline policy is:
 
 ```
 vmCores = max(4, floor(hostCores / 2))
 ```
 
-`hostCores` is the host's physical-core count, detected per platform:
+The **test guests on the Ubuntu KVM host** (amazon.linux.2023,
+ubuntu.server.24, ubuntu.server.26, windows.11) apply a small-host
+clamp instead:
+
+```
+vmCores = min(hostCores - 1, max(2, floor(hostCores / 2)))
+```
+
+`hostCores` is detected per platform:
 
 | Platform        | Detection                                                  |
 |-----------------|------------------------------------------------------------|
 | Windows Hyper-V | `Win32_Processor.NumberOfCores`, summed across all sockets |
 | macOS UTM       | `sysctl -n hw.physicalcpu`                                 |
-| Ubuntu KVM      | `nproc --all` (installed processors)                       |
+| Ubuntu KVM      | `nproc --all` (installed **threads**, not physical cores)  |
 
 **Rationale.** Floor-half-of-host is generous enough for the guest
 workloads typical of yuruna tests (k8s cluster bring-up, image pulls,
@@ -707,17 +716,34 @@ floor is the practical minimum for `kubeadm` + `containerd` + `dockerd`
 plus a small workload: below 4 the guest churns at startup and cycles
 flake intermittently (kubelet self-heal loops, helm install timeouts).
 
+**Why the clamp on small KVM hosts.** On Ubuntu KVM, `nproc` counts
+hardware threads, so a 4-thread host (2 physical cores) evaluates the
+baseline to `max(4, 2) = 4` — every guest gets the whole machine. With
+more than one guest up (plus the runner and OCR polling on the same
+host), the oversubscription can deschedule a guest's vCPUs for seconds
+at a time; an OS installer then appears frozen on the console until
+the sequence step times out. The clamp keeps at least one thread for
+the host and accepts a 2-vCPU guest as the honest small-host sizing —
+2 vCPUs that actually run beat 4 that contend 3-to-1. On hosts with 8+
+threads the clamp evaluates identically to the baseline.
+
 **Failure mode.** If the host has fewer than 4 cores total, `New-VM.ps1`
 exits with a non-zero error code rather than silently provisioning an
 under-sized guest that will time out later in the cycle. The operator
 must either run on a larger host or edit the specific guest's
 `New-VM.ps1` to override the policy.
 
-**Uniform across all guests.** Every guest follows this policy —
-including the caching-proxy VM.
-On larger hosts the extra vCPUs cost nothing because caching is I/O-
-and memory-bound, not CPU-bound; the policy keeps every guest's sizing
-predictable instead of carrying per-guest exceptions.
+**Infra guests keep the baseline.** The caching-proxy and stash-service
+VMs stay on the baseline policy: they normally run on dedicated hosts
+where taking half the threads is the point, and their sizing is
+coupled to service budgets (squid `cache_mem`, SCP receive) rather
+than to test-cycle co-tenancy.
+
+**Related runner guard.** On hosts with ≤ 4 threads the test runner
+also stops the cycle's other test guests before provisioning the next
+one (constrained-host guest serialization in
+`test/modules/Test.RunnerInnerLoop.psm1`), so an OS install never
+shares a small host with a busy sibling guest.
 
 **Override on macOS 26 guest only.** The macOS 26 guest's `-CpuCount`
 parameter exists because the IPSW restorer's minimum varies by macOS
@@ -859,8 +885,8 @@ Every `.html` response from `Start-StatusService.ps1` carries
 file includes a matching `<meta http-equiv="Cache-Control">` tag.
 Operators often browse the status page through a shared caching-proxy
 (`Test-CachingProxy -SetHostProxy`, corp proxy, etc.); without a
-cache window the dashboard re-fetched on every navigation/poll, but
-the prior `no-store` header was leaking stale content through some
+cache window the dashboard re-fetches on every navigation/poll, and
+a `no-store` header leaks stale content through some
 intermediary clients. `max-age=60 + must-revalidate` bounds staleness
 at 60 s — on next access after that, the client must revalidate (the
 server returns 200 with the current body; ETag / If-Modified-Since
@@ -973,8 +999,8 @@ dashboard re-tries on the next 60 s tick.
 **Why the hostname is the click target.** It is the same string the
 operator reads at the top right of every page, so the affordance
 "click my host to see its diagnostic" needs no extra label. The link
-is styled (`a.hm-name`) so it is indistinguishable from the prior
-text span at rest and underlines only on hover.
+is styled (`a.hm-name`) to read as plain text at rest,
+underlining only on hover.
 
 ### Defining the status-page caching-proxy banner
 
@@ -1123,7 +1149,12 @@ Page-specific behavior:
   `https?://` scheme AND alphanumeric SHA so a hostile `repoUrl`
   cannot inject markup. `gitCommits[0]` is the framework SHA (used
   to build the per-cycle log URL); subsequent entries are project
-  repos and additional layers.
+  repos and additional layers. The runner records a browser-routable
+  `repoUrl` for the project entry: a `repositories.projectUrl` that is
+  a local clone path or an ssh remote (both valid clone sources) is
+  resolved to its underlying web remote at cycle start
+  (`Resolve-GitRepositoryWebUrl`, `Test.HostGit.psm1`), falling back
+  to the raw value — rendered as plain text — when nothing resolves.
 - **Recent Cycles sequence buttons.** The "Sequences" column renders
   one badge per entry in the row's `sequenceSummary`
   (`[{ name, status, folderUrl }]`), each wrapped in an `<a href>` to
@@ -1343,7 +1374,7 @@ runtime-only files live under `<runtimeDir>/` (typically
 
 | Sidecar | Path | Producer | Removed | Purpose |
 | --- | --- | --- | --- | --- |
-| `.incomplete` | cycle folder | `Start-LogFile` in [Test.Log.psm1](../test/modules/Test.Log.psm1) | `Stop-LogFile` after manifest write | Marker file (JSON: cycleId, pid, startedAtUtc, hostname) that lets a boot-time recovery sweep detect crashed cycles in O(1). Paired with the R-2 folder-name `.incomplete` suffix: marker FILE carries forensic detail; folder NAME signals state at a glance. Presence means "this cycle did not reach a clean end." |
+| `.incomplete` | cycle folder | `Start-LogFile` in [Test.Log.psm1](../test/modules/Test.Log.psm1) | `Stop-LogFile` after manifest write | Marker file (JSON: cycleId, pid, startedAtUtc, hostname) that lets a boot-time recovery sweep detect crashed cycles in O(1). Paired with the folder-name `.incomplete` suffix: marker FILE carries forensic detail; folder NAME signals state at a glance. Presence means "this cycle did not reach a clean end." |
 | `manifest.json` | cycle folder | `Write-CycleManifest` in [Test.Log.psm1](../test/modules/Test.Log.psm1) at cycle close | overwritten on next cycle close (same folder is single-use) | Enumerates every artifact in the cycle folder with kind + sha256 + size + mtime so downstream consumers (CI, remediator, dashboard) don't have to walk the directory. |
 | `cycle.events.ndjson` | cycle folder | `Write-CycleNdjsonEvent` in [Test.Log.psm1](../test/modules/Test.Log.psm1) — every emit site routes through the `Send-CycleEventSafely` wrapper | append-only for the life of the cycle | JSON-Lines event stream stamped with `cycleId` + `cycleFolder` so multi-host pool consumers can join events without parsing folder names. |
 | `cycle.events.gaps` | cycle folder | `Write-CycleNdjsonEvent` failure sentinel | append-only | One line per failed NDJSON append (open-handle race, disk full). Surfaces stream gaps to a remediator that would otherwise consume truncated truth. |
@@ -1390,7 +1421,7 @@ in O(1) without opening any file inside it:
 | --- | --- | --- |
 | `<base>.incomplete/`        | In progress, OR crashed (marker file inside) | `Start-LogFile` |
 | `<base>/`                   | Cleanly closed                              | `Stop-LogFile` rename |
-| `<base>.aborted.<UTC>/`     | Boot-recovered crash; folder + content preserved as forensics | R-5 boot sweep |
+| `<base>.aborted.<UTC>/`     | Boot-recovered crash; folder + content preserved as forensics | boot-recovery sweep (`Resolve-OrphanIncompleteCycle`) |
 
 Where `<base>` is the canonical `NNNNNN.YYYY-MM-DD.HH-mm-ss.HOSTID`
 shape from `Format-CycleFolderBaseName` — the 4th segment is the opaque
@@ -1505,7 +1536,7 @@ enums in [Test.SequenceAction.psm1](../test/modules/Test.SequenceAction.psm1):
 Every event name emitted into `cycle.events.ndjson` today. Order
 follows the lifecycle: cycle boundary → per-step → failure / recovery
 → infrastructure-class. An off-host consumer joins on `(runId,
-cycleId)` (R-8) and routes on `event` plus the validated typed
+cycleId)` and routes on `event` plus the validated typed
 fields above.
 
 | Event name | Producer | Trigger |
@@ -1519,7 +1550,7 @@ fields above.
 | `boot_recovery_completed` | [Test.Recovery](../test/modules/Test.Recovery.psm1) | Boot sweep found at least one stale class to clean; carries `archivedCycleCount`, `clearedPidFileCount`, `archivedBreakActive`, `warningCount`. Silent on clean boot. |
 | `cycle_log_rotated` | [Invoke-CycleLogRotation](../test/modules/Test.Log.psm1) | Cycle-folder count crossed `CYCLE_HISTORY_LIMIT`; carries `historyFolder`, `moved`, `kept`. |
 | `snapshot_missing` | [loadDiskSnapshot / recoverFromSnapshot](../test/modules/Test.SequenceHandler.psm1) | `Test-VMDiskSnapshot` returned $false; carries `vmName`, `snapshotId`, `handler`. |
-| `snapshot_manifest_missing` | snapshot handlers | Manifest sidecar (R-6) absent — legacy snapshot; warn-only. |
+| `snapshot_manifest_missing` | snapshot handlers | Manifest sidecar absent — legacy snapshot; warn-only. |
 | `snapshot_manifest_mismatch` | snapshot handlers | Manifest present but `vmName`/`snapshotId`/`hostType` disagree — hard refuse. Carries `violations[]`. |
 | `ssh_handshake_failed` | [Test.Ssh.Wait-SshReady](../test/modules/Test.Ssh.psm1) | All probes exhausted; carries `target`, `user`, `privateKey`, `attempts`, `lastError`. |
 | `ocr_provider_unavailable` | [Test.OcrEngine](../test/modules/Test.OcrEngine.psm1) | A requested OCR provider isn't available on this platform; carries `provider`. |
@@ -1533,7 +1564,7 @@ fields above.
 | `schema_violation` | [Send-CycleEventSafely](../test/modules/Test.Log.psm1) | An emit-site record failed the schema check; carries `badEvent` + `violations[]`. The bad event is preserved on the line that follows. |
 | `ndjson_write_gap` | [Write-CycleNdjsonEvent](../test/modules/Test.Log.psm1) | The NDJSON append itself failed; gap-sentinel written to `cycle.events.gaps` carrying `droppedEvent`, `droppedAction`, `writeError`. |
 
-The catalog is current as of 2026-05-29. New events MUST be added
+New events MUST be added
 here in the same commit that introduces them (CONTRIBUTING gate)
 so a streaming consumer doesn't have to discover new event names
 in production.
@@ -1584,25 +1615,25 @@ immediately after the hypervisor confirms the save. Payload:
 
 `loadDiskSnapshot` and `recoverFromSnapshot` call
 `Test-SnapshotManifestMatch` between the existing-snapshot check
-(M-5) and the actual `Restore-VMDiskSnapshot` call. Three outcomes:
+and the actual `Restore-VMDiskSnapshot` call. Three outcomes:
 
 * **`ok`** — manifest present + every field matches the requested
   `(VMName, SnapshotId, HostType)`. Restore proceeds.
 * **`missing`** — no manifest. Warn-only: emit a
   `snapshot_manifest_missing` NDJSON event, proceed (legacy
-  snapshots taken before R-6 don't have manifests).
+  snapshots predate the manifest sidecar).
 * **`mismatch`** — manifest present but at least one field differs.
   HARD REFUSE: emit a `snapshot_manifest_mismatch` NDJSON event
   carrying the violation list, return `$false` from the handler.
 
 The handler emits `failureClass=snapshot_restore_failed,
-severity=hard` on a mismatch so the remediation dispatcher (R-4)
+severity=hard` on a mismatch so the remediation dispatcher
 routes the operator straight to the snapshot subsystem.
 
 ## Image-integrity gateway
 
 [Yuruna.Image.psm1](../host/modules/Yuruna.Image.psm1) generalises
-the warn-only SHA-256 verification policy that H-8 wired into the
+the warn-only SHA-256 verification policy first established for the
 Ubuntu live-server ISOs.
 
 ### Defining Save-ImageWithChecksum
@@ -1626,7 +1657,7 @@ Behavior:
 Policy via `-OnMismatch`:
 
 * **`WarnAndContinue`** *(default)* — emit a visual banner
-  `Write-Warning`, keep the file. Matches the H-8 user policy.
+  `Write-Warning`, keep the file.
 * **`WarnAndDelete`** — emit banner + delete the file.
 * **`Throw`** — emit banner + throw an exception.
 
@@ -1642,7 +1673,7 @@ which keeps the codename resolver on top of this gateway.
 [Test.LogRotation.psm1](../test/modules/Test.LogRotation.psm1) is
 the general-purpose byte-bounded rotation primitive for the
 `Add-Content`-style append-only files outside the per-cycle log
-folder (which has its own rotation via H-9's
+folder (which has its own rotation via
 `Invoke-CycleLogRotation`).
 
 ### Defining the log-rotation policy
@@ -1712,7 +1743,7 @@ re-enters `cycle-start`).
 `Set-RunnerState` with a pair outside the adjacency map is logged as
 `Write-Warning` but recorded anyway -- the validator's purpose is
 to surface drift, never to lose telemetry. The schema validator
-(R-7) ALSO enforces that `fromState` and `toState` values are in
+ALSO enforces that `fromState` and `toState` values are in
 the canonical enum.
 
 ### Defining the boot-time fault synthesis
@@ -1728,7 +1759,7 @@ stream:
 
 A downstream consumer that follows the stream therefore sees the
 crash as a discrete event pair rather than a silent gap. Pairs with
-R-5's filesystem-level boot recovery: filesystem artifacts get
+the filesystem-level boot-recovery sweep: filesystem artifacts get
 archived; the state machine narrates the semantic recovery.
 
 ### Defining the runner.state.json shape
@@ -1809,6 +1840,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.17
+Last review: 2026.07.21
 
 Back to [Yuruna](../README.md)

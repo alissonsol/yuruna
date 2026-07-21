@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.17
+.VERSION 2026.07.21
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456707
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -290,24 +290,11 @@ if ($script:ForwardEnvSnapshot.Count -gt 0) {
 }
 Write-Output "============================================="
 
-# Pre-flight: the cycle planner (Test.SequencePlanner.Resolve-CyclePlan)
-# parses project/test/test.runner.yml via powershell-yaml. When the
-# module is missing, the inner runner's try/catch swallows the throw
-# into a Write-Warning (whose stream the per-cycle log does not capture)
-# and falls back to the legacy guestSequence list. That fallback leaves
-# Start-GuestOS without any sequence names -- the step is recorded as
-# "skipped" in status.json with no line in the cycle log. Surface the
-# condition once at outer startup so the operator notices before
-# cycles silently degrade. Install with `Install-Module powershell-yaml
-# -Scope CurrentUser` or re-run host/<host>/Enable-TestAutomation.ps1.
+# Why a missing powershell-yaml is a hard stop rather than a warning:
+# docs/test-runner.md#powershell-yaml-must-be-installed
 if (-not (Get-Module -ListAvailable -Name powershell-yaml -ErrorAction SilentlyContinue)) {
-    # A missing powershell-yaml is not transient: the cycle planner cannot parse
-    # test.runner.yml, so EVERY cycle silently falls back to the legacy guestSequence
-    # and skips Start-GuestOS for all guests. Refuse to start -- the same hard stop
-    # Test-Project.ps1 makes -- rather than spin an eternal loop of degraded cycles, and
-    # route the reason through Write-OuterLog so it lands in outer.log rather than only
-    # the transient console Warning stream. exit is a bounded, non-interactive stop; the
-    # outer loop must never block on a prompt.
+    # exit is a bounded, non-interactive stop; the outer loop must never block
+    # on a prompt.
     $yamlMissing = "powershell-yaml is not installed. The cycle planner cannot parse test.runner.yml, so every cycle would fall back to the legacy guestSequence and SKIP Start-GuestOS for every guest -- refusing to start a silently-degraded loop. Fix with: Install-Module powershell-yaml -Scope CurrentUser  (or re-run host/<host>/Enable-TestAutomation.ps1)"
     Write-OuterLog "[outer startup] $yamlMissing"
     Write-Warning $yamlMissing
@@ -315,29 +302,10 @@ if (-not (Get-Module -ListAvailable -Name powershell-yaml -ErrorAction SilentlyC
 }
 
 # === Pre-cycle config gate ==================================================
-# Block the eternal loop from starting when test.config.yml, the extension
-# configs, vault.yml, or users.yml are in a state that would make the first
-# cycle's New-VM/Start-GuestOS fail in a confusing way. Test-Config.ps1 is
-# the single source of validation rules (schema + completeness + cross-
-# references); calling it here as a gate is what turns it from an operator
-# tool into a hard production guardrail (users.yml strict mode, vaultKey-
-# resolves-in-vault.yml check, etc.).
-#
-# -SkipSend is mandatory in this context: Test-Config's notification path
-# is a smoke test for an operator-initiated run, not a cycle event, and
-# delivering an email on every outer relaunch would flood the
-# subscribers["config.smoke"] list.
-#
-# Bypass with -NoConfigGate for "I know what I am doing" ad-hoc runs (and
-# for the existing dev-iteration flow where the operator wants to spawn
-# the runner against an in-progress edit).
+# What it validates, why -SkipSend is mandatory here, and the -NoConfigGate
+# bypass: docs/test-runner.md#pre-cycle-config-gate
 $gate = Invoke-ConfigGate -TestRoot $TestRoot -ConfigPath $ConfigPath -Skip:$NoConfigGate -CallerName 'outer startup'
 if (-not $gate.passed) {
-    # Log the raw Test-Config.ps1 code for diagnostics, but exit through the
-    # canonical Ok/Failure contract like every other exit path here. Test-Config
-    # may return an arbitrary non-zero code; the entry-point exit surface is
-    # binary (0 = ran a cycle loop, 1 = refused/failed) so CI consumers do not
-    # need a per-script code lookup.
     Write-OuterLog "[outer startup] Test-Config.ps1 exited $($gate.exitCode) -- refusing to start the cycle loop."
     exit (Get-EntryPointExitCode -Outcome Failure)
 }

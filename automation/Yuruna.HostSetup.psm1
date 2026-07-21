@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.17
+.VERSION 2026.07.21
 .GUID 42a7b8c9-d0e1-4f23-9456-78a9b0c1d2e3
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -46,7 +46,7 @@ function Initialize-HostSetupModule {
         Absolute path to the repository root. Callers compute this as
         `Split-Path -Parent (Split-Path -Parent $PSScriptRoot)` because
         every Enable-TestAutomation.ps1 lives at
-        host/&lt;short&gt;/Enable-TestAutomation.ps1.
+        host/<short>/Enable-TestAutomation.ps1.
     .PARAMETER BoundParameters
         Caller's $PSBoundParameters. Forwarded to Install-* helpers so
         -WhatIf reaches the install step (otherwise -WhatIf on the entry

@@ -9,8 +9,7 @@ LogQL, no plugin dependencies.
 
 The earlier stack (loki + promtail + Grafana logs panel) wedged with
 the ingester rejecting pushes ("Ingester is shutting down") while the
-process reported healthy by every nominal probe. Diagnostic notes are
-in the diff that introduced this extension; the short version is that
+process reported healthy by every nominal probe. The short version:
 a single-host, single-source, ~25 k requests/day workload doesn't
 need the loki ingester lifecycle to view its own access log.
 
@@ -105,6 +104,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.17
+Last review: 2026.07.21
 
 Back to [Yuruna](../../../README.md)

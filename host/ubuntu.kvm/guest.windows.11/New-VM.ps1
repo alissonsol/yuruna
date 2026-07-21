@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.17
+.VERSION 2026.07.21
 .GUID 42a2b3c4-d5e6-4f78-9012-3a4b5c6d7e99
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -160,7 +160,8 @@ Write-Verbose "virsh destroy '$VMName' exit=$LASTEXITCODE output='$($destroyOut 
 $undefineOut = & virsh --connect $virshUri undefine --nvram $VMName 2>&1
 Write-Verbose "virsh undefine '$VMName' exit=$LASTEXITCODE output='$($undefineOut -join '; ')'"
 # Post-condition: virsh destroy/undefine on a non-existing domain is
-# idempotent (returns non-zero, swallowed by `2>$null`). But if either
+# idempotent (returns non-zero; stderr captured and shown only at
+# -Verbose). But if either
 # op failed while the domain remains defined, the next virt-install
 # fails with "domain already defined" and the outer loop has no signal
 # to recover. Fail-loud now with dominfo so the operator can act.
@@ -177,7 +178,15 @@ if ($hostCores -lt 4) {
     Write-Error "Host has $hostCores cores; Yuruna requires at least 4. See https://yuruna.link/definition#defining-the-vm-core-count-policy"
     exit 1
 }
-$vmCores = [math]::Max(4, [math]::Floor($hostCores / 2))
+# Floor-half of the host is the target, clamped so a guest never takes
+# every thread of a small host: nproc counts hardware threads, and on a
+# 4-thread host an unclamped 4-core floor hands EVERY guest the whole
+# machine. At least one thread must stay for the host itself (runner,
+# OCR polling, VM management) or a busy sibling guest can deschedule an
+# installer's vCPUs for seconds at a time and its console appears
+# frozen until the step timeout gives up. Windows 11's documented
+# minimum is 2 cores, which the clamp's lower bound preserves.
+$vmCores = [math]::Min($hostCores - 1, [math]::Max(2, [math]::Floor($hostCores / 2)))
 
 $installArgs = @(
     '--connect',     $virshUri,

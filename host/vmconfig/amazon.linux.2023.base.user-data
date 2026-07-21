@@ -46,13 +46,9 @@ write_files:
     content: YURUNA_NETWORK_BASE64_PLACEHOLDER
     permissions: '0755'
   # --- REGION: https://yuruna.link/definition#defining-the-two-source-scheme-for-framework-and-project-urls
-  # git does NOT read GH_TOKEN. That name is a gh(1) convention, so a bare
-  # `git clone https://github.com/owner/private-repo` still prompts for a
-  # username -- which hangs an unattended guest, or fails outright under
-  # GIT_TERMINAL_PROMPT=0. This shim is what makes clone/fetch/pull pick the
-  # token up, with no change at any call site. The token stays in the
-  # environment: it never reaches ~/.gitconfig or a remote URL, so it cannot
-  # leak through `git remote -v` or the process list.
+  # git does NOT read GH_TOKEN (that name is a gh(1) convention), so a private
+  # clone hangs on a username prompt without this GIT_ASKPASS shim. Full
+  # rationale under "Private repositories" in the REGION topic above.
   - path: /usr/local/lib/yuruna/git-askpass.sh
     permissions: '0755'
     content: |
@@ -87,11 +83,7 @@ runcmd:
     NoDisplay=true
     DESKTOP
   # --- REGION: https://yuruna.link/vmconfig#yuruna-host-coordinates
-  # YURUNA_GITHUB_REPO/REF are where a guest fetches project code when the host
-  # status server is unreachable: the repository this host is serving, pinned to
-  # the commit it was at when this VM was provisioned. The runner types fresher
-  # coordinates per step (EXEC_FALLBACK_REPO/REF), which win over these; the
-  # baked pair is what a hand-run fetch-and-execute has to work with.
+  # Baked host+repo coordinates a hand-run fetch-and-execute falls back to; the runner's per-step EXEC_FALLBACK_REPO/REF override these.
   - mkdir -p /etc/yuruna
   - |
     cat > /etc/yuruna/host.env << 'EOF'
@@ -104,16 +96,7 @@ runcmd:
     EOF
   - bash -c 'grep -q yuruna-host /etc/hosts || echo "YURUNA_HOST_IP_PLACEHOLDER yuruna-host" >> /etc/hosts'
   # --- REGION: https://yuruna.link/definition#defining-the-two-source-scheme-for-framework-and-project-urls
-  # The token opens a private frameworkUrl/projectUrl for both the GitHub
-  # fallback in fetch-and-execute.sh and the git clone in the guest update
-  # script. It arrives on the seed ISO -- never over the console the host
-  # screenshots and OCRs into the published run log, and never over HTTP.
-  #
-  # Written to two places because they cover different shells, and the guest
-  # uses both: ~/.bashrc is read by the interactive console shell the runner
-  # types into, while /etc/profile.d is read by login shells (a console login,
-  # an SSH login shell). Skipped entirely when no token is configured, leaving
-  # a public-repo guest exactly as it was.
+  # Token for private framework/project URLs, delivered on the seed ISO (never the OCR'd console, never HTTP); written to /etc/profile.d (login shells) and ~/.bashrc (the runner's interactive shell), skipped when unset.
   - |
     if [ -n 'GH_TOKEN_PLACEHOLDER' ]; then
     cat > /etc/profile.d/yuruna-github.sh << 'EOF'
@@ -136,5 +119,23 @@ runcmd:
     EOF
   # --- REGION: https://yuruna.link/vmconfig#timezone-via-ip-geolocation-and-ntp
   - timedatectl set-ntp true
-  - bash -c 'command -v curl >/dev/null 2>&1 && TZ=$(curl -s --max-time 5 http://ip-api.com/line?fields=timezone) && [ -n "$TZ" ] && timedatectl set-timezone "$TZ" || echo "Yuruna => Timezone sync failed (check curl, network, or API)" >&2'
+  - |
+    # Best-effort timezone from geo-IP; explicit branches so a failure names its
+    # cause (curl missing / fetch error / empty response / timedatectl reject).
+    set +e
+    if ! command -v curl >/dev/null 2>&1; then
+      echo "Yuruna => Timezone sync skipped: curl not available" >&2
+    else
+      GEOTZ=$(curl -s --max-time 10 "http://ip-api.com/line?fields=timezone")
+      CRC=$?
+      if [ "$CRC" -ne 0 ]; then
+        echo "Yuruna => Timezone sync failed: geo-IP fetch error (curl rc=$CRC; network or API)" >&2
+      elif [ -z "$GEOTZ" ]; then
+        echo "Yuruna => Timezone sync failed: empty geo-IP response" >&2
+      elif timedatectl set-timezone "$GEOTZ"; then
+        echo "Yuruna => Timezone set to $GEOTZ" >&2
+      else
+        echo "Yuruna => Timezone sync failed: timedatectl rejected $GEOTZ" >&2
+      fi
+    fi
 # === YURUNA_OVERLAY_POWER_STATE ===

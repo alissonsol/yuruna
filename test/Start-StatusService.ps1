@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.17
+.VERSION 2026.07.21
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456740
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -349,20 +349,9 @@ try {
         # would then fail to resolve.
         Import-Module (Join-Path $ModulesDir 'Test.HostContract.psm1') -Force -Global
         [void](Initialize-YurunaHost -RepoRoot (Split-Path -Parent $TestRoot) -HostType $detectedHost)
-        # Re-import Test.CachingProxy with -Global -Force here even though
-        # the StatusService module set at file top already imported it
-        # once: Initialize-YurunaHost cascades
-        # into Yuruna.Host.psm1, whose own top-level non-global import of
-        # Test.CachingProxy takes over the "one active version per module"
-        # slot and evicts this script's view of Read-CachingProxyState.
-        # Without this re-import the macOS branch below errors with
-        # "The term 'Read-CachingProxyState' is not recognized", the
-        # surrounding try catches it, and caching-proxy.txt is left at
-        # whatever the prior run wrote -- so the UI banner says "not
-        # detected" while the runner's own banner (which goes through
-        # Yuruna.Host's session where Read-CachingProxyState IS visible)
-        # correctly says "detected". Same shape as Start-CachingProxy.ps1,
-        # Stop-CachingProxy.ps1, Repair-CachingProxyForwarder.ps1.
+        # Mandatory after Initialize-YurunaHost even though the StatusService
+        # module set at file top already imported Test.CachingProxy once:
+        # docs/workarounds.md#nested-non-global-import-evicts-a-callers-view-of-a-module
         Import-Module (Join-Path $ModulesDir 'Test.CachingProxy.psm1') -Global -Force -DisableNameChecking -Verbose:$false
         $cachingProxyUrl = Test-CachingProxyAvailable
         if ($cachingProxyUrl) {
@@ -1588,15 +1577,34 @@ try {
                 `$diagScript = Join-Path `$repoRoot 'automation/Get-SystemDiagnostic.ps1'
                 `$tmpFile    = Join-Path ([System.IO.Path]::GetTempPath()) 'yuruna-hostinfo.txt'
                 `$content    = ''
-                try {
-                    if (-not (Test-Path -LiteralPath `$diagScript)) {
-                        throw "Get-SystemDiagnostic.ps1 not found at `$diagScript"
+                # Rate-limit the per-request pwsh spawn. Get-SystemDiagnostic
+                # forks a fresh pwsh, so an unthrottled caller (even a valid-
+                # proof LAN peer -- the route is already loopback-or-proof
+                # gated) can drive a spawn-per-request DoS. The request loop is
+                # single-threaded (one GetContext handled to completion at a
+                # time), so a scalar last-run timestamp is race-free without a
+                # lock. Within the cooldown, serve the previous run's cached
+                # text (persisted to `$tmpFile) instead of spawning again -- the
+                # UI still gets recent host info.
+                `$nowUtc = [DateTime]::UtcNow
+                `$diagCooldownSec = 15
+                if (`$script:LastHostDiagUtc -and ((`$nowUtc - `$script:LastHostDiagUtc).TotalSeconds -lt `$diagCooldownSec) -and (Test-Path -LiteralPath `$tmpFile)) {
+                    try { `$content = [System.IO.File]::ReadAllText(`$tmpFile) } catch { `$content = '' }
+                }
+                if ([string]::IsNullOrEmpty(`$content)) {
+                    # Stamp the spawn time BEFORE the run so a failing spawn is
+                    # throttled too (not just successful ones).
+                    `$script:LastHostDiagUtc = `$nowUtc
+                    try {
+                        if (-not (Test-Path -LiteralPath `$diagScript)) {
+                            throw "Get-SystemDiagnostic.ps1 not found at `$diagScript"
+                        }
+                        `$content = & pwsh -NoProfile -ExecutionPolicy Bypass -WorkingDirectory `$repoRoot -File `$diagScript 2>&1 | Out-String
+                        Set-Content -LiteralPath `$tmpFile -Value `$content -Encoding utf8 -ErrorAction SilentlyContinue
+                    } catch {
+                        `$content = "Error running Get-SystemDiagnostic.ps1: `$($_.Exception.Message)"
+                        Write-ServerErr "host-diagnostic failed: `$($_.Exception.Message)"
                     }
-                    `$content = & pwsh -NoProfile -ExecutionPolicy Bypass -WorkingDirectory `$repoRoot -File `$diagScript 2>&1 | Out-String
-                    Set-Content -LiteralPath `$tmpFile -Value `$content -Encoding utf8 -ErrorAction SilentlyContinue
-                } catch {
-                    `$content = "Error running Get-SystemDiagnostic.ps1: `$($_.Exception.Message)"
-                    Write-ServerErr "host-diagnostic failed: `$($_.Exception.Message)"
                 }
                 `$body = [System.Text.Encoding]::UTF8.GetBytes(`$content)
                 `$res.ContentLength64 = `$body.Length
@@ -2332,6 +2340,25 @@ try {
                     Send-JsonError `$res 500 ('{"ok":false,"error":"write failed: ' + `$errEsc + '"}')
                     continue
                 }
+                # Bound per-directory growth after a successful upload: keep only
+                # the newest N whitelisted files in the target folder so a client
+                # cannot fill the disk by re-posting into one directory (log /
+                # checkpoint spam). The filter is limited to the upload
+                # extensions so it never touches other cycle artifacts, and the
+                # cap is generous so legitimate installer uploads (a handful per
+                # folder) are never pruned. Best-effort; runs on the single-
+                # threaded request loop so no lock is needed.
+                try {
+                    `$uploadCap = 300
+                    `$sameDir = @(Get-ChildItem -LiteralPath `$uploadParent -File -ErrorAction SilentlyContinue |
+                        Where-Object { `$_.Extension -in '.log','.txt','.json','.err','.crash' } |
+                        Sort-Object -Property LastWriteTimeUtc -Descending)
+                    if (`$sameDir.Count -gt `$uploadCap) {
+                        foreach (`$old in (`$sameDir | Select-Object -Skip `$uploadCap)) {
+                            Remove-Item -LiteralPath `$old.FullName -Force -ErrorAction SilentlyContinue
+                        }
+                    }
+                } catch { `$null = `$_ }
                 `$res.StatusCode = 201
                 `$relEsc = (`$uploadRel -replace '\\','\\' -replace '"','\"')
                 `$body = [System.Text.Encoding]::UTF8.GetBytes('{"ok":true,"path":"' + `$relEsc + '"}')

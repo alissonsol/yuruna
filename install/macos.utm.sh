@@ -1,7 +1,7 @@
 #!/bin/bash
 # Yuruna macOS UTM bootstrap installer.
 # LICENSEURI https://yuruna.link/license
-# Version: 2026.07.17  Copyright (c) 2019-2026 by Alisson Sol et al.
+# Version: 2026.07.21  Copyright (c) 2019-2026 by Alisson Sol et al.
 # --- REGION: https://yuruna.link/install/explained
 # One-liner: /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/install/macos.utm.sh)"
 
@@ -242,16 +242,8 @@ export NONINTERACTIVE=1
 
 BREW_SKIP_UPDATE=0
 if [[ -n "$BREW_PREFIX" && -d "$BREW_PREFIX" ]]; then
-  # Repair signal #1: the prefix root isn't writable.
-  # Repair signal #2: the prefix has no .git directory (tarball-installed
-  #   Homebrew). Independent of permissions, but on this multi-user host
-  #   strongly correlates with mixed-ownership subdirs from the partial
-  #   prior install -- so we treat it as a chown trigger too.
-  # Repair signal #3: ANY of the standard write-target subdirs is
-  #   non-writable. A single writability check on $BREW_PREFIX does NOT
-  #   catch issues in subdirs like etc/bash_completion.d, lib/pkgconfig,
-  #   share/{aclocal,doc,info,locale,man,man/*,zsh,zsh/site-functions},
-  #   so sample the brew install/upgrade write targets directly.
+  # Repair signals (see the REGION doc): prefix root not writable; no .git
+  # (tarball install); or any brew write-target subdir not writable.
   NEEDS_REPAIR=0
   if [[ ! -w "$BREW_PREFIX" ]]; then NEEDS_REPAIR=1; fi
   if [[ ! -d "$BREW_PREFIX/.git" ]]; then NEEDS_REPAIR=1; fi
@@ -315,20 +307,10 @@ quit_mac_app() {
   fi
 }
 
-# --- REGION: Stop running Yuruna host services
-# Force-stop the outer runner, its per-cycle inner pwsh, and the detached
-# status HTTP server, then WAIT for them to exit before the repo update
-# renames the checkout aside. VMs (the yuruna-caching-proxy cache, a UTM
-# domain) are never touched here: they are not children of the runner, and
-# this installer issues no VM stop/destroy (UTM quit is gated separately on
-# PRESERVE_SQUID_CACHE).
-#
-# Targets are collected from three channels so a service is caught even when
-# one misses it: (1) the PID files the runner/server write (runner.pid,
-# inner.pid, server.pid under the runtime dir) -- authoritative; (2) a
-# command-line match, including the detached server's generated script name
-# .status-service.ps1, which does NOT contain "Start-StatusService.ps1"; and
-# (3) the status port's listener (configured port + the 8080 default).
+# --- REGION: https://yuruna.link/install/explained#stop-running-yuruna-processes-before-updating
+# Stop the runner/inner/status-server and WAIT before the checkout rename.
+# VMs (the yuruna-caching-proxy cache, a UTM domain) are never touched here;
+# UTM quit is gated separately on PRESERVE_SQUID_CACHE.
 stop_yuruna_processes() {
   local runtime_dir="${YURUNA_RUNTIME_DIR:-$YURUNA_DIR/test/status/runtime}"
   local -a target_pids=()
@@ -608,14 +590,9 @@ restore_test_status() {
 }
 
 # --- REGION: Tolerate a v / no-v tag mismatch
-# Canonical Yuruna release tags are BARE CalVer (YYYY.MM.DD, no 'v'); the
-# release tool refuses to create a 'v'-variant. But a human or a tool (or a
-# YURUNA_BRANCH=... arg) can ask for the wrong form -- a v-prefixed ref when
-# only the bare CalVer tag exists fails to resolve. If the
-# requested ref is CalVer-shaped and does NOT resolve on the remote but its
-# v-toggled variant DOES, echo the variant so the mismatch self-heals; else
-# echo the requested ref unchanged. (warn -> stderr, so it never pollutes the
-# captured stdout used to set YURUNA_BRANCH.)
+# --- REGION: https://yuruna.link/install/explained#tolerating-a-v-prefixed-tag-ref
+# Echoes the ref on stdout; warn -> stderr, so a warning never pollutes the
+# captured stdout used to set YURUNA_BRANCH.
 resolve_yuruna_ref() {
   local remote="$1" ref="$2" variant=""
   if [[ -z "$remote" || -z "$ref" ]]; then printf '%s' "$ref"; return 0; fi
@@ -636,9 +613,7 @@ resolve_yuruna_ref() {
 }
 
 # --- REGION: Development repo pulls latest main, not a release tag
-# yurunadev is only tagged at the weekly release, so the pinned-CalVer default
-# resolves to nothing mid-week. When the target repo is yurunadev and the
-# operator did not pin a ref explicitly, track 'main' (latest code) instead.
+# --- REGION: https://yuruna.link/install/explained#development-repo-tracks-latest-main
 use_dev_branch_if_needed() {
   local basename="$1"
   if [[ "$basename" == "yurunadev" && "$YURUNA_BRANCH_EXPLICIT" -eq 0 && "$YURUNA_BRANCH" != "main" ]]; then

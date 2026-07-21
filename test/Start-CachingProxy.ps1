@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.17
+.VERSION 2026.07.21
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456742
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -42,7 +42,12 @@ param(
     [Parameter(Position = 0)]
     [string]$VMName = "yuruna-caching-proxy",
     [Parameter()]
-    [string]$MacAddress
+    [string]$MacAddress,
+    # Force a full destroy+rebuild even when a healthy proxy already exists.
+    # Default (adopt-if-healthy) skips the ~15-min rebuild when the current VM
+    # is running and its squid / ssl-bump / CA probe passes. Pass this after a
+    # base-image or config change to guarantee a fresh build.
+    [switch]$ForceRebuild
 )
 
 $global:InformationPreference = "Continue"
@@ -295,6 +300,81 @@ if ($IsLinux -and $plannedBridge -and $plannedBridge.WillChangeHostNetworking) {
 [void](Initialize-SudoCache -Reasons $sudoReasons)
 
 Write-Output "  Preflight OK -- proceeding unattended (no further prompts)."
+
+# --- REGION: serialize the destructive VM lifecycle + host port-map writes
+# Two concurrent bring-ups (or a bring-up racing the runner's per-cycle
+# Add-PortMap) must not interleave Remove-VM/New-VM/Add-PortMap. Acquire the
+# drain-style PID+StartTime lock now: a dead holder is reclaimed, a live one
+# (another bring-up) is waited out briefly then refused. Released explicitly on
+# the happy paths below; an error-exit that leaks it self-heals (the next run
+# drains this now-dead PID) exactly like a crashed runner's runner.pid.
+$cpLock = Enter-CachingProxyLock -RuntimeDir $envSidecarDir -Role 'rebuild' -TimeoutSeconds 30
+if (-not $cpLock.Acquired) {
+    Write-Error "Another caching-proxy bring-up holds the lock (PID $($cpLock.HolderPid)). Refusing a second concurrent destroy/rebuild -- wait for it to finish (or stop that process), then re-run."
+    exit 1
+}
+
+# --- REGION: adopt-if-healthy fast path (skip the ~15-min rebuild)
+# Load the host contract so Get-VMState / Test-CacheVMOnExternalNetwork /
+# Add-PortMap resolve for the probe + exposure re-assert. The Test.CachingProxy
+# re-import afterward is mandatory, not redundant:
+# docs/workarounds.md#nested-non-global-import-evicts-a-callers-view-of-a-module
+if (-not $ForceRebuild) {
+    Import-Module (Join-Path $PSScriptRoot 'modules/Test.HostContract.psm1') -Force
+    [void](Initialize-YurunaHost -RepoRoot (Split-Path -Parent $PSScriptRoot))
+    Import-Module (Join-Path $PSScriptRoot 'modules/Test.CachingProxy.psm1') -Global -Force -Verbose:$false
+    $cpAdopt = Test-CachingProxyAdoptable -VMName $VMName
+    if ($cpAdopt.Adoptable) {
+        Write-Output ""
+        Write-Output "== Adopting the healthy '$VMName' at $($cpAdopt.Ip) (pass -ForceRebuild to rebuild from scratch) =="
+        Write-Output "  squid + ssl-bump + CA cert verified healthy -- skipping destroy/rebuild + ~15-min discovery;"
+        Write-Output "  re-asserting host-side services + port maps only."
+        # Host services the running VM depends on -- best-effort (no hard-fail):
+        # we are NOT minting a new client cert here, so a down Config Service just
+        # means the VM keeps its current baked creds until it is back up.
+        Import-Module (Join-Path $ModulesDir 'Test.Config.psm1') -Global -Force
+        $cpAdoptConfig = Read-TestConfig -Path (Join-Path $PSScriptRoot 'test.config.yml')
+        [void](Start-YurunaStatusServiceIfEnabled -Config $cpAdoptConfig -StartScript (Join-Path $PSScriptRoot 'Start-StatusService.ps1'))
+        [void](Start-YurunaConfigServiceIfEnabled -Config $cpAdoptConfig -StartScript (Join-Path $PSScriptRoot 'Start-HostConfigService.ps1'))
+        # Re-assert LAN exposure (idempotent, clear-all-first): LAN-direct
+        # (bridged/external) needs no forwarder; a NAT'd cache gets host port maps.
+        # Best-effort -- the per-cycle runner re-applies port maps regardless.
+        try {
+            if (Test-CacheVMOnExternalNetwork -VMName $VMName) {
+                Write-Output "  Cache VM is LAN-direct (bridged/external) -- no host port-forwarders needed."
+                [void](Remove-PortMap -Confirm:$false)
+            } else {
+                $adoptHttpPort  = Get-CachingProxyPort -Scheme http
+                $adoptHttpsPort = Get-CachingProxyPort -Scheme https
+                [void](Add-PortMap -VMIp $cpAdopt.Ip `
+                        -Port (Get-CachingProxyExposedPort -HttpPort $adoptHttpPort -HttpsPort $adoptHttpsPort) `
+                        -PortRemap @{8022 = 22} -Confirm:$false)
+                Write-Output "  Re-applied host port-forwarders to the cache at $($cpAdopt.Ip)."
+            }
+        } catch {
+            Write-Warning "  Port-map refresh on adopt failed: $($_.Exception.Message). The per-cycle runner re-applies port maps, so this is non-fatal."
+        }
+        # Refresh the recorded IP (unchanged, but keeps the state file current).
+        Import-Module (Join-Path $PSScriptRoot 'modules/Test.CachingProxy.psm1') -Global -Force -Verbose:$false
+        [void](Save-CachingProxyState -IpAddress $cpAdopt.Ip -Confirm:$false)
+        Write-Output ""
+        Write-Output "================================================================="
+        Write-Output "== caching-proxy ADOPTED (already healthy -- no rebuild) =="
+        Write-Output "================================================================="
+        Write-Output "  VM name:  $VMName"
+        Write-Output "  VM IP:    $($cpAdopt.Ip)"
+        Write-Output "  Detail:   verified healthy; skipped the ~15-min destroy/rebuild/discovery."
+        Write-Output "            Pass -ForceRebuild to force a fresh build (e.g. after an image/config change)."
+        Write-Output "================================================================="
+        [void](Exit-CachingProxyLock -Handle $cpLock)
+        exit 0
+    }
+    Write-Output ""
+    Write-Output "== No healthy '$VMName' to adopt ($($cpAdopt.Reason)) -- performing a full rebuild. =="
+} else {
+    Write-Output ""
+    Write-Output "== -ForceRebuild specified -- rebuilding '$VMName' from scratch (adopt fast-path skipped). =="
+}
 
 # --- REGION: Step 1: stop + remove any prior VM
 
@@ -682,7 +762,7 @@ if ($IsMacOS) {
 
     # Networking mode mirrors what New-VM.ps1 built. On a Wi-Fi default
     # route bridging can't get the cache VM a LAN lease, so the VM is on
-    # UTM Shared NAT (192.168.64.x): discover it via utmctl/dhcpd_leases
+    # UTM Shared NAT (192.168.64.x): discover it by bundle MAC via ARP
     # and expose it to the LAN with host port-forwarders. On Ethernet the
     # VM is bridged (LAN-direct) and discovered by ARP (the else-branch).
     if (Test-MacDefaultRouteIsWiFi) {
@@ -819,15 +899,8 @@ if ($IsMacOS) {
         # provisioners base64-embed the CA cert by fetching it via
         # `curl http://<cacheIp>/yuruna-squid-ca.crt` from the host.
         #
-        # Re-import Test.CachingProxy with -Global -Force *here*, even
-        # though this script already imported it once: Initialize-YurunaHost
-        # (called in Step 5 via Test.HostContract.psm1) cascades into
-        # Yuruna.Host.psm1's nested non-global import of Test.CachingProxy.psm1,
-        # and PowerShell's "one active version per module" rule then
-        # evicts the script's view of Save-CachingProxyState.
-        # Without this re-import the next line errors with "The term
-        # 'Save-CachingProxyState' is not recognized." Same pattern is
-        # used in Stop-CachingProxy.ps1 just above its Save call.
+        # The re-import is mandatory after Step 5's Initialize-YurunaHost:
+        # docs/workarounds.md#nested-non-global-import-evicts-a-callers-view-of-a-module
         Import-Module (Join-Path $PSScriptRoot 'modules/Test.CachingProxy.psm1') -Global -Force -Verbose:$false
         [void](Save-CachingProxyState -IpAddress $cacheIp -Confirm:$false)
     }
@@ -973,6 +1046,10 @@ if ($IsMacOS) {
         }
     }
 }
+
+# Rebuild critical section done -- release the serialization lock before the
+# (read-only) summary so a waiting bring-up / the runner's port-map can proceed.
+[void](Exit-CachingProxyLock -Handle $cpLock)
 
 # --- REGION: Final summary
 # The yuruna user's password is NOT printed in the banner -- the value

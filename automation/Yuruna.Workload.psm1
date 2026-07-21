@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.17
+.VERSION 2026.07.21
 .GUID 42b0d2e3-f4a5-4678-9012-3b4c5d6e7f80
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -276,21 +276,11 @@ function Invoke-WorkloadToolDeployment {
     # diagnostic reports.
     $toolLogFile = Join-Path -Path $workFolder -ChildPath "$toolName.stderr.log"
     $toolRcFile  = Join-Path -Path $workFolder -ChildPath "$toolName.rc"
-    # helm fetches (repo update, install <repo>/<chart>) and kubectl
-    # `-f <URL>` deployments cross the network and stutter on shared-
-    # egress rate limits or proxy blips. Symptoms:
-    #   `Error: INSTALLATION FAILED: failed to fetch https://...`
-    #   `error: unable to read URL "https://github.com/...", server
-    #    reported 502 Bad Gateway, status code=502`
-    # Multiple hosts sharing one squid egress IP can fail inside a
-    # sub-second window -- a shared upstream event, not per-host config.
-    # Retry via the shared Yuruna.Retry policy (10s initial, x2
-    # backoff, 5 attempts, jitter) ONLY when the output matches a
-    # transient-fetch pattern and the tool is helm/kubectl; real
-    # config errors (chart not found, schema violation, auth,
-    # NotFound/Invalid for kubectl) and shell steps fail fast.
-    # Sourced from Yuruna.Retry so this phase and the tofu retry
-    # in Yuruna.Resource classify transients from one definition.
+    # Retry via the shared Yuruna.Retry policy ONLY when the output
+    # matches a transient-fetch pattern and the tool is helm/kubectl;
+    # real config errors and shell steps fail fast. Symptoms retried,
+    # and why the classifier is sourced rather than restated here:
+    # docs/architecture.md#shared-transient-failure-retry-policy
     $transientPattern = Get-YurunaTransientPattern
     $retryable = $kind.Retryable
     # Closures so the predicate and command survive being invoked

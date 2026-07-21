@@ -1,4 +1,8 @@
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
-instance-id: HOSTNAME_PLACEHOLDER
+# instance-id tracks the VM name, not the hostname: cloud-init treats a
+# changed instance-id as a new instance and re-runs per-instance modules.
+# Two VMs may legitimately share a hostname (a sequence pins one), so
+# keying instance identity off the hostname would make them collide.
+instance-id: INSTANCE_ID_PLACEHOLDER
 local-hostname: HOSTNAME_PLACEHOLDER

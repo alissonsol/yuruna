@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.17
+.VERSION 2026.07.21
 .GUID 42a9b3c7-d1e5-4f02-9b8a-6c3d7e1f4a52
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -238,14 +238,8 @@ function Test-OCRMatch {
 
 # -- Multi-engine OCR combine logic ------------------------------------------
 
-# +-------------------------------------------------------------------------+
-# | COMBINE MODE: controls how per-engine detection booleans are merged.   |
-# |                                                                        |
-# |  'Or'  -- pattern detected by ANY engine -> match  (default, resilient)  |
-# |  'And' -- pattern detected by ALL engines -> match  (strict, fewer FPs)  |
-# |                                                                        |
-# | To switch: change the value below, or set $env:YURUNA_OCR_COMBINE.    |
-# +-------------------------------------------------------------------------+
+# Combine mode: 'Or' (default, resilient) vs 'And' (strict, fewer FPs);
+# switch via $env:YURUNA_OCR_COMBINE or the default in Get-OcrCombineMode below.
 
 <#
 .SYNOPSIS

@@ -21,7 +21,7 @@ under `vmStart`, `vmImage`, `vmCommunication`, `repositories`, and
 | `vmStart.testVmNamePrefix` | `"test-"` | Prefix for test VM names |
 | `vmImage.refreshHours` | `168` | Hours between automatic re-downloads |
 | `vmImage.alwaysRedownload` | `false` | Force re-download even if image exists |
-| `vmCommunication.characterDelayMs` | `20` | ms between keystrokes in `inputText`/`inputTextAndEnter` (per-step `charDelayMs` in sequences/ overrides this default) |
+| `vmCommunication.characterDelayMs` | `10` | ms between keystrokes in `inputText`/`inputTextAndEnter` (per-step `charDelayMs` in sequences/ overrides this default) |
 | `vmCommunication.allowGuiFallback` | `false` | When `false` (default) `gui/` and `ssh/` are **independent** mechanisms: under `keystrokeMechanism="SSH"` a missing `ssh/` sequence is a hard error, never a silent run on the OCR `gui/` sibling (which an SSH-only host could not drive). Set `true` to restore the legacy degrade-to-`gui/` behavior |
 | `vmCommunication.keystrokeMechanism` | `"GUI"` | `"GUI"` keystroke injection (OCR), `"SSH"` over ssh. Selects `sequences/gui/` or `sequences/ssh/` as independent mechanisms (see `allowGuiFallback`). Any other value normalized to `"GUI"` |
 | `vmCommunication.pollSeconds` | `5` | Default poll interval (seconds) for wait-style actions (`waitForText`, `passwdPrompt`, `waitForAndEnter`, `sshWaitReady`, …). A step's own `pollSeconds` overrides this default |
@@ -101,7 +101,7 @@ same stored value).
   provisioning in parallel cannot race.
 
 The caching-proxy `yuruna` user persists across cycles via
-[`test/status/runtime/yuruna-caching-proxy.yml`](status/runtime/)
+`test/status/runtime/yuruna-caching-proxy.yml`
 (host-agnostic, gitignored, managed by
 [`test/modules/Test.CachingProxy.psm1`](modules/Test.CachingProxy.psm1)),
 which the caching-proxy `New-VM.ps1` writes back to the vault on each
@@ -294,7 +294,7 @@ Parameters: `-SequenceName` (required), `-StartStep` (default 1),
 shows itself plus all higher-priority streams (Error is highest); the
 default is `Information`, so the runner's progress narration reaches the
 console. Three-state resolution (cmdline > `test.config.yml` >
-`Information`): omit the flag to read [test.config.yml](test.config.yml)'s
+`Information`): omit the flag to read `test.config.yml`'s
 `logLevel`, or pass `-logLevel <level>` to override for the lifetime of
 the runner. The level maps to PowerShell's preference variables:
 
@@ -328,6 +328,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.17
+Last review: 2026.07.21
 
 Back to [Yuruna](../README.md)

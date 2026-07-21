@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.17
+.VERSION 2026.07.21
 .GUID 42e1f2a3-b4c5-4d67-e890-1f2a3b4c5d68
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -69,7 +69,7 @@ New-Item -ItemType Directory -Force -Path $downloadDir | Out-Null
 # so PowerShell can emit a targeted hint instead of a blanket
 # "install Xcode CLT" advice.
 
-# Up-front swift sanity check. Reaches this point with a clear, actionable
+# Up-front swift sanity check: fail here with a clear, actionable
 # message before we burn time on a here-string + temp-file dance for what
 # is really just a "command not found".
 if (-not (Get-Command swift -ErrorAction SilentlyContinue)) {

@@ -69,7 +69,7 @@ requirements:
     # `code -v` prints three lines (version / commit / arch); first line
     # is the version.
     command: "(code -v | Select-Object -First 1)"
-    version: "1.129.0"
+    version: "1.129.1"
     releases: "https://code.visualstudio.com/Download"
   - tool: "mkcert"
     # mkcert writes its version banner to stderr -- the `2>&1` redirect
@@ -82,8 +82,12 @@ requirements:
     version: "v24.18.0"
     releases: "https://nodejs.org/en/download"
   - tool: "npm"
+    # Tracks whatever the pinned Node LTS bundles, NOT npm's newest
+    # release. Node 24 LTS ships npm 11.x; requiring a newer major would
+    # fail this check on a correctly provisioned machine, since nothing
+    # in the framework or the guest scripts installs npm separately.
     command: "npm --version"
-    version: "12.0.1"
+    version: "11.16.0"
     releases: "https://docs.npmjs.com/cli/v11/configuring-npm/install"
   - tool: "curl"
     # First line is `curl X.Y.Z (build/triplet) libcurl/X.Y.Z ...`; the
@@ -112,7 +116,7 @@ requirements:
     # the first whitespace is environment context, not version.
     command: |-
       ((aws --version) -replace '\s.*$','')
-    version: "aws-cli/2.36.1"
+    version: "aws-cli/2.36.4"
     releases: "https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html"
   - tool: "Azure cli"
     command: "($(az version) | ConvertFrom-Json).\"azure-cli\""

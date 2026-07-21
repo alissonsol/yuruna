@@ -1,7 +1,7 @@
 /*
   LICENSEURI https://yuruna.link/license
   Copyright (c) 2019-2026 by Alisson Sol et al.
-  Version: 2026.07.17
+  Version: 2026.07.21
 
   Shared helpers for the Yuruna status pages. Mounted on window.Yuruna.
   --- REGION: https://yuruna.link/definition#defining-the-status-page-browser-baseline
@@ -10,7 +10,7 @@
 (function() {
   'use strict';
 
-  var VERSION = '2026.07.17';
+  var VERSION = '2026.07.21';
 
   // --- REGION: control-route auth (proof from the Caching Proxy /go/host redirect)
   // A Grafana deep-link routes through the Caching Proxy's /go/host, which appends a
@@ -748,12 +748,24 @@
       // flat fallback list (no sequence card) still shows it — there it is
       // the only status indicator. The guest-name link preserves the
       // results-folder pivot in both layouts.
+      // Circuit-breaker pill: shown whenever the guest carries the quarantined
+      // flag, independent of the status badge (which the nested layout hides),
+      // so a guest skipped by the quarantine gate never reads as a silent pass.
+      var quarHtml = '';
+      if (g.quarantined) {
+        var untilSha = g.quarantinedUntilCommit ? String(g.quarantinedUntilCommit).slice(0, 7) : '';
+        var quarTitle = 'Quarantined after repeated same-class failures'
+          + (untilSha ? ' (skipped until a new commit; pinned at ' + untilSha + ')' : '');
+        quarHtml = '<span class="badge" style="background:#a9741f;color:#fff" title="' + escHtml(quarTitle) + '">quarantined</span>';
+      }
       var badgeColHtml = '';
       if (!ctx.hideStatusBadge) {
         var badgeHtml = folderUrl
           ? ('<a href="' + escHtml(folderUrl) + '" target="_blank" title="Open results folder for ' + escHtml(g.guestKey) + '" style="text-decoration:none">' + badge(g.status) + '</a>')
           : badge(g.status);
-        badgeColHtml = '<div>' + badgeHtml + '</div>';
+        badgeColHtml = '<div>' + badgeHtml + (quarHtml ? ' ' + quarHtml : '') + '</div>';
+      } else if (quarHtml) {
+        badgeColHtml = '<div>' + quarHtml + '</div>';
       }
       return '<div class="guest-card">' +
         '<div class="guest-card-header">' +

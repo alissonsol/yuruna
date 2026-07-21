@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.17
+.VERSION 2026.07.21
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456810
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -432,14 +432,14 @@ function Get-Password {
     cloud-init provisioning. Routes through users.yml's
     `localOsPasswordRef` indirection.
 .DESCRIPTION
-    Default decoupled behavior (option beta in the design):
+    Default decoupled behavior:
     `localOsPasswordRef` empty -> vault[logicalUser] auto-generated.
     The local OS account on the transient test VM receives a fresh
     random secret that nobody needs to know; sequence-login uses the
     SEPARATE `vaultKey` indirection so corporate plaintext never lands
     in the local /etc/shadow.
 
-    Operator-coupled behavior (option alpha): set
+    Operator-coupled behavior: set
     `localOsPasswordRef` = same value as `vaultKey` in users.yml when
     you want the local OS account to share its password with the
     corporate identity (e.g. for emergency console access using the

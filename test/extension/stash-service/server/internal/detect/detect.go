@@ -13,8 +13,8 @@
 //     algorithm) plus a UTF-8/printable-text check. This is the default
 //     and the fallback the magika backend leans on for low confidence.
 //   - magika (detect_magika.go, behind `//go:build magika`): wraps the
-//     official Go binding github.com/google/magika/go/magika. It needs cgo
-//   - the ONNX Runtime native library + the model assets, all vendored
+//     official Go binding github.com/google/magika/go/magika. It needs cgo,
+//     the ONNX Runtime native library + the model assets, all vendored
 //     into the VM image — a build/packaging concern, so it is OFF in the
 //     default build to keep `go build`/`go test` pure-Go and offline.
 //

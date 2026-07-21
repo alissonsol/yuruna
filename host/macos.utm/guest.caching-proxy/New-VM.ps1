@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.17
+.VERSION 2026.07.21
 .GUID 42f1b2c3-d4e5-4f67-8901-a2b3c4d5e6f9
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -34,7 +34,7 @@
       * blank qemu-img disk (we use the resized qcow2 cloud image)
 
 .PARAMETER VMName
-    Name of the UTM VM. Default: caching-proxy
+    Name of the UTM VM. Default: yuruna-caching-proxy
 
 .PARAMETER MacAddress
     Optional stable MAC for the VM's NIC (AA:BB:CC:DD:EE:FF, dashed, or
@@ -275,11 +275,11 @@ try {
 }
 
 # Render user-data from the shared base + UTM overlay (host/vmconfig/
-# caching-proxy.*). Build-CloudInitUserData resolves the SSH-key and
+# caching-proxy.*). New-CloudInitUserData resolves the SSH-key and
 # password placeholders with literal .Replace(), so values with
 # regex-special characters are safe.
 Import-Module (Join-Path $_repoRootForExt 'automation/Yuruna.CloudInitTemplate.psm1') -Force
-$UserData = Build-CloudInitUserData `
+$UserData = New-CloudInitUserData `
     -BasePath    (Join-Path $_repoRootForExt 'host/vmconfig/caching-proxy.base.user-data') `
     -OverlayPath (Join-Path $_repoRootForExt 'host/vmconfig/caching-proxy.utm.overlay.yml') `
     -RepoRoot    $_repoRootForExt `
@@ -310,7 +310,7 @@ if ($LASTEXITCODE -ne 0) {
     exit 1
 }
 
-# --- REGION: config.plist (Apple Virtualization backend)
+# --- REGION: config.plist (QEMU backend)
 $TemplatePath = Join-Path $ScriptDir "config.plist.template"
 if (-not (Test-Path $TemplatePath)) {
     Write-Error "Template not found at '$TemplatePath'."
@@ -378,7 +378,8 @@ if (Test-MacDefaultRouteIsWiFi) {
 }
 
 # --- REGION: https://yuruna.link/caching-proxy#cache-vm-sizing
-# 12 GB RAM, 4 vCPU on all three hosts, budgeted around squid's cache_mem;
+# 12 GB RAM on all three hosts, vCPUs from the core-count policy
+# (min 4), budgeted around squid's cache_mem;
 # swap is masked, so undersizing is an unrecoverable OOM.
 # --- REGION: https://yuruna.link/definition#defining-the-vm-core-count-policy
 $hostCores = [int](& /usr/sbin/sysctl -n hw.physicalcpu)
@@ -452,9 +453,9 @@ verify all three checks below before starting guest installs):
      (install squid + apache2, then pre-warm):
        utmctl start __VM_NAME__
 
-  3. Find the VM's IP. `utmctl ip-address` does NOT work for Apple
-     Virtualization VMs (returns "Operation not supported by the
-     backend") -- use one of these instead:
+  3. Find the VM's IP. `utmctl ip-address` needs the qemu-guest-agent
+     inside the guest (not installed by this seed) -- use one of these
+     instead:
      a) Easiest -- look in the UTM window for __VM_NAME__; the Linux
         console prints "eth0: <ip>" at the login prompt after DHCP.
      b) Apple's shared-NAT DHCP leases (usually user-readable):

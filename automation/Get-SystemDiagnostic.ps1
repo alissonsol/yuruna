@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.17
+.VERSION 2026.07.21
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456720
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -1114,16 +1114,9 @@ try {
         }
 
         # --- REGION: https://yuruna.link/system-diagnostic#probe-via-proxy-when-egress-is-locked
-        # The matrix above proves the CONNECT (tunnel) path at most. Package
-        # managers fetch their http:// origins through the proxy's GET/cache
-        # path (http_proxy), which wedges independently of CONNECT: a cache
-        # revalidation can stall after response headers, where no connect or
-        # read-gap timeout fires and the client hangs mid-body (the
-        # stalled-transfer trap class). So fetch a small body END TO END per
-        # mirror origin, with revalidation forced (Cache-Control: no-cache)
-        # to exercise the proxy's upstream fetch instead of a cache hit. A
-        # healthy CONNECT column plus failures here isolates the wedge to
-        # the GET/cache path.
+        # Package managers use the http_proxy GET/cache path, which wedges
+        # independently of CONNECT; forced revalidation exercises the
+        # proxy's upstream fetch instead of a cache hit.
         $plainProxyUrl = $null
         foreach ($v in 'http_proxy','HTTP_PROXY') {
             $val = [System.Environment]::GetEnvironmentVariable($v)

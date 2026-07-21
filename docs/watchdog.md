@@ -9,7 +9,7 @@ runner re-spawns the inner from a clean state.
 This page covers the file-on-disk protocol and the PowerShell module
 ([Test.RunnerWatchdog](#module-testrunnerwatchdog)) that implements
 the watchdog side. For the rationale on splitting outer / inner, see
-[Test harness](./runner-outer-loop.md).
+[Outer-loop dispatcher](./runner-outer-loop.md).
 
 ## Layout under `$YURUNA_RUNTIME_DIR`
 
@@ -140,6 +140,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.17
+Last review: 2026.07.21
 
 Back to [Yuruna](../README.md)

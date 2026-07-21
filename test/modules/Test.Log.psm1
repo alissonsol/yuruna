@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.17
+.VERSION 2026.07.21
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456790
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -238,8 +238,8 @@ function Start-LogFile {
         to the HTML file inside it.
     .DESCRIPTION
         Folder layout:
-            test/status/log/000001.YYYY-MM-DD.HH-mm-ss.HOSTNAME/
-                000001.YYYY-MM-DD.HH-mm-ss.HOSTNAME.html
+            test/status/log/000001.YYYY-MM-DD.HH-mm-ss.HOSTID/
+                000001.YYYY-MM-DD.HH-mm-ss.HOSTID.html
                 <vmName>/        <- created lazily by per-guest helper
                     <date>-<time>.system.diagnostic.<id>.txt
                     raw_*.png/raw_*.txt    (on failure)

@@ -51,7 +51,8 @@ Out of scope:
   Report those to their respective projects.
 - Findings that require local administrator/root on the host running
   Yuruna — Yuruna assumes the operator already has that privilege.
-- Anything inside an example workload under [project/](project/README.md)
+- Anything inside an example workload under `project/` (cloned from
+  [yuruna-project](https://github.com/alissonsol/yuruna-project))
   beyond what is documented as supported.
 
 ## Operator responsibilities
@@ -61,7 +62,7 @@ following as your responsibility, not the project's:
 
 - **Credentials** — files matching `*.config.yml`,
   `transports.yml` (notification), and the per-cycle authentication
-  vault under [test/status/extension/authentication/](test/status/extension/authentication/)
+  vault under `test/status/extension/authentication/`
   hold secrets and are git-ignored. Never commit them.
 - **Network exposure** — Kubernetes deployments, the status server,
   and the caching proxy bind to the host. Restrict ingress before
@@ -91,6 +92,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.17
+Last review: 2026.07.21
 
 Back to [Yuruna](README.md)

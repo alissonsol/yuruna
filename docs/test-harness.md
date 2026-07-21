@@ -61,7 +61,7 @@ contract](#yurunahost-contract) below.
 | `Test.HostIO`          | Per-host I/O provider registry for `Send-Key` / `Send-Text` / `Send-Click` — see [Host I/O registry](host-io.md) |
 | `Test.SequenceAction`  | Per-verb metadata registry (FailureLabel + capability requirements) consumed by the engine and the capability gate |
 | `Test.SequenceHandler` | Catalog of built-in verb Handler scriptblocks — see [Sequence engine layering](#sequence-engine-layering) |
-| `Test.HostCondition`   | Cross-platform facade over `Test.HostCondition.{Mac,Windows}.psm1` — see [Host-condition facade](#host-condition-facade) |
+| `Test.HostCondition`   | Cross-platform facade over `Test.HostCondition.{Mac,Windows,Linux}.psm1` — see [Host-condition facade](#host-condition-facade) |
 | `Test.Capability`      | [Capability matrix](capability-matrix.md) and cycle-plan gate (refuses cycles whose sequences need an unwired host I/O backend) |
 | `Test.Config`          | Cached YAML reader (`Read-TestConfig`, `Get-TestConfigValue`) used by every runner / entry-point |
 | `Test.ConfigPreflight` | `Invoke-ConfigGate` — pre-cycle `Test-Config.ps1` gate shared by every entry point |
@@ -428,6 +428,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.17
+Last review: 2026.07.21
 
 Back to [Yuruna](../README.md)

@@ -44,13 +44,13 @@ see the qcow2 disk.
 |--------|---------|
 | Name   | `windows-11-01` |
 | RAM    | 8 GiB |
-| vCPU   | 4 |
+| vCPU   | min(host threads − 1, max(2, host threads ÷ 2)) |
 | Disk   | 64 G qcow2 |
-| User   | `User` / `password` (auto-logon on first boot) |
+| User   | `ywuser1` / `password` (auto-logon on first boot) |
 | Net    | libvirt `default` (NAT 192.168.122.0/24) |
 | Access | OpenSSH Server enabled on first boot (port 22) + RDP |
 
-The `User` / `password` credentials match the macOS UTM and Hyper-V
+The `ywuser1` / `password` credentials match the macOS UTM and Hyper-V
 variants of `guest.windows.11`, so a single test sequence can target
 the same account across all supported hosts.
 
@@ -60,7 +60,7 @@ Once Setup completes (the FirstLogonCommands enable sshd):
 
 ```
 virsh -c qemu:///system domifaddr <vmname>
-ssh User@<ip>
+ssh ywuser1@<ip>
 # Or graphically:
 virt-viewer --connect qemu:///system <vmname>
 ```
@@ -77,6 +77,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.17
+Last review: 2026.07.21
 
 Back to [Yuruna](../../../README.md)

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.17
+.VERSION 2026.07.21
 .GUID 422f3b8c-4e95-4a72-9b16-7f8e3c0d5a29
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -143,7 +143,7 @@ Describe 'Invoke-HostIOAction does a single hot-path registry lookup' {
         Assert-Equal -Expected 1 -Actual (Get-MemberAccessCount -FuncAst $invokeAst -BaseVar 'HostIORegistry' -Member 'Get') -Because `
             'the availability decision and the invoke both derive from one $hostMap reference'
     }
-    It 'no longer calls Test-HostIOActionAvailable from the dispatch path' {
+    It 'does not call Test-HostIOActionAvailable from the dispatch path' {
         Assert-True (-not (Test-AstCallsCommand -Ast $invokeAst -CommandName 'Test-HostIOActionAvailable')) `
             'the duplicate availability check (its own registry Get) is inlined as a local Contains branch'
     }

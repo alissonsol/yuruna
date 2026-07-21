@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.17
+.VERSION 2026.07.21
 .GUID 42e9f0a1-b2c3-4d45-e678-9f0a1b2c3d45
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -22,13 +22,22 @@ param(
 	[string]$VMName = "amazon-linux01",
 	# Greppable test user added on top of ec2-user; force-expired by
 	# cloud-init chpasswd default so the rotation flow runs.
-	[string]$Username = 'yauser1'
+	[string]$Username = 'yauser1',
+	# cloud-init local-hostname for the guest. Empty means "follow the VM
+	# name", which keeps host-side lookups that assume hostname == VM name
+	# working for every caller that does not ask for a specific hostname.
+	[string]$Hostname = ''
 )
 
 if ($VMName -notmatch '^[a-zA-Z0-9._-]+$') {
 	Write-Output "Invalid VMName '$VMName'. Only alphanumeric characters, dots, hyphens, and underscores are allowed."
 	exit 1
 }
+if ($Hostname -and $Hostname -notmatch '^[a-zA-Z0-9.-]+$') {
+	Write-Output "Invalid Hostname '$Hostname'. Only alphanumeric characters, dots, and hyphens are allowed."
+	exit 1
+}
+$GuestHostname = if ($Hostname) { $Hostname } else { $VMName }
 
 $global:ProgressPreference = "SilentlyContinue"
 
@@ -160,7 +169,8 @@ if (Test-Path -LiteralPath $SeedDir) { Remove-Item -LiteralPath $SeedDir -Recurs
 New-Item -ItemType Directory -Force -Path $SeedDir | Out-Null
 
 $MetaData = (Get-Content -Raw $MetaDataTemplate) `
-	-replace 'HOSTNAME_PLACEHOLDER', $VMName
+	-replace 'INSTANCE_ID_PLACEHOLDER', $VMName `
+	-replace 'HOSTNAME_PLACEHOLDER', $GuestHostname
 Set-Content -Path "$SeedDir/meta-data" -Value $MetaData -NoNewline
 
 # Load the SSH public key used by the test harness to drive the VM over SSH.
@@ -211,10 +221,10 @@ if (Test-Path $YurunaTestConfig) {
     } catch { Write-Verbose "test.config.yml parse failed: $_" }
 }
 
-# Build-CloudInitUserData merges base+overlay, auto-bakes yuruna-retry.sh /
+# New-CloudInitUserData merges base+overlay, auto-bakes yuruna-retry.sh /
 # fetch-and-execute.sh / yuruna-network.sh from $repoRoot/automation/ as base64
 # write_files entries, then resolves the per-cycle placeholders below.
-$UserData = Build-CloudInitUserData `
+$UserData = New-CloudInitUserData `
     -BasePath    $baseUserData `
     -OverlayPath $overlayUserData `
     -RepoRoot    $repoRoot `

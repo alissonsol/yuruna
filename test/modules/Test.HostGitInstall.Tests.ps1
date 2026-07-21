@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.17
+.VERSION 2026.07.21
 .GUID 42d1e2f3-4a5b-4c6d-8e7f-9a0b1c2d3e4f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -98,7 +98,7 @@ Describe 'hostgit-install -- the PSGallery install policy is shared by one helpe
     }
     It 'the raw Install-Module call now appears exactly once (inside the helper)' {
         $n = Get-CommandCallCount -Ast $rootAst -CommandName 'Install-Module'
-        Assert-True ($n -eq 1) "expected exactly one Install-Module call after dedup, found $n"
+        Assert-True ($n -eq 1) "expected exactly one Install-Module call (inside the shared helper), found $n"
     }
     It 'the helper stays private; both public wrappers remain exported' {
         $exportCalls = $rootAst.FindAll({

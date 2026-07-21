@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.17
+.VERSION 2026.07.21
 .GUID 42f1b2c3-d4e5-4f67-8901-a2b3c4d5e6f8
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -284,11 +284,11 @@ try {
 }
 
 # Render user-data from the shared base + Hyper-V overlay
-# (host/vmconfig/caching-proxy.*). Build-CloudInitUserData resolves the
+# (host/vmconfig/caching-proxy.*). New-CloudInitUserData resolves the
 # SSH-key and password placeholders with literal .Replace(), so values
 # carrying regex-special chars are safe.
 Import-Module (Join-Path $_repoRootForExt 'automation/Yuruna.CloudInitTemplate.psm1') -Force
-$UserData = Build-CloudInitUserData `
+$UserData = New-CloudInitUserData `
     -BasePath    (Join-Path $_repoRootForExt 'host/vmconfig/caching-proxy.base.user-data') `
     -OverlayPath (Join-Path $_repoRootForExt 'host/vmconfig/caching-proxy.hyperv.overlay.yml') `
     -RepoRoot    $_repoRootForExt `

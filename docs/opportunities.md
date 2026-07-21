@@ -1,210 +1,266 @@
 # Yuruna Contributor Opportunities
 
-Prioritized work the project would welcome help on. New contributors:
-pick something at a priority level that matches the time you have, and
-read [Contributing](../CONTRIBUTING.md) for the workflow.
+Prioritized work the project would welcome help on, ranked by **return on
+investment** (value delivered vs. effort to build). New contributors: pick
+a level that matches the time you have, and read
+[Contributing](../CONTRIBUTING.md) for the workflow. Architecture context
+is in [Yuruna Architecture](architecture.md).
 
-Status legend: 🚧 in progress · ⏸ paused / deferred ·
-no marker = open. Last reviewed 2026-06-04.
+This page consolidates the former `opportunities-hostpool.md`,
+`opportunities-installer.md`, and `opportunities-resilience.md` design
+records and the former `roadmap.md` horizon view; their load-bearing
+detail is folded into the items below, and the large workstreams they
+tracked are now mostly shipped (see
+[Recently shipped](#recently-shipped)).
 
-## Verb-handler migration progress
+Status: 🚧 in progress · ⏸ deferred / parked · no marker = open.
+Priorities are re-ranked against an 860-cycle single-host corpus
+(2026-05-21 → 06-08): 53 real failures, dominated by SSH readiness (16)
+and OCR/capture (4+); several a-priori "big" items (IP-pool exhaustion,
+proxy 5xx, disk) show **zero** occurrences on one host and only become
+real under multi-host fan-out — which is why they sit in Low ROI.
 
-The move from the inline switch in `Invoke-Sequence.psm1` to the
-per-verb registry in `Test.SequenceAction.psm1` +
-`Test.SequenceHandler.psm1` is complete — all 21 verbs are registry
-handlers. `retry` and `recoverFromSnapshot` were the last two; their
-engine-private failure state was lifted into the shared
-`Test.SequenceFailureState` store (`$script:Fail`), so they now live in
-`Test.SequenceHandler.psm1` with the rest of the catalog and
-`Invoke-Sequence.psm1` is purely the executor.
+## Roadmap
 
-✓ H-10 (`Invoke-Sequence` verb-handler split) — done.
+**Yuruna asserts resources are configured to verify components against
+anticipated workloads.** The horizons below are coarse product
+milestones (dates are targets); the ROI-ranked sections that follow
+track the finer-grained infrastructure and reliability work in
+parallel.
 
-## Architecture as of 2026-06
+### Horizon: 1-2 months (target 2026-07)
 
-What the test harness's structural building blocks look like today;
-each is a module you can grep for if you want to extend it.
+- Mobile example
+- Chatbot example
+- Yuruna stash: service to receive SCP files
 
-- Shared cross-entry-point helpers:
-  [`Test.LogLevel`](../test/modules/Test.LogLevel.psm1) ([cascade
-  semantics](loglevels.md)), `Test.Config` (mtime-cached YAML reader),
-  `Test.InnerSpawn` (type-preserving argv builder), `Test.ConfigPreflight`
-  (pre-cycle Test-Config gate), `Test.Prelude` (canonical entry-point
-  path bundle).
-- [Host I/O registry](host-io.md) — `Send-Key` / `Send-Text` /
-  `Send-Click` dispatch through `Test.HostIO` so a new host or a new
-  action verb is one registration, not three edits in the engine.
-  Platform keystroke / mouse / VNC backends live in `Test.Transport`.
-- [Deployment-kind catalog](../automation/Yuruna.DeploymentKind.psm1) —
-  the `chart` / `kubectl` / `helm` / `shell` detection, the kinds error
-  text, the tool-expression mapping and the retry gating resolve through
-  one `Yuruna.DeploymentKind` catalog shared by the validator
-  (`Confirm-WorkloadList`) and the publisher (`Publish-WorkloadList`), so
-  a new tool-expression kind is one `Register-YurunaDeploymentKind` line,
-  not parallel edits in two modules.
-- [Capability matrix](capability-matrix.md) — startup banner + per-cycle
-  gate that refuses cycles referencing host I/O backends not wired on
-  the current host.
-- `Test.SequenceAction` — per-verb registry with `Handler` scriptblocks,
-  failure-label builders, and `FailureClass` / `Severity` /
-  `SuggestedRecoveries` metadata consumed by the
-  [failure-schema v2](../test/modules/Invoke-Sequence.psm1) writer.
-  Contract reference: [handler schema](handler-schema.md).
-- [`New-YurunaRegistry`](../test/modules/Test.Registry.psm1) — the shared,
-  eviction-safe in-memory registry primitive (Register/Get/Has/GetMatrix/Clear
-  closures over a `$global:`-anchored store). The Host I/O, `Test.SequenceAction`,
-  screenshot-provider, and VNC-provider registries are all built on it, so every
-  domain registry shows up in one introspection call
-  (`Get-YurunaRegistryDirectory`) instead of each module owning a private anchor.
-- Module decomposition under `test/modules/`: `Test.Output`,
-  `Test.ConfigValidator`, `Test.PortOwner`,
-  `Test.ScreenshotProvider` / `Test.VncProvider` /
-  `Test.CredentialProvider` (paired registry + recovery primitives).
-- Telemetry: per-cycle NDJSON event log
-  (`<cycleFolder>/cycle.events.ndjson`); `Send-Notification`
-  supports an `-EventData` structured payload and runs async by
-  default.
-- Mobile / dark-mode: status pages use CSS custom properties and
-  `prefers-color-scheme: dark`; the dashboard pauses polling when the
-  tab is hidden.
-- Operator docs: [log levels](loglevels.md), [OCR providers](ocr.md),
-  [watchdog](watchdog.md), [host I/O](host-io.md),
-  [capability matrix](capability-matrix.md),
-  [extensions API](extensions-api.md),
-  [guest image setup (common pattern)](guest-image-setup.md).
+### Horizon: 2-3 months (target 2026-08)
 
-## Global
+- Model training example
+- Yuruna Hub
+- Drift detection
 
-### P0
+### Horizon: 3+ months (target 2026-09+)
 
-- Get to at most one "framework incident" every 24 hours.
-- SSH support across hosts.
-- Windows sequence for startup and minimal workload test.
-- **Installer & in-guest script integrity.** The bootstrap installers
-  ([`install/windows.hyper-v.ps1`](../install/windows.hyper-v.ps1),
-  [`install/macos.utm.sh`](../install/macos.utm.sh),
-  [`install/ubuntu.kvm.sh`](../install/ubuntu.kvm.sh)) are fetched and
-  executed via `irm | iex` / `curl | bash` with no integrity check, and
-  all three then `git clone --branch main` — a moving target. The
-  Windows installer also re-fetches the same URL inside its elevated
-  relaunch (TOCTOU window between the two fetches). The in-guest
-  [`fetch-and-execute.sh`](../automation/fetch-and-execute.sh) has the
-  same shape — `wget -qO- … | bash` of working-tree content served by
-  the status server, see `feedback_status_server_working_tree_rename_race.md`.
-  Changes needed:
-  - Publish `install.sha256` alongside each installer; one-liners in
-    [`install/README.md`](../install/README.md) print the expected hash
-    so an operator can `sha256sum -c` before piping.
-  - Pin clones to release tags rather than `main`; fall back to `main`
-    only with an explicit warning.
-  - Collapse the Windows-installer double-fetch — materialize the
-    fetched source ONCE to a single BOM-less temp file and relaunch the
-    elevated child via `-File` (NOT `-EncodedCommand`: the ~44 KB
-    installer base64-encodes ~3.6× over the 32,767 CreateProcess
-    command-line cap, see `feedback_createprocess_cmdline_limit.md`).
-  - Guest-side per-fetch verification in `fetch-and-execute.sh` is
-    declined (disposable test VM fetching from the same trust domain);
-    the shipped change is a one-line transparency message before the
-    download, and the working-tree-rename race is handled operationally
-    by the capture self-heal (`feedback_status_server_working_tree_rename_race.md`).
-  - Pin GPG fingerprints for the MS / GitHub CLI keys added in
-    [`install/ubuntu.kvm.sh`](../install/ubuntu.kvm.sh) (otherwise a
-    MITM on first install installs an attacker-controlled key).
-  - Add a tiny `Test-AsciiNoBom.ps1` CI gate so the
-    `feedback_bootstrap_installer_no_bom.md` constraint on
-    `install/windows.hyper-v.ps1` is enforced automatically.
+- Cloud support
+- Yuruna AI assistant
+- Guide (Book)
 
-### P1
+## High ROI
 
-- Need something like: loop: _number(001-003)
-- Before "cloud-based" scripts execute, validate session
-- Validation: repeated resource names and other duplications like context names
+Highest value for the least effort — mostly things already built that need
+validation, or small changes against real recurring pain.
 
-### P2
+- **Live-validate the pool MVP end-to-end.** 🚧 The read-only pool view
+  (pull-collector, Grafana dashboard, Loki/Prometheus wiring) is built and
+  static-verified but has never run against live hosts. Bring up the host
+  status server, boot the caching-proxy VM, run a cycle or two so hosts
+  pull through the squid proxy, then confirm `:9400/healthz`, that
+  `/api/v1/pool-status` lists discovered hosts, the Prometheus target is
+  UP, Loki streams flow, the dashboard renders across ≥2 hosts, and killing
+  the collector leaves every runner still testing. This is the only part of
+  the pool MVP not statically checkable, and it validates the
+  `(hostId, runId, cycleId)` join keys on real data.
+- **Archive `last_failure.json` per-cycle.** Copy it into each cycle folder
+  so matched-pattern / label / OCR-tail detail survives history. Today only
+  the flattened `step_failure` event persists, which is the one corpus
+  blind spot (it prevents measuring real-vs-false `pattern_matched_failure`)
+  and is the prerequisite for predictive tuning. Cheap, no-regrets.
+- **SSH connectivity across hosts.** Wire uniform host-to-host SSH so
+  cross-host operations work; foundational for the multi-host pool harness.
+- **Windows startup + minimal-workload test sequence.** Give Windows guests
+  the same end-to-end startup-plus-workload exercise other platforms have,
+  closing a test-matrix coverage gap.
+- **Validate config for duplicate resource / context names.** Detect
+  repeated resource names and duplicate context names at preflight, before
+  they cause ambiguous or overwriting behavior mid-cycle. Fits the existing
+  config-validation gate; low effort.
+- **Fix the wrong time zone in Ubuntu guests.** Set the correct time zone
+  during provisioning so timestamps and time-sensitive logic are accurate.
+- **Document starting a new project from the template.** Lowers the
+  onboarding barrier; low effort.
+- **Fix `tofu apply` `/bin/sh` failure on Windows.** The EKS apply path
+  works on macOS but fails on Windows because of a `/bin/sh` invocation in
+  the `terraform-aws-eks` module's `local-exec`
+  ([issue #757](https://github.com/terraform-aws-modules/terraform-aws-eks/issues/757)).
+  Make it work under Windows shells so AWS clusters can be provisioned from
+  Windows hosts.
+- **Finish the Windows-installer single-materialization.** 🚧 Built (IRM to
+  a GUID-named BOM-less temp file, every child relaunched via `-File`,
+  eliminating the multi-fetch), statically verified. Remaining: a real
+  `irm | iex` run on a fresh PS5.1 host before relying on it. Closes the
+  supply-chain window where the elevated child re-fetched a moving `main`.
+- **Enforce the ASCII/no-BOM gate at release time.** 🚧 The check exists
+  and runs per-cycle and in a per-clone pre-commit hook; the remaining work
+  is invoking it as a hard precondition in the release script (the
+  authoritative backstop). A UTF-8 BOM on `windows.hyper-v.ps1` makes PS5.1
+  `irm | iex` die at line 1 — denial-of-bootstrap on every fresh host.
 
-- Time zone still wrong in Ubuntu
-- Check if tofu requires variable and not provide it if not needed (avoids warnings).
-- Documentation
-  - How to start new project from the "template".
-  - How to use a single PowerShell script for the several commands in a repeated block until someday implementing loop: _number(001-003)
-- Finish testing and publish the resources for AWS and GCP
-  - More resource templates in general
+## Medium ROI
 
-### P3+
+Solid value, moderate effort — the bulk of the everyday backlog.
 
-- Mobile framework integration (Maestro, etc.)
-- For resources created using tofu `local-exec`: destroy when doing `tofu destroy`
-- Create Visual Studio Code extension to start projects, run commands, etc.
-  - Visual Studio Code: [Your First Extension](https://code.visualstudio.com/api/get-started/your-first-extension)
-- Graph from YML: Python [graphviz 0.15](https://pypi.org/project/graphviz/)
-- Decide on copying all code during component setup (`automation/Yuruna.Component.psm1`)
+**Harness reliability**
+- **Reduce framework incidents to ≤1 per rolling 24 h.** Umbrella
+  reliability bar for unattended cycles; fed by the resilience and pool
+  work rather than a single fix.
+- **OCR → SSH-marker fallback for readiness gates.** Where a step's
+  readiness can be proven over SSH, prefer an SSH-side marker over the
+  fragile capture/OCR feed; also neutralizes the OCR command-echo
+  false-match. Highest-leverage open item against real recurring pain
+  (OCR/capture), but large — the next Horizon-A unit.
+- **Loop / repeat-count sequence construct.** Add `loop: _number(001-003)`
+  so repeated near-identical steps are expressed once instead of
+  copy-pasted; the "single PowerShell script for a repeated block" doc note
+  is the interim workaround.
+- **Validate the session before cloud-based scripts execute.** Check the
+  session/credentials context up front so failures surface early instead of
+  mid-run against the wrong or unauthenticated environment.
 
-## AWS
+**Pool harness**
+- **Persistent volume for pool telemetry.** Retention tiering is done, but
+  `/var/lib/{loki,prometheus}` sit on the caching-proxy VM root, so a
+  rebuild wipes all pool history — move it onto a persistent volume.
+- **Wire the parsed-but-stubbed cycle strategies and provisioning modes.**
+  Only `cycleStrategy: all` + `provisioning.betweenSets: none` are
+  runtime-active; `round-robin`/`single` and snapshot-revert/reprovision
+  are parsed and validated but silently execute as all/none.
+- **Enrich incident objects.** Attach the failure-class histogram to the
+  incident object itself, and require the *same* failure class across hosts
+  before declaring a cross-host incident (currently any cross-host failures
+  in the window group together). Detection scaffolding and taxonomy already
+  exist.
+- **Solve SSH-key distribution to pool nodes.** Provisioning pool members
+  needs key distribution. **Constraint:** any route must replicate the
+  `/yuruna-repo` secret deny-list (vault.yml, transports.yml, ssh keys,
+  password files, caching-proxy config, `.git`, test.config.yml)
+  byte-for-byte — one missed pattern leaks secrets pool-wide; do not change
+  security posture without explicit authorization.
 
-- Fix issue with Windows (/bin/sh) when executing `tofu apply` [Works for macOS]
-  - <https://github.com/terraform-aws-modules/terraform-aws-eks/issues/757>
-- import-clusters: get created registry credentials
-- Cluster IP?
-  - <https://docs.aws.amazon.com/vpc/latest/userguide/vpc-ip-addressing.html#vpc-public-ipv4-addresses>
-  - public_subnet_map_public_ip_on_launch
+**Cloud providers**
+- **AWS: retrieve created registry credentials during `import-clusters`**
+  so imported clusters can authenticate to their registry.
+- **AWS: resolve cluster public-IP addressing** (incl.
+  `public_subnet_map_public_ip_on_launch`) so nodes get the intended public
+  addressing.
+- **GCP: fix `min_master_version` and remove the v1.19+ ingress hack** —
+  same root cause; cluster creation with v1.19+ failed, forcing an
+  ingress workaround.
+- **GCP: fix the IP load balancer** so services get a working external IP.
+- **Finish and publish the AWS and GCP resource templates**, and expand the
+  template library more broadly.
+- **Azure: general improvements** (currently unscoped).
 
-## Azure
+**Other**
+- **Reword the in-guest download line to a transparency message.** Replace
+  the pre-download echo in `fetch-and-execute.sh` with one human-readable
+  line so anyone watching the console/OCR log sees remote code is about to
+  run. Disclosure only — guest-side integrity gating is deliberately
+  declined (disposable VM, same trust domain). Avoid the literal tokens
+  "fetch"/"execute" so the OCR failure-matcher doesn't false-trip.
+- **Skip a `tofu` variable when it isn't required**, to drop spurious apply
+  warnings that obscure real issues.
+- **Destroy `tofu` `local-exec` resources on `tofu destroy`** — they
+  currently leak because destroy doesn't track them.
+- **Decide whether to copy all code during component setup**
+  (`Yuruna.Component.psm1`) — affects setup cost and component isolation.
+- **Document the Hyper-V Amazon Linux nested-virtualization setup**
+  (`host/windows.hyper-v/guest.amazon.linux.2023/read.more.md`).
 
-- Global improvements
+## Low ROI
 
-## GCP
+Low current value, very high effort, or deliberately deferred. Worth doing
+only when the enabling condition arrives.
 
-- Global improvements
-- Fix the cluster.min_master_version: creating with v1.19+ failed
-  - Consequence: hack to deploy the ingress, since today it depends on v1.19+ syntax
-- IP load balancer not working.
+- **Horizon B resilience gates — IP/capacity admission, caching-proxy
+  circuit breaker, disk-headroom.** ⏸ Each hooks into fields the host
+  registration and pool planner already reserve, so they are data-population
+  exercises, not re-architecture. Deferred because the failure classes they
+  address (DHCP/IP exhaustion, proxy 5xx, full disk) show **zero**
+  occurrences on a single host — they only become real under multi-host
+  fan-out. Gate on the pool harness.
+- **Quorum-gated failure-pause break (consensus control).** ⏸ Making a
+  pool's advisory `degraded` flag actually pause/break a host's
+  failure-pause loop needs cross-host consensus, which the atomic
+  single-instance runner model deliberately avoids. Hardest item in the
+  design; tackle only with a clear consensus design.
+- **Write-side control beyond polled intent.** ⏸ The git intent store,
+  pull-sync shim, and admin CLI already give decentralized `desiredState`
+  control. Keep any expansion intent-based (pull) — a central
+  command-dispatch master would add a single point of failure and fight the
+  autonomous pull model.
+- **Snapshot integrity pre-check.** ⏸ Verify a snapshot exists and is
+  consistent at save/pre-cycle time, not first at restore. Parked: zero
+  `snapshot_restore_failed` events in the corpus.
+- **Predictive per-step timeout & pre-restore.** ⏸ Read recent
+  `last_failure.json` history to pre-widen timeouts or pre-restore for
+  flaky steps. Parked — depends on the per-cycle failure archive above.
+- **Vault / credential drift pre-check.** ⏸ Verify the provisioned
+  credential matches what the sequence will authenticate with, before the
+  auth step. **Constraint:** read-only verification only — no changes to
+  password alphabets, lengths, hashing, or vault layout, and no
+  detection evasion. Parked (1 corpus occurrence).
+- **Fully close the Windows installer `%TEMP%` TOCTOU.** ⏸ GUID-random
+  naming + delete defeats predictable-path hijack but not a same-user race
+  between write and open. A full fix (ACL'd per-user dir the child
+  re-validates, or passing bytes via handle/stdin) abandons the
+  `-File`/`$PSCommandPath` model and is UAC-fragile for a threat that
+  already requires same-user code execution — kept as *mitigated*.
+- **Serve immutable per-cycle repo snapshots.** ⏸ Would eliminate the
+  working-tree-rename race at its source, but conflicts with the
+  interceptor workflow that serves the live working tree so local changes
+  are testable without pushing. The race is already handled by the capture
+  self-heal; revisit only if that trade-off changes.
+- **Integrate a mobile testing framework** (e.g. Maestro) to drive mobile
+  app flows.
+- **Build a VS Code extension** to start projects and run commands from the
+  editor.
+- **Generate a topology graph from the YAML config** (e.g. Python
+  graphviz) for an at-a-glance view of project structure.
 
-## Host / guest
+## Recently shipped
 
-- Document Hyper-V Amazon Linux nested virtualization setup (`host/windows.hyper-v/guest.amazon.linux.2023/read.more.md`)
+Large workstreams completed since these opportunities were first scoped —
+kept here for context (details in the linked docs / code):
 
-### Host-driver shared helpers
-
-Each virtualization backend has its own
-`host/<host>/modules/Yuruna.Host.psm1` driver implementing the canonical
-contract ([`Yuruna.Host.Contract.psm1`](../host/Yuruna.Host.Contract.psm1),
-enforced at module load by `Assert-YurunaHostContractCoverage`). The contract
-verbs are platform-specific by design: Hyper-V cmdlets, libvirt/`virsh`, and
-the UTM CLI are genuinely different backends, as are the three host-proxy,
-screen-capture, and disk-snapshot stacks.
-
-Logic that is *not* platform-specific is factored into shared modules under
-[`host/modules/`](../host/modules/) so a fix lands once instead of drifting
-across drivers — injecting the one varying platform detail as a scriptblock or
-a plain parameter rather than reaching across a module boundary by name:
-
-- [`Yuruna.HostDownload`](../host/modules/Yuruna.HostDownload.psm1) — the squid
-  caching-proxy download stack (HTTP proxy + HTTPS SSL-bump with per-process CA
-  trust); the cache-VM IP discovery is injected as `-ResolveCacheHostIp`.
-- [`Yuruna.HostProvision`](../host/modules/Yuruna.HostProvision.psm1) — the
-  cross-driver helpers that differ only in one platform detail: the per-guest
-  `New-VM.ps1` / `Get-Image.ps1` child-runners (`Invoke-PerGuestNewVm`,
-  `Invoke-GetImage` — host subdir as a plain parameter, `Get-ImagePath` and the
-  log writer injected), the guest-IP poll (`Invoke-WaitVmIp`, with `Get-VMIp`
-  injected), and the squid-reachability probe (`Invoke-CachingProxyAvailableProbe`,
-  win/mac). Each driver's `New-VM` / `Get-Image` / `Wait-VMIp` /
-  `Test-CachingProxyAvailable` is a thin wrapper supplying its one platform
-  variable — a host-subdir or verify-hint string, or a driver-private command
-  captured as `CommandInfo` (`Get-VMIp`, `Get-ImagePath`) so the shared body
-  never resolves a name across a module boundary.
-- `Yuruna.Image` / `Yuruna.UbuntuImage` (image integrity + checksum) and
-  `Yuruna.VMCleanup`; `test/modules/Test.VMUtility` and `Test.CachingProxy`
-  hold the host-proxy-path and cache-state primitives the drivers share.
-
-What stays driver-local is the irreducibly platform-specific backend code (three
-VM backends, three host-proxy / capture / snapshot stacks). The cross-driver
-duplication worth extracting is now factored out; what remains is deliberately
-left per-platform — the host-proxy, firewall, and bridge paths are
-routing/security-adjacent and only validatable by a live cycle on each host, so
-the cost of a shared abstraction there outweighs the lines it would save. (The
-KVM `Test-CachingProxyAvailable` is intentionally *not* folded into the shared
-probe: it omits the IPv6 host-bracketing the guests rely on, so converging it
-would change the proxy URL they trust.)
+- **Autonomous-remediation infrastructure** — failure-class dispatcher,
+  NDJSON schema validator, cycle correlation IDs, and the runner state
+  machine; together they convert the existing telemetry surface into
+  something a remediation loop can act on.
+- **State-recovery primitives** — the atomic `Write-YurunaStateFile`
+  helper and the boot-time recovery sweep, so every state class either
+  has an atomic write helper or a startup detection + archive path.
+  Snapshot manifest sidecars and the log-rotation primitive shipped
+  alongside.
+- **Verb-handler registry migration** — all 21 sequence verbs moved from
+  the inline switch in `Invoke-Sequence.psm1` to the
+  `Test.SequenceAction` / `Test.SequenceHandler` registry;
+  `Invoke-Sequence` is now purely the executor.
+- **Cross-driver host-driver shared helpers** — platform-independent
+  download/VM/guest-IP/proxy-probe logic factored into `host/modules/`,
+  injecting the one varying platform detail per call. (Backend VM/proxy
+  paths stay per-platform by design; the KVM IPv6-bracketing proxy probe is
+  intentionally not folded in.)
+- **Multi-host pool harness, Phases 0–6** — DHCP-resilient `hostId` +
+  capability record; the self-discovering stdlib-Go pull-collector and
+  Grafana pool dashboard; per-step NDJSON tail + incident correlation; v1
+  pool/test-set schemas, git intent store, pull-sync shim, and admin CLI
+  ([pool-admin.md](pool-admin.md)); test-set execution with per-guest
+  overrides; advisory pool gating, alerting, and first-engage remediation;
+  push telemetry with TLS/bearer auth. All additive — a no-pool host is
+  byte-identical to single-host.
+- **Installer & in-guest script integrity** — signed `install.sha256`
+  (RSA-4096 detached signature + bundled key); opt-in git-tag pinning;
+  pinned apt-key fingerprints + PowerShell tarball checksum in the Ubuntu
+  installer; hard-fail image/ISO checksums with GPG-authenticated Ubuntu
+  hashes and a commit-pinned `Fido.ps1`; pinned Homebrew and libosinfo
+  fetches; the ASCII/no-BOM pre-commit hook. (Standing rule: re-verify every
+  fingerprint/hash/commit-SHA against live upstream at implementation time.)
+- **Resilience Horizon A** — the graceful-degradation / observability
+  contract (`Send-YurunaDegradation`, [failure-schema.md](failure-schema.md));
+  OCR degradation-trend early action in `Wait-ForText`; and SSH-readiness
+  hardening (`Wait-SshReady` failure-cause classification) — the last
+  addresses the empirical #1 recurring failure class.
 
 ---
 
@@ -212,6 +268,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.17
+Last review: 2026.07.21
 
 Back to [Yuruna](../README.md)

@@ -106,7 +106,7 @@ const Y = {
   },
 
   // initFooter wires the shared bottom footer bar (server IPs, last-loaded
-  // time, refresh countdown) used across the stash UI pages. Self-contained
+  // time, refresh countdown) used by the stash UI's home page. Self-contained
   // and page-agnostic: it pulls host facts from /api/hostinfo (so it needs no
   // page-specific data), runs a visibility-aware countdown (default 60 s,
   // matched to the status pages), and returns { markLoaded } so a page can

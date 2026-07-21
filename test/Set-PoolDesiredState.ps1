@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.17
+.VERSION 2026.07.21
 .GUID 42b5c6d7-e8f9-4a01-8b23-5c6d7e8f9012
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -20,7 +20,7 @@
 .SYNOPSIS
     Set a pool's desiredState (run | paused | drain) -- the operator control plane.
 .DESCRIPTION
-    Pool admin CLI. This is the ONLY pool field the runner acts on today: every
+    Pool admin CLI. Sets the field that gates the runner: every
     member pulls the intent each cycle and reconciles. run = cycle normally;
     paused = finish the in-flight cycle then hold (re-checking each ~30s) until
     run returns; drain = stop after the current cycle (the runner process exits;

@@ -29,14 +29,15 @@ shared *guest* user-data only.
 
 Each `host/<host>/guest.<guest>/New-VM.ps1` merges the shared
 `host/vmconfig/<guest>.base.user-data` with its per-host overlay (via
-`Build-CloudInitUserData`) and substitutes the following
+`New-CloudInitUserData`) and substitutes the following
 placeholders before handing the result to `genisoimage` (KVM),
 `hdiutil makehybrid` (macos.utm) or to the cloud-init NoCloud
 datasource (Hyper-V):
 
 | Placeholder | Source | Notes |
 |---|---|---|
-| `HOSTNAME_PLACEHOLDER` | `-VMName` parameter | Becomes `identity.hostname` (autoinstall) or the hostname for AL2023 / caching-proxy. |
+| `HOSTNAME_PLACEHOLDER` | `-Hostname` parameter, falling back to `-VMName` when empty | Becomes `identity.hostname` (autoinstall) or the hostname for AL2023 / caching-proxy. A sequence sets it by declaring `variables.hostname`, which the planner cascades to `New-VM`; without it the guest is named after the VM. A pinned hostname diverges from the VM name, and the UTM `dhcpd_leases` `name=` lookup keys off the name the guest registered. Blocks still filed under the VM name belong to predecessors, so a VM-name-only lookup returns a dead address rather than missing; discovery reads the pinned name back out of the bundle's seed ISO, tries it first, and rejects any lease that is not on a live host-interface subnet. |
+| `INSTANCE_ID_PLACEHOLDER` | `-VMName` parameter | meta-data only. Deliberately NOT the hostname: cloud-init treats a changed instance-id as a new instance, and two VMs may legitimately share a pinned hostname. |
 | `USERNAME_PLACEHOLDER` | `-Username` parameter (per-guest default; see `Test.Ssh\Get-GuestSshUser`) | Account created by autoinstall (Ubuntu Server 24.04) or by the cloud-init `users:` block (AL2023). Same name appears in `passwd --expire`, `sudoers.d/90-yuruna-<user>`, and the GUI sequences. |
 | `HASH_PLACEHOLDER` | `Test.VMUtility\ConvertTo-Sha512CryptHash` (wraps `openssl passwd -6 -- <vault-password>`) | SHA-512 (`$6$`) form. Plaintext password comes from `Get-Password -Username <user>` against the per-cycle authentication vault (`test/extension/authentication/`). KVM honours `$YURUNA_GUEST_PASSWORD` as a vault-bypass for ad-hoc dev runs. The `--` separator is LOAD-BEARING -- see "Password hashing: argv leading-dash trap" below. |
 | `PLAINTEXT_PASSWORD_PLACEHOLDER` | Same as above (AL2023 path) | Used inside `chpasswd:` for AL2023, where the cloud-init module accepts the plaintext form and force-expires it on first login (chpasswd default `expire: true`). |
@@ -275,6 +276,8 @@ surfaces a clear error in `dmesg`/`strace`/`journalctl` instead of
 hanging on a connect timeout. IPv6 is out of scope: `rules.v6` mirrors
 loopback+conntrack so netfilter-persistent has a valid file to load
 (otherwise it warns at boot); default IPv6 OUTPUT stays ACCEPT.
+
+<a id="pin-ipv4-dhcp-refuse-ipv6-ra"></a>
 
 ### Pin IPv4-only DHCP, refuse IPv6 router advertisements
 
@@ -651,6 +654,8 @@ status line and never matches `Current password:`.
 - `quiet` is typically already in the default cmdline — both
   `update-grub` and `grubby` deduplicate, so the repeat is a no-op.
 
+<a id="console-fb-safe"></a>
+
 ### Console: bochs-DRM framebuffer safety (KVM)
 
 Anchor: `console-fb-safe`
@@ -663,8 +668,8 @@ Anchor: `console-fb-safe`
   GRUBCFG
 ```
 
-The KVM bochs-DRM trap class (see
-[`feedback_kvm_bochs_drm_resolute_install_trap.md`](memory.md)) lands a
+The KVM bochs-DRM trap class (captured in
+`feedback_kvm_bochs_drm_resolute_install_trap.md`) lands a
 kernel oops in `ovl_iterate_merged` plus `drm_fb_helper_damage_work` CPU
 thrash on the resolute live-server installer when the q35+UEFI default
 video drives subiquity. The install-phase kernel cannot be reached from
@@ -1090,6 +1095,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.17
+Last review: 2026.07.21
 
 Back to [Yuruna](../README.md)

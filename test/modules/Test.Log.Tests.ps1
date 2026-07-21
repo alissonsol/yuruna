@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.17
+.VERSION 2026.07.21
 .GUID 42e9c5b7-2d18-4a3f-bc60-7f1e9a8d2c40
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -18,7 +18,7 @@
 
 <#
 .SYNOPSIS
-    Pester coverage for the F3 graceful-degradation contract in
+    Pester coverage for the graceful-degradation contract in
     Test.Log.psm1: New-YurunaDegradationRecord (the pure event-record
     builder) and its schema validity against Test.EventSchema.
 .DESCRIPTION

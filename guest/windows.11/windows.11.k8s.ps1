@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.17
+.VERSION 2026.07.21
 .GUID 42f0a1b2-c3d4-4e56-f789-0a1b2c3d4e11
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -63,6 +63,8 @@ Write-Output "PowerShell 7 found at $($pwshPath.Source)"
 # --- REGION: Install powershell-yaml module
 Write-Output ""
 Write-Output ">>> Installing PowerShell module: powershell-yaml..."
+# 2.8.5.201 is Microsoft's documented TLS-1.2-capable NuGet provider
+# bootstrap floor, not a workload pin.
 $yamlInstall = "if (-not (Get-PackageProvider -Name NuGet -ErrorAction SilentlyContinue)) { Install-PackageProvider -Name NuGet -MinimumVersion 2.8.5.201 -Force -Scope AllUsers | Out-Null }; Set-PSRepository -Name PSGallery -InstallationPolicy Trusted; Install-Module -Name powershell-yaml -Scope AllUsers -Force -Confirm:`$false"
 $yamlOk = $false
 for ($attempt = 1; $attempt -le 3 -and -not $yamlOk; $attempt++) {

@@ -70,7 +70,7 @@ users:
     vaultKey:           ""
     localOsPasswordRef: ""
 
-  # Pool push-ingest shared bearer token (Phase 6). NOT a login user: this logical
+  # Pool push-ingest shared bearer token. NOT a login user: this logical
   # entry exists so the pool-aggregator's POST /ingest write route can be gated by an
   # operator-supplied token. Leave vaultKey EMPTY (default) to keep push DISABLED -- the
   # aggregator then refuses /ingest entirely. To ENABLE push: set vaultKey to a key

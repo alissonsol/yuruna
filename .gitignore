@@ -439,3 +439,9 @@ test/extension/pool-aggregator/pool-aggregator.exe
 seed.iso
 **/seed.iso
 *.seed.img
+test/status/launch-runner.ps1
+project-poc.tar.gz
+
+# Review-autopilot per-run runtime state (AUTOPILOT.md documents these as
+# never tracked; the alerts log is already covered by the *.log rule).
+tools/review-autopilot/*.state.json

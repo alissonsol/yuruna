@@ -40,7 +40,7 @@ pwsh ./New-VM.ps1 -CachingProxyUrl http://192.168.122.10:3128
 |------|---------|----------|
 | Name | `ubuntu-server01` | `-VMName` |
 | RAM  | 8 GiB | (edit script) |
-| vCPU | max(4, host cores ÷ 2) | (edit script) |
+| vCPU | min(host threads − 1, max(2, host threads ÷ 2)) | (edit script) |
 | Disk | 64 G qcow2 (empty install target) | (edit script) |
 | User | `yuuser26` / `<vault-managed>` | `-Username` / `$env:YURUNA_GUEST_PASSWORD` |
 | Net  | libvirt `default` (NAT 192.168.122.0/24) | (edit script) |
@@ -69,6 +69,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.17
+Last review: 2026.07.21
 
 Back to [Yuruna](../../../README.md)

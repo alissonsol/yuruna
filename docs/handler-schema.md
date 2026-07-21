@@ -11,8 +11,8 @@ name (`waitForSeconds`, `pressKey`, `inputText`, ...) via
 hits a step with `action: <verb>`, it looks up the verb in
 `$global:YurunaSequenceActions`. If the entry has a `Handler`, the
 engine dispatches via `Invoke-SequenceActionHandler` and the handler
-takes over; otherwise the engine falls back to the legacy `switch`
-arm in `Invoke-Sequence` (a migration safety net).
+takes over; a verb without a Handler is a hard step failure (the
+engine warns "Unknown action" and fails the step).
 
 Two modules carry the contract:
 
@@ -49,6 +49,8 @@ dispatch.
 | `ExpandVariable`       | `scriptblock` reference       | Live `Expand-Variable` function (Test.SequenceAction does not import it).  |
 | `DefaultTimeoutSeconds`| `int`                         | Engine default for verbs that take a `timeoutSeconds:` field.              |
 | `DefaultPollSeconds`   | `int`                         | Engine default for verbs that poll.                                        |
+| `DefaultCharDelayMs`   | `int`                         | Engine default per-character delay for text-typing verbs.                  |
+| `RepoRoot`             | `string`                      | Served-repo root (the base the status server serves at `/yuruna-repo`); fetch verbs hash the script the guest is about to fetch. |
 | `WriteCurrentAction`   | `scriptblock`                 | Engine callback for updating the "current action" status feed.             |
 | `WaitWhilePaused`      | `scriptblock`                 | Engine callback that blocks until a pause flag clears.                     |
 | `InvokeStepBlock`      | `scriptblock`                 | Recursive dispatcher for verbs that nest steps (`retry`, ...).             |
@@ -83,7 +85,7 @@ A bare `return` (no value) is coerced to `$false`. Always be explicit.
 | `OcrRequired`        | `[bool]`                                                                                                                                                                                                                                                                                       | `$true` when the verb needs at least one enabled OCR provider.                                                                                              |
 | `Description`        | `[string]`                                                                                                                                                                                                                                                                                     | Free-form note. Surfaces in the capability matrix and future docs page.                                                                                     |
 | `Aliases`            | `[string[]]`                                                                                                                                                                                                                                                                                   | Alternate YAML names that resolve to the same entry (legacy renames).                                                                                       |
-| `Handler`            | `[scriptblock]` `param([hashtable]$c)` → `[bool]`                                                                                                                                                                                                                                              | The body that runs when the verb dispatches. Optional during migration; without it, the engine falls back to its legacy switch arm.                       |
+| `Handler`            | `[scriptblock]` `param([hashtable]$c)` → `[bool]`                                                                                                                                                                                                                                              | The body that runs when the verb dispatches. Required in practice: a registration without a Handler hard-fails the step at dispatch.                       |
 | `FailureClass`       | `ValidateSet`: `ocr_timeout`, `network_timeout`, `credential_expired`, `host_io_blocked`, `pattern_matched_failure`, `retry_exhausted`, `snapshot_restore_failed`, `script_error`, `wait_timeout`, `extension_error`, `instrumentation_failure`, `provisioning_failure`, `bootstrap_sync`, `plan_invalid`, `unknown`                                       | Machine-readable failure category for downstream routing (no regex-on-label needed).                                                                        |
 | `Severity`           | `ValidateSet`: `hard`, `soft`, `unknown`                                                                                                                                                                                                                                                       | `soft` = retry is plausible; `hard` = retry won't help (e.g. snapshot restore failed); `unknown` = no claim either way.                                     |
 | `SuggestedRecoveries`| `[string[]]` — free-form, ordered                                                                                                                                                                                                                                                              | Hints for an autonomous remediation loop. Common values: `retry_immediately`, `wait_and_retry`, `restore_snapshot`, `notify_operator`. Not validated.       |
@@ -162,6 +164,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.17
+Last review: 2026.07.21
 
 Back to [Yuruna](../README.md)

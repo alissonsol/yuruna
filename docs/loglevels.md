@@ -17,7 +17,7 @@ four runner files that depend on it.
 | 1    | `Error`       | Highest priority. Always visible. |
 | 2    | `Warning`     | Operator-actionable problems that did NOT fail the cycle. |
 | 3    | `Information` | Default. Step-level progress, banners, PASS/WARN/FAIL rows. |
-| 4    | `Verbose`     | Per-poll OCR text, child-process command lines. |
+| 4    | `Verbose`     | What each OCR engine reads on every `waitForText` poll — the operator-relevant signal when a step is hanging — plus child-process command lines. |
 | 5    | `Debug`       | Wire-protocol traces (VNC bytes, scancode bursts). |
 
 Each level shows itself **and every higher-priority level**. `-logLevel
@@ -35,6 +35,14 @@ except Debug.
 3. **Default `Information`** — invalid values fall back here with a
    one-line warning, so a YAML typo does not silently silence the
    transcript.
+
+The default differs by entry point. The three-phase scripts
+(`Set-Resource.ps1` / `Set-Component.ps1` / `Set-Workload.ps1`),
+`Test-Configuration.ps1` and `Invoke-Clear.ps1` default to `Error` —
+they are run interactively, where anything above an error is noise.
+Only the test runner (`Invoke-TestRunner.ps1`) defaults to
+`Information`, because its transcript is the record of an unattended
+cycle.
 
 The cmdline override wins over a hot-reload — once you start a runner
 at `Information`, a config edit to `Warning` will not promote it. Stop
@@ -82,6 +90,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.17
+Last review: 2026.07.21
 
 Back to [Yuruna](../README.md)

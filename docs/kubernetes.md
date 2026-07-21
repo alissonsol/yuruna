@@ -63,6 +63,37 @@ gcloud auth application-default login
 Set-Resource.ps1 website gcp;   Set-Component.ps1 website gcp;   Set-Workload.ps1 website gcp
 ```
 
+### Control-plane access hardening (required for EKS / AKS)
+
+The managed clusters restrict their Kubernetes API server to an explicit
+CIDR allow-list instead of exposing it to the whole internet, so an EKS or
+AKS deployment **requires** `apiServerAuthorizedCidrs` in your
+`resources.yml` `globalVariables`:
+
+```yaml
+globalVariables:
+  # Comma-separated CIDR allow-list for the cluster API server. MUST include
+  # the machine running Set-Workload (its public egress IP as a /32) or the
+  # first kubectl/helm call is locked out. Add admin / VPN ranges as needed.
+  apiServerAuthorizedCidrs: "203.0.113.5/32,198.51.100.0/24"
+```
+
+It wires to EKS `endpoint_public_access_cidrs` and AKS
+`api_server_access_profile.authorized_ip_ranges`. There is **no default** —
+omitting it fails at `tofu plan` (fail-closed) rather than silently exposing
+`0.0.0.0/0`. EKS keeps private endpoint access on for in-VPC node/pod
+traffic; the external `kubectl`/`helm` deploy uses the allow-list. For a
+fully private control plane, set EKS `endpoint_public_access = false` / AKS
+`private_cluster_enabled = true` and run the deploy from a VPN or in-VPC/VNet
+host.
+
+The EKS module no longer ships a `cluster-admin`-bound dashboard `admin-user`
+ServiceAccount — it was an unused manifest, and the deploy identity already
+has cluster admin (`enable_cluster_creator_admin_permissions`). If you want
+the Kubernetes dashboard, grant a scoped role and mint a short-lived token on
+demand (`kubectl create token`) rather than leaving a standing cluster-admin
+secret in the cluster.
+
 Details, service accounts, and API enablement: [Yuruna Authentication ...](authentication.md).
 
 ## Guest-side prerequisites
@@ -130,7 +161,7 @@ non-fatal — only the side effect matters.
 
 ## See also
 
-- [Yuruna Syntax](syntax.md) — CLI reference for the three phases
+- [Yuruna Architecture](architecture.md#cli-entry-points) — CLI reference for the three phases
 - [Yuruna Frequently Asked Questions](faq.md), [Yuruna Workarounds](workarounds.md), [Yuruna Resources Clean Up](cleanup.md)
 - [Yuruna Website example](../project/example/website/), [Yuruna References](references.md)
 
@@ -140,6 +171,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.17
+Last review: 2026.07.21
 
 Back to [Yuruna](../README.md)

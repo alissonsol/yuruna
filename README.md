@@ -76,7 +76,7 @@ After the guest OS is up, test workloads:
 
 ## Read More
 
-- [Requirements](docs/requirements.md) · [FAQ](docs/faq.md) · [Roadmap](docs/roadmap.md)
+- [Requirements](docs/requirements.md) · [FAQ](docs/faq.md) · [Roadmap](docs/opportunities.md#roadmap)
 - [Host pools](docs/pool-admin.md) · [Hosts](host/README.md) · [Guests](guest/README.md)
 - [Contributing](CONTRIBUTING.md) · [Contributors](docs/contributors.md) · [Opportunities](docs/opportunities.md)
 
@@ -89,4 +89,4 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.17
+Last review: 2026.07.21

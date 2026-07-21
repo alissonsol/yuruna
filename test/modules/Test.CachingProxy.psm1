@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.17
+.VERSION 2026.07.21
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456821
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -23,17 +23,12 @@
     under the runtime directory; survives cycle vault wipes.
 
 .DESCRIPTION
-    Previous design split this between two host-local sidecar files:
-      * caching-proxy-password.txt next to the VHD (Windows) or under
-        $HOME/yuruna/image/caching-proxy/ (macOS)
-      * cache-ip.txt under $HOME/yuruna/image/caching-proxy/ (macOS only)
-
-    Both have moved to a single YAML doc at:
+    State lives in a single YAML doc at:
         <runtime-dir>/yuruna-caching-proxy.yml
     where <runtime-dir> is $env:YURUNA_RUNTIME_DIR (default
     <repoRoot>/test/status/runtime). One file, host-agnostic location,
     git-ignored alongside the rest of status/. The authentication
-    extension's vault.yml now persists across cycles too, but this
+    extension's vault.yml persists across cycles too, but this
     file remains the source of truth for the cache VM's yuruna user --
     caching-proxy New-VM.ps1 re-aligns the vault entry from here on
     every cycle so the two stay in sync if they ever diverge.

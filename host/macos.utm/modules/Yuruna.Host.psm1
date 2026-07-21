@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.17
+.VERSION 2026.07.21
 .GUID 42a2b3c4-d5e6-4f78-9012-3a4b5c6d7e91
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -1705,12 +1705,15 @@ function New-VM {
         [string]$CachingProxyUrl,
         # Planner-cascaded username override; forwarded only when the
         # per-guest script declares -Username (introspected below).
-        [string]$Username
+        [string]$Username,
+        # Planner-cascaded guest hostname (variables.hostname); same
+        # declare-or-drop forwarding rule as -Username.
+        [string]$Hostname
     )
     # Thin wrapper over the shared per-guest runner; the host subdir is the
     # only platform variable. Splatting $PSBoundParameters preserves the
-    # conditional -CachingProxyUrl/-Username forwarding (the runner checks
-    # ContainsKey) and propagates -WhatIf/-Confirm to its ShouldProcess.
+    # conditional -CachingProxyUrl/-Username/-Hostname forwarding (the runner
+    # checks ContainsKey) and propagates -WhatIf/-Confirm to its ShouldProcess.
     Invoke-PerGuestNewVm -HostSubdir 'host/macos.utm' @PSBoundParameters
 }
 
@@ -2285,10 +2288,25 @@ function Send-Key {
         Write-Warning "Send-Key -Mechanism ssh: not meaningful for SSH (use Send-Text with the typed command)."
         return $false
     }
-    if ($Key -ieq 'Enter') {
-        return [bool](Send-Text -VMName $VMName -Text "`r" -Mechanism gui)
+    # Defer to Invoke-Sequence's host-aware dispatcher, which resolves the key
+    # name through the key-code registry and picks the VNC or CGEvent backend.
+    #
+    # Routing a key name through Send-Text instead does NOT work: the
+    # character maps cover printable ASCII only, so a control character such
+    # as CR is warn-and-skipped by every text backend while the call still
+    # reports success -- a key that silently types nothing. Named keys and
+    # modifier chords have to go through the key path.
+    $invokeSequence = Join-Path $script:TestModulesDir 'Invoke-Sequence.psm1'
+    if (Test-Path $invokeSequence) {
+        # Import once and reuse: a -Force re-import evicts the global
+        # Invoke-Sequence (and its nested modules + $script: state) that the
+        # outer loop still calls (feedback_module_force_import_evicts_global,
+        # feedback_module_script_state_reset_by_force_reimport), and paying
+        # that on every keystroke is pure overhead.
+        if (-not (Get-Module -Name Invoke-Sequence)) { Import-Module $invokeSequence -DisableNameChecking -Global }
+        return [bool](Invoke-Sequence\Send-Key -HostType $script:HostTag -VMName $VMName -KeyName $Key)
     }
-    Write-Warning "Send-Key '$Key': not implemented in this facade phase on host.macos.utm."
+    Write-Warning "Send-Key -Mechanism gui: Invoke-Sequence.psm1 not found at '$invokeSequence'."
     return $false
 }
 
@@ -2396,36 +2414,24 @@ function Get-VMIp {
             Write-Debug "Get-VMIp: utmctl ip-address failed for ${VMName}: $_"
         }
     }
-    # Fallback: macOS shared-NAT DHCP server's lease file. cloud-init sets
-    # the guest hostname to VMName, so the lease's name= matches. A rebuilt
-    # cache VM reuses the same hostname, so dhcpd_leases can hold MULTIPLE
-    # name= blocks: the live VM PLUS stale leases from deleted predecessors.
-    # Returning the first match lets a dead predecessor's IP win (the cache
-    # forwarders then tunnel to an address nothing listens on). The lease's
-    # hw_address is a DHCP DUID, not the bundle's link MAC, so it can't
-    # disambiguate -- but the live VM keeps RENEWING its lease while a
-    # deleted VM's only ages, so the largest `lease=` expiry is the live one.
+    # Fallback: macOS shared-NAT DHCP server's lease file. The DHCP server
+    # keys each block on the name the GUEST sent, which is the VM name only
+    # when no sequence pinned variables.hostname; a pinned hostname makes the
+    # guest register under that instead. A VM-name lookup therefore does not
+    # come back empty when a hostname is pinned -- it matches leftover blocks
+    # filed under the VM name by predecessors and hands back a dead address,
+    # often on a subnet the host no longer serves, which costs a full SSH
+    # connect-timeout budget per attempt. Both keys are tried, pinned
+    # hostname first, and Select-DhcpLeaseIpAddress discards any candidate
+    # that is not on a live host-interface subnet.
     $leaseFile = '/var/db/dhcpd_leases'
     if (Test-Path $leaseFile) {
         try {
             $content = Get-Content $leaseFile -Raw -ErrorAction Stop
-            $blocks = [regex]::Matches($content, '\{[^}]*\}')
-            $bestIp = $null
-            $bestLease = -1
-            foreach ($b in $blocks) {
-                $text = $b.Value
-                if ($text -notmatch "(?m)^\s*name=$([regex]::Escape($VMName))\s*$") { continue }
-                if (($text -match "(?m)^\s*ip_address=(\d+\.\d+\.\d+\.\d+)\s*$") -and (Test-Ipv4Address $Matches[1])) {
-                    $ip = [string]$Matches[1]
-                    # A block with no parseable lease= is ineligible: it cannot prove it is the
-                    # live (renewing) VM, so it must not displace a block that has a real expiry.
-                    if ($text -notmatch "(?m)^\s*lease=0x([0-9a-fA-F]+)\s*$") { continue }
-                    $leaseVal = [Convert]::ToInt64($Matches[1], 16)
-                    # Strict -gt so an equal/zero-expiry later block cannot displace an earlier,
-                    # higher-expiry (more recently renewed) block already recorded.
-                    if ($leaseVal -gt $bestLease) { $bestLease = $leaseVal; $bestIp = $ip }
-                }
-            }
+            $pinnedHostname = Get-UtmGuestSeedHostname -VMName $VMName
+            $leaseNames = @($pinnedHostname)
+            if ($pinnedHostname -ne $VMName) { $leaseNames += $VMName }
+            $bestIp = Select-DhcpLeaseIpAddress -LeaseText $content -Name $leaseNames
             if ($bestIp) { return $bestIp }
         } catch {
             Write-Debug "Get-VMIp: dhcpd_leases lookup failed for ${VMName}: $_"
@@ -2637,8 +2643,10 @@ function New-ExternalNetwork {
 .SYNOPSIS
     Returns true if the caching-proxy VM is on an External-type network.
 .DESCRIPTION
-    On macOS the cache VM is built with VZBridgedNetworkDeviceAttachment
-    (see host/macos.utm/guest.caching-proxy/config.plist.template), so it
+    On macOS the cache VM is built with UTM's QEMU bridged networking on
+    an Ethernet default route (see
+    host/macos.utm/guest.caching-proxy/config.plist.template; Wi-Fi
+    hosts fall back to Shared NAT + host forwarders), so it
     rides the host's physical LAN with its own DHCP-assigned IP. That
     is the macOS analog of Hyper-V's Yuruna-External vSwitch path: the
     caller's "no host portproxy needed" fast path applies unconditionally
@@ -2649,7 +2657,7 @@ function Test-CacheVMOnExternalNetwork {
     [CmdletBinding()]
     [OutputType([bool])]
     param([string]$VMName = 'yuruna-caching-proxy')
-    Write-Debug "Test-CacheVMOnExternalNetwork on host.macos.utm: returning `$true for '$VMName' (cache VM is VZ-bridged to the host's physical NIC)."
+    Write-Debug "Test-CacheVMOnExternalNetwork on host.macos.utm: returning `$true for '$VMName' (cache VM is QEMU-bridged to the host's physical NIC)."
     return $true
 }
 
@@ -2757,9 +2765,7 @@ function Get-BestHostIp {
 .DESCRIPTION
     On Apple Virtualization shared NAT (the default UTM networking mode for
     this repo), guests always reach the host at 192.168.64.1 -- that is the
-    VZ gateway IP set by the framework, not configurable per VM. The same
-    constant is hardcoded as the caching-proxy forwarder URL in
-    guest.ubuntu.server.24/New-VM.ps1, by long convention.
+    VZ gateway IP set by the framework, not configurable per VM.
 
     Bridged networking (not the repo default) would route guests via the
     host's LAN IP instead. If/when that mode is added, this helper needs a

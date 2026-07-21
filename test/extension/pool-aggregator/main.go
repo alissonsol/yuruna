@@ -838,7 +838,7 @@ func fetchStatus(client *http.Client, base string) (*hostStatus, error) {
 // served by the status server at /yuruna-repo/VERSION -- the SAME source the
 // host's own status pages read for their header (their getHostInfo() fetches
 // yuruna-repo/VERSION via JS, so the version is not embedded in the HTML). A tiny
-// plain-text file (one CalVer line, e.g. "2026.07.17"), so it is lighter than any
+// plain-text file (one CalVer line, e.g. "2026.07.21"), so it is lighter than any
 // status HTML page and fetchable server-side without a JS engine. Returns
 // ("", err) on any failure; the caller keeps the prior version on a transient
 // miss (the version is stable across polls). The value is capped + first-line
@@ -2615,8 +2615,8 @@ func (s *poolState) handleMetrics(w http.ResponseWriter, _ *http.Request) {
 	// host_status: the numeric twin of host_info's status, keyed on hostId so it
 	// forms one continuous series per host -- the input the state-timeline panel
 	// needs. No hostname label (pool view is hostname-free). 0=unreachable
-	// 1=running 2=pass 3=fail 4=idle.
-	b.WriteString("# HELP yuruna_pool_host_status Per-host cycle status code (0=unreachable 1=running 2=pass 3=fail 4=idle).\n# TYPE yuruna_pool_host_status gauge\n")
+	// 1=running 2=pass 3=fail 4=idle 5=paused.
+	b.WriteString("# HELP yuruna_pool_host_status Per-host cycle status code (0=unreachable 1=running 2=pass 3=fail 4=idle 5=paused).\n# TYPE yuruna_pool_host_status gauge\n")
 	for _, h := range ids {
 		hv := s.hosts[h]
 		if hv == nil {

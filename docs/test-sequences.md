@@ -46,6 +46,20 @@ failure (with retry-wrapping as documented under `retry`).
 - **Escape `$`** by doubling: `$$` produces a literal `$`. In
   particular `$${foo}` yields the four-character literal `${foo}`
   (no substitution). To embed two literal dollars, write `$$$$`.
+- **Planner-cascaded overrides REPLACE same-named sequence variables.**
+  A `workload.*.yml` that defines `username: webuser` propagates that
+  value into every sequence in its dependency chain, so a baseline
+  `start.*.yml` still declaring `username: yuuser26` silently runs with
+  `webuser` whenever the workload is the cycle's top-level. Sequence
+  YAML stays self-contained — the local `variables:` block remains the
+  standalone-invocation fallback for `Test-Sequence.ps1` runs with no
+  cascade context.
+- **`${hostname}` defaults to the VM name** — that is what the guest is
+  actually called when nothing pins it (`New-VM` falls back to
+  `-VMName` for cloud-init's `local-hostname`), so a sequence can match
+  the shell prompt on `${hostname}` unconditionally; the sequence's own
+  `variables:` block or the planner cascade overwrites it when
+  declared.
 
 ## Failure artifacts
 
@@ -370,8 +384,7 @@ Windows.11 is a no-op reminder (TODO). Uses the `Send-Text` and
 Like `waitForAndEnter`, but `text` is always treated as sensitive — for
 PAM prompts (`Current password:`, `Retype new password:`) whose
 non-newline-terminated lines get overwritten on the framebuffer by late
-console messages (see [memory note on passwd prompt
-overwrite](memory.md)). Parameters are the same as
+console messages. Parameters are the same as
 `waitForAndEnter`, minus the explicit `sensitive` flag.
 
 ### recoverFromSnapshot
@@ -673,7 +686,7 @@ per host (and per `keystrokeMechanism` mode):
 | UTM | AXUI via accessibility events on the UTM app window; VNC fallback for some keys. | Same. |
 
 Sequence authors don't choose between these — `vmCommunication.keystrokeMechanism`
-in [`test.config.yml`](../test/test.config.yml) selects, and the per-host
+in [`test.config.yml`](test-config.md) selects, and the per-host
 driver routes.
 
 ### Other contract surface
@@ -706,6 +719,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.17
+Last review: 2026.07.21
 
 Back to [Yuruna](../README.md)

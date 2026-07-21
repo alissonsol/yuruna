@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.17
+.VERSION 2026.07.21
 .GUID 42d8b0a1-6c74-4e35-9f28-1a5b3c7d0e46
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -26,10 +26,10 @@
     file route was the one path that wrote the body unconditionally. This test locks
     every file-bytes write behind a non-HEAD guard.
 
-    Check-DependencyVersion.ps1 emits a structured drift report but always
-    exited 0, so a CI job could not gate on drift. It now exits 1 when a pin has a
-    newer stable release, while a transient check failure alone does not fail the
-    gate. This test locks that exit contract without running the (networked) script.
+    Check-DependencyVersion.ps1 must exit 1 when a pin has a newer stable
+    release -- a structured drift report alone cannot gate CI -- while a
+    transient check failure alone does not fail the gate. This test locks
+    that exit contract without running the (networked) script.
 
     The throw-based Assert-* helpers are defined at script scope and referenced from
     It blocks, so this runs under Pester 4.10.1 (Pester 5's scope split hides

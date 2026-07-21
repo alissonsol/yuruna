@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.17
+.VERSION 2026.07.21
 .GUID 42b5c6d7-e8f9-4a01-b234-5c6d7e8f9a02
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -39,7 +39,11 @@ param(
     # OS user created by autoinstall and exercised by the test
     # sequences. See host/windows.hyper-v/guest.ubuntu.server.24/New-VM.ps1
     # for the rationale on the 'yuuser24' default name.
-    [string]$Username = 'yuuser24'
+    [string]$Username = 'yuuser24',
+    # cloud-init local-hostname for the guest. Empty means "follow the VM
+    # name", which keeps host-side lookups that assume hostname == VM name
+    # working for every caller that does not ask for a specific hostname.
+    [string]$Hostname = ''
 )
 
 # Honor logLevel from Invoke-TestRunner.ps1 via $env:YURUNA_LOG_LEVEL. See docs/loglevels.md.
@@ -50,6 +54,12 @@ if ($VMName -notmatch '^[a-zA-Z0-9._-]+$') {
     Write-Output "Invalid VMName '$VMName'. Only alphanumeric characters, dots, hyphens, and underscores are allowed."
     exit 1
 }
+
+if ($Hostname -and $Hostname -notmatch '^[a-zA-Z0-9.-]+$') {
+    Write-Output "Invalid Hostname '$Hostname'. Only alphanumeric characters, dots, and hyphens are allowed."
+    exit 1
+}
+$GuestHostname = if ($Hostname) { $Hostname } else { $VMName }
 
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $GuestDir = "$HOME/yuruna/guest.nosync"
@@ -271,8 +281,8 @@ ERROR: yuruna-caching-proxy VM is started but no :3128 listener was
   utmctl status yuruna-caching-proxy : $squidStatus
   LAN /24 scan                       : no answer
 
-The cache VM is bridged to the host's physical NIC (VZBridged-
-NetworkDeviceAttachment) and is expected to have a DHCP lease on the
+The cache VM is bridged to the host's physical NIC (QEMU/vmnet
+bridged mode) and is expected to have a DHCP lease on the
 same /24 the host is on. If it doesn't answer:
   * Wi-Fi AP may be filtering the cache's locally-administered MAC
     (rotate the cache and retry on a network that allows it, or
@@ -367,13 +377,13 @@ if (Test-Path -LiteralPath $YurunaTestConfig) {
 # Bake yuruna-retry.sh + fetch-and-execute.sh into the seed as base64-encoded
 # write_files entries. Eliminates the legacy network-dependent wget+wget
 # bootstrap and ensures both files are on disk before any guest script runs.
-$null = Build-CloudInitUserData `
+$null = New-CloudInitUserData `
     -BasePath    $BaseUserData `
     -OverlayPath $OverlayUserData `
     -RepoRoot    $RepoRoot `
     -OutputPath  "$SeedDir/user-data" `
     -Replacement @{
-        HOSTNAME_PLACEHOLDER           = $VMName
+        HOSTNAME_PLACEHOLDER           = $GuestHostname
         USERNAME_PLACEHOLDER           = $Username
         HASH_PLACEHOLDER               = $PasswordHash
         SSH_AUTHORIZED_KEY_PLACEHOLDER = $SshAuthorizedKey
@@ -384,7 +394,8 @@ $null = Build-CloudInitUserData `
         YURUNA_HOST_PORT_PLACEHOLDER   = $YurunaHostPort
     } -Confirm:$false
 $MetaData = (Get-Content -Raw $MetaDataTemplate) `
-    -replace 'HOSTNAME_PLACEHOLDER', $VMName
+    -replace 'INSTANCE_ID_PLACEHOLDER', $VMName `
+    -replace 'HOSTNAME_PLACEHOLDER', $GuestHostname
 Set-Content -Path "$SeedDir/meta-data" -Value $MetaData -NoNewline
 
 # --- REGION: Generate cloud-init seed ISO

@@ -27,13 +27,15 @@ Generates a cloud-init `seed.iso` from `vmconfig/`, creates a per-VM
 folder under the Hyper-V default VHDX path (`(Get-VMHost).VirtualHardDiskPath`),
 and places seed + VHDX there.
 
-- Start from Hyper-V Manager. Default credentials: `ec2-user` /
-  `amazonlinux` (override in
-  [host/vmconfig/amazon.linux.2023.base.user-data](../../vmconfig/amazon.linux.2023.base.user-data)). Upgrade if prompted by
-  `dnf check-release-update`.
+- Start from Hyper-V Manager. Log in as the per-guest test user
+  (default `yauser1`; vault-managed password, expired on first login —
+  see [README.md](README.md)). `ec2-user` stays SSH-key-only; both are
+  seeded by
+  [host/vmconfig/amazon.linux.2023.base.user-data](../../vmconfig/amazon.linux.2023.base.user-data).
+  Upgrade if prompted by `dnf check-release-update`.
 - `/usr/local/lib/yuruna/fetch-and-execute.sh guest/amazon.linux.2023/amazon.linux.2023.update.sh`
   installs the GUI and tools (cloud-init seeded `fetch-and-execute.sh`
-  into `/automation/`; workloads pull from GitHub on demand).
+  into `/usr/local/lib/yuruna/`; workloads pull from GitHub on demand).
 - `sudo reboot now` — boots into the GUI.
 
 **CHECKPOINT**: good moment for a Hyper-V checkpoint
@@ -52,6 +54,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.17
+Last review: 2026.07.21
 
 Back to [Yuruna](../../../README.md)

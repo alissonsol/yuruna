@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.17
+.VERSION 2026.07.21
 .GUID 42a7b8c9-d0e1-4f23-a4b5-6c7d8e9f0a1b
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -177,27 +177,10 @@ function Invoke-TesseractOcr {
 
     $absPath = (Resolve-Path $ImagePath).Path
 
-    # --psm 6 = single uniform block of text. Terminal screenshots ARE
-    # uniform blocks (monospace, equal-size lines, top-aligned), and
-    # PSM 6 walks the whole image as one block, so a sparse top-of-image
-    # text region with empty space below still gets read end-to-end.
+    # --psm 6 is load-bearing: every neighbouring page-segmentation mode
+    # silently drops text on terminal screenshots. Full mode-by-mode
+    # rationale: docs/ocr.md#why-tesseract-runs-at---psm-6
     #
-    # Why not --psm 4 (single column of variable sizes -- the previous
-    # default): on screens with TWO visually-distinct content regions
-    # (e.g. a tiny login prompt at the top + cloud-init dump rendered
-    # in a virtual second column at the bottom on retried boots),
-    # PSM 4 picks ONE region as "the column" and silently drops text
-    # in the other one. That was the regression behind the
-    # `test-ubuntu-server-01 login:` line going missing from OCR even
-    # though the screenshot clearly shows it. PSM 6 reads both rows.
-    #
-    # Why not --psm 3 (default, fully automatic): does its own
-    # multi-column detection and re-orders/merges adjacent UI regions
-    # -- same `login:` drop-out we hit with PSM 4.
-    #
-    # Why not --psm 11 (sparse text): fragments every word onto its own
-    # output line, breaking the `Wait-ForText -ContainsString` substring
-    # match used by the test harness.
     # Capture stdout and stderr in a single pass. 2>&1 merges tesseract's
     # stderr (surfaced as ErrorRecord objects) into the success stream, so a
     # failure is diagnosable from THIS run's stderr -- re-running tesseract to

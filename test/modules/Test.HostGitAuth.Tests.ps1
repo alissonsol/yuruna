@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.17
+.VERSION 2026.07.21
 .GUID 4221fb98-52ab-4cf1-07e9-7351ddd76acd
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -104,7 +104,7 @@ Describe 'Invoke-GitPull -- the network git path stays prompt-proof' {
     It 'routes network git through the prompt-proof helper' {
         Assert-True ($invokeGitPullText -match 'Invoke-GitNetworkCommand') 'Invoke-GitPull must call Invoke-GitNetworkCommand for network git'
     }
-    It 'no longer issues a raw hang-prone `git ... fetch` / `git ... pull`' {
+    It 'issues no raw hang-prone `git ... fetch` / `git ... pull`' {
         # The only remaining bare `git` call is the local `config --get remote.origin.url`
         # (no network, no prompt). A raw fetch/pull is the call that hung.
         Assert-True ($invokeGitPullText -notmatch 'git\s+-C\s+\$RepoRoot\s+fetch') 'raw `git -C $RepoRoot fetch` must be gone'

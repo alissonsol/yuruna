@@ -109,7 +109,7 @@ unattended-upgrades enable flags. Both timers (apt-daily.timer + apt-daily-upgra
 
 ### Pool intent store over read-only HTTP
 
-Pool intent store (Phase 3): serve the bare git repo READ-ONLY over the LAN via apache's static (dumb-HTTP) git protocol. Pooled hosts clone/pull http://<proxy>/pool-intent.git to learn pool membership + desiredState. The repo holds only NON-SECRET intent (pools.yml / test-sets / guests.compatibility); writes go through the admin CLI on the proxy (a local/file:// path), never this HTTP route. RFC1918 only, mirroring the cachemgr access policy.
+Pool intent store: serve the bare git repo READ-ONLY over the LAN via apache's static (dumb-HTTP) git protocol. Pooled hosts clone/pull http://<proxy>/pool-intent.git to learn pool membership + desiredState. The repo holds only NON-SECRET intent (pools.yml / test-sets / guests.compatibility); writes go through the admin CLI on the proxy (a local/file:// path), never this HTTP route. RFC1918 only, mirroring the cachemgr access policy.
 
 ### Squid drop-in config approach
 
@@ -151,6 +151,22 @@ RAM + `cache_mem` + zot together -- 58 % on a smaller VM would OOM
 mid-cycle with no swap fallback. The VM-side numbers (12 GB / 4 vCPU on
 every host) are in
 [caching-proxy.md -> Cache VM sizing](caching-proxy.md#cache-vm-sizing).
+
+**Disk cache sizing.** `cache_dir ufs /var/spool/squid 393216 16 256`:
+384 GB of the 512 GB VM disk for squid (393216 MB in squid's three-int
+size/L1-dirs/L2-dirs format), leaving ~128 GB for OS, logs, and
+headroom. `ufs` is fine for a single-host dev cache; switch to
+`aufs`/`diskd` only if squid blocks on disk I/O under concurrent
+installs.
+
+**Object-size ceiling.** `maximum_object_size 65 GB` covers every
+install image yuruna currently provisions, including the macOS install
+image (~18 GB) and headroom for a 64 GB worst case (Xcode-bundled SDKs,
+full Windows Server install media, full-fat dev VM templates). Squid's
+threshold is INCLUSIVE -- anything strictly larger is silently NOT
+cached -- so the 1 GB headroom on top of 64 GB matters. Raising the
+ceiling doesn't allocate disk on its own; it only changes the rejection
+threshold.
 
 **Objects until near-full.** `cache_swap_high 99` / `cache_swap_low 98`:
 never release unless forced -- evict only when the disk is more than 99 %
@@ -241,7 +257,7 @@ Yuruna host (status server) coordinates. Baked into the seed by the platform New
 
 ### Yuruna hosts dashboard inlined
 
-Yuruna hosts dashboard (Phase 1). INLINED (like squid.json) so it deploys from the local user-data -- independent of the pool-aggregator binary build AND of any GitHub fetch/mirror -- and therefore shows from first boot ("No data" until the collector is up). Keep in sync with the lintable canonical copy at test/extension/pool-aggregator/grafana-pool-dashboard.json.
+Yuruna hosts dashboard. INLINED (like squid.json) so it deploys from the local user-data -- independent of the pool-aggregator binary build AND of any GitHub fetch/mirror -- and therefore shows from first boot ("No data" until the collector is up). Keep in sync with the lintable canonical copy at test/extension/pool-aggregator/grafana-pool-dashboard.json.
 
 ### Yuruna hosts dashboard panel autofit
 
@@ -331,7 +347,7 @@ Single-quote the echo so YAML doesn't parse `cache:` as a mapping key. cloud-ini
 
 ### Build squid-exporter and caching-proxy-parser
 
-Build and install squid-exporter + caching-proxy-parser. No apt package for either; `go install` (squid-exporter) and `go build` against fetched source (caching-proxy-parser) keep this cross-arch path working -- amd64 on Hyper-V/KVM, arm64 on UTM, no URL guessing. squid-exporter pinned to v1.13.0 for reproducibility. v1.13.0 is the cutoff: it dropped legacy `cache_mgr://` URI support and switched to Squid 7's `/squid-internal-mgr/` HTTP path. Ubuntu 26.04 (Resolute) ships Squid 7.x, which rejects the old URI; earlier pins (v1.10.5 and below) install fine, scrape clean (squid_up still publishes), but produce squid_up=0 and zero counter metrics because the request path to squid is unreachable -- every Grafana panel that queries `squid_client_http_*_total` ends up empty. See https://github.com/boynux/squid-exporter/commit/<v1.13.0> for the cache_mgr -> squid-internal-mgr swap. Both runs happen AFTER the prewarm proxy cleanup so the Go module fetch (HTTPS to proxy.golang.org + GitHub) doesn't traverse squid -- HTTP squid can't cache HTTPS without SSL-bump.
+Build and install squid-exporter + caching-proxy-parser. No apt package for either; `go install` (squid-exporter) and `go build` against fetched source (caching-proxy-parser) keep this cross-arch path working -- amd64 on Hyper-V/KVM, arm64 on UTM, no URL guessing. squid-exporter pinned to v1.13.0 for reproducibility. v1.13.0 is the cutoff: it dropped legacy `cache_mgr://` URI support and switched to Squid 7's `/squid-internal-mgr/` HTTP path. Ubuntu 26.04 (Resolute) ships Squid 7.x, which rejects the old URI; earlier pins (v1.10.5 and below) install fine, scrape clean (squid_up still publishes), but produce squid_up=0 and zero counter metrics because the request path to squid is unreachable -- every Grafana panel that queries `squid_client_http_*_total` ends up empty. See https://github.com/boynux/squid-exporter/releases/tag/v1.13.0 for the cache_mgr -> squid-internal-mgr swap. Both runs happen AFTER the prewarm proxy cleanup so the Go module fetch (HTTPS to proxy.golang.org + GitHub) doesn't traverse squid -- HTTP squid can't cache HTTPS without SSL-bump.
 
 ### Purge Go toolchain after builds
 
@@ -355,11 +371,11 @@ caching-proxy-parser fails closed (the binary may not be present if the build ab
 
 ### Enable pool-aggregator service
 
-pool-aggregator: read-only pool view (Phase 1). Soft-fail like the parser -- the binary may be absent if the build above failed; prometheus already has the pool-aggregator scrape job (it just reads 'down' until the daemon is up).
+pool-aggregator: read-only pool view. Soft-fail like the parser -- the binary may be absent if the build above failed; prometheus already has the pool-aggregator scrape job (it just reads 'down' until the daemon is up).
 
 ### Pool intent store seeding
 
-Yuruna pool intent store (Phase 3): a bare git repo pooled hosts clone + pull READ-ONLY over HTTP (the yuruna-pool-intent apache conf) to learn pool membership + desiredState. The admin CLI (run on the proxy) pushes intent here. Seeded with an empty, schema-valid pools.yml on 'main' so the first clone is non-empty + deterministic. The post-update hook keeps the dumb-HTTP info current on every push. Idempotent (re-run skips an existing repo) and soft-fail (each fallible step is `|| true`) so it can never abort the phase.
+Yuruna pool intent store: a bare git repo pooled hosts clone + pull READ-ONLY over HTTP (the yuruna-pool-intent apache conf) to learn pool membership + desiredState. The admin CLI (run on the proxy) pushes intent here. Seeded with an empty, schema-valid pools.yml on 'main' so the first clone is non-empty + deterministic. The post-update hook keeps the dumb-HTTP info current on every push. Idempotent (re-run skips an existing repo) and soft-fail (each fallible step is `|| true`) so it can never abort the phase.
 
 ### Wait for grafana-server to bind
 
@@ -417,6 +433,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.17
+Last review: 2026.07.21
 
 Back to [Yuruna](../README.md)

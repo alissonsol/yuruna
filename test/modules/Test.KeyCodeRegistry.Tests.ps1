@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.17
+.VERSION 2026.07.21
 .GUID 42d110f4-a5b7-43bd-88dd-122b508a6eb4
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -20,7 +20,7 @@
 .SYNOPSIS
     Pester coverage for Test.KeyCodeRegistry.psm1: the Get-KeyCodeMap /
     Get-KeyCodeMapKind accessors and the cross-transport invariants the
-    five key-code tables have to hold for Send-Key / Send-Text to type the
+    twelve key-code tables have to hold for Send-Key / Send-Text to type the
     same string on every backend.
 .DESCRIPTION
     The tables are data, so the tests assert the properties a typo would
@@ -43,10 +43,18 @@ function Assert-True  { param($Condition, [string]$Because='') if (-not $Conditi
 
 # Fixtures live at FILE scope, above the first Describe: a Describe body runs
 # during discovery and its variables are thrown away before any It executes.
-$allKinds     = @('UTM-Named','UTM-Char','PS2-Named','PS2-Char','X11-Named','X11-Char','KVM-Named','KVM-Char')
+$allKinds     = @('UTM-Named','UTM-Char','UTM-Chord','PS2-Named','PS2-Char','PS2-Chord',
+                  'X11-Named','X11-Char','X11-Chord','KVM-Named','KVM-Char','KVM-Chord')
 $charKinds    = @('UTM-Char','PS2-Char','X11-Char','KVM-Char')
 $namedKinds   = @('UTM-Named','PS2-Named','X11-Named','KVM-Named')
+$chordKinds   = @('UTM-Chord','PS2-Chord','X11-Chord','KVM-Chord')
 $codeCharKind = @('UTM-Char','PS2-Char','X11-Char')   # entries are [code, needsShift]
+
+# Chords every backend has to understand. Ctrl-U (VKILL) and Ctrl-C (VINTR)
+# are the tty controls the console diagnostics path uses to keep the guest's
+# line buffer clean; a chord missing from one map is a host where that
+# cleanup silently does nothing.
+$universalChordName = @('CtrlU','CtrlC')
 
 # Key names every transport has to understand: the harness sequences use them
 # on all four backends, so a name missing from one map is a step that types
@@ -67,14 +75,16 @@ function Get-CoveredChar {
 Describe 'Get-KeyCodeMapKind / Get-KeyCodeMap' {
     It 'enumerates every registered transport map' {
         $kinds = @(Get-KeyCodeMapKind)
-        Assert-Equal -Expected 8 -Actual $kinds.Count
+        Assert-Equal -Expected 12 -Actual $kinds.Count
         foreach ($k in $allKinds) {
             Assert-True ($kinds -contains $k) "Get-KeyCodeMapKind must advertise '$k'"
         }
     }
     It 'resolves every advertised kind to a populated map' -TestCases @(
-        @{ kind = 'UTM-Named' }, @{ kind = 'UTM-Char' }, @{ kind = 'PS2-Named' }, @{ kind = 'PS2-Char' }
-        @{ kind = 'X11-Named' }, @{ kind = 'X11-Char' }, @{ kind = 'KVM-Named' }, @{ kind = 'KVM-Char' }
+        @{ kind = 'UTM-Named' }, @{ kind = 'UTM-Char' }, @{ kind = 'UTM-Chord' }
+        @{ kind = 'PS2-Named' }, @{ kind = 'PS2-Char' }, @{ kind = 'PS2-Chord' }
+        @{ kind = 'X11-Named' }, @{ kind = 'X11-Char' }, @{ kind = 'X11-Chord' }
+        @{ kind = 'KVM-Named' }, @{ kind = 'KVM-Char' }, @{ kind = 'KVM-Chord' }
     ) {
         param($kind)
         $map = Get-KeyCodeMap -Kind $kind
@@ -85,7 +95,7 @@ Describe 'Get-KeyCodeMapKind / Get-KeyCodeMap' {
         # Test.Transport caches $script:PS2ScanCodes = Get-KeyCodeMap -Kind 'PS2-Named'
         # at import and reads that alias for the rest of the process. A copying
         # accessor would silently detach those aliases from the registry.
-        Assert-Equal -Expected 8 -Actual @($allKinds).Count
+        Assert-Equal -Expected 12 -Actual @($allKinds).Count
         foreach ($k in $allKinds) {
             $a = Get-KeyCodeMap -Kind $k
             $b = Get-KeyCodeMap -Kind $k
@@ -265,6 +275,89 @@ Describe 'Cross-transport coverage' {
         Assert-Equal -Expected $map['Enter']  -Actual $map['Return'] -Because 'Return is an alias of Enter'
         Assert-Equal -Expected $map['Escape'] -Actual $map['Esc']    -Because 'Esc is an alias of Escape'
         Assert-Equal -Expected 'KEY_ENTER' -Actual $map['Enter']
+    }
+    It 'defines the control chords every backend has to understand' {
+        # Guard the guard: a $null fixture would make the loops below iterate
+        # zero times and the test would pass while asserting nothing.
+        Assert-Equal -Expected 4 -Actual @($chordKinds).Count
+        Assert-Equal -Expected 2 -Actual @($universalChordName).Count
+        foreach ($kind in $chordKinds) {
+            $map = Get-KeyCodeMap -Kind $kind
+            foreach ($name in $universalChordName) {
+                Assert-True ($map.ContainsKey($name)) "'$kind' has no entry for the '$name' chord"
+            }
+        }
+    }
+    It 'keeps chords out of the scalar named maps' {
+        # Every Send-Key* backend dereferences a -Named entry as a single
+        # code. A chord parked there would be read as a truthy object and
+        # sent as one nonsense keycode, so the two families must stay
+        # disjoint.
+        foreach ($kind in $namedKinds) {
+            $map = Get-KeyCodeMap -Kind $kind
+            foreach ($name in $universalChordName) {
+                Assert-True (-not $map.ContainsKey($name)) `
+                    "'$kind' must not carry the chord '$name' -- named entries are scalars"
+            }
+        }
+    }
+    It 'builds each chord from the same base key the character map uses' {
+        # The chord tables hand-code the base key code. If they drift from the
+        # character tables, Ctrl-U stops being Ctrl-U on that transport only
+        # -- and the symptom is a stray character typed into the guest rather
+        # than an error.
+        Assert-Equal -Expected (Get-KeyCodeMap -Kind 'UTM-Char')['u'][0] `
+                     -Actual   (Get-KeyCodeMap -Kind 'UTM-Chord')['CtrlU'][1] -Because 'UTM CtrlU base key'
+        Assert-Equal -Expected (Get-KeyCodeMap -Kind 'UTM-Char')['c'][0] `
+                     -Actual   (Get-KeyCodeMap -Kind 'UTM-Chord')['CtrlC'][1] -Because 'UTM CtrlC base key'
+        Assert-Equal -Expected (Get-KeyCodeMap -Kind 'PS2-Char')['u'][0] `
+                     -Actual   (Get-KeyCodeMap -Kind 'PS2-Chord')['CtrlU'][1] -Because 'PS/2 CtrlU base key'
+        Assert-Equal -Expected (Get-KeyCodeMap -Kind 'PS2-Char')['c'][0] `
+                     -Actual   (Get-KeyCodeMap -Kind 'PS2-Chord')['CtrlC'][1] -Because 'PS/2 CtrlC base key'
+        Assert-Equal -Expected (Get-KeyCodeMap -Kind 'X11-Char')['u'][0] `
+                     -Actual   (Get-KeyCodeMap -Kind 'X11-Chord')['CtrlU'][1] -Because 'X11 CtrlU base keysym'
+        Assert-Equal -Expected (Get-KeyCodeMap -Kind 'X11-Char')['c'][0] `
+                     -Actual   (Get-KeyCodeMap -Kind 'X11-Chord')['CtrlC'][1] -Because 'X11 CtrlC base keysym'
+        Assert-Equal -Expected 'KEY_LEFTCTRL+KEY_U' -Actual (@((Get-KeyCodeMap -Kind 'KVM-Chord')['CtrlU']) -join '+')
+        Assert-Equal -Expected 'KEY_LEFTCTRL+KEY_C' -Actual (@((Get-KeyCodeMap -Kind 'KVM-Chord')['CtrlC']) -join '+')
+    }
+    It 'names the same control modifier in every chord of a transport' {
+        # A chord is [modifier, base] (plus the CGEvent flag on UTM). Both
+        # chords on a transport must hold the SAME modifier, or one of them
+        # is carrying a typo that types the base key unmodified.
+        foreach ($kind in @('UTM-Chord','PS2-Chord','X11-Chord')) {
+            $map = Get-KeyCodeMap -Kind $kind
+            Assert-Equal -Expected $map['CtrlU'][0] -Actual $map['CtrlC'][0] `
+                -Because "'$kind' must use one modifier code for both chords"
+        }
+        Assert-Equal -Expected 0x1D   -Actual (Get-KeyCodeMap -Kind 'PS2-Chord')['CtrlU'][0] -Because 'PS/2 Set 1 LCtrl make'
+        Assert-Equal -Expected 0xFFE3 -Actual (Get-KeyCodeMap -Kind 'X11-Chord')['CtrlU'][0] -Because 'XK_Control_L'
+        Assert-Equal -Expected 59     -Actual (Get-KeyCodeMap -Kind 'UTM-Chord')['CtrlU'][0] -Because 'kVK_Control'
+        foreach ($name in $universalChordName) {
+            Assert-Equal -Expected 'KEY_LEFTCTRL' -Actual (Get-KeyCodeMap -Kind 'KVM-Chord')[$name][0]
+        }
+    }
+    It 'carries the control flag, not the shift flag, on every UTM chord' {
+        # kCGEventFlagMaskControl is 0x00040000; the shift mask (0x00020000)
+        # is one bit away and would upshift the base key instead of
+        # controlling it -- Ctrl-U would type 'U'.
+        $map = Get-KeyCodeMap -Kind 'UTM-Chord'
+        foreach ($name in $universalChordName) {
+            Assert-Equal -Expected 3 -Actual @($map[$name]).Count -Because "UTM chord '$name' is [mod, base, flag]"
+            Assert-Equal -Expected 0x00040000 -Actual $map[$name][2] -Because "UTM chord '$name' must set kCGEventFlagMaskControl"
+        }
+    }
+    It 'keeps every PS/2 chord code inside the make-code range' {
+        # Same reason as the named/char maps: Send-KeyHyperV derives each
+        # break code as ($make -bor 0x80), so a code with bit 7 already set
+        # would release a different key.
+        $map = Get-KeyCodeMap -Kind 'PS2-Chord'
+        foreach ($name in @([string[]]$map.Keys)) {
+            foreach ($code in @($map[$name])) {
+                Assert-True ($code -ge 0x01 -and $code -le 0x7F) `
+                    "PS2-Chord code 0x$('{0:X2}' -f [int]$code) for '$name' is outside 0x01..0x7F"
+            }
+        }
     }
     It 'never hands back a $null code for a character it claims to cover' {
         # Send-TextKvm / Send-TextHyperV test the lookup result for truthiness;

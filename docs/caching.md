@@ -98,7 +98,7 @@ pwsh .\New-VM.ps1
   downloads Ubuntu Server Resolute (amd64), converts qcow2→VHDX via
   `qemu-img`, resizes to 512 GB.
 - [New-VM.ps1](../host/windows.hyper-v/guest.caching-proxy/New-VM.ps1)
-  creates Gen 2 VM `caching-proxy` on the Yuruna-External vSwitch
+  creates Gen 2 VM `yuruna-caching-proxy` on the Yuruna-External vSwitch
   (falling back to the Default Switch when no LAN-routable NIC is
   available), attaches a cloud-init seed ISO that installs and configures
   squid, and waits until port 3128 responds. Prints the proxy URL on ready.
@@ -112,12 +112,12 @@ pwsh ./New-VM.ps1
 ```
 
 - [Get-Image.ps1](../host/macos.utm/guest.caching-proxy/Get-Image.ps1)
-  downloads arm64 qcow2, converts to raw (required by Apple
-  Virtualization), resizes to 144 GB.
+  downloads arm64 qcow2, keeps it qcow2 (a raw disk trips the macOS
+  F_PUNCHHOLE sparse-clone path), resizes to 512 GB.
 - [New-VM.ps1](../host/macos.utm/guest.caching-proxy/New-VM.ps1)
-  assembles `~/yuruna/guest.nosync/caching-proxy.utm/`
-  with `config.plist` (Apple Virtualization backend),
-  `Data/efi_vars.fd`, `Data/disk.img` (APFS-clone of the raw image),
+  assembles `~/yuruna/guest.nosync/yuruna-caching-proxy.utm/`
+  with `config.plist` (QEMU backend),
+  `Data/disk.qcow2` (APFS-clone of the qcow2 image),
   `Data/seed.iso` (cloud-init via `hdiutil`). Double-click the `.utm` to
   register it with UTM, then start.
 
@@ -151,7 +151,7 @@ for manual bridge setup and rollback.
 | Host | Method |
 |------|--------|
 | **Hyper-V** | `Get-VM yuruna-caching-proxy \| Get-VMNetworkAdapter`, or reuse the IP `New-VM.ps1` printed. |
-| **UTM** | (a) read `eth0: <ip>` at the console login; (b) `awk -F'[ =]' '/name=caching-proxy/{f=1} f && /ip_address/{print $NF; exit}' /var/db/dhcpd_leases`; (c) port-scan 192.168.64.2-30 for `:3128`. `utmctl ip-address` does **not** work for Apple Virtualization-backed VMs. |
+| **UTM** | (a) read `eth0: <ip>` at the console login; (b) `awk -F'[ =]' '/name=yuruna-caching-proxy/{f=1} f && /ip_address/{print $NF; exit}' /var/db/dhcpd_leases`; (c) port-scan 192.168.64.2-30 for `:3128`. `utmctl ip-address` does **not** work for Apple Virtualization-backed VMs. |
 | **KVM/libvirt** | `virsh -c qemu:///system domifaddr --source agent yuruna-caching-proxy` (preferred, requires qemu-guest-agent which the cloud-init user-data installs); falls back to `--source lease` for the NAT `default` network and `--source arp` for bridged networks. `Get-VMIp` in `host/ubuntu.kvm/modules/Yuruna.Host.psm1` runs the same source-of-sources lookup with loopback/link-local filtering. |
 
 ### Pre-warm on first boot
@@ -202,7 +202,7 @@ Config lives in the shared
 [`host/vmconfig/caching-proxy.base.user-data`](../host/vmconfig/caching-proxy.base.user-data)
 plus the per-host `caching-proxy.{hyperv,kvm,utm}.overlay.yml` (the overlay
 swaps only the arch-specific package list; New-VM merges them via
-`Build-CloudInitUserData`).
+`New-CloudInitUserData`).
 
 ### Never release unless needed
 
@@ -321,24 +321,52 @@ host-side DHCP re-lease that momentarily blackholes the guest's NAT
 route, or TLS jitter to the cache. These are not rate limits and clear
 within seconds, so the scripts retry with backoff (mirroring the
 `docker build` retry) instead of aborting the whole run under
-`set -euo pipefail`.
+`set -euo pipefail`. Each attempt is also stall-bounded with
+`timeout --foreground`, so a wedged pull surfaces as a retriable
+failure instead of hanging the script.
 
-### Workload registry probe
+### Workload registry local-first
 
-Before building, the workload scripts probe registry candidates in
-priority order and pick the first that can serve every base-image
-manifest the Dockerfile needs:
+`docker build` resolves every `FROM` tag inside a single invocation
+(buildkit's `load metadata` step). When that resolution targets a
+remote registry, a wedged endpoint hangs the build mid-command, where
+no retry loop can reach it. The workload scripts therefore never build
+against a remote registry:
 
-1. `${CACHE_HOST}:5000/` — zot pull-through cache (fastest, also absorbs
-   MCR TLS jitter)
-2. `mcr.microsoft.com/` — direct upstream; the survival path when the
-   cache VM is absent, unreachable, has an old config that doesn't know
-   mcr, or is otherwise unable to serve the tag
+1. Every base image the Dockerfile needs is looked up in the guest's
+   local docker store first (matched by `repo:tag` under any registry
+   prefix). Only when missing is it pulled into the store, trying
+   `${CACHE_HOST}:5000/` (zot pull-through cache — LAN-fast, absorbs
+   MCR TLS jitter) and then `mcr.microsoft.com/` — the survival path
+   when the cache VM is absent, unreachable, or unable to serve the
+   tag. Each candidate is gated by a cheap manifest GET
+   (`curl --max-time 30`) first, so a wedged registry is skipped in
+   seconds rather than consuming a pull window — and on zot that GET
+   also triggers the onDemand sync ahead of the pull. The pull itself
+   is stall-bounded (`timeout --foreground`, default 300 s,
+   overridable via `YURUNA_PULL_STALL_TIMEOUT` for slow links) as a
+   backstop against mid-stream wedges, and a candidate that stalls
+   mid-pull is dropped for the remainder of the run — a mid-stream
+   wedge is not a blip, so retrying it would burn another full bound
+   with no better odds.
+2. The images are tagged and pushed into the guest-local
+   `localhost:5000` distribution registry — the same `registry:2`
+   container the built app image is pushed to.
+3. The build runs with `--build-arg REGISTRY=localhost:5000/`, so
+   `FROM` metadata and base layers resolve over loopback only, with no
+   network dependency.
 
-The probe is a Docker Registry v2 manifest GET. On zot it also triggers
-the onDemand sync, so a cache that simply hasn't pulled the image yet
-warms up here — not mid-`docker build` where a failure is harder to
-diagnose.
+The localhost `components.yml` `buildCommand` passes the same
+`REGISTRY=<registryLocation>/` build-arg, and each component's
+`seed-base-images.ps1` pre-processor re-seeds idempotently (a manifest
+already served by the local registry is a no-op), so the
+`Set-Component` rebuild is loopback-only in every flow — guest test
+runs, book chapters, or a dev machine — not just when a workload
+script seeded first. On a machine where the base images were never
+pulled, that seed step is the single place that still touches a
+registry over the network, with the same cache-first source order.
+(The Dockerfiles' `RUN` package restores remain a separate, per-build
+network dependency.)
 
 ## Monitoring
 
@@ -466,10 +494,11 @@ twice:
 2. `pollInterval: 6h` + tagged content for `dotnet/sdk:10.0` and
    `dotnet/aspnet:10.0` — first on-demand sync of `dotnet/sdk:10.0`
    takes ~30 s end-to-end (skopeo walks the index, per-arch
-   manifests, config blobs, disk commit) and trips workload probes
-   running `curl --max-time 30` right at the boundary. The
-   scheduled pre-warm keeps the two manifests resident so
-   subsequent probes return in 0 ms.
+   manifests, config blobs, disk commit) and trips the workload
+   acquisition gate running `curl --max-time 30` right at the
+   boundary. The scheduled pre-warm keeps the two manifests
+   resident so the gate returns in 0 ms and the subsequent pull
+   starts streaming immediately.
 
 ## macOS UTM platform notes
 
@@ -893,6 +922,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.17
+Last review: 2026.07.21
 
 Back to [Yuruna](../README.md)

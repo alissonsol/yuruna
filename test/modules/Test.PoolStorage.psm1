@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.17
+.VERSION 2026.07.21
 .GUID 42c5e8a1-9b3d-4f27-8a6c-1d2e3f4a5b6c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -22,7 +22,8 @@
 # is BEST-EFFORT: a missing/unreachable/misconfigured/SLOW share never throws AND
 # never blocks the caller (the unattended test loop must keep running). Every
 # network-touching subprocess is bounded by a wall-clock cap + kill so a wedged
-# NAS can never freeze the loop. Config lives under `poolStorage` in
+# NAS can never freeze the loop. Config lives under `networkStorage`
+# (pool* keys; the replicate flag is pool.networkReplicate) in
 # test.config.yml; networkUser is also the vault key its password is fetched under.
 
 # Wall-clock caps (seconds) for the network-touching operations. These are

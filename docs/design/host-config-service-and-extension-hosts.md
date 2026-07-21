@@ -56,7 +56,7 @@ certificate (access control). One CA underpins both.
 ## 3. Why a new host-side service rather than the existing status server
 
 The credentials live in the **host vault**
-([test/status/extension/authentication/vault.yml](../../test/status/extension/authentication/vault.yml)),
+(`test/status/extension/authentication/vault.yml`, runtime-generated and git-ignored),
 resolvable only by host-side PowerShell via `Get-Password`
 ([Test.Extension / authentication default.psm1](../../test/extension/authentication/default.psm1)).
 So the serving process must run **on the host**, in PowerShell.
@@ -157,9 +157,8 @@ give the guest the host IP/port; the Config Service port is added there too.
 
 ### 4.4 Rotation flow (the problem this fixes)
 
-Currently, `New-VM.ps1` bakes `YPOOL_NAS_PASSWORD_PLACEHOLDER` once,
-([New-VM.ps1:285-289](../../host/windows.hyper-v/guest.caching-proxy/New-VM.ps1#L285-L289))
-→ a later vault rotation never reaches the running VM → replication breaks.
+Previously, `New-VM.ps1` baked the ypool-nas password once into the cloud-init seed
+→ a later vault rotation never reached the running VM → replication broke.
 
 After rotation via `Set-Password`, on the guest's next poll the
 Config Service returns the new password (resolved live), the guest rewrites the
@@ -369,6 +368,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.17
+Last review: 2026.07.21
 
 Back to [Yuruna](../../README.md)

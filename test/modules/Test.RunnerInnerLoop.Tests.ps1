@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.17
+.VERSION 2026.07.21
 .GUID 42e2607c-3d4e-4f50-8a61-7c8d9e0f1a2b
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -288,6 +288,30 @@ Describe 'Get-RunnerReloadableConfig' {
         $r = Get-RunnerReloadableConfig -Config @{ vmStart = @{ startTimeoutSeconds = 0 } } -CycleDelayFallback 30
         Assert-Equal -Expected 120 -Actual $r.VmStartTimeout -Because '0 is falsy -> default 120'
     }
+    It 'defaults guest quarantine ON with a 3-failure / 5-cycle threshold' {
+        $r = Get-RunnerReloadableConfig -Config $null -CycleDelayFallback 30
+        Assert-Equal -Expected $true -Actual $r.GuestQuarantineEnabled -Because 'quarantine default ON'
+        Assert-Equal -Expected 3     -Actual $r.GuestQuarantineFailures -Because 'default failuresToQuarantine'
+        Assert-Equal -Expected 5     -Actual $r.GuestQuarantineSkipCycles -Because 'default skipCycles'
+    }
+    It 'honors an operator-disabled quarantine block and coerces its thresholds' {
+        $cfg = @{ testCycle = @{ guestQuarantine = @{ enabled = $false; failuresToQuarantine = '2'; skipCycles = '10' } } }
+        $r = Get-RunnerReloadableConfig -Config $cfg -CycleDelayFallback 30
+        Assert-Equal -Expected $false -Actual $r.GuestQuarantineEnabled -Because 'operator disabled quarantine'
+        Assert-Equal -Expected 2      -Actual $r.GuestQuarantineFailures -Because 'operator failuresToQuarantine (int-coerced)'
+        Assert-Equal -Expected 10     -Actual $r.GuestQuarantineSkipCycles -Because 'operator skipCycles (int-coerced)'
+    }
+    It 'defaults warm-resume ON with a 2-attempt budget' {
+        $r = Get-RunnerReloadableConfig -Config $null -CycleDelayFallback 30
+        Assert-Equal -Expected $true -Actual $r.WarmResumeEnabled -Because 'warm-resume default ON'
+        Assert-Equal -Expected 2     -Actual $r.WarmResumeMaxAttempts -Because 'default maxAttempts'
+    }
+    It 'honors an operator-disabled warm-resume block and coerces maxAttempts' {
+        $cfg = @{ testCycle = @{ warmResume = @{ enabled = $false; maxAttempts = '3' } } }
+        $r = Get-RunnerReloadableConfig -Config $cfg -CycleDelayFallback 30
+        Assert-Equal -Expected $false -Actual $r.WarmResumeEnabled -Because 'operator disabled warm-resume'
+        Assert-Equal -Expected 3      -Actual $r.WarmResumeMaxAttempts -Because 'operator maxAttempts (int-coerced)'
+    }
 }
 
 Describe 'New-RunnerConfigState' {
@@ -463,6 +487,21 @@ Describe 'gitCommits array-shape (double-wrap regression guard)' {
         Assert-True (-not ($src -match '=\s*@\(\s*New-CycleGitCommitList')) `
             'New-CycleGitCommitList must NOT be wrapped in @() -- that double-wraps gitCommits to [[...]]'
     }
+    It 'the call site passes the web-resolved project URL, not the raw configured value' {
+        # repositories.projectUrl may be a local clone path or an ssh remote --
+        # valid clone sources a browser cannot open. The status page and pool
+        # dashboard only link http(s) repoUrl values, so the call site must hand
+        # New-CycleGitCommitList the Resolve-GitRepositoryWebUrl output (which
+        # falls back to the raw value when nothing resolves) or the project
+        # commit renders unlinked on every status surface.
+        $src = Get-Content -LiteralPath (Join-Path $here 'Test.RunnerInnerLoop.psm1') -Raw
+        Assert-True ($src -match 'Resolve-GitRepositoryWebUrl\s+-Url\s+\$projUrl') `
+            'the runner must resolve repositories.projectUrl to a web URL for the commit link'
+        Assert-True ($src -match '-ProjectUrl\s+\$projLinkUrl') `
+            'New-CycleGitCommitList must receive the resolved $projLinkUrl'
+        Assert-True (-not ($src -match '-ProjectGitCommit\s+\$ProjectGitCommit\s+-ProjectUrl\s+\$projUrl\b')) `
+            'the raw $projUrl must not reach New-CycleGitCommitList directly'
+    }
 }
 
 Describe 'Get-GitHubConnectivityDiagnostic' {
@@ -488,7 +527,7 @@ Describe 'Get-GitHubConnectivityDiagnostic' {
 }
 
 Describe 'Write-CycleInfraFailure' {
-    # The closure was converted to a module function. Its builders
+    # Write-CycleInfraFailure is a module function; its builders
     # (New-InfraFailureRecord/Write-YurunaStateFile/Send-CycleEventSafely/
     # Set-LastFailureSummary) are imported -Global by the runner and must resolve
     # from the module function's scope (module -> global). The closure no-ops when
@@ -678,10 +717,12 @@ Describe 'Inner-cycle control-flow shape (guest dispatch + single-pass invariant
         Assert-True ($f.DoWhileContinues -eq 0) "do/while must have 0 continue arms (a continue would re-run the single-pass body), found $($f.DoWhileContinues)"
         Assert-True ($f.LabeledFlow -eq 0) "inner cycle must have 0 labeled break/continue, found $($f.LabeledFlow)"
     }
-    It 'guest work dispatches to Invoke-GuestProvisionIteration via a 1-break + 1-continue foreach' {
+    It 'guest work dispatches to Invoke-GuestProvisionIteration via a 1-break + 2-continue foreach' {
         $f = Get-InnerCycleControlFlow -Psm1Path (Join-Path $here 'Test.RunnerInnerLoop.psm1')
         Assert-True ($f.DispatchBreaks -eq 1) "dispatch foreach must have exactly 1 break, found $($f.DispatchBreaks)"
-        Assert-True ($f.DispatchContinues -eq 1) "dispatch foreach must have exactly 1 continue, found $($f.DispatchContinues)"
+        # Two continues: the quarantine circuit-breaker skip-gate at the top of the
+        # foreach, and the $IterState.Control -eq 'continue' relay after the iteration.
+        Assert-True ($f.DispatchContinues -eq 2) "dispatch foreach must have exactly 2 continue, found $($f.DispatchContinues)"
     }
     It 'the extracted iteration signals via $IterState.Control, never a loop escape' {
         $f = Get-InnerCycleControlFlow -Psm1Path (Join-Path $here 'Test.RunnerInnerLoop.psm1')

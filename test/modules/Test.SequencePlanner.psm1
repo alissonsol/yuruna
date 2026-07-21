@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.17
+.VERSION 2026.07.21
 .GUID 42a1b2c3-d4e5-4f67-8901-bc012345677a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -232,6 +232,7 @@ function Add-CyclePlanEntriesForTopLevel {
             }
         }
         $effectiveUsername = if ($effectiveVars.Contains('username')) { [string]$effectiveVars['username'] } else { '' }
+        $effectiveHostname = if ($effectiveVars.Contains('hostname')) { [string]$effectiveVars['hostname'] } else { '' }
         $Entries.Add([pscustomobject]@{
             topLevel            = $TopName
             guestKey            = $guestKey
@@ -240,6 +241,7 @@ function Add-CyclePlanEntriesForTopLevel {
             workloadSequences   = @($workSeqs.ToArray())
             effectiveVariables  = $effectiveVars
             effectiveUsername   = $effectiveUsername
+            effectiveHostname   = $effectiveHostname
             keystrokeMechanism  = $guestKsm
         })
     }
@@ -411,10 +413,12 @@ function Get-CyclePlanSequencesForGuest {
     # When two top-levels both depend on the same guest, the FIRST entry's
     # effectiveVariables win for keys they share (plan order = order top-
     # levels appear in project/test/test.runner.yml). Other entries fill
-    # in keys the first one didn't declare. The 'username' shortcut is
-    # surfaced separately because every guest needs one for New-VM.
+    # in keys the first one didn't declare. The 'username' and 'hostname'
+    # shortcuts are surfaced separately because both feed New-VM directly
+    # (the cloud-init account and the guest's local-hostname).
     $mergedVars     = [ordered]@{}
     $mergedUsername = ''
+    $mergedHostname = ''
     # Per-guest keystrokeMechanism (set only on pool/test-set plans). First
     # non-null across this guest's entries wins -- same first-appearance rule as
     # effectiveUsername. $null on the legacy single-host path (the field is absent
@@ -434,6 +438,7 @@ function Get-CyclePlanSequencesForGuest {
             }
         }
         if (-not $mergedUsername -and $e.effectiveUsername) { $mergedUsername = $e.effectiveUsername }
+        if (-not $mergedHostname -and ($e.PSObject.Properties.Name -contains 'effectiveHostname') -and $e.effectiveHostname) { $mergedHostname = $e.effectiveHostname }
         if (-not $mergedKsm -and ($e.PSObject.Properties.Name -contains 'keystrokeMechanism') -and $e.keystrokeMechanism) { $mergedKsm = $e.keystrokeMechanism }
     }
     return @{
@@ -441,6 +446,7 @@ function Get-CyclePlanSequencesForGuest {
         workloadSequences   = @($work.ToArray())
         effectiveVariables  = $mergedVars
         effectiveUsername   = $mergedUsername
+        effectiveHostname   = $mergedHostname
         keystrokeMechanism  = $mergedKsm
     }
 }
@@ -455,7 +461,8 @@ function Get-CyclePlanSequencesForGuest {
     types) and produces the same per-entry shape Resolve-CyclePlan would
     have emitted for that sequence:
       topLevel / guestKey / fullChain / startSequences / workloadSequences
-      / effectiveVariables / effectiveUsername / chainPaths
+      / effectiveVariables / effectiveUsername / effectiveHostname
+      / chainPaths
 
     When the named sequence has no `baseline:` block (rare -- the framework
     convention is that every workload declares the prereq it needs), the
@@ -500,7 +507,7 @@ function Resolve-NamedSequenceChain {
 
     # Resolve the OS key once. Sequences without a baseline are run
     # standalone (no prereq chain); the operator sees just the named
-    # sequence in the printed plan, matching the pre-cascade behavior.
+    # sequence in the printed plan.
     if (-not $OsKey) {
         if ($topSeq.baseline -and $topSeq.baseline.Keys.Count -gt 0) {
             $OsKey = @($topSeq.baseline.Keys)[0]
@@ -514,6 +521,7 @@ function Resolve-NamedSequenceChain {
     if (-not $OsKey) {
         $vars = if ($topSeq.variables) { $topSeq.variables } else { [ordered]@{} }
         $uname = if ($vars -is [System.Collections.IDictionary] -and $vars.Contains('username')) { [string]$vars['username'] } else { '' }
+        $hname = if ($vars -is [System.Collections.IDictionary] -and $vars.Contains('hostname')) { [string]$vars['hostname'] } else { '' }
         $paths = [ordered]@{ $SequenceName = $topPath }
         return [pscustomobject]@{
             topLevel            = $SequenceName
@@ -523,6 +531,7 @@ function Resolve-NamedSequenceChain {
             workloadSequences   = @($SequenceName)
             effectiveVariables  = $vars
             effectiveUsername   = $uname
+            effectiveHostname   = $hname
             chainPaths          = $paths
         }
     }
@@ -576,6 +585,7 @@ function Resolve-NamedSequenceChain {
         Merge-SequenceVariableCascade -Target $effectiveVars -Variables $sSeq.variables
     }
     $effectiveUsername = if ($effectiveVars.Contains('username')) { [string]$effectiveVars['username'] } else { '' }
+    $effectiveHostname = if ($effectiveVars.Contains('hostname')) { [string]$effectiveVars['hostname'] } else { '' }
 
     return [pscustomobject]@{
         topLevel            = $SequenceName
@@ -585,6 +595,7 @@ function Resolve-NamedSequenceChain {
         workloadSequences   = @($workSeqs.ToArray())
         effectiveVariables  = $effectiveVars
         effectiveUsername   = $effectiveUsername
+        effectiveHostname   = $effectiveHostname
         chainPaths          = $paths
     }
 }

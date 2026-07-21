@@ -17,7 +17,7 @@
 #
 # Rendered, prose-style companion (with per-host Yuruna.Host contract
 # notes — including the saveDiskSnapshot rename behavior and its
-# divergence across Hyper-V / KVM / UTM): see actions.md.
+# divergence across Hyper-V / KVM / UTM): see docs/test-sequences.md.
 #
 # Besides the actions below, a step may be a SNIPPET REFERENCE -- a step
 # whose only key is `snippet: <name>` (no `action:`). The loader splices
@@ -73,7 +73,7 @@ actions:
   fetchAndExecute: >
     Type a command + Enter, then wait for a completion pattern
     (freshMatch). Parameters: text (string), charDelayMs (number,
-    default 50), delaySeconds (number, drain pause before Enter,
+    default = vmCommunication.characterDelayMs), delaySeconds (number, drain pause before Enter,
     default 2), waitPattern (string), timeoutSeconds (number, OCR-wait
     deadline for waitPattern; default = vmCommunication.timeoutSeconds),
     pollSeconds (number, OCR poll interval while waiting for waitPattern;
@@ -97,12 +97,12 @@ actions:
   inputText: >
     Type a text string. Parameters: text (string), sensitive
     (boolean, masks output), charDelayMs (number, delay between chars
-    in ms, default 50). Hyper-V: uses Msvm_Keyboard.TypeText.
+    in ms, default = vmCommunication.characterDelayMs). Hyper-V: uses Msvm_Keyboard.TypeText.
 
   inputTextAndEnter: >
     Type a text string, wait, then press Enter. Parameters: text
     (string), sensitive (boolean, masks output), charDelayMs (number,
-    default 50), delaySeconds (number, default 2).
+    default = vmCommunication.characterDelayMs), delaySeconds (number, default 2).
 
   networkRelease: >
     Release the guest DHCP lease / network resources at end of sequence so
@@ -111,7 +111,7 @@ actions:
     mode types `bash /usr/local/lib/yuruna/yuruna-network.sh release` on the
     guest console for Ubuntu / Amazon Linux guests; Windows.11 is a no-op
     reminder (TODO). Parameters: text (string, optional override of the typed
-    command), charDelayMs (number, default 50).
+    command), charDelayMs (number, default = vmCommunication.characterDelayMs).
 
   passwdPrompt: >
     Like waitForAndEnter, but `text` is always treated as sensitive
@@ -125,7 +125,7 @@ actions:
     freshMatchTailLines (number, default 12), failurePatterns (string
     or string-array), text (string), tabCount (number, Tab presses
     before typing to navigate focus, default 0), charDelayMs (number,
-    default 50), delaySeconds (number, default 2).
+    default = vmCommunication.characterDelayMs), delaySeconds (number, default 2).
 
   saveDiskSnapshot: >
     Disk-only snapshot of the sequence's VM via Yuruna.Host's
@@ -236,7 +236,7 @@ actions:
     default 12), failurePatterns (string or string-array — see
     waitForText), text (string), sensitive (boolean), tabCount
     (number, Tab presses before typing to navigate focus, default 0),
-    charDelayMs (number, default 50), delaySeconds (number, default 2).
+    charDelayMs (number, default = vmCommunication.characterDelayMs), delaySeconds (number, default 2).
 
   waitForSeconds: >
     Wait a fixed number of seconds. Parameters: seconds (number).

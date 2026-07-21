@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.17
+.VERSION 2026.07.21
 .GUID 42ab19c1-07c0-4d84-be69-80c4f1c780a8
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -206,9 +206,18 @@ function Initialize-YurunaEntryPointModuleSet {
             # depends on Test.StateFile; Test.LogRotation is leaf.
             'Test.FailureTaxonomy.psm1', 'Test.EventSchema.psm1', 'Test.StateFile.psm1', 'Test.Log.psm1',
             'Test.Recovery.psm1', 'Test.Remediation.psm1', 'Test.RunnerState.psm1',
+            # Test.GuestQuarantine (circuit breaker): the runner's guest-loop
+            # skip-gate + outcome-register. Leaf; its Send-CycleEventSafely /
+            # Write-YurunaStateFileJson calls resolve at runtime and are
+            # Get-Command-guarded, so it loads cleanly after Test.Log/StateFile.
+            'Test.GuestQuarantine.psm1',
+            # Test.WarmResume: the warm-resume decision core + checkpoint reader
+            # + warm_resume event builder the runner's workload-retry loop calls.
+            # Leaf; Send-CycleEventSafely is resolved by the runner, not here.
+            'Test.WarmResume.psm1',
             'Test.SnapshotManifest.psm1', 'Test.LogRotation.psm1',
             'Test.SequencePlanner.psm1',
-            'Test.CachingProxy.psm1', 'Test.Perf.psm1',
+            'Test.CachingProxy.psm1', 'Test.CachingProxyLock.psm1', 'Test.Perf.psm1',
             'Test.HostIO.psm1', 'Test.Capability.psm1',
             # Test.PoolPlanner: resolve a pool's test-sets into this
             # host's runnable cycle plan. After Test.SequencePlanner + Test.Capability
@@ -300,7 +309,7 @@ function Initialize-YurunaEntryPointModuleSet {
             # Available's transitive imports. Per-host Yuruna.Host.psm1 lives
             # under host/<short>/modules/ and is loaded by Initialize-Yuruna-
             # Host via the contract layer -- not part of this set.
-            'Test.VMUtility.psm1', 'Test.CachingProxy.psm1',
+            'Test.VMUtility.psm1', 'Test.CachingProxy.psm1', 'Test.CachingProxyLock.psm1',
             'Test.HostContract.psm1'
         )
         PoolAdmin = @(
@@ -497,7 +506,7 @@ function Register-EntryPointCancelHandler {
         step, finally block) and surrender voluntarily.
         Register-ObjectEvent is used (not a raw .NET delegate) because
         the handler must run on the pipeline thread; see
-        [[scriptblock_timer_callback]] for the threadpool-trap that
+        feedback_scriptblock_timer_callback.md for the threadpool-trap that
         otherwise applies. Non-interactive sessions (no Console attached)
         catch the registration failure and return a state whose
         Requested flag never flips; the caller still gets a usable

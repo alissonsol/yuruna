@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.17
+.VERSION 2026.07.21
 .GUID 42f2c5e4-b9a0-4367-cd15-4e6f9b3c2d51
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -23,8 +23,9 @@
 #                                path, sequence, stepCount, globalStart)
 #                                and detect a warm-path requiresSnapshot.
 #                                Returns @{ chainEntries; chainPlan;
-#                                effectiveUser; chainTotalSteps;
-#                                requiredSnapshotId; warmPath; resolveFailed }.
+#                                effectiveUser; effectiveHost;
+#                                chainTotalSteps; requiredSnapshotId;
+#                                warmPath; resolveFailed }.
 #
 #   Invoke-TestSequenceChain  -- Run the requested step range across the
 #                                planned chain. Returns @{ ok; finishedVmName }
@@ -88,6 +89,7 @@ function Resolve-TestSequencePlan {
     if ($SequencePathOverride) { $plannerArgs.TopLevelPath = $SequencePathOverride }
     $ChainPlan = Resolve-NamedSequenceChain @plannerArgs
     $effectiveUser = $ChainPlan.effectiveUsername
+    $effectiveHost = $ChainPlan.effectiveHostname
 
     # Build (name, path, sequence, stepCount, globalStart) per chain entry
     # using the planner's chainPaths map. Re-reading the YAML here (vs.
@@ -112,6 +114,7 @@ function Resolve-TestSequencePlan {
                 chainEntries       = $null
                 chainPlan          = $ChainPlan
                 effectiveUser      = $effectiveUser
+        effectiveHost      = $effectiveHost
                 chainTotalSteps    = 0
                 requiredSnapshotId = $null
                 warmPath           = $false
@@ -185,6 +188,7 @@ function Resolve-TestSequencePlan {
                 chainEntries       = $null
                 chainPlan          = $ChainPlan
                 effectiveUser      = $effectiveUser
+        effectiveHost      = $effectiveHost
                 chainTotalSteps    = 0
                 requiredSnapshotId = $requiredSnapshotId
                 warmPath           = $false
@@ -210,6 +214,7 @@ function Resolve-TestSequencePlan {
         chainEntries       = $ChainEntries
         chainPlan          = $ChainPlan
         effectiveUser      = $effectiveUser
+        effectiveHost      = $effectiveHost
         chainTotalSteps    = $ChainTotalSteps
         requiredSnapshotId = $requiredSnapshotId
         warmPath           = $warmPath

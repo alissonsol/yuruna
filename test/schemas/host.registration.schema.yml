@@ -21,7 +21,7 @@ properties:
   schemaVersion:
     type: integer
     const: 1
-    description: Additive-only; not bumped for the nullable fields added this release.
+    description: Additive-only; nullable additive fields never bump it.
 
   hostId:
     type: string
@@ -86,15 +86,15 @@ properties:
 
   capacity:
     type: [object, "null"]
-    description: Reserved for Horizon B (F1). null until populated.
+    description: Reserved for the Horizon B resilience gates (docs/opportunities.md). null until populated.
 
   ipPool:
     type: [object, "null"]
-    description: Reserved for Horizon B (F1). null until populated.
+    description: Reserved for the Horizon B resilience gates (docs/opportunities.md). null until populated.
 
   disk:
     type: [object, "null"]
-    description: Reserved for Horizon B (F4). null until populated.
+    description: Reserved for the Horizon B resilience gates (docs/opportunities.md). null until populated.
 
   supportedGuests:
     type: [array, "null"]

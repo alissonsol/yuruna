@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.17
+.VERSION 2026.07.21
 .GUID 422c9a3d-41bb-4e8c-9b64-5f7a1d0c9a12
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -281,31 +281,17 @@ System.String. An IPv4 address if one was discovered, otherwise the VMName.
         if (Test-Path $leaseFile) {
             try {
                 $content = Get-Content $leaseFile -Raw -ErrorAction Stop
-                $blocks = [regex]::Matches($content, '\{[^}]*\}')
-                # Escape the VMName once; interpolating
-                # $([regex]::Escape($VMName)) into the -match pattern on
-                # every block would force a fresh regex compile per block.
-                $vmNameEscaped = [regex]::Escape($VMName)
-                $namePattern = "(?m)^\s*name=$vmNameEscaped\s*$"
-                # A rebuilt VM reuses its hostname, so dhcpd_leases can hold
-                # several name= blocks (live VM + stale deleted-predecessor
-                # leases). Pick the largest `lease=` expiry: the live VM keeps
-                # renewing while a dead VM's lease only ages. Returning the
-                # first match would hand back a predecessor's dead IP.
-                $bestIp = $null
-                $bestLease = -1
-                foreach ($b in $blocks) {
-                    $text = $b.Value
-                    if ($text -notmatch $namePattern) { continue }
-                    if (($text -match "(?m)^\s*ip_address=(\d+\.\d+\.\d+\.\d+)\s*$") -and (Test-Ipv4Address $Matches[1])) {
-                        $ip = [string]$Matches[1]
-                        $leaseVal = 0
-                        if ($text -match "(?m)^\s*lease=0x([0-9a-fA-F]+)\s*$") {
-                            $leaseVal = [Convert]::ToInt64($Matches[1], 16)
-                        }
-                        if ($leaseVal -ge $bestLease) { $bestLease = $leaseVal; $bestIp = $ip }
-                    }
-                }
+                # The DHCP server keys each block on the name the GUEST sent.
+                # A sequence that pins variables.hostname makes that differ
+                # from the VM name, and blocks still filed under the VM name
+                # then belong to predecessors -- they match and return a dead
+                # address rather than missing. Try the seeded hostname first,
+                # then the VM name; the shared selector applies the
+                # live-subnet and lease-expiry rules to both.
+                $pinnedHostname = Get-UtmGuestSeedHostname -VMName $VMName
+                $leaseNames = @($pinnedHostname)
+                if ($pinnedHostname -ne $VMName) { $leaseNames += $VMName }
+                $bestIp = Select-DhcpLeaseIpAddress -LeaseText $content -Name $leaseNames
                 if ($bestIp) { return $bestIp }
             } catch {
                 Write-Debug "dhcpd_leases lookup failed for ${VMName}: $_"

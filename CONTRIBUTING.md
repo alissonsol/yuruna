@@ -208,7 +208,7 @@ the empty `GH_TOKEN: ""` in the template is.
 
 ### 4. **Project work**
 
-  - As long as your local `frameworkUrl` configuration points to the "`yurunadev`" branch, it is business as usual with git, with the bonus of **all committed changes** being served to your guests via the "status server interceptor".
+  - As long as your local `frameworkUrl` configuration points to the "`yurunadev`" repository, it is business as usual with git, with the bonus of **all committed changes** being served to your guests via the "status server interceptor".
 
 ### 5. **Running Tests**
 
@@ -270,7 +270,7 @@ the empty `GH_TOKEN: ""` in the template is.
 ## Configuration
 
 The link between YAML config and actions per command is explained in
-[Yuruna Syntax](docs/syntax.md) and [Yuruna Architecture](docs/architecture.md). Operator tips and
+[Yuruna Architecture](docs/architecture.md). Operator tips and
 workarounds collected during development live in [Yuruna Workarounds](docs/workarounds.md).
 
 ## Guidelines
@@ -316,9 +316,13 @@ the branch and use `EXEC_BASE_URL` with `fetch-and-execute.sh`:
     ```
 
 **Cloud-init user-data**: URLs are baked into the seed ISO at
-`New-VM.ps1` time. Before running `New-VM.ps1`, edit
-`host/<short-host>/guest.*/vmconfig/user-data` and replace
-`refs/heads/main` with your branch. **Revert before opening a PR.**
+`New-VM.ps1` time from the local checkout — the `YURUNA_GITHUB_REPO` /
+`YURUNA_GITHUB_REF` placeholders in `host/vmconfig/<guest>.base.user-data`
+resolve to the framework repo and its HEAD commit, so committed branch
+changes are served automatically. The exception is
+`host/vmconfig/caching-proxy.base.user-data`, which hard-codes its fetch
+base; edit its `refs/heads/main` to your branch when testing cache-VM
+changes. **Revert before opening a PR.**
 
 ---
 
@@ -326,6 +330,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.17
+Last review: 2026.07.21
 
 Back to [Yuruna](README.md)

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.17
+.VERSION 2026.07.21
 .GUID 42759f4b-9143-4909-b379-0ff23a9fc154
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -513,8 +513,8 @@ Describe 'dispatcher command resolution' {
 
     # A source guard, because the runtime one cannot see a caller that is never
     # exercised here. Any product code invoking the bare contract verb is talking
-    # to a transport directly and skipping the dispatcher -- that is the bug this
-    # rename removed, and this is what stops it walking back in.
+    # to a transport directly, skipping the dispatcher's gates and delivery
+    # ledger; this source guard is what stops that from creeping back in.
     It 'has no product caller invoking the extension contract verb directly' {
         $root    = Split-Path -Parent (Split-Path -Parent $here)
         $sources = @(

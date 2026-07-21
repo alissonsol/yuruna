@@ -4,7 +4,7 @@
 > what each shows, how they relate, and where each was derived from.
 
 This set is **generated from source** and meant to be regenerated as the
-code evolves; see the prompt that produced it. For the canonical prose
+code evolves. For the canonical prose
 architecture (the three capabilities and the three-phase model) read
 [Yuruna Architecture](../architecture.md) — these diagrams visualize it,
 they do not restate it.
@@ -80,4 +80,4 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.17
+Last review: 2026.07.21

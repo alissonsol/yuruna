@@ -43,7 +43,7 @@ GitHub credentials this run doesn't have.
 
 ### Release pinning + signed integrity
 
-`VERSION` (bare CalVer, e.g. `2026.07.17`) is the source of truth for releases.
+`VERSION` (bare CalVer, e.g. `2026.07.21`) is the source of truth for releases.
 At release time `tools/Update-YurunaReleasePins.ps1` regenerates
 `install/install.sha256`, signs it (`install/install.sha256.sig`, RSA-4096),
 runs the ASCII/no-BOM gate as a hard precondition, and bumps the one tag still
@@ -66,6 +66,43 @@ The convenience one-liners stay on `refs/heads/main` (latest, UNVERIFIED). The
 on Windows PowerShell), then the hash, then run — is documented in
 [install/README.md](../install/README.md); the signing-key fingerprint is in
 [install/keys/README.md](../install/keys/README.md).
+
+### Tolerating a v-prefixed tag ref
+
+Canonical Yuruna release tags are **bare CalVer** (`YYYY.MM.DD`, no `v`), and
+the release tool (`tools/Update-YurunaReleasePins.ps1`) validates `VERSION` as
+bare CalVer and refuses to create a `v`-variant. A human, a tool, or a
+`-YurunaBranch` / `YURUNA_BRANCH=` argument can still ask for the wrong form,
+and a `v`-prefixed ref fails to resolve when only the bare CalVer tag exists.
+
+Each installer therefore runs the requested ref through a resolver
+(`Resolve-YurunaRef` / `resolve_yuruna_ref`) before cloning or checking out:
+
+- A ref that is not CalVer-shaped (`main`, a branch name) passes through
+  unchanged — there is no variant to try.
+- A CalVer-shaped ref that resolves on the remote is preferred as typed.
+- A CalVer-shaped ref that does NOT resolve, whose `v`-toggled variant DOES,
+  is swapped for the variant with a warning, so the mismatch self-heals
+  instead of failing the clone.
+- When neither form resolves, the installer warns that the pinned release tag
+  is probably not published yet (`VERSION` and the installer pin ran ahead of
+  the tag) and returns the ref unchanged, so the failure names the real cause.
+  The operator's escape hatch is `-YurunaBranch main` / `YURUNA_BRANCH=main`.
+
+In the shell installers the resolver returns the ref on **stdout**, so every
+warning is written to stderr — otherwise the warning text would be captured
+into `YURUNA_BRANCH` along with the ref.
+
+### Development repo tracks latest main
+
+The private development repo (`yurunadev`) is tagged only at the weekly
+release, so mid-week its pinned-CalVer default resolves to nothing. When the
+target remote's basename is `yurunadev` and the operator did **not** pin a ref
+explicitly, the installer tracks `main` (latest code) instead of the release
+tag. This is why each installer records whether the ref was supplied
+explicitly (`$script:YurunaBranchExplicit` / `YURUNA_BRANCH_EXPLICIT`) at the
+top rather than comparing against the default value later — an explicit
+request for a specific ref always wins over this fallback.
 
 ### System-requirements preflight
 
@@ -249,7 +286,8 @@ clobber local edits. Otherwise the index is emptied and `git reset
 Re-running the installer on a host that has been executing test cycles
 must not lose the dashboard's history, per-cycle log transcripts, or
 the runtime-dir state (`status.json` with `history[]`,
-`runner.gating.json`, `runner.pid`, control flags). None of those are
+`runner.gating.json`, `runner.quarantine.json`, `runner.pid`, control
+flags). None of those are
 tracked by git — per `.gitignore` every subdir under `test/status/` is
 gitignored as runtime state. The clone/update/renormalize block is
 designed to leave untracked files alone (`git rm -r --cached . &&
@@ -259,8 +297,8 @@ future regression in the renormalize logic, or a manual delete of
 `$YurunaDir` between attempts, cannot silently wipe weeks of cycle
 history.
 
-All harness runtime state lives under `test/status/<sub>/` for the
-layout introduced in the status reorg: `runtime/`, `perf/`, `log/`,
+All harness runtime state lives under `test/status/<sub>/`:
+`runtime/`, `perf/`, `log/`,
 `extension/`, `captures/`, `ssh/`. The installer preserves every subdir
 so cycle history, perf JSONL, vault state, training/sequence captures,
 and the generated SSH key pair all survive a clone/update.
@@ -540,6 +578,16 @@ from the earlier `sudo -v`, so the repair is silent on a
 correctly-installed host — the writability test short-circuits to a
 no-op.
 
+Repair triggers on any of three signals: the prefix root not writable;
+no `.git` directory under the prefix (tarball-installed Homebrew —
+independent of permissions, but on a multi-user host it strongly
+correlates with mixed-ownership subdirs from the partial prior
+install); or any standard write-target subdir non-writable — a single
+writability check on the prefix root does not catch issues in subdirs
+like `etc/bash_completion.d`, `lib/pkgconfig`, or the `share/*`
+man/completion/locale trees, so the installer samples the brew
+install/upgrade write targets directly.
+
 ### Quit UTM before cask upgrade, preserve cache if running
 
 `brew upgrade --cask utm` requires UTM closed. The installer
@@ -668,9 +716,9 @@ Variant lookup uses a regex match against `virt-install --osinfo list`
 output. Each line is `<canonical-id>, <alias1> <alias2>` — so a naive
 `grep -qx 'ubuntu24.04'` never matches because the line is actually
 `ubuntu24.04, ubuntunoble`. `osinfo_has_variant` strips the alias
-tail before exact-matching, which is what we actually want. That bug
-masked the upstream-import success and kept the warning printing in
-perpetuity before the regex fix.
+tail before exact-matching — a naive exact match masks the
+upstream-import success and keeps the warning printing in
+perpetuity.
 
 ### PowerShell apt vs tarball by architecture
 
@@ -761,6 +809,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.17
+Last review: 2026.07.21
 
 Back to [Yuruna](../README.md)

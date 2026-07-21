@@ -23,12 +23,12 @@ changes.
 
 ## Layering
 
-Both `Yuruna.Component` and the credential-provider registry now live in
+Both `Yuruna.Component` and the credential-provider registry live in
 `automation/`: the registry (the `$global:YurunaCredentialProviders`
 anchor, `Register-CredentialProvider`, `Get-CredentialProvider`, and the
 five built-in provider registrations) is in
 [`automation/Yuruna.CredentialProvider.psm1`](../automation/Yuruna.CredentialProvider.psm1),
-so the runtime component-push pipeline no longer imports from `test/` —
+so the runtime component-push pipeline never imports from `test/` —
 there is no `automation/ -> test/` import edge. The test-only helpers
 (`Get-CredentialProviderMatrix`, `Repair-Credential`,
 `Clear-CredentialProvider`) stay in
@@ -118,6 +118,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.17
+Last review: 2026.07.21
 
 Back to [Yuruna](../README.md)

@@ -186,7 +186,7 @@ as a gate failure (and, with `networkReplicate: true`, **stops the cycle from
 starting**) instead of replication silently never happening. See
 [pool-storage.md](pool-storage.md#operating--troubleshooting). Password
 characters: `a-z A-Z 0-9` and `! @ # $ % ^ & * ( ) - _ = +`; avoid quotes,
-backslash, and YAML/shell separators (`: , < > | ; ~ \``).
+backslash, and YAML/shell separators (``: , < > | ; ~ ` ``).
 
 ## pool — optional multi-host pool intent (default-off)
 
@@ -246,6 +246,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.17
+Last review: 2026.07.21
 
 Back to [Yuruna](../README.md)

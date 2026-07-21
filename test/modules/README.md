@@ -27,7 +27,7 @@ etc.). Action reference and per-host
 
 ### Where the work lives
 
-- **Runner definition** — [`project/test/test.runner.yml`](../../project/test/test.runner.yml):
+- **Runner definition** — `project/test/test.runner.yml`:
   top-level workload sequence names to drive each cycle.
 - **Per-sequence baseline** — every sequence's `baseline` field
   declares which guest OSes it supports and which prerequisite
@@ -117,6 +117,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.17
+Last review: 2026.07.21
 
 Back to [Yuruna](../../README.md)

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.17
+.VERSION 2026.07.21
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456760
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -100,7 +100,7 @@ See docs/test-config.md (networkStorage credentials).
 # Soft gate: a credential IS stored -- verify it actually AUTHENTICATES to the
 # stash share (catches a stale/wrong stored password, which the read-only check
 # above cannot). WARNING, not a hard stop: the daemon buffers locally when the
-# share is offline (stash-service-ui.md section 8.4), and the NAS may merely be
+# share is offline (stash-service.md section 8.4), and the NAS may merely be
 # transiently unreachable. Connect-YurunaPoolStorage is bounded + best-effort and
 # uses the SAME credential the seed will bake.
 if (Connect-YurunaPoolStorage -Config $stashCfg -Confirm:$false) {

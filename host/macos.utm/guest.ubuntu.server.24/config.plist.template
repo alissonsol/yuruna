@@ -154,10 +154,9 @@
 	     write lands. Without it the installer ISO sits ahead of the
 	     disk and every post-install reboot re-runs subiquity, looping
 	     the cycle.
-	     The Apple Virtualization plist (pre-QEMU-switch) avoided this
-	     by listing the disk FIRST in the Drive array; AVF's VZBootLoader
-	     boots in array order. UTM's QEMU back-end uses an explicit
-	     BootIndex instead. -->
+	     (An Apple Virtualization plist avoids this differently -- AVF's
+	     VZBootLoader boots drives in array order, so the disk is simply
+	     listed first; UTM's QEMU back-end needs the explicit BootIndex.) -->
 	<key>Drive</key>
 	<array>
 		<dict>

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.17
+.VERSION 2026.07.21
 .GUID 42b8e6a4-3d17-4c92-8f05-6a1b9d2e7c40
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -16,27 +16,9 @@
 
 #requires -version 7
 
-# Shared per-guest provisioning helpers for the host drivers: the New-VM
-# child-process runner (whose only platform variable is the host subdirectory
-# string literal) and the Get-Image console + HTML-log line writer. Defined once
-# here so a fix to the child-arg forwarding, the %-complete line filter, or the
-# log-line HTML encoding lands in one place instead of drifting across drivers.
-#
-# Each driver imports this module (non-Global) into its own scope: New-VM
-# becomes a thin wrapper that passes its constant host subdir, and Get-Image
-# calls the imported Write-GetImageLine directly. The driver-private pieces a
-# shared body cannot see -- Get-VMIp (Invoke-WaitVmIp), Get-ImagePath
-# (Invoke-GetImage), and the kvm-only Write-Information log writer -- are
-# injected as CommandInfo/scriptblocks because a name typed in THIS module
-# resolves in this module's session state, not the importing driver's; a
-# bare-name call to a driver-private command would silently fail to bind
-# (see feedback_closure_foreign_module_command_resolution.md).
-#
-# The caching-proxy probe's cross-module dependencies (Get-CachingProxyPort,
-# Test-IpAddress, Format-IpUrlHost from Yuruna.Common; Read-CachingProxyState
-# from Test.CachingProxy) are called by name, so this module owns those imports
-# itself (below) rather than assuming a driver imported them into a visible
-# scope -- mirroring the Yuruna.HostDownload.psm1 self-import pattern.
+# Shared per-guest provisioning helpers for the host drivers. Scope split,
+# the CommandInfo/scriptblock injection rule, and why this module owns its own
+# imports: docs/guest-image-setup.md#per-guest-provisioning-yurunahostprovisionpsm1
 $script:RepoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 Import-Module (Join-Path $script:RepoRoot 'automation/Yuruna.Common.psm1')       -DisableNameChecking -ErrorAction SilentlyContinue
 Import-Module (Join-Path $script:RepoRoot 'test/modules/Test.CachingProxy.psm1') -DisableNameChecking -ErrorAction SilentlyContinue
@@ -59,12 +41,13 @@ function Invoke-PerGuestNewVm {
         it is a plain -HostSubdir string param rather than an injected
         scriptblock; each driver's New-VM wrapper supplies its constant value.
 
-        -CachingProxyUrl and -Username are forwarded to the per-guest script
-        only when (a) the caller bound them AND (b) the target script declares
-        them -- this lets the contract grow new pass-through arguments without
-        breaking guests (e.g. windows.11, caching-proxy, macos.26) that do not
-        consume them. A bound -Username the script does not declare is surfaced
-        on the Verbose stream so the operator notices a dropped planner cascade.
+        -CachingProxyUrl, -Username and -Hostname are forwarded to the per-guest
+        script only when (a) the caller bound them AND (b) the target script
+        declares them -- this lets the contract grow new pass-through arguments
+        without breaking guests (e.g. windows.11, caching-proxy, macos.26) that
+        do not consume them. A bound -Username/-Hostname the script does not
+        declare is surfaced on the Verbose stream so the operator notices a
+        dropped planner cascade.
     .OUTPUTS
         [hashtable] @{ success = [bool]; errorMessage = [string] }
     #>
@@ -76,7 +59,8 @@ function Invoke-PerGuestNewVm {
         [Parameter(Mandatory)][string]$RepoRoot,
         [Parameter(Mandatory)][string]$VMName,
         [string]$CachingProxyUrl,
-        [string]$Username
+        [string]$Username,
+        [string]$Hostname
     )
     if (-not $PSCmdlet.ShouldProcess($VMName, "Create VM ($GuestKey)")) { return @{ success = $false; errorMessage = 'WhatIf' } }
     $scriptPath = Join-Path $RepoRoot (Join-Path $HostSubdir (Join-Path $GuestKey 'New-VM.ps1'))
@@ -86,15 +70,18 @@ function Invoke-PerGuestNewVm {
     $childArgs = @('-VMName', $VMName)
     $scriptAcceptsProxy    = $false
     $scriptAcceptsUsername = $false
+    $scriptAcceptsHostname = $false
     try {
         $cmdInfo = Get-Command -Name $scriptPath -ErrorAction Stop
         if ($cmdInfo.Parameters) {
             $scriptAcceptsProxy    = [bool]$cmdInfo.Parameters.ContainsKey('CachingProxyUrl')
             $scriptAcceptsUsername = [bool]$cmdInfo.Parameters.ContainsKey('Username')
+            $scriptAcceptsHostname = [bool]$cmdInfo.Parameters.ContainsKey('Hostname')
         }
     } catch {
         $scriptAcceptsProxy    = $false
         $scriptAcceptsUsername = $false
+        $scriptAcceptsHostname = $false
     }
     if ($PSBoundParameters.ContainsKey('CachingProxyUrl') -and $scriptAcceptsProxy) {
         $childArgs += @('-CachingProxyUrl', $CachingProxyUrl)
@@ -103,6 +90,11 @@ function Invoke-PerGuestNewVm {
         $childArgs += @('-Username', $Username)
     } elseif ($PSBoundParameters.ContainsKey('Username') -and $Username -and -not $scriptAcceptsUsername) {
         Write-Verbose "Cascaded -Username '$Username' NOT forwarded: $scriptPath does not declare a -Username parameter."
+    }
+    if ($PSBoundParameters.ContainsKey('Hostname') -and $Hostname -and $scriptAcceptsHostname) {
+        $childArgs += @('-Hostname', $Hostname)
+    } elseif ($PSBoundParameters.ContainsKey('Hostname') -and $Hostname -and -not $scriptAcceptsHostname) {
+        Write-Verbose "Cascaded -Hostname '$Hostname' NOT forwarded: $scriptPath does not declare a -Hostname parameter."
     }
     Write-Verbose "Running: $scriptPath $($childArgs -join ' ')"
     $output = & pwsh -NoProfile -File $scriptPath @childArgs 2>&1

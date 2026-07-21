@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.17
+.VERSION 2026.07.21
 .GUID 429eb9ac-a948-4c0b-b4f9-fc1974431076
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -27,12 +27,7 @@
 # --- REGION: https://yuruna.link/host-io#why-the-registry-uses-a-global-anchor
 # Storage: shared Test.Registry primitive; the $global:YurunaScreenshotProviders
 # anchor keeps registrations eviction-safe across -Force re-imports.
-#
-# The paired self-healing primitive is Repair-ScreenshotRing: clear
-# the in-memory ring-buffer file list so the next Wait-ForText poll
-# starts fresh against the live framebuffer, avoiding stale cached-
-# frame artifacts. Invoked (best-effort) from Wait-ForText's bounded
-# no-text self-heal after N consecutive polls with no OCR text.
+# The paired self-healing primitive is Repair-ScreenshotRing (see its help).
 
 Import-Module (Join-Path $PSScriptRoot 'Test.Registry.psm1') -Force -DisableNameChecking -Global
 

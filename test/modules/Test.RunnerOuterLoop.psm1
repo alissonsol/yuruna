@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.17
+.VERSION 2026.07.21
 .GUID 42e5f6a7-b8c9-4d12-9345-6e7f8a9b0c1d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -361,8 +361,8 @@ function Sync-ForwardEnv {
     .SYNOPSIS
         Re-assert the launch-time snapshot of YURUNA_* env vars so the
         inner sees them even if some module in this outer process
-        clobbered $env: mid-run. See [[feedback memory entry on snapshot
-        + re-assert]] for why this is not a one-shot at outer startup.
+        clobbered $env: mid-run -- which is why the snapshot is
+        re-asserted before every spawn rather than once at outer startup.
     #>
     [CmdletBinding()]
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
@@ -768,7 +768,7 @@ function Invoke-RunnerOuterLoop {
         # slow/absent NAS can NEVER delay the next cycle. The drain self-dedupes
         # (single-instance lock file), fail-fasts on an unreachable share, copies
         # every not-yet-replicated cycle atomically, and is a no-op unless
-        # poolStorage.replicate is configured. Spawn failure is non-fatal. Detach
+        # pool.networkReplicate is configured. Spawn failure is non-fatal. Detach
         # idiom mirrors Start-StatusService.ps1 (empty stdin sink on Windows so the
         # child can't pin conhost; nohup + own process group on macOS/Linux).
         try {

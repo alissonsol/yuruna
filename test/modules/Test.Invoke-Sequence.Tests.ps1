@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.17
+.VERSION 2026.07.21
 .GUID 42d7b5c1-8293-44a5-9fb6-2b3c4d5e6f70
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -79,6 +79,34 @@ Describe 'Select-SequenceStepWindow' {
     It 'returns empty for an out-of-range window or empty input' {
         Assert-Equal -Expected 0 -Actual @(Select-SequenceStepWindow -Steps (New-StepList -Count 6) -StartStep 10 -StopStep 12).Count -Because 'out of range'
         Assert-Equal -Expected 0 -Actual @(Select-SequenceStepWindow -Steps @() -StartStep 1 -StopStep 0).Count -Because 'empty input'
+    }
+}
+
+Describe 'Invoke-GuestSequenceList warm-resume threading' {
+    # The skip-until-reach path runs without touching the filesystem: sequences
+    # before the resume target are skipped (Invoke-SequenceByName never called),
+    # so a resume target that is not in the list leaves every entry skipped and
+    # must refuse to report a (false) success -- the guard under test.
+    It 'refuses success when the resume target is not in the workload list (all skipped)' {
+        $r = Invoke-GuestSequenceList -PhaseLabel 'Workload' -HostType 'host.ubuntu.kvm' -GuestKey 'g' `
+            -VMName 'test-x' -RepoRoot (Split-Path -Parent $here) -SequencesDir $here `
+            -SequenceNames @('seq.a', 'seq.b') -ResumeFromSequence 'seq.zzz' -ResumeFromStep 5
+        Assert-Equal -Expected $false -Actual $r.success -Because 'no sequence ran, so success would be false-positive'
+        Assert-True ($r.errorMessage -like '*not found in the workload list*') 'errorMessage names the missing resume target'
+    }
+    It 'treats an empty sequence list as skipped regardless of resume args' {
+        $r = Invoke-GuestSequenceList -PhaseLabel 'Workload' -HostType 'host.ubuntu.kvm' -GuestKey 'g' `
+            -VMName 'test-x' -RepoRoot (Split-Path -Parent $here) -SequencesDir $here `
+            -SequenceNames @() -ResumeFromSequence 'seq.a' -ResumeFromStep 3
+        Assert-True $r.skipped 'empty list => skipped'
+    }
+}
+
+Describe 'Invoke-SequenceByName -StartStep' {
+    It 'exposes a -StartStep parameter (the warm-resume forward to Invoke-Sequence)' {
+        $p = (Get-Command Invoke-SequenceByName).Parameters
+        Assert-True ($p.ContainsKey('StartStep')) 'Invoke-SequenceByName must accept -StartStep'
+        Assert-Equal -Expected 'Int32' -Actual $p['StartStep'].ParameterType.Name -Because 'StartStep is an int'
     }
 }
 

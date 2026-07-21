@@ -4,7 +4,7 @@
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 # Interaction sequence for driving VM workload testing.
 # See possible actions in the actions.yml file.
-# ${vmName}, ${hostType}, ${guestKey} are built-in. ${ext:area.Method(args)}
+# ${vmName}, ${hostType}, ${guestKey}, ${hostname} are built-in. ${ext:area.Method(args)}
 # invokes the active extension under test/extension/<area>/.
 
 # Perf-log identity (see https://yuruna.link/test/perf). Bump revision on step add/remove.
@@ -37,9 +37,9 @@ steps:
         description: "OCR: Password:"
 
   - action: waitForText
-    pattern: "${username}@${vmName}"
+    pattern: "${username}@${hostname}"
     timeoutSeconds: 90
-    description: "OCR: ${username}@${vmName}"
+    description: "OCR: ${username}@${hostname}"
 
   - action: fetchAndExecute
     text: "/usr/local/lib/yuruna/fetch-and-execute.sh guest/ubuntu.server.24/ubuntu.server.24.code.sh"

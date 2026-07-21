@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.17
+.VERSION 2026.07.21
 .GUID 42e3a5b6-c7d8-4901-2345-6e7f80910213
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -114,40 +114,20 @@ function Publish-ResourceListHelper {
             else {
                 Write-Information "-- Creating: $resourceName from template $templateFolder"
             }
-            # Atomic template refresh via staging directory. Stage
-            # template + any carry-over tofu state (.terraform/,
-            # .terraform.lock.hcl, tofu.planfile) into a sibling
-            # <workFolder>.new directory, then atomic-swap via Move-Item:
-            #   1. live  -> <name>.old
-            #   2. .new  -> live
-            #   3. .old  -> trash
-            # Step 2's failure rolls .old back to live so the cycle
-            # never observes a half-applied template. A .workfolder.
-            # complete marker is written immediately after the swap so
-            # a downstream consumer can verify the staging finished.
-            # Guards against the tofu silent-cascade trap (output -json
-            # -> {} -> empty resources.output.yml -> malformed helm
-            # refs); see feedback_tofu_null_resource_provisioner_silent_cascade.md.
-            #
-            # -ErrorAction Stop on every copy: a permission blip, AV
-            # lock, or templateFolder typo aborts the resource loudly
-            # instead of silently producing an empty workFolder that
-            # the silent-cascade trap then consumes.
+            # Atomic template refresh via a staging directory, so a cycle
+            # never observes a half-applied template. Swap order, rollback,
+            # the .workfolder.complete marker, the -ErrorAction Stop rule
+            # and the tofu silent-cascade trap it guards against:
+            # docs/architecture.md#atomic-resource-work-folder-staging
+            # (feedback_tofu_null_resource_provisioner_silent_cascade.md)
             $workFolderRoot = Join-Path -Path $project_root -ChildPath ".yuruna/$config_subfolder/resources/$resourceName"
             $workFolderNew  = "$workFolderRoot.new"
             $workFolderOld  = "$workFolderRoot.old"
-            # SIGKILL recovery: the swap below is "live -> .old; .new -> live"
-            # with a PowerShell catch that rolls back if Move-Item itself throws.
-            # A process kill (watchdog SIGTERM/SIGKILL, host shutdown, BSOD)
-            # between the two moves leaves only <workFolder>.old on disk; the
-            # catch never runs. Without this guard, the staging branch below
-            # sees `Test-Path $workFolderRoot == $false`, skips the .terraform/
-            # tofu.planfile carry-over, and the next `tofu apply` runs against
-            # a freshly-created folder with no provider state -- usually
-            # destroying actual cloud resources.
-            #
-            # Detect that signature (no live, .old present) and restore
-            # before any other staging step runs.
+            # SIGKILL between the two swap moves leaves only <workFolder>.old
+            # on disk and the rollback catch never runs; restoring here, before
+            # any other staging step, keeps the next `tofu apply` from running
+            # against a stateless folder and destroying live cloud resources.
+            # Full signature: docs/architecture.md#atomic-resource-work-folder-staging
             if (-not (Test-Path -LiteralPath $workFolderRoot) -and (Test-Path -LiteralPath $workFolderOld)) {
                 Write-Verbose "Set-Resource: recovering '$resourceName' from .old (prior-cycle SIGKILL between swap moves)."
                 Move-Item -LiteralPath $workFolderOld -Destination $workFolderRoot -Force
@@ -249,14 +229,9 @@ function Publish-ResourceListHelper {
             }
 
             Write-Debug "OpenTofu init"
-            # Exponential backoff with jitter shared with the guest-side
-            # automation/yuruna-retry.sh (Yuruna.Retry.psm1). Defaults
-            # (5 attempts, 10s initial delay, *=2, +/-25% jitter) widen
-            # the retry window past github.com's typical 5xx blip so a
-            # transient provider-download failure no longer fails the
-            # cycle. TF_PLUGIN_CACHE_DIR (set above) ensures every
-            # subsequent attempt and every subsequent cycle reads the
-            # already-fetched plugin from disk instead of redownloading.
+            # Shared Yuruna.Retry backoff; TF_PLUGIN_CACHE_DIR (set above)
+            # keeps every later attempt off the network.
+            # docs/architecture.md#shared-transient-failure-retry-policy
             # --- REGION: https://yuruna.link/network#defining-yuruna-retry-lib
             $retryResult = Invoke-TofuInitWithRetry -ResourceName $resourceName -LogPath $tofuLogFile -RcFile $tofuRcFile
             if (-not $retryResult.Success) {
@@ -281,19 +256,16 @@ function Publish-ResourceListHelper {
                     $resolvedCommand = "tofu apply -input=false -auto-approve `"$planFile`""
                 }
                 else {
-                    # Missing planfile: fall back to a refreshing apply.
                     Write-Verbose "Planfile not found at $planFile; falling back to refreshing apply."
                     $resolvedCommand = "tofu apply -input=false -auto-approve"
                     $retryableTofu = $false
                 }
             }
-            # Retry on a transient signal only (a network blip reaching a
-            # provider / registry / data-source, or remote-state-backend lock
-            # contention); a real plan or null_resource provisioner error does
-            # not match the shared classifier and fails fast. Mirrors the
-            # tofu-init retry above and the helm/kubectl retry in
-            # Yuruna.Workload -- one Yuruna.Retry policy + classifier. The
-            # closures capture the command and predicate by value because the
+            # Retry on a transient signal only; a real plan or null_resource
+            # provisioner error does not match the shared classifier and fails
+            # fast. docs/architecture.md#shared-transient-failure-retry-policy
+            #
+            # The closures capture the command and predicate by value because the
             # retry scriptblock runs in the Yuruna.Retry module scope, which
             # cannot see this module's private Invoke-DynamicExpression import
             # by name -- so capture its CommandInfo here and invoke it via &.

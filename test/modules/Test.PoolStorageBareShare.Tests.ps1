@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.17
+.VERSION 2026.07.21
 .GUID 42b81e18-a081-4f36-a562-0f5fdfb2efbd
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -23,10 +23,10 @@
     (Get-PoolStorageBareShare) instead of being hand-rolled at every call site.
 .DESCRIPTION
     The `($x -replace '[\\/]+', '/') -replace '^/+', ''` base normalization (with
-    optional 'user@' strip and trailing-slash trim) was copy-pasted across seven
-    call sites -- the single definition of 'the same share' that mount/identity
-    checks depend on. These guards assert the base regex now appears exactly once
-    (it was in all seven copies), the helper is defined with both optional
+    optional 'user@' strip and trailing-slash trim) is the single definition of
+    'the same share' that mount/identity
+    checks depend on. These guards assert the base regex appears exactly once,
+    the helper is defined with both optional
     switches, and every share-derivation site delegates to it. Source-text only.
     Runs under Pester 4.10.1 (script-scoped throw helper).
 #>

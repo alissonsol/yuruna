@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.07.17
+# Version: 2026.07.21
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 #
@@ -87,6 +87,28 @@ _yuruna_retry() {
         else
             echo "!! ${label}: attempt $attempt/$max_attempts failed (rc=$rc): $*" >&2
         fi
+        # Transient/permanent gate (opt-in via YURUNA_RETRY_CLASSIFY = a function
+        # name): stop the ladder immediately on a classified-PERMANENT failure --
+        # a deterministic HTTP 404, a malformed URL -- instead of burning the
+        # whole budget (minutes of exponential backoff) on something that cannot
+        # succeed. Conservative by contract: the classifier returns non-zero ONLY
+        # for a clearly permanent cause; any ambiguity keeps retrying, so a
+        # healthy fetch is never turned into a hard failure by a misclassification.
+        # Classify ONCE (the curl/wget gate may re-probe the HTTP status) and
+        # record the verdict in the structured marker below.
+        local permanent=false
+        if [ -n "${YURUNA_RETRY_CLASSIFY:-}" ] && ! "$YURUNA_RETRY_CLASSIFY" "$rc"; then permanent=true; fi
+        # Structured machine-readable attempt record. A consumer greps
+        # YURUNA_RETRY lines; on the SSH verbs the host parses them into the
+        # cycle NDJSON stream (the console/OCR path keeps the guest log local).
+        # Only safe scalar fields (label is a fixed wrapper name, the rest are
+        # ints/bools) so the JSON never needs escaping. On stderr like every
+        # other diagnostic here -- stdout stays clean for `... | bash` pipelines.
+        echo "YURUNA_RETRY {\"stack\":\"bash\",\"label\":\"${label}\",\"attempt\":${attempt},\"maxAttempts\":${max_attempts},\"rc\":${rc},\"permanent\":${permanent}}" >&2
+        if [ "$permanent" = true ]; then
+            echo "!! ${label}: PERMANENT failure (rc=$rc, not retryable) -- not spending the remaining $((max_attempts - attempt)) attempt(s): $*" >&2
+            return "$rc"
+        fi
         if [ "$attempt" -lt "$max_attempts" ]; then
             # Best-effort repair before the retry (YURUNA_RETRY_HEAL): a
             # bounded attempt can be killed mid-transaction, leaving state
@@ -98,8 +120,17 @@ _yuruna_retry() {
             if [ -n "${YURUNA_RETRY_HEAL:-}" ]; then
                 bash -c "$YURUNA_RETRY_HEAL" >/dev/null 2>&1 || true
             fi
-            echo "!! ${label}: sleeping ${delay}s before retry" >&2
-            sleep "$delay"
+            # Equal jitter: sleep a random point in [delay/2, delay] instead of
+            # exactly delay, so parallel guests that failed in lock-step (a shared
+            # proxy blip, a mirror 429 burst) don't all wake and retry on the same
+            # instant and re-form the thundering herd that caused the failure.
+            # Bounded by the base delay, so it never adds wall-clock over the old
+            # fixed sleep. $RANDOM is a bash builtin (this lib is bash-only).
+            local half=$(( delay / 2 ))
+            local nap=$(( half + (RANDOM % (half + 1)) ))
+            [ "$nap" -lt 1 ] && nap=1
+            echo "!! ${label}: sleeping ${nap}s before retry (backoff ${delay}s, jittered)" >&2
+            sleep "$nap"
             delay=$((delay * 2))
         fi
         attempt=$((attempt + 1))
@@ -135,12 +166,69 @@ dnf_retry() {
 }
 
 # --- REGION: https://yuruna.link/network#defining-yuruna-retry-lib
+# Shared HTTP-status classifier for the curl/wget gates. curl -f (exit 22) and
+# wget (exit 8) both collapse EVERY HTTP error to one exit code -- a 404 and a
+# 503 are indistinguishable at that level -- so we re-probe the status: a cheap,
+# bounded, output-discarding GET that inherits the same proxy env as the real
+# fetch. Re-probing (rather than adding `-w`/`-S` to the real fetch) keeps the
+# code off the stdout that feeds the `... | bash` install pipelines. Returns 0
+# (transient: 429 / 5xx / no-answer) or 1 (permanent: other 4xx). An empty or
+# unreplicable URL is treated as transient so the gate never hardens a healthy
+# fetch into a failure.
+_yuruna_http_status_class() {
+    local url="$1"
+    [ -z "$url" ] && return 0
+    local code
+    code="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 15 "$url" 2>/dev/null || echo 000)"
+    echo "  yuruna-retry: re-probed HTTP status for ${url} = ${code}" >&2
+    case "$code" in
+        429|5[0-9][0-9]|000) return 0 ;;               # rate-limit / server error / no-answer -> transient
+        4[0-9][0-9]) return 1 ;;                        # 404/403/401/... -> permanent (retrying cannot help)
+    esac
+    return 0
+}
+
+# curl transient/permanent classifier: network / SSL / timeout codes are
+# transient (retry); a malformed URL or bad usage is permanent; an HTTP-error
+# exit (22) re-probes the status. Any unclassified code falls through to retry.
+_yuruna_classify_curl() {
+    local rc="$1"
+    case "$rc" in
+        3|43) return 1 ;;                              # malformed URL / bad usage -> permanent
+        5|6|7|16|18|28|35|52|55|56|60|92) return 0 ;;  # DNS/connect/timeout/SSL/recv/http2 -> transient
+    esac
+    if [ "$rc" -eq 22 ]; then _yuruna_http_status_class "${YURUNA_RETRY_CURL_URL:-}"; return $?; fi
+    return 0
+}
+
+# wget classifier, the exact analog of the curl one. wget has per-class exit
+# codes: 2 (command-line/parse) and 6 (authentication) are permanent; 3/4/5/7
+# (file I/O, network, SSL, protocol) are transient; 8 ("server issued an error
+# response") is the HTTP-error analog of curl's 22 and re-probes the status.
+# 1 (generic) and anything else fall through to retry.
+_yuruna_classify_wget() {
+    local rc="$1"
+    case "$rc" in
+        2|6) return 1 ;;                               # command-line/parse, auth -> permanent
+        3|4|5|7) return 0 ;;                           # file I/O, network, SSL, protocol -> transient
+    esac
+    if [ "$rc" -eq 8 ]; then _yuruna_http_status_class "${YURUNA_RETRY_WGET_URL:-}"; return $?; fi
+    return 0
+}
+
 # --speed-limit/--speed-time abort a transfer that drops below 1 KB/s for
 # 60s (curl exit 28), turning a stalled-after-headers or trickling download
 # into a retryable failure instead of an unbounded hang. Wall-clock bounds
 # would be wrong here: a large asset on a slow-but-moving link must be
-# allowed to finish.
+# allowed to finish. The transient gate fails fast on a deterministic 404
+# rather than retrying it; YURUNA_RETRY_NO_TRANSIENT_GATE=1 restores the
+# retry-everything behavior.
 curl_retry() {
+    local url="" _a
+    for _a in "$@"; do case "$_a" in http://*|https://*) url="$_a" ;; esac; done
+    local classify=_yuruna_classify_curl
+    [ -n "${YURUNA_RETRY_NO_TRANSIENT_GATE:-}" ] && classify=""
+    YURUNA_RETRY_CLASSIFY="$classify" YURUNA_RETRY_CURL_URL="$url" \
     _yuruna_retry curl_retry curl --retry 3 --retry-connrefused --retry-delay 5 \
         --speed-limit 1024 --speed-time 60 "$@"
 }
@@ -153,6 +241,11 @@ curl_retry() {
 # --read-timeout aborts when no data arrives for 60s, so a transfer stalled
 # mid-body fails into the retry ladder instead of hanging the attempt.
 wget_try() {
+    local url="" _a
+    for _a in "$@"; do case "$_a" in http://*|https://*) url="$_a" ;; esac; done
+    local classify=_yuruna_classify_wget
+    [ -n "${YURUNA_RETRY_NO_TRANSIENT_GATE:-}" ] && classify=""
+    YURUNA_RETRY_CLASSIFY="$classify" YURUNA_RETRY_WGET_URL="$url" \
     _yuruna_retry wget_try wget --tries=3 --waitretry=5 --retry-connrefused \
         --read-timeout=60 "$@"
 }
@@ -191,7 +284,7 @@ _yuruna_pwsh_attempt() {
     } >>"$log" 2>&1
 }
 
-export -f _yuruna_retry apt_retry dnf_retry curl_retry wget_try pwsh_retry _yuruna_pwsh_attempt
+export -f _yuruna_retry apt_retry dnf_retry curl_retry wget_try pwsh_retry _yuruna_pwsh_attempt _yuruna_http_status_class _yuruna_classify_curl _yuruna_classify_wget
 
 # Pull in the pinned dependency versions ($YURUNA_K8S_MINOR, etc.) so every
 # guest script that sources this retry lib also gets the version pins, with

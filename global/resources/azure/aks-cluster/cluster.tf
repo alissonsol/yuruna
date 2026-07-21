@@ -1,5 +1,12 @@
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
+locals {
+  # Parse the comma-separated CIDR allow-list (a single tfvars string, since
+  # the pipeline emits every variable as a quoted string) into the list azurerm
+  # wants. trimspace + drop-empties tolerates trailing commas/spaces.
+  authorized_cidrs = [for c in split(",", var.apiServerAuthorizedCidrs) : trimspace(c) if trimspace(c) != ""]
+}
+
 resource "azurerm_kubernetes_cluster" "default" {
   name                = var.clusterName
   location            = var.resourceRegion
@@ -16,6 +23,14 @@ resource "azurerm_kubernetes_cluster" "default" {
   }
 
   role_based_access_control_enabled = true
+
+  # Restrict the public API server to the pinned admin CIDRs. Without an
+  # api_server_access_profile the API server is reachable from the whole
+  # internet. MUST include the Yuruna host's egress /32 or the deploy's kubectl
+  # is locked out.
+  api_server_access_profile {
+    authorized_ip_ranges = local.authorized_cidrs
+  }
 
   tags = {
     environment = var.resourceTags

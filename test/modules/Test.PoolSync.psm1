@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.17
+.VERSION 2026.07.21
 .GUID 42b1c2d3-e4f5-4a67-8b90-1c2d3e4f5a6b
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -33,7 +33,8 @@
 $script:PoolSyncCloneTimeoutSec = 60
 $script:PoolSyncFetchTimeoutSec = 30
 
-# Invoke-PoolSyncGit runs a git command bounded by a wall-clock cap and kills the
+# Invoke-PoolSyncGitCapture (and its exit-code wrapper Invoke-PoolSyncGit)
+# runs a git command bounded by a wall-clock cap and kills the
 # whole process tree on timeout, so a hung/unreachable remote can never block the
 # loop. stdin is closed immediately and the credential-prompt env is neutralized
 # (GIT_TERMINAL_PROMPT=0 + empty GIT_ASKPASS + GCM_INTERACTIVE=never), so a remote

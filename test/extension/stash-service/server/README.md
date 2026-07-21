@@ -215,14 +215,14 @@ typically taken by sshd, so a local daemon can't bind it; use
 - The magika detection backend is built only with `-tags magika` (the
   default is the pure-Go heuristic); ONNX Runtime + model vendoring is a
   VM-image-build concern (ui §6.1, §14).
-- **Cross-day ID reuse vs the global SQLite PRIMARY KEY** (pre-existing):
+- **Cross-day ID reuse vs the global SQLite PRIMARY KEY**:
   the allocator's uniqueness scope is per-UTC-day (SS§7/§12, IDs may repeat
   across days), but `uploads.id` is a global `PRIMARY KEY`, so a 4-char ID
   reused on a later day collides with a surviving older-day row and fails
   the upload (clean rejection — SCP exit 1 / UI 500 — no corruption). Rare
   at this tool's volume; a proper fix is a composite `(day, id)` key plus
   date-scoped `Get`/`Delete` (resolve is already date-scoped, ui §4.4), or a
-  bounded re-allocate-on-collision retry. Tracked, not addressed here.
+  bounded re-allocate-on-collision retry.
 - Cleanup / retention / aging (§12).
 - Backup / restore beyond the durable share + sidecars (§12).
 
@@ -238,6 +238,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.17
+Last review: 2026.07.21
 
 Back to [Yuruna](../../../../README.md)

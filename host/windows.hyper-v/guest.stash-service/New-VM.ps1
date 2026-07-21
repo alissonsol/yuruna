@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.17
+.VERSION 2026.07.21
 .GUID 42f1b2c3-d4e5-4f67-8901-a2b3c4d5e680
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -181,10 +181,10 @@ $ystashNas = Get-YurunaStashSeedValue -Config $tc
 $aggregatorSeedUrl = Get-PoolAggregatorSeedUrl
 
 # Render user-data from the shared base + Hyper-V overlay (host/vmconfig/
-# stash-service.*). Build-CloudInitUserData resolves placeholders with literal
+# stash-service.*). New-CloudInitUserData resolves placeholders with literal
 # .Replace(), so values carrying regex-special chars are safe.
 Import-Module (Join-Path $_repoRoot 'automation/Yuruna.CloudInitTemplate.psm1') -Force
-$UserData = Build-CloudInitUserData `
+$UserData = New-CloudInitUserData `
     -BasePath    (Join-Path $_repoRoot 'host/vmconfig/stash-service.base.user-data') `
     -OverlayPath (Join-Path $_repoRoot 'host/vmconfig/stash-service.hyperv.overlay.yml') `
     -RepoRoot    $_repoRoot `

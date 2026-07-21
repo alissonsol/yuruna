@@ -4,11 +4,10 @@ $schema: https://json-schema.org/draft/2020-12/schema
 $id: https://yuruna.com/schemas/guests.compatibility.schema.yml
 title: Yuruna guest-to-hypervisor compatibility rules
 description: >
-  Declares which hypervisors each guest can run on, so the later pool-planner can
-  pick a compatible host for a required guest. Authored now (frozen v1 shape);
-  ENFORCEMENT (gating host selection) is a later phase -- today guest availability
-  is gated only by folder existence. The hypervisor tokens match those derived in
-  the host registration record (hyper-v / kvm / utm).
+  Declares which hypervisors each guest can run on. The pool planner filters a
+  host's runnable guests with these rules (permissive when a guest has no rule;
+  folder existence and capability checks still gate). The hypervisor tokens
+  match those derived in the host registration record (hyper-v / kvm / utm).
 
 type: object
 required: [schemaVersion, rules]

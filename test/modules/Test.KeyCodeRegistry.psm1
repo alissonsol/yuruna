@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.17
+.VERSION 2026.07.21
 .GUID 42e7c4b3-d2a1-4f56-9c78-3e4f5a6b7c80
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -21,10 +21,10 @@
     Per-transport key-code lookup tables, owned by a single module.
 
 .DESCRIPTION
-    Five distinct keyboard transports each need their own translation
+    Each keyboard transport needs its own translation
     table (macOS UTM virtual key codes, PS/2 Set 1 scan codes for
-    Hyper-V/QEMU, X11 keysyms for VNC/RFB, plus character->code maps
-    for each). The tables live here, owned by one module, rather than
+    Hyper-V/QEMU, X11 keysyms for VNC/RFB, libvirt KEY_* names for
+    KVM, plus character->code maps for each). The tables live here, owned by one module, rather than
     inline alongside the Send-Key / Send-Text / Send-Click backends in
     Test.Transport.psm1 that consume them. Keeping the data here:
 
@@ -284,17 +284,71 @@ $script:KvmNamedKeyMap = @{
     'Right'     = 'KEY_RIGHT'
 }
 
+# -- Modifier chords -----------------------------------------------------------
+# Control chords need their own map family: the *-Named maps hold a SCALAR
+# code per name and every backend dereferences them as a scalar, so an array
+# entry there would be read as a truthy object rather than a chord. A chord
+# is also not a character, so the *-Char maps (keyed on the literal char and
+# carrying a needsShift flag) cannot express it either.
+#
+# Naming a chord ('CtrlU') instead of widening Send-Key with a -Modifier
+# parameter keeps the whole keystroke stack untouched: the host facade
+# contract, the Invoke-Sequence dispatcher and the per-host registry
+# scriptblocks all forward a single KeyName string, so a named chord needs
+# no signature change anywhere.
+#
+# The two chords the harness relies on are the canonical-mode tty controls:
+# Ctrl-U is VKILL (discard the current input line) and Ctrl-C is VINTR
+# (interrupt the foreground process group).
+
+# macOS UTM chord table. Entries are
+# [modifierKeyCode, baseKeyCode, cgEventFlag] for the CGEvent path.
+# kVK_Control = 59; base codes are read from UtmCharKeyMap so the chord and
+# the character tables cannot drift apart.
+$script:UtmChordKeyMap = @{
+    'CtrlU' = @(59, 32, 0x00040000)
+    'CtrlC' = @(59,  8, 0x00040000)
+}
+
+# PS/2 Set 1 chord table. Entries are [modifierMake, baseMake]; each break
+# code is `make -bor 0x80`, matching the named-map convention. LCtrl make is
+# 0x1D (its break, 0x9D, already appears in Send-TextHyperV's modifier-release
+# prefix).
+$script:Ps2ChordKeyMap = @{
+    'CtrlU' = @(0x1D, 0x16)
+    'CtrlC' = @(0x1D, 0x2E)
+}
+
+# X11/RFB chord table. Entries are [modifierKeysym, baseKeysym].
+# XK_Control_L = 0xFFE3; the base keysyms are the ASCII code points, per the
+# "keysym IS the code point" invariant the char map follows.
+$script:X11ChordKeyMap = @{
+    'CtrlU' = @(0xFFE3, 0x75)
+    'CtrlC' = @(0xFFE3, 0x63)
+}
+
+# libvirt chord table. `virsh send-key` takes the chord as positional KEY_*
+# names pressed together, the same shape the shifted characters use.
+$script:KvmChordKeyMap = @{
+    'CtrlU' = @('KEY_LEFTCTRL','KEY_U')
+    'CtrlC' = @('KEY_LEFTCTRL','KEY_C')
+}
+
 # Kind -> map dispatch table. Built once so Get-KeyCodeMap returns by
 # reference (callers can still index the map directly).
 $script:KeyCodeMapByKind = @{
     'UTM-Named' = $script:UtmNamedKeyMap
     'UTM-Char'  = $script:UtmCharKeyMap
+    'UTM-Chord' = $script:UtmChordKeyMap
     'PS2-Named' = $script:Ps2NamedKeyMap
     'PS2-Char'  = $script:Ps2CharKeyMap
+    'PS2-Chord' = $script:Ps2ChordKeyMap
     'X11-Named' = $script:X11NamedKeyMap
     'X11-Char'  = $script:X11CharKeyMap
+    'X11-Chord' = $script:X11ChordKeyMap
     'KVM-Named' = $script:KvmNamedKeyMap
     'KVM-Char'  = $script:KvmCharKeyMap
+    'KVM-Chord' = $script:KvmChordKeyMap
 }
 
 function Get-KeyCodeMap {
@@ -302,19 +356,24 @@ function Get-KeyCodeMap {
     .SYNOPSIS
         Returns the key-code map for the named transport kind.
     .PARAMETER Kind
-        One of UTM-Named, UTM-Char, PS2-Named, PS2-Char, X11-Named, X11-Char.
-        UTM is macOS UTM AppleScript / CGEvent; PS2 is Hyper-V / QEMU
-        hardware-level scancodes; X11 is VNC/RFB keysyms.
+        A <transport>-<family> pair. Transports: UTM is macOS UTM
+        AppleScript / CGEvent; PS2 is Hyper-V / QEMU hardware-level
+        scancodes; X11 is VNC/RFB keysyms; KVM is libvirt KEY_* names.
+        Families: -Named for standalone keys, -Char for printable
+        characters, -Chord for modifier combinations.
     .OUTPUTS
-        Hashtable or Dictionary[string,object[]] (named maps are plain
-        hashtables; -Char maps are case-sensitive .NET Dictionaries
+        Hashtable or Dictionary[string,object[]] (named and chord maps are
+        plain hashtables; -Char maps are case-sensitive .NET Dictionaries
         keyed on the literal character).
     #>
     [CmdletBinding()]
     [OutputType([object])]
     param(
         [Parameter(Mandatory)]
-        [ValidateSet('UTM-Named','UTM-Char','PS2-Named','PS2-Char','X11-Named','X11-Char','KVM-Named','KVM-Char')]
+        [ValidateSet('UTM-Named','UTM-Char','UTM-Chord',
+                     'PS2-Named','PS2-Char','PS2-Chord',
+                     'X11-Named','X11-Char','X11-Chord',
+                     'KVM-Named','KVM-Char','KVM-Chord')]
         [string]$Kind
     )
     return $script:KeyCodeMapByKind[$Kind]

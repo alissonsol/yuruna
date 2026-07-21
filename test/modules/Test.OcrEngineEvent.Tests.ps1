@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.17
+.VERSION 2026.07.21
 .GUID 42e3f4a5-6b7c-4d8e-9f0a-1b2c3d4e5f6a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -22,7 +22,7 @@
     soft-instrumentation event envelope is emitted through one helper, not
     hand-rebuilt at each OCR instrumentation site.
 .DESCRIPTION
-    Four sites each re-built the same shell -- the Get-Command Send-CycleEventSafely
+    Four OCR instrumentation sites emit the same guarded shell -- the Get-Command Send-CycleEventSafely
     presence guard, the UTC timestamp, failureClass='instrumentation_failure', and
     severity='soft' -- varying only the event name and payload. These AST guards
     assert the envelope lives in one Send-SoftCycleEvent helper, the four sites

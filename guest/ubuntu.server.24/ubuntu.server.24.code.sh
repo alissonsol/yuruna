@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.07.17
+# Version: 2026.07.21
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 set -euo pipefail
@@ -44,8 +44,18 @@ fi
 
 echo ""
 echo -e "\e[1;36m==== .NET SDK ====\e[0m"
-# The dotnet-sdk package is available for both amd64 and arm64 via apt
-apt_retry sudo apt-get install -y dotnet-sdk-10.0
+# Install the latest LTS SDK via Microsoft's dotnet-install.sh (no pinned
+# major). apt has no latest-tracking metapackage -- only versioned ones --
+# and from 24.04 on packages.microsoft.com no longer ships .NET for Ubuntu.
+sudo mkdir -p /usr/local/dotnet
+curl_retry -sSL "https://dot.net/v1/dotnet-install.sh${YurunaCacheContent:+?nocache=${YurunaCacheContent}}" -o /tmp/dotnet-install.sh
+chmod +x /tmp/dotnet-install.sh
+sudo bash /tmp/dotnet-install.sh --channel LTS --install-dir /usr/local/dotnet
+rm -f /tmp/dotnet-install.sh
+sudo ln -sf /usr/local/dotnet/dotnet /usr/local/bin/dotnet
+if ! grep -q 'export DOTNET_ROOT=/usr/local/dotnet' /etc/bash.bashrc 2>/dev/null; then
+  echo 'export DOTNET_ROOT=/usr/local/dotnet' | sudo tee -a /etc/bash.bashrc
+fi
 dotnet --version
 
 echo ""

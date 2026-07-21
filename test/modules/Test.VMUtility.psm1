@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.17
+.VERSION 2026.07.21
 .GUID 42a2b3c4-d5e6-4f78-9012-3a4b5c6d7e92
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -38,12 +38,12 @@
 # YurunaRuntimeDir is not recognized".
 Import-Module (Join-Path $PSScriptRoot 'Test.YurunaDir.psm1') -Force -Global
 
-# The 10 cross-host pure helpers (IP validation, proxy/port parsing, crypt hash,
-# state-file paths, admin check) now live in automation/Yuruna.Common.psm1 as the
-# single definition. Re-import it -Global here so those movers stay visible to
-# Test.VMUtility's own callers AND to Get-CachingProxyExposedPort below, which
-# calls the now-moved Get-CachingProxyPort. -Global mirrors the Test.YurunaDir
-# import above so a re-import does not evict the caller's binding into a private scope.
+# The cross-host pure helpers (IP validation, proxy/port parsing, crypt hash,
+# state-file paths, admin check) are defined once in automation/Yuruna.Common.psm1.
+# Import it -Global so they stay visible to Test.VMUtility's own callers AND to
+# Get-CachingProxyExposedPort below, which calls Get-CachingProxyPort. -Global
+# mirrors the Test.YurunaDir import above so a re-import does not evict the
+# caller's binding into a private scope.
 Import-Module (Join-Path -Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) -ChildPath 'automation' -AdditionalChildPath 'Yuruna.Common.psm1') -Global -Force
 
 function Wait-VMRunning {

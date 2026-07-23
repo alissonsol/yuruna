@@ -1,0 +1,56 @@
+# yaml-language-server: $schema=../schemas/sequence.schema.yml
+
+# LICENSEURI https://yuruna.link/license
+# Copyright (c) 2019-2026 by Alisson Sol et al.
+# Interaction sequence for driving VM workload testing.
+# See possible actions in the actions.yml file.
+# ${vmName}, ${hostType}, ${guestKey}, ${hostname} are built-in. ${ext:area.Method(args)}
+# invokes the active extension under test/extension/<area>/.
+
+# Perf-log identity (see https://yuruna.link/test/perf). Bump revision on step add/remove.
+sequenceGuid: 42f51c93-670c-4995-9034-c06c275a357e
+sequenceRevision: 2
+
+description: "Ubuntu Server 24.04: log in, install VS Code via the guest.ubuntu.server.24 workload scripts."
+keystrokeMechanism: gui
+resource:
+  ubuntu.server.24:
+    - start.guest.ubuntu.server.24
+variables:
+  username: yuuser24
+
+# component -- reach a logged-in shell.
+component:
+  - action: retry
+    maxAttempts: 2
+    description: "Login + retry"
+    steps:
+      - snippet: firstLoginPrime
+
+      - action: passwdPrompt
+        pattern: "login:"
+        timeoutSeconds: 600
+        text: "${username}"
+        description: "OCR: login:"
+
+      - action: passwdPrompt
+        pattern: "Password:"
+        text: "${ext:authentication.GetPassword(${username})}"
+        description: "OCR: Password:"
+
+  - action: waitForText
+    pattern: "${username}@${hostname}"
+    timeoutSeconds: 90
+    description: "OCR: ${username}@${hostname}"
+
+# workload -- install VS Code and return to the login prompt.
+workload:
+  - action: fetchAndExecute
+    text: "/usr/local/lib/yuruna/fetch-and-execute.sh guest/ubuntu.server.24/ubuntu.server.24.code.sh"
+    description: "ubuntu.server.24.code.sh"
+    waitPattern: "FETCHED AND EXECUTED:"
+    timeoutSeconds: 600
+
+  - action: inputTextAndEnter
+    text: "clear; exit;"
+    description: "Exit back to login"

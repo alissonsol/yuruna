@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.21
+.VERSION 2026.07.22
 .GUID 42ab19c1-07c0-4d84-be69-80c4f1c780a8
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -217,6 +217,11 @@ function Initialize-YurunaEntryPointModuleSet {
             'Test.WarmResume.psm1',
             'Test.SnapshotManifest.psm1', 'Test.LogRotation.psm1',
             'Test.SequencePlanner.psm1',
+            # Test.Orchestrator: runs an orchestration top-level (InvokeTestSequence
+            # steps) as one cycle. The runner dispatches a test.runner.yml
+            # orchestration entry to Invoke-OrchestrationSequence; leaf at load
+            # time (its callees resolve at runtime), so it loads after the planner.
+            'Test.Orchestrator.psm1',
             'Test.CachingProxy.psm1', 'Test.CachingProxyLock.psm1', 'Test.Perf.psm1',
             'Test.HostIO.psm1', 'Test.Capability.psm1',
             # Test.PoolPlanner: resolve a pool's test-sets into this

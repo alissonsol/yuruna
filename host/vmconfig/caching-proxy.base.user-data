@@ -929,7 +929,7 @@ write_files:
       NAME="${1:-stash}"
       CDIR=/etc/yuruna/host-config
       # host.env holds only host-baked YURUNA_HOST_IP/PORT (no operator free-text), so
-      # sourcing is safe (feedback_findmnt_target_and_cloudinit_env_source_traps.md);
+      # sourcing is safe;
       # operator-supplied env files must instead be sed-extracted.
       [ -r /etc/yuruna/host.env ] && . /etc/yuruna/host.env
       [ -r "$CDIR/config.env" ] && . "$CDIR/config.env"
@@ -1188,7 +1188,7 @@ write_files:
                   "matcher": { "id": "byName", "options": "Extension" },
                   "properties": [
                     { "id": "custom.width", "value": 240 },
-                    { "id": "mappings", "value": [ { "type": "value", "options": { "stash-service": { "text": "Stash service", "index": 0 } } } ] },
+                    { "id": "mappings", "value": [ { "type": "value", "options": { "stash-service": { "text": "Stash service", "index": 0 }, "pool-control": { "text": "Pool control", "index": 1 } } } ] },
                     { "id": "links", "value": [ { "title": "Open stash service UI", "url": "${__data.fields.target}", "targetBlank": true } ] }
                   ]
                 },
@@ -1219,6 +1219,7 @@ write_files:
                   "excludeByName": { "Time": true, "pool": true, "hostname": true, "Value #A": true, "__name__": true, "job": true, "instance": true },
                   "renameByName": {
                     "hostId": "Host ID",
+                    "poolGuid": "Pool ID",
                     "hostType": "Type",
                     "version": "Version",
                     "commit": "Commit",
@@ -1230,18 +1231,19 @@ write_files:
                   },
                   "indexByName": {
                     "hostId": 0,
-                    "version": 1,
-                    "commit": 2,
-                    "status": 3,
-                    "hostType": 4,
-                    "Value #D": 5,
-                    "Value #C": 6,
-                    "Value #B": 7,
-                    "cycleId": 8,
-                    "baseUrl": 9,
-                    "cycleFolderUrl": 10,
-                    "commitUrl": 11,
-                    "projectCommitUrl": 12
+                    "poolGuid": 1,
+                    "version": 2,
+                    "commit": 3,
+                    "status": 4,
+                    "hostType": 5,
+                    "Value #D": 6,
+                    "Value #C": 7,
+                    "Value #B": 8,
+                    "cycleId": 9,
+                    "baseUrl": 10,
+                    "cycleFolderUrl": 11,
+                    "commitUrl": 12,
+                    "projectCommitUrl": 13
                   }
                 }
               }
@@ -2360,7 +2362,7 @@ runcmd:
     YR_BASE="https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/"
     YR_FLAGS=""
     YR_SRC="github"
-    # Safe to source: host.env is host-baked IP/PORT only, never operator free-text -- so it cannot abort this runcmd phase (feedback_findmnt_target_and_cloudinit_env_source_traps.md).
+    # Safe to source: host.env is host-baked IP/PORT only, never operator free-text -- so it cannot abort this runcmd phase.
     if [ -r /etc/yuruna/host.env ]; then
       . /etc/yuruna/host.env
       YR_HOST="${YURUNA_HOST_IP:-}"

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.21
+.VERSION 2026.07.22
 .GUID 42a2b3c4-d5e6-4f78-9012-3a4b5c6d7e90
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -183,6 +183,77 @@ function Get-CacheVmCandidateIp {
 
 <#
 .SYNOPSIS
+    $true when the host's default-route uplink cannot carry a bridged
+    guest MAC -- the signal to build guests on NAT instead of a bridge.
+.DESCRIPTION
+    A Hyper-V External vSwitch L2-bridges the guest's own MAC onto the
+    host's physical uplink. Two uplink classes cannot forward frames for
+    that guest MAC, so a bridged guest never gets a DHCP lease and boots
+    with eth0 DOWN:
+
+      * Wi-Fi (Native 802.11) -- the AP refuses to forward frames for a
+        MAC it never authenticated.
+      * USB Ethernet adapters (PnP bus 'USB') -- the miniport does not
+        support the promiscuous / MAC-spoofing mode Hyper-V bridging
+        needs, so the guest MAC never reaches the wire even though the
+        host itself uses the adapter normally.
+
+    When either holds the caller must fall back to the Default Switch
+    (NAT + DHCP, the equivalent of UTM Shared NAT) and export any service
+    via host port-forwarders rather than a bridged LAN IP. This is the
+    Windows counterpart of host.macos.utm Test-MacUplinkNotBridgeable,
+    but the criteria differ by hypervisor: macOS/vmnet and Linux/KVM
+    bridge USB Ethernet fine (it is plain wired Ethernet to them), so
+    only Hyper-V's External vSwitch rejects it.
+
+    Resolves the physical NIC behind the default route. With
+    -AllowManagementOS the route rides a `vEthernet (<switch>)` virtual
+    adapter, so when the default-route adapter is a Hyper-V vEthernet we
+    follow the External vSwitch back to its underlying physical NIC and
+    test that adapter -- otherwise a Wi-Fi- or USB-backed External switch
+    would masquerade as a bridgeable wired NIC and defeat the whole check.
+.OUTPUTS
+    [bool] -- $false on non-Windows, no default route, or a bridgeable
+    (PCI-attached, wired) uplink.
+#>
+function Test-WindowsUplinkNotBridgeable {
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param()
+
+    if (-not $IsWindows) { return $false }
+
+    $route = Get-NetRoute -AddressFamily IPv4 -DestinationPrefix '0.0.0.0/0' -ErrorAction SilentlyContinue |
+        Where-Object { $_.NextHop -ne '0.0.0.0' -and $_.NextHop -ne '::' } |
+        Sort-Object RouteMetric, InterfaceMetric |
+        Select-Object -First 1
+    if (-not $route) { return $false }
+
+    $nic = Get-NetAdapter -InterfaceIndex $route.InterfaceIndex -ErrorAction SilentlyContinue
+    if (-not $nic) { return $false }
+
+    if ($nic.InterfaceDescription -match 'Hyper-V Virtual Ethernet') {
+        # Route rides a vEthernet: find the External vSwitch whose
+        # management-OS adapter this is ('vEthernet (<name>)'), then test
+        # the switch's underlying physical NIC.
+        $switch = Get-VMSwitch -ErrorAction SilentlyContinue |
+            Where-Object { $_.SwitchType -eq 'External' -and "vEthernet ($($_.Name))" -eq $nic.InterfaceAlias } |
+            Select-Object -First 1
+        if (-not $switch -or -not $switch.NetAdapterInterfaceDescription) { return $false }
+        $phys = Get-NetAdapter -ErrorAction SilentlyContinue |
+            Where-Object { $_.InterfaceDescription -eq $switch.NetAdapterInterfaceDescription } |
+            Select-Object -First 1
+        if (-not $phys) { return $false }
+        # Native 802.11 => Wi-Fi; PnPDeviceID 'USB\...' => USB adapter.
+        return ($phys.PhysicalMediaType -eq 'Native 802.11' -or $phys.PnPDeviceID -like 'USB\*')
+    }
+
+    # Native 802.11 => Wi-Fi; PnPDeviceID 'USB\...' => USB adapter.
+    return ($nic.PhysicalMediaType -eq 'Native 802.11' -or $nic.PnPDeviceID -like 'USB\*')
+}
+
+<#
+.SYNOPSIS
     Idempotently create (or return) the Yuruna External vSwitch bridged
     to the host's primary physical NIC.
 .DESCRIPTION
@@ -195,10 +266,13 @@ function Get-CacheVmCandidateIp {
     Hyper-V hosts; see test/Start-CachingProxy.ps1 for the long note).
 
     Picks the NIC carrying the default IPv4 route (the one with actual
-    LAN connectivity, by definition). Wi-Fi works in principle but most
-    Wi-Fi APs reject MAC addresses they didn't authenticate, so the
-    cache VM may fail DHCP or be unreachable from peers -- flagged with
-    a warning, not a hard error.
+    LAN connectivity, by definition). An uplink that can't carry a
+    bridged guest MAC is diverted to NAT instead: Wi-Fi APs reject a MAC
+    they never authenticated, and USB Ethernet miniports lack the
+    promiscuous/MAC-spoofing support bridging needs, so a bridged guest
+    fails DHCP and boots with eth0 DOWN. In those cases this returns
+    $null (see Test-WindowsUplinkNotBridgeable) so the caller falls back
+    to the Default Switch.
 
     -AllowManagementOS:$true keeps the host's own networking on the
     same physical NIC after the bridge -- without it, creating the
@@ -229,6 +303,22 @@ function Get-OrCreateYurunaExternalSwitch {
     # stray Write-Output here turned $x into a string[] and broke
     # downstream `-SwitchName` parameter binding (System.Object[] ->
     # System.String coercion failure).
+
+    # 0. Not-bridgeable-uplink divert (mirrors host.macos.utm's Shared-vs-
+    # Bridged choice keyed on Test-MacUplinkNotBridgeable). An External
+    # vSwitch bridges the guest MAC onto the uplink; Wi-Fi (802.11) and USB
+    # Ethernet adapters both refuse to carry that MAC, so on such an uplink
+    # we never bridge: return $null so the caller falls back to the Default
+    # Switch (NAT + DHCP). This supersedes any already-present External
+    # switch -- a stale one bound to a non-bridgeable uplink has a dead port
+    # (its vEthernet sits at APIPA) and would strand guests with eth0 DOWN.
+    # Cache export to the LAN then rides host port-forwarders
+    # (Test-CacheVmOnYurunaExternalSwitch -> $false -> netsh portproxy),
+    # exactly as macOS does over Wi-Fi.
+    if (Test-WindowsUplinkNotBridgeable) {
+        Write-Warning "Host default-route uplink is not bridgeable (Wi-Fi 802.11, or a USB Ethernet adapter) -- Hyper-V can't carry a bridged guest MAC over it, so guests fail DHCP and boot with eth0 DOWN. Using the Default Switch (NAT); LAN export rides host port-forwarders."
+        return $null
+    }
 
     # 1. Preferred name (default 'Yuruna-External'): use as-is if External.
     $existing = Get-VMSwitch -Name $SwitchName -ErrorAction SilentlyContinue
@@ -280,9 +370,8 @@ function Get-OrCreateYurunaExternalSwitch {
         return $null
     }
 
-    if ($nic.PhysicalMediaType -eq 'Native 802.11') {
-        Write-Warning "Default-route adapter '$($nic.InterfaceAlias)' is Wi-Fi. Hyper-V External vSwitch on Wi-Fi: most APs refuse to forward frames for MACs they didn't authenticate, so the cache VM's DHCP request may go unanswered and remote LAN clients may not reach it. If LAN reachability fails, run on a wired connection."
-    }
+    # A Wi-Fi default route was already diverted to NAT at step 0, so the
+    # NIC reached here is wired -- safe to bridge.
 
     if (-not $PSCmdlet.ShouldProcess($SwitchName, "Create External vSwitch bridged on '$($nic.InterfaceAlias)' with -AllowManagementOS")) {
         return $null
@@ -3313,7 +3402,7 @@ Export-ModuleMember -Function `
     Set-HostProxy, Clear-HostProxy, Remove-HostProxy, Get-HostProxyBackupPath, Assert-Virtualization, `
     `
     CreateIso, Get-CacheVmCandidateIp, `
-    Get-OrCreateYurunaExternalSwitch, Test-CachingProxyPort, Invoke-YurunaExternalArpProbe, `
+    Get-OrCreateYurunaExternalSwitch, Test-WindowsUplinkNotBridgeable, Test-CachingProxyPort, Invoke-YurunaExternalArpProbe, `
     Test-CacheVmOnYurunaExternalSwitch, Get-WorkingCachingProxyUrl, `
     Test-DownloadAlreadyCurrent, Resolve-CacheHostIp, `
     Save-CachedHttpUri, Assert-HyperVEnabled, `

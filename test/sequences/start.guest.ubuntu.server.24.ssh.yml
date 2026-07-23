@@ -1,0 +1,71 @@
+# yaml-language-server: $schema=../schemas/sequence.schema.yml
+
+# LICENSEURI https://yuruna.link/license
+# Copyright (c) 2019-2026 by Alisson Sol et al.
+# SSH variant of start.guest.ubuntu.server.24 (keystrokeMechanism: ssh).
+# Subiquity runs fully hands-off via interactive-sections:[], so there is
+# no Install-button dance -- a blind keystroke (OCR-free) to dismiss GRUB, then
+# SSH-wait for cloud-init to finish bringing up sshd.
+# See possible actions in the actions.yml file.
+
+# Perf-log identity (see https://yuruna.link/test/perf). Bump revision on step add/remove.
+sequenceGuid: 42bfcca2-e31d-4879-90e2-c3a034eba8bd
+sequenceRevision: 1
+
+description: "Ubuntu Server 24.04 (SSH): blind-keystroke-dismiss GRUB (OCR-free), then drive everything else over SSH once cloud-init has finished bringing up sshd."
+keystrokeMechanism: ssh
+resource:
+  ubuntu.server.24: []
+variables:
+  username: yuuser24
+
+# component -- OCR-free boot bridge, then wait for sshd and smoke-test.
+component:
+  # OCR-free boot bridge: GRUB has no sshd yet, so dismiss the boot menu with a
+  # blind keystroke (no framebuffer/OCR needed -- pressKey uses hypervisor key
+  # injection, which works headless). Two attempts cover the menu's render
+  # window; GRUB's own auto-boot timeout is the backstop if both mistime.
+  - action: waitForSeconds
+    seconds: 5
+    description: "Let the GRUB boot menu render"
+
+  - action: pressKey
+    name: Enter
+    description: "Blind-dismiss the GRUB boot menu (first attempt)"
+
+  - action: waitForSeconds
+    seconds: 8
+    description: "Pause before retry"
+
+  - action: pressKey
+    name: Enter
+    description: "Blind-dismiss the GRUB boot menu (retry)"
+
+  - action: sshWaitReady
+    timeoutSeconds: 2400
+    # Fast-fail OCR scan: if subiquity aborts (apt-get update exit 100,
+    # mirror 5xx, hash-sum mismatch) the installer drops to a shell and
+    # sshd never starts -- without this list we'd burn the full 2400 s.
+    # On match the step fails fast; the inner runner's yuruna_retry
+    # backoff then auto-retries the cycle on a fresh VM.
+    installerFailurePatterns:
+      - "install_fail.crash"
+      - "Press enter to start a shell"
+      - "An error occurred"
+    description: "Wait for SSH after autoinstall (fast-fail on subiquity crash)"
+
+  - action: sshExec
+    command: "whoami && hostname"
+    description: "Smoke test: whoami/hostname"
+
+# workload -- run the update payload, reboot into the provisioned image.
+workload:
+  - action: sshFetchAndExecute
+    command: "/usr/local/lib/yuruna/fetch-and-execute.sh guest/ubuntu.server.24/ubuntu.server.24.update.sh"
+    timeoutSeconds: 1800
+    description: "ubuntu.server.24.update.sh"
+
+  - action: sshExec
+    command: "sudo reboot now"
+    allowFailure: true
+    description: "Reboot the VM"

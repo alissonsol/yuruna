@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.21
+.VERSION 2026.07.22
 .GUID 42a9c1d2-e3f4-4567-8901-2a3b4c5d6e7f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -48,17 +48,11 @@ function Publish-ComponentList {
         $config_subfolder
     )
 
-    # Stream-routing wrapper: Invoke-ComponentCommand replays each phase's
-    # captured streams via Write-Output so the transcript stays informative,
-    # but those strings would otherwise array-wrap the manifest in this
-    # function's pipeline output and trip callers' hashtable-shape check
-    # (`$result = Publish-ComponentList ...` becomes String[]+Hashtable).
-    # We split the inner scriptblock's pipeline here: hashtables go to
-    # $state.manifest, everything else routes to the host via Out-Default
-    # (Start-Transcript in the caller still captures it).
-    # See feedback_powershell_writeoutput_pipeline_pollution.md for the trap.
-    # State held in a hashtable so the ForEach-Object child scope can
-    # mutate it; a plain `$manifest = $_` would only write the child scope.
+    # Split the inner scriptblock's pipeline: hashtables become the manifest
+    # (via $state, which the ForEach-Object child scope can mutate), and every
+    # other line routes to the host via Out-Default so replayed phase output
+    # cannot array-wrap the manifest returned to callers.
+    # --- REGION: https://yuruna.link/memory#why-publish-componentlist-splits-its-pipeline-through-a-state-hashtable
     $state = @{ manifest = $null }
     & {
     param($project_root, $config_subfolder)

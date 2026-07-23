@@ -125,6 +125,17 @@
        sequence name is the card's primary title. */
     .sequence-card .guest-name { font-size: .8125rem; font-weight: 500; }
 
+    /* Nested-run sub-tiles: a host-action stage (e.g. set-resource) that fans
+       out per-stage guest builds in child processes shows each as an indented
+       card under its parent. The left rule + indent read the nesting at a
+       glance; nested cards nest further to any depth. */
+    .nested-card {
+      margin-top: .5rem; margin-left: .75rem;
+      padding-left: .625rem; border-left: 2px solid var(--border-soft);
+    }
+    .nested-card .guest-name { font-size: .8125rem; font-weight: 500; }
+    .nested-card .nested-card { margin-top: .375rem; }
+
     /* Flexbox fallback for iOS 9 Safari (pre-grid). Each card claims
        half the row minus the inter-card gutter; the flex-wrap lets a
        narrow viewport stack them. */

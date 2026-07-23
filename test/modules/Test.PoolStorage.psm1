@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.21
+.VERSION 2026.07.22
 .GUID 42c5e8a1-9b3d-4f27-8a6c-1d2e3f4a5b6c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -1530,6 +1530,52 @@ function Get-YurunaStashSeedValue {
     return $out
 }
 
+<#
+.SYNOPSIS
+Resolves the POOL storage coordinates the pool-control VM's cloud-init seed needs -- the pool NAS share UNC (unix form), the poolNetworkUser, its vault password, and this host's id -- read from the pool networkStorage keys via Get-YurunaPoolStorageConfig -IgnoreReplicate (so the seed bakes regardless of the replicate flag, matching how the stash seed has no replicate gate). Returns empty strings when unavailable so a caller bakes blanks (the guest then degrades to no persistence); the fail-fast gate lives in Start-PoolControlServer, not here. Get-YurunaHostId and Get-Password must be loaded in the caller's session.
+#>
+function Get-YurunaPoolSeedValue {
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param([Parameter()][AllowNull()]$Config)
+    $out = @{ NetworkPath = ''; NetworkIp = ''; NetworkUser = ''; Password = ''; HostId = '' }
+    try { $out.HostId = [string](Get-YurunaHostId) } catch { Write-Verbose "pool seed hostId: $($_.Exception.Message)" }
+    if (-not $out.HostId) { $out.HostId = 'unknown-host' }
+    $cfg = $null
+    if ($Config) {
+        try { $cfg = Get-YurunaPoolStorageConfig -Config $Config -IgnoreReplicate } catch { Write-Verbose "pool seed config: $($_.Exception.Message)" }
+    }
+    if (-not $cfg) { return $out }
+    $user    = [string]$cfg.NetworkUser
+    $netPath = Get-PoolStorageUncPath -Path $cfg.NetworkPath -Style unix
+    # Refuse a value with a single quote: it would unbalance the guest's env
+    # entries and the pool-nas.cifs.cred file.
+    if (($netPath -match "'") -or ($user -match "'")) {
+        Write-Warning "poolStorage: networkPath/networkUser contains a single quote; not baking the pool NAS."
+        return $out
+    }
+    $netPwd = ''
+    if ($user -and (Test-PoolStorageVaultReady -Config $cfg -WarningAction SilentlyContinue)) {
+        try { $netPwd = [string](Get-Password -Username $user) } catch { Write-Verbose "pool seed password: $($_.Exception.Message)" }
+    }
+    $out.NetworkPath = $netPath
+    $out.NetworkUser = $user
+    $out.Password    = $netPwd
+    # Resolve the NAS hostname to an IPv4 on the HOST (where NetBIOS/DNS
+    # works). A Linux guest often cannot resolve a bare NetBIOS name like
+    # 'wserver', so the guest's cifs mount can use ip=<this> and skip name
+    # resolution. Empty when unresolvable -> guest falls back to name resolution.
+    try {
+        $server = Get-PoolStorageServerName -NetworkPath $cfg.NetworkPath
+        if ($server) {
+            $ip = [System.Net.Dns]::GetHostAddresses($server) |
+                Where-Object { $_.AddressFamily -eq 'InterNetwork' } | Select-Object -First 1
+            if ($ip) { $out.NetworkIp = $ip.IPAddressToString }
+        }
+    } catch { Write-Verbose "pool seed ip resolve: $($_.Exception.Message)" }
+    return $out
+}
+
 Export-ModuleMember -Function `
     Get-PoolStorageUncPath, Test-PoolStorageMountMatch, Get-PoolStorageServerName, `
     ConvertFrom-PoolStorageMountLine, Find-PoolStorageConflictingMount, `
@@ -1544,4 +1590,4 @@ Export-ModuleMember -Function `
     Remove-PoolStorageStaleAliasMount, Initialize-PoolStorageTargetFolder, `
     Get-PoolStorageHostFolderPath, Initialize-PoolStorageHostFolder, `
     Get-PoolStorageDrainOrder, Get-PoolStorageHealthWarning, `
-    Invoke-PoolStorageDrain, Get-YurunaStashSeedValue
+    Invoke-PoolStorageDrain, Get-YurunaStashSeedValue, Get-YurunaPoolSeedValue

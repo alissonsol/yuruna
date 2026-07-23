@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.21
+.VERSION 2026.07.22
 .GUID 42e2f3a4-b5c6-4d78-9e01-2f3a4b5c6d7e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -66,6 +66,14 @@ if (-not $open.Ok) { Write-Error "Could not open the intent store ($($t.IntentGi
 $doc  = Read-YurunaPoolsDoc -IntentDir $t.IntentDir
 $pool = Get-YurunaPoolFromDoc -Doc $doc -PoolId $PoolId
 if (-not $pool) { Write-Error "Pool '$PoolId' not found. Create it first: ./New-Pool.ps1 -PoolId $PoolId"; exit $ExitFailure }
+
+# One pool per host: reject if this hostId is already a member of a DIFFERENT pool.
+foreach ($p in @($doc['pools'])) {
+    if (($p -is [System.Collections.IDictionary]) -and ([string]$p['poolId'] -ne $PoolId) -and (@($p['members']) -contains $HostId)) {
+        Write-Error "Host $HostId is already a member of pool '$($p['poolId'])'. A host belongs to at most one pool -- remove it there first: ./Remove-HostFromPool.ps1 -PoolId $($p['poolId']) -HostId $HostId"
+        exit $ExitFailure
+    }
+}
 
 $members = @($pool['members'])
 if ($members -contains $HostId) {

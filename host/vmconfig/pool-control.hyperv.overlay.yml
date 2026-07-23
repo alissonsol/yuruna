@@ -1,0 +1,5 @@
+# LICENSEURI https://yuruna.link/license
+# Copyright (c) 2019-2026 by Alisson Sol et al.
+# Hyper-V overlay for pool-control.base.user-data.
+# Intentionally empty (no anchor sections): pool-control has no per-platform
+# divergence. Kept so a future platform-specific tweak has an obvious home.

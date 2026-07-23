@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.21
+.VERSION 2026.07.22
 .GUID 42b8e1f4-7c2a-4d09-8e3b-1a5c9f0d2e64
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -89,7 +89,10 @@ function Expand-ExtensionExpression {
     # scriptblock, so binding $vars here keeps the parameter explicitly used.
     $vars = $Variables
     $sentinel = $script:DollarSentinel
-    $pattern = '\$\{ext:([A-Za-z0-9_]+)\.([A-Za-z][A-Za-z0-9_-]*)\(([^)]*)\)\}'
+    # Area name allows hyphens (e.g. stash-service, caching-proxy-parser) --
+    # extension directories are hyphenated, so [A-Za-z0-9_] alone would leave
+    # ${ext:stash-service.Method()} unmatched and pass through verbatim.
+    $pattern = '\$\{ext:([A-Za-z0-9_-]+)\.([A-Za-z][A-Za-z0-9_-]*)\(([^)]*)\)\}'
     return [regex]::Replace($Text, $pattern, {
         param($m)
         $area    = $m.Groups[1].Value

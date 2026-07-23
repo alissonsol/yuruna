@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.21
+.VERSION 2026.07.22
 .GUID 42c04f16-a1b2-4c3d-8e4f-5a6b7c8d9e0f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -323,25 +323,10 @@ function Update-TestConfigFromTemplate {
 
     $merged = ConvertTo-MergedHashtable -Template $template -Current $current
 
-    # Validate keystrokeMechanism. Canonical values "GUI"/"SSH";
-    # recognition is case-insensitive, value is normalized to uppercase.
-    # Unrecognized values (including legacy "hypervisor") are discarded
-    # and replaced with the template default. No migration.
-    $validMechanisms = @('GUI', 'SSH')
-    $mergedComm = if ($merged -is [System.Collections.IDictionary]) { $merged['vmCommunication'] } else { $null }
-    if ($mergedComm -is [System.Collections.IDictionary] -and $mergedComm.Contains('keystrokeMechanism')) {
-        $original = "$($mergedComm['keystrokeMechanism'])"
-        $upper    = $original.ToUpperInvariant()
-        if ($upper -in $validMechanisms) {
-            if ($original -cne $upper) {
-                $mergedComm['keystrokeMechanism'] = $upper
-            }
-        } else {
-            $default = "$($template['vmCommunication']['keystrokeMechanism'])"
-            Write-Information "test.config.yml: vmCommunication.keystrokeMechanism='$original' not recognized -- resetting to '$default'." -InformationAction Continue
-            $mergedComm['keystrokeMechanism'] = $default
-        }
-    }
+    # keystrokeMechanism is no longer a machine-global config knob (it is a
+    # per-sequence attribute), so there is nothing to validate here. A stale key
+    # left in an operator's test.config.yml is inert and merges out against the
+    # template on the next canonicalising write.
 
     # Canonicalise ordering before any write/diff: every map key and scalar-array
     # element alphabetically, so a regenerated test.config.yml is byte-stable and

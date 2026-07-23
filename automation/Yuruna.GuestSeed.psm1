@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.21
+.VERSION 2026.07.22
 .GUID 42b7c8d9-e0f1-4a23-9b45-6c7d8e9f0a12
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -55,6 +55,12 @@
     [string] the apt block, byte-identical across the three platform scripts.
 #>
 function New-AptProxyBlock {
+    # Pure builder: returns the apt-block text and changes no host/system state,
+    # exactly like the shipped pure New-* cmdlets (New-Guid, New-Object,
+    # New-TimeSpan), none of which support ShouldProcess. The verb-based rule is a
+    # false positive here; adding -WhatIf/-Confirm would misrepresent the function.
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+        Justification = 'Pure text builder with no state change; New- matches New-Guid/New-Object, which also do not support ShouldProcess.')]
     [CmdletBinding()]
     [OutputType([string])]
     param(

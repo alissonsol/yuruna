@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.21
+.VERSION 2026.07.22
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456770
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -47,8 +47,7 @@ Import-Module (Join-Path $PSScriptRoot 'Test.SequenceVariable.psm1') -Global -Fo
 # Sequence-file reading + gui/ssh search-path resolution. -Global so the
 # engine's own callers (Invoke-SequenceByName, Invoke-Sequence) and the
 # external importers (Test.SequencePlanner / Test.SequenceRunner / Test-Sequence)
-# resolve the moved functions transitively. Get-SequenceMode there reads the
-# keystroke mechanism from $env:YURUNA_KEYSTROKE_MECHANISM, mirrored below.
+# resolve the moved functions transitively.
 Import-Module (Join-Path $PSScriptRoot 'Test.SequenceResolve.psm1') -Global -Force
 
 # -- Wire the host driver -----------------------------------------------------
@@ -77,12 +76,6 @@ try {
 # The config file lives one level up from this module (test/test.config.yml).
 $script:DefaultCharDelayMs      = 10
 $script:DefaultVncPort          = 5900
-$script:DefaultKeystrokeMechanism = "GUI"
-# Independence default: under keystrokeMechanism=SSH, a missing ssh/ sequence is
-# a hard error, NOT a silent run on the gui/ (OCR) sibling. Set
-# vmCommunication.allowGuiFallback=true to opt back into the legacy degrade-to-GUI
-# behavior. Keeps the SSH and GUI mechanisms independent by default.
-$script:AllowGuiFallback        = $false
 # Default poll interval for wait-style actions (waitForText, passwdPrompt,
 # fetchAndExecute, ...). A step's own `pollSeconds` overrides this; when the
 # step omits it, this global value (vmCommunication.pollSeconds) is used.
@@ -157,72 +150,25 @@ Import-Module (Join-Path $PSScriptRoot 'Test.HostIO.Kvm.psm1')    -Global -Force
 # engine edits.
 Import-Module (Join-Path $PSScriptRoot 'Test.SequenceHandler.psm1') -Global -Force
 # YURUNA_CONFIG_PATH wins over the in-tree template guess so a host running with
-# `-ConfigPath <elsewhere>` seeds its vmCommunication.* defaults -- notably
-# keystrokeMechanism, which drives gui/ vs ssh/ sequence-tree resolution below --
-# from the config it actually runs, not the in-tree template. Matches Test.Transport.
+# `-ConfigPath <elsewhere>` seeds its vmCommunication.* defaults from the config
+# it actually runs, not the in-tree template. Matches Test.Transport.
 $_configPath = if ($env:YURUNA_CONFIG_PATH) { $env:YURUNA_CONFIG_PATH } `
                else { Join-Path (Split-Path -Parent $PSScriptRoot) "test.config.yml" }
 $_cfg = Read-TestConfig -Path $_configPath
 if ($_cfg) {
     # test.config.yml keys live under the `vmCommunication` node
-    # (`characterDelayMs`, `vncPort`, `keystrokeMechanism`,
-    # `pollSeconds`, `timeoutSeconds`); per-step YAML in sequences/
-    # still uses `charDelayMs` / `pollSeconds` / `timeoutSeconds` to
-    # override these defaults for an individual step (see actions.yml).
+    # (`characterDelayMs`, `vncPort`, `pollSeconds`, `timeoutSeconds`); per-step
+    # YAML in sequences still uses `charDelayMs` / `pollSeconds` /
+    # `timeoutSeconds` to override these defaults for an individual step.
     $_comm = $_cfg.vmCommunication
     if ($_comm.characterDelayMs)   { $script:DefaultCharDelayMs        = [int]$_comm.characterDelayMs }
     if ($_comm.vncPort)            { $script:DefaultVncPort            = [int]$_comm.vncPort }
-    if ($_comm.keystrokeMechanism) { $script:DefaultKeystrokeMechanism = [string]$_comm.keystrokeMechanism }
-    if ($null -ne $_comm.allowGuiFallback) { $script:AllowGuiFallback  = [bool]$_comm.allowGuiFallback }
     if ($_comm.pollSeconds)        { $script:DefaultPollSeconds        = [int]$_comm.pollSeconds }
     if ($_comm.timeoutSeconds)     { $script:DefaultTimeoutSeconds     = [int]$_comm.timeoutSeconds }
     # 0 disables the ring buffer; we still accept it as a configured value.
     if ($null -ne $_cfg.screenHistorySize) { $script:DefaultScreenHistorySize = [int]$_cfg.screenHistorySize }
 }
-# Mirror the keystroke mechanism into an env var so Get-SequenceMode in
-# Test.SequenceResolve (which no longer shares this module's $script: scope)
-# resolves gui-vs-ssh identically -- same cross-process pattern as
-# YURUNA_LOG_LEVEL. The engine keeps $script:DefaultKeystrokeMechanism for its
-# own direct read in Invoke-Sequence.
-$env:YURUNA_KEYSTROKE_MECHANISM = $script:DefaultKeystrokeMechanism
-# Mirror the gui-fallback policy too, so Get-SequenceMode's sibling resolver in
-# Test.SequenceResolve (foreign $script: scope) gates the gui/ fallback on the
-# same value the engine reads directly below.
-$env:YURUNA_ALLOW_GUI_FALLBACK = if ($script:AllowGuiFallback) { 'true' } else { 'false' }
 Remove-Variable -Name _configPath, _cfg, _comm -ErrorAction SilentlyContinue
-
-# Per-guest keystroke mechanism. The pool runner switches GUI<->SSH per
-# guest (test-set perGuestOverrides.keystrokeMechanism). Both reads of the
-# mechanism -- the engine's direct $script:DefaultKeystrokeMechanism (path
-# resolution below) AND Get-SequenceMode's $env:YURUNA_KEYSTROKE_MECHANISM (the
-# foreign-scope mirror) -- MUST move together, so the setter writes both. The
-# getter returns the live value so the caller can capture the cycle baseline and
-# restore it between guests. No-op on the single-host path (never called).
-function Get-DefaultKeystrokeMechanism {
-    <#
-    .SYNOPSIS
-        Returns the live per-guest keystroke mechanism so a caller can capture
-        the cycle baseline and restore it between guests.
-    #>
-    [CmdletBinding()]
-    [OutputType([string])]
-    param()
-    return [string]$script:DefaultKeystrokeMechanism
-}
-
-<#
-.SYNOPSIS
-    Sets the per-guest keystroke mechanism, writing both the engine variable
-    and its environment mirror so the two reads stay in lockstep.
-#>
-function Set-EngineKeystrokeMechanism {
-    [CmdletBinding()]
-    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
-        Justification = 'Sets a transient per-guest dispatch knob (engine var + env mirror); no -WhatIf semantics for an in-loop mode switch.')]
-    param([Parameter(Mandatory)][string]$Value)
-    $script:DefaultKeystrokeMechanism = $Value
-    $env:YURUNA_KEYSTROKE_MECHANISM   = $Value
-}
 
 # Shared engine for executing interaction sequences from YAML files.
 # Action catalog, variable substitution, and on-failure artifact layout
@@ -1108,11 +1054,11 @@ function Save-DebugScreenshot {
 
 <#
 .SYNOPSIS
-    Resolves a sequence name to a mode-appropriate path and runs it.
+    Resolves a sequence name to its file and runs it.
 .DESCRIPTION
     Thin wrapper around Invoke-Sequence: takes a sequence NAME plus the
-    sequences root, resolves to gui/<Name>.yml or ssh/<Name>.yml based on
-    keystrokeMechanism (with gui fallback), and delegates to Invoke-Sequence.
+    sequences root, resolves it via Resolve-SequencePath (host-specific
+    variant first, then the plain file), and delegates to Invoke-Sequence.
     Extension scripts that iterate over a list of sequence names should call
     this instead of building paths and calling Invoke-Sequence directly; the
     future config-driven runner can then reuse this function unchanged.
@@ -1367,43 +1313,10 @@ function Invoke-Sequence {
     # in the next sequence. Seeded to the passed name; updated on $ctx.NewVMName.
     $script:SequenceFinishedVMName = $VMName
 
-    # -- SSH variant selection ----------------------------------------------
-    # Sequences live in mode-specific subfolders: sequences/gui/ and
-    # sequences/ssh/. When test.config.yml sets keystrokeMechanism="SSH"
-    # and the caller passed a path under sequences/gui/, redirect to the
-    # sequences/ssh/ sibling with the same filename. If that sibling does
-    # not exist, fall back to the gui/ file so guests without an SSH
-    # sequence yet continue to work (same degrade path as the legacy
-    # .ssh.json sibling lookup). Comparison is case-insensitive so
-    # "ssh"/"SSH" both select this branch; the canonical uppercase form
-    # is written back to test.config.yml by Invoke-TestRunner's
-    # validation step.
-    if ($script:DefaultKeystrokeMechanism -eq "SSH") {
-        $sshVariant = Get-SequenceModePath -SequencePath $SequencePath -Mode "ssh"
-        if ($sshVariant -and (Test-Path $sshVariant)) {
-            Write-Information "    keystrokeMechanism=SSH -> using SSH variant: $(Split-Path -Leaf $sshVariant)"
-            $SequencePath = $sshVariant
-        } else {
-            # SSH mechanism selected but no ssh/ sibling exists. Record the
-            # degradation either way (best-effort: Send-YurunaDegradation can be
-            # out of scope on the test-start extension import path, where the
-            # parent runner's global modules don't propagate -- see the nested-
-            # scope note at Initialize-YurunaLogDir).
-            $leaf = Split-Path -Leaf $SequencePath
-            if (Get-Command Send-YurunaDegradation -ErrorAction SilentlyContinue) {
-                Send-YurunaDegradation -Dependency 'keystroke-mechanism' -Primary 'ssh-sequence' `
-                    -Fallback 'gui-sequence' -Reason "no ssh variant for $leaf"
-            }
-            if (-not $script:AllowGuiFallback) {
-                # Independent mechanisms (the default): do NOT silently run the
-                # gui/ (OCR) sibling under an SSH config. Fail loudly so an
-                # SSH-only host doesn't get an OCR sequence it cannot drive.
-                Write-Warning "    keystrokeMechanism=SSH: no ssh/ variant for '$leaf' and vmCommunication.allowGuiFallback=false -- not falling back to gui/. Add sequences/ssh/$leaf or set allowGuiFallback: true."
-                return $false
-            }
-            Write-Information "    keystrokeMechanism=SSH: no ssh/ variant for '$leaf'; allowGuiFallback=true -- running the gui/ sequence."
-        }
-    }
+    # Sequences are flat and self-describing: gui vs ssh is chosen by the
+    # sequence's own `keystrokeMechanism` and encoded in its own steps (OCR vs
+    # sshExec), and the caller already resolved the exact file by name -- so
+    # there is no machine-global mode redirect here.
 
     if (-not (Test-Path $SequencePath)) {
         # Missing sequence file = setup error. A silent-skip return of
@@ -2185,4 +2098,4 @@ function Invoke-Sequence {
 Export-ModuleMember -Function Invoke-Sequence, Invoke-SequenceByName, Send-Text, Send-Key, Send-Click, `
     Wait-ForText, Invoke-TapOn, Save-DebugScreenshot, Write-ProgressTick, `
     Select-SequenceStepWindow, Get-SequenceFinishedVMName, Get-OcrDegradationGrace, `
-    Get-DefaultKeystrokeMechanism, Set-EngineKeystrokeMechanism, Invoke-GuestSequenceList
+    Invoke-GuestSequenceList

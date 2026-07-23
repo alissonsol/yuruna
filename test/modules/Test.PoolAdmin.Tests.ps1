@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.21
+.VERSION 2026.07.22
 .GUID 42f4a5b6-c7d8-4e90-8f12-4a5b6c7d8e90
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -52,14 +52,14 @@ $LookupDoc = [ordered]@{ schemaVersion = 1; pools = @(
 
 Describe 'Test-YurunaPoolDocValid (schema validation)' {
     It 'accepts a valid pools doc' {
-        $doc = [ordered]@{ schemaVersion = 1; pools = @(
-            [ordered]@{ poolId = 'lab'; members = @('42abcdef0123456789abcdef01234567'); desiredState = 'run' }
+        $doc = [ordered]@{ schemaVersion = 2; pools = @(
+            [ordered]@{ poolId = 'lab'; poolGuid = '42a1b2c3-d4e5-4f60-8a1b-2c3d4e5f6071'; members = @('42abcdef0123456789abcdef01234567'); desiredState = 'run' }
         ) }
         $r = Test-YurunaPoolDocValid -Doc $doc -SchemaName 'pools.schema.yml'
         Assert-True $r.Ok "valid doc should pass: $($r.Errors -join '; ')"
     }
     It 'rejects a bad poolId and an unknown desiredState' {
-        $bad = [ordered]@{ schemaVersion = 1; pools = @([ordered]@{ poolId = 'NOT VALID'; desiredState = 'banana' }) }
+        $bad = [ordered]@{ schemaVersion = 2; pools = @([ordered]@{ poolId = 'NOT VALID'; poolGuid = '42a1b2c3-d4e5-4f60-8a1b-2c3d4e5f6071'; desiredState = 'banana' }) }
         $r = Test-YurunaPoolDocValid -Doc $bad -SchemaName 'pools.schema.yml'
         # Only assert when Test-Json is present (older PS degrades to parse-only Ok).
         if (Get-Command Test-Json -ErrorAction SilentlyContinue) {
@@ -73,10 +73,13 @@ Describe 'Test-YurunaPoolDocValid (schema validation)' {
             Assert-False $r.Ok 'missing schemaVersion must fail'
         }
     }
-    It 'validates a test-set doc' {
-        $ts = [ordered]@{ schemaVersion = 1; name = 'smoke'; sequences = @('a.install'); requiredGuests = @('guest.ubuntu.server.24') }
-        $r = Test-YurunaPoolDocValid -Doc $ts -SchemaName 'test-set.schema.yml'
-        Assert-True $r.Ok "valid test-set should pass: $($r.Errors -join '; ')"
+    It 'validates a v2 pool doc with a repo-triple testSet' {
+        $good = [ordered]@{ schemaVersion = 2; pools = @([ordered]@{
+            poolId = 'lab'; poolGuid = '42a1b2c3-d4e5-4f60-8a1b-2c3d4e5f6071'
+            members = @(); testSet = [ordered]@{ name = 'p'; frameworkUrl = 'https://x/f'; projectUrl = 'https://x/p' }
+        }) }
+        $r = Test-YurunaPoolDocValid -Doc $good -SchemaName 'pools.schema.yml'
+        Assert-True $r.Ok "valid v2 pool should pass: $($r.Errors -join '; ')"
     }
 }
 
@@ -85,7 +88,7 @@ Describe 'Read-YurunaPoolsDoc (default-empty)' {
         $d = New-TempDir
         try {
             $doc = Read-YurunaPoolsDoc -IntentDir $d
-            Assert-Equal -Expected 1 -Actual $doc['schemaVersion'] -Because 'default schemaVersion'
+            Assert-Equal -Expected 2 -Actual $doc['schemaVersion'] -Because 'default schemaVersion'
             Assert-Equal -Expected 0 -Actual @($doc['pools']).Count -Because 'default empty pools'
         } finally { Remove-Item -LiteralPath $d -Recurse -Force -ErrorAction SilentlyContinue }
     }

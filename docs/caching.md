@@ -700,9 +700,13 @@ LAN-routed NIC is available. The cache VM then gets a real LAN IP via
 DHCP; remote clients hit `<cache-lan-ip>:3128` directly — squid sees
 real client IPs at TCP level, no PROXY protocol needed.
 
-Constraints: a wired NIC works best; Wi-Fi APs typically refuse frames
-for MACs they didn't authenticate, so DHCP may fail on a Wi-Fi-only
-host (the helper warns). The cache VM is on the LAN broadcast domain —
+Constraints: a PCI-attached wired NIC works best. Two uplink classes
+can't carry a bridged guest MAC — Wi-Fi APs typically refuse frames for
+MACs they didn't authenticate, and USB Ethernet adapters lack the
+promiscuous/MAC-spoofing support Hyper-V bridging needs — so on such an
+uplink DHCP fails and the guest boots with eth0 DOWN; the helper
+(`Test-WindowsUplinkNotBridgeable`) warns and diverts to the Default
+Switch. The cache VM is on the LAN broadcast domain —
 squid's RFC1918 ACL still gates proxy use, but anyone on the LAN can
 TCP-connect. Removing the bridge requires explicit
 `Remove-VMSwitch -Name 'Yuruna-External'` (no auto-clean — other VMs
@@ -740,9 +744,10 @@ deny-by-default posture costs nothing.
 
 ##### Windows fallback: Default Switch + netsh portproxy
 
-When `Get-OrCreateYurunaExternalSwitch` cannot create the External
-switch (no LAN-routable NIC, Wi-Fi-only host, switch creation skipped),
-the cache VM lands on the built-in `Default Switch` and the test/
+When `Get-OrCreateYurunaExternalSwitch` cannot bridge the uplink (no
+LAN-routable NIC, a not-bridgeable uplink — Wi-Fi or a USB Ethernet
+adapter — or switch creation skipped), the cache VM lands on the
+built-in `Default Switch` and the test/
 scripts re-enable netsh portproxy. LAN clients reach `<host-lan-ip>:3128`
 and squid logs the host's vEthernet IP — the source-IP-loss gap kept as
 a fallback, not a default. `Test-CacheVMOnExternalNetwork` (the
@@ -922,6 +927,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.21
+Last review: 2026.07.22
 
 Back to [Yuruna](../README.md)

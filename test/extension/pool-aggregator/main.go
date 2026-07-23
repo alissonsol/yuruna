@@ -248,6 +248,8 @@ type hostView struct {
 	// the runner derived from pools.yml members[] (the single source of truth).
 	// Empty until learned; the aggregator then falls back to the -pool flag.
 	PoolId string `json:"poolId,omitempty"`
+	// PoolGuid is the pool stable 42-GUID (the dashboard "Pool ID"); empty until learned.
+	PoolGuid string `json:"poolGuid,omitempty"`
 	// ActiveExtensions are the extension areas this host is ACTIVELY running right
 	// now (e.g. "stash-service" when it hosts a stash-server VM) -- distinct from
 	// capabilities.extensions (what it COULD run). Read from the host's
@@ -577,6 +579,7 @@ func (s *poolState) pollOnce(client *http.Client, squidLog, lokiURL string, now 
 		version    string            // framework VERSION ("" = not fetched this poll; caller keeps prior)
 		regOK      bool              // host.registration.json was fetched + parsed this poll
 		poolID     string            // poolId from the registration record ("" = unpooled/not-yet-derived)
+		poolGuid   string            // poolGuid from the registration record ("" = unpooled/not-yet-derived)
 		gating     *gatingPolicy     // authored gating policy from the record (nil = pool did not author one)
 		activeExt  []string          // extension areas the host is actively running (registration activeExtensions)
 		extTargets map[string]string // per-area deep-link URLs the host advertises (registration extensionTargets)
@@ -597,8 +600,8 @@ func (s *poolState) pollOnce(client *http.Client, squidLog, lokiURL string, now 
 				// Best-effort: learn the host's pool + gating policy from its
 				// registration record. A transient miss keeps the prior poolId +
 				// gating (handled at apply time).
-				if pid, g, ext, tgt, rerr := fetchRegistration(client, base); rerr == nil {
-					pr.regOK, pr.poolID, pr.gating, pr.activeExt, pr.extTargets = true, pid, g, ext, tgt
+				if pid, pguid, g, ext, tgt, rerr := fetchRegistration(client, base); rerr == nil {
+					pr.regOK, pr.poolID, pr.poolGuid, pr.gating, pr.activeExt, pr.extTargets = true, pid, pguid, g, ext, tgt
 				}
 				// Best-effort: learn the host's framework version from VERSION. A
 				// transient miss leaves pr.version "" and keeps the prior value.
@@ -673,6 +676,7 @@ func (s *poolState) pollOnce(client *http.Client, squidLog, lokiURL string, now 
 		// genuinely left a pool clears it: its record now carries poolId="").
 		if r.regOK {
 			hv.PoolId = r.poolID
+			hv.PoolGuid = r.poolGuid
 			// Active extension areas this host runs (e.g. stash-service) -> the
 			// Extension hosts table. Refreshed from registration each successful poll;
 			// a transient registration miss keeps the prior set (handled by the regOK
@@ -838,7 +842,7 @@ func fetchStatus(client *http.Client, base string) (*hostStatus, error) {
 // served by the status server at /yuruna-repo/VERSION -- the SAME source the
 // host's own status pages read for their header (their getHostInfo() fetches
 // yuruna-repo/VERSION via JS, so the version is not embedded in the HTML). A tiny
-// plain-text file (one CalVer line, e.g. "2026.07.21"), so it is lighter than any
+// plain-text file (one CalVer line, e.g. "2026.07.22"), so it is lighter than any
 // status HTML page and fetchable server-side without a JS engine. Returns
 // ("", err) on any failure; the caller keeps the prior version on a transient
 // miss (the version is stable across polls). The value is capped + first-line
@@ -882,24 +886,24 @@ func fetchVersion(client *http.Client, base string) (string, error) {
 // not an error. The returned gating is nil when the pool authored none (so the pool
 // is observed via gauges but never paged); a partial block is completed with the
 // schema defaults.
-func fetchRegistration(client *http.Client, base string) (string, *gatingPolicy, []string, map[string]string, error) {
+func fetchRegistration(client *http.Client, base string) (string, string, *gatingPolicy, []string, map[string]string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), probeTimeout)
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, base+"/runtime/host.registration.json", nil)
 	if err != nil {
-		return "", nil, nil, nil, err
+		return "", "", nil, nil, nil, err
 	}
 	resp, err := client.Do(req)
 	if err != nil {
-		return "", nil, nil, nil, err
+		return "", "", nil, nil, nil, err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return "", nil, nil, nil, fmt.Errorf("host.registration.json HTTP %d", resp.StatusCode)
+		return "", "", nil, nil, nil, fmt.Errorf("host.registration.json HTTP %d", resp.StatusCode)
 	}
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if err != nil {
-		return "", nil, nil, nil, err
+		return "", "", nil, nil, nil, err
 	}
 	// Pointers distinguish "field absent" from "authored as zero" so a partial
 	// gating block fills only the missing knobs from the defaults. activeExtensions
@@ -908,6 +912,7 @@ func fetchRegistration(client *http.Client, base string) (string, *gatingPolicy,
 	// the corresponding service is up, distinct from the static capabilities list.
 	var reg struct {
 		PoolID           string            `json:"poolId"`
+		PoolGuid         string            `json:"poolGuid"`
 		ActiveExtensions []string          `json:"activeExtensions"`
 		ExtensionTargets map[string]string `json:"extensionTargets"`
 		Gating           *struct {
@@ -920,10 +925,10 @@ func fetchRegistration(client *http.Client, base string) (string, *gatingPolicy,
 		} `json:"gating"`
 	}
 	if err := json.Unmarshal(body, &reg); err != nil {
-		return "", nil, nil, nil, fmt.Errorf("host.registration.json parse: %w", err)
+		return "", "", nil, nil, nil, fmt.Errorf("host.registration.json parse: %w", err)
 	}
 	if reg.Gating == nil {
-		return reg.PoolID, nil, reg.ActiveExtensions, reg.ExtensionTargets, nil
+		return reg.PoolID, reg.PoolGuid, nil, reg.ActiveExtensions, reg.ExtensionTargets, nil
 	}
 	g := defaultGatingPolicy()
 	if reg.Gating.FailuresBeforeAlert != nil && *reg.Gating.FailuresBeforeAlert > 0 {
@@ -940,7 +945,7 @@ func fetchRegistration(client *http.Client, base string) (string, *gatingPolicy,
 			g.DegradedAfter = time.Duration(*reg.Gating.Quorum.DegradedAfterMinutes) * time.Minute
 		}
 	}
-	return reg.PoolID, &g, reg.ActiveExtensions, reg.ExtensionTargets, nil
+	return reg.PoolID, reg.PoolGuid, &g, reg.ActiveExtensions, reg.ExtensionTargets, nil
 }
 
 // postToLoki marshals payload, POSTs it to lokiURL under the shared pushTimeout,
@@ -2609,8 +2614,8 @@ func (s *poolState) handleMetrics(w http.ResponseWriter, _ *http.Request) {
 		// legacy pre-hostId folder name still embeds the hostname until that host's
 		// next cycle re-names under hostId.) commit/commitUrl/projectCommitUrl are a
 		// commit id + repo URLs -- hostname-free, so they stay safe here too.
-		fmt.Fprintf(&b, "yuruna_pool_host_info{pool=%q,hostId=%q,hostType=%q,version=%q,commit=%q,commitUrl=%q,projectCommitUrl=%q,baseUrl=%q,cycleId=%q,cycleFolderUrl=%q,status=%q} 1\n",
-			s.poolFor(h), h, hostType, hv.Version, commitDisplay, commitURLVal, projectCommitURL, hv.BaseURL, cycleId, cfu, hv.statusLabel())
+		fmt.Fprintf(&b, "yuruna_pool_host_info{pool=%q,poolGuid=%q,hostId=%q,hostType=%q,version=%q,commit=%q,commitUrl=%q,projectCommitUrl=%q,baseUrl=%q,cycleId=%q,cycleFolderUrl=%q,status=%q} 1\n",
+			s.poolFor(h), hv.PoolGuid, h, hostType, hv.Version, commitDisplay, commitURLVal, projectCommitURL, hv.BaseURL, cycleId, cfu, hv.statusLabel())
 	}
 	// host_status: the numeric twin of host_info's status, keyed on hostId so it
 	// forms one continuous series per host -- the input the state-timeline panel

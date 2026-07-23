@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.21
+.VERSION 2026.07.22
 .GUID 428a1d5f-7c92-4b40-a6e1-9d2f4c8b0a63
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -68,7 +68,11 @@ function Get-WarmResumeEligibleClass {
     [CmdletBinding()]
     [OutputType([string[]])]
     param()
-    return , ([string[]]$script:WarmResumeEligibleClass)
+    # Cast to the declared [string[]] on the way out. (Was `return ,([string[]]$x)`;
+    # the leading-comma single-object wrap was statically inferred as object[] and
+    # tripped PSUseOutputTypeCorrectly. The only consumer reads .Count, so emitting
+    # the typed array directly is equivalent.)
+    return [string[]]$script:WarmResumeEligibleClass
 }
 
 function Test-WarmResumeEligibleClass {

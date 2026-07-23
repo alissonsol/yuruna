@@ -57,10 +57,10 @@ process exists) but every interactive step that follows must be driven
 by hand. Treat this guest as "scaffolding-ready, sequence-pending".
 
 When the test sequence lands it will live under
-`test/sequences/gui/start.guest.macos.26.yml` and follow the same
-contract as `start.guest.ubuntu.server.24.yml` — a `baseline: { macos.26: [] }`
-entry plus the GUI steps that walk Setup Assistant to a logged-in
-desktop and rotate the operator-chosen initial password.
+`test/sequences/start.guest.macos.26.yml` and follow the same
+contract as `start.guest.ubuntu.server.24.yml` — the GUI steps that
+walk Setup Assistant to a logged-in desktop and rotate the
+operator-chosen initial password.
 
 ---
 
@@ -68,6 +68,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.21
+Last review: 2026.07.22
 
 Back to [Yuruna](../../../README.md)

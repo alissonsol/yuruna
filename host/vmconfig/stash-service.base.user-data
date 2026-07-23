@@ -77,7 +77,7 @@ runcmd:
   # 1) Mount the stash share (persistent via fstab so it survives reboot and
   #    systemd exposes a mnt-ystash\x2dnas.mount unit the daemon orders After=).
   #    mountpoint -q (NOT findmnt --target, which resolves a non-mount to
-  #    its enclosing mount and false-passes; feedback_findmnt_target_and_cloudinit_env_source_traps.md).
+  #    its enclosing mount and false-passes).
   - |
     set +e
     ENVF=/etc/yuruna/ystash-nas.env

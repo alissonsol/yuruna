@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.21
+.VERSION 2026.07.22
 .GUID 42b1c2d3-e4f5-4a67-8b90-1c2d3e4f5a6b
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -191,6 +191,11 @@ function Resolve-YurunaPoolForHost {
     )
     if ([string]::IsNullOrWhiteSpace($HostId)) { return $null }
     if (-not ($Intent -is [System.Collections.IDictionary]) -or -not $Intent.Contains('pools')) { return $null }
+    # A host belongs to AT MOST one pool (enforced by Add-HostToPool /
+    # Test-PoolIntent). Collect every pool that lists this hostId so a multi-pool
+    # authoring slip is surfaced loudly instead of silently first-match-wins.
+    # $poolMatches (NOT $matches -- that shadows PowerShell's automatic regex var).
+    $poolMatches = New-Object System.Collections.Generic.List[object]
     foreach ($pool in @($Intent['pools'])) {
         if (-not ($pool -is [System.Collections.IDictionary])) { continue }
         foreach ($member in @($pool['members'])) {
@@ -198,18 +203,24 @@ function Resolve-YurunaPoolForHost {
             # hostId/name key; normalize to the identity string before comparing, so a
             # structured entry does not silently fail the bare-string assumption. Compare
             # ordinal-exact: hostId is a generated lowercase 42-prefixed hex string (32
-            # chars), so an exact
-            # match is the correct identity test and a case/format difference is a real
-            # authoring error, not a variant to accept.
+            # chars), so an exact match is the correct identity test and a case/format
+            # difference is a real authoring error, not a variant to accept.
             $memberId = if ($member -is [System.Collections.IDictionary]) {
                 if ($member.Contains('hostId'))  { [string]$member['hostId'] }
                 elseif ($member.Contains('name')) { [string]$member['name'] }
                 else { '' }
             } else { [string]$member }
-            if ([string]::Equals($memberId, $HostId, [System.StringComparison]::Ordinal)) { return $pool }
+            if ([string]::Equals($memberId, $HostId, [System.StringComparison]::Ordinal)) { [void]$poolMatches.Add($pool); break }
         }
     }
-    return $null
+    if ($poolMatches.Count -eq 0) { return $null }
+    $winner = $poolMatches[0]
+    if ($poolMatches.Count -gt 1) {
+        $ids = @()
+        foreach ($pm in $poolMatches) { $ids += [string]$pm['poolId'] }
+        Write-Warning "Host $HostId is a member of multiple pools ($($ids -join ', ')); a host must belong to at most one. Using '$([string]$winner['poolId'])'. Fix the intent (Remove-HostFromPool / Test-PoolIntent)."
+    }
+    return $winner
 }
 
 function Test-PoolIntentHasMember {
@@ -304,7 +315,8 @@ function Write-YurunaPoolState {
         [Parameter()][AllowNull()][string]$PoolId,
         [Parameter(Mandatory)][string]$DesiredState,
         [Parameter(Mandatory)][bool]$IntentOk,
-        [Parameter()][AllowNull()]$Gating
+        [Parameter()][AllowNull()]$Gating,
+        [Parameter()][AllowNull()][string]$PoolGuid
     )
     $runtimeDir = $env:YURUNA_RUNTIME_DIR
     if ([string]::IsNullOrWhiteSpace($runtimeDir)) { return $false }
@@ -312,6 +324,7 @@ function Write-YurunaPoolState {
     if (-not $PSCmdlet.ShouldProcess($path, 'Write pool sync state')) { return $false }
     $state = [ordered]@{
         poolId       = $PoolId
+        poolGuid     = $PoolGuid
         desiredState = $DesiredState
         intentOk     = $IntentOk
         gating       = $Gating
@@ -326,20 +339,20 @@ function Write-YurunaPoolState {
     } catch { Write-Verbose "Write-YurunaPoolState failed: $($_.Exception.Message)"; return $false }
 }
 
-# Write-YurunaPoolManifest persists the resolved pool's TEST-SET assignment to
-# runtime/pool.manifest.json so the FRESH inner-runner process can drive
-# the cycle from the pool's test-sets instead of test.runner.yml. Atomic write,
-# same cross-process channel as pool.state.json. When the pool is $null OR has no
-# test-sets, any stale manifest is DELETED so the inner falls back to single-host
-# (the gate is "manifest present with a non-empty testSets[]"). Best-effort.
+# Write-YurunaPoolManifest persists the resolved pool's TEST-SET (the framework/
+# project repo pair) to runtime/pool.manifest.json so the FRESH inner-runner
+# process can override its repositories.frameworkUrl / repositories.projectUrl
+# for the cycle. Atomic write, same cross-process channel as pool.state.json.
+# When the pool is $null OR has no testSet, any stale manifest is DELETED so the
+# inner falls back to the host's own repositories config. Best-effort.
 function Write-YurunaPoolManifest {
     <#
     .SYNOPSIS
-        Persists the resolved pool's test-set assignment to runtime/pool.manifest.json so
-        the fresh inner-runner process drives the cycle from the pool's test-sets instead
-        of test.runner.yml. When the pool is $null or has no test-sets, any stale manifest
-        is deleted so the inner falls back to single-host. Best-effort; returns $true only
-        when a manifest was written.
+        Persists the resolved pool's testSet (name + frameworkUrl + projectUrl) to
+        runtime/pool.manifest.json so the fresh inner-runner overrides its repo URLs for
+        the cycle. When the pool is $null or has no testSet, any stale manifest is deleted
+        so the inner falls back to the host's own repositories config. Best-effort; returns
+        $true only when a manifest was written.
     #>
     [CmdletBinding(SupportsShouldProcess)]
     [OutputType([bool])]
@@ -347,26 +360,23 @@ function Write-YurunaPoolManifest {
     $runtimeDir = $env:YURUNA_RUNTIME_DIR
     if ([string]::IsNullOrWhiteSpace($runtimeDir)) { return $false }
     $path = Join-Path $runtimeDir 'pool.manifest.json'
-    $testSets = if ($Pool -is [System.Collections.IDictionary]) { @($Pool['testSets']) } else { @() }
-    if (-not ($Pool -is [System.Collections.IDictionary]) -or $testSets.Count -eq 0) {
+    $testSet = if ($Pool -is [System.Collections.IDictionary]) { $Pool['testSet'] } else { $null }
+    $hasTriple = ($testSet -is [System.Collections.IDictionary]) -and $testSet.Contains('frameworkUrl') -and $testSet.Contains('projectUrl')
+    if (-not $hasTriple) {
         if ((Test-Path -LiteralPath $path) -and $PSCmdlet.ShouldProcess($path, 'Remove stale pool manifest')) {
             Remove-Item -LiteralPath $path -Force -ErrorAction SilentlyContinue
         }
         return $false
     }
     if (-not $PSCmdlet.ShouldProcess($path, 'Write pool manifest')) { return $false }
-    $sets = New-Object System.Collections.Generic.List[object]
-    foreach ($ts in $testSets) {
-        if (-not ($ts -is [System.Collections.IDictionary])) { continue }
-        $sets.Add([ordered]@{
-            name          = [string]$ts['name']
-            order         = if ($ts.Contains('order')) { [int]$ts['order'] } else { 0 }
-            cycleStrategy = if ($ts.Contains('cycleStrategy')) { [string]$ts['cycleStrategy'] } else { 'all' }
-        })
-    }
     $manifest = [ordered]@{
         poolId      = [string]$Pool['poolId']
-        testSets    = @($sets.ToArray())
+        poolGuid    = [string]$Pool['poolGuid']
+        testSet     = [ordered]@{
+            name         = [string]$testSet['name']
+            frameworkUrl = [string]$testSet['frameworkUrl']
+            projectUrl   = [string]$testSet['projectUrl']
+        }
         config      = if ($Pool['config'] -is [System.Collections.IDictionary]) { $Pool['config'] } else { @{} }
         writtenAtUtc = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
     }
@@ -467,7 +477,8 @@ function Sync-YurunaPoolIntent {
         # Surface it so the authoring error is observable instead of silently single-host.
         Write-Warning "pool sync: host $HostId is not in any pool's members[] though pools.yml lists members; check the hostId spelling/case in the intent repo. Cycling as a single host."
     }
-    $poolId = if ($pool) { [string]$pool['poolId'] } else { $null }
+    $poolId   = if ($pool) { [string]$pool['poolId'] } else { $null }
+    $poolGuid = if ($pool) { [string]$pool['poolGuid'] } else { $null }
     $state  = Resolve-YurunaPoolDesiredState -Pool $pool
     # Carry the authored gating policy (the advisory alert thresholds) to the
     # aggregator via pool.state.json -> host.registration.json. $null when the pool
@@ -476,7 +487,7 @@ function Sync-YurunaPoolIntent {
     $gating = if (($pool -is [System.Collections.IDictionary]) -and $pool.Contains('gating')) {
         ConvertTo-PoolGatingRecord -Gating $pool['gating']
     } else { $null }
-    $null = Write-YurunaPoolState -PoolId $poolId -DesiredState $state -IntentOk:$pullOk -Gating $gating -Confirm:$false
+    $null = Write-YurunaPoolState -PoolId $poolId -PoolGuid $poolGuid -DesiredState $state -IntentOk:$pullOk -Gating $gating -Confirm:$false
     # Publish (or clear, when this host is unpooled / the pool has no
     # test-sets) the resolved test-set assignment for the inner runner.
     $null = Write-YurunaPoolManifest -Pool $pool -Confirm:$false

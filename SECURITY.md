@@ -77,7 +77,7 @@ following as your responsibility, not the project's:
 
 Once a fix is merged and a release is tagged, the advisory is
 published via GitHub Security Advisories. Reporters are credited
-in [Yuruna Project Contributors](docs/contributors.md) on request.
+in [Contributors](CONTRIBUTING.md#contributors) on request.
 
 ## License reminder
 
@@ -92,6 +92,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.21
+Last review: 2026.07.22
 
 Back to [Yuruna](README.md)

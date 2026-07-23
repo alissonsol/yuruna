@@ -37,7 +37,7 @@ VM running for dramatically faster rebuilds.
 
 Default user is `yuuser26` (override with `-Username`; the same name is
 declared in
-[test/sequences/gui/start.guest.ubuntu.server.26.yml](../../../test/sequences/gui/start.guest.ubuntu.server.26.yml)).
+[test/sequences/start.guest.ubuntu.server.26.yml](../../../test/sequences/start.guest.ubuntu.server.26.yml)).
 Initial password
 comes from the per-cycle authentication vault managed by the authentication extension at `test/extension/authentication/` and is **expired** on first login,
 so the test sequence's Current/New/Retype rotation runs against the
@@ -50,6 +50,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.21
+Last review: 2026.07.22
 
 Back to [Yuruna](../../../README.md)

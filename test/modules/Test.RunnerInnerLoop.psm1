@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.21
+.VERSION 2026.07.22
 .GUID 42d15e27-b2c3-4d4e-9f50-6b7c8d9e0f1a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -876,16 +876,14 @@ function Complete-CycleRun {
 function Resolve-CycleVmNamingStrategy {
     <#
     .SYNOPSIS
-        Resolve the cycle's VM-name prefix, the pool host-id scoping suffix, and the
-        baseline keystroke mechanism used to name + drive this cycle's guest VMs.
+        Resolve the cycle's VM-name prefix and the pool host-id scoping suffix used
+        to name this cycle's guest VMs.
     .DESCRIPTION
         On a POOL cycle the VM names are scoped by this host's id so pool members
         sharing a store never collide; the single-host path uses '' for a
-        byte-identical name. PoolBaselineKsm is captured so per-guest keystroke
-        overrides can be applied and reset between guests. Prefix falls back to
-        "test-" and the baseline mechanism to 'GUI' when unavailable.
+        byte-identical name. Prefix falls back to "test-" when unavailable.
     .OUTPUTS
-        [hashtable] with Prefix, PoolHostId, PoolBaselineKsm.
+        [hashtable] with Prefix, PoolHostId.
     #>
     [CmdletBinding()]
     [OutputType([hashtable])]
@@ -895,9 +893,8 @@ function Resolve-CycleVmNamingStrategy {
         [AllowNull()][string]$HostId
     )
     return @{
-        Prefix          = $Config.vmStart.testVmNamePrefix ?? "test-"
-        PoolHostId      = if ($IsPoolCycle) { [string]$HostId } else { '' }
-        PoolBaselineKsm = if (Get-Command Get-DefaultKeystrokeMechanism -ErrorAction SilentlyContinue) { Get-DefaultKeystrokeMechanism } else { 'GUI' }
+        Prefix     = $Config.vmStart.testVmNamePrefix ?? "test-"
+        PoolHostId = if ($IsPoolCycle) { [string]$HostId } else { '' }
     }
 }
 
@@ -1693,6 +1690,24 @@ do {
     }
     $GitCommit = Get-CurrentGitCommit -RepoRoot $RepoRoot
 
+    # --- REGION: Pooled repos override. When this host is in a pool with an
+    # assigned testSet (runtime/pool.manifest.json, written by the outer loop's
+    # Sync-YurunaPoolIntent), the pool's framework/project repo PAIR overrides this
+    # host's repositories.frameworkUrl / repositories.projectUrl for THIS cycle, so
+    # the project refresh + framework clone below use the pool's repos. GH_TOKEN is
+    # deliberately NOT overridden -- it stays host-local (never travels in pool
+    # intent). Unpooled hosts (no manifest / no testSet) are untouched.
+    if ($Config -is [System.Collections.IDictionary] -and $Config.repositories -is [System.Collections.IDictionary]) {
+        $poolManifestForRepos = if (Get-Command Read-YurunaPoolManifest -ErrorAction SilentlyContinue) { Read-YurunaPoolManifest } else { $null }
+        $poolTestSet = if ($poolManifestForRepos -is [System.Collections.IDictionary]) { $poolManifestForRepos['testSet'] } else { $null }
+        if ($poolTestSet -is [System.Collections.IDictionary] -and $poolTestSet['frameworkUrl'] -and $poolTestSet['projectUrl']) {
+            $Config.repositories['frameworkUrl'] = [string]$poolTestSet['frameworkUrl']
+            $Config.repositories['projectUrl']   = [string]$poolTestSet['projectUrl']
+            Write-Information ("Pool '{0}' testSet '{1}': repositories overridden (framework={2}, project={3}); GH_TOKEN stays host-local." -f `
+                [string]$poolManifestForRepos['poolId'], [string]$poolTestSet['name'], [string]$poolTestSet['frameworkUrl'], [string]$poolTestSet['projectUrl']) -InformationAction Continue
+        }
+    }
+
     # --- REGION: Refresh <RepoRoot>/project from test.config.yml's repositories.projectUrl
     # Cycle starts from a clean project tree so previous cycle artifacts
     # (resources.output*.yml, helm renders, generated kubeconfigs) cannot
@@ -1814,24 +1829,16 @@ do {
     $plannerFatal     = $false
     $script:PoolCycle = $false
     try {
-        # A pooled host drives the cycle from its pool's assigned test-sets
-        # (runtime/pool.manifest.json, written by the outer loop's Sync-YurunaPoolIntent)
-        # instead of test.runner.yml. Resolve-PoolCyclePlan returns $null when this
-        # host has no manifest or no runnable guest for any assigned set -> fall
-        # through to the BYTE-IDENTICAL single-host path below. A test-set sequence
-        # typo still throws PlannerFatal, so the catch's banner aborts the cycle
-        # exactly as on the single-host path.
+        # A pooled host has already had its repositories.frameworkUrl/projectUrl
+        # redirected to the pool's testSet (the "Pooled repos override" region
+        # earlier), so from here the cycle plan resolves from the assigned
+        # project's own test.runner.yml exactly like an unpooled host -- there is
+        # no separate pool cycle-plan. $script:PoolCycle just records that this is
+        # a pooled run (for status/labeling). A sequence typo still throws
+        # PlannerFatal, so the catch's banner aborts the cycle as before.
         $poolManifest = if (Get-Command Read-YurunaPoolManifest -ErrorAction SilentlyContinue) { Read-YurunaPoolManifest } else { $null }
-        if ($poolManifest -and @($poolManifest['testSets']).Count -gt 0 -and (Get-Command Resolve-PoolCyclePlan -ErrorAction SilentlyContinue)) {
-            $script:CyclePlan = Resolve-PoolCyclePlan -RepoRoot $RepoRoot -SequencesDir $SequencesDir -HostType $HostType -Manifest $poolManifest
-            if ($script:CyclePlan -and $script:CyclePlan.Count -gt 0) {
-                $script:PoolCycle = $true
-                Write-Output "Pool cycle: $($script:CyclePlan.Count) plan entries from pool '$($poolManifest['poolId'])' test-set(s)."
-            }
-        }
-        if (-not $script:PoolCycle) {
-            $script:CyclePlan = Resolve-CyclePlan -RepoRoot $RepoRoot -SequencesDir $SequencesDir -HostType $HostType
-        }
+        $script:PoolCycle = ($poolManifest -is [System.Collections.IDictionary]) -and ($poolManifest['testSet'] -is [System.Collections.IDictionary])
+        $script:CyclePlan = Resolve-CyclePlan -RepoRoot $RepoRoot -SequencesDir $SequencesDir -HostType $HostType
     } catch {
         # PlannerFatal (currently: duplicate project sequence files with the
         # same name under different test/<mode>/ folders) means the plan is
@@ -1867,6 +1874,66 @@ do {
     $GuestList    = $guestSeqLists.GuestList
     $SequenceList = $guestSeqLists.SequenceList
 
+    # --- REGION: Orchestration top-level (InvokeTestSequence playbook)
+    # A test.runner.yml entry can be an orchestration sequence (no resource:/
+    # baseline; steps are InvokeTestSequence). It contributes no per-guest plan
+    # entries, so it owns the whole cycle via Invoke-OrchestrationSequence
+    # (Test.Orchestrator) -- Reset/Initialize/Start-Log, one dashboard row per
+    # inner sequence, Complete/seal -- exactly as a standalone `Test-Sequence
+    # <orch>` run does. The runner delegates to it below instead of the per-guest
+    # VM lifecycle, and forces GuestList empty so the empty-plan fallback to the
+    # legacy guestSequence does NOT bring up a phantom guest (the bug this fixes).
+    $isOrchestrationCycle = $false
+    $orchestrationDoc     = $null
+    $orchestrationName    = $null
+    $orchestrationPath    = $null
+    $orchestrations = @()
+    if (-not $plannerFatal) {
+        # Bare assignment, never @(Get-CycleOrchestrationList ...): the planner
+        # returns its list through the ,@($list.ToArray()) array-preserving
+        # idiom, which reaches the caller as a single already-wrapped object.
+        # Re-collecting that with @(...) yields Count 1 for ANY true count --
+        # 0, 1, or many alike -- which both fabricates an orchestration out of a
+        # guest-only config (spurious orchestration-mix) and hides the
+        # >1 case. Plain assignment preserves the real array (0/1/N).
+        try { $orchestrations = Get-CycleOrchestrationList -RepoRoot $RepoRoot -SequencesDir $SequencesDir -HostType $HostType }
+        catch { Write-Warning "Could not resolve orchestration list: $($_.Exception.Message)" }
+    }
+    if ($orchestrations.Count -gt 0) {
+        # Orchestration + per-guest sequences can't share one status cycle (each
+        # wants to own the doc), and two orchestrations would each own their own
+        # cycle -- neither composes into this single-cycle runner pass. Reject the
+        # ambiguous configs loudly and run nothing rather than silently pick one;
+        # the plan_invalid infra-failure funnels to the same fail path as a typo.
+        if ($script:CyclePlan -and $script:CyclePlan.Count -gt 0) {
+            Write-Warning "test.runner.yml mixes an orchestration sequence with per-guest sequences; that is not supported in one cycle. Split them into separate runner configs."
+            $OverallPassed = $false; $FailedGuest = "(planner)"; $FailedStep = "orchestration-mix"
+            $FailureMessage = "orchestration + guest sequences in one test.runner.yml"
+            Write-CycleInfraFailure -Stage 'orchestration-mix' -FailureClass 'plan_invalid' -GuestKey '(planner)' -ErrorMessage $FailureMessage -HostType $HostType
+            $plannerFatal = $true; $GuestList = @(); $SequenceList = @()
+        } elseif ($orchestrations.Count -gt 1) {
+            Write-Warning "test.runner.yml lists $($orchestrations.Count) orchestration sequences; only one orchestration per cycle is supported."
+            $OverallPassed = $false; $FailedGuest = "(planner)"; $FailedStep = "orchestration-multi"
+            $FailureMessage = "multiple orchestration sequences in one test.runner.yml"
+            Write-CycleInfraFailure -Stage 'orchestration-multi' -FailureClass 'plan_invalid' -GuestKey '(planner)' -ErrorMessage $FailureMessage -HostType $HostType
+            $plannerFatal = $true; $GuestList = @(); $SequenceList = @()
+        } else {
+            $orchestrationName = [string]$orchestrations[0].name
+            $orchestrationPath = [string]$orchestrations[0].path
+            try {
+                $orchestrationDoc = Read-SequenceFile -Path $orchestrationPath
+                $isOrchestrationCycle = $true
+            } catch {
+                Write-Warning "Could not parse orchestration sequence '$orchestrationName': $($_.Exception.Message)"
+                $OverallPassed = $false; $FailedGuest = "(orchestration)"; $FailedStep = $orchestrationName
+                $FailureMessage = $_.Exception.Message
+                Write-CycleInfraFailure -Stage 'orchestration-parse' -FailureClass 'plan_invalid' -GuestKey '(orchestration)' -ErrorMessage $FailureMessage -HostType $HostType
+                $plannerFatal = $true
+            }
+            $GuestList = @(); $SequenceList = @()
+        }
+    }
+
     # Cascade the planner-effective username into Test.Ssh's Get-GuestSshUser
     # override registry so $vars-less SSH code paths target the cascaded account.
     Register-CycleGuestSshUserOverride -PlannerFatal $plannerFatal -CyclePlan $script:CyclePlan -GuestList $GuestList -ModulesDir $ModulesDir
@@ -1900,7 +1967,6 @@ do {
     $namingStrategy = Resolve-CycleVmNamingStrategy -Config $Config -IsPoolCycle $script:PoolCycle -HostId $global:__YurunaHostId
     $Prefix                 = $namingStrategy.Prefix
     $_poolHostId            = $namingStrategy.PoolHostId
-    $script:PoolBaselineKsm = $namingStrategy.PoolBaselineKsm
 
     # Build VM name map via Get-TestVMName so any guestSequence key yields a
     # stable VM name -- no hardcoded per-guest lookup needed.
@@ -1929,47 +1995,58 @@ do {
     # instead of [{...}] -- the array-double-wrap trap class. That malformed shape is
     # rejected by the status schema's gitCommits reader and by the pool aggregator,
     # which then cannot parse the host's status.json at all.
-    $GitCommitsList = New-CycleGitCommitList -GitCommit $GitCommit `
-        -FrameworkUrl $Config.repositories.frameworkUrl `
-        -ProjectGitCommit $ProjectGitCommit -ProjectUrl $projLinkUrl
-    $CycleId = Initialize-StatusDocument `
-        -StatusFilePath $StatusFile `
-        -HostType       $HostType `
-        -Hostname       (hostname) `
-        -GitCommit      $GitCommit `
-        -RepoUrl        $Config.repositories.frameworkUrl `
-        -GitCommits     $GitCommitsList `
-        -GuestList      $GuestList `
-        -Sequences      $SequenceList `
-        -StepNames      $StepNames
+    # An orchestration cycle skips this whole block: Invoke-OrchestrationSequence
+    # (delegated at "Finalise cycle" below) does its own Reset/Initialize-Status
+    # Document + Start-LogFile so it owns the status doc + transcript. Running the
+    # runner's Initialize here too would create an empty guest cycle that the
+    # orchestrator then clobbers. $CycleId/$LogFile stay empty; the guest loop
+    # (empty GuestList) and the failure-notification tail tolerate that.
+    if ($isOrchestrationCycle) {
+        $CycleId = ''
+        $LogFile = ''
+    } else {
+        $GitCommitsList = New-CycleGitCommitList -GitCommit $GitCommit `
+            -FrameworkUrl $Config.repositories.frameworkUrl `
+            -ProjectGitCommit $ProjectGitCommit -ProjectUrl $projLinkUrl
+        $CycleId = Initialize-StatusDocument `
+            -StatusFilePath $StatusFile `
+            -HostType       $HostType `
+            -Hostname       (hostname) `
+            -GitCommit      $GitCommit `
+            -RepoUrl        $Config.repositories.frameworkUrl `
+            -GitCommits     $GitCommitsList `
+            -GuestList      $GuestList `
+            -Sequences      $SequenceList `
+            -StepNames      $StepNames
 
-    # --- REGION: Seed per-guest provenance
-    Set-CycleGuestProvenance -GuestList $GuestList
+        # --- REGION: Seed per-guest provenance
+        Set-CycleGuestProvenance -GuestList $GuestList
 
-    # --- REGION: Start log file (transcript captures all console output)
-    # CycleNumber is read AFTER Initialize-StatusDocument so it sees the
-    # incremented value (1, 2, 3, ...). Drives the 6-digit prefix in the
-    # cycleFolder name; Start-LogFile also publishes the folder URL onto
-    # the status doc via Set-CycleFolderUrl so the dashboard can build
-    # per-guest tile links from it.
-    # CycleNumber (also returned by the helper) is not read downstream in the
-    # cycle body -- it is consumed inside Start-CycleLogFile to name the cycle
-    # folder -- so only LogFile is captured here.
-    $LogFile = (Start-CycleLogFile -TestRoot $TestRoot -CycleId $CycleId -Hostname (hostname)).LogFile
+        # --- REGION: Start log file (transcript captures all console output)
+        # CycleNumber is read AFTER Initialize-StatusDocument so it sees the
+        # incremented value (1, 2, 3, ...). Drives the 6-digit prefix in the
+        # cycleFolder name; Start-LogFile also publishes the folder URL onto
+        # the status doc via Set-CycleFolderUrl so the dashboard can build
+        # per-guest tile links from it.
+        # CycleNumber (also returned by the helper) is not read downstream in the
+        # cycle body -- it is consumed inside Start-CycleLogFile to name the cycle
+        # folder -- so only LogFile is captured here.
+        $LogFile = (Start-CycleLogFile -TestRoot $TestRoot -CycleId $CycleId -Hostname (hostname)).LogFile
 
-    # --- REGION: Cycle-start host diagnostic + perf-log open
-    Start-CycleHostDiagnostic -RepoRoot $RepoRoot -CycleId $CycleId -HostType $HostType `
-        -Hostname (hostname) -GitCommit $GitCommit -ProjectGitCommit $ProjectGitCommit
+        # --- REGION: Cycle-start host diagnostic + perf-log open
+        Start-CycleHostDiagnostic -RepoRoot $RepoRoot -CycleId $CycleId -HostType $HostType `
+            -Hostname (hostname) -GitCommit $GitCommit -ProjectGitCommit $ProjectGitCommit
 
-    Write-Output "Cycle ID: $CycleId"
-    # Commit line mirrors the dashboard's "Commit" meta-card: framework
-    # SHA first, then the project SHA when repositories.projectUrl is set,
-    # comma-space delimited (matching renderCommitLinks() in
-    # status/index.html). $ProjectGitCommit is $null when the in-tree
-    # fallback path is in use; in that case we emit framework-only so
-    # the log doesn't show a dangling ", --".
-    $CommitLine = if ($ProjectGitCommit) { "$GitCommit, $ProjectGitCommit" } else { $GitCommit }
-    Write-Output "Commit:   $CommitLine"
+        Write-Output "Cycle ID: $CycleId"
+        # Commit line mirrors the dashboard's "Commit" meta-card: framework
+        # SHA first, then the project SHA when repositories.projectUrl is set,
+        # comma-space delimited (matching renderCommitLinks() in
+        # status/index.html). $ProjectGitCommit is $null when the in-tree
+        # fallback path is in use; in that case we emit framework-only so
+        # the log doesn't show a dangling ", --".
+        $CommitLine = if ($ProjectGitCommit) { "$GitCommit, $ProjectGitCommit" } else { $GitCommit }
+        Write-Output "Commit:   $CommitLine"
+    }
 
     # --- REGION: Pre-flight guest-folder check
     # Every guestSequence key needs a host/<short-host>/<guest>/ folder on this
@@ -2172,7 +2249,29 @@ do {
     }
 
     # === Finalise cycle ===
-    $FinalStatus = Complete-CycleRun -OverallPassed $OverallPassed -Config $Config -FailedGuest $FailedGuest -FailedStep $FailedStep
+    if ($isOrchestrationCycle) {
+        # Delegate the whole cycle to the orchestration runner: it owns Reset/
+        # Initialize/Start-Log, walks the InvokeTestSequence steps (one dashboard
+        # row per inner sequence), and Completes + seals the transcript itself --
+        # the same path a standalone `Test-Sequence <orch>` takes. So we do NOT
+        # call Complete-CycleRun here; we only map its exit code to the cycle
+        # result the gating/notification tail below reads.
+        Write-Output ""
+        Write-Output "Delegating cycle to orchestration sequence: $orchestrationName"
+        $orchRc = Invoke-OrchestrationSequence `
+            -Sequence $orchestrationDoc -SequencePath $orchestrationPath `
+            -RepoRoot $RepoRoot -SequencesDir $SequencesDir -TestRoot $TestRoot `
+            -HostType $HostType -Config $Config
+        $OverallPassed = ($orchRc -eq 0)
+        if (-not $OverallPassed -and -not $FailedGuest) {
+            $FailedGuest    = "(orchestration)"
+            $FailedStep     = $orchestrationName
+            $FailureMessage = "orchestration '$orchestrationName' reported one or more failures"
+        }
+        $FinalStatus = if ($OverallPassed) { 'pass' } else { 'fail' }
+    } else {
+        $FinalStatus = Complete-CycleRun -OverallPassed $OverallPassed -Config $Config -FailedGuest $FailedGuest -FailedStep $FailedStep
+    }
     $script:CycleFinalized = $true
 
     Write-Output ""
@@ -2595,18 +2694,9 @@ function Invoke-GuestProvisionIteration {
     $script:ActiveVMName = $VMName
     Write-Output ""
     Write-Output "== $GuestKey (VM: $VMName) =="
-    # Switch the dispatch mechanism for this guest's VM lifecycle when
-    # its test-set declares a per-guest keystrokeMechanism; else the cycle
-    # baseline. Set once here -- before Start-GuestOS resolves any sequence -- so
-    # both Start-GuestOS and Start-GuestWorkload see it, and reset to the baseline
-    # for guests without an override so guest N's mode never leaks to guest N+1.
-    # Pool cycles only; the single-host path never touches the mechanism.
-    if ($script:PoolCycle -and (Get-Command Set-EngineKeystrokeMechanism -ErrorAction SilentlyContinue)) {
-        $_gm  = Get-CyclePlanSequencesForGuest -Plan $script:CyclePlan -GuestKey $GuestKey
-        $_ksm = if ($_gm.keystrokeMechanism) { $_gm.keystrokeMechanism } else { $script:PoolBaselineKsm }
-        Set-EngineKeystrokeMechanism -Value $_ksm
-        Write-Output "  keystrokeMechanism ($GuestKey): $_ksm"
-    }
+    # No per-cycle keystroke-mechanism switch: each sequence carries its own
+    # keystrokeMechanism (gui|ssh) and encodes the mechanism in its own steps, so
+    # the engine drives it as-authored.
 
     # Eagerly create this guest's cycleGuestDataFolder so the
     # dashboard tile has a destination to link to from the start of

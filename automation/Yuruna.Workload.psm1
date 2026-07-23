@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.21
+.VERSION 2026.07.22
 .GUID 42b0d2e3-f4a5-4678-9012-3b4c5d6e7f80
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -114,19 +114,10 @@ function Invoke-WorkloadChartDeployment {
     Remove-Item -LiteralPath $helmLogFile -Force -ErrorAction SilentlyContinue
     Remove-Item -LiteralPath $helmRcFile  -Force -ErrorAction SilentlyContinue
 
-    # Helm lint. Exit non-zero indicates the chart has a
-    # schema/required-field violation that WILL cascade to a
-    # failed install (e.g. an "image: /<repo>:<tag>" produced
-    # when componentsRegistry.registryLocation rendered as ""
-    # because resources.output.yml had `componentsRegistry: {}`).
-    # Surface the captured output on the Information stream
-    # and abort the cycle BEFORE attempting install.
-    #
-    # The chart PATH ('.', the pushed-to $workFolder) must be passed
-    # explicitly: helm 4 made it a required argument, where helm 3
-    # defaulted it to the current directory. A bare `helm lint` exits 1
-    # with "requires at least 1 argument", which reads as a rejected
-    # chart and fails the cycle before install.
+    # Lint gate: a helm lint failure WILL cascade to a failed install, so
+    # abort BEFORE attempting install. The chart path '.' must be passed
+    # explicitly (required argument on helm 4).
+    # --- REGION: https://yuruna.link/memory#why-the-chart-deploy-lints-before-installing
     Write-Debug "Helm lint"
     $lintOutput = helm lint . *>&1
     $lintExit = $LASTEXITCODE
@@ -140,15 +131,10 @@ function Invoke-WorkloadChartDeployment {
         return (New-YurunaResultManifest -Success $false -ErrorMessage "helm lint failed for chart '$installName' in $workFolder" -FailureClass 'chart_invalid' -ExitCode $lintExit -DurationMs $sw.ElapsedMilliseconds)
     }
 
-    # Pre-flight: a watchdog SIGKILL of helm mid-upgrade
-    # (or a host crash) leaves the release in pending-*
-    # state. Helm's atomic-rollback guarantees fire only on
-    # a helm-detected failure -- a process kill bypasses
-    # them. Next cycle's `helm upgrade --install` then
-    # exits with "another operation in progress" and no
-    # auto-recovery is wired downstream. Detect pending-*
-    # status and clear it via rollback (preserves history)
-    # so the upgrade below proceeds cleanly.
+    # Pre-flight: a process kill mid-upgrade leaves the release pending-*
+    # (helm's atomic rollback fires only on helm-detected failures), wedging
+    # every later upgrade. Detect and clear it via rollback before installing.
+    # --- REGION: https://yuruna.link/memory#why-the-chart-deploy-rolls-back-pending-helm-releases-pre-flight
     Write-Debug "Helm status probe for $installName"
     $statusOutput = helm status $installName 2>&1
     $statusExit   = $LASTEXITCODE
@@ -164,11 +150,9 @@ function Invoke-WorkloadChartDeployment {
             Add-Content -LiteralPath $helmLogFile -Value "== helm rollback $installName 0 (exit=$rollbackExit) =="
             $rollbackOutput | ForEach-Object { Add-Content -LiteralPath $helmLogFile -Value ([string]$_) }
             if ($rollbackExit -ne 0) {
-                # Rollback to revision 0 fails when there is no
-                # prior good revision (the very first upgrade
-                # was the one that was killed). Fall through
-                # to `helm uninstall --no-hooks` so the next
-                # upgrade --install can land a fresh release.
+                # No prior good revision to roll back to (the very first
+                # upgrade was the one killed): fall through to uninstall
+                # --no-hooks so the next upgrade --install lands fresh.
                 Write-Warning "  helm rollback failed (exit $rollbackExit); falling back to uninstall --no-hooks."
                 $uninstallOutput = helm uninstall $installName --no-hooks 2>&1
                 $uninstallExit = $LASTEXITCODE
@@ -178,24 +162,11 @@ function Invoke-WorkloadChartDeployment {
         }
     }
 
-    # Helm upgrade --install --atomic: idempotent in the
-    # "release-already-exists" case (no uninstall/install
-    # race window where the release disappears mid-cycle)
-    # AND atomic in the failure case (automatic rollback to
-    # the prior revision on any helm-detected failure, so
-    # an interrupted deployment never leaves a half-rendered
-    # release in the namespace). A two-step uninstall+install
-    # pair instead would, on a watchdog kill between the two
-    # calls, strand the operator with no release AND a dirty
-    # namespace and no recovery path beyond a full rerun.
-    #
-    # Non-zero exit is still authoritative -- the release
-    # did NOT land (or it landed and was auto-rolled-back).
-    # We ALSO scan the captured output for lines starting
-    # with "Error:" because helm can return 0
-    # on certain post-render rejections (server-side
-    # admission failures that surface only in the trailing
-    # log). Either signal aborts the test sequence.
+    # One idempotent-and-atomic helm call: no uninstall/install race, and
+    # helm-detected failures auto-roll back. Non-zero exit is authoritative,
+    # and the output is ALSO scanned for "Error:" lines because helm can
+    # return 0 on post-render admission rejections; either signal aborts.
+    # --- REGION: https://yuruna.link/memory#why-chart-deploys-use-one-atomic-helm-upgrade
     Write-Debug "Helm upgrade --install --atomic $installName"
     $installOutput = helm upgrade --install --atomic $installName . --debug *>&1
     $installExit = $LASTEXITCODE

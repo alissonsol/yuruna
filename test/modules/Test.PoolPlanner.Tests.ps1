@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.21
+.VERSION 2026.07.22
 .GUID 42e6f7a8-b9c0-4d12-9345-6e7f8a9b0c1d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -66,19 +66,20 @@ function New-PlannerFixture {
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions','',Justification='Test fixture tree.')]
     [CmdletBinding()] [OutputType([hashtable])] param()
     $root = New-TempDir
-    $seqGui = Join-Path $root 'sequences/gui'
-    $null = New-Item -ItemType Directory -Force -Path $seqGui
+    $seqDir = Join-Path $root 'sequences'
+    $null = New-Item -ItemType Directory -Force -Path $seqDir
     @"
 description: test install
-baseline:
+keystrokeMechanism: gui
+resource:
   ubuntu.server.24: []
   windows.11: []
 variables:
   username: baseuser
   hostname: basehost
   region: us
-steps: []
-"@ | Set-Content (Join-Path $seqGui 'install.yml')
+workload: []
+"@ | Set-Content (Join-Path $seqDir 'install.yml')
     $projTest = Join-Path $root 'project/test'
     $null = New-Item -ItemType Directory -Force -Path (Join-Path $projTest 'test-sets')
     "sequences:`n  - install`n" | Set-Content (Join-Path $projTest 'test.runner.yml')
@@ -100,6 +101,37 @@ perGuestOverrides:
     # Guest folder so Test-GuestFolder passes for ubuntu on a kvm host.
     $null = New-Item -ItemType Directory -Force -Path (Join-Path $root (Join-Path (Get-HostFolder 'host.ubuntu.kvm') 'guest.ubuntu.server.24'))
     return @{ Root = $root; SequencesDir = (Join-Path $root 'sequences') }
+}
+
+# Fixture with BOTH an orchestration sequence (InvokeTestSequence steps, no
+# resource:/baseline) and a guest sequence, so the runner's orchestration
+# detection (Get-CycleOrchestrationList) and the guest planner (Resolve-CyclePlan)
+# can each be exercised, plus the mixed/guest-only/orch-only test.runner.yml cases.
+# The caller writes project/test/test.runner.yml per case.
+function New-OrchestrationFixture {
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions','',Justification='Test fixture tree.')]
+    [CmdletBinding()] [OutputType([hashtable])] param()
+    $root = New-TempDir
+    $seqDir = Join-Path $root 'sequences'
+    $null = New-Item -ItemType Directory -Force -Path $seqDir
+    @"
+name: demo.end-to-end
+description: orchestration playbook
+steps:
+  - action: InvokeTestSequence
+    sequence: install
+    description: inner
+"@ | Set-Content (Join-Path $seqDir 'demo.end-to-end.yml')
+    @"
+description: guest workload
+keystrokeMechanism: gui
+resource:
+  ubuntu.server.24: []
+workload: []
+"@ | Set-Content (Join-Path $seqDir 'install.yml')
+    $projTest = Join-Path $root 'project/test'
+    $null = New-Item -ItemType Directory -Force -Path $projTest
+    return @{ Root = $root; SequencesDir = $seqDir; RunnerYml = (Join-Path $projTest 'test.runner.yml') }
 }
 
 Describe 'Get-PoolHostHypervisor + Get-CompatibleHypervisorList' {
@@ -186,28 +218,29 @@ Describe 'Manifest readers + Write-YurunaPoolManifest' {
     It 'reads a valid pool manifest and returns $null on missing/bad' {
         $d = New-TempDir
         try {
-            '{"poolId":"lab","testSets":[{"name":"smoke","order":0,"cycleStrategy":"all"}]}' | Set-Content (Join-Path $d 'pool.manifest.json')
+            '{"poolId":"lab","poolGuid":"42a1b2c3-d4e5-4f60-8a1b-2c3d4e5f6071","testSet":{"name":"amisad","frameworkUrl":"https://x/f","projectUrl":"https://x/p"}}' | Set-Content (Join-Path $d 'pool.manifest.json')
             $m = Read-YurunaPoolManifest -RuntimeDir $d
             Assert-Equal -Expected 'lab' -Actual $m['poolId'] -Because 'poolId read'
-            Assert-Equal -Expected 'smoke' -Actual $m['testSets'][0]['name'] -Because 'testSet name read'
+            Assert-Equal -Expected 'amisad' -Actual $m['testSet']['name'] -Because 'testSet name read'
             Assert-Null (Read-YurunaPoolManifest -RuntimeDir (Join-Path $d 'nope')) 'missing dir -> null'
             'not json {' | Set-Content (Join-Path $d 'pool.manifest.json')
             Assert-Null (Read-YurunaPoolManifest -RuntimeDir $d) 'bad json -> null'
         } finally { Remove-Item -LiteralPath $d -Recurse -Force -ErrorAction SilentlyContinue }
     }
-    It 'writes a manifest from a pool object and clears it when pool/testSets are empty' {
+    It 'writes a manifest from a pool object and clears it when the pool has no testSet' {
         $d = New-TempDir
         try {
             $env:YURUNA_RUNTIME_DIR = $d
-            $pool = [ordered]@{ poolId='lab'; testSets=@([ordered]@{ name='smoke'; order=0; cycleStrategy='all' }); config=[ordered]@{} }
+            $pool = [ordered]@{ poolId='lab'; poolGuid='42a1b2c3-d4e5-4f60-8a1b-2c3d4e5f6071'; testSet=[ordered]@{ name='amisad'; frameworkUrl='https://x/f'; projectUrl='https://x/p' }; config=[ordered]@{} }
             $null = Write-YurunaPoolManifest -Pool $pool -Confirm:$false
             $path = Join-Path $d 'pool.manifest.json'
             Assert-True (Test-Path $path) 'manifest written'
             $back = Read-YurunaPoolManifest -RuntimeDir $d
             Assert-Equal -Expected 'lab' -Actual $back['poolId'] -Because 'roundtrip poolId'
-            # Null pool -> stale manifest removed
-            $null = Write-YurunaPoolManifest -Pool $null -Confirm:$false
-            Assert-False (Test-Path $path) 'null pool clears the manifest'
+            Assert-Equal -Expected 'https://x/p' -Actual $back['testSet']['projectUrl'] -Because 'roundtrip testSet projectUrl'
+            # A pool with no testSet -> stale manifest removed
+            $null = Write-YurunaPoolManifest -Pool ([ordered]@{ poolId='lab'; poolGuid='42a1b2c3-d4e5-4f60-8a1b-2c3d4e5f6071' }) -Confirm:$false
+            Assert-False (Test-Path $path) 'no-testSet pool clears the manifest'
         } finally { $env:YURUNA_RUNTIME_DIR=$null; Remove-Item -LiteralPath $d -Recurse -Force -ErrorAction SilentlyContinue }
     }
 }
@@ -222,6 +255,47 @@ Describe 'Resolve-CyclePlan parity (single-host behavior matches the test-set pa
             Assert-Equal -Expected 'baseuser' -Actual $u.effectiveVariables['username'] -Because 'cascaded username'
             Assert-Equal -Expected 'us' -Actual $u.effectiveVariables['region'] -Because 'cascaded region'
             Assert-Null $u.keystrokeMechanism 'no override -> null keystroke on the legacy path'
+        } finally { Remove-Item -LiteralPath $fx.Root -Recurse -Force -ErrorAction SilentlyContinue }
+    }
+}
+
+Describe 'Get-CycleOrchestrationList + Resolve-CyclePlan orchestration handling' {
+    It 'lists an orchestration entry and emits no guest plan entries for it' {
+        $fx = New-OrchestrationFixture
+        try {
+            "sequences:`n  - demo.end-to-end`n" | Set-Content $fx.RunnerYml
+            $orch = @((Get-CycleOrchestrationList -RepoRoot $fx.Root -SequencesDir $fx.SequencesDir -HostType 'host.ubuntu.kvm'))
+            Assert-Equal -Expected 1 -Actual $orch.Count -Because 'one orchestration entry'
+            Assert-Equal -Expected 'demo.end-to-end' -Actual $orch[0].name -Because 'orchestration name'
+            Assert-True (Test-Path $orch[0].path) 'orchestration path resolves'
+            $plan = @((Resolve-CyclePlan -RepoRoot $fx.Root -SequencesDir $fx.SequencesDir -HostType 'host.ubuntu.kvm'))
+            Assert-Equal -Expected 0 -Actual $plan.Count -Because 'orchestration contributes no per-guest plan entries'
+        } finally { Remove-Item -LiteralPath $fx.Root -Recurse -Force -ErrorAction SilentlyContinue }
+    }
+    It 'returns no orchestration entries for a guest-only runner config' {
+        $fx = New-OrchestrationFixture
+        try {
+            "sequences:`n  - install`n" | Set-Content $fx.RunnerYml
+            $orch = @((Get-CycleOrchestrationList -RepoRoot $fx.Root -SequencesDir $fx.SequencesDir -HostType 'host.ubuntu.kvm'))
+            Assert-Equal -Expected 0 -Actual $orch.Count -Because 'a guest sequence is not an orchestration'
+            # Bare assignment is the collection form that preserves the true
+            # count: wrapping this ,@()-array return in @(...) would fabricate
+            # Count 1 for any real count (0, 1, or many), misclassifying a
+            # guest-only config as an orchestration mix. Pin the contract.
+            $orchBare = Get-CycleOrchestrationList -RepoRoot $fx.Root -SequencesDir $fx.SequencesDir -HostType 'host.ubuntu.kvm'
+            Assert-Equal -Expected 0 -Actual $orchBare.Count -Because 'bare-assignment preserves the true (zero) orchestration count'
+            $plan = @((Resolve-CyclePlan -RepoRoot $fx.Root -SequencesDir $fx.SequencesDir -HostType 'host.ubuntu.kvm'))
+            Assert-Equal -Expected 1 -Actual $plan.Count -Because 'the guest sequence yields one plan entry'
+        } finally { Remove-Item -LiteralPath $fx.Root -Recurse -Force -ErrorAction SilentlyContinue }
+    }
+    It 'reports both lists for a mixed config (the runner rejects the combination)' {
+        $fx = New-OrchestrationFixture
+        try {
+            "sequences:`n  - demo.end-to-end`n  - install`n" | Set-Content $fx.RunnerYml
+            $orch = @((Get-CycleOrchestrationList -RepoRoot $fx.Root -SequencesDir $fx.SequencesDir -HostType 'host.ubuntu.kvm'))
+            $plan = @((Resolve-CyclePlan -RepoRoot $fx.Root -SequencesDir $fx.SequencesDir -HostType 'host.ubuntu.kvm'))
+            Assert-Equal -Expected 1 -Actual $orch.Count -Because 'the orchestration entry is listed'
+            Assert-Equal -Expected 1 -Actual $plan.Count -Because 'the guest entry still yields a plan entry'
         } finally { Remove-Item -LiteralPath $fx.Root -Recurse -Force -ErrorAction SilentlyContinue }
     }
 }

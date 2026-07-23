@@ -1,0 +1,42 @@
+# LICENSEURI https://yuruna.link/license
+# Copyright (c) 2019-2026 by Alisson Sol et al.
+$schema: https://json-schema.org/draft/2020-12/schema
+$id: https://yuruna.com/schemas/pool-test-sets.schema.yml
+title: Yuruna pool test-set library
+description: >
+  The reusable library of named test-sets (F3), authored via the Pool control UI
+  and stored as test-sets.yml in the pool-intent repo alongside pools.yml. A
+  test-set is a framework/project repo PAIR; assigning one to a pool copies its
+  triple into that pool's `testSet` (pools.schema.yml). GH_TOKEN is never stored
+  here -- it stays host-local. This is a convenience library for the UI; the
+  runner reads only pools.yml.
+
+type: object
+required: [schemaVersion, testSets]
+additionalProperties: false
+
+properties:
+
+  schemaVersion:
+    type: integer
+    const: 1
+    description: Schema contract version.
+
+  testSets:
+    type: array
+    description: All named test-sets defined for this LAN.
+    items:
+      type: object
+      required: [name, frameworkUrl, projectUrl]
+      additionalProperties: false
+      properties:
+        name:
+          type: string
+          pattern: "^[a-z0-9][a-z0-9._-]*$"
+          description: Test-set name (the operator label; also the dashboard/UI display name).
+        frameworkUrl:
+          type: string
+          description: The Yuruna framework repo URL a pooled host clones for the cycle.
+        projectUrl:
+          type: string
+          description: The project repo URL a pooled host tests.

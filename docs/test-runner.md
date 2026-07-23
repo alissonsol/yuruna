@@ -100,6 +100,29 @@ guard, and the failure-pause back-off all live in
 [Watchdog](watchdog.md). Per-step visibility is controlled by
 [Log levels](loglevels.md).
 
+### What a `test.runner.yml` entry can be
+
+Each name under `sequences:` is one of two shapes, and the runner picks
+its cycle model from the sequence itself:
+
+- A **guest sequence** (declares a `resource:` map keyed by guest OS).
+  The cycle planner (`Resolve-CyclePlan`) walks its prerequisite chain and
+  the runner drives the per-guest VM lifecycle (create → start → run) for
+  each supported OS. This is the common case; a `test.runner.yml` may list
+  several of them.
+- An **orchestration sequence** (`InvokeTestSequence` steps, no
+  `resource:`). It owns the whole cycle: the runner detects it via
+  `Get-CycleOrchestrationList` and delegates to `Invoke-OrchestrationSequence`
+  (Test.Orchestrator), which runs each inner sequence — guest chains and
+  `host:` actions — under one `status.json` cycle, one dashboard row per inner
+  sequence. This is the same path `pwsh test/Test-Sequence.ps1 <name>` takes
+  standalone; the amisad POC's `amisad.end-to-end` is the reference example.
+
+The two models can't share one cycle: a `test.runner.yml` may hold **one**
+orchestration entry **or** any number of guest entries, not a mix. A mixed
+or multi-orchestration config is rejected as a `plan_invalid` cycle failure
+rather than silently running a subset.
+
 ## Startup gates
 
 `Invoke-TestRunner.ps1` refuses to enter the eternal loop when either of
@@ -163,6 +186,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.21
+Last review: 2026.07.22
 
 Back to [Yuruna](../README.md)

@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.07.21
+# Version: 2026.07.22
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 #
@@ -22,14 +22,9 @@ _yuruna_retry() {
     # 2>&1, so the operator still sees every attempt.
     #
     # Per-attempt wall-clock bound (YURUNA_RETRY_STALL_TIMEOUT, whole
-    # seconds; 0 = unbounded): an HTTP transfer that stalls after response
-    # headers -- or trickles too slowly to trip the client's own
-    # connect/read-gap timeout -- otherwise hangs the attempt forever, and
-    # this loop never gets to retry on a fresh connection (the
-    # stalled-transfer trap class: apt InRelease fetches wedging mid-body
-    # behind a caching proxy). A malformed value must fail LOUD and
-    # unbounded, not silently unbounded: the operator believes a bound is
-    # active.
+    # seconds; 0 = unbounded) so a stalled or trickling transfer fails into
+    # the retry ladder; a malformed value fails LOUD and unbounded.
+    # --- REGION: https://yuruna.link/network#why-the-stall-bound-hoists-timeout-inside-sudo-and-stays-foreground
     case "$stall" in
         ''|*[!0-9]*)
             echo "!! ${label}: YURUNA_RETRY_STALL_TIMEOUT='$stall' is not a whole number of seconds; running unbounded" >&2
@@ -37,26 +32,10 @@ _yuruna_retry() {
             ;;
     esac
     # bound_mode is invariant across attempts: none | direct | sudo.
-    # timeout(1) can only exec real commands, so shell-function attempts
-    # (pwsh_retry's helper) always run unbounded. When the command is a
-    # plain `sudo <tool> ...`, hoist the bound INSIDE sudo so the expiry
-    # TERM -- and the unrelayable KILL backstop -- land on the privileged
-    # tool itself; signaling sudo from outside can reap sudo while the
-    # root child survives, still holding e.g. the dpkg lock, which would
-    # wedge every retry. The hoist is skipped when the word after sudo is
-    # an option (it would be misread as an option of timeout).
-    #
-    # --foreground is load-bearing: without it timeout setpgid()s the
-    # command into its own process group, which on a console/pty (these
-    # scripts run on the guest console, and sudo's use_pty adds a pty of
-    # its own) makes the command a BACKGROUND group of that terminal. The
-    # first tty read or tcsetattr in a maintainer-script/hook then stops
-    # the whole run with SIGTTIN/SIGTTOU -- it freezes silently until the
-    # expiry TERM+CONT wakes it to die, converting a healthy apt run into
-    # a phantom 600s "stall" (the background-pgrp tty-stop trap class).
-    # With --foreground the command keeps the inherited foreground group;
-    # the tradeoff -- expiry signals only the direct child, not a group --
-    # is what the sudo-hoist already assumes.
+    # timeout(1) only execs real commands (shell functions run unbounded);
+    # a plain `sudo <tool> ...` hoists the bound INSIDE sudo, and
+    # --foreground is load-bearing (background-pgrp tty-stop trap class).
+    # --- REGION: https://yuruna.link/network#why-the-stall-bound-hoists-timeout-inside-sudo-and-stays-foreground
     local bound_mode=none
     if [ "$stall" -gt 0 ] \
         && [ "$(type -t "$1")" != "function" ] \
@@ -140,21 +119,10 @@ _yuruna_retry() {
 }
 
 # Package-manager attempts run UNBOUNDED by default (opt in via
-# YURUNA_APT_STALL_TIMEOUT / YURUNA_DNF_STALL_TIMEOUT, seconds). A
-# wall-clock bound here is attractive -- a wedged mirror/proxy transfer
-# otherwise consumes the whole step budget as one silent hang -- but
-# wrapping apt in timeout(1) is the wrapped-apt teardown-hang trap class:
-# with the wrapper as apt's parent, every apt run that performs REAL dpkg
-# work (upgrade with triggers, removal, install) has been observed to
-# block silently at end-of-transaction AFTER dpkg fully commits (~0 CPU,
-# no sockets, dpkg gone, locks held) until the bound kills it, while a
-# control guest running the identical transaction unwrapped completes in
-# seconds, every time. Until that interaction is root-caused (suspects:
-# apt's dpkg-pty EOF drain or its hook-child wait under a timeout(1)
-# parent), the safe default is the plain unwrapped invocation; the
-# mirror-stall exposure is instead bounded at the transfer layer
-# (curl/wget/git low-speed aborts, apt's own Acquire::http::Timeout,
-# and the caching proxy's read_timeout).
+# YURUNA_APT_STALL_TIMEOUT / YURUNA_DNF_STALL_TIMEOUT, seconds): wrapping
+# apt in timeout(1) is the wrapped-apt teardown-hang trap class, so the
+# mirror-stall exposure is bounded at the transfer layer instead.
+# --- REGION: https://yuruna.link/network#why-apt-and-dnf-attempts-run-unbounded-by-default
 apt_retry() {
     YURUNA_RETRY_STALL_TIMEOUT="${YURUNA_APT_STALL_TIMEOUT:-0}" \
     YURUNA_RETRY_HEAL='sudo dpkg --configure -a' \

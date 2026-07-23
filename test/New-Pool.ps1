@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.21
+.VERSION 2026.07.22
 .GUID 42c0b1a2-d3e4-4f56-9a87-6b5c4d3e2f10
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -21,8 +21,9 @@
     Create or update a pool in the LAN pool-intent store (pools.yml).
 .DESCRIPTION
     Pool admin CLI. Clones/pulls the WRITABLE intent repo, upserts a pool entry
-    (poolId + displayName + desiredState; members/testSets preserved or empty),
-    schema-validates pools.yml, then commits + pushes. Runners PULL this intent
+    (poolId + poolGuid + displayName + desiredState; members/testSet preserved on
+    update), schema-validates pools.yml, then commits + pushes. Assign the pool's
+    framework/project repo pair with Set-PoolTestSet. Runners PULL this intent
     read-only over HTTP and never write it. Run on the proxy (or with a writable
     -IntentGitUrl) so the push succeeds. See docs/pool-storage.md.
 .PARAMETER PoolId
@@ -78,11 +79,13 @@ if ($pool) {
     $pool['desiredState'] = $DesiredState
     $action = 'update'
 } else {
+    # Mint a stable 42-prefixed GUID (the dashboard "Pool ID") once, at creation.
+    $poolGuid = '42' + ([guid]::NewGuid().ToString()).Substring(2)
     $doc['pools'] = @(@($doc['pools']) + ([ordered]@{
         poolId       = $PoolId
+        poolGuid     = $poolGuid
         displayName  = $DisplayName
         members      = @()
-        testSets     = @()
         desiredState = $DesiredState
     }))
     $action = 'create'

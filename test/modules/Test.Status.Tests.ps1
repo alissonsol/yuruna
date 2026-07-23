@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.21
+.VERSION 2026.07.22
 .GUID 42e6b2d9-4a17-4c83-9f25-3b8c1d6e0a47
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -169,5 +169,80 @@ Describe 'Test.Status guards its Send-CycleEventSafely emits' {
     It 'gates every Send-CycleEventSafely emit behind a Get-Command existence check' {
         Assert-True (Test-AllCallsGuardedByGetCommand -Ast $rootAst -CommandName 'Send-CycleEventSafely') `
             'the module does not import the logger; an absent Send-CycleEventSafely must fall back to Write-Warning, not throw'
+    }
+}
+
+Describe 'Test.Status nested-cycle support' {
+
+    It 'Reset + Initialize seed an empty nested map' {
+        $dir = New-TempStatusDir
+        $env:YURUNA_RUNTIME_DIR = $dir
+        $sf = Join-Path $dir 'status.json'
+        Reset-StatusDocumentForCycleStart -StatusFilePath $sf -Confirm:$false
+        $j = Get-Content -Raw $sf | ConvertFrom-Json
+        Assert-True ($null -ne $j.nested) 'reset doc carries a nested map'
+        Initialize-StatusDocument -StatusFilePath $sf -HostType 'h' -Hostname 'host' -GitCommit 'abc' -GuestList @('guest.x') -StepNames @('Sequence')
+        $j2 = Get-Content -Raw $sf | ConvertFrom-Json
+        Assert-True ($null -ne $j2.nested) 'initialized doc carries a nested map'
+        Remove-Item -Recurse -Force $dir -ErrorAction SilentlyContinue
+    }
+
+    It 'a nested node survives an owner flush (write-partitioning)' {
+        $dir = New-TempStatusDir
+        $env:YURUNA_RUNTIME_DIR = $dir
+        $sf = Join-Path $dir 'status.json'
+        $seqs = @([ordered]@{ name = 'set-resource'; guests = @('set-resource') })
+        Initialize-StatusDocument -StatusFilePath $sf -HostType 'h' -Hostname 'host' -GitCommit 'abc' -GuestList @('set-resource') -Sequences $seqs -StepNames @('Run')
+        # Owner declares it may spawn children (flips the preserve gate).
+        Publish-CycleContext -CycleId 'c1' -StatusPath $sf -RootCycleFolder $dir -CycleNumber 7 -ParentId 'set-resource'
+        # A "child" attaches a node + marks it pass (a separate process would do this).
+        Register-NestedRunNode -StatusPath $sf -NodeId 'set-resource/build' -ParentId 'set-resource' -Name 'build' -Kind 'guest' -LogRel 'nested/set-resource_build/set-resource_build.html' -CycleId 'c1'
+        Set-NestedRunStatus -StatusPath $sf -NodeId 'set-resource/build' -Status 'pass'
+        # Owner flushes again -- must NOT erase the child's node.
+        Set-GuestStatus -GuestKey 'set-resource' -Status 'pass' -Confirm:$false
+        $j = Get-Content -Raw $sf | ConvertFrom-Json
+        Assert-True ($null -ne $j.nested.'set-resource/build') 'nested node preserved across owner flush'
+        Assert-Equal -Expected 'pass' -Actual $j.nested.'set-resource/build'.status -Because 'nested node status kept'
+        Assert-Equal -Expected 'set-resource' -Actual $j.nested.'set-resource/build'.parentId -Because 'parentId links to the sequence card'
+        Assert-Equal -Expected 'pass' -Actual ($j.guests | Where-Object { $_.guestKey -eq 'set-resource' }).status -Because 'owner update also applied'
+        Remove-Item Env:\YURUNA_CYCLE_CONTEXT -ErrorAction SilentlyContinue
+        Remove-Item -Recurse -Force $dir -ErrorAction SilentlyContinue
+    }
+
+    It 'Set-NestedRunStep updates a step inside a node' {
+        $dir = New-TempStatusDir
+        $env:YURUNA_RUNTIME_DIR = $dir
+        $sf = Join-Path $dir 'status.json'
+        Initialize-StatusDocument -StatusFilePath $sf -HostType 'h' -Hostname 'host' -GitCommit 'abc' -GuestList @('x') -StepNames @('Run')
+        Register-NestedRunNode -StatusPath $sf -NodeId 'p/child' -ParentId 'p' -Name 'child' -Steps @('Sequence') -CycleId 'c1'
+        Set-NestedRunStep -StatusPath $sf -NodeId 'p/child' -StepName 'Sequence' -Status 'fail' -ErrorMessage 'boom'
+        $j = Get-Content -Raw $sf | ConvertFrom-Json
+        $step = $j.nested.'p/child'.steps | Where-Object { $_.name -eq 'Sequence' }
+        Assert-Equal -Expected 'fail' -Actual $step.status -Because 'nested step status updated'
+        Assert-Equal -Expected 'boom' -Actual $step.errorMessage -Because 'nested step error recorded'
+        Remove-Item -Recurse -Force $dir -ErrorAction SilentlyContinue
+    }
+
+    It 'cycle-context handle round-trips and clears' {
+        Remove-Item Env:\YURUNA_CYCLE_CONTEXT -ErrorAction SilentlyContinue
+        Assert-Null (Get-CycleContext) 'no handle => standalone owner'
+        Publish-CycleContext -CycleId 'c9' -StatusPath 'x' -RootCycleFolder 'r' -CycleNumber 3 -ParentId 'set-resource'
+        $ctx = Get-CycleContext
+        Assert-Equal -Expected 'c9' -Actual $ctx.cycleId -Because 'cycleId round-trips'
+        Assert-Equal -Expected 'set-resource' -Actual $ctx.parentId -Because 'parentId round-trips'
+        Clear-CycleContext
+        Assert-Null (Get-CycleContext) 'cleared handle => owner again'
+    }
+
+    It 'Enter/Exit-StatusLock acquires and releases the lock file' {
+        $dir = New-TempStatusDir
+        $sf = Join-Path $dir 'status.json'
+        Set-Content -LiteralPath $sf -Value '{}' -Encoding utf8NoBOM
+        $lock = Enter-StatusLock -Path $sf -TimeoutMs 1000
+        Assert-True $lock.Held 'lock acquired on a free path'
+        Assert-True (Test-Path "$sf.lock") 'lock file exists while held'
+        Exit-StatusLock -Lock $lock
+        Assert-True (-not (Test-Path "$sf.lock")) 'lock file removed on release'
+        Remove-Item -Recurse -Force $dir -ErrorAction SilentlyContinue
     }
 }

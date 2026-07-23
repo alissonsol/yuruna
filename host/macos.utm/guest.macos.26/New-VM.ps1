@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.21
+.VERSION 2026.07.22
 .GUID 42f2a3b4-c5d6-4e78-f901-2a3b4c5d6e79
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -487,4 +487,4 @@ Write-Output "     (region, keyboard, Wi-Fi, Apple ID, account). Walk through"
 Write-Output "     it manually -- there is no autoinstall equivalent yet."
 Write-Output "  3. After Setup Assistant completes the test harness can drive"
 Write-Output "     the guest via the shared GUI/SSH sequences once those land"
-Write-Output "     under test/sequences/gui/start.guest.macos.26.yml."
+Write-Output "     under test/sequences/start.guest.macos.26.yml."

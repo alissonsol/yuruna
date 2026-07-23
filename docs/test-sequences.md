@@ -78,14 +78,15 @@ The per-cycle `manifest.json` ([`Stop-LogFile`](../test/modules/Test.Log.psm1)) 
 
 ## Sequence-level fields
 
-Top-level keys in a sequence YAML, complementing `description:`, `baseline:`,
-`variables:`, and `steps:`. Full schema:
+Top-level keys in a sequence YAML, complementing `description:`,
+`keystrokeMechanism:` (gui|ssh, default gui), `resource:`, `variables:`,
+`component:`, and `workload:`. Full schema:
 [`test/schemas/sequence.schema.yml`](../test/schemas/sequence.schema.yml).
 
 ### requiresSnapshot
 
 Declares that this sequence is a CONSUMER of a disk snapshot produced
-by an earlier sequence in its `baseline:` chain (typically a sibling
+by an earlier sequence in its `resource:` chain (typically a sibling
 `.baseline.yml` that ends in [`saveDiskSnapshot`](#savedisksnapshot)).
 The runner uses it for two related decisions:
 
@@ -97,7 +98,7 @@ The runner uses it for two related decisions:
    rename happens at `saveDiskSnapshot` time, with the runner detecting
    the rename and swapping its `$VMName` for subsequent chain entries.
 
-2. **Chain skip.** Before walking the `baseline:` chain, the runner
+2. **Chain skip.** Before walking the `resource:` chain, the runner
    probes the host driver via [`Test-VMDiskSnapshot`](#test-vmdisksnapshot).
    Hit: skip every prereq sequence and run only this top-level (the
    first [`loadDiskSnapshot`](#loaddisksnapshot) reverts the disk).
@@ -146,14 +147,13 @@ steps:
 ### Where snippets live
 
 Snippets are defined in a `_snippets.yml` library — a map of
-`name → [steps]` — sitting in the same mode dir as sequences:
+`name → [steps]` — sitting beside the sequences:
 
-- **Framework:** `test/sequences/gui/_snippets.yml` (ssh sequences reuse
-  the gui/ library via the mode-dir fallback)
-- **Project:** `project/<…>/test/gui/_snippets.yml` (any example's test tree)
+- **Framework:** `test/sequences/_snippets.yml`
+- **Project:** `project/<…>/test/_snippets.yml` (any example's test tree)
 
 ```yaml
-# test/sequences/gui/_snippets.yml
+# test/sequences/_snippets.yml
 firstLoginPrime:
   - action: waitForText
     pattern: "login:"
@@ -677,7 +677,7 @@ Pure read; never stops the VM, never mutates state.
 ### `Send-Text`, `Send-Key`, `Send-Click`
 
 Back the keystroke and click actions. The mechanism differs sharply
-per host (and per `keystrokeMechanism` mode):
+per host (and per the sequence's own `keystrokeMechanism`):
 
 | Host | GUI mode | SSH mode |
 |---|---|---|
@@ -685,9 +685,9 @@ per host (and per `keystrokeMechanism` mode):
 | KVM | `virsh send-key` / `virsh screenshot`; mouse via VNC (libvirt). | Same. |
 | UTM | AXUI via accessibility events on the UTM app window; VNC fallback for some keys. | Same. |
 
-Sequence authors don't choose between these — `vmCommunication.keystrokeMechanism`
-in [`test.config.yml`](test-config.md) selects, and the per-host
-driver routes.
+Each sequence declares its own `keystrokeMechanism` (gui|ssh); the ssh variant
+of a sequence is a distinct `<name>.ssh.yml` file. The per-host driver then
+routes the gui vs ssh backend.
 
 ### Other contract surface
 
@@ -719,6 +719,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.21
+Last review: 2026.07.22
 
 Back to [Yuruna](../README.md)

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.21
+.VERSION 2026.07.22
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456702
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -18,6 +18,12 @@
 
 $script:Doc  = $null
 $script:File = $null
+# Owner-side gate for nested-cycle support (see the "Nested-cycle support"
+# region below). Stays $false for a run with no nested children -- then
+# Write-StatusJson behaves EXACTLY as before (no lock, no re-read), so the
+# common standalone / in-process path is untouched. Publish-CycleContext
+# flips it $true the moment the owner may spawn a nested child.
+$script:PreserveNested = $false
 
 # Test.StateFile owns the atomic temp-write + rename primitive (no-BOM,
 # per-PID temp name). Import -Global so a -Force reimport here cannot evict it
@@ -108,6 +114,11 @@ function Reset-StatusDocumentForCycleStart {
 
     $now = Get-UtcTimestamp
     $script:File = $StatusFilePath
+    # A new cycle starts with no nested children, so re-arm the preserve gate to
+    # $false: the `nested = {}` wipe below is authoritative and must not be
+    # un-done by a preserve-merge re-reading a prior cycle's on-disk nested map.
+    # Publish-CycleContext flips it back on when this cycle actually spawns one.
+    $script:PreserveNested = $false
     # hostId: the stable per-host pool identity (runtime/host.uuid; distinct from
     # hostname). Resolved via Get-YurunaHostId (reads the same file the entry
     # point seeds) so this never touches the $global directly; '' when
@@ -142,6 +153,11 @@ function Reset-StatusDocumentForCycleStart {
         # dashboard expects (it falls back to the flat guest list while this
         # is empty).
         sequences      = @()
+        # Nested-run subtree (nodeId -> node), authored ONLY by nested
+        # Test-Sequence child processes via the RMW helpers below. Reset to
+        # empty here (the cycle owner's authoritative wipe) BEFORE any child
+        # can spawn; the owner's later flushes preserve whatever children add.
+        nested         = [ordered]@{}
         history        = $history
     }
     Write-StatusJson
@@ -269,6 +285,10 @@ function Initialize-StatusDocument {
         }
     }
 
+    # Fresh cycle => no nested children yet; re-arm the preserve gate (see
+    # Reset-StatusDocumentForCycleStart) so the empty nested map below is clean
+    # even for a caller that Initializes without a preceding Reset.
+    $script:PreserveNested = $false
     $hostIdValue = if (Get-Command Get-YurunaHostId -ErrorAction SilentlyContinue) {
         [string](Get-YurunaHostId)
     } else { '' }
@@ -312,6 +332,10 @@ function Initialize-StatusDocument {
         # in this order, and joins `guests` back to the guests[] array above
         # for per-step progress. Empty on the legacy guestSequence path.
         sequences      = @($Sequences)
+        # Nested-run subtree (nodeId -> node). Empty at cycle start; nested
+        # child processes attach their nodes via Register-NestedRunNode and
+        # the owner's flushes preserve them (see the Nested-cycle region).
+        nested         = [ordered]@{}
         history        = $history
     }
 
@@ -617,7 +641,24 @@ function Write-StatusJson {
     # fetch().json() in the browser) and keeps the per-PID temp-name concurrency
     # safety in one place. -Compress:$false preserves the pretty-printed on-disk
     # shape; -Depth 10 matches the document nesting.
-    $ok = Write-YurunaStateFileJson -Path $script:File -InputObject $script:Doc -Depth 10 -Compress:$false -Confirm:$false
+    $ok = $false
+    if ($script:PreserveNested) {
+        # A nested child process may have written the `nested` subtree since
+        # our last flush; re-read it and carry it forward so this whole-doc
+        # overwrite can't erase a sub-run's tile. Read + write run under the
+        # shared status-file lock so they're atomic against a concurrent
+        # nested RMW (Register-NestedRunNode / Set-NestedRun*). Only engaged
+        # once a nested child may exist -- the plain path below is unchanged
+        # for every standalone / in-process run.
+        $lock = Enter-StatusLock -Path $script:File
+        try {
+            $disk = Read-StatusDocFromDisk -StatusPath $script:File
+            if ($disk -and $disk.Contains('nested')) { $script:Doc.nested = $disk.nested }
+            $ok = Write-YurunaStateFileJson -Path $script:File -InputObject $script:Doc -Depth 10 -Compress:$false -Confirm:$false
+        } finally { Exit-StatusLock -Lock $lock }
+    } else {
+        $ok = Write-YurunaStateFileJson -Path $script:File -InputObject $script:Doc -Depth 10 -Compress:$false -Confirm:$false
+    }
     if (-not $ok) {
         # Surface the write failure explicitly rather than leaving it to be inferred from a
         # frozen UI (mirrors the status_doc_corrupt event emitted on the read path).
@@ -820,4 +861,276 @@ function Get-GuestProvenance {
     }
 }
 
-Export-ModuleMember -Function Reset-StatusDocumentForCycleStart, Initialize-StatusDocument, Set-GuestVMName, Set-GuestStatus, Set-GuestQuarantine, Set-StepStatus, Set-LastFailureSummary, Set-GuestProvenance, Get-GuestProvenance, Set-GuestTopLevel, Set-GuestFailureArtifact, Set-CycleFolderUrl, Get-CycleNumber, Complete-Run, Write-StatusJson, Get-LastGetImageTime, Set-LastGetImageTime
+# === Nested-cycle support =================================================
+# A Test-Sequence run either OWNS status.json (standalone, or the outermost
+# orchestration) or runs NESTED inside another run's process tree -- a
+# host-action step that re-enters Test-Sequence.ps1 in a child pwsh (e.g.
+# Set-Resource.ps1 fanning out per-stage guest builds). Exactly ONE process --
+# the outermost -- owns the top-level document (guests[]/sequences[]/history +
+# Reset/Initialize/Complete-Run). A nested run NEVER resets the doc: it attaches
+# a node into the `nested` map (nodeId -> node) and updates ONLY its own node.
+#
+# Ownership is partitioned by JSON key: the owner authors everything EXCEPT
+# `nested`; a nested run authors ONLY `nested[<its id>]`. Both sides write the
+# whole file, so both run their read-modify-write under a shared status-file
+# lock (Enter/Exit-StatusLock) -- the owner re-reads `nested` before its flush
+# (Write-StatusJson, gated on $script:PreserveNested), and a nested writer
+# re-reads the whole doc before touching its node. Neither can lose the other's
+# section. The single "am I nested?" signal is the inherited
+# $env:YURUNA_CYCLE_CONTEXT handle; its absence == standalone owner.
+
+function Get-CycleContext {
+    <#
+    .SYNOPSIS
+        Parse the inherited cycle-context handle ($env:YURUNA_CYCLE_CONTEXT).
+        Returns $null when no ancestor established a cycle -- the ABSENCE is
+        the "I am the owner" signal, so entry points branch on $null.
+    .OUTPUTS
+        [hashtable] { cycleId; ownerPid; statusPath; rootCycleFolder;
+                      cycleNumber; parentId } or $null. `parentId` is the FULL
+        node id of the parent under which this run must attach (empty at the
+        top). A nested run's own node id is "$parentId/$name", so the id encodes
+        the whole path from the cycle root and a child's node.parentId always
+        equals its parent's node.id -- that's what links the dashboard tree.
+    #>
+    [OutputType([hashtable])]
+    param()
+    $raw = $env:YURUNA_CYCLE_CONTEXT
+    if ([string]::IsNullOrWhiteSpace($raw)) { return $null }
+    try { return ($raw | ConvertFrom-Json -AsHashtable) } catch { return $null }
+}
+
+function Publish-CycleContext {
+    <#
+    .SYNOPSIS
+        Publish the cycle-context handle so THIS process's child pwsh attach as
+        nested nodes under $ParentId.
+    .DESCRIPTION
+        Called by the owner before running a host-action step (with $ParentId =
+        that step's node id), and by a nested run before it spawns its own
+        descendants (with $ParentId = its OWN node id). Because the child's node
+        id is "$ParentId/$childName", the chain grows one segment per level and
+        nesting works to any depth. Flips $script:PreserveNested so the owner's
+        subsequent flushes start preserving the `nested` section children write.
+    #>
+    [CmdletBinding(SupportsShouldProcess)]
+    param(
+        [Parameter(Mandatory)][string]$CycleId,
+        [Parameter(Mandatory)][string]$StatusPath,
+        [Parameter(Mandatory)][string]$RootCycleFolder,
+        [Parameter(Mandatory)][string]$ParentId,
+        [int]$CycleNumber = 0
+    )
+    if (-not $PSCmdlet.ShouldProcess('YURUNA_CYCLE_CONTEXT', "Publish nested context under '$ParentId'")) { return }
+    $ctx = [ordered]@{
+        cycleId         = $CycleId
+        ownerPid        = $PID
+        statusPath      = $StatusPath
+        rootCycleFolder = $RootCycleFolder
+        cycleNumber     = [int]$CycleNumber
+        parentId        = $ParentId
+    }
+    $env:YURUNA_CYCLE_CONTEXT = ($ctx | ConvertTo-Json -Compress -Depth 5)
+    $script:PreserveNested = $true
+}
+
+function Clear-CycleContext {
+    <#
+    .SYNOPSIS
+        Remove the child-facing context after a host-action step returns, so a
+        LATER in-process step doesn't inherit a stale parentId. $script:Preserve-
+        Nested stays $true for the rest of the cycle: nodes already written must
+        keep surviving the owner's flushes.
+    #>
+    [CmdletBinding(SupportsShouldProcess)]
+    param()
+    if (-not $PSCmdlet.ShouldProcess('YURUNA_CYCLE_CONTEXT', 'Clear nested context')) { return }
+    Remove-Item -LiteralPath Env:\YURUNA_CYCLE_CONTEXT -ErrorAction SilentlyContinue
+}
+
+function Enter-StatusLock {
+    <#
+    .SYNOPSIS
+        Acquire the cross-process critical section for a status.json
+        read-modify-write. Returns an opaque lock handle for Exit-StatusLock.
+    .DESCRIPTION
+        Portable lock: atomic O_EXCL create of <path>.lock (FileMode.CreateNew
+        fails if it exists) -- works the same on Windows / macOS / Linux, unlike
+        a named Mutex (process-local off Windows). Spins with a short backoff up
+        to -TimeoutMs; breaks a lock older than -StaleMs (a crashed holder must
+        not wedge the cycle). On timeout it returns an UN-held handle and the
+        caller proceeds unlocked: a rare lost update beats a skipped status write
+        (a frozen tile), and -StaleMs bounds how long a real crash blocks us.
+    #>
+    [OutputType([hashtable])]
+    param(
+        [Parameter(Mandatory)][string]$Path,
+        [int]$TimeoutMs = 5000,
+        [int]$StaleMs   = 30000
+    )
+    $lockPath = "$Path.lock"
+    $deadline = [DateTime]::UtcNow.AddMilliseconds($TimeoutMs)
+    while ($true) {
+        try {
+            $fs = [System.IO.File]::Open($lockPath, [System.IO.FileMode]::CreateNew, [System.IO.FileAccess]::Write, [System.IO.FileShare]::None)
+            return @{ Stream = $fs; Path = $lockPath; Held = $true }
+        } catch {
+            # Stale-break: a lock file older than StaleMs is from a crashed holder.
+            try {
+                $info = Get-Item -LiteralPath $lockPath -ErrorAction Stop
+                if (([DateTime]::UtcNow - $info.LastWriteTimeUtc).TotalMilliseconds -gt $StaleMs) {
+                    Remove-Item -LiteralPath $lockPath -Force -ErrorAction SilentlyContinue
+                    continue
+                }
+            } catch { $null = $_ }
+            if ([DateTime]::UtcNow -gt $deadline) {
+                Microsoft.PowerShell.Utility\Write-Verbose "Enter-StatusLock: timed out on $lockPath; proceeding unlocked."
+                return @{ Stream = $null; Path = $lockPath; Held = $false }
+            }
+            Start-Sleep -Milliseconds 25
+        }
+    }
+}
+
+function Exit-StatusLock {
+    <#
+    .SYNOPSIS
+        Release a lock handle from Enter-StatusLock (closes the stream + removes
+        the lock file). No-op on an un-held handle (timeout path) or $null.
+    #>
+    param($Lock)
+    if (-not $Lock) { return }
+    if ($Lock.Stream) { try { $Lock.Stream.Close(); $Lock.Stream.Dispose() } catch { $null = $_ } }
+    if ($Lock.Held -and $Lock.Path) { Remove-Item -LiteralPath $Lock.Path -Force -ErrorAction SilentlyContinue }
+}
+
+function Read-StatusDocFromDisk {
+    <#
+    .SYNOPSIS
+        Read status.json off disk as a mutable hashtable (-AsHashtable), or
+        $null when absent/unparseable. Used by the nested RMW helpers, which
+        must round-trip the WHOLE document so owner fields + sibling nested
+        nodes survive their targeted change.
+    #>
+    [OutputType([hashtable])]
+    param([Parameter(Mandatory)][string]$StatusPath)
+    if (-not (Test-Path -LiteralPath $StatusPath)) { return $null }
+    try { return (Get-Content -Raw -LiteralPath $StatusPath | ConvertFrom-Json -AsHashtable) }
+    catch { return $null }
+}
+
+function Register-NestedRunNode {
+    <#
+    .SYNOPSIS
+        Attach (or refresh) this nested run's node in the shared doc's `nested`
+        map. Whole-doc read-modify-write under the lock: owner fields and
+        sibling nested nodes are read and rewritten untouched. Idempotent on
+        $NodeId (a re-run overwrites its own prior node). No-op when status.json
+        is absent (the owner hasn't initialized the cycle yet).
+    .PARAMETER LogRel
+        This node's HTML transcript path RELATIVE to the cycle folder (e.g.
+        "nested/<id>/<id>.html"). The dashboard prepends the LIVE cycleFolderUrl
+        so the link survives the owner's `.incomplete` -> bare rename.
+    #>
+    [CmdletBinding(SupportsShouldProcess)]
+    param(
+        [Parameter(Mandatory)][string]$StatusPath,
+        [Parameter(Mandatory)][string]$NodeId,
+        [string]$ParentId = '',
+        [Parameter(Mandatory)][string]$Name,
+        [string]$Kind = 'sequence',
+        [string[]]$Steps = @(),
+        [string]$LogRel = '',
+        [string]$CycleId = ''
+    )
+    if (-not $PSCmdlet.ShouldProcess($NodeId, 'Register nested run node')) { return }
+    $lock = Enter-StatusLock -Path $StatusPath
+    try {
+        $doc = Read-StatusDocFromDisk -StatusPath $StatusPath
+        if (-not $doc) { return }
+        if (-not $doc.Contains('nested') -or $doc.nested -isnot [System.Collections.IDictionary]) { $doc.nested = @{} }
+        $stepList = @(foreach ($sn in $Steps) {
+            @{ name = [string]$sn; status = 'pending'; skipped = $false; startedAt = $null; finishedAt = $null; errorMessage = $null }
+        })
+        $doc.nested[$NodeId] = @{
+            id           = $NodeId
+            parentId     = $ParentId
+            name         = $Name
+            kind         = $Kind
+            status       = 'running'
+            steps        = $stepList
+            logRel       = $LogRel
+            cycleId      = $CycleId
+            startedAt    = (Get-UtcTimestamp)
+            finishedAt   = $null
+            errorMessage = $null
+        }
+        Write-YurunaStateFileJson -Path $StatusPath -InputObject $doc -Depth 10 -Compress:$false -Confirm:$false | Out-Null
+    } finally { Exit-StatusLock -Lock $lock }
+}
+
+function Set-NestedRunStep {
+    <#
+    .SYNOPSIS
+        Update one step inside this nested run's node (status/startedAt/
+        finishedAt/errorMessage). Whole-doc RMW under the lock; no-op when the
+        node or step isn't present.
+    #>
+    [CmdletBinding(SupportsShouldProcess)]
+    param(
+        [Parameter(Mandatory)][string]$StatusPath,
+        [Parameter(Mandatory)][string]$NodeId,
+        [Parameter(Mandatory)][string]$StepName,
+        [Parameter(Mandatory)][string]$Status,
+        [bool]$Skipped = $false,
+        [string]$ErrorMessage = $null
+    )
+    if (-not $PSCmdlet.ShouldProcess("$NodeId/$StepName", "Set nested step status '$Status'")) { return }
+    $lock = Enter-StatusLock -Path $StatusPath
+    try {
+        $doc = Read-StatusDocFromDisk -StatusPath $StatusPath
+        if (-not $doc -or -not $doc.Contains('nested') -or -not $doc.nested.Contains($NodeId)) { return }
+        $node = $doc.nested[$NodeId]
+        $step = @($node.steps) | Where-Object { $_.name -eq $StepName } | Select-Object -First 1
+        if (-not $step) { return }
+        $now = (Get-UtcTimestamp)
+        if ($Status -eq 'running') { $step.startedAt = $now }
+        else {
+            if (-not $step.startedAt) { $step.startedAt = $now }
+            $step.finishedAt = $now
+        }
+        $step.status  = $Status
+        $step.skipped = $Skipped
+        if ($ErrorMessage) { $step.errorMessage = $ErrorMessage }
+        Write-YurunaStateFileJson -Path $StatusPath -InputObject $doc -Depth 10 -Compress:$false -Confirm:$false | Out-Null
+    } finally { Exit-StatusLock -Lock $lock }
+}
+
+function Set-NestedRunStatus {
+    <#
+    .SYNOPSIS
+        Set this nested run's node top-level status + finishedAt (+ optional
+        errorMessage). Whole-doc RMW under the lock; no-op when the node isn't
+        present.
+    #>
+    [CmdletBinding(SupportsShouldProcess)]
+    param(
+        [Parameter(Mandatory)][string]$StatusPath,
+        [Parameter(Mandatory)][string]$NodeId,
+        [Parameter(Mandatory)][string]$Status,
+        [string]$ErrorMessage = ''
+    )
+    if (-not $PSCmdlet.ShouldProcess($NodeId, "Set nested node status '$Status'")) { return }
+    $lock = Enter-StatusLock -Path $StatusPath
+    try {
+        $doc = Read-StatusDocFromDisk -StatusPath $StatusPath
+        if (-not $doc -or -not $doc.Contains('nested') -or -not $doc.nested.Contains($NodeId)) { return }
+        $node = $doc.nested[$NodeId]
+        $node.status = $Status
+        if ($Status -ne 'running') { $node.finishedAt = (Get-UtcTimestamp) }
+        if ($ErrorMessage) { $node.errorMessage = $ErrorMessage }
+        Write-YurunaStateFileJson -Path $StatusPath -InputObject $doc -Depth 10 -Compress:$false -Confirm:$false | Out-Null
+    } finally { Exit-StatusLock -Lock $lock }
+}
+
+Export-ModuleMember -Function Reset-StatusDocumentForCycleStart, Initialize-StatusDocument, Set-GuestVMName, Set-GuestStatus, Set-GuestQuarantine, Set-StepStatus, Set-LastFailureSummary, Set-GuestProvenance, Get-GuestProvenance, Set-GuestTopLevel, Set-GuestFailureArtifact, Set-CycleFolderUrl, Get-CycleNumber, Complete-Run, Write-StatusJson, Get-LastGetImageTime, Set-LastGetImageTime, Get-CycleContext, Publish-CycleContext, Clear-CycleContext, Enter-StatusLock, Exit-StatusLock, Read-StatusDocFromDisk, Register-NestedRunNode, Set-NestedRunStep, Set-NestedRunStatus

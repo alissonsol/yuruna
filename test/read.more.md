@@ -21,9 +21,7 @@ under `vmStart`, `vmImage`, `vmCommunication`, `repositories`, and
 | `vmStart.testVmNamePrefix` | `"test-"` | Prefix for test VM names |
 | `vmImage.refreshHours` | `168` | Hours between automatic re-downloads |
 | `vmImage.alwaysRedownload` | `false` | Force re-download even if image exists |
-| `vmCommunication.characterDelayMs` | `10` | ms between keystrokes in `inputText`/`inputTextAndEnter` (per-step `charDelayMs` in sequences/ overrides this default) |
-| `vmCommunication.allowGuiFallback` | `false` | When `false` (default) `gui/` and `ssh/` are **independent** mechanisms: under `keystrokeMechanism="SSH"` a missing `ssh/` sequence is a hard error, never a silent run on the OCR `gui/` sibling (which an SSH-only host could not drive). Set `true` to restore the legacy degrade-to-`gui/` behavior |
-| `vmCommunication.keystrokeMechanism` | `"GUI"` | `"GUI"` keystroke injection (OCR), `"SSH"` over ssh. Selects `sequences/gui/` or `sequences/ssh/` as independent mechanisms (see `allowGuiFallback`). Any other value normalized to `"GUI"` |
+| `vmCommunication.characterDelayMs` | `10` | ms between keystrokes in `inputText`/`inputTextAndEnter` (per-step `charDelayMs` in sequences overrides this default) |
 | `vmCommunication.pollSeconds` | `5` | Default poll interval (seconds) for wait-style actions (`waitForText`, `passwdPrompt`, `waitForAndEnter`, `sshWaitReady`, …). A step's own `pollSeconds` overrides this default |
 | `vmCommunication.timeoutSeconds` | `180` | Default timeout (seconds) for wait-style actions (`waitForText`, `passwdPrompt`, `fetchAndExecute`, `sshExec`, `sshWaitReady`, …). A step's own `timeoutSeconds` overrides this default |
 | `vmCommunication.vncPort` | `5900` | Fallback VNC port when no VM name is given. Per-VM ports (5910..5989) are derived from the VM name by `Get-VncDisplayForVm` (`host/macos.utm/modules/Yuruna.Host.psm1`); each QEMU-backed UTM guest gets a unique port so concurrent VMs can't poach each other's framebuffer |
@@ -225,19 +223,20 @@ pwsh test/Test-Sequence.ps1 -SequenceName "workload.guest.ubuntu.server.24"
 pwsh test/Test-Sequence.ps1 -SequenceName "workload.guest.ubuntu.server.24" -StartStep 5
 pwsh test/Test-Sequence.ps1 -SequenceName "workload.guest.ubuntu.server.24" -StartStep 3 -StopStep 7
 pwsh test/Test-Sequence.ps1 -SequenceName "workload.guest.ubuntu.server.24" -VMName "private-ubuntu"
-pwsh test/Test-Sequence.ps1 ..\project\example\text-to-sql\test\gui\workload.guest.ubuntu.server.24.k8s.text-to-sql.baseline.yml
+pwsh test/Test-Sequence.ps1 ..\project\example\text-to-sql\test\workload.guest.ubuntu.server.24.k8s.text-to-sql.baseline.yml
 ```
 
-`-SequenceName` accepts either a **name** (no folder, no `.yml`, no
-`.ssh.` suffix) or a **path** to an existing `.yml` file -- the path
-form is shell-tab-completion friendly and supplies the top-level file
-directly (useful when `yuruna-project` is mounted as a sibling working
-tree, not cloned under `<RepoRoot>/project/`), skipping mode/host-variant
-resolution. Both forms still walk the baseline chain. Name form
-resolves against `keystrokeMechanism`; under `"SSH"` it falls back to
-`gui/` only when `vmCommunication.allowGuiFallback: true` (otherwise the
-mechanisms are independent and a missing `ssh/` sequence is an error).
-Missing sequence → listing from `sequences/gui/` and `sequences/ssh/`.
+`-SequenceName` accepts either a **name** (no folder, no `.yml`; the
+`.ssh` segment, when present, is part of the name) or a **path** to an
+existing `.yml` file -- the path form is shell-tab-completion friendly
+and supplies the top-level file directly (useful when `yuruna-project`
+is mounted as a sibling working tree, not cloned under
+`<RepoRoot>/project/`), skipping host-variant resolution. Both forms
+still walk the prerequisite chain. Sequences are flat and
+self-describing: each declares its own `keystrokeMechanism`, and an SSH
+variant is a distinct `<name>.ssh` sequence -- there is no gui/ssh
+fallback. Missing sequence → listing from `test/sequences/` and the
+project test tree.
 When the path form points to a generic `.yml` and a
 `<name>.<hostShort>.yml` sibling exists, Test-Sequence warns -- the
 runner would have picked the variant on this host, so the path form is
@@ -328,6 +327,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.21
+Last review: 2026.07.22
 
 Back to [Yuruna](../README.md)

@@ -9,10 +9,24 @@ description: >
   test/sequences/actions.yml documents per-action parameters and defaults.
 
 type: object
-required: [description, baseline, steps]
+# A guest sequence declares a `keystrokeMechanism`, a `resource:` prerequisite
+# chain, and ordered `component:` + `workload:` action lists. The legacy
+# `baseline:` key and flat top-level `steps:` list were removed (F1/F2); either
+# one is rejected at load with a migration error.
+required: [description, keystrokeMechanism, resource]
 additionalProperties: false
 
 properties:
+
+  keystrokeMechanism:
+    type: string
+    enum: [gui, ssh]
+    description: >
+      How this sequence's steps drive the guest: `gui` (OCR/keystroke) or `ssh`.
+      Placed just after name/description; defaults to `gui` when absent. There is
+      no machine-global keystroke mechanism -- the ssh variant of a sequence is a
+      distinct `<name>.ssh.yml` file carrying `keystrokeMechanism: ssh`, selected
+      by listing that explicit name.
 
   sequenceGuid:
     type: string
@@ -35,12 +49,13 @@ properties:
     type: string
     description: One-line summary shown in cycle logs and the dashboard.
 
-  baseline:
+  resource:
     type: object
     description: >
-      Per-guest-OS prerequisite chain. Each key is a guest OS identifier
-      (e.g. "ubuntu.server.24"); each value is an ordered list of sequence
-      names (no extension, no folder) that must run before this one.
+      Per-guest-OS prerequisite chain -- the sequence(s) run as the `resource`
+      ahead of this one (reinforces the resource/component/workload verification
+      mindset). Each key is a guest OS identifier (e.g. "ubuntu.server.24"); each
+      value is an ordered list of sequence names (no extension, no folder).
     minProperties: 1
     additionalProperties:
       type: array
@@ -61,7 +76,7 @@ properties:
     type: object
     description: >
       Declares that this sequence is a CONSUMER of a disk snapshot
-      produced by an earlier sequence in its `baseline:` chain. Two
+      produced by an earlier sequence in its `resource:` chain. Two
       effects on the runner:
 
       1. VM-name override. The runtime VM name becomes `id` (instead of
@@ -70,7 +85,7 @@ properties:
          the start makes that rename a no-op on the cold path and lets
          the warm path target the persisted VM directly.
 
-      2. Chain skip. Before walking the baseline chain, the runner
+      2. Chain skip. Before walking the resource chain, the runner
          probes the host for snapshot id on VM id. Hit -> skip every
          prereq sequence and run only this top-level (the first
          `loadDiskSnapshot` reverts the disk). Miss -> walk the full
@@ -92,13 +107,25 @@ properties:
         type: string
         description: >
           Snapshot id produced by the terminal `saveDiskSnapshot` of
-          the baseline chain. Must match exactly — the runner uses
+          the resource chain. Must match exactly -- the runner uses
           this both as the snapshot lookup key AND as the persisted
           VM name (the chain's saveDiskSnapshot renames to this id).
 
-  steps:
+  component:
     type: array
-    description: Ordered list of actions to execute.
+    description: >
+      Ordered VM-setup actions -- the `component` phase (session/login priming,
+      password init, environment setup). Runs before `workload`. The executed
+      step list is component ++ workload.
+    items:
+      $ref: "#/$defs/step"
+
+  workload:
+    type: array
+    description: >
+      Ordered verification actions -- the `workload` phase (the final pass/fail
+      test, typically the fetchAndExecute checks past initial setup). Runs after
+      `component`.
     items:
       $ref: "#/$defs/step"
 
@@ -115,9 +142,9 @@ $defs:
     additionalProperties: false
     description: >
       Reference to a named step list in a _snippets.yml library (framework
-      test/sequences/<mode>/_snippets.yml or project
-      <...>/test/<mode>/_snippets.yml). The loader splices the named steps in
-      place before execution; a project name overrides a framework name.
+      test/sequences/_snippets.yml or project <...>/test/_snippets.yml). The
+      loader splices the named steps in place before execution; a project name
+      overrides a framework name.
     required: [snippet]
     properties:
       snippet:

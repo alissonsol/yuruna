@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.07.21
+# Version: 2026.07.22
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 
@@ -63,17 +63,11 @@ resolve_fetch_source() {
     FETCH_SOURCE='github'
 }
 
-# The URL $FETCH_SOURCE serves the repo-relative path "$1" from.
-#
-# GitHub needs two shapes because raw.githubusercontent.com cannot read a PRIVATE
-# repository at all: with a token we go through the Contents API, which returns
-# the file body verbatim under the raw media type whether the repo is public or
-# private; without one we use raw.githubusercontent.com, which only ever works
-# for a public repo. Both pin $GH_REF, so neither can drift with `main`.
-#
-# $QUERY_PARAMS (the host's cache-buster) is appended only on the host route: it
-# is a property of the host's served-repo handler, and the Contents API URL
-# already carries a ?ref= that a second '?' would corrupt.
+# The URL $FETCH_SOURCE serves the repo-relative path "$1" from. With a token,
+# GitHub reads go through the Contents API (works for private repos); without
+# one, raw.githubusercontent.com (public only). Both pin $GH_REF. $QUERY_PARAMS
+# rides only the host route (a second '?' would corrupt the API URL's ?ref=).
+# --- REGION: https://yuruna.link/definition#defining-fetch-and-execute-base-url-resolution
 build_fetch_url() {
     _bu_path="$1"
     case "$FETCH_SOURCE" in
@@ -90,13 +84,11 @@ build_fetch_url() {
     esac
 }
 
-# wget flags for the resolved source, in WGET_FETCH_FLAGS.
-#
-# The token goes into a 0600 wgetrc passed with --config, never into --header:
-# an --header argument is visible in the process list to every user on the box,
-# and any `ps` snapshot a diagnostic dump takes would carry the token into the
-# published run log. --config replaces the system wgetrc, which on this route
-# only holds the host's no_proxy entry -- irrelevant when talking to GitHub.
+# wget flags for the resolved source, in WGET_FETCH_FLAGS. The token rides a
+# 0600 wgetrc via --config, never --header (argv is world-readable and a `ps`
+# snapshot in a diagnostic dump would publish it); the replaced system wgetrc
+# only holds the host's no_proxy entry, irrelevant when talking to GitHub.
+# --- REGION: https://yuruna.link/definition#defining-fetch-and-execute-base-url-resolution
 AUTH_CONFIG=''
 WGET_FETCH_FLAGS=()
 

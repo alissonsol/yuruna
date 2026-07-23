@@ -46,6 +46,13 @@ properties:
       members[] during the pool-intent pull. null when the host is unpooled or has
       not yet pulled intent. The aggregator labels telemetry by this value.
 
+  poolGuid:
+    type: [string, "null"]
+    description: >
+      The pool's stable 42-prefixed GUID (the dashboard "Pool ID"), carried
+      alongside poolId. null when the host is unpooled. The aggregator surfaces it
+      as the Pool ID column on the Yuruna hosts table.
+
   gating:
     type: [object, "null"]
     description: >

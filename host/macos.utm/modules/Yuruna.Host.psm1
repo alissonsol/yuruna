@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.21
+.VERSION 2026.07.22
 .GUID 42a2b3c4-d5e6-4f78-9012-3a4b5c6d7e91
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -2585,7 +2585,8 @@ function Get-ExternalNetwork {
 
 <#
 .SYNOPSIS
-    True when the host's default-route interface is the Wi-Fi hardware port.
+    True when the host's default-route uplink cannot carry a bridged
+    guest MAC -- on macOS that is the Wi-Fi hardware port.
 .DESCRIPTION
     QEMU bridged networking is unreliable over Wi-Fi: the access point
     commonly drops frames from the VM's locally-administered MAC, so a
@@ -2594,10 +2595,15 @@ function Get-ExternalNetwork {
     only hosts. Returns $false when the default route is Ethernet/USB-
     Ethernet, or when there is no default route at all (the caller surfaces
     the missing-route error on its own bridged path).
+
+    macOS counterpart of host.windows.hyper-v Test-WindowsUplinkNotBridgeable,
+    but the criteria differ by hypervisor: vmnet bridges USB Ethernet fine
+    (it is plain wired Ethernet here), so only Wi-Fi is rejected -- whereas
+    Hyper-V's External vSwitch also rejects USB NICs.
 .OUTPUTS
     [bool]
 #>
-function Test-MacDefaultRouteIsWiFi {
+function Test-MacUplinkNotBridgeable {
     [CmdletBinding()]
     [OutputType([bool])]
     param()
@@ -3029,7 +3035,7 @@ Export-ModuleMember -Function `
     Wait-VMIp, Get-VMIp, Get-VMMac, Resolve-UtmGuestIpByMac, `
     Get-ExternalNetwork, New-ExternalNetwork, Test-CacheVMOnExternalNetwork, `
     Add-PortMap, Remove-PortMap, Get-BestHostIp, Get-GuestReachableHostIp, `
-    Test-CachingProxyAvailable, Get-CachingProxyVMIp, Get-HostLanPrefix, Test-MacDefaultRouteIsWiFi, `
+    Test-CachingProxyAvailable, Get-CachingProxyVMIp, Get-HostLanPrefix, Test-MacUplinkNotBridgeable, `
     Set-HostProxy, Clear-HostProxy, Remove-HostProxy, Get-HostProxyBackupPath, Assert-Virtualization, `
     `
     Remove-UtmBundleWithRetry, Invoke-EntitledSwift, `

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.21
+.VERSION 2026.07.22
 .GUID 42c6d7e8-f9a0-4b12-8c34-6d7e8f9a0123
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -67,10 +67,14 @@ if ($pools.Count -eq 0) {
 
 foreach ($p in $pools) {
     $members = @($p['members'])
-    $sets    = @($p['testSets'] | Where-Object { $_ -is [System.Collections.IDictionary] } | ForEach-Object { [string]$_['name'] })
+    $ts      = if ($p['testSet'] -is [System.Collections.IDictionary]) { $p['testSet'] } else { $null }
     Write-Information "" -InformationAction Continue
-    Write-Information ("Pool {0} ({1})  desiredState={2}" -f $p['poolId'], $(if ($p['displayName']) { $p['displayName'] } else { '-' }), $(if ($p['desiredState']) { $p['desiredState'] } else { 'run' })) -InformationAction Continue
+    Write-Information ("Pool {0} [{1}] ({2})  desiredState={3}" -f $p['poolId'], $(if ($p['poolGuid']) { $p['poolGuid'] } else { '-' }), $(if ($p['displayName']) { $p['displayName'] } else { '-' }), $(if ($p['desiredState']) { $p['desiredState'] } else { 'run' })) -InformationAction Continue
     Write-Information ("  members ({0}): {1}" -f $members.Count, $(if ($members.Count) { $members -join ', ' } else { '(none)' })) -InformationAction Continue
-    Write-Information ("  testSets: {0}" -f $(if ($sets.Count) { $sets -join ', ' } else { '(none)' })) -InformationAction Continue
+    if ($ts) {
+        Write-Information ("  testSet: {0}  framework={1}  project={2}" -f [string]$ts['name'], [string]$ts['frameworkUrl'], [string]$ts['projectUrl']) -InformationAction Continue
+    } else {
+        Write-Information "  testSet: (none)" -InformationAction Continue
+    }
 }
 exit $ExitOk

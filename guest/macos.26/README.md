@@ -25,7 +25,7 @@ macOS has no cloud-init/autoinstall equivalent. After
 `New-VM.ps1` restores the IPSW the first boot lands in Setup
 Assistant (region, keyboard, Wi-Fi, Apple ID, etc.). Driving that
 flow from the test harness needs OCR templates and a sequence under
-`test/sequences/gui/start.guest.macos.26.yml` — neither exists yet.
+`test/sequences/start.guest.macos.26.yml` — neither exists yet.
 
 For now the supported workflow is:
 
@@ -50,6 +50,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.21
+Last review: 2026.07.22
 
 Back to [Yuruna](../../README.md)

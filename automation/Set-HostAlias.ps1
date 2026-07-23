@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.21
+.VERSION 2026.07.22
 .GUID 424a157a-a958-4578-af6b-b7eec817ba35
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -214,19 +214,10 @@ process {
     $action = if ($isUpsert) { "Map '$name' -> '$targetIp'" } else { "Remove host alias '$name'" }
     if ($PSCmdlet.ShouldProcess($script:HostsPath, $action)) {
         # --- REGION: 5. Cross-platform safe, atomic write
-        # UTF-8 WITHOUT a BOM: a leading EF BB BF confuses Linux/macOS
-        # resolvers (the first entry is read as '<BOM>127.0.0.1'). On PS7
-        # Set-Content -Encoding utf8NoBOM writes no BOM and uses platform-
-        # native line endings.
-        #
-        # Stage to a sibling temp file on the same volume, then swap it in.
-        # A crash or disk-full mid-write can never truncate the live hosts
-        # file (the half-written bytes land in the temp), and
-        # [IO.File]::Replace preserves the live file's ACLs/owner -- a plain
-        # Move-Item would inherit the temp's instead. If the swap throws, the
-        # live file is left intact and the temp is removed. [NullString]::Value
-        # passes a real null for the (declined) backup arg; bare $null would
-        # bind as an empty path and fault.
+        # BOM-less UTF-8 (a BOM breaks Linux/macOS resolvers), staged to a
+        # sibling temp file and swapped in via [IO.File]::Replace so a
+        # mid-write crash never truncates the live file and its ACLs survive.
+        # --- REGION: https://yuruna.link/memory#why-set-hostalias-writes-the-hosts-file-via-a-staged-sibling-swap
         $hostsDir = Split-Path -Parent -Path $script:HostsPath
         $tempFile = Join-Path -Path $hostsDir -ChildPath ('.hostalias.' + [System.IO.Path]::GetRandomFileName())
         try {

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.21
+.VERSION 2026.07.22
 .GUID 42a2b3c4-d5e6-4f78-9012-3a4b5c6d7e8f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -901,6 +901,13 @@ function Test-YurunaIfaceIsWifi {
 # outside the safe set would inject into the generated netplan yaml.
 # Wi-Fi is checked separately by callers (it has its own operator-facing
 # message).
+#
+# This is the Linux/KVM view of the same "uplink not bridgeable" decision
+# that host.windows.hyper-v Test-WindowsUplinkNotBridgeable and
+# host.macos.utm Test-MacUplinkNotBridgeable make for their hypervisors.
+# The criteria differ: a Linux host bridge carries USB Ethernet fine (it
+# is ARPHRD_ETHER type 1, plain wired), so -- unlike Hyper-V -- USB is not
+# a blocker here.
 function Get-YurunaIfaceBridgeBlocker {
     [CmdletBinding()]
     [OutputType([string])]

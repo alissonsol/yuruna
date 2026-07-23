@@ -26,7 +26,7 @@ and defines the VM via `virt-install --import` against `qemu:///system`.
 | RAM  | 4 GiB |
 | vCPU | min(host threads − 1, max(2, host threads ÷ 2)) |
 | Disk | 16 G qcow2 backed by base |
-| User | `yauser1` (test sequence target, see [test/sequences/gui/start.guest.amazon.linux.2023.yml](../../../test/sequences/gui/start.guest.amazon.linux.2023.yml)) and `ec2-user` (cloud-image default; SSH key-auth) |
+| User | `yauser1` (test sequence target, see [test/sequences/start.guest.amazon.linux.2023.yml](../../../test/sequences/start.guest.amazon.linux.2023.yml)) and `ec2-user` (cloud-image default; SSH key-auth) |
 | Net  | libvirt `default` (NAT 192.168.122.0/24) |
 
 The password is managed by the authentication extension (per-cycle vault.yml at `test/status/extension/authentication/vault.yml`, code under [test/extension/authentication/](../../../test/extension/authentication/));
@@ -46,6 +46,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.21
+Last review: 2026.07.22
 
 Back to [Yuruna](../../../README.md)

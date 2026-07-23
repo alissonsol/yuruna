@@ -78,7 +78,7 @@ After the guest OS is up, test workloads:
 
 - [Requirements](docs/requirements.md) · [FAQ](docs/faq.md) · [Roadmap](docs/opportunities.md#roadmap)
 - [Host pools](docs/pool-admin.md) · [Hosts](host/README.md) · [Guests](guest/README.md)
-- [Contributing](CONTRIBUTING.md) · [Contributors](docs/contributors.md) · [Opportunities](docs/opportunities.md)
+- [Contributing](CONTRIBUTING.md) · [Contributors](CONTRIBUTING.md#contributors) · [Opportunities](docs/opportunities.md)
 
 **Cost warning**: Cloud resources incur charges. Always clean up
 [Yuruna Resources ...](docs/cleanup.md) you're not using.
@@ -89,4 +89,4 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.21
+Last review: 2026.07.22

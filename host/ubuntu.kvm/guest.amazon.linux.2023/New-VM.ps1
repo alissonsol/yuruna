@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.21
+.VERSION 2026.07.22
 .GUID 42a2b3c4-d5e6-4f78-9012-3a4b5c6d7e97
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -253,7 +253,7 @@ if ($LASTEXITCODE -eq 0) {
 # symmetric and survives any future virt-install default change. The
 # AL2023 boot path doesn't reboot during cloud-init's first run, so this
 # only matters for the `sudo reboot now` at the end of
-# test/sequences/gui/start.guest.amazon.linux.2023.yml (and its ssh/
+# test/sequences/start.guest.amazon.linux.2023.yml (and its .ssh
 # sibling) -- with `restart`, QEMU performs
 # system_reset rather than exiting, the VNC socket stays alive, and the
 # harness's screenshot loop / virt-viewer window survive the reboot.

@@ -398,6 +398,30 @@ cleanup going for the remaining VMs.
 Source:
 [`install/windows.hyper-v.ps1`](../install/windows.hyper-v.ps1).
 
+### Why the log tee writes HTML-encoded severity spans?
+
+`Add-YurunaLogLine` appends one already-stringified line to the
+per-cycle transcript via `[IO.File]::AppendAllText`, which preserves
+`Out-File`'s open/write/close per-call durability without paying the
+PowerShell pipeline + `Out-File` cmdlet overhead — the thousands of
+`Write-*` calls per cycle add up. A failed append is non-fatal
+(swallowed to Verbose) so logging never breaks the caller; the catch
+uses the fully-qualified `Microsoft.PowerShell.Utility\Write-Verbose`
+to bypass the module's own override.
+
+Severity is stamped as a CSS class on a wrapping `<span>` so the same
+transcript is both eye-scannable (a stylesheet can colour
+errors/warnings) and machine-filterable (a reader can select
+`.log-error` / `.log-warning` records) without reparsing free text.
+Only the message body is HtmlEncode'd; the span markup is emitted
+verbatim so it renders as an element rather than as escaped angle
+brackets inside the `<pre>`. An unknown/empty severity degrades to
+the neutral `log-output` class rather than dropping the record — the
+tag is additive and never gates whether a line is written.
+
+Source:
+[`automation/Yuruna.Log.psm1`](../automation/Yuruna.Log.psm1).
+
 ---
 
 ## Host orchestration
@@ -538,6 +562,25 @@ pipeline shape avoids three traps:
 
 Source:
 [`host/windows.hyper-v/modules/Yuruna.Host.psm1`](../host/windows.hyper-v/modules/Yuruna.Host.psm1).
+
+### Why Set-HostAlias writes the hosts file via a staged sibling swap?
+
+The rewritten hosts file is written UTF-8 WITHOUT a BOM: a leading
+`EF BB BF` confuses Linux/macOS resolvers (the first entry is read as
+`<BOM>127.0.0.1`). On PS7 `Set-Content -Encoding utf8NoBOM` writes no
+BOM and uses platform-native line endings.
+
+The content is staged to a sibling temp file on the same volume, then
+swapped in. A crash or disk-full mid-write can never truncate the
+live hosts file (the half-written bytes land in the temp), and
+`[IO.File]::Replace` preserves the live file's ACLs/owner — a plain
+`Move-Item` would inherit the temp's instead. If the swap throws, the
+live file is left intact and the temp is removed. `[NullString]::Value`
+passes a real null for the (declined) backup argument; a bare `$null`
+would bind as an empty path and fault.
+
+Source:
+[`automation/Set-HostAlias.ps1`](../automation/Set-HostAlias.ps1).
 
 ---
 
@@ -964,6 +1007,107 @@ hand-rolling the literal hashtable.
 Source:
 [`automation/Yuruna.Result.psm1`](../automation/Yuruna.Result.psm1).
 
+### Why Set-Resource pre-seeds TF_PLUGIN_CACHE_DIR?
+
+`Publish-ResourceList` points `TF_PLUGIN_CACHE_DIR` at an on-disk
+provider cache shared across resources and cycles. Once `tofu init`
+has fetched a provider, subsequent inits reuse the cached plugin
+instead of round-tripping to github.com — guarding against the
+registry-5xx-burst class where releases.github.com /
+registry.opentofu.org returns the same 5xx within a tight retry
+window, so a per-attempt retry loop cannot survive the burst but a
+cached plugin sidesteps it entirely.
+
+The cache is self-populating; nothing external (squid, network
+mirror) needs to be reachable. The operator can override the path via
+`TF_PLUGIN_CACHE_DIR`; otherwise it lives under the project's
+`.yuruna/` tree so a `yuruna clear` purges it. Upstream's
+`plugin_cache_may_break_dependency_lock_file` caveat is harmless here
+because every resource is its own working dir with its own
+`.terraform.lock.hcl`.
+
+Source:
+[`automation/Yuruna.Resource.psm1`](../automation/Yuruna.Resource.psm1).
+
+### Why Publish-ComponentList splits its pipeline through a state hashtable?
+
+`Invoke-ComponentCommand` replays each phase's captured streams via
+`Write-Output` so the transcript stays informative, but those strings
+would array-wrap the result manifest in `Publish-ComponentList`'s
+pipeline output and trip callers' hashtable-shape check
+(`$result = Publish-ComponentList ...` becomes `String[]+Hashtable`).
+The inner scriptblock's pipeline is therefore split at the call site:
+hashtables go to `$state.manifest`, everything else routes to the
+host via `Out-Default` (the caller's `Start-Transcript` still
+captures it). See
+`feedback_powershell_writeoutput_pipeline_pollution.md` for the trap.
+
+State is held in a hashtable so the `ForEach-Object` child scope can
+mutate it; a plain `$manifest = $_` would only write the child scope.
+
+Source:
+[`automation/Yuruna.Component.psm1`](../automation/Yuruna.Component.psm1).
+
+### Why the chart deploy lints before installing?
+
+A non-zero `helm lint` exit indicates the chart has a
+schema/required-field violation that WILL cascade to a failed install
+— e.g. an `image: /<repo>:<tag>` produced when
+`componentsRegistry.registryLocation` rendered as `""` because
+`resources.output.yml` had `componentsRegistry: {}`. The captured
+output is surfaced on the Information stream and the cycle aborts
+BEFORE attempting install.
+
+The chart PATH (`.`, the pushed-to work folder) must be passed
+explicitly: helm 4 made it a required argument, where helm 3
+defaulted it to the current directory. A bare `helm lint` exits 1
+with "requires at least 1 argument", which reads as a rejected chart
+and fails the cycle before install.
+
+Source:
+[`automation/Yuruna.Workload.psm1`](../automation/Yuruna.Workload.psm1).
+
+### Why the chart deploy rolls back pending helm releases pre-flight?
+
+A watchdog SIGKILL of helm mid-upgrade (or a host crash) leaves the
+release in a `pending-*` state. Helm's atomic-rollback guarantees
+fire only on a helm-detected failure — a process kill bypasses them.
+The next cycle's `helm upgrade --install` then exits with "another
+operation in progress", and no auto-recovery is wired downstream. The
+deploy therefore probes `helm status` first, detects a `pending-*`
+state, and clears it via `helm rollback` (which preserves history) so
+the upgrade below proceeds cleanly.
+
+Rollback to revision 0 fails when there is no prior good revision
+(the very first upgrade was the one that was killed); the recovery
+then falls through to `helm uninstall --no-hooks` so the next
+`upgrade --install` can land a fresh release.
+
+Source:
+[`automation/Yuruna.Workload.psm1`](../automation/Yuruna.Workload.psm1).
+
+### Why chart deploys use one atomic helm upgrade?
+
+`helm upgrade --install --atomic` is idempotent in the
+"release-already-exists" case (no uninstall/install race window where
+the release disappears mid-cycle) AND atomic in the failure case
+(automatic rollback to the prior revision on any helm-detected
+failure, so an interrupted deployment never leaves a half-rendered
+release in the namespace). A two-step uninstall+install pair instead
+would, on a watchdog kill between the two calls, strand the operator
+with no release AND a dirty namespace and no recovery path beyond a
+full rerun.
+
+A non-zero exit is still authoritative — the release did NOT land (or
+it landed and was auto-rolled-back). The captured output is ALSO
+scanned for helm's terminal error shapes because helm can return 0 on
+certain post-render rejections (server-side admission failures that
+surface only in the trailing log). Either signal aborts the test
+sequence.
+
+Source:
+[`automation/Yuruna.Workload.psm1`](../automation/Yuruna.Workload.psm1).
+
 ---
 
 ## Kubernetes guest bootstrap
@@ -1045,6 +1189,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.21
+Last review: 2026.07.22
 
 Back to [Yuruna](../README.md)

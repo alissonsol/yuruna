@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.21
+.VERSION 2026.07.22
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456725
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -426,13 +426,18 @@ function Write-HostRegistrationRecord {
         # pool.state.json (null when the pool authored none). Forwarded verbatim so the
         # aggregator parses the thresholds; a null/absent gating tells it to observe the
         # pool's gauges but never page it.
-        $poolId = $null
-        $gating = $null
+        # poolGuid: the pool's stable 42-GUID (the dashboard "Pool ID"), carried
+        # alongside poolId in pool.state.json. Advertised so the aggregator can
+        # label host_info with it. null when unpooled.
+        $poolId   = $null
+        $poolGuid = $null
+        $gating   = $null
         try {
             $poolStatePath = Join-Path $runtimeDir 'pool.state.json'
             if (Test-Path -LiteralPath $poolStatePath) {
                 $ps = Get-Content -Raw -LiteralPath $poolStatePath | ConvertFrom-Json -ErrorAction Stop
-                if ($ps -and -not [string]::IsNullOrWhiteSpace([string]$ps.poolId)) { $poolId = [string]$ps.poolId }
+                if ($ps -and -not [string]::IsNullOrWhiteSpace([string]$ps.poolId))   { $poolId   = [string]$ps.poolId }
+                if ($ps -and -not [string]::IsNullOrWhiteSpace([string]$ps.poolGuid)) { $poolGuid = [string]$ps.poolGuid }
                 if ($ps -and ($null -ne $ps.gating)) { $gating = $ps.gating }
             }
         } catch { $null = $_ }
@@ -472,6 +477,22 @@ function Write-HostRegistrationRecord {
                 }
             }
         } catch { Write-Verbose "activeExtensions (stash-server.json): $($_.Exception.Message)" }
+        # pool-control: the Pool control service marker (runtime/pool-control.json,
+        # written by Start-PoolControlServer.ps1). Same contract as the stash marker
+        # -- presence = active, and poolControlBaseUrl is the deep-link the aggregator
+        # surfaces from the Extension hosts table.
+        try {
+            $pcMarker = Join-Path $runtimeDir 'pool-control.json'
+            if (Test-Path -LiteralPath $pcMarker) {
+                $pc = Get-Content -Raw -LiteralPath $pcMarker | ConvertFrom-Json -ErrorAction Stop
+                if ($null -eq $pc.active -or [bool]$pc.active) {
+                    $activeExtensions += 'pool-control'
+                    if (-not [string]::IsNullOrWhiteSpace([string]$pc.poolControlBaseUrl)) {
+                        $extensionTargets['pool-control'] = [string]$pc.poolControlBaseUrl
+                    }
+                }
+            }
+        } catch { Write-Verbose "activeExtensions (pool-control.json): $($_.Exception.Message)" }
         $record = [ordered]@{
             schemaVersion    = 1
             hostId           = [string]$global:__YurunaHostId
@@ -479,6 +500,7 @@ function Write-HostRegistrationRecord {
             hostType         = $HostType
             hypervisor       = $hypervisor
             poolId           = $poolId
+            poolGuid         = $poolGuid
             gating           = $gating
             capabilities     = $cap
             activeExtensions = $activeExtensions

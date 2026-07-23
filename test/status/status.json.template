@@ -12,5 +12,6 @@
   "lastGetImageAt": null,
   "cycle": 0,
   "guests": [],
+  "nested": {},
   "history": []
 }

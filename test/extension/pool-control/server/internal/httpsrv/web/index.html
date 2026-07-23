@@ -1,0 +1,37 @@
+<!doctype html>
+<!--
+  LICENSEURI https://yuruna.link/license
+  Copyright (c) 2019-2026 by Alisson Sol et al.
+-->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Pool control &mdash; Assign</title>
+  <link rel="stylesheet" href="/assets/style.css">
+</head>
+<body>
+  <header class="app">
+    <span class="brand">Yuruna Pool control</span>
+    <nav>
+      <a href="/" class="active">Assign</a>
+      <a href="/pools">Pools</a>
+      <a href="/test-sets">Test sets</a>
+    </nav>
+  </header>
+  <main>
+    <h1>Assign test sets to pools</h1>
+    <p class="muted">Each pool tests one test-set (a framework + project repo pair). GH_TOKEN stays host-local &mdash; it is never stored in pool intent.</p>
+    <div id="notice" class="notice"></div>
+    <div class="row"><button id="refresh">Refresh</button></div>
+    <table>
+      <thead>
+        <tr><th>Pool</th><th>Pool ID</th><th>Assign test set</th><th>Framework / Project</th><th>Members</th><th>State</th></tr>
+      </thead>
+      <tbody id="pool-rows"></tbody>
+    </table>
+  </main>
+  <script src="/assets/common.js"></script>
+  <script src="/assets/index.js"></script>
+</body>
+</html>

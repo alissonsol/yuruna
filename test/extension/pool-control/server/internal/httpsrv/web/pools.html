@@ -1,0 +1,40 @@
+<!doctype html>
+<!--
+  LICENSEURI https://yuruna.link/license
+  Copyright (c) 2019-2026 by Alisson Sol et al.
+-->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Pool control &mdash; Pools</title>
+  <link rel="stylesheet" href="/assets/style.css">
+</head>
+<body>
+  <header class="app">
+    <span class="brand">Yuruna Pool control</span>
+    <nav>
+      <a href="/">Assign</a>
+      <a href="/pools" class="active">Pools</a>
+      <a href="/test-sets">Test sets</a>
+    </nav>
+  </header>
+  <main>
+    <h1>Pools</h1>
+    <p class="muted">A pool groups hosts and carries a stable Pool ID (GUID). A host belongs to at most one pool.</p>
+    <div id="notice" class="notice"></div>
+    <div class="row">
+      <input id="new-poolid" placeholder="pool-id (lowercase, dns-safe)" size="26">
+      <input id="new-display" placeholder="display name (optional)" size="24">
+      <select id="new-state"><option value="run">run</option><option value="paused">paused</option><option value="drain">drain</option></select>
+      <button id="create" class="primary">Create pool</button>
+    </div>
+    <table>
+      <thead><tr><th>Pool</th><th>Pool ID</th><th>Name</th><th>Members</th><th>State</th><th>Actions</th></tr></thead>
+      <tbody id="pool-rows"></tbody>
+    </table>
+  </main>
+  <script src="/assets/common.js"></script>
+  <script src="/assets/pools.js"></script>
+</body>
+</html>

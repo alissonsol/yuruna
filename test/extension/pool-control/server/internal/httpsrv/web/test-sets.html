@@ -1,0 +1,40 @@
+<!doctype html>
+<!--
+  LICENSEURI https://yuruna.link/license
+  Copyright (c) 2019-2026 by Alisson Sol et al.
+-->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Pool control &mdash; Test sets</title>
+  <link rel="stylesheet" href="/assets/style.css">
+</head>
+<body>
+  <header class="app">
+    <span class="brand">Yuruna Pool control</span>
+    <nav>
+      <a href="/">Assign</a>
+      <a href="/pools">Pools</a>
+      <a href="/test-sets" class="active">Test sets</a>
+    </nav>
+  </header>
+  <main>
+    <h1>Test sets</h1>
+    <p class="muted">A test set is a framework + project repo pair. GH_TOKEN is <strong>not</strong> stored here &mdash; it stays host-local on each host's test.config.yml / vault.</p>
+    <div id="notice" class="notice"></div>
+    <div class="row">
+      <input id="ts-name" placeholder="name" size="16">
+      <input id="ts-framework" placeholder="frameworkUrl" size="40">
+      <input id="ts-project" placeholder="projectUrl" size="40">
+      <button id="save" class="primary">Save test set</button>
+    </div>
+    <table>
+      <thead><tr><th>Name</th><th>Framework URL</th><th>Project URL</th><th>Actions</th></tr></thead>
+      <tbody id="ts-rows"></tbody>
+    </table>
+  </main>
+  <script src="/assets/common.js"></script>
+  <script src="/assets/test-sets.js"></script>
+</body>
+</html>

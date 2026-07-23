@@ -154,7 +154,7 @@
             "matcher": { "id": "byName", "options": "Extension" },
             "properties": [
               { "id": "custom.width", "value": 240 },
-              { "id": "mappings", "value": [ { "type": "value", "options": { "stash-service": { "text": "Stash service", "index": 0 } } } ] },
+              { "id": "mappings", "value": [ { "type": "value", "options": { "stash-service": { "text": "Stash service", "index": 0 }, "pool-control": { "text": "Pool control", "index": 1 } } } ] },
               { "id": "links", "value": [ { "title": "Open stash service UI", "url": "${__data.fields.target}", "targetBlank": true } ] }
             ]
           },
@@ -185,6 +185,7 @@
             "excludeByName": { "Time": true, "pool": true, "hostname": true, "Value #A": true, "__name__": true, "job": true, "instance": true },
             "renameByName": {
               "hostId": "Host ID",
+              "poolGuid": "Pool ID",
               "hostType": "Type",
               "version": "Version",
               "commit": "Commit",
@@ -196,18 +197,19 @@
             },
             "indexByName": {
               "hostId": 0,
-              "version": 1,
-              "commit": 2,
-              "status": 3,
-              "hostType": 4,
-              "Value #D": 5,
-              "Value #C": 6,
-              "Value #B": 7,
-              "cycleId": 8,
-              "baseUrl": 9,
-              "cycleFolderUrl": 10,
-              "commitUrl": 11,
-              "projectCommitUrl": 12
+              "poolGuid": 1,
+              "version": 2,
+              "commit": 3,
+              "status": 4,
+              "hostType": 5,
+              "Value #D": 6,
+              "Value #C": 7,
+              "Value #B": 8,
+              "cycleId": 9,
+              "baseUrl": 10,
+              "cycleFolderUrl": 11,
+              "commitUrl": 12,
+              "projectCommitUrl": 13
             }
           }
         }

@@ -4,6 +4,10 @@ Yuruna uses [Calendar Versioning](https://calver.org/): `YYYY.MM.DD`.
 Tags are cut from the `main` branch; entries below summarize each
 tagged release.
 
+## 2026.07.22
+
+- **Schema change**: Scheme change for test sequences and adjustments for projects.
+
 ## 2026.07.21
 
 - **A test sequence can name its guest: `variables.hostname` now sets the VM's hostname**. The chain cascade carried `username` to cloud-init but dropped `hostname`; declaring it on any sequence now reaches the guest's `local-hostname` on all three hypervisors. Sequences declaring none follow the VM name. See [vmconfig.md](docs/vmconfig.md).
@@ -192,6 +196,6 @@ LICENSEURI <https://yuruna.link/license>
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.21
+Last review: 2026.07.22
 
 Back to [Yuruna](README.md)

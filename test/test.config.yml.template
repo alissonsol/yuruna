@@ -57,9 +57,7 @@ testCycle:
     enabled: true
     maxAttempts: 2
 vmCommunication:
-  allowGuiFallback: false
   characterDelayMs: 10
-  keystrokeMechanism: GUI
   pollSeconds: 5
   timeoutSeconds: 180
   vncPort: 5900

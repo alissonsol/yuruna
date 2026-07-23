@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.21
+.VERSION 2026.07.22
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456742
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -765,7 +765,7 @@ if ($IsMacOS) {
     # UTM Shared NAT (192.168.64.x): discover it by bundle MAC via ARP
     # and expose it to the LAN with host port-forwarders. On Ethernet the
     # VM is bridged (LAN-direct) and discovered by ARP (the else-branch).
-    if (Test-MacDefaultRouteIsWiFi) {
+    if (Test-MacUplinkNotBridgeable) {
         Write-Output ""
         Write-Output "== Step 5: discover Shared-NAT cache VM + expose to LAN (Wi-Fi host) =="
         $httpPort  = Get-CachingProxyPort -Scheme http

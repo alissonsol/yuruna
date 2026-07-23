@@ -1,7 +1,7 @@
 /*
   LICENSEURI https://yuruna.link/license
   Copyright (c) 2019-2026 by Alisson Sol et al.
-  Version: 2026.07.21
+  Version: 2026.07.22
 
   Framework-free checks for test/status/yuruna.common.js. Run: node yuruna.common.test.js
   (exit 0 = pass). No package.json / test runner in the repo, so this uses the Node
@@ -120,4 +120,35 @@ assert.doesNotMatch(src, /function jsonOrNull/,
 assert.doesNotMatch(src, /fetchJson\([^)]*\?_=/,
   'no fetchJson caller may append its own ?_= buster (fetchJson adds one) -- avoids a double cache-buster');
 
-console.log('PASS: yuruna.common.js -- 10 assertions');
+// (5) Nested-run subtree rendering. The nested helpers are loop-internal (not
+//     exported), so verify their presence + wiring structurally. `nestedChildrenIndex`
+//     is a pure map->index builder; exercise it directly by evaluating just that
+//     function in the sandbox so a real behavioral check backs the source guards.
+assert.match(src, /function nestedChildrenIndex\(nested\)/,
+  'nestedChildrenIndex must build the parentId -> children index for nested tiles');
+assert.match(src, /function renderNestedNode\(node, byParent, data, depth\)/,
+  'renderNestedNode must render a nested sub-tile recursively');
+assert.match(src, /function renderOrphanNested\(byParent, sequences, guests, data\)/,
+  'renderOrphanNested must be the safety net for parentless nested nodes');
+assert.match(src, /renderNestedChildren\(seq\.name, byParent, data, 1\)/,
+  'each sequence card must graft nested children matched by parentId === seq.name');
+assert.match(src, /data\.cycleFolderUrl \+ node\.logRel/,
+  'a nested tile must deep-link via the LIVE cycleFolderUrl + node.logRel (survives the .incomplete rename)');
+
+// Behavioral: pull nestedChildrenIndex out of the source and confirm it groups
+// by parentId and stable-sorts by startedAt. Non-tautological -- fails if the
+// grouping/sort logic regresses.
+var nciSrc = src.match(/function nestedChildrenIndex\(nested\)[\s\S]*?\n    \}/);
+assert.ok(nciSrc, 'nestedChildrenIndex source must be extractable for the behavioral check');
+var nci = new Function(nciSrc[0] + '\nreturn nestedChildrenIndex;')();
+var idx = nci({
+  'p/b': { id: 'p/b', parentId: 'p', name: 'b', startedAt: '2026-01-01T00:00:02Z' },
+  'p/a': { id: 'p/a', parentId: 'p', name: 'a', startedAt: '2026-01-01T00:00:01Z' },
+  'p/a/deep': { parentId: 'p/a', name: 'deep' }
+});
+assert.strictEqual(idx['p'].length, 2, 'two children group under parent p');
+assert.strictEqual(idx['p'][0].name, 'a', 'children sort by startedAt (a before b)');
+assert.strictEqual(idx['p/a'][0].id, 'p/a/deep', 'a deeper node groups under its own parent id');
+assert.strictEqual(idx['p/a'][0].id && idx['p/a'][0].name, 'deep', 'missing id is backfilled from the map key');
+
+console.log('PASS: yuruna.common.js -- 19 assertions');

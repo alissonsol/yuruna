@@ -37,14 +37,15 @@ etc.). Action reference and per-host
   ```
   Walking these recursively produces the dependency-ordered chain.
 - **Sequence files** —
-  - Generic per-OS sequences live under
-    [`../sequences/{gui,ssh}/`](../sequences/) — e.g.
-    `start.guest.<os>.yml`, `workload.guest.<os>.yml`.
+  - Generic per-OS sequences live flat under
+    [`../sequences/`](../sequences/) — e.g.
+    `start.guest.<os>.yml`, `workload.guest.<os>.yml`, with SSH variants
+    as distinct `<name>.ssh.yml` files.
   - Project-specific sequences live with the project itself, under
-    `project/<...>/test/{gui,ssh}/` (e.g.
-    `project/example/website/test/gui/workload.guest.ubuntu.server.24.k8s.website.yml`).
+    `project/<...>/test/` (e.g.
+    `project/example/website/test/workload.guest.ubuntu.server.24.k8s.website.yml`).
   - `Resolve-SequencePath` searches the project tree first, then the
-    framework, with `gui/` fallback for missing `ssh/` variants.
+    framework; a host-specific `<name>.<hostShort>.yml` wins over the plain file.
 
 ### Cycle planner
 
@@ -117,6 +118,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.21
+Last review: 2026.07.22
 
 Back to [Yuruna](../../README.md)

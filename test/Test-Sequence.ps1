@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.21
+.VERSION 2026.07.22
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456708
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -87,6 +87,13 @@ param(
     # (restarted) so the dashboard tracks this run.
     [switch]$NoServer,
 
+    # Skip refreshing <RepoRoot>/project. Test-SequenceSet clones the project
+    # ONCE before iterating a test-set, then passes this so each child
+    # Test-Sequence reuses that fresh tree instead of re-cloning per entry.
+    # Standalone callers should omit it -- the default clone keeps a lone
+    # Test-Sequence run in sync with the runner (same as Invoke-TestInnerRunner).
+    [switch]$NoProjectClone,
+
     # Three-state: omitted -> read from test.config.yml.logLevel;
     # explicit value -> override (wins over YAML). Single-pass resolution
     # below -- this script doesn't run a long-lived cycle loop.
@@ -138,7 +145,28 @@ if (Test-Path $yurunaLogModule) {
 # chain-execution logic so it can be unit-tested with fixture data
 # (see test/modules/Test.SequenceRunner.psm1 header).
 Import-Module (Join-Path $ModulesDir 'Test.SequenceRunner.psm1') -Global -Force
+# Test.Orchestrator runs an orchestration sequence (InvokeTestSequence steps,
+# no baseline) in-process under one status cycle -- the local successor to
+# Test-SequenceSet.ps1. Detected + dispatched below, before the guest path.
+Import-Module (Join-Path $ModulesDir 'Test.Orchestrator.psm1') -Global -Force
 $global:VerbosePreference = $savedVerbose
+
+# --- REGION: Nested-cycle detection
+# When this Test-Sequence was started inside another run's process tree -- a
+# host-action step re-entering us in a child pwsh (e.g. Set-Resource.ps1 fanning
+# out per-stage guest builds) -- it inherits the owner's cycle-context handle
+# ($env:YURUNA_CYCLE_CONTEXT). Its presence means THIS run is NESTED: it attaches
+# a node to the owner's ONE status.json cycle instead of owning its own. A nested
+# run must NOT reset status.json, restart the status service, take the single-
+# instance lock, sweep the owner's control flags, allocate a top-level cycle
+# number, or finalize the cycle -- all owner-only. Absence of the handle ==
+# standalone owner, the unchanged classic behavior. See Test.Status.psm1
+# "Nested-cycle support" for the ownership model.
+$cycleCtx = Get-CycleContext
+$isNested = [bool]$cycleCtx
+if ($isNested) {
+    Write-Output "Nested run: attaching to cycle $($cycleCtx.cycleId) (parent node: $($cycleCtx.parentId))."
+}
 
 # --- REGION: logLevel resolution: cmdline > YAML > 'Information'
 # Canonical cascade: Test.LogLevel.psm1. See docs/loglevels.md.
@@ -187,23 +215,31 @@ if ($Config -is [System.Collections.IDictionary] -and
     $Config.repositories.Contains('projectUrl')) {
     $projUrl = [string]$Config.repositories.projectUrl
 }
-$cloneRes = Update-ProjectClone -RepoRoot $RepoRoot -ProjectUrl $projUrl -Confirm:$false
-if (-not $cloneRes.success) {
-    Write-Warning ""
-    Write-Warning "============================================================"
-    Write-Warning "  Project clone FAILED: $($cloneRes.errorMessage)"
-    Write-Warning "  Test-Sequence cannot resolve project-tree sequences without"
-    Write-Warning "  <RepoRoot>/project/. Fix repositories.projectUrl in"
-    Write-Warning "  test.config.yml (or empty it to use the in-tree project)."
-    Write-Warning "============================================================"
-    exit $ExitFailure
+if ($NoProjectClone) {
+    Write-Output "Project clone: skipped (-NoProjectClone); reusing existing <RepoRoot>/project."
+} else {
+    $cloneRes = Update-ProjectClone -RepoRoot $RepoRoot -ProjectUrl $projUrl -Confirm:$false
+    if (-not $cloneRes.success) {
+        Write-Warning ""
+        Write-Warning "============================================================"
+        Write-Warning "  Project clone FAILED: $($cloneRes.errorMessage)"
+        Write-Warning "  Test-Sequence cannot resolve project-tree sequences without"
+        Write-Warning "  <RepoRoot>/project/. Fix repositories.projectUrl in"
+        Write-Warning "  test.config.yml (or empty it to use the in-tree project)."
+        Write-Warning "============================================================"
+        exit $ExitFailure
+    }
 }
 
 # --- REGION: Ensure status server is running (restart to pick up any changes)
 # Shared gate (Test.Prelude) so isEnabled / -NoServer / port / restart match the
 # inner runner. -Restart: a re-invoked Test-Sequence must pick up edits.
-$startScript = Join-Path $TestRoot "Start-StatusService.ps1"
-$null = Start-YurunaStatusServiceIfEnabled -Config $Config -StartScript $startScript -NoServer:$NoServer -Restart
+# Skipped when nested: the owner already started (and owns) the status service;
+# a nested child restarting it would bounce the owner's live server mid-cycle.
+if (-not $isNested) {
+    $startScript = Join-Path $TestRoot "Start-StatusService.ps1"
+    $null = Start-YurunaStatusServiceIfEnabled -Config $Config -StartScript $startScript -NoServer:$NoServer -Restart
+}
 # The Host Config Service is a caching-proxy companion (owned by Start-CachingProxy.ps1),
 # not a test-entry-point concern, so it is intentionally not started here.
 
@@ -217,11 +253,11 @@ if (-not $HostType) { exit $ExitFailure }
 Write-Output "Host type: $HostType"
 
 # --- REGION: Resolve sequence file
-# Sequences live in mode subfolders (sequences/gui/, sequences/ssh/) under
-# the framework, and project/<...>/test/<mode>/ under the per-cycle clone.
-# Resolve-SequencePath checks the project tree first, then the framework,
-# with gui fallback for missing ssh variants. If nothing matches, list
-# everything available across both trees.
+# Sequences live flat under test/sequences/ in the framework and
+# project/<...>/test/ in the per-cycle clone; an ssh variant is its own
+# <name>.ssh sequence. Resolve-SequencePath checks the project tree first,
+# then the framework, host-specific variant before the plain file. If
+# nothing matches, list everything available across both trees.
 #
 # Convenience: when $SequenceName is a path to an existing .yml file (shell
 # tab-completion produces this naturally), use it verbatim and reduce the
@@ -280,19 +316,12 @@ if (-not $SequencePath) {
     foreach ($p in $searched) { Write-Output "  $p" }
     Write-Output ""
     Write-Output "Available sequences:"
-    foreach ($mode in @('gui', 'ssh')) {
-        $modeDir = Join-Path $SequencesDir $mode
-        $projectDirs = Get-ProjectTestSearchDir -RepoRoot $RepoRoot -Mode $mode
-        if ((-not (Test-Path $modeDir)) -and ($projectDirs.Count -eq 0)) { continue }
-        Write-Output "  [$mode]"
-        $allDirs = @()
-        if (Test-Path $modeDir) { $allDirs += $modeDir }
-        $allDirs += $projectDirs
-        $allDirs |
-            ForEach-Object { Get-ChildItem -Path $_ -Filter "*.yml" -ErrorAction SilentlyContinue } |
-            Sort-Object BaseName -Unique |
-            ForEach-Object { Write-Output "    $($_.BaseName)" }
-    }
+    $allDirs = @($SequencesDir) + (Get-ProjectFlatTestSearchDir -RepoRoot $RepoRoot)
+    $allDirs |
+        ForEach-Object { Get-ChildItem -Path $_ -Filter "*.yml" -ErrorAction SilentlyContinue } |
+        Where-Object { $_.Name -notin @('actions.yml', '_snippets.yml') } |
+        Sort-Object BaseName -Unique |
+        ForEach-Object { Write-Output "    $($_.BaseName)" }
     exit $ExitFailure
 }
 
@@ -317,7 +346,10 @@ Write-Output "Log directory:   $env:YURUNA_LOG_DIR"
 # (Test.SingleInstance) does the read; Assert-NoOtherRunner wraps it
 # with the "refuse + banner" semantics this entry point needs --
 # Invoke-TestRunner's takeover path is the opposite (Stop-StaleRunner).
-if (-not (Assert-NoOtherRunner -RuntimeDir $env:YURUNA_RUNTIME_DIR -CallerName 'Test-Sequence')) {
+# Nested runs skip the guard: they don't own the runtime dir (the outer cycle
+# owner does), and the owner already passed this same check. Enforcing it here
+# would make every nested stage refuse to start the moment the owner registered.
+if (-not $isNested -and -not (Assert-NoOtherRunner -RuntimeDir $env:YURUNA_RUNTIME_DIR -CallerName 'Test-Sequence')) {
     exit $ExitFailure
 }
 
@@ -338,7 +370,10 @@ $script:CancelState = Register-EntryPointCancelHandler
 # UI doesn't show a Continue pending, and the run doesn't start paused,
 # from a prior session the operator never resumed). The operator typed
 # THIS command line, so we honour the intent to run over the stale flags.
-if (Get-Command Clear-StaleControlState -ErrorAction SilentlyContinue) {
+# Nested runs must NOT sweep control state: the pause / cycle-restart flags
+# belong to the owner's live cycle, and clearing them from a child would drop a
+# Continue the operator armed on the parent. Owner-only.
+if (-not $isNested -and (Get-Command Clear-StaleControlState -ErrorAction SilentlyContinue)) {
     $ctl = Clear-StaleControlState -Scope Startup -RuntimeDir $env:YURUNA_RUNTIME_DIR -Confirm:$false
     if ($ctl.cycleRestartCleared) { Write-Verbose "Cleared stale control.cycle-restart flag." }
     foreach ($w in $ctl.warnings) { Write-Verbose "Stale control-state sweep: $w" }
@@ -348,6 +383,27 @@ $activeEngines = Get-EnabledOcrProvider
 $combineMode = ($env:YURUNA_OCR_COMBINE -eq 'And') ? 'And' : 'Or'
 Write-Output "OCR engines: $($activeEngines -join ', ') | combine: $combineMode"
 if (-not (Assert-TesseractInstalled)) { exit $ExitFailure }
+
+# --- REGION: Orchestration sequence dispatch (InvokeTestSequence steps)
+# An orchestration sequence has no `baseline:` and its steps invoke inner
+# sequences (guest or host-action) in order. Detected here -- after the
+# host driver, runtime dirs, single-instance guard and OCR setup are up,
+# but before the guest-only GuestKey + VM path -- and handed to
+# Test.Orchestrator, which owns its own status cycle + log and returns an
+# exit code. This is the local one-shot successor to Test-SequenceSet.ps1.
+$topLevelDoc = $null
+try { $topLevelDoc = Read-SequenceFile -Path $SequencePath } catch {
+    Write-Error "Could not parse sequence file '$SequencePath': $($_.Exception.Message)"
+    exit $ExitFailure
+}
+if (Test-IsOrchestrationSequence -Sequence $topLevelDoc) {
+    $orchRc = Invoke-OrchestrationSequence `
+        -Sequence $topLevelDoc -SequencePath $SequencePath `
+        -RepoRoot $RepoRoot -SequencesDir $SequencesDir -TestRoot $TestRoot `
+        -HostType $HostType -Config $Config -ShowSensitive:$ShowSensitive
+    Unregister-EntryPointCancelHandler
+    exit ($orchRc -eq 0 ? $ExitOk : $ExitFailure)
+}
 
 # --- REGION: Derive GuestKey from the sequence's baseline map
 # Source of truth is the sequence's `baseline:` field -- whichever OS
@@ -367,6 +423,8 @@ if ($GuestKey) {
         Write-Error "Could not parse sequence file '$SequencePath': $($_.Exception.Message)"
         exit $ExitFailure
     }
+    # Read-SequenceFile normalizes `resource:` into the engine-internal `baseline`
+    # key, so the OS-key lookup is the same for the migrated shape.
     $osKeys = @()
     if ($topSeq -is [System.Collections.IDictionary] -and
         $topSeq.baseline -is [System.Collections.IDictionary] -and
@@ -374,12 +432,12 @@ if ($GuestKey) {
         $osKeys = @($topSeq.baseline.Keys)
     }
     if ($osKeys.Count -eq 0) {
-        Write-Error "Sequence '$SequenceName' has no 'baseline:' OS key in $SequencePath. Add a 'baseline:' block (e.g. 'baseline: { amazon.linux.2023: [start.guest.amazon.linux.2023] }') or pass -GuestKey explicitly."
+        Write-Error "Sequence '$SequenceName' has no 'resource:' OS key in $SequencePath. Add a 'resource:' block (e.g. 'resource: { amazon.linux.2023: [start.guest.amazon.linux.2023] }') or pass -GuestKey explicitly."
         exit $ExitFailure
     }
     $osKey = $osKeys[0]
     if ($osKeys.Count -gt 1) {
-        Write-Warning "Sequence '$SequenceName' declares multiple baseline OS keys ($($osKeys -join ', ')). Test-Sequence will target '$osKey'. Pass -GuestKey to choose explicitly."
+        Write-Warning "Sequence '$SequenceName' declares multiple resource OS keys ($($osKeys -join ', ')). Test-Sequence will target '$osKey'. Pass -GuestKey to choose explicitly."
     }
     $GuestKey = "guest.$osKey"
     Write-Output "Guest key (from baseline): $GuestKey"
@@ -610,39 +668,71 @@ $stopLabel = $StopStep -ne 0 ? ", stopping after step $effectiveStop" : ""
 # fixed phase pills -- New-VM / Start-VM / Start-GuestOS / ... -- would
 # render four "pending" chips that never animate, since Test-Sequence
 # skips those phase boundaries).
-$StatusFile = Join-Path $env:YURUNA_RUNTIME_DIR 'status.json'
-Reset-StatusDocumentForCycleStart -StatusFilePath $StatusFile -Confirm:$false
+# $nestedNodeId is the id of this run's node in the owner's `nested` map; it
+# stays $null for an owner run and is read again in the finally{} to finalize
+# the node, so it must live in the script scope BEFORE the branch.
+$nestedNodeId = $null
+$StatusFile   = Join-Path $env:YURUNA_RUNTIME_DIR 'status.json'
+if ($isNested) {
+    # --- NESTED: attach a node to the owner's ONE cycle; never reset/own it.
+    # Ownership lives in the outermost process; here we only author our own
+    # node in `nested` and write our transcript under the owner's cycle folder.
+    if ($cycleCtx.statusPath)      { $StatusFile = [string]$cycleCtx.statusPath }
+    $parentId     = [string]$cycleCtx.parentId
+    $nestedNodeId = if ($parentId) { "$parentId/$SequenceName" } else { $SequenceName }
+    # Start this run's own transcript nested under the owner's cycle folder --
+    # no new top-level cycle number, no folder rename (owner concerns).
+    $nestedLog = Start-NestedLogFile -RootCycleFolder ([string]$cycleCtx.rootCycleFolder) `
+        -NodeId $nestedNodeId -CycleId ([string]$cycleCtx.cycleId)
+    $LogFile   = $nestedLog.LogFile
+    # Attach the node (running) so its nested tile appears immediately, with a
+    # deep-link (LogRel) to this transcript.
+    Register-NestedRunNode -StatusPath $StatusFile -NodeId $nestedNodeId -ParentId $parentId `
+        -Name $SequenceName -Kind 'guest' -LogRel $nestedLog.LogRel -CycleId ([string]$cycleCtx.cycleId)
+    # Propagate context one level deeper so anything THIS run itself spawns
+    # attaches UNDER our node -- the same mechanism at any nesting depth.
+    Publish-CycleContext -CycleId ([string]$cycleCtx.cycleId) -StatusPath $StatusFile `
+        -RootCycleFolder ([string]$cycleCtx.rootCycleFolder) -CycleNumber ([int]$cycleCtx.cycleNumber) `
+        -ParentId $nestedNodeId
+    Write-Output "Log file: $LogFile"
+} else {
+    # --- OWNER: register + own the cycle (classic standalone path).
+    # Without this block Test-Sequence runs landed under cycle "000000" with no
+    # row in the dashboard's history table, and break-active.json had no live
+    # cycle to anchor the Continue button against.
+    Reset-StatusDocumentForCycleStart -StatusFilePath $StatusFile -Confirm:$false
 
-$frameworkUrl = if ($Config.repositories -is [System.Collections.IDictionary] -and $Config.repositories.frameworkUrl) {
-    [string]$Config.repositories.frameworkUrl
-} else { '' }
-$frameworkCommit = ''
-if (Get-Command Get-CurrentGitCommit -ErrorAction SilentlyContinue) {
-    try { $frameworkCommit = [string](Get-CurrentGitCommit -RepoRoot $RepoRoot) } catch { $frameworkCommit = '' }
+    $frameworkUrl = if ($Config.repositories -is [System.Collections.IDictionary] -and $Config.repositories.frameworkUrl) {
+        [string]$Config.repositories.frameworkUrl
+    } else { '' }
+    $frameworkCommit = ''
+    if (Get-Command Get-CurrentGitCommit -ErrorAction SilentlyContinue) {
+        try { $frameworkCommit = [string](Get-CurrentGitCommit -RepoRoot $RepoRoot) } catch { $frameworkCommit = '' }
+    }
+    $gitCommitsList = @()
+    if ($frameworkCommit) {
+        $gitCommitsList += [ordered]@{ sha = $frameworkCommit; repoUrl = $frameworkUrl }
+    }
+    $SeqCycleId = Initialize-StatusDocument `
+        -StatusFilePath $StatusFile `
+        -HostType       $HostType `
+        -Hostname       (hostname) `
+        -GitCommit      $frameworkCommit `
+        -RepoUrl        $frameworkUrl `
+        -GitCommits     $gitCommitsList `
+        -GuestList      @($GuestKey) `
+        -StepNames      @('Sequence')
+
+    Set-GuestVMName -GuestKey $GuestKey -VMName $VMName -Confirm:$false
+    Set-GuestTopLevel -GuestKey $GuestKey -TopLevel $SequenceName -Confirm:$false
+    Set-GuestStatus -GuestKey $GuestKey -Status 'running' -Confirm:$false
+    Set-StepStatus -GuestKey $GuestKey -StepName 'Sequence' -Status 'running' -Confirm:$false
+
+    # Start log file (transcript captures all console output)
+    $CycleNumber = Get-CycleNumber
+    $LogFile    = Start-LogFile -TestRoot $TestRoot -CycleId $SeqCycleId -Hostname (hostname) -CycleNumber $CycleNumber
+    Write-Output "Log file: $LogFile"
 }
-$gitCommitsList = @()
-if ($frameworkCommit) {
-    $gitCommitsList += [ordered]@{ sha = $frameworkCommit; repoUrl = $frameworkUrl }
-}
-$SeqCycleId = Initialize-StatusDocument `
-    -StatusFilePath $StatusFile `
-    -HostType       $HostType `
-    -Hostname       (hostname) `
-    -GitCommit      $frameworkCommit `
-    -RepoUrl        $frameworkUrl `
-    -GitCommits     $gitCommitsList `
-    -GuestList      @($GuestKey) `
-    -StepNames      @('Sequence')
-
-Set-GuestVMName -GuestKey $GuestKey -VMName $VMName -Confirm:$false
-Set-GuestTopLevel -GuestKey $GuestKey -TopLevel $SequenceName -Confirm:$false
-Set-GuestStatus -GuestKey $GuestKey -Status 'running' -Confirm:$false
-Set-StepStatus -GuestKey $GuestKey -StepName 'Sequence' -Status 'running' -Confirm:$false
-
-# --- REGION: Start log file (transcript captures all console output)
-$CycleNumber = Get-CycleNumber
-$LogFile    = Start-LogFile -TestRoot $TestRoot -CycleId $SeqCycleId -Hostname (hostname) -CycleNumber $CycleNumber
-Write-Output "Log file: $LogFile"
 
 Write-Output ""
 Write-Output "============================================="
@@ -734,21 +824,36 @@ try {
     # walked away from is closer to a failed cycle than a clean pass for
     # downstream automation (notification, retry, history pruning).
     $finalOutcome = if ($script:TestSequenceOutcome -eq 'pass') { 'pass' } else { 'fail' }
-    if (Get-Command Set-StepStatus -ErrorAction SilentlyContinue) {
-        Set-StepStatus -GuestKey $GuestKey -StepName 'Sequence' -Status $finalOutcome -ErrorMessage $script:TestSequenceReason -Confirm:$false
-    }
-    if (Get-Command Set-GuestStatus -ErrorAction SilentlyContinue) {
-        Set-GuestStatus -GuestKey $GuestKey -Status $finalOutcome -Confirm:$false
-    }
-    if (Get-Command Complete-Run -ErrorAction SilentlyContinue) {
-        $maxHistory = 30
-        if ($Config -is [System.Collections.IDictionary] -and
-            $Config.testCycle -is [System.Collections.IDictionary] -and
-            $Config.testCycle.recentDisplayCount) {
-            $maxHistory = [int]$Config.testCycle.recentDisplayCount
+    if ($isNested) {
+        # NESTED: finalize only OUR node + seal OUR transcript. Do NOT
+        # Complete-Run / Stop-LogFile / rename the folder -- those finalize the
+        # OWNER's cycle, which this run does not own.
+        if ($nestedNodeId -and (Get-Command Set-NestedRunStatus -ErrorAction SilentlyContinue)) {
+            Set-NestedRunStatus -StatusPath $StatusFile -NodeId $nestedNodeId -Status $finalOutcome -ErrorMessage $script:TestSequenceReason
         }
-        Complete-Run -OverallStatus $finalOutcome -MaxHistoryRuns $maxHistory
+        if (Get-Command Stop-NestedLogFile -ErrorAction SilentlyContinue) { Stop-NestedLogFile }
+    } else {
+        # OWNER: finalize the status.json cycle row so the dashboard's history
+        # table reflects this run. 'unknown' (mid-try exit before outcome was
+        # assigned) is recorded as 'fail' -- a cycle the operator walked away
+        # from is closer to a failed cycle than a clean pass for downstream
+        # automation (notification, retry, history pruning).
+        if (Get-Command Set-StepStatus -ErrorAction SilentlyContinue) {
+            Set-StepStatus -GuestKey $GuestKey -StepName 'Sequence' -Status $finalOutcome -ErrorMessage $script:TestSequenceReason -Confirm:$false
+        }
+        if (Get-Command Set-GuestStatus -ErrorAction SilentlyContinue) {
+            Set-GuestStatus -GuestKey $GuestKey -Status $finalOutcome -Confirm:$false
+        }
+        if (Get-Command Complete-Run -ErrorAction SilentlyContinue) {
+            $maxHistory = 30
+            if ($Config -is [System.Collections.IDictionary] -and
+                $Config.testCycle -is [System.Collections.IDictionary] -and
+                $Config.testCycle.recentDisplayCount) {
+                $maxHistory = [int]$Config.testCycle.recentDisplayCount
+            }
+            Complete-Run -OverallStatus $finalOutcome -MaxHistoryRuns $maxHistory
+        }
+        Stop-LogFile -Outcome $script:TestSequenceOutcome -Reason $script:TestSequenceReason
     }
-    Stop-LogFile -Outcome $script:TestSequenceOutcome -Reason $script:TestSequenceReason
 }
 

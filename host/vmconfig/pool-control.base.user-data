@@ -1,0 +1,109 @@
+#cloud-config
+# LICENSEURI https://yuruna.link/license
+# Copyright (c) 2019-2026 by Alisson Sol et al.
+#vim:syntax=yaml
+# --- REGION: https://yuruna.link/vmconfig and https://yuruna.link/pool-control
+# Cloud-init for the pool-control VM: ssh + console login, fetch the framework,
+# then run the bring-up script that builds + launches the daemon under systemd.
+# Mirrors stash-service.base.user-data; the bring-up script (not this seed)
+# CIFS-mounts the pool NAS for its state dir. `users:` without `- default`
+# suppresses the ubuntu cloud-image user. The daemon binds :80 (UI/API) on the
+# bridged LAN (the cloud image runs no host firewall, so no port-opening here).
+hostname: yuruna-pool-control
+users:
+  - name: yuruna
+    gecos: yuruna pool-control user
+    sudo: ALL=(ALL) NOPASSWD:ALL
+    shell: /bin/bash
+    lock_passwd: false
+    ssh_authorized_keys:
+      - SSH_AUTHORIZED_KEY_PLACEHOLDER
+chpasswd:
+  expire: false
+  users:
+    - name: yuruna
+      password: PASSWORD_PLACEHOLDER
+      type: text
+ssh_pwauth: true
+package_update: true
+packages:
+  # cifs-utils: the bring-up script mounts the pool NAS over SMB3. golang-go +
+  # pwsh are installed by the bring-up script (only needed at build/run time).
+  - cifs-utils
+  # Network debugging tools for interactive triage via console/SSH.
+  - net-tools
+  - iputils-ping
+write_files:
+  # Pool services coordinates read by the bring-up script (ubuntu.server.26.
+  # pool-control.sh) via `sed -n 's/^KEY=//p'`, so values are UNQUOTED here
+  # (unlike stash's single-quoted env; the host bake refuses single quotes).
+  # poolNetworkPath/poolNetworkUser match Test.PoolStorage networkStorage.
+  - path: /etc/yuruna/pool.env
+    permissions: '0644'
+    owner: root:root
+    content: |
+      YURUNA_AGGREGATOR_URL=YURUNA_AGGREGATOR_URL_PLACEHOLDER
+      YURUNA_POOL_INTENT_GIT_URL=YURUNA_POOL_INTENT_GIT_URL_PLACEHOLDER
+      YURUNA_POOL_NETWORK_PATH=POOL_NAS_NETWORK_PATH_PLACEHOLDER
+      YURUNA_POOL_NETWORK_USER=POOL_NAS_NETWORK_USER_PLACEHOLDER
+  # cifs credentials (0600 root) for the pool NAS mount the bring-up script
+  # performs. The networkUser is the single pool-NAS account; scope it
+  # storage-only on the NAS.
+  - path: /etc/yuruna/pool-nas.cifs.cred
+    permissions: '0600'
+    owner: root:root
+    content: |
+      username=POOL_NAS_NETWORK_USER_PLACEHOLDER
+      password=POOL_NAS_PASSWORD_PLACEHOLDER
+  # Host coordinates: YURUNA_HOST_ID is the daemon --host-id; IP/PORT are the
+  # status server the framework fetch below reads. Empty IP/PORT falls back to
+  # the public github mirror.
+  - path: /etc/yuruna/host.env
+    permissions: '0644'
+    owner: root:root
+    content: |
+      YURUNA_HOST_ID=YURUNA_HOST_ID_PLACEHOLDER
+      YURUNA_HOST_IP=YURUNA_HOST_IP_PLACEHOLDER
+      YURUNA_HOST_PORT=YURUNA_HOST_PORT_PLACEHOLDER
+  # Operator note; the env files above carry the live coordinates.
+  - path: /etc/yuruna/README.pool-control
+    permissions: '0644'
+    owner: root:root
+    content: |
+      Pool control VM. /etc/yuruna/pool.env + host.env + pool-nas.cifs.cred are
+      written by New-VM.ps1 into the seed. The bring-up script reads them.
+runcmd:
+  # 1) Fetch the framework from the host status server (same resolution as
+  #    automation/fetch-and-execute.sh). Host coordinates read via sed (not
+  #    sourced). Falls back to a github clone when the host is unreachable so a
+  #    bring-up still works off-LAN.
+  - |
+    set +e
+    HF=/etc/yuruna/host.env
+    YR_HOST=$(sed -nE 's/^YURUNA_HOST_IP=(.*)$/\1/p' "$HF" 2>/dev/null | head -n1)
+    YR_PORT=$(sed -nE 's/^YURUNA_HOST_PORT=(.*)$/\1/p' "$HF" 2>/dev/null | head -n1)
+    DEST=/home/yuruna/yuruna
+    mkdir -p "$DEST"
+    OK=0
+    if [ -n "$YR_HOST" ] && [ -n "$YR_PORT" ] && wget -q --no-proxy --tries=1 --timeout=5 -O /dev/null "http://$YR_HOST:$YR_PORT/livecheck"; then
+      if wget --no-proxy -qO- "http://$YR_HOST:$YR_PORT/yuruna-archive.tar.gz" | tar -xz -C "$DEST"; then
+        OK=1; echo "yuruna pool-control: framework extracted from host http://$YR_HOST:$YR_PORT"
+      fi
+    fi
+    if [ "$OK" -eq 0 ]; then
+      echo "yuruna pool-control: host status server unreachable; cloning the public github mirror." >&2
+      rm -rf "$DEST"
+      git clone --depth 1 https://github.com/alissonsol/yuruna "$DEST" && OK=1
+    fi
+    chown -R yuruna:yuruna "$DEST" 2>/dev/null || true
+    [ "$OK" -eq 1 ] || echo "yuruna pool-control: could not obtain the framework source; run the bring-up manually." >&2
+  # 2) Build + launch the daemon (the script installs deps, mounts the pool NAS
+  #    state dir, writes the systemd unit, and starts it).
+  - |
+    set +e
+    SCRIPT=/home/yuruna/yuruna/guest/ubuntu.server.26/ubuntu.server.26.pool-control.sh
+    if [ -f "$SCRIPT" ]; then
+      bash "$SCRIPT" || echo "yuruna pool-control: bring-up script exited non-zero; see cloud-init-output.log." >&2
+    else
+      echo "yuruna pool-control: bring-up script not found at $SCRIPT (framework not fetched?)." >&2
+    fi

@@ -298,7 +298,8 @@ clients up to the cache:
    `IPEnableRouter=1` (which the runner does not toggle), which is
    why both the install scripts and the cache prefer
    `Yuruna-External` and only fall back here when External cannot be
-   created (no LAN, Wi-Fi-only).
+   created (no LAN, or a not-bridgeable uplink — Wi-Fi or a USB Ethernet
+   adapter).
 
 Per-port platform divergence in branch 3:
 
@@ -597,6 +598,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.21
+Last review: 2026.07.22
 
 Back to [Yuruna](../README.md)

@@ -25,7 +25,7 @@ func TestFetchRegistrationActiveExtensions(t *testing.T) {
 	}))
 	defer srv.Close()
 	client := &http.Client{Timeout: 5 * time.Second}
-	pid, gating, ext, tgt, err := fetchRegistration(client, srv.URL)
+	pid, _, gating, ext, tgt, err := fetchRegistration(client, srv.URL)
 	if err != nil {
 		t.Fatalf("fetchRegistration: %v", err)
 	}
@@ -49,7 +49,7 @@ func TestFetchRegistrationNoActiveExtensions(t *testing.T) {
 	}))
 	defer srv.Close()
 	client := &http.Client{Timeout: 5 * time.Second}
-	_, _, ext, tgt, err := fetchRegistration(client, srv.URL)
+	_, _, _, ext, tgt, err := fetchRegistration(client, srv.URL)
 	if err != nil {
 		t.Fatalf("fetchRegistration: %v", err)
 	}

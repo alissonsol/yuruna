@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.21
+.VERSION 2026.07.22
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456791
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -41,21 +41,11 @@ param()
     here -- they belong in the other two.
 #>
 
-# Append one already-stringified line to the per-cycle transcript. AppendAllText
-# preserves Out-File's open/write/close per-call durability without paying the
-# PowerShell pipeline + Out-File cmdlet overhead -- the thousands of Write-* calls
-# per cycle add up. A failed append is non-fatal (swallowed to Verbose) so logging
-# never breaks the caller. The catch uses the fully-qualified
-# Microsoft.PowerShell.Utility\Write-Verbose to bypass this module's own override.
-#
-# Severity is stamped as a CSS class on a wrapping <span> so the same transcript
-# is both eye-scannable (a stylesheet can colour errors/warnings) and machine-
-# filterable (a reader can select `.log-error` / `.log-warning` records) without
-# reparsing free text. Only the message body is HtmlEncode'd; the span markup is
-# emitted verbatim so it renders as an element rather than as escaped angle
-# brackets inside the <pre>. An unknown/empty severity degrades to the neutral
-# 'log-output' class rather than dropping the record -- the tag is additive and
-# never gates whether a line is written.
+# Append one already-stringified line to the per-cycle transcript: AppendAllText
+# for per-call durability without pipeline overhead; a failed append degrades to
+# Verbose so logging never breaks the caller. Severity rides as a CSS class on a
+# wrapping <span> (body HtmlEncode'd, markup verbatim; unknown -> 'log-output').
+# --- REGION: https://yuruna.link/memory#why-the-log-tee-writes-html-encoded-severity-spans
 function Add-YurunaLogLine {
     param(
         [Parameter(Mandatory)][AllowEmptyString()][string]$Text,

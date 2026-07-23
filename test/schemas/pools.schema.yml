@@ -8,10 +8,11 @@ description: >
   pulled by each runner over the LAN from the bare git repo on the caching-proxy.
   `members[]` (a list of stable hostIds) is the SINGLE source of truth for which
   host belongs to which pool: a runner finds its own pool by locating its hostId
-  here; the aggregator labels each host's telemetry by the same mapping.
-  `desiredState` gates the runner (run/paused/drain); `testSets` drives test-set
-  execution; `config` overrides the per-host testCycle knobs; `gating` is the
-  advisory pool alert/quorum policy the aggregator + host notifier act on.
+  here (a host belongs to AT MOST one pool); the aggregator labels each host's
+  telemetry by the same mapping. `desiredState` gates the runner
+  (run/paused/drain); `testSet` (a single framework/project repo pair) is what
+  a pooled host tests; `config` overrides the per-host testCycle knobs; `gating`
+  is the advisory pool alert/quorum policy the aggregator + host notifier act on.
 
 type: object
 required: [schemaVersion, pools]
@@ -21,8 +22,11 @@ properties:
 
   schemaVersion:
     type: integer
-    const: 1
-    description: Schema contract version. Bump only on a breaking shape change.
+    const: 2
+    description: >
+      Schema contract version. v2 (F3): a pool carries a stable `poolGuid` and a
+      single `testSet` (a named framework/project repo pair), replacing the v1
+      `testSets[]` array of sequence-manifest references.
 
   pools:
     type: array
@@ -33,7 +37,7 @@ $defs:
 
   pool:
     type: object
-    required: [poolId]
+    required: [poolId, poolGuid]
     additionalProperties: false
     properties:
 
@@ -44,6 +48,15 @@ $defs:
           DNS-label-safe pool identifier. This is the Loki/Prometheus label
           value and is IMMUTABLE once telemetry has accumulated under it --
           renaming it forks the history.
+
+      poolGuid:
+        type: string
+        pattern: "^42[0-9a-fA-F]{6}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+        description: >
+          Stable 42-prefixed GUID minted at pool creation. Surfaced as the
+          dashboard "Pool ID" column; unlike poolId it is opaque and never
+          reused. Distinct from poolId so the human-facing GUID and the
+          telemetry label can evolve independently.
 
       displayName:
         type: string
@@ -59,28 +72,27 @@ $defs:
           type: string
           pattern: "^42[0-9a-fA-F]{30}$"
 
-      testSets:
-        type: array
+      testSet:
+        type: object
         description: >
-          Test-sets assigned to this pool; pooled runners execute them each
-          cycle. Each names a test-set manifest (test-set.schema.yml).
-        items:
-          type: object
-          required: [name]
-          additionalProperties: false
-          properties:
-            name:
-              type: string
-              pattern: "^[a-z0-9][a-z0-9._-]*$"
-              description: Test-set manifest name (filename stem).
-            order:
-              type: integer
-              minimum: 0
-              description: Execution order within the pool. Default 0.
-            cycleStrategy:
-              type: string
-              enum: [all, round-robin, single]
-              description: How the pool distributes this test-set's sequences across members. Default "all".
+          The single test-set assigned to this pool (F3): a named framework +
+          project repo pair. A pooled runner overrides its own
+          repositories.frameworkUrl / repositories.projectUrl with these for the
+          cycle (its GH_TOKEN stays host-local, never in pool intent) and then
+          runs the assigned project's own test.runner.yml. Absent until assigned.
+        required: [name, frameworkUrl, projectUrl]
+        additionalProperties: false
+        properties:
+          name:
+            type: string
+            pattern: "^[a-z0-9][a-z0-9._-]*$"
+            description: Test-set name (operator label; also the dashboard/UI display name).
+          frameworkUrl:
+            type: string
+            description: The Yuruna framework repo URL each pooled host clones for the cycle.
+          projectUrl:
+            type: string
+            description: The project repo URL each pooled host tests (its test.runner.yml drives the cycle).
 
       config:
         type: object

@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.07.21
+# Version: 2026.07.22
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 #
@@ -57,7 +57,7 @@ echo "Service user: $SERVICE_USER"
 
 # --- REGION: Resolve the StashFolder from the stash storage env
 # Read values WITHOUT sourcing the file: a sourced env file aborts the
-# whole script on a stray quote (feedback_findmnt_target_and_cloudinit_env_source_traps.md).
+# whole script on a stray quote.
 # Values are single-quoted by the host-side bake; sed-extract them.
 ENVF=/etc/yuruna/ystash-nas.env
 get_env() {

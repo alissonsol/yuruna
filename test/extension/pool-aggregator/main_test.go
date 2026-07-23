@@ -605,7 +605,7 @@ func TestGitCommitsTolerantDecode(t *testing.T) {
 // two deep-links resolve.
 func TestHostInfoCommitLabels(t *testing.T) {
 	s := newPoolState("default", 8080)
-	hv := &hostView{HostId: "4253419c", BaseURL: "http://192.168.7.13:8080", Reachable: true, Version: "2026.07.21"}
+	hv := &hostView{HostId: "4253419c", BaseURL: "http://192.168.7.13:8080", Reachable: true, Version: "2026.07.22", PoolId: "lab", PoolGuid: "42a1b2c3-d4e5-4f60-8a1b-2c3d4e5f6071"}
 	hv.Status = &hostStatus{HostId: "4253419c", Host: "host.windows.hyper-v", CycleId: "c1", OverallStatus: "pass"}
 	hv.Status.GitCommits = append(hv.Status.GitCommits,
 		struct {
@@ -622,6 +622,7 @@ func TestHostInfoCommitLabels(t *testing.T) {
 		`commit="1583275b"`,
 		`commitUrl="https://github.com/org/yuruna/commit/1583275bcafef00d"`,
 		`projectCommitUrl=""`,
+		`poolGuid="42a1b2c3-d4e5-4f60-8a1b-2c3d4e5f6071"`,
 	} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("host_info missing %q\n%s", want, body)
@@ -704,28 +705,28 @@ func TestFetchRegistration(t *testing.T) {
 		}))
 	}
 
-	pooled := serve(http.StatusOK, `{"schemaVersion":1,"hostId":"42aaa","poolId":"lab"}`)
+	pooled := serve(http.StatusOK, `{"schemaVersion":1,"hostId":"42aaa","poolId":"lab","poolGuid":"42a1b2c3-d4e5-4f60-8a1b-2c3d4e5f6071"}`)
 	defer pooled.Close()
-	if pid, g, _, _, err := fetchRegistration(client, pooled.URL); err != nil || pid != "lab" || g != nil {
-		t.Fatalf("pooled: got (%q,%v,%v), want (lab,nil,nil)", pid, g, err)
+	if pid, pguid, g, _, _, err := fetchRegistration(client, pooled.URL); err != nil || pid != "lab" || pguid != "42a1b2c3-d4e5-4f60-8a1b-2c3d4e5f6071" || g != nil {
+		t.Fatalf("pooled: got (%q,%q,%v,%v), want (lab,42a1b2c3-...,nil,nil)", pid, pguid, g, err)
 	}
 
 	unpooled := serve(http.StatusOK, `{"schemaVersion":1,"hostId":"42bbb","poolId":null}`)
 	defer unpooled.Close()
-	if pid, g, _, _, err := fetchRegistration(client, unpooled.URL); err != nil || pid != "" || g != nil {
+	if pid, _, g, _, _, err := fetchRegistration(client, unpooled.URL); err != nil || pid != "" || g != nil {
 		t.Fatalf("unpooled: got (%q,%v,%v), want ('',nil,nil)", pid, g, err)
 	}
 
 	missing := serve(http.StatusNotFound, "")
 	defer missing.Close()
-	if _, _, _, _, err := fetchRegistration(client, missing.URL); err == nil {
+	if _, _, _, _, _, err := fetchRegistration(client, missing.URL); err == nil {
 		t.Fatalf("missing: expected an error on HTTP 404")
 	}
 
 	// Full gating block parses verbatim.
 	full := serve(http.StatusOK, `{"poolId":"lab","gating":{"failuresBeforeAlert":5,"successesBeforeRearm":4,"quorum":{"healthyThreshold":0.75,"degradedAfterMinutes":10}}}`)
 	defer full.Close()
-	if pid, g, _, _, err := fetchRegistration(client, full.URL); err != nil || pid != "lab" || g == nil ||
+	if pid, _, g, _, _, err := fetchRegistration(client, full.URL); err != nil || pid != "lab" || g == nil ||
 		g.FailuresBeforeAlert != 5 || g.SuccessesBeforeRearm != 4 || g.HealthyThreshold != 0.75 || g.DegradedAfter != 10*time.Minute {
 		t.Fatalf("full gating: got (%q,%+v,%v)", pid, g, err)
 	}
@@ -733,7 +734,7 @@ func TestFetchRegistration(t *testing.T) {
 	// Partial gating block fills the missing knobs from the schema defaults.
 	partial := serve(http.StatusOK, `{"poolId":"lab","gating":{"quorum":{"healthyThreshold":0.9}}}`)
 	defer partial.Close()
-	if _, g, _, _, err := fetchRegistration(client, partial.URL); err != nil || g == nil ||
+	if _, _, g, _, _, err := fetchRegistration(client, partial.URL); err != nil || g == nil ||
 		g.FailuresBeforeAlert != defaultFailuresBeforeAlert || g.SuccessesBeforeRearm != defaultSuccessesBeforeRearm ||
 		g.HealthyThreshold != 0.9 || g.DegradedAfter != defaultDegradedAfter {
 		t.Fatalf("partial gating: got (%+v,%v)", g, err)

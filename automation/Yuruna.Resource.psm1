@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.21
+.VERSION 2026.07.22
 .GUID 42e3a5b6-c7d8-4901-2345-6e7f80910213
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -346,19 +346,10 @@ function Publish-ResourceList {
     # curses progress UI (the latter trips pwsh-on-Linux Write-Progress).
     Set-Item -Path Env:TF_IN_AUTOMATION -Value "1"
 
-    # On-disk provider cache shared across resources and cycles. Once
-    # `tofu init` has fetched a provider, subsequent inits reuse the
-    # cached plugin instead of round-tripping to github.com -- guards
-    # against the registry-5xx-burst class where releases.github.com /
-    # registry.opentofu.org returns the same 5xx within a tight retry
-    # window, so a per-attempt retry loop cannot survive the burst but
-    # a cached plugin sidesteps it entirely. The cache is self-
-    # populating; nothing external (squid, network mirror) needs to be
-    # reachable. Operator can override the path via TF_PLUGIN_CACHE_DIR;
-    # otherwise it lives under the project's .yuruna/ tree so a
-    # `yuruna clear` purges it. plugin_cache_may_break_dependency_lock_file:
-    # harmless here because every resource is its own working dir with
-    # its own .terraform.lock.hcl.
+    # On-disk provider cache shared across resources and cycles, so later
+    # `tofu init` calls reuse already-fetched plugins instead of re-downloading
+    # (survives the registry-5xx-burst class a per-attempt retry cannot).
+    # --- REGION: https://yuruna.link/memory#why-set-resource-pre-seeds-tf_plugin_cache_dir
     if (-not $env:TF_PLUGIN_CACHE_DIR) {
         $defaultPluginCache = Join-Path -Path $project_root -ChildPath ".yuruna/tofu-plugin-cache"
         $null = New-Item -ItemType Directory -Force -Path $defaultPluginCache -ErrorAction SilentlyContinue

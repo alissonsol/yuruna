@@ -20,7 +20,7 @@ the [install/README.md](install/README.md).
 | Platform | One-liner |
 |---|---|
 | macOS (Homebrew present) | `brew install gh` |
-| Ubuntu / Debian (snap path) | `sudo snap install gh` |
+| Ubuntu / Debian (snap path) | `sudo apt install gh` |
 | Amazon Linux 2023 / Fedora / RHEL | `sudo dnf install gh` |
 | Windows | `winget install --id GitHub.cli --source winget --silent` |
 
@@ -275,13 +275,21 @@ workarounds collected during development live in [Yuruna Workarounds](docs/worka
 
 ## Guidelines
 
-- **PowerShell** — run [PSScriptAnalyzer](https://github.com/PowerShell/PSScriptAnalyzer):
-  `Invoke-ScriptAnalyzer -Path . -Recurse`. The repo ships a
-  `PSScriptAnalyzerSettings.psd1` that PSSA auto-discovers; it does not
-  filter by severity, so findings of every severity must be zero before
-  merge — including Information-level results (missing comment help,
-  undeclared output types, positional-parameter calls) and
-  `PSUseBOMForUnicodeEncodedFile`.
+- **PowerShell** — run [PSScriptAnalyzer](https://github.com/PowerShell/PSScriptAnalyzer)
+  via `pwsh tools/Invoke-Lint.ps1`. It scans git-tracked (and new, non-ignored)
+  files only, so generated/runtime trees that are not source and not the merge
+  gate — the per-cycle clone (`project/`), the runtime dir
+  (`test/status/runtime/`, incl. the generated `.status-service.ps1`), pool
+  build outputs — are excluded without a hand-maintained list. (Bare
+  `Invoke-ScriptAnalyzer -Path . -Recurse` ignores `.gitignore` and floods the
+  output with those pre-existing, non-gate findings on a tree where the harness
+  has run.) The repo ships a `PSScriptAnalyzerSettings.psd1` that PSSA
+  auto-discovers; it does not filter by severity, so findings of every severity
+  must be zero before merge — including Information-level results (missing
+  comment help, undeclared output types, positional-parameter calls) and
+  `PSUseBOMForUnicodeEncodedFile`. A genuine rule false-positive is resolved
+  with a scoped `[Diagnostics.CodeAnalysis.SuppressMessageAttribute(... ,
+  Justification = '...')]` carrying a one-line reason, not a blanket exclusion.
 - **Commit hook** — a repo-tracked `tools/githooks/pre-commit` runs the
   ASCII/no-BOM gate (`test/Test-AsciiNoBom.ps1`) and blocks a commit that
   would put a BOM or non-ASCII byte into a byte-parsed bootstrap script
@@ -324,12 +332,26 @@ changes are served automatically. The exception is
 base; edit its `refs/heads/main` to your branch when testing cache-VM
 changes. **Revert before opening a PR.**
 
+## Contributors
+
+Thanks to everyone who has contributed to developing, testing, and improving yuruna. Contributors:
+
+- [Alisson Sol](https://github.com/alissonsol)
+- [Chris Hawblitzel](https://github.com/Chris-Hawblitzel)
+- [Jay Lorch](https://github.com/jaylorch)
+- [Jingyan Wang](https://github.com/jingyanwangms)
+- [Markus Kuppe](https://github.com/lemmy)
+- [Paulo Haimann Pinto](https://github.com/PSergioHP)
+- [Ross Savage](https://github.com/Ross-GH)
+- [Sanket Kamble](https://github.com/akrine)
+- [Seth Eliot](https://github.com/setheliot)
+
 ---
 
 LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.21
+Last review: 2026.07.22
 
 Back to [Yuruna](README.md)

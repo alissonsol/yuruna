@@ -1,0 +1,40 @@
+# yaml-language-server: $schema=../schemas/sequence.schema.yml
+
+# LICENSEURI https://yuruna.link/license
+# Copyright (c) 2019-2026 by Alisson Sol et al.
+# SSH variant of workload.guest.ubuntu.server.24 (keystrokeMechanism: ssh).
+# See possible actions in the actions.yml file.
+
+# Perf-log identity (see https://yuruna.link/test/perf). Bump revision on step add/remove.
+sequenceGuid: 42b6702a-a4ae-4327-9e86-91b786690aff
+sequenceRevision: 1
+
+description: "Ubuntu Server 24.04 (SSH): install VS Code and verify."
+keystrokeMechanism: ssh
+resource:
+  ubuntu.server.24:
+    - start.guest.ubuntu.server.24.ssh
+variables:
+  username: yuuser24
+
+# component -- wait for sshd, smoke-test the session.
+component:
+  - action: sshWaitReady
+    timeoutSeconds: 300
+    description: "Wait for sshd after reboot"
+
+  - action: sshExec
+    command: "whoami && hostname"
+    description: "Smoke test: whoami/hostname"
+
+# workload -- install VS Code and verify the package is present.
+workload:
+  - action: sshFetchAndExecute
+    command: "/usr/local/lib/yuruna/fetch-and-execute.sh guest/ubuntu.server.24/ubuntu.server.24.code.sh"
+    timeoutSeconds: 1800
+    description: "ubuntu.server.24.code.sh"
+
+  - action: sshExec
+    command: "dpkg -l | grep -i 'code ' || true"
+    allowFailure: true
+    description: "Show installed VS Code package"

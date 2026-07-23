@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.21
+.VERSION 2026.07.22
 .GUID 42c2d3e4-f5a6-4b78-9c01-2d3e4f5a6b7c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -217,17 +217,17 @@ function Open-YurunaPoolIntent {
 <#
 .SYNOPSIS
 Parses <IntentDir>/pools.yml into an ordered dictionary, or returns a fresh empty doc
-({schemaVersion:1, pools:[]}) when the file is absent.
+({schemaVersion:2, pools:[]}) when the file is absent.
 #>
 function Read-YurunaPoolsDoc {
     [CmdletBinding()]
     [OutputType([System.Collections.IDictionary])]
     param([Parameter(Mandatory)][string]$IntentDir)
     $path = Join-Path $IntentDir 'pools.yml'
-    if (-not (Test-Path -LiteralPath $path)) { return ([ordered]@{ schemaVersion = 1; pools = @() }) }
+    if (-not (Test-Path -LiteralPath $path)) { return ([ordered]@{ schemaVersion = 2; pools = @() }) }
     $doc = Get-Content -Raw -LiteralPath $path | ConvertFrom-Yaml -Ordered
-    if (-not ($doc -is [System.Collections.IDictionary])) { return ([ordered]@{ schemaVersion = 1; pools = @() }) }
-    if (-not $doc.Contains('schemaVersion')) { $doc['schemaVersion'] = 1 }
+    if (-not ($doc -is [System.Collections.IDictionary])) { return ([ordered]@{ schemaVersion = 2; pools = @() }) }
+    if (-not $doc.Contains('schemaVersion')) { $doc['schemaVersion'] = 2 }
     if (-not $doc.Contains('pools') -or $null -eq $doc['pools']) { $doc['pools'] = @() }
     return $doc
 }

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.21
+.VERSION 2026.07.22
 .GUID 421f2910-f0a6-4fea-886f-31a3a2399f09
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -95,23 +95,11 @@ function Get-CredentialProvider {
     return $null
 }
 
-# Built-in providers. Order matters: Get-CredentialProvider is
-# first-match-wins, so the specific-host patterns (azurecr, ecr, gar,
-# dockerhub) precede the catch-all docker-generic. Patterns anchor at
-# the end of the hostname so a path-suffixed target ('foo.azurecr.io/img')
-# still matches via the (-split '/')[0] step inside each Authenticator.
-#
-# Each provider exports two scriptblocks with disjoint use cases:
-#   - Authenticator : self-heal path (Repair-Credential after a 401).
-#                     Runs auth in-process; returns [bool].
-#   - LoginCommand  : batch pipeline (Yuruna.Component push). Returns
-#                     a shell command string the caller pipes through
-#                     its own logging wrapper; returns $null when the
-#                     environment doesn't have the credentials.
-#
-# Credential-bearing env vars (Docker Hub / generic):
-#   YURUNA_DOCKER_HUB_USERNAME / YURUNA_DOCKER_HUB_PASSWORD
-#   YURUNA_REGISTRY_USERNAME   / YURUNA_REGISTRY_PASSWORD
+# Built-in providers. First-match-wins: the specific-host patterns (azurecr,
+# ecr, gar, dockerhub) precede the catch-all docker-generic, and patterns
+# anchor the hostname so a path-suffixed target ('foo.azurecr.io/img') still
+# matches. The Authenticator vs LoginCommand contract and the credential
+# env vars: docs/component-registry.md#built-in-providers
 
 # --- REGION: Azure Container Registry
 Register-CredentialProvider -Type 'azurecr' `

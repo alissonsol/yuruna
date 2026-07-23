@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.21
+.VERSION 2026.07.22
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456709
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -784,27 +784,22 @@ if (Test-Path $UsersPath) {
 
         # Strict-mode completeness: every logical username referenced
         # by an active sequence must be declared. Scan framework
-        # sequences under test/sequences/ AND project-tree sequences
-        # under <repoRoot>/project/**/test/{gui,ssh}/. The project layout
-        # is `project/<category>/<name>/test/<mode>/*.yml` (e.g.
-        # `project/example/website/test/gui/...`) -- the same shape
-        # Get-ProjectTestSearchDir walks at runtime, replicated here so
+        # sequences under test/sequences/ AND project-tree sequences,
+        # which the flat project shape keeps directly in any directory
+        # named 'test' under <repoRoot>/project/ (e.g.
+        # `project/example/website/test/*.yml`) -- the same shape
+        # Get-ProjectFlatTestSearchDir walks at runtime, replicated here so
         # Test-Config stays standalone and doesn't have to import the
         # sequence engine module.
         if ($strict) {
             $RepoRoot = Split-Path -Parent $TestRoot
             $sequencesDirs = New-Object System.Collections.Generic.List[string]
             [void]$sequencesDirs.Add((Join-Path $TestRoot 'sequences'))
-            # Project tree: every directory whose name is 'gui' or 'ssh'
-            # AND whose immediate parent is 'test', anywhere under
-            # <repo>/project/. Matches the runtime resolver exactly.
+            # Project tree: every directory named 'test' anywhere under
+            # <repo>/project/. Matches Get-ProjectFlatTestSearchDir.
             $projectRoot = Join-Path $RepoRoot 'project'
             if (Test-Path -LiteralPath $projectRoot) {
-                Get-ChildItem -LiteralPath $projectRoot -Directory -Recurse -ErrorAction SilentlyContinue |
-                    Where-Object {
-                        ($_.Name -eq 'gui' -or $_.Name -eq 'ssh') -and
-                        ((Split-Path -Leaf (Split-Path -Parent $_.FullName)) -eq 'test')
-                    } |
+                Get-ChildItem -LiteralPath $projectRoot -Directory -Recurse -Filter 'test' -ErrorAction SilentlyContinue |
                     ForEach-Object { [void]$sequencesDirs.Add($_.FullName) }
             }
             $referenced = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
@@ -861,17 +856,13 @@ if (-not (Test-Path $seqResolveMod)) {
 } else {
     Import-Module $seqResolveMod -Global -Force
     $RepoRoot = Split-Path -Parent $TestRoot
-    # Same dir set the runtime resolver walks: framework test/sequences/{gui,ssh}
-    # plus every project <...>/test/{gui,ssh} (matches Get-ProjectTestSearchDir).
+    # Same dir set the runtime resolver walks: the flat framework test/sequences/
+    # plus every project <...>/test/ dir (matches Get-ProjectFlatTestSearchDir).
     $seqDirs = New-Object System.Collections.Generic.List[string]
-    foreach ($m in @('gui', 'ssh')) { [void]$seqDirs.Add((Join-Path (Join-Path $TestRoot 'sequences') $m)) }
+    [void]$seqDirs.Add((Join-Path $TestRoot 'sequences'))
     $projectRoot = Join-Path $RepoRoot 'project'
     if (Test-Path -LiteralPath $projectRoot) {
-        Get-ChildItem -LiteralPath $projectRoot -Directory -Recurse -ErrorAction SilentlyContinue |
-            Where-Object {
-                ($_.Name -eq 'gui' -or $_.Name -eq 'ssh') -and
-                ((Split-Path -Leaf (Split-Path -Parent $_.FullName)) -eq 'test')
-            } |
+        Get-ChildItem -LiteralPath $projectRoot -Directory -Recurse -Filter 'test' -ErrorAction SilentlyContinue |
             ForEach-Object { [void]$seqDirs.Add($_.FullName) }
     }
 
@@ -881,7 +872,7 @@ if (-not (Test-Path $seqResolveMod)) {
         if (-not (Test-Path -LiteralPath $sd)) { continue }
         $seqDirsScanned++
         Get-ChildItem -LiteralPath $sd -File -Filter '*.yml' -ErrorAction SilentlyContinue |
-            Where-Object { $_.Name -ne '_snippets.yml' } |
+            Where-Object { $_.Name -notin @('_snippets.yml', 'actions.yml') } |
             ForEach-Object {
                 try {
                     $null = Read-SequenceFile -Path $_.FullName -NoCache

@@ -21,7 +21,7 @@ requirements:
   - tool: "PowerShell"
     command: |-
       "$($PSVersionTable.PSVersion) ($($PSVersionTable.PSEdition))"
-    version: "7.6.3 (Core)"
+    version: "7.6.4 (Core)"
     releases: "https://github.com/powershell/powershell/releases"
   - tool: "git"
     command: |-
@@ -69,7 +69,7 @@ requirements:
     # `code -v` prints three lines (version / commit / arch); first line
     # is the version.
     command: "(code -v | Select-Object -First 1)"
-    version: "1.129.1"
+    version: "1.130.0"
     releases: "https://code.visualstudio.com/Download"
   - tool: "mkcert"
     # mkcert writes its version banner to stderr -- the `2>&1` redirect
@@ -116,7 +116,7 @@ requirements:
     # the first whitespace is environment context, not version.
     command: |-
       ((aws --version) -replace '\s.*$','')
-    version: "aws-cli/2.36.4"
+    version: "aws-cli/2.36.6"
     releases: "https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html"
   - tool: "Azure cli"
     command: "($(az version) | ConvertFrom-Json).\"azure-cli\""
@@ -126,5 +126,5 @@ requirements:
     # No `-q` and no 2>&1 capture: a broken bundled-python install fails
     # silently rather than dumping a traceback into the version column.
     command: "(gcloud -v | Select-Object -First 1)"
-    version: "Google Cloud SDK 576.0.0"
+    version: "Google Cloud SDK 577.0.0"
     releases: "https://cloud.google.com/sdk/docs/install-sdk"

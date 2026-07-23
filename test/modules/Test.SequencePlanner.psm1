@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.21
+.VERSION 2026.07.22
 .GUID 42a1b2c3-d4e5-4f67-8901-bc012345677a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -81,6 +81,21 @@ function Get-CycleConfig {
         throw "Runner config has no 'sequences' entries: $path"
     }
     return $cfg
+}
+
+# Internal helper: $true when a parsed sequence is an orchestration sequence
+# (no `baseline:`, a non-empty `steps:`, first step action InvokeTestSequence).
+# Inlined mirror of Test.Orchestrator\Test-IsOrchestrationSequence so the planner
+# classifies entries without a runtime dependency on Test.Orchestrator (keeps this
+# module unit-testable in isolation). Keep in sync with that canonical predicate.
+function Test-PlannerSequenceIsOrchestration {
+    param([Parameter(Mandatory)]$Sequence)
+    if ($Sequence -isnot [System.Collections.IDictionary]) { return $false }
+    if ($Sequence.Contains('baseline')) { return $false }
+    if (-not $Sequence.Contains('steps') -or -not $Sequence['steps']) { return $false }
+    $first = @($Sequence['steps'])[0]
+    if ($first -isnot [System.Collections.IDictionary] -or -not $first.Contains('action')) { return $false }
+    return ([string]$first['action'] -eq 'InvokeTestSequence')
 }
 
 # Internal helper: depth-first walk of a sequence's prereq chain for a
@@ -173,7 +188,14 @@ function Add-CyclePlanEntriesForTopLevel {
     }
     $topSeq = Read-SequenceFile -Path $topPath
     if (-not $topSeq.baseline) {
-        Write-Warning "Top-level sequence has no baseline (no supported guest OS declared): $TopName"
+        # Orchestration sequences (InvokeTestSequence steps, no resource:/
+        # baseline) are valid top-level entries -- the runner dispatches them via
+        # Get-CycleOrchestrationList + Invoke-OrchestrationSequence, not the
+        # per-guest chain planner -- so they contribute no guest plan entries and
+        # must not warn. Anything else with no baseline is a genuine misconfig.
+        if (-not (Test-PlannerSequenceIsOrchestration -Sequence $topSeq)) {
+            Write-Warning "Top-level sequence has no baseline (no supported guest OS declared): $TopName"
+        }
         return
     }
     foreach ($osKey in $topSeq.baseline.Keys) {
@@ -287,6 +309,43 @@ function Resolve-CyclePlan {
     }
     # Wrap in @() at return so a single entry doesn't unwrap to scalar.
     return ,@($entries.ToArray())
+}
+
+<#
+.SYNOPSIS
+    Returns the project/test/test.runner.yml entries that are ORCHESTRATION
+    sequences (InvokeTestSequence steps, no resource:/baseline), each as
+    [pscustomobject]@{ name; path }. Empty when there are none.
+.DESCRIPTION
+    Orchestration sequences own their own status cycle + transcript via
+    Invoke-OrchestrationSequence (Test.Orchestrator); they are NOT per-guest
+    chains, so Resolve-CyclePlan emits no plan entries for them. The runner reads
+    this companion list to detect an orchestration cycle and delegate to the
+    orchestrator instead of the per-guest VM lifecycle. Guest-sequence entries are
+    absent here (handled by Resolve-CyclePlan). Reads the same test.runner.yml and
+    resolves each entry the same way; a name that does not resolve is skipped here
+    (the miss surfaces via Resolve-CyclePlan's PlannerFatal, one authority for it).
+#>
+function Get-CycleOrchestrationList {
+    [CmdletBinding()]
+    [OutputType([System.Object[]])]
+    param(
+        [Parameter(Mandatory)][string]$RepoRoot,
+        [Parameter(Mandatory)][string]$SequencesDir,
+        [string]$HostType
+    )
+    $cycleCfg = Get-CycleConfig -RepoRoot $RepoRoot
+    $list = New-Object System.Collections.Generic.List[Object]
+    foreach ($raw in $cycleCfg.sequences) {
+        $name = ([string]$raw) -replace '\.(ya?ml|json)$',''
+        $path = Resolve-SequencePath -SequencesDir $SequencesDir -Name $name -HostType $HostType -RepoRoot $RepoRoot
+        if (-not $path) { continue }
+        $seq = Read-SequenceFile -Path $path
+        if (Test-PlannerSequenceIsOrchestration -Sequence $seq) {
+            $list.Add([pscustomobject]@{ name = $name; path = $path })
+        }
+    }
+    return ,@($list.ToArray())
 }
 
 <#
@@ -600,4 +659,4 @@ function Resolve-NamedSequenceChain {
     }
 }
 
-Export-ModuleMember -Function Get-CycleConfigPath, Get-CycleConfig, Resolve-CyclePlan, Resolve-TestSetCyclePlan, Get-CyclePlanGuestList, Get-CyclePlanSequenceList, Get-CyclePlanSequencesForGuest, Resolve-NamedSequenceChain
+Export-ModuleMember -Function Get-CycleConfigPath, Get-CycleConfig, Resolve-CyclePlan, Get-CycleOrchestrationList, Resolve-TestSetCyclePlan, Get-CyclePlanGuestList, Get-CyclePlanSequenceList, Get-CyclePlanSequencesForGuest, Resolve-NamedSequenceChain

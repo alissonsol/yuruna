@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.21
+.VERSION 2026.07.22
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456740
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -607,7 +607,7 @@ function Write-ServerErr {
 # The '\\'->'\\' pass is intentionally a no-op on the backslash (regex \\ ->
 # literal \) and is kept verbatim so the emitted bytes match every call site
 # that already relied on this exact transform chain.
-function Escape-JsonString {
+function ConvertTo-JsonEscapedString {
     param([string]`$s)
     `$s -replace '\\','\\' -replace '"','\"' -replace '[\r\n]+',' '
 }
@@ -817,7 +817,7 @@ try {
                 if (`$needsHeader -and `$req.Headers['X-Yuruna'] -ne '1') {
                     `$res.ContentType = 'application/json; charset=utf-8'
                     `$res.Headers.Add('Cache-Control', 'no-store')
-                    Send-JsonError `$res 403 '{"ok":false,"error":"forbidden: missing X-Yuruna request header (cross-site request guard)"}'
+                    Send-JsonError -Response `$res -StatusCode 403 -Json '{"ok":false,"error":"forbidden: missing X-Yuruna request header (cross-site request guard)"}'
                     continue
                 }
                 # A mutating control route additionally requires that the caller
@@ -858,7 +858,7 @@ try {
                             -not (Test-YurunaControlProof -Token `$ctlToken -Wire ([string]`$req.Headers['X-Yuruna-Control']))) {
                             `$res.ContentType = 'application/json; charset=utf-8'
                             `$res.Headers.Add('Cache-Control', 'no-store')
-                            Send-JsonError `$res 403 '{"ok":false,"error":"follow guidance at https://yuruna.link/control-proof"}'
+                            Send-JsonError -Response `$res -StatusCode 403 -Json '{"ok":false,"error":"follow guidance at https://yuruna.link/control-proof"}'
                             continue
                         }
                     }
@@ -882,7 +882,7 @@ try {
                 `$res.Headers.Add('Cache-Control', 'no-store')
                 if (`$req.HttpMethod -eq 'GET' -or `$req.HttpMethod -eq 'HEAD') {
                     if (-not (Test-Path -LiteralPath `$testConfigFile)) {
-                        Send-JsonError `$res 404 '{"ok":false,"error":"test.config.yml not found"}'
+                        Send-JsonError -Response `$res -StatusCode 404 -Json '{"ok":false,"error":"test.config.yml not found"}'
                         continue
                     }
                     try {
@@ -907,7 +907,7 @@ try {
                         `$bytes = [System.Text.Encoding]::UTF8.GetBytes(`$json)
                     } catch {
                         `$res.StatusCode = 500
-                        `$errMsg = (Escape-JsonString `$_.Exception.Message)
+                        `$errMsg = (ConvertTo-JsonEscapedString `$_.Exception.Message)
                         `$bytes = [System.Text.Encoding]::UTF8.GetBytes('{"ok":false,"error":"YAML parse failed: ' + `$errMsg + '"}')
                     }
                     `$res.ContentLength64 = `$bytes.Length
@@ -921,7 +921,7 @@ try {
                     `$payload = `$null
                     # ContentLength64 == -1 means chunked/unknown; allow those through.
                     if (`$req.ContentLength64 -gt 1MB) {
-                        Send-JsonError `$res 413 '{"ok":false,"error":"payload too large (>1 MB)"}'
+                        Send-JsonError -Response `$res -StatusCode 413 -Json '{"ok":false,"error":"payload too large (>1 MB)"}'
                         continue
                     }
                     try {
@@ -929,15 +929,15 @@ try {
                         `$payload = `$reader.ReadToEnd()
                         `$reader.Close()
                     } catch {
-                        Send-JsonError `$res 400 '{"ok":false,"error":"could not read body"}'
+                        Send-JsonError -Response `$res -StatusCode 400 -Json '{"ok":false,"error":"could not read body"}'
                         continue
                     }
                     `$parsedDoc = `$null
                     try {
                         `$parsedDoc = `$payload | ConvertFrom-Json -AsHashtable -ErrorAction Stop
                     } catch {
-                        `$errMsg = (Escape-JsonString `$_.Exception.Message)
-                        Send-JsonError `$res 400 ('{"ok":false,"error":"invalid JSON: ' + `$errMsg + '"}')
+                        `$errMsg = (ConvertTo-JsonEscapedString `$_.Exception.Message)
+                        Send-JsonError -Response `$res -StatusCode 400 -Json ('{"ok":false,"error":"invalid JSON: ' + `$errMsg + '"}')
                         continue
                     }
                     # Validate vmStart.cachingProxyIP at save time: must be
@@ -978,8 +978,8 @@ try {
                         }
                     }
                     if (`$cacheIpErr) {
-                        `$errMsg = (Escape-JsonString `$cacheIpErr)
-                        Send-JsonError `$res 400 ('{"ok":false,"error":"' + `$errMsg + '"}')
+                        `$errMsg = (ConvertTo-JsonEscapedString `$cacheIpErr)
+                        Send-JsonError -Response `$res -StatusCode 400 -Json ('{"ok":false,"error":"' + `$errMsg + '"}')
                         continue
                     }
                     # Re-merge the on-disk secrets node: the GET above serves
@@ -1024,8 +1024,8 @@ try {
                         [System.IO.File]::Move(`$tmp, `$testConfigFile, `$true)
                         `$writeOk = `$true
                     } catch {
-                        `$errMsg = (Escape-JsonString `$_.Exception.Message)
-                        Send-JsonError `$res 500 ('{"ok":false,"error":"write failed: ' + `$errMsg + '"}')
+                        `$errMsg = (ConvertTo-JsonEscapedString `$_.Exception.Message)
+                        Send-JsonError -Response `$res -StatusCode 500 -Json ('{"ok":false,"error":"write failed: ' + `$errMsg + '"}')
                         Write-ServerErr "test-config write failed: `$errMsg"
                     } finally {
                         # On the failure path, Set-Content may have left
@@ -1044,7 +1044,7 @@ try {
                     continue
                 }
                 `$res.Headers.Add('Allow', 'GET, POST, PUT')
-                Send-JsonError `$res 405 '{"ok":false,"error":"method not allowed"}'
+                Send-JsonError -Response `$res -StatusCode 405 -Json '{"ok":false,"error":"method not allowed"}'
                 continue
             }
 
@@ -1061,7 +1061,7 @@ try {
             if (`$path -eq 'control/runtime-env') {
                 if (`$req.HttpMethod -ne 'GET' -and `$req.HttpMethod -ne 'HEAD') {
                     `$res.Headers.Add('Allow', 'GET')
-                    Send-JsonError `$res 405 '{"ok":false,"error":"method not allowed"}'
+                    Send-JsonError -Response `$res -StatusCode 405 -Json '{"ok":false,"error":"method not allowed"}'
                     continue
                 }
                 `$res.ContentType = 'application/json; charset=utf-8'
@@ -1095,7 +1095,7 @@ try {
             if (`$path -eq 'control/perf-aggregates') {
                 if (`$req.HttpMethod -ne 'GET' -and `$req.HttpMethod -ne 'POST' -and `$req.HttpMethod -ne 'HEAD') {
                     `$res.Headers.Add('Allow', 'GET, POST')
-                    Send-JsonError `$res 405 '{"ok":false,"error":"method not allowed"}'
+                    Send-JsonError -Response `$res -StatusCode 405 -Json '{"ok":false,"error":"method not allowed"}'
                     continue
                 }
                 if (`$req.HttpMethod -eq 'POST') {
@@ -1295,11 +1295,11 @@ try {
                 `$res.Headers.Add('Cache-Control', 'no-store')
                 if (`$req.HttpMethod -ne 'POST' -and `$req.HttpMethod -ne 'PUT') {
                     `$res.Headers.Add('Allow', 'POST, PUT')
-                    Send-JsonError `$res 405 '{"ok":false,"error":"method not allowed; POST the checkpoint body"}'
+                    Send-JsonError -Response `$res -StatusCode 405 -Json '{"ok":false,"error":"method not allowed; POST the checkpoint body"}'
                     continue
                 }
                 if (`$req.ContentLength64 -gt 256KB) {
-                    Send-JsonError `$res 413 '{"ok":false,"error":"payload too large (>256 KB)"}'
+                    Send-JsonError -Response `$res -StatusCode 413 -Json '{"ok":false,"error":"payload too large (>256 KB)"}'
                     continue
                 }
                 `$rawBody = ''
@@ -1310,7 +1310,7 @@ try {
                 `$parsed = `$null
                 try { `$parsed = `$rawBody | ConvertFrom-Json -AsHashtable -ErrorAction Stop } catch { `$parsed = `$null }
                 if (`$null -eq `$parsed -or -not (`$parsed -is [System.Collections.IDictionary])) {
-                    Send-JsonError `$res 400 '{"ok":false,"error":"body must be a JSON object"}'
+                    Send-JsonError -Response `$res -StatusCode 400 -Json '{"ok":false,"error":"body must be a JSON object"}'
                     continue
                 }
                 # Bounded, validated copy of the checkpoint list (max 500;
@@ -1388,7 +1388,7 @@ try {
                     Write-ServerErr "perf-checkpoints: write failed: `$(`$_.Exception.Message)"
                 }
                 if (-not `$writeOk) {
-                    Send-JsonError `$res 500 '{"ok":false,"error":"sidecar write failed"}'
+                    Send-JsonError -Response `$res -StatusCode 500 -Json '{"ok":false,"error":"sidecar write failed"}'
                     continue
                 }
                 # Fresh checkpoint data invalidates the memoized aggregates so the
@@ -1419,7 +1419,7 @@ try {
                 # is still honored on the POST.
                 if (`$req.HttpMethod -ne 'POST' -and `$req.HttpMethod -ne 'PUT') {
                     `$res.Headers.Add('Allow', 'POST, PUT')
-                    Send-JsonError `$res 405 '{"ok":false,"error":"method not allowed"}'
+                    Send-JsonError -Response `$res -StatusCode 405 -Json '{"ok":false,"error":"method not allowed"}'
                     continue
                 }
                 `$res.ContentType = 'application/json; charset=utf-8'
@@ -1452,7 +1452,7 @@ try {
                     }
                     if (-not `$ipAllowed -and `$env:YURUNA_CACHING_PROXY_IP -and (`$ipQ -eq "`$env:YURUNA_CACHING_PROXY_IP".Trim())) { `$ipAllowed = `$true }
                     if (-not `$ipAllowed) {
-                        Send-JsonError `$res 403 '{"ok":false,"error":"forbidden: probe target must be a private (loopback/RFC1918/link-local) address or the configured cache IP"}'
+                        Send-JsonError -Response `$res -StatusCode 403 -Json '{"ok":false,"error":"forbidden: probe target must be a private (loopback/RFC1918/link-local) address or the configured cache IP"}'
                         continue
                     }
                 }
@@ -1483,7 +1483,7 @@ try {
                             lines              = @(`$probe.Lines)
                         } | ConvertTo-Json -Compress -Depth 4
                     } catch {
-                        `$errMsg = (Escape-JsonString `$_.Exception.Message)
+                        `$errMsg = (ConvertTo-JsonEscapedString `$_.Exception.Message)
                         `$payload = '{"ok":false,"ip":"' + (`$ipQ -replace '\\','\\' -replace '"','\"') + '","valid":true,"error":"' + `$errMsg + '"}'
                         Write-ServerErr "test-caching-proxy probe failed for `${ipQ}: `$errMsg"
                     }
@@ -1514,7 +1514,7 @@ try {
                             Select-Object -ExpandProperty Name | Sort-Object)
                     }
                 }
-                # Build the JSON array literally: ConvertTo-Json's
+                # Build the JSON array literally: ConvertTo-Json 's
                 # array-vs-scalar handling is brittle on PowerShell 7
                 # (-AsArray + -InputObject double-wraps an existing
                 # array, plain pipe drops the empty case to nothing).
@@ -1659,7 +1659,7 @@ try {
                         `$bytes = [System.Text.Encoding]::UTF8.GetBytes(`$payload)
                     } catch {
                         `$res.StatusCode = 500
-                        `$errMsg = (Escape-JsonString `$_.Exception.Message)
+                        `$errMsg = (ConvertTo-JsonEscapedString `$_.Exception.Message)
                         `$bytes = [System.Text.Encoding]::UTF8.GetBytes('{"ok":false,"error":"' + `$errMsg + '"}')
                     }
                 }
@@ -1752,13 +1752,13 @@ try {
                         }
                     } catch {
                         `$vcStatus = 500
-                        `$vcError = (Escape-JsonString `$_.Exception.Message)
+                        `$vcError = (ConvertTo-JsonEscapedString `$_.Exception.Message)
                         Write-ServerErr "vault-credential failed: `$vcError"
                     }
                 }
                 if (`$vcError) {
                     `$res.StatusCode = `$vcStatus
-                    `$errMsg = (Escape-JsonString `$vcError)
+                    `$errMsg = (ConvertTo-JsonEscapedString `$vcError)
                     `$bytes = [System.Text.Encoding]::UTF8.GetBytes('{"ok":false,"error":"' + `$errMsg + '"}')
                 } else {
                     `$bytes = [System.Text.Encoding]::UTF8.GetBytes(`$payload)
@@ -1831,20 +1831,20 @@ try {
                 `$res.Headers.Add('Cache-Control', 'no-store')
                 if (`$req.HttpMethod -ne 'POST' -and `$req.HttpMethod -ne 'PUT') {
                     `$res.Headers.Add('Allow', 'POST, PUT')
-                    Send-JsonError `$res 405 '{"ok":false,"error":"POST required"}'
+                    Send-JsonError -Response `$res -StatusCode 405 -Json '{"ok":false,"error":"POST required"}'
                     continue
                 }
                 `$breakActiveFile   = Join-Path `$runtimeDir 'break-active.json'
                 `$breakContinueFile = Join-Path `$runtimeDir 'control.break-continue'
                 if (-not (Test-Path -LiteralPath `$breakActiveFile)) {
-                    Send-JsonError `$res 409 '{"ok":false,"error":"no break active"}'
+                    Send-JsonError -Response `$res -StatusCode 409 -Json '{"ok":false,"error":"no break active"}'
                     continue
                 }
                 try {
                     Set-Content -Path `$breakContinueFile -Value (Get-Date -Format o) -ErrorAction Stop
                 } catch {
                     `$msg = '{"ok":false,"error":"could not write continue flag: ' + (`$_.Exception.Message -replace '"','\\"') + '"}'
-                    Send-JsonError `$res 500 `$msg
+                    Send-JsonError -Response `$res -StatusCode 500 -Json `$msg
                     continue
                 }
                 `$body = [System.Text.Encoding]::UTF8.GetBytes('{"ok":true}')
@@ -1875,7 +1875,7 @@ try {
                 `$res.ContentType = 'application/json; charset=utf-8'
                 `$res.Headers.Add('Cache-Control', 'no-store')
                 if (`$req.HttpMethod -ne 'POST' -and `$req.HttpMethod -ne 'PUT') {
-                    Send-JsonError `$res 405 '{"ok":false,"error":"POST required"}'
+                    Send-JsonError -Response `$res -StatusCode 405 -Json '{"ok":false,"error":"POST required"}'
                     continue
                 }
                 # File-existence lock. CreateNew is atomic at the OS layer;
@@ -1903,7 +1903,7 @@ try {
                 try {
                     `$lockHandle = [System.IO.File]::Open(`$lockFile, [System.IO.FileMode]::CreateNew, [System.IO.FileAccess]::ReadWrite, [System.IO.FileShare]::None)
                 } catch {
-                    Send-JsonError `$res 409 '{"ok":false,"error":"another start-cycle request is in progress"}'
+                    Send-JsonError -Response `$res -StatusCode 409 -Json '{"ok":false,"error":"another start-cycle request is in progress"}'
                     continue
                 }
                 `$action = 'restarted'
@@ -2108,7 +2108,7 @@ try {
                 `$res.Headers.Add('Cache-Control', 'no-store')
                 if (`$req.HttpMethod -ne 'POST' -and `$req.HttpMethod -ne 'PUT') {
                     `$res.Headers.Add('Allow', 'POST, PUT')
-                    Send-JsonError `$res 405 '{"ok":false,"error":"method not allowed; POST the dump body"}'
+                    Send-JsonError -Response `$res -StatusCode 405 -Json '{"ok":false,"error":"method not allowed; POST the dump body"}'
                     continue
                 }
                 # path: 'diagnostics/<folder>.../<filename>' -- at least
@@ -2125,7 +2125,7 @@ try {
                 `$rel  = `$path.Substring(12)
                 `$segs = @(`$rel -split '/' | Where-Object { `$_ })
                 if (`$segs.Count -lt 2 -or (`$segs | Where-Object { -not `$_ })) {
-                    Send-JsonError `$res 400 '{"ok":false,"error":"expected /diagnostics/<folder>.../<filename>"}'
+                    Send-JsonError -Response `$res -StatusCode 400 -Json '{"ok":false,"error":"expected /diagnostics/<folder>.../<filename>"}'
                     continue
                 }
                 `$diagFile   = `$segs[-1]
@@ -2147,17 +2147,17 @@ try {
                     if (`$seg -match '[\\]' -or `$seg -match '\.\.') { `$segReject = `$true; break }
                 }
                 if (`$segReject) {
-                    Send-JsonError `$res 400 '{"ok":false,"error":"folder segment contains traversal or backslash"}'
+                    Send-JsonError -Response `$res -StatusCode 400 -Json '{"ok":false,"error":"folder segment contains traversal or backslash"}'
                     continue
                 }
                 if (`$diagFile -notlike '*.system.diagnostic.*.txt' -or `$diagFile -match '[\\/]' -or `$diagFile -match '\.\.') {
-                    Send-JsonError `$res 400 '{"ok":false,"error":"filename must match *.system.diagnostic.<id>.txt"}'
+                    Send-JsonError -Response `$res -StatusCode 400 -Json '{"ok":false,"error":"filename must match *.system.diagnostic.<id>.txt"}'
                     continue
                 }
                 `$folderPath = `$logDir
                 foreach (`$seg in `$folderSegs) { `$folderPath = Join-Path `$folderPath `$seg }
                 if (-not (Test-Path -LiteralPath `$folderPath -PathType Container)) {
-                    Send-JsonError `$res 404 '{"ok":false,"error":"failure folder not found; runner must have created it first"}'
+                    Send-JsonError -Response `$res -StatusCode 404 -Json '{"ok":false,"error":"failure folder not found; runner must have created it first"}'
                     continue
                 }
                 # Pin the resolved file under logDir so a folder name that
@@ -2169,11 +2169,11 @@ try {
                 # 'log' vs 'log-evil').
                 `$logRootFull = [System.IO.Path]::GetFullPath(`$logDir).TrimEnd([System.IO.Path]::DirectorySeparatorChar) + [System.IO.Path]::DirectorySeparatorChar
                 if (-not `$filePath.StartsWith(`$logRootFull, [System.StringComparison]::Ordinal)) {
-                    Send-JsonError `$res 403 '{"ok":false,"error":"path escapes log root"}'
+                    Send-JsonError -Response `$res -StatusCode 403 -Json '{"ok":false,"error":"path escapes log root"}'
                     continue
                 }
                 if (`$req.ContentLength64 -gt 5MB) {
-                    Send-JsonError `$res 413 '{"ok":false,"error":"payload too large (>5 MB)"}'
+                    Send-JsonError -Response `$res -StatusCode 413 -Json '{"ok":false,"error":"payload too large (>5 MB)"}'
                     continue
                 }
                 # Stream the body straight to disk via a FileStream copy --
@@ -2201,7 +2201,7 @@ try {
                     `$writeOk = `$true
                 } catch {
                     `$res.StatusCode = 500
-                    `$errMsg = (Escape-JsonString `$_.Exception.Message)
+                    `$errMsg = (ConvertTo-JsonEscapedString `$_.Exception.Message)
                     `$body = [System.Text.Encoding]::UTF8.GetBytes('{"ok":false,"error":"write failed: ' + `$errMsg + '"}')
                     `$res.ContentLength64 = `$body.Length
                     `$res.OutputStream.Write(`$body, 0, `$body.Length)
@@ -2285,7 +2285,7 @@ try {
                 `$res.Headers.Add('Cache-Control', 'no-store')
                 if (`$req.HttpMethod -ne 'PUT' -and `$req.HttpMethod -ne 'POST') {
                     `$res.Headers.Add('Allow', 'PUT, POST')
-                    Send-JsonError `$res 405 '{"ok":false,"error":"PUT or POST required"}'
+                    Send-JsonError -Response `$res -StatusCode 405 -Json '{"ok":false,"error":"PUT or POST required"}'
                     continue
                 }
                 `$uploadRel = `$path.Substring(11) -replace '\\','/'
@@ -2295,11 +2295,11 @@ try {
                 elseif (`$uploadRel -match '^/')                           { `$uploadDeny = `$true }
                 elseif (-not (`$uploadRel -match '\.(log|txt|json|err|crash)`$')) { `$uploadDeny = `$true }
                 if (`$uploadDeny) {
-                    Send-JsonError `$res 400 '{"ok":false,"error":"invalid upload path (must end in .log/.txt/.json/.err/.crash, no traversal)"}'
+                    Send-JsonError -Response `$res -StatusCode 400 -Json '{"ok":false,"error":"invalid upload path (must end in .log/.txt/.json/.err/.crash, no traversal)"}'
                     continue
                 }
                 if (`$req.ContentLength64 -gt 4MB) {
-                    Send-JsonError `$res 413 '{"ok":false,"error":"payload too large (>4 MB)"}'
+                    Send-JsonError -Response `$res -StatusCode 413 -Json '{"ok":false,"error":"payload too large (>4 MB)"}'
                     continue
                 }
                 `$uploadTarget = Join-Path `$logDir `$uploadRel
@@ -2308,7 +2308,7 @@ try {
                 # admit sibling directories sharing the prefix.
                 `$logDirFull   = [System.IO.Path]::GetFullPath(`$logDir).TrimEnd([System.IO.Path]::DirectorySeparatorChar) + [System.IO.Path]::DirectorySeparatorChar
                 if (-not `$uploadFull.StartsWith(`$logDirFull, [System.StringComparison]::Ordinal)) {
-                    Send-JsonError `$res 403 '{"ok":false,"error":"path escapes log dir"}'
+                    Send-JsonError -Response `$res -StatusCode 403 -Json '{"ok":false,"error":"path escapes log dir"}'
                     continue
                 }
                 `$uploadParent = Split-Path -Parent `$uploadFull
@@ -2336,8 +2336,8 @@ try {
                     Write-ServerErr "log-upload write failed for `$uploadRel : `$writeErr"
                 }
                 if (-not `$writeOk) {
-                    `$errEsc = (Escape-JsonString `$writeErr)
-                    Send-JsonError `$res 500 ('{"ok":false,"error":"write failed: ' + `$errEsc + '"}')
+                    `$errEsc = (ConvertTo-JsonEscapedString `$writeErr)
+                    Send-JsonError -Response `$res -StatusCode 500 -Json ('{"ok":false,"error":"write failed: ' + `$errEsc + '"}')
                     continue
                 }
                 # Bound per-directory growth after a successful upload: keep only

@@ -237,7 +237,7 @@ textarea#footer-ip-list::-webkit-scrollbar { display: none; }
 /* body class (not :has()) so the fixed-footer clearance works on Firefox and
    iOS Safari < 15.4, which predate :has(). Set on the only page that renders
    #footer-bar (index.html). */
-body.has-footer-bar main { padding-bottom: calc(3rem + env(safe-area-inset-bottom)); }
+body.has-footer-bar main { padding-bottom: 3rem; padding-bottom: calc(3rem + env(safe-area-inset-bottom)); }
 
 @media (max-width: 600px) {
   #footer-bar { padding-left: 0.5rem; padding-left: max(0.5rem, env(safe-area-inset-left)); padding-right: 0.5rem; padding-right: max(0.5rem, env(safe-area-inset-right)); flex-wrap: wrap; }

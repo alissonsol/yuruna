@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.21
+.VERSION 2026.07.22
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456790
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -231,6 +231,37 @@ function Invoke-CycleLogRotation {
     return $moved
 }
 
+function Get-YurunaLogPreamble {
+    <#
+    .SYNOPSIS
+        Shared HTML preamble for cycle + nested transcripts.
+    .DESCRIPTION
+        The <pre> wraps long lines (pre-wrap) so a wide command line or URL in
+        the transcript does not force horizontal scrolling. The cache-control
+        meta tags MIRROR the HTTP headers the status server already sends
+        (`Cache-Control: no-store, no-cache, must-revalidate`) so a bfcache
+        (back/forward) restore, a mirrored copy, or a direct file:// open still
+        re-fetches instead of showing a stale in-progress log. Meta tags are
+        advisory but bake the directive into the file itself; keeping them equal
+        to the header avoids the split-brain of a max-age meta contradicting a
+        no-store header. Factored so Start-LogFile (owner cycle) and
+        Start-NestedLogFile (nested sub-run) emit an identical header.
+    #>
+    [OutputType([string])]
+    param()
+    return @'
+<!DOCTYPE html>
+<html><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
+<title>Yuruna test-runner log</title>
+</head><body><pre style="white-space: pre-wrap; word-wrap: break-word; overflow-x: auto;">
+'@
+}
+
 function Start-LogFile {
     <#
     .SYNOPSIS
@@ -331,26 +362,8 @@ function Start-LogFile {
                 Write-Verbose "Could not write $incompleteMarker (non-fatal): $($_.Exception.Message)"
             }
         }
-        # HTML preamble. The <pre> wraps long lines (pre-wrap) so a wide
-        # command line or URL in the transcript does not force horizontal
-        # scrolling. The cache-control meta tags MIRROR the HTTP headers the
-        # status server already sends (`Cache-Control: no-store, no-cache,
-        # must-revalidate`) so a bfcache (back/forward) restore, a mirrored
-        # copy, or a direct file:// open still re-fetches instead of showing a
-        # stale in-progress log. Meta tags are advisory but bake the directive
-        # into the file itself; keeping them equal to the header avoids the
-        # split-brain of a max-age meta contradicting a no-store header.
-        $preamble = @'
-<!DOCTYPE html>
-<html><head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate">
-<meta http-equiv="Pragma" content="no-cache">
-<meta http-equiv="Expires" content="0">
-<title>Yuruna test-runner log</title>
-</head><body><pre style="white-space: pre-wrap; word-wrap: break-word; overflow-x: auto;">
-'@
+        # HTML preamble (shared with the nested transcript, see Get-YurunaLogPreamble).
+        $preamble = Get-YurunaLogPreamble
         $preamble | Microsoft.PowerShell.Utility\Out-File -FilePath $logFile -Encoding utf8 -ErrorAction SilentlyContinue
         $global:__YurunaLogFile = $logFile
         $global:__YurunaCycleFolder = $cycleFolder
@@ -689,6 +702,93 @@ function Stop-LogFile {
     }
 }
 
+function Start-NestedLogFile {
+    <#
+    .SYNOPSIS
+        Start a NESTED run's HTML transcript under the cycle OWNER's folder,
+        without consuming a top-level cycle number or touching the owner's cycle
+        document.
+    .DESCRIPTION
+        A nested Test-Sequence (a host-action stage re-entering Test-Sequence.ps1
+        in a child pwsh) writes its detailed transcript to
+        <rootCycleFolder>/nested/<safeNodeId>/<safeNodeId>.html and sets the same
+        $global:__YurunaLogFile / __YurunaCycleFolder / __YurunaCycleId handles
+        the Yuruna.Log tee + per-guest helpers read -- so the child's Write-*
+        output and per-guest artifacts land under its own sub-folder. It does
+        NOT rotate, allocate a cycle number, emit cycle_start, or set the
+        owner's cycleFolderUrl: those are the owner's job. Pairs with
+        Stop-NestedLogFile.
+    .PARAMETER RootCycleFolder
+        Absolute path of the owner's cycle folder (from the inherited
+        cycle-context handle). Its mid-cycle `.incomplete` suffix is tolerated;
+        the flipped (bare/renamed) variant is tried as a fallback.
+    .PARAMETER NodeId
+        The nested node id (path-derived). Sanitised into a folder-safe leaf.
+    .PARAMETER CycleId
+        The owner's cycleId, stamped on this process's NDJSON events.
+    .OUTPUTS
+        [pscustomobject] @{ LogFile; CycleFolder; LogRel } where LogRel is the
+        transcript path RELATIVE to the cycle folder (forward-slash), for the
+        nested node's dashboard deep-link.
+    #>
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([pscustomobject])]
+    param(
+        [Parameter(Mandatory)][string]$RootCycleFolder,
+        [Parameter(Mandatory)][string]$NodeId,
+        [string]$CycleId = ''
+    )
+    # Resolve the on-disk cycle folder: the owner may already have renamed
+    # <base>.incomplete -> <base>, so try the given path then the flipped suffix.
+    $root = $RootCycleFolder
+    if (-not (Test-Path -LiteralPath $root)) {
+        $alt = if ($root -match '\.incomplete$') { $root -replace '\.incomplete$', '' } else { "$root.incomplete" }
+        if (Test-Path -LiteralPath $alt) { $root = $alt }
+    }
+    $safe    = ($NodeId -replace '[^A-Za-z0-9._-]', '_')
+    $logRel  = "nested/$safe/$safe.html"
+    $nestedFolder = Join-Path $root (Join-Path 'nested' $safe)
+    $logFile = Join-Path $nestedFolder "$safe.html"
+    if ($PSCmdlet.ShouldProcess($logFile, 'Start nested log file')) {
+        if (-not (Test-Path -LiteralPath $nestedFolder)) {
+            New-Item -ItemType Directory -Path $nestedFolder -Force | Out-Null
+        }
+        Get-YurunaLogPreamble | Microsoft.PowerShell.Utility\Out-File -FilePath $logFile -Encoding utf8 -ErrorAction SilentlyContinue
+        # The Yuruna.Log proxy tees Write-* to whatever these handles point at;
+        # aiming them at the nested transcript is what routes this child's output
+        # into its own sub-log instead of a fresh top-level cycle. The proxy is
+        # already imported by the child's Test-Sequence entry point.
+        $global:__YurunaLogFile     = $logFile
+        $global:__YurunaCycleFolder = $nestedFolder
+        $global:__YurunaCycleId     = [string]$CycleId
+    }
+    return [pscustomobject]@{ LogFile = $logFile; CycleFolder = $nestedFolder; LogRel = $logRel }
+}
+
+function Stop-NestedLogFile {
+    <#
+    .SYNOPSIS
+        Seal a nested run's HTML transcript and clear the logging handles.
+    .DESCRIPTION
+        Unlike Stop-LogFile it does NOT emit cycle_end, write the manifest,
+        archive last_failure.json, or rename the folder -- those finalize the
+        OWNER's cycle, which the nested run does not own. It only appends the
+        closing </pre></body></html> to this sub-transcript and nulls the
+        $global handles so no later write appends to a finished file.
+    #>
+    [CmdletBinding(SupportsShouldProcess)]
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidGlobalVars', '',
+        Justification = 'Clears the cross-module log handles set by Start-NestedLogFile.')]
+    param()
+    if (-not $PSCmdlet.ShouldProcess('nested log file', 'Stop nested logging')) { return }
+    if ($global:__YurunaLogFile) {
+        "</pre></body></html>" | Microsoft.PowerShell.Utility\Out-File -FilePath $global:__YurunaLogFile -Append -Encoding utf8 -ErrorAction SilentlyContinue
+    }
+    $global:__YurunaLogFile     = $null
+    $global:__YurunaCycleFolder = $null
+    $global:__YurunaCycleId     = $null
+}
+
 function Write-CycleNdjsonEvent {
     <#
     .SYNOPSIS
@@ -929,4 +1029,4 @@ function Send-YurunaDegradation {
     Write-Information "  [degradation] ${Dependency}: ${Primary} -> ${Fallback}${suffix}"
 }
 
-Export-ModuleMember -Function Start-LogFile, Stop-LogFile, Get-CycleGuestDataFolder, Get-CycleScreenDir, Format-CycleFolderBaseName, Get-CycleFolderIdentity, Write-CycleNdjsonEvent, Write-CycleManifest, Send-CycleEventSafely, New-YurunaDegradationRecord, Send-YurunaDegradation, Invoke-CycleLogRotation
+Export-ModuleMember -Function Start-LogFile, Stop-LogFile, Start-NestedLogFile, Stop-NestedLogFile, Get-YurunaLogPreamble, Get-CycleGuestDataFolder, Get-CycleScreenDir, Format-CycleFolderBaseName, Get-CycleFolderIdentity, Write-CycleNdjsonEvent, Write-CycleManifest, Send-CycleEventSafely, New-YurunaDegradationRecord, Send-YurunaDegradation, Invoke-CycleLogRotation

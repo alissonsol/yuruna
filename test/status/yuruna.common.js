@@ -1,7 +1,7 @@
 /*
   LICENSEURI https://yuruna.link/license
   Copyright (c) 2019-2026 by Alisson Sol et al.
-  Version: 2026.07.21
+  Version: 2026.07.22
 
   Shared helpers for the Yuruna status pages. Mounted on window.Yuruna.
   --- REGION: https://yuruna.link/definition#defining-the-status-page-browser-baseline
@@ -10,7 +10,7 @@
 (function() {
   'use strict';
 
-  var VERSION = '2026.07.21';
+  var VERSION = '2026.07.22';
 
   // --- REGION: control-route auth (proof from the Caching Proxy /go/host redirect)
   // A Grafana deep-link routes through the Caching Proxy's /go/host, which appends a
@@ -822,6 +822,86 @@
       }).join(' ');
     }
 
+    // --- Nested-run subtree ------------------------------------------------
+    // status.json's `nested` map (nodeId -> node) is authored by nested
+    // Test-Sequence child processes -- a host-action stage that re-enters
+    // Test-Sequence.ps1 in its own pwsh (e.g. set-resource -> Set-Resource.ps1
+    // fanning out per-stage guest builds). Each node.parentId points at the id
+    // of the tile it nests under: a top-level sequences[] name, a guest key, or
+    // another nested node's id. We render them recursively as indented
+    // sub-tiles so the owner's top-level tiles stay stable while a stage
+    // expands to show its children, to any depth. See Test.Status.psm1
+    // "Nested-cycle support".
+    function nestedChildrenIndex(nested) {
+      var byParent = {};
+      if (!nested) return byParent;
+      Object.keys(nested).forEach(function(id) {
+        var node = nested[id] || {};
+        if (!node.id) node.id = id;
+        var p = node.parentId || '';
+        if (!byParent[p]) byParent[p] = [];
+        byParent[p].push(node);
+      });
+      // Stable order: earliest-started first, then id, so tiles don't reshuffle
+      // between polls as siblings finish.
+      Object.keys(byParent).forEach(function(p) {
+        byParent[p].sort(function(a, b) {
+          var as = a.startedAt || '', bs = b.startedAt || '';
+          if (as !== bs) return as < bs ? -1 : 1;
+          return (a.id || '') < (b.id || '') ? -1 : 1;
+        });
+      });
+      return byParent;
+    }
+
+    function renderNestedNode(node, byParent, data, depth) {
+      var status = node.status || 'pending';
+      var label  = node.name || node.id || '';
+      // Deep-link to this run's own transcript. logRel is relative to the cycle
+      // folder; prepend the LIVE cycleFolderUrl so the link tracks the owner's
+      // `.incomplete` -> bare rename (same pattern as the per-guest folderUrl).
+      var url = safeUrl((data.cycleFolderUrl && node.logRel) ? (data.cycleFolderUrl + node.logRel) : '');
+      var nameHtml = url
+        ? ('<a href="' + escHtml(url) + '" target="_blank" title="Open transcript for ' + escHtml(label) + '" style="color:inherit;text-decoration:underline dotted">' + escHtml(label) + '</a>')
+        : escHtml(label);
+      var errHtml = node.errorMessage ? ('<div class="guest-error">' + escHtml(node.errorMessage) + '</div>') : '';
+      var kids    = renderNestedChildren(node.id, byParent, data, depth + 1);
+      return '<div class="guest-card nested-card">' +
+        '<div class="guest-card-header">' +
+          '<div class="left"><div class="guest-name">' + nameHtml + '</div></div>' +
+          '<div>' + badge(status) + '</div>' +
+        '</div>' +
+        errHtml +
+        kids +
+      '</div>';
+    }
+
+    function renderNestedChildren(parentId, byParent, data, depth) {
+      var kids = byParent[parentId];
+      if (!kids || !kids.length) return '';
+      return kids.map(function(n) { return renderNestedNode(n, byParent, data, depth); }).join('');
+    }
+
+    // Safety net: render any nested node whose parentId names no rendered tile
+    // (not a sequence name, not a guest key) and is not itself another nested
+    // node's id -- so a node can never silently vanish if its parent row is
+    // absent (e.g. a brief pre-Initialize window, or a hand-edited doc).
+    function renderOrphanNested(byParent, sequences, guests, data) {
+      var known = {};
+      (sequences || []).forEach(function(s) { known[s.name] = true; });
+      (guests || []).forEach(function(g) { known[g.guestKey] = true; });
+      var nestedIds = {};
+      Object.keys(byParent).forEach(function(p) {
+        byParent[p].forEach(function(n) { nestedIds[n.id] = true; });
+      });
+      var out = '';
+      Object.keys(byParent).forEach(function(p) {
+        if (known[p] || nestedIds[p]) return; // already rendered under its parent
+        out += renderNestedChildren(p, byParent, data, 1);
+      });
+      return out;
+    }
+
     function renderStatus(data, actionData, breakData, runnerStatus) {
       var noData = document.getElementById('no-data');
       var banner = document.getElementById('banner');
@@ -938,6 +1018,8 @@
       var ctx = { data: data, actionData: actionData, stepPaused: stepPaused, breakData: breakData };
       var secSeq  = document.getElementById('sec-sequences');
       var listSeq = document.getElementById('sequence-list');
+      // Nested-run subtree, grafted under whichever tile a node's parentId names.
+      var byParent = nestedChildrenIndex(data.nested);
       if (sequences.length) {
         secSeq.style.display = '';
         var guestsByKey = {};
@@ -955,17 +1037,26 @@
               breakData: breakData, hideTopLevel: true, hideStatusBadge: true
             });
           }).join('');
+          // Nested stages attach with parentId === the sequence name.
+          var nestedBlocks = renderNestedChildren(seq.name, byParent, data, 1);
           return '<div class="sequence-card">' +
             '<div class="sequence-card-header">' +
               '<div class="sequence-name">' + escHtml(seq.name) + '</div>' +
               '<div>' + badge(aggregateStatus(statuses)) + '</div>' +
             '</div>' +
             blocks +
+            nestedBlocks +
           '</div>';
-        }).join('');
+        }).join('') + renderOrphanNested(byParent, sequences, guests, data);
       } else if (guests.length) {
         secSeq.style.display = '';
-        listSeq.innerHTML = guests.map(function(g) { return renderGuestBlock(g, ctx); }).join('');
+        listSeq.innerHTML = guests.map(function(g) {
+          return renderGuestBlock(g, ctx) + renderNestedChildren(g.guestKey, byParent, data, 1);
+        }).join('') + renderOrphanNested(byParent, sequences, guests, data);
+      } else if (Object.keys(byParent).length) {
+        // Nested nodes with no owner rows yet (rare pre-Initialize window).
+        secSeq.style.display = '';
+        listSeq.innerHTML = renderOrphanNested(byParent, sequences, guests, data);
       } else {
         secSeq.style.display = 'none';
       }
@@ -2063,7 +2154,6 @@
 
     function enumOptions(parent, keyOrIndex) {
       if (!parent || Array.isArray(parent)) return null;
-      if (keyOrIndex === 'keystrokeMechanism') return ['GUI', 'SSH'];
       if (keyOrIndex === 'logLevel') return ['Error', 'Warning', 'Information', 'Verbose', 'Debug'];
       return null;
     }

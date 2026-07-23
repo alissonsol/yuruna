@@ -9,3 +9,4 @@
 area: stash-service
 requiredFunction:
   - Get-StashServiceInfo
+  - Resolve-Host

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.21
+.VERSION 2026.07.22
 .GUID 42b9e1c4-7a3d-4f52-8e16-9c4d2a7b3e58
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -213,19 +213,19 @@ steps:
     It 'lets a project snippet override a framework snippet of the same name' {
         if (-not $yamlAvailable) { Set-ItResult -Skipped -Because 'powershell-yaml not installed'; return }
         $root = New-SnippetTestDir
-        # Framework library + sequence under test/sequences/gui/.
-        Write-TextFile (Join-Path $root 'test/sequences/gui/_snippets.yml') @"
+        # Flat framework library + sequence under test/sequences/.
+        Write-TextFile (Join-Path $root 'test/sequences/_snippets.yml') @"
 greet:
   - action: inputText
     text: "framework"
 "@
-        # Project library overriding 'greet' under project/ex/test/gui/.
-        Write-TextFile (Join-Path $root 'project/ex/test/gui/_snippets.yml') @"
+        # Project library overriding 'greet' under project/ex/test/.
+        Write-TextFile (Join-Path $root 'project/ex/test/_snippets.yml') @"
 greet:
   - action: inputText
     text: "project"
 "@
-        $seqPath = Join-Path $root 'test/sequences/gui/seq.yml'
+        $seqPath = Join-Path $root 'test/sequences/seq.yml'
         Write-TextFile $seqPath @"
 description: t
 steps:
@@ -236,20 +236,39 @@ steps:
         Assert-Equal -Expected 'project' -Actual $seq.steps[0].text -Because 'project library wins over framework'
     }
 
+    It 'resolves the flat framework snippet lib from a flat project sequence' {
+        if (-not $yamlAvailable) { Set-ItResult -Skipped -Because 'powershell-yaml not installed'; return }
+        $root = New-SnippetTestDir
+        Write-TextFile (Join-Path $root 'test/sequences/_snippets.yml') @"
+firstLoginPrime:
+  - action: inputText
+    text: "framework-flat"
+"@
+        $seqPath = Join-Path $root 'project/ex/test/seq.yml'
+        Write-TextFile $seqPath @"
+description: t
+steps:
+  - snippet: firstLoginPrime
+"@
+        $seq = Read-SequenceFile -Path $seqPath -NoCache
+        Assert-Equal 1 (@($seq.steps).Count)
+        Assert-Equal -Expected 'framework-flat' -Actual $seq.steps[0].text -Because 'flat project sequence resolves the flat framework snippet'
+    }
+
     It 'throws when two project libraries define the same snippet name' {
         if (-not $yamlAvailable) { Set-ItResult -Skipped -Because 'powershell-yaml not installed'; return }
         $root = New-SnippetTestDir
-        Write-TextFile (Join-Path $root 'project/a/test/gui/_snippets.yml') @"
+        Write-TextFile (Join-Path $root 'project/a/test/_snippets.yml') @"
 dup:
   - action: pressKey
     name: Enter
 "@
-        Write-TextFile (Join-Path $root 'project/b/test/gui/_snippets.yml') @"
+        Write-TextFile (Join-Path $root 'project/b/test/_snippets.yml') @"
 dup:
   - action: pressKey
     name: Enter
 "@
-        $seqPath = Join-Path $root 'project/a/test/gui/seq.yml'
+        $seqPath = Join-Path $root 'project/a/test/seq.yml'
         Write-TextFile $seqPath @"
 description: t
 steps:
@@ -268,9 +287,8 @@ Describe 'Resolve-SequencePath literal-path probing (Test-Path -LiteralPath)' {
 
     It 'resolves a bracketed sequence name to its literal file' {
         $root = New-SnippetTestDir
-        $mode = Get-SequenceMode
         $seqDir = Join-Path $root 'sequences'
-        $file = Join-Path (Join-Path $seqDir $mode) 'odd[1].yml'
+        $file = Join-Path $seqDir 'odd[1].yml'
         Write-TextFile $file 'x'
         $resolved = Resolve-SequencePath -SequencesDir $seqDir -Name 'odd[1]' -RepoRoot $root
         Assert-Equal -Expected $file -Actual $resolved -Because 'odd[1] must resolve to its literal odd[1].yml'
@@ -278,12 +296,167 @@ Describe 'Resolve-SequencePath literal-path probing (Test-Path -LiteralPath)' {
 
     It 'does not glob-match a different file when the literal name is absent' {
         $root = New-SnippetTestDir
-        $mode = Get-SequenceMode
         $seqDir = Join-Path $root 'sequences'
         # Only the literal-digit file exists; a bracketed query [1] must NOT match
         # it (a bare Test-Path would glob odd[1].yml onto odd1.yml).
-        Write-TextFile (Join-Path (Join-Path $seqDir $mode) 'odd1.yml') 'x'
+        Write-TextFile (Join-Path $seqDir 'odd1.yml') 'x'
         $resolved = Resolve-SequencePath -SequencesDir $seqDir -Name 'odd[1]' -RepoRoot $root
         Assert-True ($null -eq $resolved) 'odd[1] must not glob-match odd1.yml'
+    }
+}
+
+Describe 'ConvertTo-NormalizedSequence (F2 resource/component/workload bridge)' {
+
+    It 'aliases resource -> baseline and concatenates component ++ workload into steps' {
+        if (-not $yamlAvailable) { Set-ItResult -Skipped -Because 'powershell-yaml not installed'; return }
+        $root = New-SnippetTestDir
+        $seqPath = Join-Path $root 'seq.yml'
+        Write-TextFile $seqPath @"
+description: t
+keystrokeMechanism: gui
+resource:
+  ubuntu.server.24:
+    - start.guest.ubuntu.server.24
+component:
+  - action: pressKey
+    name: Enter
+workload:
+  - action: fetchAndExecute
+    text: "x"
+    waitPattern: "y"
+"@
+        $seq = Read-SequenceFile -Path $seqPath -NoCache
+        Assert-True ($seq.Contains('baseline')) 'resource must be aliased onto baseline'
+        Assert-True ($seq.baseline.Contains('ubuntu.server.24')) 'baseline keeps the resource OS key'
+        Assert-Equal -Expected 2 -Actual (@($seq.steps).Count) -Because 'component (1) + workload (1) = 2 steps'
+        Assert-Equal 'pressKey'        $seq.steps[0].action
+        Assert-Equal 'fetchAndExecute' $seq.steps[1].action
+    }
+
+    It 'expands a snippet referenced inside the component list' {
+        if (-not $yamlAvailable) { Set-ItResult -Skipped -Because 'powershell-yaml not installed'; return }
+        $root = New-SnippetTestDir
+        Write-TextFile (Join-Path $root '_snippets.yml') @"
+prime:
+  - action: pressKey
+    name: Enter
+  - action: waitForSeconds
+    seconds: 1
+"@
+        $seqPath = Join-Path $root 'seq.yml'
+        Write-TextFile $seqPath @"
+description: t
+keystrokeMechanism: gui
+resource:
+  ubuntu.server.24:
+    - start.guest.ubuntu.server.24
+component:
+  - snippet: prime
+workload:
+  - action: waitForText
+    pattern: "z"
+"@
+        $seq = Read-SequenceFile -Path $seqPath -NoCache
+        Assert-Equal -Expected 3 -Actual (@($seq.steps).Count) -Because 'prime (2) + workload (1) = 3'
+        Assert-Equal 'pressKey'       $seq.steps[0].action
+        Assert-Equal 'waitForSeconds' $seq.steps[1].action
+        Assert-Equal 'waitForText'    $seq.steps[2].action
+    }
+
+    It 'defaults a missing keystrokeMechanism to gui' {
+        if (-not $yamlAvailable) { Set-ItResult -Skipped -Because 'powershell-yaml not installed'; return }
+        $root = New-SnippetTestDir
+        $seqPath = Join-Path $root 'seq.yml'
+        Write-TextFile $seqPath @"
+description: t
+resource:
+  ubuntu.server.24: []
+workload:
+  - action: pressKey
+    name: Enter
+"@
+        $seq = Read-SequenceFile -Path $seqPath -NoCache
+        Assert-Equal -Expected 'gui' -Actual $seq.keystrokeMechanism -Because 'missing keystrokeMechanism loads as gui'
+    }
+
+    It 'rejects the legacy baseline: key with a migration error' {
+        if (-not $yamlAvailable) { Set-ItResult -Skipped -Because 'powershell-yaml not installed'; return }
+        $root = New-SnippetTestDir
+        $seqPath = Join-Path $root 'seq.yml'
+        Write-TextFile $seqPath @"
+description: t
+baseline:
+  ubuntu.server.24: []
+steps:
+  - action: pressKey
+    name: Enter
+"@
+        Assert-Throw { Read-SequenceFile -Path $seqPath -NoCache } "Legacy 'baseline:' is no longer supported"
+    }
+
+    It 'rejects top-level steps: on a guest (resource) sequence' {
+        if (-not $yamlAvailable) { Set-ItResult -Skipped -Because 'powershell-yaml not installed'; return }
+        $root = New-SnippetTestDir
+        $seqPath = Join-Path $root 'seq.yml'
+        Write-TextFile $seqPath @"
+description: t
+keystrokeMechanism: gui
+resource:
+  ubuntu.server.24: []
+steps:
+  - action: pressKey
+    name: Enter
+"@
+        Assert-Throw { Read-SequenceFile -Path $seqPath -NoCache } "must not use top-level 'steps:'"
+    }
+
+    It 'leaves an orchestration (steps, no resource) sequence untouched' {
+        if (-not $yamlAvailable) { Set-ItResult -Skipped -Because 'powershell-yaml not installed'; return }
+        $root = New-SnippetTestDir
+        $seqPath = Join-Path $root 'seq.yml'
+        Write-TextFile $seqPath @"
+name: orch
+description: t
+steps:
+  - action: InvokeTestSequence
+    sequence: something
+"@
+        $seq = Read-SequenceFile -Path $seqPath -NoCache
+        Assert-True (-not $seq.Contains('resource')) 'no resource on an orchestration'
+        Assert-True (-not $seq.Contains('baseline')) 'no baseline synthesized for an orchestration'
+        Assert-Equal 1 (@($seq.steps).Count)
+        Assert-Equal 'InvokeTestSequence' $seq.steps[0].action
+    }
+}
+
+Describe 'Resolve-SequencePath flat (post-flatten) tier' {
+
+    It 'resolves a flat framework sequence by exact name' {
+        $root = New-SnippetTestDir
+        $seqDir = Join-Path $root 'sequences'
+        $file = Join-Path $seqDir 'flat.one.yml'
+        Write-TextFile $file 'description: t'
+        $resolved = Resolve-SequencePath -SequencesDir $seqDir -Name 'flat.one' -RepoRoot $root
+        Assert-Equal -Expected $file -Actual $resolved -Because 'flat framework file resolves without a mode subfolder'
+    }
+
+    It 'resolves a flat project sequence under any test/ folder' {
+        $root = New-SnippetTestDir
+        $seqDir = Join-Path $root 'sequences'
+        $file = Join-Path $root 'project/example/website/test/flat.proj.yml'
+        Write-TextFile $file 'description: t'
+        $resolved = Resolve-SequencePath -SequencesDir $seqDir -Name 'flat.proj' -RepoRoot $root
+        Assert-Equal -Expected $file -Actual $resolved -Because 'flat project file resolves under project/.../test/'
+    }
+
+    It 'resolves an explicit .ssh name to its .ssh.yml file' {
+        $root = New-SnippetTestDir
+        $seqDir = Join-Path $root 'sequences'
+        Write-TextFile (Join-Path $seqDir 'dual.yml') 'description: gui'
+        Write-TextFile (Join-Path $seqDir 'dual.ssh.yml') 'description: ssh'
+        $resolvedGui = Resolve-SequencePath -SequencesDir $seqDir -Name 'dual' -RepoRoot $root
+        Assert-Equal -Expected (Join-Path $seqDir 'dual.yml') -Actual $resolvedGui -Because 'plain name -> dual.yml'
+        $resolvedSsh = Resolve-SequencePath -SequencesDir $seqDir -Name 'dual.ssh' -RepoRoot $root
+        Assert-Equal -Expected (Join-Path $seqDir 'dual.ssh.yml') -Actual $resolvedSsh -Because 'explicit .ssh name -> dual.ssh.yml'
     }
 }

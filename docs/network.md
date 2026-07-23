@@ -169,6 +169,60 @@ Install-Module powershell-yaml with pwsh_retry?`](memory.md#why-ubuntu--al2023-g
 (present since curl 7.52, December 2016). Ubuntu 24/26, Amazon
 Linux 2023, and macOS 26 all ship newer.
 
+### Why the stall bound hoists timeout inside sudo and stays foreground
+
+`_yuruna_retry` supports a per-attempt wall-clock bound
+(`YURUNA_RETRY_STALL_TIMEOUT`, whole seconds; `0` = unbounded): an
+HTTP transfer that stalls after response headers — or trickles too
+slowly to trip the client's own connect/read-gap timeout — otherwise
+hangs the attempt forever, and the retry loop never gets to retry on
+a fresh connection (the stalled-transfer trap class: apt InRelease
+fetches wedging mid-body behind a caching proxy). A malformed value
+fails LOUD and unbounded, not silently unbounded: the operator
+believes a bound is active.
+
+The bound mode is invariant across attempts: none | direct | sudo.
+`timeout(1)` can only exec real commands, so shell-function attempts
+(`pwsh_retry`'s helper) always run unbounded. When the command is a
+plain `sudo <tool> ...`, the bound is hoisted INSIDE sudo so the
+expiry TERM — and the unrelayable KILL backstop — land on the
+privileged tool itself; signaling sudo from outside can reap sudo
+while the root child survives, still holding e.g. the dpkg lock,
+which would wedge every retry. The hoist is skipped when the word
+after sudo is an option (it would be misread as an option of
+timeout).
+
+`--foreground` is load-bearing: without it timeout `setpgid()`s the
+command into its own process group, which on a console/pty (these
+scripts run on the guest console, and sudo's `use_pty` adds a pty of
+its own) makes the command a BACKGROUND group of that terminal. The
+first tty read or `tcsetattr` in a maintainer-script/hook then stops
+the whole run with SIGTTIN/SIGTTOU — it freezes silently until the
+expiry TERM+CONT wakes it to die, converting a healthy apt run into a
+phantom 600 s "stall" (the background-pgrp tty-stop trap class). With
+`--foreground` the command keeps the inherited foreground group; the
+tradeoff — expiry signals only the direct child, not a group — is
+what the sudo-hoist already assumes.
+
+### Why apt and dnf attempts run unbounded by default
+
+Package-manager attempts run UNBOUNDED by default (opt in via
+`YURUNA_APT_STALL_TIMEOUT` / `YURUNA_DNF_STALL_TIMEOUT`, seconds). A
+wall-clock bound here is attractive — a wedged mirror/proxy transfer
+otherwise consumes the whole step budget as one silent hang — but
+wrapping apt in `timeout(1)` is the wrapped-apt teardown-hang trap
+class: with the wrapper as apt's parent, every apt run that performs
+REAL dpkg work (upgrade with triggers, removal, install) has been
+observed to block silently at end-of-transaction AFTER dpkg fully
+commits (~0 CPU, no sockets, dpkg gone, locks held) until the bound
+kills it, while a control guest running the identical transaction
+unwrapped completes in seconds, every time. Until that interaction is
+root-caused (suspects: apt's dpkg-pty EOF drain or its hook-child
+wait under a `timeout(1)` parent), the safe default is the plain
+unwrapped invocation; the mirror-stall exposure is instead bounded at
+the transfer layer (curl/wget/git low-speed aborts, apt's own
+`Acquire::http::Timeout`, and the caching proxy's `read_timeout`).
+
 ---
 
 ## Guest dependency version pins
@@ -460,6 +514,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.21
+Last review: 2026.07.22
 
 Back to [Yuruna](../README.md)

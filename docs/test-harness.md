@@ -36,17 +36,15 @@ Each iteration of `Invoke-TestRunner.ps1`:
 
 ## Modes
 
-`vmCommunication.keystrokeMechanism` in `test.config.yml` selects how the
-harness drives guests:
+Each sequence declares its own `keystrokeMechanism` (gui|ssh, default
+gui), selecting how the harness drives the guest:
 
-- `"GUI"` — keystroke injection (Hyper-V scancodes, UTM VNC/CGEvent).
-  Sequences loaded from `sequences/gui/<name>.yml`.
-- `"SSH"` — routes workloads over SSH using a per-host key under
+- `gui` — keystroke injection (Hyper-V scancodes, UTM VNC/CGEvent).
+- `ssh` — routes workloads over SSH using a per-host key under
   `test/status/ssh/` that cloud-init injects into each guest.
-  `sequences/ssh/<name>.yml`, falling back to `gui/` when no SSH variant
-  exists.
 
-Invalid values are normalized to `"GUI"` on startup.
+Sequences live flat under `sequences/<name>.yml`; an SSH variant is a
+distinct `<name>.ssh.yml` sequence selected by its own name.
 
 ## Module responsibilities
 
@@ -428,6 +426,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.21
+Last review: 2026.07.22
 
 Back to [Yuruna](../README.md)

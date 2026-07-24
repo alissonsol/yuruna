@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.22
+.VERSION 2026.07.24
 .GUID 42bf9cc9-1b2b-499b-90cc-a4c2c9b939aa
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -306,7 +306,7 @@ Describe 'Remove-SnapshotManifest' {
 }
 
 Describe 'Runtime-directory resolution' {
-    It 'honours YURUNA_RUNTIME_DIR and creates the tree under it' {
+    It 'honors YURUNA_RUNTIME_DIR and creates the tree under it' {
         $alt = Join-Path ([System.IO.Path]::GetTempPath()) ("yuruna-snapman-alt-" + [guid]::NewGuid().ToString('N'))
         $saved = $env:YURUNA_RUNTIME_DIR
         try {

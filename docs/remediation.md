@@ -120,7 +120,7 @@ validator that gates the cycle event stream.
 
 - [Test harness](test-harness.md) — overall architecture.
 - [Watchdog and heartbeat protocol](watchdog.md) — the kill side of self-healing.
-- [Runner state machine](runner-state.md) — explicit lifecycle that surfaces a fault transition.
+- [Runner state machine](runner-outer-loop.md#runner-state-machine) — explicit lifecycle that surfaces a fault transition.
 
 ---
 
@@ -128,6 +128,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.22
+Last review: 2026.07.24
 
 Back to [Yuruna](../README.md)

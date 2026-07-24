@@ -17,9 +17,9 @@ No secret values appear here — only field names.
 erDiagram
     PROJECT ||--|{ CLOUD_CONFIG : "per cloud"
     PROJECT ||--o{ SEQUENCE : "test/{gui,ssh}"
-    CLOUD_CONFIG ||--|| RESOURCES : resources.yml
-    CLOUD_CONFIG ||--|| COMPONENTS : components.yml
-    CLOUD_CONFIG ||--|| WORKLOADS : workloads.yml
+    CLOUD_CONFIG ||--|| RESOURCES : "resources.yml"
+    CLOUD_CONFIG ||--|| COMPONENTS : "components.yml"
+    CLOUD_CONFIG ||--|| WORKLOADS : "workloads.yml"
     RESOURCES ||--o| RESOURCES_OUTPUT : "tofu outputs"
     COMPONENTS ||--o| RESOURCES_OUTPUT : reads
     WORKLOADS ||--o| RESOURCES_OUTPUT : reads
@@ -84,11 +84,13 @@ erDiagram
         map repositories "frameworkUrl projectUrl"
         map testCycle "stepTimeoutMinutes cycleDelaySeconds"
         map notification "failuresBeforeAlert successesBeforeRearm"
-        map vmCommunication "keystrokeMechanism vncPort"
+        map vmCommunication "vncPort characterDelayMs pollSeconds"
         map statusService "isEnabled port"
         map configService "isEnabled port"
         map pool "enabled intentGitUrl networkReplicate"
         map networkStorage "pool and stash paths"
+        map vmImage "refreshHours alwaysRedownload"
+        map vmStart "bootDelaySeconds cachingProxyIP"
     }
     GUEST {
         string guestKey
@@ -133,4 +135,4 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.22
+Last review: 2026.07.24

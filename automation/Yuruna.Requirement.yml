@@ -35,7 +35,7 @@ requirements:
     releases: "https://www.python.org/downloads/"
   - tool: "OpenTofu"
     command: "($(tofu version -json) | ConvertFrom-Json).terraform_version"
-    version: "1.12.4"
+    version: "1.12.5"
     releases: "https://opentofu.org/docs/intro/install/"
   - tool: "Helm"
     command: "helm version --short"
@@ -63,7 +63,7 @@ requirements:
     releases: "https://github.com/containerd/containerd/releases"
   - tool: "Kubernetes"
     command: "($(kubectl version --client -o json) | ConvertFrom-Json).clientVersion.gitVersion"
-    version: "v1.36.2"
+    version: "v1.36.3"
     releases: "https://kubernetes.io/releases/"
   - tool: "Visual Studio Code"
     # `code -v` prints three lines (version / commit / arch); first line

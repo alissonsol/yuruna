@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.22
+.VERSION 2026.07.24
 .GUID 42f2a3b4-c5d6-4e78-9012-3f4a5b6c7d81
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -150,7 +150,7 @@ Write-Output "Password came from authentication mechanism: $_authActiveName"
 Write-Output "See configuration at: $(Resolve-ExtensionAreaDir -Area 'authentication')"
 
 # SHA-512 ($6$) password hash for the autoinstall HASH_PLACEHOLDER.
-# ConvertTo-Sha512CryptHash centralises the openssl probe + the `--`
+# ConvertTo-Sha512CryptHash centralizes the openssl probe + the `--`
 # end-of-options safety that keeps a leading-dash password
 # (e.g. `-4aWj*CRw` from New-RandomPassword) from being parsed as an
 # option. See Yuruna.Common\ConvertTo-Sha512CryptHash for rationale.
@@ -292,17 +292,17 @@ same /24 the host is on. If it doesn't answer:
   * LAN may not be /24 (the scan assumes a single contiguous /24).
 
 Fix:
-  test/Start-CachingProxy.ps1   (rebuilds and re-discovers; safe to re-invoke)
+  test/Start-CachingProxyVM.ps1   (rebuilds and re-discovers; safe to re-invoke)
 
 To intentionally skip the cache:
-  test/Stop-CachingProxy.ps1     (guest will then WARN and download direct).
+  test/Stop-CachingProxyVM.ps1     (guest will then WARN and download direct).
 =========================================================================
 "@
     $Host.UI.WriteLine([ConsoleColor]::Red, $Host.UI.RawUI.BackgroundColor, $detail)
     exit 1
 } elseif ($squidStatus) {
     Write-Warning "  yuruna-caching-proxy VM exists (status: $squidStatus) but is not started. Guest will download directly (expect occasional 429s)."
-    Write-Warning "  To enable caching: test/Start-CachingProxy.ps1"
+    Write-Warning "  To enable caching: test/Start-CachingProxyVM.ps1"
 } else {
     if (-not $utmctl) {
         Write-Warning "  utmctl not found -- can't query UTM directly, and nothing answers on the LAN /24 either."
@@ -310,7 +310,7 @@ To intentionally skip the cache:
         Write-Warning "  No yuruna-caching-proxy VM registered with UTM and nothing answers on the LAN /24."
     }
     Write-Warning "  Guest will download directly -- expect 429 rate-limit failures on linux-firmware under load."
-    Write-Warning "  To enable caching, run: test/Start-CachingProxy.ps1"
+    Write-Warning "  To enable caching, run: test/Start-CachingProxyVM.ps1"
 }
 }
 

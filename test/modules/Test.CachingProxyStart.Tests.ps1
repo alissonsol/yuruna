@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.22
+.VERSION 2026.07.24
 .GUID 42a3b4c5-d6e7-4f89-8a01-2b3c4d5e6f70
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -18,10 +18,10 @@
 
 <#
 .SYNOPSIS
-    Structural (AST) guards on Start-CachingProxy.ps1's UTM wait loops and its
+    Structural (AST) guards on Start-CachingProxyVM.ps1's UTM wait loops and its
     child-script ($GetImageScript / $NewVMScript) exit-code gates.
 .DESCRIPTION
-    Start-CachingProxy.ps1 builds a VM and exits, so it is not invoked in-process
+    Start-CachingProxyVM.ps1 builds a VM and exits, so it is not invoked in-process
     here; the tests parse it and assert the required SHAPE via AST nodes rather
     than raw source text, so a code comment cannot satisfy a guard.
 
@@ -59,7 +59,7 @@
 
 $here    = Split-Path -Parent $PSCommandPath
 $testDir = Split-Path -Parent $here
-$startCp = Join-Path $testDir 'Start-CachingProxy.ps1'
+$startCp = Join-Path $testDir 'Start-CachingProxyVM.ps1'
 
 function Assert-True { param($Condition, [string]$Because = '') if (-not $Condition) { throw "Expected true. $Because" } }
 
@@ -117,7 +117,7 @@ function Get-LastExitShadowCount {
     }, $true)).Count
 }
 
-Describe 'Start-CachingProxy.ps1 bounds the UTM waits by wall-clock' {
+Describe 'Start-CachingProxyVM.ps1 bounds the UTM waits by wall-clock' {
     It 'loops the register + start waits on a UtcNow deadline, not an $i iteration counter' {
         $ast = Get-Ast $startCp
         $utcWhiles = @(Get-WhileConditionText -Ast $ast | Where-Object { $_ -match 'UtcNow' })
@@ -131,7 +131,7 @@ Describe 'Start-CachingProxy.ps1 bounds the UTM waits by wall-clock' {
     }
 }
 
-Describe 'Start-CachingProxy.ps1 gates child scripts on a reset $LASTEXITCODE' {
+Describe 'Start-CachingProxyVM.ps1 gates child scripts on a reset $LASTEXITCODE' {
     It 'resets $global:LASTEXITCODE to $null before the child call and tests it null-safely' {
         $ast = Get-Ast $startCp
         Assert-True ((Get-LastExitResetCount -Ast $ast) -ge 2) 'both & $GetImageScript / & $NewVMScript are preceded by $global:LASTEXITCODE = $null'
@@ -193,7 +193,7 @@ Describe 'Every platform New-VM.ps1 accepts -MacAddress (cross-host param contra
     }
     It 'binds the harness call shape against each platform''s real param block (live splat)' {
         # Extract each script's ACTUAL param block into a stub that echoes what
-        # bound, then invoke it exactly the way Start-CachingProxy.ps1 does.
+        # bound, then invoke it exactly the way Start-CachingProxyVM.ps1 does.
         # This exercises real parameter binding for all three platforms on any
         # dev host -- no hypervisor needed -- and fails if a platform's param
         # block drifts away from the harness's call shape.
@@ -202,7 +202,7 @@ Describe 'Every platform New-VM.ps1 accepts -MacAddress (cross-host param contra
             Assert-True ($null -ne $ast.ParamBlock) "$script has a param() block"
             $stubPath = Join-Path $TestDrive ((Split-Path -Leaf (Split-Path -Parent $script)) + '.' + (Split-Path -Leaf $script) + '.stub.ps1')
             Set-Content -LiteralPath $stubPath -Value ($ast.ParamBlock.Extent.Text + "`nWrite-Output `"BOUND:`$VMName|`$MacAddress`"")
-            # Mirror of the Step 3 call shape in Start-CachingProxy.ps1.
+            # Mirror of the Step 3 call shape in Start-CachingProxyVM.ps1.
             $newVmParams = @{ VMName = 'stub-vm' }
             $newVmParams.MacAddress = '02:42:42:42:42:42'
             $out = & $stubPath @newVmParams
@@ -213,7 +213,7 @@ Describe 'Every platform New-VM.ps1 accepts -MacAddress (cross-host param contra
     }
 }
 
-Describe 'Start-CachingProxy.ps1 forwards -MacAddress by name and fails fast when a child never runs' {
+Describe 'Start-CachingProxyVM.ps1 forwards -MacAddress by name and fails fast when a child never runs' {
     It 'splats the New-VM call from a hashtable, with no literal ''-MacAddress'' argument string' {
         $ast = Get-Ast $startCp
         # The broken shape is an array element '-MacAddress': array splatting

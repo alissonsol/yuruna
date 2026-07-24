@@ -2,7 +2,7 @@
 
 Canonical documentation (setup, configuration, monitoring, credentials,
 management): **[Caching](../../../docs/caching.md)**.
-Test-harness wrappers (`Start-CachingProxy.ps1`,
+Test-harness wrappers (`Start-CachingProxyVM.ps1`,
 `Test-CachingProxy.ps1`, `YURUNA_CACHING_PROXY_IP`):
 **[Caching proxy — test-harness operator reference](../../../docs/caching-proxy.md)**.
 
@@ -31,7 +31,7 @@ order:
 
 ### Automatic provisioning
 
-`test/Start-CachingProxy.ps1` auto-creates `yuruna-external` for you.
+`test/Start-CachingProxyVM.ps1` auto-creates `yuruna-external` for you.
 On first invocation it:
 
 1. Resolves the host's default-route NIC (refuses Wi-Fi).
@@ -48,7 +48,7 @@ On first invocation it:
    (autostart on). A bridge that never got its uplink is rolled back
    instead of being handed to libvirt.
 
-The helper is idempotent — re-running `Start-CachingProxy.ps1` after
+The helper is idempotent — re-running `Start-CachingProxyVM.ps1` after
 the bridge already exists is a no-op for host networking, and if the
 bridge exists but lost its LAN uplink the helper heals it (or rebuilds
 it from scratch). The bridge build does cause a brief network outage
@@ -56,7 +56,7 @@ it from scratch). The bridge build does cause a brief network outage
 the bridge; SSH sessions over the NIC will reconnect once the lease
 arrives.
 
-Set `YURUNA_EXTERNAL_BRIDGE_SKIP=1` before `Start-CachingProxy.ps1` if
+Set `YURUNA_EXTERNAL_BRIDGE_SKIP=1` before `Start-CachingProxyVM.ps1` if
 you intend to keep the cache VM host-only (libvirt's NAT `default`
 network).
 
@@ -125,7 +125,7 @@ sudo ip link delete yuruna-br0
 If the cache is created without the bridge in place, New-VM.ps1 falls
 back to libvirt's NAT `default` network. The cache still works for
 guests on the same host, but remote LAN clients can't reach it at its
-libvirt IP without a host-side port forwarder (Start-CachingProxy.ps1
+libvirt IP without a host-side port forwarder (Start-CachingProxyVM.ps1
 will set one up automatically for ports 80 / 3000 / 9302 / 9400 / 3128 /
 3129).
 
@@ -155,6 +155,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.22
+Last review: 2026.07.24
 
 Back to [Yuruna](../../../README.md)

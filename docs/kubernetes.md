@@ -96,6 +96,57 @@ secret in the cluster.
 
 Details, service accounts, and API enablement: [Yuruna Authentication ...](authentication.md).
 
+## Cleaning up cloud resources
+
+**These instructions will destroy resources.** Make sure you enter the correct
+parameters. Cloud resources incur charges, so always clear what you are not
+using.
+
+### Cleaning up automatically
+
+Clear the resources for a given configuration:
+
+```
+Invoke-Clear.ps1 [project_root] [config_subfolder]
+```
+
+Clearing the `website` project in the `azure` cloud (assuming the
+[Yuruna Authentication ...](authentication.md) steps were followed):
+
+```
+Invoke-Clear.ps1 website azure
+```
+
+If needed, you can delete resources directly from the folder holding the initial
+deployment files (`.yuruna/$config_subfolder/resources/$resourceName` — e.g.
+`.yuruna/azure/resources/website-cluster` for `Invoke-Clear.ps1 website azure`):
+
+```
+tofu destroy -auto-approve -refresh=false
+```
+
+This needs the created `.terraform` folder to still be available. Without it you
+will see `0 destroyed` — follow the manual cleanup below instead.
+
+Don't forget to delete the cluster context from `[user]/.kube/config`. The
+[Visual Studio Code](https://code.visualstudio.com/)
+[Kubernetes extension](https://marketplace.visualstudio.com/items?itemName=ms-kubernetes-tools.vscode-kubernetes-tools)
+or [`kubectl`](https://kubernetes.io/docs/reference/generated/kubectl/kubectl-commands#-em-delete-context-em-)
+can both do this.
+
+### Manual cleanup per cloud
+
+- **AWS** — from the [AWS Management Console](https://console.aws.amazon.com/),
+  delete clusters, registries, VPCs, IPs and other resources.
+- **Azure** — from the [Azure Portal](https://portal.azure.com), delete the
+  Azure Resource Groups that were created; deleting a resource group deletes all
+  associated resources. There will be a global resource for registry and
+  clusters, and each Kubernetes cluster has a corresponding AKS node resource
+  group (see [AKS faq](https://learn.microsoft.com/en-us/azure/aks/faq)) named
+  with the suffix `_nodes`.
+- **GCP** — from the [GCP Console](https://console.cloud.google.com/), delete any
+  resources that were previously created.
+
 ## Guest-side prerequisites
 
 Workload that installs SSH, Git, Docker, Kubernetes, PowerShell, Helm,
@@ -162,8 +213,8 @@ non-fatal — only the side effect matters.
 ## See also
 
 - [Yuruna Architecture](architecture.md#cli-entry-points) — CLI reference for the three phases
-- [Yuruna Frequently Asked Questions](faq.md), [Yuruna Workarounds](workarounds.md), [Yuruna Resources Clean Up](cleanup.md)
-- [Yuruna Website example](../project/example/website/), [Yuruna References](references.md)
+- [Yuruna Workarounds and FAQ](workarounds.md)
+- [Yuruna Website example](../project/example/website/), [Further reading](README.md#further-reading)
 
 ---
 
@@ -171,6 +222,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.22
+Last review: 2026.07.24
 
 Back to [Yuruna](../README.md)

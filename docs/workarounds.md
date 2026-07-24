@@ -1,6 +1,62 @@
-# Yuruna Workarounds
+# Yuruna Workarounds and FAQ
 
-Notes and workarounds learned during development.
+Notes, frequently asked questions, and workarounds learned during
+development, followed by per-guest-OS troubleshooting. Host-side issues
+live in the host docs: [Windows Hyper-V](host-hyperv.md) ·
+[macOS UTM](host-macos.md).
+
+## Connectivity
+
+**Connection to <http://localhost> fails** — on Windows, stop HTTP and
+related processes. Find what's holding port 80 with
+`netstat -nao | find ":80"`, then `net stop http`. When that is blocked by
+[HTTP services can't be stopped when the Microsoft Web Deployment Service is installed](https://learn.microsoft.com/en-us/troubleshoot/iis/http-service-fail-stopped),
+also `net stop msdepsvc`, reboot, and retry. If `BranchCache` keeps needing
+a stop, disable it via
+[`Disable-BC`](https://learn.microsoft.com/en-us/powershell/module/branchcache/disable-bc).
+Browser [HSTS](https://en.wikipedia.org/wiki/HTTP_Strict_Transport_Security)
+can also be the cause: remove localhost (or your dev site) from the
+[preloaded HSTS list](https://www.chromium.org/hsts/) — open
+`chrome://net-internals/#hsts` (`edge://net-internals/#hsts` in Edge) →
+under "Delete domain security policies" type the site → Delete.
+
+**A container is reachable via port forward but not via the ingress on
+localhost** — confirm the required ports aren't held by other processes
+before deploying. Docker Desktop itself often holds them
+([docker/for-mac#4903](https://github.com/docker/for-mac/issues/4903)); quit
+and restart Docker, since the Restart menu item is not enough. See also
+**Debugging localhost** below.
+
+**An example fails when executed twice, or after another example** — run,
+clear, and if port 80 is still busy quit Docker and start again. Check the
+exposed ports with `kubectl get svc --all-namespaces`.
+
+**The local registry doesn't work on macOS** — confirm port 5000 isn't in
+use ([SO](https://stackoverflow.com/questions/69818376/localhost5000-unavailable-in-macos-v12-monterey)):
+`lsof -nP -iTCP -sTCP:LISTEN | grep 5000`.
+
+**Applications inside the container can't connect to the outside** — verify
+`kube-proxy` can reach the host IP. Find the host IP (`ipconfig`/`ifconfig`),
+exec into `kube-proxy`, install `ping` if needed (see **Debugging from inside
+a minimal container** below), and ping outward.
+
+## General
+
+**What is the answer to the ultimate question of life, the universe, and
+everything?** — `42`. That's why every example uses
+easily-found-and-replaced prefixes starting with `yrn42`.
+
+**Moving a development machine** — cloud resources and components created on
+one machine can be picked up on another. Import the cluster context and
+`resources.output.yml`; the import command is in the resource template's
+`cluster.tf`. See also
+[merging Kubernetes configurations](https://kubernetes.io/docs/concepts/configuration/organize-cluster-access-kubeconfig/).
+
+**`Error: can't find external program "pwsh"`** — check for PowerShell 7.0+
+via `$PSVersionTable`. Setup: <https://aka.ms/powershell>. Versions used in
+testing are listed in [Yuruna Requirements](requirements.md).
+
+## Development notes
 
 **Log data from inside a VM** — copy/paste often works; when it doesn't,
 <https://privatebin.at> handles >512 KB (like pastebin).
@@ -25,7 +81,7 @@ side-by-side with `kubectl config rename-context old-name new-name`.
 **Debugging from inside a minimal container** — most images ship
 without `ping`:
 
-```
+```bash
 apt-get update && apt-get install -y iputils-ping
 ```
 
@@ -147,8 +203,8 @@ The trap fires in both directions:
 always pass `-Global` when a script that may be invoked from a module
 context imports a shared module.
 
-Sites that depend on this ordering: `test/Start-CachingProxy.ps1`,
-`test/Stop-CachingProxy.ps1`, `test/Repair-CachingProxyForwarder.ps1`,
+Sites that depend on this ordering: `test/Start-CachingProxyVM.ps1`,
+`test/Stop-CachingProxyVM.ps1`, `test/Repair-CachingProxyForwarder.ps1`,
 `test/Test-CachingProxy.ps1`, `test/Start-StatusService.ps1`,
 `test/Remove-TestVMFiles.ps1`, `test/Set-PoolAuthToken.ps1`.
 
@@ -159,11 +215,86 @@ because the surrounding `try` usually swallows the resolution error:
   the previous run wrote, so the status-page banner reports "not detected"
   while the runner's own banner — running in `Yuruna.Host`'s session, where
   `Read-CachingProxyState` *is* visible — correctly reports "detected".
-- `Start-CachingProxy.ps1` skips persisting the discovered cache IP, so
+- `Start-CachingProxyVM.ps1` skips persisting the discovered cache IP, so
   guest provisioners and the status server's fast path re-run full
   discovery on every cycle.
 
 Durable capture: `feedback_module_force_import_evicts_global`.
+
+## Guest troubleshooting
+
+Per-guest-OS notes, for problems that surface inside a provisioned guest
+rather than on the host.
+
+### Amazon Linux 2023
+
+**"Display Output Is Not Active"** — confirm a GUI is installed. Amazon
+Linux's first boot (especially on macOS UTM) has only an attached
+terminal; switch to that window to log in.
+
+### Ubuntu Server
+
+Shared troubleshooting for the Ubuntu Server guests (24.04, 26.04, …).
+Substitute your release (`24`, `26`, …) for `<release>` in the paths
+below — e.g. the 24.04 fetch-and-execute paths use
+`guest/ubuntu.server.24/…` (`ubuntu.server.24.update.sh`).
+
+**Boot issues** — check `/var/log/installer/installer-journal.txt` for
+hints. If the text-mode installer appears stuck, `Ctrl+Alt+F2` (or `F3`)
+to switch to a TTY, then check `/var/log/installer` or
+`/var/log/cloud-init.log` for `Error` or `Failed to load` — these usually
+point at the offending config line.
+
+**Console login not accepting the password** — `Ctrl+Alt+F3` for an
+alternate TTY, then run
+`/usr/local/lib/yuruna/fetch-and-execute.sh guest/ubuntu.server.<release>/ubuntu.server.<release>.update.sh`
+two or three times until no updates or cleanup remain, and
+`sudo reboot now`.
+
+**Time zone incorrect** — auto-detected at install via IP geolocation
+(cloud-init). To set manually:
+
+```bash
+timedatectl list-timezones | grep <region>
+sudo timedatectl set-timezone America/Los_Angeles
+timedatectl                       # verify
+```
+
+### Windows 11
+
+**winget not available** — after a fresh install, update **App
+Installer** in Microsoft Store and restart the terminal. Alternatively:
+
+```powershell
+Add-AppxPackage -RegisterByFamilyName -MainPackage Microsoft.DesktopAppInstaller_8wekyb3d8bbwe
+```
+
+**Scripts blocked by execution policy** —
+
+```powershell
+Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser -Force
+```
+
+**Docker Desktop requires restart** — if `docker` commands fail after
+install: restart the computer, launch Docker Desktop, wait for the
+systray icon to stop animating.
+
+**Kubernetes not available in Docker Desktop** — Docker Desktop →
+**Settings** → **Kubernetes** → check **Enable Kubernetes** → **Apply &
+restart**.
+
+**Time zone incorrect** — **Settings** → **Time & Language** → **Date &
+time**. Enable **Set time zone automatically** or pick one manually.
+
+**Windows activation** — the VM is installed with a generic key
+(unactivated). Activate:
+
+```powershell
+slmgr /ipk XXXXX-XXXXX-XXXXX-XXXXX-XXXXX
+slmgr /ato
+```
+
+Product keys: [Windows 11 ...](../host/windows.hyper-v/guest.windows.11/vmconfig/README.md).
 
 ---
 
@@ -171,6 +302,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.22
+Last review: 2026.07.24
 
 Back to [Yuruna](../README.md)

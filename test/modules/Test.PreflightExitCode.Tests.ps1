@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.22
+.VERSION 2026.07.24
 .GUID 42f1c7a4-9b3e-4d21-8c05-6ea41d9b73c2
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -30,7 +30,7 @@
     Two guards can refuse before any work happens: the runtime pre-flight
     (Set-Workload) and the root resolution (all three). Both must exit 1.
 
-    Behavioural: run each entrypoint against a project root that cannot resolve
+    Behavioral: run each entrypoint against a project root that cannot resolve
     and assert the process exit code is non-zero. Structural: assert the guards
     do not regress to `return $false`. Nothing here needs docker or a cluster.
 #>

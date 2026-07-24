@@ -194,9 +194,8 @@ APT_PROXY_BLOCK_PLACEHOLDER
       printf '%s' "YURUNA_NETWORK_BASE64_PLACEHOLDER" | base64 -d > /target/usr/local/lib/yuruna/yuruna-network.sh
       chmod 0755 /target/usr/local/lib/yuruna/yuruna-network.sh
     # --- REGION: https://yuruna.link/definition#defining-the-two-source-scheme-for-framework-and-project-urls
-    # git does NOT read GH_TOKEN (that name is a gh(1) convention), so a private
-    # clone hangs on a username prompt without this GIT_ASKPASS shim. Full
-    # rationale under "Private repositories" in the REGION topic above.
+    # git does NOT read GH_TOKEN (a gh(1) convention); without this GIT_ASKPASS shim a private
+    # clone hangs on a username prompt -- "Private repositories" in the REGION topic above.
     - |
       cat > /target/usr/local/lib/yuruna/git-askpass.sh << 'EOF'
       #!/bin/sh

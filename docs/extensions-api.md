@@ -16,7 +16,7 @@ Loader: [`test/modules/Test.Extension.psm1`](../test/modules/Test.Extension.psm1
 | `authentication`       | `default`      | `${ext:authentication.GetPassword(<user>)}` / `NewRandomPassword()` / `SetPassword()` — vault read/write for sequences. The `default` extension stores per-cycle ephemeral test-VM passwords in plaintext YAML **by design**; see [Authentication — Test-harness vault threat model](authentication.md#test-harness-vault--threat-model) for the trust boundary. Wire a different extension (DPAPI / keyring / external secret manager) before driving any production system from a sequence. |
 | `notification`         | `default`      | `Send-Notification -EventCode -EventMessage`; iterates configured transports (Resend, SMTP, etc.). |
 | `caching-proxy-parser` | `default`      | Maps a Squid access-log line to a structured record for the test/perf log. Ships a Go sidecar (`main.go` + `caching-proxy-parser.service`) for inside-the-VM parsing; the PowerShell `default.psm1` is the host-side wrapper. |
-| `stash-service`        | `default`      | Receives `scp`/`sftp`-uploaded artifacts (diagnostic bundles, screenshots) into a stash-storage-backed stash. Ships a Go daemon under [`server/`](../test/extension/stash-service/server/) (legacy SCP **and** SFTP, files on the ystash-nas share + VM-local SQLite index/sidecars) brought up by `Start-StashServer` + cloud-init, plus the PowerShell wrapper `default.psm1`. See [`docs/design/stash-service.md`](design/stash-service.md) for the contract. |
+| `stash-service`        | `default`      | Receives `scp`/`sftp`-uploaded artifacts (diagnostic bundles, screenshots) into a stash-storage-backed stash. Ships a Go daemon under [`server/`](../test/extension/stash-service/server/) (legacy SCP **and** SFTP, files on the ystash-nas share + VM-local SQLite index/sidecars) brought up by `Start-StashVM` + cloud-init, plus the PowerShell wrapper `default.psm1`. |
 | `pool-aggregator`      | `default`      | Read-only multi-host **pool view** (`Get-PoolAggregatorManifest`). Ships a stdlib-only Go daemon that runs on the caching-proxy machine (pool services host): it auto-discovers pool members from the squid access log, probes each one's status server, identifies on the stable `hostId`, and pushes cycle-status transitions to Loki. See [`pool-aggregator/README.md`](../test/extension/pool-aggregator/README.md). |
 
 ## Filesystem layout
@@ -130,12 +130,35 @@ ambiguity (`-RequireSingle`).
    [`test/schemas/`](../test/schemas/) folder already hosts
    `extension-config.schema.yml` for the common envelope).
 
+## POST /announce (pool-aggregator)
+
+`handleAnnounce` in `test/extension/pool-aggregator/main.go` is the
+extension-presence write surface: a service VM (e.g. the stash server's
+beacon) POSTs `{hostId, area, targetPort, active}` on boot, every beacon
+period, and with `active=false` at shutdown, so the dashboard's Extension
+hosts row survives the owning host's status server being down (the state
+a host reboot routinely leaves behind). The route is deliberately open
+(no bearer, unlike `/ingest`) because requiring the default-off shared
+token would kill the beacon exactly where it is needed. Containment
+instead:
+
+1. **Self-identity binding** — the advertised service URL is derived from
+   (or must match) the connection's source IP, so an announcer can only
+   advertise itself.
+2. **Telemetry-only** — paints a dashboard row and redirect target; no
+   control plane, host probing, or cycle accounting.
+3. **Bounded** — tiny body cap, strict hostId/area charsets, at most
+   `maxAnnounce` entries, TTL reap.
+4. **Goodbyes only remove an entry the same source owns.**
+
+`-announce-ttl 0` disables the route.
+
 ---
 
 LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.22
+Last review: 2026.07.24
 
 Back to [Yuruna](../README.md)

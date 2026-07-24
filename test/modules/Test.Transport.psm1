@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.22
+.VERSION 2026.07.24
 .GUID 42634a21-7352-4663-b6f4-cff499ce7a2b
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -72,7 +72,7 @@ function Update-TransportDefault {
     # YURUNA_CONFIG_PATH wins over the in-tree template guess so an
     # operator running with `-ConfigPath <elsewhere>` sees their edits
     # to vmCommunication.* take effect mid-cycle (matches the contract
-    # Sync-RuntimeConfig honours for testCycle.shouldStopOnFailure).
+    # Sync-RuntimeConfig honors for testCycle.shouldStopOnFailure).
     $cfgPath = if ($env:YURUNA_CONFIG_PATH) { $env:YURUNA_CONFIG_PATH } `
                else { Join-Path (Split-Path -Parent $PSScriptRoot) 'test.config.yml' }
     $cfg = Read-TestConfig -Path $cfgPath
@@ -889,7 +889,7 @@ function Send-TextHyperV {
         # only thing that flips a key back to "up" is the matching
         # break code. If a *prior* keyboard event left a modifier in
         # the held state -- a dropped LShift break (0xAA) from a
-        # cancelled Send-Text, a make/break race during VM reboot, an
+        # canceled Send-Text, a make/break race during VM reboot, an
         # operator manually clicking the vmconnect window with Shift
         # held, an IDE focus-steal mid-send -- every subsequent char
         # this function emits inherits that modifier and lands shifted.

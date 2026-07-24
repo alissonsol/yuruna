@@ -161,7 +161,7 @@
 	     on an Ethernet default route gives the cache a LAN-direct IP (real
 	     client IPs, as the description below covers). 'Shared' (UTM NAT,
 	     192.168.64.x) is used on a Wi-Fi default route where bridging can't
-	     obtain a LAN lease; Start-CachingProxy.ps1 then forwards host ports
+	     obtain a LAN lease; Start-CachingProxyVM.ps1 then forwards host ports
 	     to the NAT IP for LAN access, and New-VM.ps1 drops the
 	     BridgedInterface key in that mode.
 	     Bridged QEMU networking. The cache VM gets a real LAN IP via the
@@ -176,7 +176,7 @@
 	     `BridgeInterface` (noun) — same value, different spelling. Wi-Fi
 	     APs that filter MACs may reject the new locally-administered MAC
 	     and the cache will not receive a DHCP lease — Step 4 of
-	     Start-CachingProxy.ps1 will time out loudly; switch to Ethernet
+	     Start-CachingProxyVM.ps1 will time out loudly; switch to Ethernet
 	     on those networks. -->
 	<key>Network</key>
 	<array>

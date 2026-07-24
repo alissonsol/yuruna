@@ -55,7 +55,7 @@ func (b *Beacon) Enabled() bool {
 }
 
 // Run announces immediately (retrying until the first success), then re-announces
-// every Interval, and posts an active:false goodbye when ctx is cancelled.
+// every Interval, and posts an active:false goodbye when ctx is canceled.
 func (b *Beacon) Run(ctx context.Context) {
 	if !b.Enabled() {
 		return

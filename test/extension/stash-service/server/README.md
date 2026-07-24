@@ -1,8 +1,5 @@
 # Stash Service — Go daemon (`stash-server`)
 
-Spec: [docs/design/stash-service.md](../../../../docs/design/stash-service.md) ·
-[yuruna.link/stash-service](https://yuruna.link/stash-service).
-
 A single static binary with TWO listeners:
 
 - **TCP/22** — the SCP/SFTP sink. Accepts any SSH authentication (§4.3
@@ -11,7 +8,7 @@ A single static binary with TWO listeners:
   §6, §8). Serves BOTH the legacy SCP sink-mode wire protocol (§5) and the
   SFTP subsystem (modern scp's default, §4.1).
 - **TCP/80** — the browser **UI + JSON API**
-  ([stash-service-ui.md](../../../../docs/design/stash-service-ui.md)): pool-wide
+  (docs/stash-guide.md): pool-wide
   browse/search, create (paste or upload), inline viewing, and
   local-host-only delete. Same process, so create flows through the same
   storage pipeline as SCP (a stash is a stash).
@@ -36,7 +33,7 @@ server/
 └── *_test.go                             # unit tests for the pure-logic bits
 ```
 
-`ui` section references above are [stash-service-ui.md](../../../../docs/design/stash-service-ui.md).
+`ui` section references above are docs/stash-guide.md.
 
 ## Build
 
@@ -58,9 +55,7 @@ sudo install -m 0755 stash-server /usr/local/bin/stash-server
 Content-type detection (`internal/detect`) defaults to a pure-Go heuristic
 (extension + content sniff + UTF-8 text check) — no cgo, no model, always
 built and tested. The richer **magika** backend
-([google/magika](https://github.com/google/magika/tree/main/go),
-[stash-service-ui.md](../../../../docs/design/stash-service-ui.md) §6.1,
-§14) is built only with `-tags magika` and is EXCLUDED from the default
+([google/magika](https://github.com/google/magika/tree/main/go)) is built only with `-tags magika` and is EXCLUDED from the default
 build, so plain `go build` / `go test` stay pure-Go and offline. Enabling
 it requires, in the VM image build, all three of:
 
@@ -112,12 +107,12 @@ The daemon serves BOTH protocols (see the spec §4.1):
 # Modern scp defaults to SFTP -- works, one record per file. Stored on
 # the share; the upload ID is logged server-side (SFTP can't echo it).
 echo hello > note.pdf
-scp note.pdf yuruna@<vm-ip>:/scratch
+scp note.pdf stash-admin@<vm-ip>:/scratch
 
 # Legacy protocol (-O): enables multi/recursive ZIP grouping AND echoes
 # the YURUNA-STASH-ID line to your terminal.
-scp -O a.txt b.txt yuruna@<vm-ip>:/scratch    # one .yuruna.archive.zip
-scp -O -r ./dir    yuruna@<vm-ip>:/scratch    # one .yuruna.archive.zip
+scp -O a.txt b.txt stash-admin@<vm-ip>:/scratch    # one .yuruna.archive.zip
+scp -O -r ./dir    stash-admin@<vm-ip>:/scratch    # one .yuruna.archive.zip
 ```
 
 Under `-O` (legacy), scp renders the daemon's stderr, so each invocation
@@ -135,8 +130,7 @@ index (default `/var/lib/stash-server/metadata/stash.sqlite`).
 ## UI / API (`:80`)
 
 Open `http://<vm-ip>/` for the pastebin-style UI (browse, search, create,
-view, delete). The JSON API it consumes
-([stash-service-ui.md](../../../../docs/design/stash-service-ui.md) §9):
+view, delete). The JSON API it consumes:
 
 | Method | Path | Purpose |
 |---|---|---|
@@ -238,6 +232,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.22
+Last review: 2026.07.24
 
 Back to [Yuruna](../../../../README.md)

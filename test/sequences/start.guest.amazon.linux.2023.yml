@@ -2,13 +2,7 @@
 
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
-# Interaction sequence for driving VM installation.
-# See possible actions in the actions.yml file.
-# ${vmName}, ${hostType}, ${guestKey}, ${hostname} are built-in. Use ${varName} in step
-# parameters. ${ext:area.Method(args)} invokes the active extension under
-# test/extension/<area>/.
 
-# Perf-log identity (see https://yuruna.link/test/perf). Bump revision on step add/remove.
 sequenceGuid: 4224b44c-5e04-47e8-a61b-865d2a191b84
 sequenceRevision: 1
 
@@ -21,8 +15,6 @@ variables:
   currentPassword: ${ext:authentication.GetPassword(${username})}
   newPassword: ${ext:authentication.NewRandomPassword()}
 
-# component -- bring the guest up to a logged-in shell (first-login password
-# rotation).
 component:
   - action: retry
     maxAttempts: 3
@@ -73,8 +65,6 @@ component:
           NewPassword: "${newPassword}"
         description: "Commit new password to auth system"
 
-# workload -- run the update payload, capture diagnostics, reboot into the
-# provisioned image.
 workload:
   - action: fetchAndExecute
     text: "/usr/local/lib/yuruna/fetch-and-execute.sh guest/amazon.linux.2023/amazon.linux.2023.update.sh"

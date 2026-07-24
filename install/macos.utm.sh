@@ -1,7 +1,7 @@
 #!/bin/bash
 # Yuruna macOS UTM bootstrap installer.
 # LICENSEURI https://yuruna.link/license
-# Version: 2026.07.22  Copyright (c) 2019-2026 by Alisson Sol et al.
+# Version: 2026.07.24  Copyright (c) 2019-2026 by Alisson Sol et al.
 # --- REGION: https://yuruna.link/install/explained
 # One-liner: /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/install/macos.utm.sh)"
 
@@ -466,7 +466,7 @@ if is_squid_cache_running; then
   warn "  Skipping UTM quit + UTM cask upgrade for this run so the cache VM and its"
   warn "  multi-GB squid spool are NOT torn down (a quit-UTM window would let the"
   warn "  orphaned-bundle sweep delete it). To upgrade UTM later: stop the cache"
-  warn "  (pwsh test/Stop-CachingProxy.ps1) or quit UTM manually, then re-run this installer."
+  warn "  (pwsh test/Stop-CachingProxyVM.ps1) or quit UTM manually, then re-run this installer."
   PRESERVE_SQUID_CACHE=1
 fi
 

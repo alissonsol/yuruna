@@ -248,7 +248,7 @@ the empty `GH_TOKEN: ""` in the template is.
   Test steps assume a PowerShell terminal (with Administrator permissions in Windows)
 
   - Start the Yuruna caching proxy
-    - Locally: `test/Start-CachingProxy.ps1`
+    - Locally: `test/Start-CachingProxyVM.ps1`
     - For a remote cache: set `vmStart.cachingProxyIP` in `test/test.config.yml` (probed first), or `$env:YURUNA_CACHING_PROXY_IP = 'x.y.z.p'` when the config key is empty
     - Test: `test/Test-CachingProxy.ps1`
   - Single test loop: `test/Test-Project.ps1`
@@ -352,6 +352,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.22
+Last review: 2026.07.24
 
 Back to [Yuruna](README.md)

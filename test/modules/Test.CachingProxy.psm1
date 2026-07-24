@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.22
+.VERSION 2026.07.24
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456821
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -19,7 +19,7 @@
 <#
 .SYNOPSIS
     Cross-cycle persistence for the yuruna-caching-proxy VM state
-    (yuruna user's password + the VM's IP address). Single YAML file
+    (the caching-proxy-admin user's password + the VM's IP address). Single YAML file
     under the runtime directory; survives cycle vault wipes.
 
 .DESCRIPTION
@@ -29,7 +29,7 @@
     <repoRoot>/test/status/runtime). One file, host-agnostic location,
     git-ignored alongside the rest of status/. The authentication
     extension's vault.yml persists across cycles too, but this
-    file remains the source of truth for the cache VM's yuruna user --
+    file remains the source of truth for the cache VM's caching-proxy-admin user --
     caching-proxy New-VM.ps1 re-aligns the vault entry from here on
     every cycle so the two stay in sync if they ever diverge.
 
@@ -172,7 +172,7 @@ function Save-CachingProxyState {
     [CmdletBinding(SupportsShouldProcess)]
     [OutputType([string])]
     param(
-        # The yuruna user's password value to persist; on-disk YAML key is
+        # The caching-proxy-admin user's password value to persist; on-disk YAML key is
         # `password:`. Pass '' to clear; omit to leave unchanged.
         [string]$Secret,
         [string]$IpAddress,
@@ -560,6 +560,176 @@ function Get-PoolAggregatorSeedUrl {
     return "https://${urlHost}:9400"
 }
 
+function Get-PoolIntentSeedUrl {
+<#
+.SYNOPSIS
+    Resolves the pool-intent git URL to bake into the pool-control VM seed.
+.DESCRIPTION
+    The pool-control daemon COMMITS to this store, so the resolution prefers a
+    writable location:
+
+      1. An explicit networkStorage/pool `intentGitUrl` in test.config.yml. The
+         operator said what they want; nothing overrides it.
+      2. The bare repo on the pool NAS, addressed by its GUEST mount path. The
+         pool-control VM and the caching-proxy both mount that share read-write,
+         so it is the one place the daemon can push to without a new credential
+         or a new authenticated endpoint. The guest bring-up creates and seeds
+         the repo when it is absent.
+      3. The proxy's read-only HTTP route, when no pool storage is configured.
+         This is a DEGRADED answer and is returned last on purpose: apache
+         publishes the repo through a plain Alias, so a clone works and every
+         push fails. It leaves the UI able to display intent rather than
+         nothing at all.
+
+    Returns '' when none resolve, which the seed bakes as an empty value; the
+    guest then reports the reason on its diagnostics page rather than guessing.
+.PARAMETER Config
+    Parsed test.config.yml, or $null.
+.PARAMETER GuestPoolMount
+    Mount point the pool-control guest uses for the pool NAS. Matches MOUNT in
+    guest/ubuntu.server.26/ubuntu.server.26.pool-control.sh.
+.OUTPUTS
+    [string] intent git URL, or ''.
+#>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        $Config,
+        [string]$GuestPoolMount = '/mnt/yuruna-pool'
+    )
+    if ($Config -and $Config.pool -and -not [string]::IsNullOrWhiteSpace([string]$Config.pool.intentGitUrl)) {
+        return ([string]$Config.pool.intentGitUrl).Trim()
+    }
+    # Pool storage configured => the guest will mount it and can host the store.
+    $hasPoolStorage = $false
+    if ($Config -and $Config.networkStorage -and -not [string]::IsNullOrWhiteSpace([string]$Config.networkStorage.poolNetworkPath)) {
+        $hasPoolStorage = $true
+    }
+    if ($hasPoolStorage) {
+        return ("{0}/pool-intent.git" -f $GuestPoolMount.TrimEnd('/'))
+    }
+    # Last resort: the proxy's pull-only route, so the UI at least reads.
+    $ip = ''
+    try {
+        $state = Read-CachingProxyState
+        if ($state -and $state.ipAddress) { $ip = [string]$state.ipAddress }
+    } catch { Write-Verbose "caching-proxy state: $($_.Exception.Message)" }
+    if ([string]::IsNullOrWhiteSpace($ip) -and $env:YURUNA_CACHING_PROXY_IP) {
+        $ip = $env:YURUNA_CACHING_PROXY_IP.Trim()
+    }
+    if ([string]::IsNullOrWhiteSpace($ip)) { return '' }
+    # The value lands in an unquoted seed env line the guest sed-extracts, so a
+    # quote or whitespace would corrupt it.
+    if ($ip -match "['\s]") { return '' }
+    $urlHost = if (Get-Command Format-IpUrlHost -ErrorAction SilentlyContinue) { Format-IpUrlHost $ip } else { $ip }
+    return "http://${urlHost}/pool-intent.git"
+}
+
+function Sync-PoolIntentAliasOnProxy {
+<#
+.SYNOPSIS
+    Points the caching proxy's read-only pool-intent route at the pool NAS
+    store, so runners pull the same bytes the Pool control UI writes.
+.DESCRIPTION
+    The proxy originally served a proxy-LOCAL bare repo, which the pool-control
+    daemon (on its own VM) cannot push to. Both boxes mount the pool NAS
+    read-write, so the store lives there and apache serves it -- one store, no
+    mirroring, no divergence between what an operator writes and what a runner
+    pulls.
+
+    This runs from the HOST, not from the pool-control VM: the host already
+    holds the harness SSH key, while a guest carries only an authorized PUBLIC
+    key. Doing it guest-side would mean baking a private key that grants
+    sudo-capable access to the proxy into a web-facing VM.
+
+    Idempotent and non-destructive:
+      * refuses unless the NAS store is a real bare repo, so a failed seeding
+        can never repoint apache at a missing path and 404 every runner;
+      * no-ops when the alias already names that path;
+      * backs the conf up, runs `apache2ctl configtest`, and RESTORES the
+        previous conf if the new one is rejected -- a bad edit never leaves the
+        proxy unable to reload.
+
+    Best-effort by contract: it reports rather than throws, because a bring-up
+    must not fail over a serving-path optimization.
+.PARAMETER ProxyAddress
+    Proxy host/IP. Resolved from the persisted caching-proxy state (then
+    $env:YURUNA_CACHING_PROXY_IP) when omitted.
+.PARAMETER StorePath
+    Bare repo path AS THE PROXY SEES IT. The proxy mounts the pool NAS at
+    /mnt/ypool-nas; the pool-control VM mounts the same share at
+    /mnt/yuruna-pool, so the two paths differ by design.
+.PARAMETER User
+    SSH login on the proxy. Defaults to the seed-created service account.
+.OUTPUTS
+    [hashtable] Ok (bool), Changed (bool), Message (string).
+#>
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([hashtable])]
+    param(
+        [string]$ProxyAddress,
+        [string]$StorePath = '/mnt/ypool-nas/pool-intent.git',
+        [string]$User = 'caching-proxy-admin',
+        [int]$TimeoutSeconds = 60
+    )
+    if ([string]::IsNullOrWhiteSpace($ProxyAddress)) {
+        try {
+            $state = Read-CachingProxyState
+            if ($state -and $state.ipAddress) { $ProxyAddress = [string]$state.ipAddress }
+        } catch { Write-Verbose "caching-proxy state: $($_.Exception.Message)" }
+        if ([string]::IsNullOrWhiteSpace($ProxyAddress) -and $env:YURUNA_CACHING_PROXY_IP) {
+            $ProxyAddress = $env:YURUNA_CACHING_PROXY_IP.Trim()
+        }
+    }
+    if ([string]::IsNullOrWhiteSpace($ProxyAddress)) {
+        return @{ Ok = $false; Changed = $false; Message = 'no caching-proxy address known; skipped' }
+    }
+    if (-not (Get-Command 'Test.Ssh\Invoke-GuestSsh' -ErrorAction SilentlyContinue)) {
+        return @{ Ok = $false; Changed = $false; Message = 'Test.Ssh (Invoke-GuestSsh) not loaded; skipped' }
+    }
+    # A path carrying a quote would break out of the single-quoted shell
+    # assignment below and run as code on the proxy.
+    if ($StorePath -match "['`"\s]") {
+        return @{ Ok = $false; Changed = $false; Message = "refusing a store path containing quotes or whitespace: '$StorePath'" }
+    }
+    if (-not $PSCmdlet.ShouldProcess($ProxyAddress, "Point /pool-intent.git at $StorePath")) {
+        return @{ Ok = $true; Changed = $false; Message = 'WhatIf: no change made' }
+    }
+
+    # Single-quoted here-string: PowerShell must not touch $STORE/$CONF, which
+    # are SHELL variables. The store path is injected by literal replace.
+    $script = @'
+set -u
+STORE='__STORE__'
+CONF=/etc/apache2/conf-available/yuruna-pool-intent.conf
+if [ ! -d "$STORE/refs" ]; then echo "SKIP: no bare repo at $STORE"; exit 0; fi
+if [ -r "$CONF" ] && grep -qxF "Alias /pool-intent.git $STORE" "$CONF"; then echo "OK: alias already serves $STORE"; exit 0; fi
+sudo cp -p "$CONF" "$CONF.bak" 2>/dev/null || true
+printf 'Alias /pool-intent.git %s\n<Directory %s>\n    Options +Indexes\n    Require ip 127.0.0.1\n    Require ip 10.0.0.0/8\n    Require ip 172.16.0.0/12\n    Require ip 192.168.0.0/16\n</Directory>\n' "$STORE" "$STORE" | sudo tee "$CONF" >/dev/null
+sudo a2enconf yuruna-pool-intent >/dev/null 2>&1 || true
+if sudo apache2ctl configtest 2>&1 | grep -qi 'syntax ok'; then
+  sudo systemctl reload apache2 && echo "CHANGED: /pool-intent.git -> $STORE"
+else
+  sudo cp -p "$CONF.bak" "$CONF" 2>/dev/null || true
+  echo "FAILED: apache rejected the new conf; restored the previous one" >&2
+  exit 1
+fi
+'@.Replace('__STORE__', $StorePath)
+
+    $r = $null
+    try {
+        $r = Test.Ssh\Invoke-GuestSsh -VMName $ProxyAddress -GuestKey 'guest.caching-proxy' -User $User -Command $script -TimeoutSeconds $TimeoutSeconds
+    } catch {
+        return @{ Ok = $false; Changed = $false; Message = "ssh to ${User}@${ProxyAddress} failed: $($_.Exception.Message)" }
+    }
+    $out = if ($r) { [string]$r.output } else { '' }
+    return @{
+        Ok      = [bool]($r -and $r.success)
+        Changed = ($out -match 'CHANGED:')
+        Message = if ([string]::IsNullOrWhiteSpace($out)) { "ssh exit $($r.exitCode)" } else { $out.Trim() }
+    }
+}
+
 # === CA cert ================================================================
 
 function Test-CachingProxyCaPem {
@@ -700,4 +870,4 @@ function Resolve-CachingProxyCaCertPem {
     return @{ Pem = ''; Source = 'none' }
 }
 
-Export-ModuleMember -Function Get-CachingProxyStatePath, Read-CachingProxyState, Save-CachingProxyState, Test-TcpPortReachable, Invoke-CachingProxyProbe, Resolve-CachingProxyEndpoint, Get-PoolAggregatorSeedUrl, Test-CachingProxyCaPem, Get-CachingProxyCaCertBase64, Resolve-CachingProxyCaCertPem
+Export-ModuleMember -Function Get-CachingProxyStatePath, Read-CachingProxyState, Save-CachingProxyState, Test-TcpPortReachable, Invoke-CachingProxyProbe, Resolve-CachingProxyEndpoint, Get-PoolAggregatorSeedUrl, Get-PoolIntentSeedUrl, Sync-PoolIntentAliasOnProxy, Test-CachingProxyCaPem, Get-CachingProxyCaCertBase64, Resolve-CachingProxyCaCertPem

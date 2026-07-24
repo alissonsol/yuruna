@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.22
+.VERSION 2026.07.24
 .GUID 42d7c1b4-6e8a-4f3c-9d20-5a7b1c2e3f40
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -16,16 +16,11 @@
 
 #requires -version 7
 
-# Per-host Config CA backing the Host Config Service (mTLS). Mints and persists a
-# host-rooted EC P-256 certificate authority under
-# $env:YURUNA_RUNTIME_DIR/host-config-ca/ (gitignored, like vault.yml and
-# host.uuid). From that CA come two leaf kinds:
-#   * one SERVER leaf for the Host Config Service (Start-HostConfigService.ps1);
-#   * one CLIENT leaf per VM, issued at New-VM time and baked into the VM's
-#     cloud-init seed.
-# A VM presenting a client leaf signed by THIS host's CA proves it was created by
-# THIS host -- the cryptographic realization of "serve config to ONLY the VMs
-# running under that same host" (docs/design/host-config-service-and-extension-hosts.md).
+# Per-host Config CA backing the Host Config Service (mTLS): one SERVER leaf
+# for the service, one CLIENT leaf per VM (baked into its cloud-init seed) --
+# proof the VM was created by THIS host. Persisted under
+# $env:YURUNA_RUNTIME_DIR/host-config-ca/ (gitignored).
+# See docs/test-config.md.
 #
 # Crypto is operator-approved security posture (do not change without sign-off,
 # see feedback_no_unauthorized_security_changes): EC P-256, SHA-256, CA 10y,

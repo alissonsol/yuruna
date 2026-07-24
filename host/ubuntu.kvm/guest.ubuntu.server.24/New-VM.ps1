@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.22
+.VERSION 2026.07.24
 .GUID 42a2b3c4-d5e6-4f78-9012-3a4b5c6d7e95
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -61,7 +61,14 @@ param(
     # cloud-init local-hostname for the guest. Empty means "follow the VM
     # name", which keeps host-side lookups that assume hostname == VM name
     # working for every caller that does not ask for a specific hostname.
-    [string]$Hostname = ''
+    [string]$Hostname = '',
+    # Planner-cascaded VM memory (variables.memoryStartupBytes). Raw byte count
+    # or a KB/MB/GB suffix (e.g. 34359738368, 32768MB, 32GB); converted to the
+    # MB virt-install wants. Empty keeps the 8 GB default below.
+    [string]$MemoryStartupBytes = '',
+    # Planner-cascaded vCPU count (variables.cores). Overrules the default
+    # calculation below. Empty keeps the default. Clamped to the host cores.
+    [string]$Cores = ''
 )
 
 if ($VMName -notmatch '^[a-zA-Z0-9._-]+$') {
@@ -367,6 +374,25 @@ if ($hostCores -lt 4) {
 # installer's vCPUs for seconds at a time and its console appears
 # frozen until the step timeout gives up.
 $vmCores = [math]::Min($hostCores - 1, [math]::Max(2, [math]::Floor($hostCores / 2)))
+# Cascaded variables.cores overrules the default; clamp to the host cores so an
+# over-ask can't fail virt-install.
+if ($Cores) {
+    $coresInt = 0
+    if (-not [int]::TryParse($Cores, [ref]$coresInt) -or $coresInt -lt 1) {
+        Write-Error "Invalid -Cores '$Cores': expected a positive integer."
+        exit 1
+    }
+    if ($coresInt -gt $hostCores) {
+        Write-Warning "Requested -Cores $coresInt exceeds host cores ($hostCores); clamping to $hostCores."
+        $coresInt = $hostCores
+    }
+    $vmCores = $coresInt
+}
+
+# Cascaded variables.memoryStartupBytes wins; empty keeps the 8 GB default.
+# virt-install --memory is in MB, so convert from the canonical byte count.
+try { $vmMemoryBytes = ConvertTo-MemoryStartupBytes $MemoryStartupBytes } catch { Write-Error $_.Exception.Message; exit 1 }
+$vmMemoryMb = if ($vmMemoryBytes -gt 0) { [int]($vmMemoryBytes / 1MB) } else { 8192 }
 
 $installArgs = @(
     '--connect', $virshUri,
@@ -378,7 +404,7 @@ $installArgs = @(
     # than matching the 12 GB the Hyper-V / UTM guests use, because every
     # extra GB per VM subtracts from how many guests this KVM host can run
     # concurrently in a busy pool.
-    '--memory',  '8192',
+    '--memory',  "$vmMemoryMb",
     '--vcpus',   "$vmCores",
     '--cpu',     'host-passthrough',
     '--os-variant', $osVariant,

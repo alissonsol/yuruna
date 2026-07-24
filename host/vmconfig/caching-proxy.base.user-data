@@ -5,10 +5,10 @@
 # --- REGION: https://yuruna.link/vmconfig/caching-proxy
 # --- REGION: https://yuruna.link/vmconfig/caching-proxy#squid-cache-hostname-vs-template-name
 hostname: yuruna-caching-proxy
-# --- REGION: https://yuruna.link/vmconfig/caching-proxy#users-replace-cloud-image-default-with-yuruna
+# --- REGION: https://yuruna.link/vmconfig/caching-proxy#users-replace-cloud-image-default-with-a-per-vm-admin-account
 users:
-  - name: yuruna
-    gecos: yuruna debug user
+  - name: caching-proxy-admin
+    gecos: caching-proxy debug user
     sudo: ALL=(ALL) NOPASSWD:ALL
     shell: /bin/bash
     lock_passwd: false
@@ -17,7 +17,7 @@ users:
 chpasswd:
   expire: false
   users:
-    - name: yuruna
+    - name: caching-proxy-admin
       password: PASSWORD_PLACEHOLDER
       type: text
 ssh_pwauth: true
@@ -124,8 +124,15 @@ write_files:
     permissions: '0644'
     owner: root:root
     content: |
-      Alias /pool-intent.git /var/lib/yuruna/pool-intent.git
-      <Directory /var/lib/yuruna/pool-intent.git>
+      # Served from the pool NAS, not a proxy-local copy: the pool-control
+      # daemon runs on its own VM and can only PUSH to a location it mounts,
+      # and this share is the one both it and this proxy mount read-write.
+      # Pointing apache at the same bytes keeps a single store -- an operator
+      # writing intent in the UI and a runner pulling it cannot diverge.
+      # The route 404s while the NAS is unmounted, which is the honest answer;
+      # serving a stale local copy would hide the outage from every runner.
+      Alias /pool-intent.git /mnt/ypool-nas/pool-intent.git
+      <Directory /mnt/ypool-nas/pool-intent.git>
           Options +Indexes
           Require ip 127.0.0.1
           Require ip 10.0.0.0/8
@@ -197,51 +204,20 @@ write_files:
       # VM can warm up); only HITS are served unconditionally.
       offline_mode on
 
-      # Expose the running config via /squid-internal-mgr/config without
-      # a password. Required by squid-meta-exporter.sh so the dashboard
-      # reads the daemon's RUNTIME state (what squid is actually
-      # applying), not just the on-disk /etc/squid/conf.d/yuruna.conf
-      # (which can be stale between an edit and `squid -k reconfigure`).
-      # Scope is localhost-only via the stock `http_access allow
-      # localhost manager` ACL in squid.conf, so the config dump is not
-      # exposed to the LAN.
+      # Expose the RUNTIME config on /squid-internal-mgr/config for
+      # squid-meta-exporter.sh; the stock `localhost manager` ACL keeps it off the LAN.
       cachemgr_passwd none config
 
-      # Never abort partial downloads. If a client disconnects mid-fetch
-      # (e.g. guest reboot), squid finishes so the next client hits
-      # cache. -1 KB disables the quick-abort threshold entirely.
+      # --- REGION: https://yuruna.link/vmconfig/caching-proxy#upstream-stall-and-fetch-pooling-guards
+      # Never abort a partial download -- the next client still gets a hit.
       quick_abort_min -1 KB
-
-      # Bound upstream inactivity. An origin that stops sending mid-object
-      # is otherwise held for squid's 15-minute default read_timeout, and
-      # with collapsed_forwarding below every rider of that one fetch
-      # stalls with it -- while clients hang mid-body with headers already
-      # received, where no client-side connect/read-gap timeout fires (the
-      # stalled-transfer trap class). Inactivity-based and reset on every
-      # packet received, so a slow-but-moving large object is never cut
-      # off; only a genuinely silent upstream is. 2 minutes matches the
-      # apt Acquire::http::Timeout the guests are seeded with.
+      # Bound upstream inactivity (squid's default is 15 minutes); matches the
+      # guests' apt Acquire::http::Timeout.
       read_timeout 2 minutes
-
-      # Pool concurrent identical fetches: when N machines start the
-      # same uncached ISO at once, squid forwards ONE request to origin
-      # and the other N-1 ride along the in-progress fetch. Without
-      # this, every client races to origin in parallel -- both wasting
-      # mirror bandwidth and tripping per-IP rate limits at
-      # releases.ubuntu.com when a CI swarm rebuilds. Has no effect on
-      # CONNECT-tunneled HTTPS (uncacheable by definition); applies to
-      # HTTP origins and to SSL-bumped HTTPS on :3129.
+      # One origin fetch for N concurrent identical requests; the rest ride along.
       collapsed_forwarding on
-
-      # Range-request handling for big-object caching. Default (`0`)
-      # means: when a client sends `Range: bytes=...`, squid forwards
-      # the partial to origin and serves it back WITHOUT populating the
-      # cache -- so range/resumed downloads (BITS, browser resume, curl
-      # --range, apt's pdiff fetcher) leave nothing behind for the next
-      # client. `none` (= unbounded) tells squid to fetch the FULL
-      # object on first range request and serve subsequent ranges from
-      # cache. Critical for the "many machines hit the same large ISO"
-      # scenario, where the first hit may well be a resume.
+      # Fetch the FULL object on a first `Range:` request, so resumed downloads
+      # populate the cache instead of streaming through it.
       range_offset_limit none
 
       # Package files are content-addressable (version in URL), so a new
@@ -283,33 +259,19 @@ write_files:
       refresh_pattern -i ^https?://get\.opentofu\.org/                     525600 100% 525600 override-expire override-lastmod ignore-reload ignore-no-store ignore-private
 
       # --- REGION: GitHub release binary caching
-      # GitHub release assets (kubectl, helm, gh, jq, terraform-provider-*,
-      # tofu, etc.) live at
-      #   github.com/<owner>/<repo>/releases/download/<tag>/<asset>
-      # which 302-redirects to objects.githubusercontent.com/<token>/... .
-      # Both URLs are content-addressed by tag + asset name (release assets
-      # are immutable in GitHub's data model), so pin the full year.
-      # Match the whole host, not just terraform-provider assets --
-      # non-extensioned binaries (raw `kubectl`, `helm`, etc.) wouldn't
-      # otherwise match the catch-all `.zip` / `.tar.gz` patterns above.
+      # --- REGION: https://yuruna.link/vmconfig/caching-proxy#github-release-and-helm-chart-pinning
+      # Release assets are immutable per tag; whole-host match so non-extensioned
+      # binaries (raw `kubectl`, `helm`) are covered too.
       refresh_pattern -i ^https?://github\.com/[^/]+/[^/]+/releases/download/ 525600 100% 525600 override-expire override-lastmod ignore-reload ignore-no-store ignore-private
       refresh_pattern -i ^https?://objects\.githubusercontent\.com/        525600 100% 525600 override-expire override-lastmod ignore-reload ignore-no-store ignore-private
 
       # --- REGION: Helm chart + repo index caching
-      # `helm install <repo>/<chart>` downloads chart packages whose URLs end
-      # in .tgz (e.g. https://kubernetes.github.io/ingress-nginx/ingress-
-      # nginx-X.Y.Z.tgz). The `\.tar\.gz$` pattern above does NOT match the
-      # `.tgz` short-form; without this rule the package falls through to
-      # the catch-all `refresh_pattern .` and revalidates every install --
-      # which becomes a hard failure during a kubernetes.github.io blip.
-      # Chart packages are version-tagged and immutable in helm's data
-      # model, so pin the full year like the GitHub release rule.
+      # --- REGION: https://yuruna.link/vmconfig/caching-proxy#github-release-and-helm-chart-pinning
+      # `.tgz` is NOT matched by the `\.tar\.gz$` pattern above; chart packages
+      # are version-tagged and immutable, so pin the full year.
       refresh_pattern -i \.tgz$                                            525600 100% 525600 override-expire override-lastmod ignore-reload ignore-no-store ignore-private
-      # `helm repo update` fetches the repo's index.yaml; treat it as a
-      # short-lived but cacheable index (60 min freshness, 20% LM factor)
-      # so back-to-back cycles inside an hour hit cache while still
-      # picking up new chart versions on the same day. Scoped to known
-      # helm-repo hosts to avoid over-caching unrelated YAML.
+      # `helm repo update` index.yaml: short freshness window, scoped to known
+      # helm-repo hosts so unrelated YAML is not over-cached.
       refresh_pattern -i ^https?://kubernetes\.github\.io/.*/index\.yaml$  60     20%  60
       refresh_pattern -i ^https?://charts\.jetstack\.io/.*/index\.yaml$    60     20%  60
 
@@ -334,33 +296,11 @@ write_files:
       http_port 3138 require-proxy-header
       http_port 3139 require-proxy-header ssl-bump generate-host-certificates=on tls-cert=/etc/squid/ssl_cert/ca.pem tls-key=/etc/squid/ssl_cert/ca.key
 
-      # --- REGION: Custom log format for the Grafana "Recent 100 requests" panel
-      # %>A removed: Squid 6 triggers a synchronous PTR lookup and RFC1918 IPs return garbage
-      # from upstream resolvers. UA in literal double-quotes (%{...}>h doesn't auto-escape
-      # spaces). Separate file so the default access.log keeps its stock format for
-      # cachemgr/tail debugging (two access_log entries to the same file corrupt both).
+      # --- REGION: https://yuruna.link/vmconfig/caching-proxy#squid-access-log-and-self-scrape-filtering
       logformat yuruna %ts.%03tu %6tr %>a %Ss/%03>Hs %<st %rm %ru %[un %Sh/%<a %mt "%{User-Agent}>h"
-      # Filter out squid-exporter's own /squid-internal-mgr scrapes
-      # (~192 polls per hour at 15 s Prometheus scrape interval, x3 mgr
-      # endpoints = ~580/hour) before they reach the access log -- they
-      # pollute both `yuruna_access.log` and the caching-proxy-parser
-      # "Recent 100 requests" view with internal noise that has nothing
-      # to do with guest traffic. The exporter still receives its
-      # response (the deny is on access_log, not on http_access).
-      #
-      # Match the exporter by SOURCE, not urlpath. The exporter runs on this
-      # VM and scrapes 127.0.0.1:3128, so loopback identifies it. A
-      # urlpath/url regex ACL cannot be evaluated for connection-level log
-      # events that carry no parsed HTTP request (CONNECT tunnels,
-      # pre-request TLS-bump errors); squid then logs "ACL is used in context
-      # without an HTTP request" to cache.log for every such event -- hundreds
-      # per minute, burying the genuine errors. `src` is always available, so
-      # the exclusion is warning-free. Guest traffic is LAN-sourced, so
-      # dropping loopback removes only the self-scrapes (and local health
-      # probes), never a guest request.
+      # Match the exporter by src, not urlpath: a urlpath ACL floods cache.log
+      # on every request-less log event (CONNECT tunnels, TLS-bump errors).
       acl yuruna_selfscrape src 127.0.0.1/32 ::1/128
-      # Squid 7 requires module prefix on access_log; without `stdio:`
-      # the parser emits a deprecation WARNING at every config load.
       access_log stdio:/var/log/squid/yuruna_access.log yuruna !yuruna_selfscrape
   # --- REGION: https://yuruna.link/vmconfig/caching-proxy#prometheus-loopback-only
   - path: /etc/default/prometheus
@@ -888,10 +828,9 @@ write_files:
       YURUNA_HOST_IP=YURUNA_HOST_IP_PLACEHOLDER
       YURUNA_HOST_PORT=YURUNA_HOST_PORT_PLACEHOLDER
   # --- REGION: Host Config Service (mTLS) client materials + dynamic NAS-credential fetch.
-  # The cache VM fetches ystash-nas (later ypool-nas) connection info + password
-  # from the host's Config Service at boot AND hourly, so a rotated NAS password
-  # reaches this running VM without a rebuild. The client cert chains to THIS
-  # host's Config CA, so the service serves only this host's VMs. PEMs are baked
+  # NAS connection info + password fetched at boot AND hourly, so a rotated NAS
+  # password reaches this running VM without a rebuild; the client cert chains to
+  # THIS host's Config CA, so the service serves only this host's VMs. PEMs baked
   # base64 (encoding: b64) so they survive YAML; single-quoted so an empty value
   # (client cert not minted) parses as '' and the runcmd gate skips the fetch.
   - path: /etc/yuruna/host-config/config.env
@@ -2127,10 +2066,9 @@ write_files:
       YPOOL_NAS_NETWORK_USER='YPOOL_NAS_NETWORK_USER_PLACEHOLDER'
       YPOOL_NAS_HOST_ID='YPOOL_NAS_HOST_ID_PLACEHOLDER'
       YPOOL_NAS_MOUNT='/mnt/ypool-nas'
-  # /etc/yuruna/ypool-nas.cifs.cred is deliberately NOT baked: the password is
-  # served at runtime by the Host Config Service (/v1/nas/pool) and written (0600)
-  # by yuruna-config-fetch.sh, so a rotated NAS password reaches this VM without a
-  # rebuild -- and the plaintext pool password never ships in the seed.iso.
+  # /etc/yuruna/ypool-nas.cifs.cred is deliberately NOT baked: yuruna-config-fetch.sh
+  # writes it (0600) at runtime from the Host Config Service (/v1/nas/pool), so
+  # rotation needs no rebuild and the plaintext pool password never ships in the seed.iso.
   # --- REGION: https://yuruna.link/vmconfig/caching-proxy#pool-auth-token
   - path: /etc/yuruna/pool-auth.token
     permissions: '0640'
@@ -2373,7 +2311,7 @@ runcmd:
         YR_SRC="local host status server (http://${YR_HOST}:${YR_PORT})"
         echo "yuruna: building monitoring services from LOCAL host repo ${YR_BASE} -- no github dependency"
       else
-        echo "== YURUNA: host status server unreachable (host.env IP='${YR_HOST:-unset}' port='${YR_PORT:-unset}'); falling back to github. Ensure the status service runs on the deploying host (Start-CachingProxy / Start-StatusService) so a rebuild fetches the local working tree. =="
+        echo "== YURUNA: host status server unreachable (host.env IP='${YR_HOST:-unset}' port='${YR_PORT:-unset}'); falling back to github. Ensure the status service runs on the deploying host (Start-CachingProxyVM / Start-StatusService) so a rebuild fetches the local working tree. =="
       fi
     else
       echo "== YURUNA: /etc/yuruna/host.env absent -- no host coordinates in the seed; falling back to github for source fetch =="
@@ -2437,21 +2375,41 @@ runcmd:
   - systemctl enable --now pool-aggregator.service || true
   # --- REGION: https://yuruna.link/vmconfig/caching-proxy#pool-intent-store-seeding
   - |
-    INTENT_GIT=/var/lib/yuruna/pool-intent.git
-    if [ ! -d "$INTENT_GIT/refs" ]; then
+    # Seed on the pool NAS, where the apache alias above points and where the
+    # pool-control VM can also write. Skipped entirely when the share is not
+    # mounted: creating the repo under an unmounted mountpoint would put it on
+    # local disk, and the NAS mounting later would shadow it -- stranding any
+    # intent written in between.
+    INTENT_GIT=/mnt/ypool-nas/pool-intent.git
+    if ! mountpoint -q /mnt/ypool-nas 2>/dev/null; then
+      echo "yuruna: /mnt/ypool-nas not mounted; skipping pool intent seeding (the route 404s until it is)." >&2
+    elif [ ! -d "$INTENT_GIT/refs" ]; then
       install -d -o www-data -g www-data /var/lib/yuruna || true
       git init --bare --initial-branch=main "$INTENT_GIT" || true
+      # cifs maps every file's mode from the mount options, so git would see a
+      # permission change on each file it wrote back.
+      git -C "$INTENT_GIT" config core.fileMode false || true
+      # Refresh the dumb-HTTP indexes after EVERY push, via git's built-in
+      # rather than the post-update hook below: a hook on cifs never becomes
+      # executable (the mount fixes modes), so info/refs would go stale the
+      # moment the pool-control UI wrote intent and runners would keep fetching
+      # the previous refs.
+      git -C "$INTENT_GIT" config receive.updateServerInfo true || true
       TMP_SEED=$(mktemp -d)
       git -C "$TMP_SEED" init -q --initial-branch=main || true
-      printf 'schemaVersion: 1\npools: []\n' > "$TMP_SEED/pools.yml"
+      # schemaVersion 2, matching pools.schema.yml's `const: 2`. A store seeded
+      # at 1 READS fine -- nothing validates on read -- and then fails every
+      # write with "Expected 2 at /schemaVersion", so the store looks healthy
+      # until the first admin CLI tries to save.
+      printf 'schemaVersion: 2\npools: []\n' > "$TMP_SEED/pools.yml"
       git -C "$TMP_SEED" add -A || true
       git -C "$TMP_SEED" -c user.name=yuruna -c user.email=pool@yuruna.local commit -q -m 'seed pool intent' || true
       git -C "$TMP_SEED" push -q "$INTENT_GIT" HEAD:main || true
       rm -rf "$TMP_SEED"
-      printf '#!/bin/sh\nexec git update-server-info\n' > "$INTENT_GIT/hooks/post-update"
-      chmod +x "$INTENT_GIT/hooks/post-update" || true
       git -C "$INTENT_GIT" update-server-info || true
-      chown -R www-data:www-data "$INTENT_GIT" || true
+      # No chown: the cifs mount assigns ownership from its uid/gid options, so
+      # a chown here is at best a no-op and can re-impose an owner-only ACL that
+      # locks out the pool-control VM writing the same share.
       echo "yuruna: pool intent store seeded at $INTENT_GIT"
     fi
     a2enconf yuruna-pool-intent || true
@@ -2510,12 +2468,10 @@ runcmd:
     else
       echo "yuruna ypool-nas: service replication disabled in seed (timer not enabled)"
     fi
-  # NOTE: the caching proxy does NOT mount ystash-nas. Extension hosts discovery is
-  # registration-driven -- the stash-server's host advertises activeExtensions in its
-  # host.registration.json and the pool-aggregator (which already polls every pool
-  # host's registration) emits the dashboard row. So there is no @stash fetch here,
-  # and no cross-host Config Service / ystash-nas credential dependency for the
-  # dashboard.
+  # NOTE: the caching proxy does NOT mount ystash-nas. Extension-host discovery is
+  # registration-driven (activeExtensions in host.registration.json, polled by the
+  # pool-aggregator), so no @stash fetch and no cross-host Config Service /
+  # ystash-nas credential dependency for the dashboard.
   # --- REGION: https://yuruna.link/vmconfig/caching-proxy#verify-promtail-supplementary-groups
   - |
     sleep 2

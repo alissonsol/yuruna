@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.22
+.VERSION 2026.07.24
 .GUID 42ab19c1-07c0-4d84-be69-80c4f1c780a8
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -22,7 +22,7 @@
 # entry points (Invoke-TestRunner, Invoke-TestInnerRunner,
 # Test-Sequence, Test-Project) can never drift.
 #
-# Centralises the path-bundle computation that every entry point
+# Centralizes the path-bundle computation that every entry point
 # needs, so a new entry point ("Test-DockerCycle.ps1",
 # "Invoke-K8sRunner.ps1") doesn't have to copy-paste:
 #
@@ -33,7 +33,7 @@
 #
 # Exit-code contract: 0 = success, 1 = anything else. Distinct preflight
 # failures surface via Stop-WithReason banner text (operator + CI parser
-# reads the "STOP at <Step>" line, not the numeric code). Standardising
+# reads the "STOP at <Step>" line, not the numeric code). Standardizing
 # on 0/1 means CI doesn't need a per-script lookup table.
 
 function Initialize-YurunaEntryPoint {
@@ -90,7 +90,7 @@ function Get-EntryPointExitCode {
     .SYNOPSIS
         Return the canonical exit code for 'Ok' (0) or 'Failure' (1).
     .DESCRIPTION
-        Centralised so a future change to the contract (e.g. introduce
+        Centralized so a future change to the contract (e.g. introduce
         a "needs operator action" code = 2) lands in one place.
     #>
     [CmdletBinding()]
@@ -217,6 +217,11 @@ function Initialize-YurunaEntryPointModuleSet {
             'Test.WarmResume.psm1',
             'Test.SnapshotManifest.psm1', 'Test.LogRotation.psm1',
             'Test.SequencePlanner.psm1',
+            # Test.SequenceRunner: chain planning + execution (Resolve-TestSequencePlan,
+            # Invoke-TestSequenceChain). Test.Orchestrator calls both, so it must load
+            # first. Standalone Test-Sequence.ps1 imports it explicitly; the Inner path
+            # relies on this set, so omitting it made the orchestrator's guest run fail.
+            'Test.SequenceRunner.psm1',
             # Test.Orchestrator: runs an orchestration top-level (InvokeTestSequence
             # steps) as one cycle. The runner dispatches a test.runner.yml
             # orchestration entry to Invoke-OrchestrationSequence; leaf at load
@@ -569,7 +574,7 @@ function Resolve-StatusServiceStart {
     .SYNOPSIS
         Decide whether the built-in HTTP status server should start this run and
         on which port, from test.config.yml's statusService node plus the
-        caller's -NoServer switch.
+        caller's -NoStatusService switch.
     .DESCRIPTION
         Pure decision: the single source of the gating + port-resolution rules
         the entry points share (the inner runner, Test-Sequence, Test-Project).
@@ -581,20 +586,20 @@ function Resolve-StatusServiceStart {
     [OutputType([hashtable])]
     param(
         [AllowNull()]$Config,
-        [switch]$NoServer
+        [switch]$NoStatusService
     )
     $svc     = if ($Config -is [System.Collections.IDictionary]) { $Config['statusService'] } else { $null }
     $enabled = [bool]($svc -is [System.Collections.IDictionary] -and $svc['isEnabled'])
     $port    = if ($svc -is [System.Collections.IDictionary] -and $svc['port']) { [int]$svc['port'] } else { 8080 }
-    return @{ ShouldStart = ($enabled -and -not $NoServer); Port = $port }
+    return @{ ShouldStart = ($enabled -and -not $NoStatusService); Port = $port }
 }
 
 function Start-YurunaStatusServiceIfEnabled {
     <#
     .SYNOPSIS
         Start (or restart) the status server when statusService.isEnabled and
-        -NoServer was not requested -- the one gate the entry-point trio shares
-        so they honor isEnabled, -NoServer, the port, and the restart policy
+        -NoStatusService was not requested -- the one gate the entry-point trio shares
+        so they honor isEnabled, -NoStatusService, the port, and the restart policy
         identically.
     .DESCRIPTION
         -Restart forces a kill+relaunch (Test-Sequence and the inner runner's
@@ -613,10 +618,10 @@ function Start-YurunaStatusServiceIfEnabled {
     param(
         [AllowNull()]$Config,
         [Parameter(Mandatory)][string]$StartScript,
-        [switch]$NoServer,
+        [switch]$NoStatusService,
         [switch]$Restart
     )
-    $decision = Resolve-StatusServiceStart -Config $Config -NoServer:$NoServer
+    $decision = Resolve-StatusServiceStart -Config $Config -NoStatusService:$NoStatusService
     if ($decision.ShouldStart) {
         try {
             if ($Restart) { & $StartScript -Port $decision.Port -Restart }
@@ -627,7 +632,7 @@ function Start-YurunaStatusServiceIfEnabled {
             # refuse instead of running blind without its dashboard + breakpoint
             # controls. The banner is already printed there; exit terminates the
             # calling entry point (Test-Sequence, the inner runner,
-            # Start-CachingProxy) the same way Assert-NoOtherRunner's refusal
+            # Start-CachingProxyVM) the same way Assert-NoOtherRunner's refusal
             # does -- no stack trace. Re-throw anything that is not this tag.
             if ($_.Exception.Data -and $_.Exception.Data['YurunaPortConflict']) {
                 exit (Get-EntryPointExitCode -Outcome Failure)
@@ -674,7 +679,7 @@ function Start-YurunaConfigServiceIfEnabled {
         healthy instance is already serving (so the runner can call this every
         cycle cheaply) and re-launches when none is, so the service self-heals
         after a host reboot or crash -- the same way the status server is kept
-        alive, rather than relying on a one-shot Start-CachingProxy run. A failure
+        alive, rather than relying on a one-shot Start-CachingProxyVM run. A failure
         here NEVER aborts the caller: the harness keeps testing even when the
         NAS-credential channel (Extension hosts + ypool-nas rotation) is down; it
         is re-ensured on the next cycle. Pass -Restart to force a relaunch (new

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.22
+.VERSION 2026.07.24
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456770
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -94,7 +94,7 @@ $script:DefaultTimeoutSeconds   = 180
 $script:DefaultScreenHistorySize = 5
 
 # Exponential-backoff helper for filesystem-state poll loops is
-# centralised in Test.Backoff.psm1 (Get-PollDelay) so a tuning change
+# centralized in Test.Backoff.psm1 (Get-PollDelay) so a tuning change
 # lands once. Imported with -Global by Test.Prelude's module sets,
 # so callers in this file resolve the function via the global scope.
 
@@ -243,7 +243,7 @@ function Send-Text {
 # on splash animation state, async-loaded widgets, and installer redesigns,
 # so the "correct" Tab count drifts. tapOn sidesteps focus
 # entirely -- it OCRs the VM screen, locates the button's bounding box, and
-# synthesizes a mouse click at that box's centre.
+# synthesizes a mouse click at that box's center.
 #
 # Coordinate contract: the captured image and the click target share the
 # same pixel space. On Hyper-V we use PrintWindow on the vmconnect client
@@ -421,7 +421,7 @@ function Save-ScreenshotWithClickMarker {
     Waits for a labeled button to appear on the VM screen and clicks it.
 .DESCRIPTION
     Loops: capture the VM window at the host's coordinate space, OCR for
-    the label, and if found, click at the label's centre. Falls back to
+    the label, and if found, click at the label's center. Falls back to
     returning $false after TimeoutSeconds if the button never resolves
     (caller can then decide to send Tab+Enter as a legacy fallback).
 .OUTPUTS
@@ -677,7 +677,6 @@ function Wait-ForText {
     $modulesDir = Join-Path (Split-Path -Parent $PSScriptRoot) "modules"
     Import-Module (Join-Path $modulesDir "Test.OcrEngine.psm1") -Force -Global -ErrorAction SilentlyContinue -Verbose:$false
 
-    # Log which OCR engines are active for this wait
     $enabledEngines = Get-EnabledOcrProvider
     $combineMode = Get-OcrCombineMode
     Write-Debug "      OCR engines: $($enabledEngines -join ', ') | combine: $combineMode"
@@ -1511,7 +1510,7 @@ function Invoke-Sequence {
     # failures of deleted VMs and the operator's "restart now" never
     # arrives. Gating here too makes the abort fire from inside an active
     # cycle: the throw escapes through retry / sequence / runner and is
-    # recognised by the inner's cycle-catch by the message prefix.
+    # recognized by the inner's cycle-catch by the message prefix.
     $cycleRestartFlagFile = Join-Path $runtimeDir 'control.cycle-restart'
 
     # Current-action sidecar: write the in-progress step to a small JSON file
@@ -1813,9 +1812,9 @@ function Invoke-Sequence {
         # arrays AND empty arrays out of an if-statement's pipeline
         # output, so `[string[]]$x = if (...) { @(...) }` yields a scalar
         # on a 1-element value and $null on an empty value. The two-step
-        # form below initialises to an empty string[] up front, then
-        # overwrites only when there are entries to materialise; either
-        # outcome serialises as a JSON array and clears the schema
+        # form below initializes to an empty string[] up front, then
+        # overwrites only when there are entries to materialize; either
+        # outcome serializes as a JSON array and clears the schema
         # validator's typed-array check.
         [string[]]$stepSuggested = @()
         if ($stepVerbEntry -and $null -ne $stepVerbEntry.SuggestedRecoveries) {

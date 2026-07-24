@@ -39,7 +39,7 @@ datasource (Hyper-V):
 | `HOSTNAME_PLACEHOLDER` | `-Hostname` parameter, falling back to `-VMName` when empty | Becomes `identity.hostname` (autoinstall) or the hostname for AL2023 / caching-proxy. A sequence sets it by declaring `variables.hostname`, which the planner cascades to `New-VM`; without it the guest is named after the VM. A pinned hostname diverges from the VM name, and the UTM `dhcpd_leases` `name=` lookup keys off the name the guest registered. Blocks still filed under the VM name belong to predecessors, so a VM-name-only lookup returns a dead address rather than missing; discovery reads the pinned name back out of the bundle's seed ISO, tries it first, and rejects any lease that is not on a live host-interface subnet. |
 | `INSTANCE_ID_PLACEHOLDER` | `-VMName` parameter | meta-data only. Deliberately NOT the hostname: cloud-init treats a changed instance-id as a new instance, and two VMs may legitimately share a pinned hostname. |
 | `USERNAME_PLACEHOLDER` | `-Username` parameter (per-guest default; see `Test.Ssh\Get-GuestSshUser`) | Account created by autoinstall (Ubuntu Server 24.04) or by the cloud-init `users:` block (AL2023). Same name appears in `passwd --expire`, `sudoers.d/90-yuruna-<user>`, and the GUI sequences. |
-| `HASH_PLACEHOLDER` | `Test.VMUtility\ConvertTo-Sha512CryptHash` (wraps `openssl passwd -6 -- <vault-password>`) | SHA-512 (`$6$`) form. Plaintext password comes from `Get-Password -Username <user>` against the per-cycle authentication vault (`test/extension/authentication/`). KVM honours `$YURUNA_GUEST_PASSWORD` as a vault-bypass for ad-hoc dev runs. The `--` separator is LOAD-BEARING -- see "Password hashing: argv leading-dash trap" below. |
+| `HASH_PLACEHOLDER` | `Test.VMUtility\ConvertTo-Sha512CryptHash` (wraps `openssl passwd -6 -- <vault-password>`) | SHA-512 (`$6$`) form. Plaintext password comes from `Get-Password -Username <user>` against the per-cycle authentication vault (`test/extension/authentication/`). KVM honors `$YURUNA_GUEST_PASSWORD` as a vault-bypass for ad-hoc dev runs. The `--` separator is LOAD-BEARING -- see "Password hashing: argv leading-dash trap" below. |
 | `PLAINTEXT_PASSWORD_PLACEHOLDER` | Same as above (AL2023 path) | Used inside `chpasswd:` for AL2023, where the cloud-init module accepts the plaintext form and force-expires it on first login (chpasswd default `expire: true`). |
 | `SSH_AUTHORIZED_KEY_PLACEHOLDER` | `test/status/ssh/yuruna_ed25519.pub` (auto-generated if missing) via `Test.Ssh\Get-YurunaSshPublicKey` | Single ed25519 line; placed under autoinstall.ssh.authorized-keys (Ubuntu) and the cloud-init `users:` block for the test user (AL2023). Same key the post-failure diagnostics path (`Test.Diagnostic\Invoke-RemoteDiagnosticsKeySsh`) authenticates with -- per-host key files would silently break that flow. |
 | `APT_PROXY_BLOCK_PLACEHOLDER` | Built per-host by New-VM.ps1 | Multi-line `apt:` block. Substring-replaced (not token-aware), so the literal string MUST NOT appear anywhere else in the file. |
@@ -1095,6 +1095,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.22
+Last review: 2026.07.24
 
 Back to [Yuruna](../README.md)

@@ -1,0 +1,59 @@
+<!doctype html>
+<!--
+  LICENSEURI https://yuruna.link/license
+  Copyright (c) 2019-2026 by Alisson Sol et al.
+-->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Pool control &mdash; Diagnostics</title>
+  <link rel="stylesheet" href="/assets/style.css">
+</head>
+<body>
+  <header class="app">
+    <span class="brand">Yuruna Pool control</span>
+    <nav>
+      <a href="/">Assign</a>
+      <a href="/pools">Pools</a>
+      <a href="/test-sets">Test sets</a>
+    </nav>
+  </header>
+  <main>
+    <h1>Service diagnostics</h1>
+    <p class="muted">Every dependency a UI request touches, probed in the order a request touches it. A failing check names what to fix in the guest.</p>
+    <div id="notice" class="notice"></div>
+    <div class="row"><button id="refresh">Re-run checks</button></div>
+    <div id="summary"></div>
+    <table>
+      <thead>
+        <tr><th>Check</th><th>Result</th><th>Detail</th><th>What to do</th></tr>
+      </thead>
+      <tbody id="check-rows"></tbody>
+    </table>
+    <h2>Intent read &mdash; raw invocation</h2>
+    <p class="muted">The exact command, its exit code, and both streams verbatim. The pool-admin CLIs report failures as JSON on <em>stdout</em>, so stdout is usually where the real message is.</p>
+    <table>
+      <tbody id="probe-rows"></tbody>
+    </table>
+
+    <h2>Runtime environment</h2>
+    <p class="muted">What the daemon was launched with, and the environment its pwsh child processes inherit.</p>
+    <table>
+      <tbody id="env-rows"></tbody>
+    </table>
+
+    <h2>Process</h2>
+    <p class="muted">Which build is actually running, and for how long &mdash; establishes whether a fix was deployed at all.</p>
+    <table>
+      <tbody id="runtime-rows"></tbody>
+    </table>
+
+    <h2>Persisted health</h2>
+    <p class="muted">The same document <code>/healthz</code> serves, from the state dir on the pool NAS.</p>
+    <pre id="health" class="detail muted">(persistence disabled)</pre>
+  </main>
+  <script src="/assets/common.js"></script>
+  <script src="/assets/diagnostics.js"></script>
+</body>
+</html>

@@ -11,7 +11,7 @@ architecture and [Yuruna Test ...](../test/README.md) for operator usage.
 | `New-LocalTestUser.ps1`                            | Create a local OS user (cross-platform: Windows / macOS / Linux) and register it in the default authentication `users.yml` |
 | `Remove-TestVMFiles.ps1`                           | Purge test VMs and per-VM artifacts |
 | `Repair-CachingProxyForwarder.ps1`                 | macOS/UTM: verify the caching-proxy VM is reachable on the LAN and refresh the `yuruna-caching-proxy` state file |
-| `Start-CachingProxy.ps1` / `Stop-CachingProxy.ps1` | Expose the Squid VM to remote clients |
+| `Start-CachingProxyVM.ps1` / `Stop-CachingProxyVM.ps1` | Expose the Squid VM to remote clients |
 | `Start-StatusService.ps1` / `Stop-StatusService.ps1` | Detached HTTP status UI |
 | `Test-CachingProxy.ps1`                            | Preflight a local or remote cache |
 | `Test-Config.ps1`                                  | Validate `test.config.yml` + optional notification send |
@@ -172,7 +172,7 @@ list). A user override is to drop a sibling `<name>.psm1` next to
   `${ext:authentication.GetPassword(${username})}` /
   `${ext:authentication.NewRandomPassword()}` substitutions; commits are done
   via the `callExtension` action verb (`authentication.SetPassword`). A named
-  system mutex serialises read-modify-write across parallel guests.
+  system mutex serializes read-modify-write across parallel guests.
 - **notification** — per-event-code dispatch (`cycle.failure`,
   `config.smoke`). Subscribers and transport credentials live in
   `test/status/extension/notification/transports.yml` (gitignored
@@ -210,7 +210,7 @@ failure-class to recommendation), and the file-based
 and caching-proxy log parsing.
 
 The runner lifecycle itself is observable through the explicit
-[runner state machine](runner-state.md) (`Set-RunnerState` at every
+[runner state machine](runner-outer-loop.md#runner-state-machine) (`Set-RunnerState` at every
 cycle boundary; NDJSON `runner_state_transition` events). The
 operational outer-runner loop and its heartbeat-watchdog are split
 into [Test.RunnerOuterLoop](runner-outer-loop.md) and
@@ -370,6 +370,22 @@ keeps the same dispatch reusable by future callers (health-check,
 `Stop-StatusService`, `Test-CachingProxy`) without depending on the
 status server's full module.
 
+## Status-service port and the host firewall
+
+`Start-StatusService` binds `http://*:<port>/` (every interface), but a
+host firewall silently DROPs inbound TCP on non-loopback interfaces
+unless an allow rule exists — so localhost answers while a LAN client
+(the pool aggregator, an operator's browser) times out. One host with
+this gap disappears from the pool dashboard and drops its extension-host
+deep-link. `Test.StatusFirewall.psm1` centralizes the per-OS allow-rule
+logic used by BOTH the one-time elevated host setup
+(`Set-WindowsHostConditionSet` / `host/ubuntu.kvm/Enable-TestAutomation.ps1`)
+and the best-effort self-heal at every status-service start. Managed:
+Windows Defender Firewall (`New-NetFirewallRule`) and Linux ufw.
+Reported but never touched: nftables/iptables without ufw, and the macOS
+application firewall (application-scoped, not port-scoped — the port is
+not blocked by default).
+
 ## Per-cycle diagnostic capture
 
 `Save-GuestDiagnostic` (Test.Diagnostic.psm1) runs at end-of-cycle to
@@ -426,6 +442,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.22
+Last review: 2026.07.24
 
 Back to [Yuruna](../README.md)

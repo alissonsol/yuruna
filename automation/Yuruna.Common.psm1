@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.22
+.VERSION 2026.07.24
 .GUID 4288bcbc-ede3-4dda-bb77-b9782c7615ad
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -797,4 +797,52 @@ function Get-UtmGuestSeedHostname {
     return $VMName
 }
 
-Export-ModuleMember -Function New-YurunaTimestampedBackup, Get-HostProxyBackupPath, ConvertTo-ProxyHostPort, Get-PortMapStatePath, Test-IsAdministrator, Get-CachingProxyPort, Test-Ipv4Address, Test-Ipv6Address, Format-IpUrlHost, Test-IpAddress, ConvertTo-Sha512CryptHash, ConvertTo-YurunaMacAddress, ConvertTo-Ipv4UInt32, Get-HostIpv4Subnet, Get-Ipv4OnLinkVerdict, Select-DhcpLeaseIpAddress, Get-UtmGuestSeedHostname
+function ConvertTo-MemoryStartupBytes {
+<#
+.SYNOPSIS
+    Parse a memory size (plain bytes, or a KB/MB/GB/TB-suffixed number) into an
+    [int64] byte count.
+.DESCRIPTION
+    Normalizes the value of a sequence `variables.memoryStartupBytes` for the
+    per-guest New-VM.ps1 scripts, so an author can write `34359738368`,
+    `32768MB`, or `32GB` interchangeably. Suffixes are binary (1 KB = 1024
+    bytes), matching PowerShell's own `1MB`/`1GB` literals -- so `32GB` yields
+    the same 34359738368 the scripts would get from a raw `32GB` literal.
+
+    Empty / whitespace / null returns 0 -- the "unset; keep the per-guest
+    default" sentinel every caller checks with `-gt 0`. A non-numeric value, a
+    bad suffix, or a non-positive size throws so a typo fails the build loudly
+    instead of silently reverting to the default.
+.PARAMETER Value
+    The raw sequence-variable value (already stringified by the planner cascade).
+.OUTPUTS
+    [int64] byte count, or 0 when unset.
+#>
+    [OutputType([int64])]
+    [CmdletBinding()]
+    param([string]$Value)
+    if ([string]::IsNullOrWhiteSpace($Value)) { return [int64]0 }
+    $t = $Value.Trim()
+    $m = [regex]::Match($t, '^(?<num>\d+)\s*(?<unit>KB|MB|GB|TB|KiB|MiB|GiB|TiB|B)?$', [System.Text.RegularExpressions.RegexOptions]::IgnoreCase)
+    if (-not $m.Success) {
+        throw "Invalid memoryStartupBytes '$Value': expected an integer byte count or a number with a KB/MB/GB/TB suffix (e.g. 34359738368, 32768MB, 32GB)."
+    }
+    $num  = [int64]$m.Groups['num'].Value
+    $unit = $m.Groups['unit'].Value.ToUpperInvariant()
+    # PowerShell's 1KB/1MB/1GB/1TB literals are binary multipliers; reuse them so
+    # a suffixed value and the equivalent bare literal agree to the byte.
+    $mult = switch ($unit) {
+        'KB'  { 1KB } 'KIB' { 1KB }
+        'MB'  { 1MB } 'MIB' { 1MB }
+        'GB'  { 1GB } 'GIB' { 1GB }
+        'TB'  { 1TB } 'TIB' { 1TB }
+        default { 1 }   # bytes / explicit 'B' / no suffix
+    }
+    $bytes = [int64]$num * [int64]$mult
+    if ($bytes -le 0) {
+        throw "Invalid memoryStartupBytes '$Value': must be a positive size."
+    }
+    return $bytes
+}
+
+Export-ModuleMember -Function New-YurunaTimestampedBackup, Get-HostProxyBackupPath, ConvertTo-ProxyHostPort, Get-PortMapStatePath, Test-IsAdministrator, Get-CachingProxyPort, Test-Ipv4Address, Test-Ipv6Address, Format-IpUrlHost, Test-IpAddress, ConvertTo-Sha512CryptHash, ConvertTo-YurunaMacAddress, ConvertTo-Ipv4UInt32, Get-HostIpv4Subnet, Get-Ipv4OnLinkVerdict, Select-DhcpLeaseIpAddress, Get-UtmGuestSeedHostname, ConvertTo-MemoryStartupBytes

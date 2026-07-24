@@ -2,8 +2,7 @@
   LICENSEURI https://yuruna.link/license
   Copyright (c) 2019-2026 by Alisson Sol et al.
   Stash UI styles. Mirrors the status-pages' yuruna.common design tokens
-  (light/dark custom properties) for visual consistency (stash-service-ui.md
-  §2.3). Vendored into the daemon binary, not fetched from the host.
+  (light/dark custom properties) for visual consistency. Vendored into the daemon binary, not fetched from the host.
 */
 
 :root {

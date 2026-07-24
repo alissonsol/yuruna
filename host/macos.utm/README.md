@@ -57,7 +57,7 @@ default route — it gets its own DHCP-assigned IP on the host's LAN,
 identical in shape to the Hyper-V Yuruna-External vSwitch path, and
 squid sees real client IPs at TCP level with no host-side TCP
 forwarder layer. On a Wi-Fi-only default route `New-VM.ps1` builds it
-on UTM Shared NAT instead, and `Start-CachingProxy.ps1` forwards host
+on UTM Shared NAT instead, and `Start-CachingProxyVM.ps1` forwards host
 ports to it.
 
 - **Local install VMs** on VZ shared-NAT reach the cache through VMnet's
@@ -69,7 +69,7 @@ ports to it.
   `YURUNA_CACHING_PROXY_IP=<cache-lan-ip>` before `Invoke-TestRunner.ps1`
   on hosts whose config key is empty; a populated, reachable config
   value outranks the env var. The cache's LAN IP is printed in the
-  summary line of `test/Start-CachingProxy.ps1`.
+  summary line of `test/Start-CachingProxyVM.ps1`.
 - **If the cache VM is `started` but no `:3128` answer is found on the
   host's LAN `/24`**, `New-VM.ps1` exits 1 rather than silently falling
   back — typically a Wi-Fi AP that filters the cache's locally-
@@ -79,7 +79,7 @@ ports to it.
 `test/Repair-CachingProxyForwarder.ps1` is a thin "verify reachable +
 refresh state file" tool; a bridged (Ethernet) cache needs no
 host-side forwarder layer — forwarders are only created for the Wi-Fi
-Shared-NAT build. `test/Stop-CachingProxy.ps1` tears any forwarders
+Shared-NAT build. `test/Stop-CachingProxyVM.ps1` tears any forwarders
 down.
 
 ## Next: Create a Guest VM
@@ -98,6 +98,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.22
+Last review: 2026.07.24
 
 Back to [Yuruna](../../README.md)

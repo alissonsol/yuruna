@@ -1,5 +1,9 @@
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 # macOS/UTM (QEMU) overlay for stash-service.base.user-data.
-# Intentionally empty (no anchor sections): stash-service has no per-platform
-# divergence. Kept so a future platform-specific tweak has an obvious home.
+# Anchor sections in base-file order. An empty section emits nothing at that anchor.
+# Both host-agent sections are empty here: UTM exposes no qemu-guest-agent
+# channel to the bundle, so the host discovers the VM's address from the bundle
+# MAC via the ARP cache instead.
+# === YURUNA_OVERLAY_HOST_AGENT_PKG ===
+# === YURUNA_OVERLAY_RUNCMD_HOST_AGENT ===

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.22
+.VERSION 2026.07.24
 .GUID 42a1b2c3-d4e5-4f67-8901-9c0d1e2f3a58
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -24,7 +24,7 @@
     fail->error-with-label behavior.
 .DESCRIPTION
     Behavioral tests exercise both exported cmdlets with Invoke-SequenceByName mocked --
-    empty/pass/fail, the phase-labelled and step-location failure messages, the mtime
+    empty/pass/fail, the phase-labeled and step-location failure messages, the mtime
     gate rejecting a stale sidecar, the mid-chain rename retarget, and value-level
     EffectiveVariables forwarding. AST guards assert the loop is defined once in
     Invoke-Sequence and that each dispatcher delegates to it rather than running

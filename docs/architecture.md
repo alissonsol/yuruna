@@ -54,7 +54,7 @@ Test-Runtime.ps1
 - `Set-Component.ps1` — build and push images to the registry.
 - `Set-Workload.ps1` — `helm install` in the configured work folder.
 - `Invoke-Clear.ps1` — `tofu destroy` in the configured work folder; see
-  [cleanup](cleanup.md).
+  [cleanup](kubernetes.md#cleaning-up-cloud-resources).
 - `Test-Configuration.ps1` — validate configuration files.
 - `Test-Requirement.ps1` — check required tools and versions.
 
@@ -92,7 +92,7 @@ shell profiles), and the companion Squid VM:
 
 ### Cost warning
 
-Cloud resources incur charges. Always [cleanup](cleanup.md) what
+Cloud resources incur charges. Always [cleanup](kubernetes.md#cleaning-up-cloud-resources) what
 you stop using.
 
 ### Windows line endings
@@ -223,6 +223,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.22
+Last review: 2026.07.24
 
 Back to [Yuruna](../README.md)

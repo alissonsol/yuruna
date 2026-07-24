@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.22
+.VERSION 2026.07.24
 .GUID 42a2b3c4-d5e6-4f78-9012-3a4b5c6d7e92
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -280,7 +280,7 @@ function Get-CachingProxyExposedPort {
 .SYNOPSIS
     The TCP ports the caching proxy exposes to the LAN, resolved in one place so
     the parent status-service port-map setup, the inner cycle-start gate, and
-    Start-CachingProxy's install list cannot drift apart on the shared set.
+    Start-CachingProxyVM's install list cannot drift apart on the shared set.
 .DESCRIPTION
     Returns the fixed service ports -- 80 (Apache CA cert), 3000 (Grafana),
     9302 (caching-proxy-parser live tail), 9400 (pool-aggregator: /metrics,
@@ -367,7 +367,7 @@ function Remove-GuestVMQuietly {
     }
 }
 
-function Update-StashServerMarkerAddress {
+function Update-StashServiceMarkerAddress {
     <#
     .SYNOPSIS
         Resolve the stash VM's current IPv4 and record it as `stashBaseUrl`
@@ -379,7 +379,7 @@ function Update-StashServerMarkerAddress {
         virtualization stack reports it (KVP / dhcpd_leases / utmctl), which can
         lag minutes after boot on a Hyper-V External vSwitch, so callers poll:
         pass a -TimeoutSeconds budget when the VM may have just started
-        (Start-StashServer), or 0 for a single-shot refresh on an established VM
+        (Start-StashVM), or 0 for a single-shot refresh on an established VM
         (the per-cycle runner call). Resolution goes through the host contract
         Get-VMIp resolved at call time after Initialize-YurunaHost (the same
         late-bind the teardown helpers use); a host without it loaded is a no-op.
@@ -414,7 +414,7 @@ function Update-StashServerMarkerAddress {
         while (-not $ip) {
             $candidate = $null
             try { $candidate = [string](Get-VMIp -VMName $VMName) }
-            catch { Write-Verbose "Update-StashServerMarkerAddress: Get-VMIp '$VMName' failed: $($_.Exception.Message)" }
+            catch { Write-Verbose "Update-StashServiceMarkerAddress: Get-VMIp '$VMName' failed: $($_.Exception.Message)" }
             if ($candidate -and (Test-IpAddress $candidate)) { $ip = $candidate }
             elseif ((Get-Date) -ge $deadline) { break }
             else { Start-Sleep -Seconds 3 }
@@ -433,9 +433,9 @@ function Update-StashServerMarkerAddress {
         Move-Item -LiteralPath $tmp -Destination $markerPath -Force -ErrorAction Stop
         return $url
     } catch {
-        Write-Verbose "Update-StashServerMarkerAddress: $($_.Exception.Message)"
+        Write-Verbose "Update-StashServiceMarkerAddress: $($_.Exception.Message)"
         return $null
     }
 }
 
-Export-ModuleMember -Function Wait-VMRunning, Get-ScreenshotSchedule, Invoke-ScreenshotTest, Compare-Screenshot, Get-CachingProxyExposedPort, Remove-GuestVMQuietly, Update-StashServerMarkerAddress
+Export-ModuleMember -Function Wait-VMRunning, Get-ScreenshotSchedule, Invoke-ScreenshotTest, Compare-Screenshot, Get-CachingProxyExposedPort, Remove-GuestVMQuietly, Update-StashServiceMarkerAddress

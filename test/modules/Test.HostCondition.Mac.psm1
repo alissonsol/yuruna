@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.22
+.VERSION 2026.07.24
 .GUID 42d4a3b2-c1f0-4e89-5678-9a0b1c2d3e40
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -359,7 +359,7 @@ function Initialize-SudoCache {
     knows why they are being asked. Empty array prints a generic notice.
 .OUTPUTS
     [bool] $true on success (cache is now warm or no elevation needed),
-    $false on failure (sudo missing, user cancelled, wrong password).
+    $false on failure (sudo missing, user canceled, wrong password).
     Never throws -- callers decide whether to proceed.
 .EXAMPLE
     if (-not (Initialize-SudoCache -Reasons @('pmset display sleep', 'defaults write /Library/Preferences'))) {

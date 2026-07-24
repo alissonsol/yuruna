@@ -6,7 +6,8 @@
 See [Design overview](00-index.md) · [Yuruna Architecture](../architecture.md).
 
 Derived from `test/modules/Test.RunnerState.psm1` (states + valid
-transitions, mirrored in [runner-state.md](../runner-state.md)), the base
+transitions, mirrored in
+[runner-outer-loop.md](../runner-outer-loop.md#runner-state-machine)), the base
 step plan in `test/modules/Test.RunnerInnerLoop.psm1`, and the kill side
 in `test/modules/Test.RunnerWatchdog.psm1`.
 
@@ -71,4 +72,4 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.22
+Last review: 2026.07.24

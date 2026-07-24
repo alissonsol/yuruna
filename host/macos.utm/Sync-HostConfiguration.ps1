@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.22
+.VERSION 2026.07.24
 .GUID 42e8a1b2-c3d4-4e5f-9012-cd0123456823
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -64,9 +64,16 @@
 .PARAMETER SkipValidation
     Skip the final test/Test-Config.ps1 run.
 
+.PARAMETER NoPool
+    Sync the reference config but do NOT join the pool: the pool + networkStorage
+    nodes are dropped, so this host never mounts the NAS, replicates cycles, or
+    registers in the pool set. The caching proxy + repository settings still come
+    across (cache reuse is unaffected). For disposable / self-verification hosts.
+
 .EXAMPLE
     ./Sync-HostConfiguration.ps1 -ReferenceHost 192.168.7.12
     ./Sync-HostConfiguration.ps1 -ReferenceHost alius202607a1 -WhatIf
+    ./Sync-HostConfiguration.ps1 -ReferenceHost 192.168.7.12 -NoPool   # borrow config, don't join the pool
 #>
 
 [Diagnostics.CodeAnalysis.SuppressMessageAttribute(
@@ -81,7 +88,8 @@ param(
     [Parameter()][int]$StatusPort = 8080,
     [Parameter()][string]$SharedToken = '',
     [switch]$NonInteractive,
-    [switch]$SkipValidation
+    [switch]$SkipValidation,
+    [switch]$NoPool
 )
 
 $ErrorActionPreference = 'Stop'
@@ -110,4 +118,4 @@ Initialize-HostSetupModule -RepoRoot $RepoRoot -BoundParameters $bootstrapParams
 Import-Module (Join-Path $RepoRoot 'test/modules/Test.HostConfigSync.psm1') -Force -DisableNameChecking
 
 Sync-HostConfiguration -ReferenceHost $ReferenceHost -StatusPort $StatusPort -RepoRoot $RepoRoot `
-    -SharedToken $SharedToken -NonInteractive:$NonInteractive -SkipValidation:$SkipValidation
+    -SharedToken $SharedToken -NonInteractive:$NonInteractive -SkipValidation:$SkipValidation -NoPool:$NoPool

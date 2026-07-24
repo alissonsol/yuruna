@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.22
+.VERSION 2026.07.24
 .GUID 42a7b8c9-d0e1-4f23-a4b5-6c7d8e9f0a1b
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -157,11 +157,11 @@ function Assert-TesseractInstalled {
 function Invoke-TesseractOcr {
     <#
     .SYNOPSIS
-        Runs Tesseract OCR on the given image file and returns the recognised text.
+        Runs Tesseract OCR on the given image file and returns the recognized text.
     .PARAMETER ImagePath
         Path to a PNG or image file to OCR.
     .OUTPUTS
-        System.String. The text recognised by Tesseract.
+        System.String. The text recognized by Tesseract.
     #>
     [CmdletBinding()]
     [OutputType([System.String])]
@@ -177,7 +177,7 @@ function Invoke-TesseractOcr {
 
     $absPath = (Resolve-Path $ImagePath).Path
 
-    # --psm 6 is load-bearing: every neighbouring page-segmentation mode
+    # --psm 6 is load-bearing: every neighboring page-segmentation mode
     # silently drops text on terminal screenshots. Full mode-by-mode
     # rationale: docs/ocr.md#why-tesseract-runs-at---psm-6
     #

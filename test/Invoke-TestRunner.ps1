@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.22
+.VERSION 2026.07.24
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456707
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -50,7 +50,7 @@
 
 .PARAMETER ConfigPath           test.config.yml path (forwarded to inner)
 .PARAMETER NoGitPull            Skip git pull (forwarded; outer also skips its own pull)
-.PARAMETER NoServer             Skip the built-in HTTP status server (forwarded)
+.PARAMETER NoStatusService      Skip the built-in HTTP status server (forwarded)
 .PARAMETER CycleDelaySeconds    Pause between cycles inside the inner (forwarded; default 30)
 .PARAMETER logLevel             Error|Warning|Information|Verbose|Debug (forwarded)
 #>
@@ -60,7 +60,7 @@
 param(
     [string]$ConfigPath        = $null,
     [switch]$NoGitPull,
-    [switch]$NoServer,
+    [switch]$NoStatusService,
     # Skip the pre-cycle Test-Config.ps1 gate. Use only for ad-hoc /
     # in-progress edit runs where the operator knowingly accepts that
     # a misconfigured test.config.yml / vault.yml / users.yml will fail

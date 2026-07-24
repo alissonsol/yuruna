@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.22
+.VERSION 2026.07.24
 .GUID 42f4e5f6-a7b8-4c9d-0123-4e5f6a7b8c9d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -197,7 +197,7 @@ Import-Module $TestSshModule -Force -DisableNameChecking
 $SshAuthorizedKey = Get-YurunaSshPublicKey
 if (-not $SshAuthorizedKey) { Write-Error "Get-YurunaSshPublicKey returned empty. Module path: $TestSshModule"; exit 1 }
 
-# --- REGION: Cache-VM yuruna password
+# --- REGION: Cache-VM admin password
 # --- REGION: https://yuruna.link/caching-proxy#cache-vm-password-persistence
 # The runtime state file <track>/yuruna-caching-proxy.yml is the source of
 # truth; Set-Password rehydrates the vault from it before Get-Password.
@@ -205,12 +205,12 @@ Import-Module (Join-Path $repoRoot 'test/modules/Test.Extension.psm1')    -Globa
 Import-Module (Join-Path $repoRoot 'test/modules/Test.CachingProxy.psm1') -Global -Force -Verbose:$false
 $_authActiveName = @(Import-Extension -Area 'authentication' -RequireSingle)[0]
 $persisted = (Read-CachingProxyState).password
-if ($persisted) { Set-Password -Username 'yuruna' -NewPassword $persisted }
-$YurunaPassword = Get-Password -Username 'yuruna'
-if (-not $YurunaPassword) { Write-Error "Get-Password returned empty for 'yuruna'."; exit 1 }
+if ($persisted) { Set-Password -Username 'caching-proxy-admin' -NewPassword $persisted }
+$AdminPassword = Get-Password -Username 'caching-proxy-admin'
+if (-not $AdminPassword) { Write-Error "Get-Password returned empty for 'caching-proxy-admin'."; exit 1 }
 Write-Output "Password came from authentication mechanism: $_authActiveName"
 Write-Output "See configuration at: $(Resolve-ExtensionAreaDir -Area 'authentication')"
-[void](Save-CachingProxyState -Secret $YurunaPassword -Confirm:$false)
+[void](Save-CachingProxyState -Secret $AdminPassword -Confirm:$false)
 $PasswordFile = Get-CachingProxyStatePath
 
 # --- REGION: Render user-data / meta-data
@@ -234,7 +234,7 @@ foreach ($f in @($baseUserData, $overlayUserData, $metaDataTemplate)) {
 # Resolve-GuestHostBinding resolves both at once (the same helper every
 # install guest uses, so the cache and the guests always land on the same
 # network). $env:YURUNA_GUEST_REACHABLE_HOST_IP overrides the host IP;
-# empty value -> github fallback. Start-CachingProxy.ps1 starts the status
+# empty value -> github fallback. Start-CachingProxyVM.ps1 starts the status
 # server. The resolved $networkName is reused below for virt-install.
 Import-Module (Join-Path $repoRoot 'host/ubuntu.kvm/modules/Yuruna.Host.psm1') -Force -DisableNameChecking
 $guestBinding = Resolve-GuestHostBinding
@@ -322,7 +322,7 @@ $userData = New-CloudInitUserData `
     -RepoRoot    $repoRoot `
     -Replacement @{
         SSH_AUTHORIZED_KEY_PLACEHOLDER = $SshAuthorizedKey
-        PASSWORD_PLACEHOLDER           = $YurunaPassword
+        PASSWORD_PLACEHOLDER           = $AdminPassword
         YURUNA_HOST_IP_PLACEHOLDER     = $YurunaHostIp
         YURUNA_HOST_PORT_PLACEHOLDER   = $YurunaHostPort
         YPOOL_NAS_REPLICATE_PLACEHOLDER     = $ypoolNasReplicate
@@ -358,7 +358,7 @@ if ($LASTEXITCODE -ne 0) {
 # off disk. The final "ready" banner reprints the same credentials.
 Write-Output ""
 Write-Output "== caching-proxy console/SSH login (available NOW) =="
-Write-Output "  user:     yuruna"
+Write-Output "  user:     caching-proxy-admin"
 Write-Output "  password: $PasswordFile"
 Write-Output "  If the wait below stalls or fails, open"
 Write-Output "    virt-viewer --connect $virshUri $VMName"
@@ -392,7 +392,7 @@ if ($networkName -eq 'default') {
     Write-Warning "For LAN exposure AND a working pool dashboard (cache VM gets a real"
     Write-Warning "LAN IP so squid sees real client IPs), put it on the bridged"
     Write-Warning "'yuruna-external' network: connect the host by Ethernet and run"
-    Write-Warning "test/Start-CachingProxy.ps1 (auto-builds the bridge + rebuilds the"
+    Write-Warning "test/Start-CachingProxyVM.ps1 (auto-builds the bridge + rebuilds the"
     Write-Warning "cache VM on it), or define it by hand -- see"
     Write-Warning "host/ubuntu.kvm/guest.caching-proxy/README.md."
     Write-Warning ""
@@ -421,7 +421,7 @@ if ($networkName -eq 'default') {
               Where-Object { $_.Name -notmatch '^(vnet|tap)\d+$' })
         } else { @() }
         if ($uplink.Count -eq 0) {
-            Write-Error "libvirt network '$networkName' is backed by bridge '$bridgeDev', which is missing or has NO physical uplink port -- guests on it can never get DHCP. Re-run test/Start-CachingProxy.ps1 (it heals or rebuilds the bridge), or roll the bridge back per host/ubuntu.kvm/guest.caching-proxy/README.md."
+            Write-Error "libvirt network '$networkName' is backed by bridge '$bridgeDev', which is missing or has NO physical uplink port -- guests on it can never get DHCP. Re-run test/Start-CachingProxyVM.ps1 (it heals or rebuilds the bridge), or roll the bridge back per host/ubuntu.kvm/guest.caching-proxy/README.md."
             exit 1
         }
     }
@@ -541,7 +541,7 @@ for ($i = 0; $i -lt $maxIterations; $i++) {
     # 'ipv4' column. A naive `(\d+\.\d+\.\d+\.\d+)/\d+` regex matches
     # the 'lo ... ipv4 127.0.0.1/8' row that `--source agent` emits
     # as its FIRST line, sending the next port-wait probe to the
-    # host's own loopback and stalling Start-CachingProxy.ps1 with
+    # host's own loopback and stalling Start-CachingProxyVM.ps1 with
     # `Cache VM IP: 127.0.0.1`.
     $cacheIp = Get-VMIp -VMName $VMName
     if ($cacheIp) { break }
@@ -580,7 +580,7 @@ this script.
 
 Accessing the VM for debugging:
   * Console:  virt-viewer --connect $virshUri $VMName
-              login:    yuruna
+              login:    caching-proxy-admin
               password: $PasswordFile
               (cloud-init sets it from user-data; does NOT expire.)
 
@@ -627,7 +627,7 @@ for ($i = 0; $i -lt $portMaxIterations; $i++) {
             Write-Output "  Grafana:   http://${cacheIp}:3000"
             Write-Output ""
             Write-Output "  Console/SSH login:"
-            Write-Output "    user:     yuruna"
+            Write-Output "    user:     caching-proxy-admin"
             Write-Output "    password: $PasswordFile"
             Write-Output "    (also embedded in the seed.iso's user-data -- chpasswd)"
             Write-Output ""
@@ -674,10 +674,10 @@ silently fall back to direct CDN access and hit 429 rate limits.
 
 Accessing the VM for debugging:
   * Console:  virt-viewer --connect $virshUri $VMName
-              login:    yuruna
+              login:    caching-proxy-admin
               password: $PasswordFile
               (cloud-init sets it from user-data; does NOT expire.)
-  * SSH:      ssh yuruna@$cacheIp
+  * SSH:      ssh caching-proxy-admin@$cacheIp
               (uses the yuruna harness key at test/status/ssh/yuruna_ed25519 --
                same key the Ubuntu Server guest uses; passwordless)
 

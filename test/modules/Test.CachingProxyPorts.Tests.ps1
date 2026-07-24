@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.22
+.VERSION 2026.07.24
 .GUID 42e6c9b2-7d18-4a53-8f01-2b4c6e9d0a37
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -22,7 +22,7 @@
     Get-CachingProxyExposedPort, so the three callers cannot drift apart.
 .DESCRIPTION
     The parent status-service port-map setup, the inner cycle-start gate, and
-    Start-CachingProxy's install list all pass the same TCP port set to
+    Start-CachingProxyVM's install list all pass the same TCP port set to
     Add-PortMap, which is clear-all-first on Windows -- so a port present in one
     list but dropped from another goes dark on the next map. The set now comes
     from one function; these tests pin its contents (fixed service ports plus
@@ -59,7 +59,7 @@ Describe 'caching-proxy exposed-port set is single-sourced' {
     }
 
     It 'no caller re-inlines the fixed @(80, 3000, 9302, ...) port set' {
-        foreach ($rel in @('test/Start-StatusService.ps1', 'test/modules/Invoke-TestInnerRunner.ps1', 'test/Start-CachingProxy.ps1')) {
+        foreach ($rel in @('test/Start-StatusService.ps1', 'test/modules/Invoke-TestInnerRunner.ps1', 'test/Start-CachingProxyVM.ps1')) {
             $t = Get-Content -Raw -LiteralPath (Join-Path $repo $rel)
             Assert-True (-not ($t -match '@\(80,\s*3000,\s*9302,')) "the inline exposed-port set reappeared in $rel -- route it through Get-CachingProxyExposedPort"
         }

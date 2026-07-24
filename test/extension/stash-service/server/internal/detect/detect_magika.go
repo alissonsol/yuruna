@@ -3,7 +3,7 @@
 
 //go:build magika
 
-// magika detection backend (stash-service-ui.md §6.1, §14): built only with
+// magika detection backend: built only with
 // `-tags magika`, so the default `go build` / `go test` stay pure-Go and
 // offline. Build steps: see README.md#magika-detection-backend-optional-build
 package detect

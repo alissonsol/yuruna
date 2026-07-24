@@ -108,7 +108,7 @@ uniform blocks -- monospace, equal-size lines, top-aligned -- and PSM 6
 walks the whole image as one block, so a sparse top-of-image text region
 with empty space below still gets read in full.
 
-Every neighbouring mode drops text the harness depends on:
+Every neighboring mode drops text the harness depends on:
 
 - **`--psm 4`** (single column of variable sizes): on screens with two
   visually-distinct content regions -- e.g. a tiny login prompt at the
@@ -150,6 +150,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.22
+Last review: 2026.07.24
 
 Back to [Yuruna](../README.md)

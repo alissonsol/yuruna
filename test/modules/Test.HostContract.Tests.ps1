@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.22
+.VERSION 2026.07.24
 .GUID 42b03f81-d5c7-4c8e-bea6-7a081b3285e2
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -24,7 +24,7 @@
     The facade's whole job is reachability: a caller that only knows the
     facade (the runner, Test-Sequence.ps1, sequence extensions) must get the
     entire Test.Host* surface from one Import-Module. So the tests assert
-    behaviour, not shape: all four siblings load, every function name the
+    behavior, not shape: all four siblings load, every function name the
     facade names in its Export-ModuleMember list actually resolves and comes
     from a Test.Host* sibling (the drift guard -- a sibling rename that the
     facade is not told about fails here), the surface survives the -Force
@@ -115,7 +115,7 @@ Describe 'Test.HostContract facade' {
         }
     }
 
-    Context 'behaviour through the facade' {
+    Context 'behavior through the facade' {
 
         It 'runs a sibling function reached only through the facade' -TestCases @(
             @{ hostType = 'host.windows.hyper-v'; folder = 'host/windows.hyper-v' }

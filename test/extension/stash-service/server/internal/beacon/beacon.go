@@ -25,7 +25,7 @@ import (
 )
 
 // announceTimeout bounds one POST /announce attempt; goodbyeTimeout bounds the
-// final shutdown announce, which runs on an already-cancelled parent context
+// final shutdown announce, which runs on an already-canceled parent context
 // and must not delay process exit.
 const (
 	announceTimeout = 10 * time.Second
@@ -82,7 +82,7 @@ func (b *Beacon) Enabled() bool {
 	return b.AggregatorURL != "" && b.HostID != "" && b.Interval > 0
 }
 
-// Run announces until ctx is cancelled: hello at start (retried on the
+// Run announces until ctx is canceled: hello at start (retried on the
 // catch-up cadence until it first lands), a re-announce every Interval, and a
 // goodbye once ctx is done. Blocks; callers run it in a goroutine and wait for
 // it to return so the goodbye gets its bounded window before process exit.
@@ -118,7 +118,7 @@ func (b *Beacon) Run(ctx context.Context) {
 }
 
 // goodbye sends the active=false announce on a fresh, bounded context (the
-// run context is already cancelled when this fires). Best-effort: the
+// run context is already canceled when this fires). Best-effort: the
 // aggregator's announce TTL reaps the row anyway if this never arrives.
 func (b *Beacon) goodbye() {
 	ctx, cancel := context.WithTimeout(context.Background(), goodbyeTimeout)

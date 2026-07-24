@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.22
+.VERSION 2026.07.24
 .GUID 42b8c9d0-e1f2-4a34-b5c6-7d8e9f0a1b2c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -1085,7 +1085,7 @@ function Get-VisionOcrBinaryPath {
 
     # Compile into a sibling tmp path then Move-Item over the canonical
     # name so a partial/aborted compile can't leave a half-written binary
-    # that subsequent calls would execute. -O is the standard optimisation
+    # that subsequent calls would execute. -O is the standard optimization
     # level; the Vision OCR work itself is the bulk of the runtime so a
     # heavier -O level would not materially help.
     $swiftFile = [System.IO.Path]::GetTempFileName() + '.swift'

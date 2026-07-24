@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.22
+.VERSION 2026.07.24
 .GUID 428a1d5f-7c92-4b40-a6e1-9d2f4c8b0a63
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -16,27 +16,10 @@
 
 #requires -version 7
 
-# Warm-resume checkpointing. On an eligible transient workload failure the
-# runner re-runs the failed sequence from its last-good step on the SAME live
-# VM instead of tearing the guest down and redoing the whole (~40-min) install
-# from step 0. This module is the pure decision core + the checkpoint reader +
-# the warm_resume event builder; the retry loop and the sequence re-invocation
-# live in the runner (Test.RunnerInnerLoop) and the engine (Invoke-Sequence's
-# -StartStep / Invoke-GuestSequenceList's -ResumeFromSequence/-ResumeFromStep).
-#
-# Soundness: resume is only ever attempted for genuinely transient failure
-# classes (a hard/deterministic failure would just redo the install and fail
-# again), and only in the runner path -- where each workload sequence runs as a
-# single file (Invoke-SequenceByName), so last_failure.json's file-local
-# `repro.resumeFromStep` maps directly onto Invoke-Sequence's file-local
-# -StartStep. (Test-Sequence's chain runner concatenates baselines, making that
-# mapping chain-global instead of file-local; the runner does not, so the
-# mapping is exact -- see docs/failure-schema.md.) A resume that targets the
-# wrong VM/step merely fails and falls through to today's teardown + cold
-# re-provision, so the mechanism is safe-on-failure.
-#
-# Leaf module: Send-CycleEventSafely is resolved at call time (Get-Command
-# guarded) by the runner, not here; this module only builds the event record.
+# --- REGION: https://yuruna.link/memory#why-warm-resume-is-sound
+# Warm-resume checkpointing: the pure decision core, the checkpoint reader, and
+# the warm_resume event builder. The retry loop lives in Test.RunnerInnerLoop
+# and the re-invocation in Invoke-Sequence -StartStep.
 
 # The failure classes for which an in-place resume is sound -- the same
 # transient allow-list the outer loop's gated auto-remediation already uses

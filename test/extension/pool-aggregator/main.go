@@ -263,7 +263,7 @@ type hostView struct {
 	// /go/stash to the stash VM without the aggregator keeping an address store of its
 	// own. Registration-sourced like ActiveExtensions; empty until the host advertises
 	// one. Also exposed in /api/v1/pool-status for the stash UI's hostId->stashBaseUrl
-	// resolution (docs/design/stash-service-ui.md 3.4).
+	// resolution.
 	ExtensionTargets map[string]string `json:"extensionTargets,omitempty"`
 }
 
@@ -294,7 +294,7 @@ func announceKey(hostID, area string) string { return hostID + "|" + area }
 
 // poolStatusEntry is one host in the /api/v1/pool-status snapshot: the
 // hostView plus stashBaseUrl, the resolved stash-UI base the stash UI's
-// hostId->URL lookup reads (stash-service-ui.md §3.4). Resolved at
+// hostId->URL lookup reads. Resolved at
 // serialization time from the host's registration-advertised extensionTargets,
 // with the service's own announce as fallback, so the resolution survives a
 // host whose status server is down.
@@ -842,7 +842,7 @@ func fetchStatus(client *http.Client, base string) (*hostStatus, error) {
 // served by the status server at /yuruna-repo/VERSION -- the SAME source the
 // host's own status pages read for their header (their getHostInfo() fetches
 // yuruna-repo/VERSION via JS, so the version is not embedded in the HTML). A tiny
-// plain-text file (one CalVer line, e.g. "2026.07.22"), so it is lighter than any
+// plain-text file (one CalVer line, e.g. "2026.07.24"), so it is lighter than any
 // status HTML page and fetchable server-side without a JS engine. Returns
 // ("", err) on any failure; the caller keeps the prior version on a transient
 // miss (the version is stable across polls). The value is capped + first-line
@@ -2115,7 +2115,7 @@ func (s *poolState) handlePoolStatus(w http.ResponseWriter, _ *http.Request) {
 	for _, id := range ids {
 		hv := s.hosts[id]
 		// stashBaseUrl: the stash UI's hostId->URL lookup key
-		// (stash-service-ui.md §3.4). Registration-advertised target first, the
+		// Registration-advertised target first, the
 		// service's own announce as the fallback that survives a down status
 		// server on the owning host.
 		stash := hv.ExtensionTargets[stashArea]
@@ -2141,6 +2141,104 @@ func (s *poolState) handlePoolStatus(w http.ResponseWriter, _ *http.Request) {
 	s.mu.Unlock()
 	if err != nil {
 		http.Error(w, "failed to encode pool status", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
+	_, _ = w.Write(body)
+}
+
+// validForgetHostID mirrors the runner-side 42-prefixed 32-hex host.uuid shape
+// (test/Remove-PoolHost.ps1, Remove-HostFromPool.ps1) so the forget endpoint
+// rejects a typo instead of scanning the maps for a key that cannot exist.
+func validForgetHostID(id string) bool {
+	if len(id) != 32 || id[0] != '4' || id[1] != '2' {
+		return false
+	}
+	for i := 2; i < len(id); i++ {
+		c := id[i]
+		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')) {
+			return false
+		}
+	}
+	return true
+}
+
+// forgetHost removes every trace of one hostId from the mutex-guarded state that
+// drives the per-host metrics (host_info / host_status / host_last_seen_seconds,
+// cycles_pass/fail_total, recent_fail_count, host_incident, host_extension). It
+// mirrors + extends the poll-loop reaper's per-host cleanup so a forgotten host
+// stops appearing on the very next /metrics scrape (then Prometheus staleness
+// drops it from the dashboard within a scrape interval). Returns whether the host
+// was present in the primary view. eventCur is intentionally left alone -- it is
+// owned by the single poll goroutine (touching it here would race), and a leftover
+// cursor is harmless (it only ever resumes event tailing if the same hostId
+// re-appears). Callers hold NO lock; this takes s.mu itself.
+func (s *poolState) forgetHost(hid string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	_, present := s.hosts[hid]
+	delete(s.hosts, hid)
+	delete(s.pass, hid)
+	delete(s.fail, hid)
+	delete(s.failWindow, hid)
+	delete(s.incident, hid)
+	// seen / seenAt / counted are keyed hostId|cycleId; announce is keyed
+	// hostId|area -- drop every composite key belonging to this host.
+	prefix := hid + "|"
+	for k := range s.seen {
+		if strings.HasPrefix(k, prefix) {
+			delete(s.seen, k)
+			delete(s.seenAt, k)
+			delete(s.counted, k)
+		}
+	}
+	for k := range s.announce {
+		if strings.HasPrefix(k, prefix) {
+			delete(s.announce, k)
+		}
+	}
+	return present
+}
+
+// handleForgetHost (POST /api/v1/forget-host?hostId=<42-hex>) manually evicts a
+// host from the aggregator's view NOW, instead of waiting out defaultHostTTL --
+// e.g. a disposable nested-host cycle or a decommissioned box whose row lingers as
+// "unreachable". Bearer-gated with the SAME token as /ingest (a mutating control
+// op) and self-disabling (503) when no token is configured. NOTE: a host that is
+// still reachable (recent squid traffic, or a live announce inside its window) is
+// re-discovered on the next poll, so stop/drain it first -- forget is for a host
+// that is genuinely gone.
+func (s *poolState) handleForgetHost(w http.ResponseWriter, r *http.Request) {
+	if s.authToken == "" {
+		http.Error(w, "forget-host disabled (no auth token configured)", http.StatusServiceUnavailable)
+		return
+	}
+	if r.Method != http.MethodPost {
+		w.Header().Set("Allow", http.MethodPost)
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	const bearer = "Bearer "
+	auth := r.Header.Get("Authorization")
+	if !strings.HasPrefix(auth, bearer) ||
+		subtle.ConstantTimeCompare([]byte(auth[len(bearer):]), []byte(s.authToken)) != 1 {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	hid := strings.TrimSpace(r.URL.Query().Get("hostId"))
+	if !validForgetHostID(hid) {
+		http.Error(w, "hostId must be a 42-prefixed 32-hex id", http.StatusBadRequest)
+		return
+	}
+	present := s.forgetHost(hid)
+	body, err := json.Marshal(struct {
+		Forgotten  bool   `json:"forgotten"`
+		HostId     string `json:"hostId"`
+		WasPresent bool   `json:"wasPresent"`
+	}{Forgotten: true, HostId: hid, WasPresent: present})
+	if err != nil {
+		http.Error(w, "failed to encode result", http.StatusInternalServerError)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
@@ -2385,9 +2483,9 @@ func (s *poolState) handleGoHost(w http.ResponseWriter, r *http.Request) {
 // registration (extensionTargets[area], default area "stash-service"). Unlike
 // /go/host -- which re-resolves a host's CURRENT :8080 IP live -- the aggregator does
 // not probe the stash VM, so this redirect is only as fresh as the host's advertised
-// stashBaseUrl; the host re-resolves that each cycle (and on Start-StashServer) via
+// stashBaseUrl; the host re-resolves that each cycle (and on Start-StashVM) via
 // Get-VMIp, so it self-heals after a DHCP change. Host/target unknown -> 404, matching
-// the best-effort resolver contract in docs/design/stash-service-ui.md (3.4).
+// the best-effort resolver contract.
 func (s *poolState) handleGoStash(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	hostID := strings.TrimSpace(q.Get("host"))
@@ -3001,27 +3099,11 @@ func (s *poolState) handleIngest(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusAccepted)
 }
 
-// handleAnnounce is the extension-presence write surface: a service VM (e.g.
-// the stash server's presence beacon) POSTs {hostId, area, targetPort, active}
-// on boot, every beacon period, and (active=false) at shutdown, so the
-// dashboard's Extension hosts row exists WITHOUT the owning host's status
-// server -- the registration path goes silent the moment that server is down
-// (the state a host reboot routinely leaves behind), while the service VM
-// itself keeps running and announcing.
-//
-// Security posture -- deliberately OPEN (no bearer), unlike /ingest, because
-// requiring the default-off shared token would leave the beacon dead exactly
-// in the deployments it was built for. The write is contained instead:
-// (1) SELF-IDENTITY BINDING -- the advertised service URL is DERIVED from the
-// connection's source IP (or, when sent explicitly, must match it), so an
-// announcer can only ever advertise itself, the same trust squid-log discovery
-// already extends to any LAN client; (2) telemetry-only -- it paints a
-// dashboard row and a redirect target, and reaches no control plane, host
-// probing, or cycle accounting; (3) bounded -- tiny body cap, strict
-// hostId/area charsets (they become metric labels), at most maxAnnounce
-// entries, and a TTL reap; (4) goodbyes only remove an entry the same source
-// (or an address-less rehydrated entry) owns. -announce-ttl 0 disables the
-// route entirely.
+// handleAnnounce is the extension-presence write surface: service VMs POST
+// {hostId, area, targetPort, active} beacons so the dashboard's Extension
+// hosts row survives the owning host's status server being down. Open by
+// design but contained (self-identity binding; goodbyes also match an
+// address-less rehydrated entry). See docs/extensions-api.md (POST /announce).
 func (s *poolState) handleAnnounce(w http.ResponseWriter, r *http.Request) {
 	if s.announceTTL <= 0 {
 		http.Error(w, "announce disabled", http.StatusServiceUnavailable)
@@ -3209,6 +3291,11 @@ func main() {
 	// parseable so Prometheus, the host-side pool notifier, and the hostname-free
 	// dashboard keep working without credentials.
 	mux.HandleFunc("/ingest", state.handleIngest)
+	// /api/v1/forget-host: operator-driven manual eviction of a hostId from the view
+	// (POST, bearer-gated like /ingest, 503 when no token) -- drops it from /metrics
+	// + the dashboard NOW instead of after defaultHostTTL. Called by
+	// test/Remove-PoolHost.ps1.
+	mux.HandleFunc("/api/v1/forget-host", state.handleForgetHost)
 	// /announce: extension-presence beacon target (stash server et al). Open by
 	// design with self-identity binding -- see handleAnnounce; self-gates on
 	// -announce-ttl (503 when 0).

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.22
+.VERSION 2026.07.24
 .GUID 42759f4b-9143-4909-b379-0ff23a9fc154
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -229,7 +229,7 @@ Describe 'Get-FailureEventData' {
         } | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $PayloadFailureFile -Encoding utf8NoBOM
 
         $p = Get-FailureEventData -CycleFolder $PayloadDir -Hostname 'BOX' -CycleId 'cycle-000042' -GitCommit 'g1' -ProjectCommit 'p1'
-        Assert-Equal -Expected 'ssh_timeout' -Actual $p['failureClass'] -Because 'the classified failure, not a synthesised one'
+        Assert-Equal -Expected 'ssh_timeout' -Actual $p['failureClass'] -Because 'the classified failure, not a synthesized one'
         Assert-Equal -Expected 'restart guest' -Actual @($p['suggestedRecoveries'])[0]
         Assert-Equal -Expected 'cycle-000042' -Actual $p['cycleId']
         Assert-Equal -Expected 'g1' -Actual $p['gitCommit']
@@ -255,7 +255,7 @@ Describe 'Get-FailureEventData' {
         Assert-Equal -Expected 'ubuntu-26' -Actual $p['guestKey']
         Assert-Equal -Expected 'waitForText' -Actual $p['stepName']
     }
-    It 'falls back to a synthesised payload when last_failure.json will not parse' {
+    It 'falls back to a synthesized payload when last_failure.json will not parse' {
         Set-Content -LiteralPath $PayloadFailureFile -Value 'not json {{' -Encoding utf8NoBOM
         $p = Get-FailureEventData -CycleFolder $PayloadDir -Hostname 'BOX' -StepName 'st' -ErrorMessage 'em' -DefaultFailureClass 'vm_start_failure'
         Assert-Equal -Expected 'vm_start_failure' -Actual $p['failureClass'] -Because 'a corrupt failure file must not lose the notification'

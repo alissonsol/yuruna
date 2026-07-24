@@ -125,8 +125,9 @@ func TestNewPoolValidation(t *testing.T) {
 	}
 }
 
-// The C4 discipline: a CLI failure (e.g. a failed push) surfaces to the client
-// as a 500 with the error text, never a silent success.
+// A CLI failure (e.g. a failed push) must surface to the client as a 500 with
+// the error text, never a silent success: the next run's reset --hard would
+// destroy intent that was committed locally but never pushed.
 func TestFailedPushSurfaces(t *testing.T) {
 	f := &fakeIntent{ret: intent.Result{OK: false, Exit: 1, Error: "Committed locally but NOT pushed to the remote", Stderr: "git push failed"}}
 	srv := newTestServer(f)

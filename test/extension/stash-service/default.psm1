@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.22
+.VERSION 2026.07.24
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456820
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -66,7 +66,7 @@ function Resolve-Host {
         so an empty expansion falls back rather than failing the step.
     .PARAMETER VMName
         Stash VM name. Defaults to 'yuruna-stash-service' (the name
-        Start-StashServer.ps1 creates).
+        Start-StashVM.ps1 creates).
     .OUTPUTS
         [string] IPv4 address, or '' when it cannot be resolved.
     #>

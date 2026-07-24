@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.22
+.VERSION 2026.07.24
 .GUID 42f2a3b4-c5d6-4e78-f901-2a3b4c5d6e79
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -202,28 +202,10 @@ $AuxImage  = Join-Path $DataDir 'aux.img'
 $IdsOut    = Join-Path $DataDir 'mac-platform.txt'
 
 # --- REGION: Drive VZMacOSInstaller via an embedded Swift helper
-#
-# The helper:
-#   1. Loads the IPSW (VZMacOSRestoreImage.load(from:)).
-#   2. Picks `mostFeaturefulSupportedConfiguration` (the maximally-
-#      capable hardwareModel for THIS host bucket -- VZ rejects an
-#      install if you request a hardwareModel the host can't run).
-#   3. Sanity-checks the host's CPU/memory request against
-#      configuration.minimumSupportedCPUCount / minimumSupportedMemorySize.
-#   4. Creates a fresh VZMacMachineIdentifier.
-#   5. Creates VZMacAuxiliaryStorage at aux.img.
-#   6. Creates a sparse raw disk at disk.img (via Foundation's truncate).
-#   7. Builds a minimal VZVirtualMachineConfiguration -- just the bits
-#      the installer needs (graphics/network are deferred to UTM at
-#      runtime via the config.plist we'll generate after restore).
-#   8. Restores the IPSW with VZMacOSInstaller.install and prints
-#      progress to stderr every few percent.
-#   9. Emits "MAC_PLATFORM<TAB>{hardwareModel-base64}<TAB>{machineId-base64}"
-#      so PowerShell can stuff those into the UTM plist.
-#
-# `defer { sema.signal() }` patterns keep the wait deterministic in
-# every code path; an unhandled crash inside the install handler would
-# otherwise hang forever.
+# Loads the IPSW, picks the most featureful supported configuration,
+# creates machine identifier / aux storage plus a sparse raw disk.img
+# (via Foundation's truncate), restores, and emits MAC_PLATFORM ids
+# for the UTM plist. See docs/host-macos.md.
 $swiftSrc = @"
 import Foundation
 import Virtualization

@@ -52,7 +52,7 @@ the proxy can only be verified by a host that shares its token.
 **1. Read the shared token from the caching proxy.**
 
 ```
-ssh yuruna@<proxy> 'sudo cat /etc/yuruna/pool-auth.token'
+ssh caching-proxy-admin@<proxy> 'sudo cat /etc/yuruna/pool-auth.token'
 ```
 
 This will ask you for the caching proxy VM password, which is recorded on the proxy VM's host under `test/status/runtime/yuruna-caching-proxy.yml` (and printed in `New-VM.ps1`'s ready banner). This completes the "secure path" to set the authorization token: the operator has access to the host for the caching process.
@@ -60,13 +60,13 @@ This will ask you for the caching proxy VM password, which is recorded on the pr
 **2. Store that value on the host.**
 
 ```
-pwsh test/Set-PoolAuthToken.ps1 -Token '<shared-token>' -BounceStatusServer
+pwsh test/Set-PoolAuthToken.ps1 -Token '<shared-token>' -BounceStatusService
 ```
 
 The script is idempotent. It declares the `users.yml` vault key, stores the token, and
 verifies the round-trip through the same lookup the control gate performs — so a key that
 is stored under one name and read under another (a silent `403`) cannot happen.
-`-BounceStatusServer` restarts the status server so the token takes effect immediately
+`-BounceStatusService` restarts the status server so the token takes effect immediately
 instead of at the next cycle; `-WhatIf` previews without touching the vault.
 
 It reports each step as it runs — vault key, store, verify, then the restart — and streams
@@ -122,6 +122,45 @@ A different message — `forbidden: missing X-Yuruna request header` — is the 
 request guard, not the proof: it means a non-browser client (`curl`) called a control route
 without that header.
 
+## GET /control/runner-status
+
+An always-open read route that reports whether the outer `Invoke-TestRunner`
+process is actually alive: `{ running: bool, pid: int|null }`. It reads
+`<track>/runner.pid` (owned by the outer runner) and verifies the PID really is
+the outer runner via two paths:
+
+1. **`<track>/runner.start` sidecar (preferred)** — holds the outer pwsh's
+   ISO-8601 StartTime, recorded at launch. The route cross-checks it against
+   `Get-Process -Id <pid>`'s live StartTime, so a PID reused by an unrelated
+   process (different StartTime) is rejected without depending on argv
+   visibility. This is what correctly identifies the documented
+   `pwsh ~/git/yuruna/test/Invoke-TestRunner.ps1` launch from an interactive
+   REPL on macOS/Linux, where argv is just `pwsh` and a cmdline regex
+   false-negatives.
+2. **Cmdline regex (fallback)** — for older runners without the sidecar and for
+   launches that do carry the script in argv (Windows shortcut,
+   `pwsh -File ...`). Same regex the outer runner uses for its own stale-PID
+   detection at startup.
+
+The UI shows a "Stopped" banner when `running=false` so stale `status.json`
+data is not mistaken for a live runner.
+
+## File serving: URL-prefix dispatch and deny-list
+
+The status server's file-serving side dispatches by URL prefix:
+`yuruna-repo/<rel>` maps to the repo working tree (deny-listed),
+`runtime/<name>` to the runtime dir (pids, `status.json`, control flags,
+`ipaddresses.txt`, `caching-proxy.txt`, `current-action.json`, `server.err`,
+`yuruna-caching-proxy.yml`, `host.uuid`), `log/<name>` to the log dir (HTML
+transcripts, OCR/screenshot debug, failure captures), and anything else to the
+status dir (`index.html`, template, static assets, `perf/`, `extension/`,
+`captures/`, `ssh/`). Each branch pins the resolved path under its mount root
+with a StartsWith check, so traversal such as `runtime/../../../etc/passwd`
+cannot escape. A unified deny-list is then applied to every served path so
+secrets under `status/` (`vault.yml`, `transports.yml`, `events.log`, the SSH
+private key, the caching-proxy state file) are blocked regardless of which
+route reached them.
+
 ## See also
 
 - [pool-admin.md](pool-admin.md) — running a pool and the *Yuruna hosts* dashboard.
@@ -137,6 +176,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.22
+Last review: 2026.07.24
 
 Back to [Yuruna](../README.md)

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.22
+.VERSION 2026.07.24
 .GUID 42a1b2c3-d4e5-4f67-8901-bc012345674a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -145,7 +145,7 @@ if ($CacheIp) {
         }
         $proxyUrl = Test-CachingProxyAvailable
         if (-not $proxyUrl) {
-            Write-Fail "Test-CachingProxyAvailable returned no cache. Either Start-CachingProxy.ps1 hasn't been run, or the cache VM is not listening on :3128."
+            Write-Fail "Test-CachingProxyAvailable returned no cache. Either Start-CachingProxyVM.ps1 hasn't been run, or the cache VM is not listening on :3128."
             exit 1
         }
         if ($proxyUrl -match '^http://([0-9.]+):') {
@@ -320,10 +320,10 @@ if ($script:FailCount -gt 0) {
 # env vars BEFORE Set-HostProxy writes the new ones. The previous
 # snapshot-and-restore design preserved whatever proxy state was on the
 # host when the FIRST Set-HostProxy ran -- which on a host that had a
-# pre-existing (or older-cycle) HTTP_PROXY env var meant Stop-CachingProxy
+# pre-existing (or older-cycle) HTTP_PROXY env var meant Stop-CachingProxyVM
 # would faithfully restore it, leaking a stale IP into every subsequent
 # Test-CachingProxy probe. Wiping first means each promotion lands on a
-# guaranteed-clean baseline; Stop-CachingProxy similarly wipes definitively
+# guaranteed-clean baseline; Stop-CachingProxyVM similarly wipes definitively
 # rather than restoring. No user-action -ClearHostProxy required.
 
 if ($SetHostProxy) {
@@ -341,7 +341,7 @@ if ($SetHostProxy) {
         Set-HostProxy @setParams
         Write-Output ""
         Write-Output "Host proxy is now http://${resolvedHost}:${httpPort}."
-        Write-Output "Run 'pwsh test/Stop-CachingProxy.ps1' to wipe the host proxy when you're done."
+        Write-Output "Run 'pwsh test/Stop-CachingProxyVM.ps1' to wipe the host proxy when you're done."
     } catch {
         Write-Output ""
         Write-Output "[FAIL] -SetHostProxy threw: $($_.Exception.Message)"

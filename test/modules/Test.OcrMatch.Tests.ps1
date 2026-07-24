@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.22
+.VERSION 2026.07.24
 .GUID 422b807c-2e2b-4e23-822e-cc26747b834d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -185,7 +185,7 @@ Describe 'Get-OcrCombineMode' {
         $env:YURUNA_OCR_COMBINE = ''
         Assert-Equal -Expected 'Or' -Actual (Get-OcrCombineMode)
     }
-    It 'honours an explicit And or Or, case-insensitively' {
+    It 'honors an explicit And or Or, case-insensitively' {
         $env:YURUNA_OCR_COMBINE = 'And'
         Assert-Equal -Expected 'And' -Actual (Get-OcrCombineMode)
         $env:YURUNA_OCR_COMBINE = 'and'
@@ -193,7 +193,7 @@ Describe 'Get-OcrCombineMode' {
         $env:YURUNA_OCR_COMBINE = 'Or'
         Assert-Equal -Expected 'Or' -Actual (Get-OcrCombineMode)
     }
-    It 'throws on an unrecognised value instead of silently defaulting' {
+    It 'throws on an unrecognized value instead of silently defaulting' {
         # A typo that fell back to the default would flip every waitForText in
         # the cycle to the other combine mode with no signal.
         $env:YURUNA_OCR_COMBINE = 'Xor'

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.22
+.VERSION 2026.07.24
 .GUID 421a7e34-5b82-4d60-8f13-2a6c9e0b4d75
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -53,6 +53,24 @@ Describe 'Get-PoolPushBatch (NDJSON batching, assignment-consumed)' {
 Describe 'Send-PoolEventBatch (best-effort guards)' {
     It 'returns 0 for an empty batch (no request attempted)' {
         Assert-Equal 0 (Send-PoolEventBatch -IngestUrl 'https://10.0.0.5:9400/ingest' -CaCertPath 'nope.crt' -Token 't' -Lines @())
+    }
+}
+
+Describe 'forget-host client (best-effort guards)' {
+    It 'Send-PoolForgetRequest returns 0 on an unusable CA (never throws)' {
+        Assert-Equal 0 (Send-PoolForgetRequest -Url 'https://192.0.2.1:9400/api/v1/forget-host?hostId=42' -CaCertPath 'nope.crt' -Token 't')
+    }
+    It 'Invoke-PoolForgetHost reports not-ok with a reason when the aggregator/CA is unreachable' {
+        # 192.0.2.1 is TEST-NET-1 (RFC 5737) -- guaranteed unroutable, so the CA fetch
+        # fails fast and the call returns a best-effort not-ok summary instead of throwing.
+        $tmp = Join-Path ([System.IO.Path]::GetTempPath()) ('pfh_' + [guid]::NewGuid().ToString('N').Substring(0, 8))
+        New-Item -ItemType Directory -Force -Path $tmp | Out-Null
+        try {
+            $r = Invoke-PoolForgetHost -ProxyIp '192.0.2.1' -HostId '42cafe0000000000000000000000dead' -Token 't' -RuntimeDir $tmp -TimeoutSec 2
+            Assert-True ($r -is [hashtable]) 'returns a summary hashtable'
+            Assert-True (-not $r.ok) 'not ok against an unreachable aggregator'
+            Assert-True ([bool]$r.reason) 'a reason is set'
+        } finally { Remove-Item -Recurse -Force -LiteralPath $tmp -ErrorAction SilentlyContinue }
     }
 }
 

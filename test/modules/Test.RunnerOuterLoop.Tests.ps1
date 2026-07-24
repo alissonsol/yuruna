@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.22
+.VERSION 2026.07.24
 .GUID 428c1a6d-4b29-4e07-9d51-7a2c8e0b5f31
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -51,21 +51,21 @@ function New-TempConfig {
 # run phase and so are still standing when the It executes.
 $InnerScriptPath = 'C:\repo\test\modules\Invoke-TestInnerRunner.ps1'
 
-Describe 'Test-OuterNoServerForwarded (embedded -NoServer detection)' {
-    It 'is TRUE when -NoServer is forwarded (real New-InnerRunnerArgList shape)' {
-        $al = New-InnerRunnerArgList -ScriptPath $InnerScriptPath -Parameters ([ordered]@{ ConfigPath = 'C:\x.yml'; NoServer = ([switch]$true); HostType = 'host.windows.hyper-v' })
-        Assert-True (Test-OuterNoServerForwarded -ArgList $al) 'the embedded -NoServer token in the combined -Command element is detected'
+Describe 'Test-OuterNoStatusServiceForwarded (embedded -NoStatusService detection)' {
+    It 'is TRUE when -NoStatusService is forwarded (real New-InnerRunnerArgList shape)' {
+        $al = New-InnerRunnerArgList -ScriptPath $InnerScriptPath -Parameters ([ordered]@{ ConfigPath = 'C:\x.yml'; NoStatusService = ([switch]$true); HostType = 'host.windows.hyper-v' })
+        Assert-True (Test-OuterNoStatusServiceForwarded -ArgList $al) 'the embedded -NoStatusService token in the combined -Command element is detected'
     }
-    It 'is FALSE when -NoServer is NOT forwarded' {
+    It 'is FALSE when -NoStatusService is NOT forwarded' {
         $al = New-InnerRunnerArgList -ScriptPath $InnerScriptPath -Parameters ([ordered]@{ ConfigPath = 'C:\x.yml'; HostType = 'host.windows.hyper-v' })
-        Assert-False (Test-OuterNoServerForwarded -ArgList $al) 'no -NoServer forwarded'
+        Assert-False (Test-OuterNoStatusServiceForwarded -ArgList $al) 'no -NoStatusService forwarded'
     }
-    It 'does not false-match a longer -NoServerFoo token' {
-        Assert-False (Test-OuterNoServerForwarded -ArgList @('-NoLogo', '-Command', "& 'x' -NoServerFoo 'bar'")) 'whole-token match only'
+    It 'does not false-match a longer -NoStatusServiceFoo token' {
+        Assert-False (Test-OuterNoStatusServiceForwarded -ArgList @('-NoLogo', '-Command', "& 'x' -NoStatusServiceFoo 'bar'")) 'whole-token match only'
     }
     It 'is FALSE for null or empty ArgList' {
-        Assert-False (Test-OuterNoServerForwarded -ArgList $null) 'null'
-        Assert-False (Test-OuterNoServerForwarded -ArgList @())   'empty'
+        Assert-False (Test-OuterNoStatusServiceForwarded -ArgList $null) 'null'
+        Assert-False (Test-OuterNoStatusServiceForwarded -ArgList @())   'empty'
     }
 }
 

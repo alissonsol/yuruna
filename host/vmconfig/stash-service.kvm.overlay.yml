@@ -1,5 +1,17 @@
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 # KVM/libvirt overlay for stash-service.base.user-data.
-# Intentionally empty (no anchor sections): stash-service has no per-platform
-# divergence. Kept so a future platform-specific tweak has an obvious home.
+# Anchor sections in base-file order. An empty section emits nothing at that anchor.
+# === YURUNA_OVERLAY_HOST_AGENT_PKG ===
+  # qemu-guest-agent answers `virsh domifaddr --source agent`, which is how the
+  # host learns this VM's IPv4 on the bridged 'yuruna-external' network: there
+  # the host is NOT the DHCP server, so the lease source is empty and ARP only
+  # answers once the guest happens to send the host a packet. New-VM.ps1 already
+  # wires the matching org.qemu.guest_agent.0 virtio channel. Top-level package
+  # (not runcmd) so a failure surfaces in the package phase.
+  - qemu-guest-agent
+# === YURUNA_OVERLAY_RUNCMD_HOST_AGENT ===
+  # The postinst usually enables the agent already; an explicit enable keeps
+  # address discovery deterministic.
+  - systemctl enable qemu-guest-agent.service || true
+  - systemctl start qemu-guest-agent.service || true

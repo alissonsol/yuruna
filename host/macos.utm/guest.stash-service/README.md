@@ -1,7 +1,5 @@
 # Stash Service VM (macOS UTM)
 
-Canonical documentation: **[Stash Service](../../../docs/design/stash-service.md)**.
-
 Scripts and config in this folder:
 
 - [Get-Image.ps1](Get-Image.ps1) — base Ubuntu 26.04 LTS cloud image
@@ -23,6 +21,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.22
+Last review: 2026.07.24
 
 Back to [Yuruna](../../../README.md)

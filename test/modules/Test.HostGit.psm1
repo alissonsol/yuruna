@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.22
+.VERSION 2026.07.24
 .GUID 42c9d0e1-f2a3-4b45-9678-9a0b1c2d3e42
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -615,7 +615,7 @@ namespace Yuruna {
         public static List<Holder> GetCwdHolders(string targetPath) {
             var result = new List<Holder>();
             if (IntPtr.Size != 8) return result;
-            string target = NormalisePath(targetPath);
+            string target = NormalizePath(targetPath);
             foreach (var proc in System.Diagnostics.Process.GetProcesses()) {
                 try {
                     IntPtr h = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_VM_READ, false, proc.Id);
@@ -640,7 +640,7 @@ namespace Yuruna {
 
                         byte[] strBuf = new byte[length];
                         if (!ReadProcessMemory(h, new IntPtr(bufferAddr), strBuf, new IntPtr(length), out nRead)) continue;
-                        string cwd = NormalisePath(Encoding.Unicode.GetString(strBuf, 0, (int)nRead));
+                        string cwd = NormalizePath(Encoding.Unicode.GetString(strBuf, 0, (int)nRead));
                         if (cwd == target) {
                             string name = null;
                             try { name = proc.ProcessName; } catch { }
@@ -663,7 +663,7 @@ namespace Yuruna {
             return result;
         }
 
-        private static string NormalisePath(string p) {
+        private static string NormalizePath(string p) {
             if (string.IsNullOrEmpty(p)) return string.Empty;
             return p.TrimEnd('\0','\\','/').Replace('/','\\').ToLowerInvariant();
         }

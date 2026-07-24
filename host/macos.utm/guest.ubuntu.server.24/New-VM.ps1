@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.22
+.VERSION 2026.07.24
 .GUID 42b5c6d7-e8f9-4a01-b234-5c6d7e8f9a02
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -43,7 +43,14 @@ param(
     # cloud-init local-hostname for the guest. Empty means "follow the VM
     # name", which keeps host-side lookups that assume hostname == VM name
     # working for every caller that does not ask for a specific hostname.
-    [string]$Hostname = ''
+    [string]$Hostname = '',
+    # Planner-cascaded VM memory (variables.memoryStartupBytes). Raw byte count
+    # or a KB/MB/GB suffix (e.g. 34359738368, 32768MB, 32GB); converted to the
+    # MB the UTM plist wants. Empty keeps the 12 GB default below.
+    [string]$MemoryStartupBytes = '',
+    # Planner-cascaded vCPU count (variables.cores). Overrules the default
+    # calculation below. Empty keeps the default. Clamped to the host cores.
+    [string]$Cores = ''
 )
 
 # Honor logLevel from Invoke-TestRunner.ps1 via $env:YURUNA_LOG_LEVEL. See docs/loglevels.md.
@@ -150,7 +157,7 @@ Write-Output "Password came from authentication mechanism: $_authActiveName"
 Write-Output "See configuration at: $(Resolve-ExtensionAreaDir -Area 'authentication')"
 
 # SHA-512 ($6$) password hash for the autoinstall HASH_PLACEHOLDER.
-# ConvertTo-Sha512CryptHash centralises the openssl probe + the `--`
+# ConvertTo-Sha512CryptHash centralizes the openssl probe + the `--`
 # end-of-options safety that keeps a leading-dash password
 # (e.g. `-4aWj*CRw` from New-RandomPassword) from being parsed as an
 # option. See Yuruna.Common\ConvertTo-Sha512CryptHash for rationale.
@@ -291,17 +298,17 @@ same /24 the host is on. If it doesn't answer:
   * LAN may not be /24 (the scan assumes a single contiguous /24).
 
 Fix:
-  test/Start-CachingProxy.ps1   (rebuilds and re-discovers; safe to re-invoke)
+  test/Start-CachingProxyVM.ps1   (rebuilds and re-discovers; safe to re-invoke)
 
 To intentionally skip the cache:
-  test/Stop-CachingProxy.ps1     (guest will then WARN and download direct).
+  test/Stop-CachingProxyVM.ps1     (guest will then WARN and download direct).
 =========================================================================
 "@
     $Host.UI.WriteLine([ConsoleColor]::Red, $Host.UI.RawUI.BackgroundColor, $detail)
     exit 1
 } elseif ($squidStatus) {
     Write-Warning "  yuruna-caching-proxy VM exists (status: $squidStatus) but is not started. Guest will download directly (expect occasional 429s)."
-    Write-Warning "  To enable caching: test/Start-CachingProxy.ps1"
+    Write-Warning "  To enable caching: test/Start-CachingProxyVM.ps1"
 } else {
     if (-not $utmctl) {
         Write-Warning "  utmctl not found -- can't query UTM directly, and nothing answers on the LAN /24 either."
@@ -309,7 +316,7 @@ To intentionally skip the cache:
         Write-Warning "  No yuruna-caching-proxy VM registered with UTM and nothing answers on the LAN /24."
     }
     Write-Warning "  Guest will download directly -- expect 429 rate-limit failures on linux-firmware under load."
-    Write-Warning "  To enable caching, run: test/Start-CachingProxy.ps1"
+    Write-Warning "  To enable caching, run: test/Start-CachingProxyVM.ps1"
 }
 }
 
@@ -438,6 +445,24 @@ if ($hostCores -lt 4) {
     exit 1
 }
 $vmCores = [math]::Max(4, [math]::Floor($hostCores / 2))
+# Cascaded variables.cores overrules the default; clamp to the host cores.
+if ($Cores) {
+    $coresInt = 0
+    if (-not [int]::TryParse($Cores, [ref]$coresInt) -or $coresInt -lt 1) {
+        Write-Error "Invalid -Cores '$Cores': expected a positive integer."
+        exit 1
+    }
+    if ($coresInt -gt $hostCores) {
+        Write-Warning "Requested -Cores $coresInt exceeds host physical cores ($hostCores); clamping to $hostCores."
+        $coresInt = $hostCores
+    }
+    $vmCores = $coresInt
+}
+
+# Cascaded variables.memoryStartupBytes wins; empty keeps the 12 GB default.
+# The UTM plist __MEMORY_SIZE__ is in MB, so convert from the byte count.
+try { $vmMemoryBytes = ConvertTo-MemoryStartupBytes $MemoryStartupBytes } catch { Write-Error $_.Exception.Message; exit 1 }
+$vmMemoryMb = if ($vmMemoryBytes -gt 0) { [int]($vmMemoryBytes / 1MB) } else { 12288 }
 
 $PlistContent = (Get-Content -Raw $TemplatePath) `
     -replace '__VM_NAME__',             $VMName `
@@ -451,7 +476,7 @@ $PlistContent = (Get-Content -Raw $TemplatePath) `
     -replace '__SEED_IMAGE_NAME__',     'seed.iso' `
     -replace '__VNC_DISPLAY__',         "$VncDisplay" `
     -replace '__CPU_COUNT__',           "$vmCores" `
-    -replace '__MEMORY_SIZE__',         '12288'
+    -replace '__MEMORY_SIZE__',         "$vmMemoryMb"
 
 Set-Content -Path "$UtmDir/config.plist" -Value $PlistContent
 

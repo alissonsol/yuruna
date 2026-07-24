@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.22
+.VERSION 2026.07.24
 .GUID 42b8e6a4-3d17-4c92-8f05-6a1b9d2e7c40
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -41,13 +41,13 @@ function Invoke-PerGuestNewVm {
         it is a plain -HostSubdir string param rather than an injected
         scriptblock; each driver's New-VM wrapper supplies its constant value.
 
-        -CachingProxyUrl, -Username and -Hostname are forwarded to the per-guest
-        script only when (a) the caller bound them AND (b) the target script
-        declares them -- this lets the contract grow new pass-through arguments
-        without breaking guests (e.g. windows.11, caching-proxy, macos.26) that
-        do not consume them. A bound -Username/-Hostname the script does not
-        declare is surfaced on the Verbose stream so the operator notices a
-        dropped planner cascade.
+        -CachingProxyUrl, -Username, -Hostname, -MemoryStartupBytes and -Cores
+        are forwarded to the per-guest script only when (a) the caller bound them
+        AND (b) the target script declares them -- this lets the contract grow
+        new pass-through arguments without breaking guests (e.g. windows.11,
+        caching-proxy, macos.26) that do not consume them. A bound argument the
+        script does not declare is surfaced on the Verbose stream so the operator
+        notices a dropped planner cascade.
     .OUTPUTS
         [hashtable] @{ success = [bool]; errorMessage = [string] }
     #>
@@ -60,7 +60,13 @@ function Invoke-PerGuestNewVm {
         [Parameter(Mandatory)][string]$VMName,
         [string]$CachingProxyUrl,
         [string]$Username,
-        [string]$Hostname
+        [string]$Hostname,
+        # Planner-cascaded VM sizing (variables.memoryStartupBytes /
+        # variables.cores). Strings here (the cascade is string-valued); the
+        # per-guest New-VM.ps1 parses + applies them. Forwarded under the same
+        # declare-or-drop rule as -Username/-Hostname.
+        [string]$MemoryStartupBytes,
+        [string]$Cores
     )
     if (-not $PSCmdlet.ShouldProcess($VMName, "Create VM ($GuestKey)")) { return @{ success = $false; errorMessage = 'WhatIf' } }
     $scriptPath = Join-Path $RepoRoot (Join-Path $HostSubdir (Join-Path $GuestKey 'New-VM.ps1'))
@@ -71,17 +77,23 @@ function Invoke-PerGuestNewVm {
     $scriptAcceptsProxy    = $false
     $scriptAcceptsUsername = $false
     $scriptAcceptsHostname = $false
+    $scriptAcceptsMemory   = $false
+    $scriptAcceptsCores    = $false
     try {
         $cmdInfo = Get-Command -Name $scriptPath -ErrorAction Stop
         if ($cmdInfo.Parameters) {
             $scriptAcceptsProxy    = [bool]$cmdInfo.Parameters.ContainsKey('CachingProxyUrl')
             $scriptAcceptsUsername = [bool]$cmdInfo.Parameters.ContainsKey('Username')
             $scriptAcceptsHostname = [bool]$cmdInfo.Parameters.ContainsKey('Hostname')
+            $scriptAcceptsMemory   = [bool]$cmdInfo.Parameters.ContainsKey('MemoryStartupBytes')
+            $scriptAcceptsCores    = [bool]$cmdInfo.Parameters.ContainsKey('Cores')
         }
     } catch {
         $scriptAcceptsProxy    = $false
         $scriptAcceptsUsername = $false
         $scriptAcceptsHostname = $false
+        $scriptAcceptsMemory   = $false
+        $scriptAcceptsCores    = $false
     }
     if ($PSBoundParameters.ContainsKey('CachingProxyUrl') -and $scriptAcceptsProxy) {
         $childArgs += @('-CachingProxyUrl', $CachingProxyUrl)
@@ -95,6 +107,16 @@ function Invoke-PerGuestNewVm {
         $childArgs += @('-Hostname', $Hostname)
     } elseif ($PSBoundParameters.ContainsKey('Hostname') -and $Hostname -and -not $scriptAcceptsHostname) {
         Write-Verbose "Cascaded -Hostname '$Hostname' NOT forwarded: $scriptPath does not declare a -Hostname parameter."
+    }
+    if ($PSBoundParameters.ContainsKey('MemoryStartupBytes') -and $MemoryStartupBytes -and $scriptAcceptsMemory) {
+        $childArgs += @('-MemoryStartupBytes', $MemoryStartupBytes)
+    } elseif ($PSBoundParameters.ContainsKey('MemoryStartupBytes') -and $MemoryStartupBytes -and -not $scriptAcceptsMemory) {
+        Write-Verbose "Cascaded -MemoryStartupBytes '$MemoryStartupBytes' NOT forwarded: $scriptPath does not declare a -MemoryStartupBytes parameter."
+    }
+    if ($PSBoundParameters.ContainsKey('Cores') -and $Cores -and $scriptAcceptsCores) {
+        $childArgs += @('-Cores', $Cores)
+    } elseif ($PSBoundParameters.ContainsKey('Cores') -and $Cores -and -not $scriptAcceptsCores) {
+        Write-Verbose "Cascaded -Cores '$Cores' NOT forwarded: $scriptPath does not declare a -Cores parameter."
     }
     Write-Verbose "Running: $scriptPath $($childArgs -join ' ')"
     $output = & pwsh -NoProfile -File $scriptPath @childArgs 2>&1
@@ -317,8 +339,8 @@ function Invoke-CachingProxyAvailableProbe {
     }
 
     # Local cache: probe only the IP we recorded ourselves at the last
-    # Start-CachingProxy.ps1. Empty state -> no cache (the explicit
-    # contract after Stop-CachingProxy.ps1). State-set-but-unreachable
+    # Start-CachingProxyVM.ps1. Empty state -> no cache (the explicit
+    # contract after Stop-CachingProxyVM.ps1). State-set-but-unreachable
     # is loud (Write-Warning) because the inner runner's bootstrap
     # detection runs ONCE per cycle -- a silently-failed probe means
     # the whole cycle's guests download direct from the internet, and
@@ -326,7 +348,7 @@ function Invoke-CachingProxyAvailableProbe {
     # "Caching proxy: not detected" line in Invoke-TestRunner output.
     $stateIp = (Read-CachingProxyState).ipAddress
     if (-not $stateIp -or -not (Test-IpAddress $stateIp)) {
-        Write-Warning "Test-CachingProxyAvailable: state.ipAddress is empty -- no locally-owned cache. Set `$Env:YURUNA_CACHING_PROXY_IP to point at a remote cache, or run Start-CachingProxy.ps1."
+        Write-Warning "Test-CachingProxyAvailable: state.ipAddress is empty -- no locally-owned cache. Set `$Env:YURUNA_CACHING_PROXY_IP to point at a remote cache, or run Start-CachingProxyVM.ps1."
         return $null
     }
     # 1500 ms matches test/Test-CachingProxy.ps1's CLI probe so a
@@ -340,7 +362,7 @@ function Invoke-CachingProxyAvailableProbe {
             return "http://$(if ($NoBracketHost) { $stateIp } else { Format-IpUrlHost $stateIp }):${httpPort}"
         }
     }
-    Write-Warning "Test-CachingProxyAvailable: state.ipAddress=${stateIp} did not answer :${httpPort} within 1500 ms; treating cache as unavailable. Verify with '$($VerifyHint -f $stateIp, $httpPort)'; if it answers, the cache is running and the next runner cycle will pick it up. If not, re-run Start-CachingProxy.ps1 (the VM may have restarted with a new DHCP lease)."
+    Write-Warning "Test-CachingProxyAvailable: state.ipAddress=${stateIp} did not answer :${httpPort} within 1500 ms; treating cache as unavailable. Verify with '$($VerifyHint -f $stateIp, $httpPort)'; if it answers, the cache is running and the next runner cycle will pick it up. If not, re-run Start-CachingProxyVM.ps1 (the VM may have restarted with a new DHCP lease)."
     return $null
 }
 

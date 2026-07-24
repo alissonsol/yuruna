@@ -30,6 +30,25 @@
 user-data       text eol=lf
 meta-data       text eol=lf
 Dockerfile      text eol=lf
+# `.template` hides the real type from every rule above: the files are
+# `<name>.yml.template`, `.json.template` and `config.plist.template`, so a
+# `*.yml` rule never sees them. They are read verbatim and written into the
+# generated config a macOS/Linux consumer then parses, so a CRLF checkout is
+# copied straight through into a file that is supposed to be LF.
+*.template      text eol=lf
+
+# Go sources for the extension servers (stash-service, pool-control,
+# pool-aggregator, caching-proxy-parser). The compiler accepts either EOL, but
+# a backtick raw string literal preserves every byte between the quotes -- so
+# on a CRLF checkout the CR rides into whatever the literal holds: the
+# self-contained HTML pages these servers serve, the SQLite schema DDL, and the
+# /proc/self/mountinfo fixtures that tests split line by line. gofmt also emits
+# LF unconditionally, so a CRLF tree makes `gofmt -l` report every file as
+# unformatted. Pin LF so the source is identical on the Windows and macOS
+# workstations and on the Linux VM that builds these binaries.
+*.go         text eol=lf
+go.mod       text eol=lf
+go.sum       text eol=lf
 
 # PowerShell scripts run on both Windows and macOS hosts. pwsh handles
 # either EOL, but LF keeps the repo consistent and avoids round-trip

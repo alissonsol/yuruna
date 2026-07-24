@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.22
+.VERSION 2026.07.24
 .GUID 4236e7f8-a9b0-4c23-d678-9e0f1a2b3c48
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -138,7 +138,7 @@ Write-Output "Password came from authentication mechanism: $_authActiveName"
 Write-Output "See configuration at: $(Resolve-ExtensionAreaDir -Area 'authentication')"
 
 # SHA-512 ($6$) password hash for the autoinstall HASH_PLACEHOLDER.
-# ConvertTo-Sha512CryptHash centralises the openssl probe + the `--`
+# ConvertTo-Sha512CryptHash centralizes the openssl probe + the `--`
 # end-of-options safety that keeps a leading-dash password
 # (e.g. `-4aWj*CRw` from New-RandomPassword) from being parsed as an
 # option. See Yuruna.Common\ConvertTo-Sha512CryptHash for rationale.
@@ -257,7 +257,7 @@ if (-not $cacheVM) {
 } else {
     # KVP+ARP discovery + :3128 probe live in Yuruna.Host.psm1
     # (Get-WorkingCachingProxyUrl). One module means this consumer, the
-    # producer, and Start-CachingProxy.ps1's summary all see the same
+    # producer, and Start-CachingProxyVM.ps1's summary all see the same
     # answer (avoids the regression class where a KVP-only summary
     # reports "discovery failed" while the ARP path already found it).
     $CachingProxyUrl = Get-WorkingCachingProxyUrl -VMName "yuruna-caching-proxy"
@@ -280,10 +280,10 @@ CDN access and hit the 429 rate limiter.
 
 Accessing the yuruna-caching-proxy VM for debugging:
   * Console:  vmconnect localhost yuruna-caching-proxy
-              login:    yuruna
+              login:    caching-proxy-admin
               password: read the 'password:' field from
                 test/status/runtime/yuruna-caching-proxy.yml
-  * SSH:      ssh yuruna@<ip>
+  * SSH:      ssh caching-proxy-admin@<ip>
 
 Rebuild the cache VM:
   host\windows.hyper-v\guest.caching-proxy\New-VM.ps1

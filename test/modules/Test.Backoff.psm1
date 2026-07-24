@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.22
+.VERSION 2026.07.24
 .GUID 42f3e8d7-c6b5-4a32-9087-1d2e3f4a5b67
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -29,9 +29,9 @@
 
     The jitter (uniform, up to 25% of the current delay, subtracted) breaks
     lock-step at the call site -- many runners on shared storage polling in
-    synchronised lock-step can produce a thundering herd that pegs the
+    synchronized lock-step can produce a thundering herd that pegs the
     filesystem; scaling the spread to the interval keeps polling cost
-    amortised across the pool even at the 59 s cap, where a fixed [0,100) ms
+    amortized across the pool even at the 59 s cap, where a fixed [0,100) ms
     jitter was ~0.17% of the delay and barely decorrelated anything.
 #>
 

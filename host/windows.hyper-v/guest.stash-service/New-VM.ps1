@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.22
+.VERSION 2026.07.24
 .GUID 42f1b2c3-d4e5-4f67-8901-a2b3c4d5e680
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -133,17 +133,18 @@ New-Item -ItemType Directory -Force -Path $SeedDir | Out-Null
 Copy-Item -Path (Join-Path $hostVmConfigDir 'stash-service.meta-data') -Destination "$SeedDir/meta-data"
 
 # --- REGION: Yuruna harness SSH key + vault password
-# Yuruna harness SSH key + vault-managed yuruna password. Shared with the
-# caching-proxy and the test guests under the same username, so a single
-# vault entry serves every VM the harness creates.
+# Yuruna harness SSH key + the vault-managed password of THIS VM's own
+# administrator. The account name is per-VM-family: a name shared with the
+# caching-proxy and pool-control VMs would resolve to a single vault entry,
+# and whichever VM was built last would invalidate the others' credential.
 $_repoRoot = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))
 Import-Module (Join-Path $_repoRoot 'test/modules/Test.Ssh.psm1')       -Force -DisableNameChecking
 Import-Module (Join-Path $_repoRoot 'test/modules/Test.Extension.psm1') -Global -Force -Verbose:$false
 $SshAuthorizedKey = Get-YurunaSshPublicKey
 if (-not $SshAuthorizedKey) { Write-Error "Get-YurunaSshPublicKey returned empty."; exit 1 }
 $_authActiveName = @(Import-Extension -Area 'authentication' -RequireSingle)[0]
-$YurunaPassword = Get-Password -Username 'yuruna'
-if (-not $YurunaPassword) { Write-Error "Get-Password returned empty for 'yuruna'."; exit 1 }
+$AdminPassword = Get-Password -Username 'stash-admin'
+if (-not $AdminPassword) { Write-Error "Get-Password returned empty for 'stash-admin'."; exit 1 }
 Write-Output "Password came from authentication mechanism: $_authActiveName"
 Write-Output "See configuration at: $(Resolve-ExtensionAreaDir -Area 'authentication')"
 
@@ -190,7 +191,7 @@ $UserData = New-CloudInitUserData `
     -RepoRoot    $_repoRoot `
     -Replacement @{
         SSH_AUTHORIZED_KEY_PLACEHOLDER = $SshAuthorizedKey
-        PASSWORD_PLACEHOLDER           = $YurunaPassword
+        PASSWORD_PLACEHOLDER           = $AdminPassword
         YURUNA_HOST_IP_PLACEHOLDER     = $YurunaHostIp
         YURUNA_HOST_PORT_PLACEHOLDER   = $YurunaHostPort
         YSTASH_NAS_NETWORK_PATH_PLACEHOLDER  = $ystashNas.NetworkPath
@@ -208,8 +209,8 @@ CreateIso -SourceDir $SeedDir -OutputFile $SeedIso -VolumeId "cidata"
 
 Write-Output ""
 Write-Output "== stash-service console/SSH login (available NOW) =="
-Write-Output "  user:     yuruna"
-Write-Output "  password: (in authentication vault under 'yuruna')"
+Write-Output "  user:     stash-admin"
+Write-Output "  password: (in authentication vault under 'stash-admin')"
 Write-Output "  If the wait below stalls or fails, open 'vmconnect localhost $VMName'"
 Write-Output "  and log in with the credentials above to inspect cloud-init state."
 Write-Output ""
@@ -304,7 +305,7 @@ if (-not $dockCandidateIps) {
 stash-service VM '$VMName' did not obtain an IP address within 10 minutes.
 Accessing the VM for debugging:
   * Console:  vmconnect localhost $VMName
-              user: yuruna  (password in authentication vault)
+              user: stash-admin  (password in authentication vault)
 "@
     exit 1
 }
@@ -312,20 +313,20 @@ Accessing the VM for debugging:
 # Single-candidate pick: dock has no listening port to validate against
 # in v1, so the first non-loopback candidate IP is authoritative. When
 # ARP returned multiple candidates, the operator can verify reachability
-# with `ssh yuruna@<ip>` -- the harness key is already authorized.
+# with `ssh stash-admin@<ip>` -- the harness key is already authorized.
 $dockIp = $dockCandidateIps | Select-Object -First 1
 
 Write-Output ""
 Write-Output "== stash-service VM is READY =="
 Write-Output "  VM:       $VMName"
 Write-Output "  IP:       $dockIp"
-Write-Output "  SSH:      ssh yuruna@$dockIp  (harness key authorized)"
-Write-Output "  Console:  vmconnect localhost $VMName  (user yuruna, vault password)"
+Write-Output "  SSH:      ssh stash-admin@$dockIp  (harness key authorized)"
+Write-Output "  Console:  vmconnect localhost $VMName  (user stash-admin, vault password)"
 Write-Output ""
 Write-Output "Cloud-init mounts the stash share, fetches the framework, and runs the"
 Write-Output "bring-up script. Once it finishes, the stash daemon owns :22 (the OS"
 Write-Output "sshd is disabled), so reach it with scp:  scp ./file user@$dockIp`:/scratch"
-Write-Output "Watch progress:  ssh yuruna@$dockIp 'tail -f /var/log/cloud-init-output.log'"
+Write-Output "Watch progress:  ssh stash-admin@$dockIp 'tail -f /var/log/cloud-init-output.log'"
 Write-Output "(harness key authorized until the daemon takes over :22). See"
 Write-Output "https://yuruna.link/stash-service."
 exit 0

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.22
+.VERSION 2026.07.24
 .GUID 42a2b3c4-d5e6-4f78-9012-3a4b5c6d7e90
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -116,7 +116,7 @@ function CreateIso {
 
 # --- REGION: caching-proxy IP discovery (shared by producer + consumers)
 # Single source of truth for KVP+ARP discovery shared by guest.caching-proxy/
-# New-VM.ps1, ubuntu.server.24/New-VM.ps1, and test/Start-CachingProxy.ps1.
+# New-VM.ps1, ubuntu.server.24/New-VM.ps1, and test/Start-CachingProxyVM.ps1.
 # Guards against the regression class where a KVP-only summary reports
 # "(discovery failed)" even though the ARP fallback has already found the
 # cache and it is serving -- by routing all three callers through the same
@@ -263,7 +263,7 @@ function Test-WindowsUplinkNotBridgeable {
     sees the actual LAN client IP at TCP level -- no PROXY-protocol
     forwarder needed and no Defender per-program filtering layer to
     fight (which is what blocked the user-mode forwarder path on
-    Hyper-V hosts; see test/Start-CachingProxy.ps1 for the long note).
+    Hyper-V hosts; see test/Start-CachingProxyVM.ps1 for the long note).
 
     Picks the NIC carrying the default IPv4 route (the one with actual
     LAN connectivity, by definition). An uplink that can't carry a
@@ -499,7 +499,7 @@ function Get-WorkingCachingProxyUrl {
         or $null if none of the candidate IPs respond.
     .DESCRIPTION
         One-shot helper for consumers (ubuntu guests) and
-        Start-CachingProxy.ps1's summary. Does NOT wait for the cache VM
+        Start-CachingProxyVM.ps1's summary. Does NOT wait for the cache VM
         to boot or for squid to come up -- callers expect the VM already
         running and squid listening. The producer
         (guest.caching-proxy/New-VM.ps1) uses Get-CacheVmCandidateIp
@@ -677,7 +677,7 @@ function Assert-HyperVEnabled {
         Enable-WindowsOptionalFeature completes, can fail with "Class
         not registered" (HRESULT 0x80040154) even when Hyper-V is
         enabled and healthy. Seen on the first post-install run of
-        Start-CachingProxy -> guest.caching-proxy/New-VM.ps1. dism.exe is
+        Start-CachingProxyVM -> guest.caching-proxy/New-VM.ps1. dism.exe is
         the plain Win32 tool the cmdlet wraps; calling it directly
         sidesteps the COM failure (same workaround as
         install/windows.hyper-v.ps1).
@@ -2358,12 +2358,17 @@ function New-VM {
         # Planner-cascaded guest hostname (variables.hostname), forwarded
         # under the same declare-or-drop rule as -Username. Empty leaves the
         # per-guest script on its VM-name default.
-        [string]$Hostname
+        [string]$Hostname,
+        # Planner-cascaded VM sizing (variables.memoryStartupBytes /
+        # variables.cores), forwarded under the same declare-or-drop rule as
+        # -Username. Empty leaves the per-guest script on its built-in default.
+        [string]$MemoryStartupBytes,
+        [string]$Cores
     )
     # Thin wrapper over the shared per-guest runner; the host subdir is the
     # only platform variable. Splatting $PSBoundParameters preserves the
-    # conditional -CachingProxyUrl/-Username/-Hostname forwarding (the runner
-    # checks ContainsKey) and propagates -WhatIf/-Confirm to its ShouldProcess.
+    # conditional -CachingProxyUrl/-Username/-Hostname/-MemoryStartupBytes/-Cores
+    # forwarding (the runner checks ContainsKey) and propagates -WhatIf/-Confirm.
     Invoke-PerGuestNewVm -HostSubdir 'host\windows.hyper-v' @PSBoundParameters
 }
 
@@ -3165,11 +3170,11 @@ function Get-BestHostIp {
     or a remote cache the operator explicitly named, are returned:
       1. $Env:YURUNA_CACHING_PROXY_IP -- explicit remote cache override.
       2. State file (Read-CachingProxyState).ipAddress -- the cache VM's
-         IP written by Start-CachingProxy.ps1 (our own VM).
+         IP written by Start-CachingProxyVM.ps1 (our own VM).
 
     No Hyper-V VM enumeration, no KVP/ARP discovery. Get-CacheVmCandidate-
     Ip / Get-WorkingCachingProxyUrl still exist for use by the producer
-    (guest.caching-proxy/New-VM.ps1) and Start-CachingProxy.ps1 itself
+    (guest.caching-proxy/New-VM.ps1) and Start-CachingProxyVM.ps1 itself
     while the cache VM is being brought up -- they are not part of the
     steady-state discovery path. LAN-wide cache discovery is a separate
     future feature.

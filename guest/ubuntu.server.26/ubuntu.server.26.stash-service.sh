@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.07.22
+# Version: 2026.07.24
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 #
@@ -44,12 +44,12 @@ if [ -r /usr/local/lib/yuruna/yuruna-retry.sh ]; then
 fi
 
 # --- REGION: Service user
-# The daemon runs unprivileged. Prefer the cloud-init-created 'yuruna'
-# account; fall back to whoever invoked the script (e.g. an interactive
-# test login). The share mount's uid/gid must match this user for writes
-# to land (cifs maps all files to one owner).
-if id -u yuruna >/dev/null 2>&1; then
-  SERVICE_USER=yuruna
+# The daemon runs unprivileged. Prefer the cloud-init-created
+# 'stash-admin' account; fall back to whoever invoked the script (e.g. an
+# interactive test login). The share mount's uid/gid must match this user
+# for writes to land (cifs maps all files to one owner).
+if id -u stash-admin >/dev/null 2>&1; then
+  SERVICE_USER=stash-admin
 else
   SERVICE_USER="$(id -un)"
 fi
@@ -75,7 +75,7 @@ METADATA_DIR=/var/lib/stash-server/metadata
 BUFFER_DIR=/var/lib/stash-server/buffer
 LOCAL_FALLBACK=/var/lib/stash-server/share-local
 
-# UI/API HTTP listener + pool knobs (stash-service-ui.md §2, §3.2, §3.4).
+# UI/API HTTP listener + pool knobs.
 # Operator-overridable via the environment; sensible defaults otherwise.
 # HTTP_ADDR binds :80 (the unprivileged service user holds
 # CAP_NET_BIND_SERVICE, set below, which covers any port <1024).
@@ -104,7 +104,7 @@ HOST_IP="${STASH_HOST_IP:-$HOST_IP_SEED}"
 PRESENCE_INTERVAL="${STASH_PRESENCE_INTERVAL:-15m}"
 # STASH_BUILD_TAGS lets the VM image opt into the magika detection backend
 # (`-tags magika`); that build also needs ONNX Runtime + the model assets
-# vendored (stash-service-ui.md §6.1, §14). Default empty = pure-Go heuristic.
+# vendored. Default empty = pure-Go heuristic.
 BUILD_TAGS="${STASH_BUILD_TAGS:-}"
 
 if [ -n "$NETWORK_PATH" ] && [ -n "$HOST_ID" ]; then
@@ -311,7 +311,7 @@ echo "  StashFolder: $SHARE_FOLDER"
 echo "  Metadata   : $METADATA_DIR"
 echo "  Buffer     : $BUFFER_DIR"
 if [ -n "$HTTP_ADDR" ]; then
-  echo "  UI/API     : http://<vm-ip>:${HTTP_ADDR##*:}  (browse / create / delete; stash-service-ui.md)"
+  echo "  UI/API     : http://<vm-ip>:${HTTP_ADDR##*:}  (browse / create / delete; docs/stash-guide.md)"
 else
   echo "  UI/API     : disabled (STASH_HTTP_ADDR empty)"
 fi

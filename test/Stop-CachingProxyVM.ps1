@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.22
+.VERSION 2026.07.24
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456743
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -18,7 +18,7 @@
 
 <#
 .SYNOPSIS
-    Inverse of Start-CachingProxy.ps1 -- stops the yuruna-caching-proxy
+    Inverse of Start-CachingProxyVM.ps1 -- stops the yuruna-caching-proxy
     VM and removes its disk/bundle + stashed password. Base image is
     KEPT so the next start doesn't re-download ~600 MB. Safe to re-run.
     Remove-PortMap tears down EVERY yuruna-managed host port forward
@@ -50,12 +50,12 @@ $ModulesDir = $paths.ModulesDir
 Initialize-YurunaEntryPointModuleSet -For CachingProxy -ModulesDir $ModulesDir
 
 # Auto-relaunch under sg libvirt on host.ubuntu.kvm when this shell's
-# group set is stale -- Stop-CachingProxy on Linux calls virsh destroy /
+# group set is stale -- Stop-CachingProxyVM on Linux calls virsh destroy /
 # undefine on the cache VM. No-op elsewhere.
 Invoke-LibvirtGroupReExecIfNeeded -HostType (Get-HostType) -ScriptPath $PSCommandPath -BoundParameters $PSBoundParameters
 
 # --- REGION: Step 0: plan + sudo preflight
-# Stop-CachingProxy runs UNATTENDED -- no interactive prompts. It has no
+# Stop-CachingProxyVM runs UNATTENDED -- no interactive prompts. It has no
 # destructive ShouldProcess gates (every Remove-*/Save-* call below already
 # passes -Confirm:$false), so the only thing to resolve up front is sudo:
 # the host-proxy wipe edits root-owned files (/etc/environment, apt proxy
@@ -80,7 +80,7 @@ Write-Output "  Proceeding unattended (no further prompts)."
 # and uses Remove-HostProxy (definitive wipe) rather than the older
 # Clear-HostProxy (snapshot/restore from $HOME/.yuruna/host-proxy.backup.json).
 # Definitive wipe is the right model here: any HTTP_PROXY/HTTPS_PROXY env
-# var or WinINet ProxyServer string left after Stop-CachingProxy is, by
+# var or WinINet ProxyServer string left after Stop-CachingProxyVM is, by
 # definition, pointing at a cache VM we are tearing down -- restoring
 # whatever was there before just leaks a stale IP into the next cycle.
 # Done first so a failure tearing down the VM doesn't leave the host
@@ -136,7 +136,7 @@ if ($IsMacOS) {
     }
     Write-Output "  Tearing down any legacy host-side forwarders..."
     [void](Remove-PortMap -Confirm:$false)
-    # Clear the cache-IP breadcrumb that Start-CachingProxy wrote for
+    # Clear the cache-IP breadcrumb that Start-CachingProxyVM wrote for
     # guest provisioners. Leaving it behind wouldn't hurt correctness
     # (guests would just re-fetch against a stale IP and fail open) but
     # matches the tidy-up pattern of the forwarder pidfiles. The
@@ -159,7 +159,7 @@ if ($IsMacOS) {
 
     Write-Output ""
     Write-Output "Base image kept at: $HOME/yuruna/image/caching-proxy/"
-    Write-Output "  (delete manually if you want the next Start-CachingProxy.ps1"
+    Write-Output "  (delete manually if you want the next Start-CachingProxyVM.ps1"
     Write-Output "   to re-download a fresh cloud image)."
 } elseif ($IsWindows) {
     Write-Output ""
@@ -176,7 +176,7 @@ if ($IsMacOS) {
     [void](Remove-PortMap -Confirm:$false)
 
     # (Get-VMHost) loads the Hyper-V module on first use; fails cleanly if
-    # Hyper-V isn't installed -- same dependency Start-CachingProxy.ps1 has.
+    # Hyper-V isn't installed -- same dependency Start-CachingProxyVM.ps1 has.
     $downloadDir = (Get-VMHost).VirtualHardDiskPath
     $vmDir       = Join-Path $downloadDir $VMName
 
@@ -197,7 +197,7 @@ if ($IsMacOS) {
 
     Write-Output ""
     Write-Output "Base image kept at: $downloadDir\host.windows.hyper-v.guest.caching-proxy.vhdx"
-    Write-Output "  (delete manually if you want the next Start-CachingProxy.ps1"
+    Write-Output "  (delete manually if you want the next Start-CachingProxyVM.ps1"
     Write-Output "   to re-download a fresh cloud image)."
 } elseif ($IsLinux) {
     Write-Output ""
@@ -206,16 +206,16 @@ if ($IsMacOS) {
     $RepoRoot    = Split-Path -Parent $PSScriptRoot
     $downloadDir = Join-Path $HOME 'yuruna/image/caching-proxy'
 
-    # Tear down any pwsh-based host port forwarders Start-CachingProxy.ps1
+    # Tear down any pwsh-based host port forwarders Start-CachingProxyVM.ps1
     # set up on the NAT 'default' fallback. On a bridged 'yuruna-external'
-    # network Start-CachingProxy didn't create any forwarders, so this is
+    # network Start-CachingProxyVM didn't create any forwarders, so this is
     # a no-op there. Done BEFORE deleting the VM so a stale forwarder
     # can't outlive the VM and tunnel LAN traffic into a black hole.
     Import-Module (Join-Path $RepoRoot 'test/modules/Test.HostContract.psm1') -Force
     [void](Initialize-YurunaHost -RepoRoot $RepoRoot)
     [void](Remove-PortMap -Confirm:$false)
 
-    # Clear the cache-IP breadcrumb that Start-CachingProxy wrote for
+    # Clear the cache-IP breadcrumb that Start-CachingProxyVM wrote for
     # guest provisioners. The password field is preserved -- it's
     # cross-cycle and survives stop. Matches the macOS branch above.
     Import-Module (Join-Path $PSScriptRoot 'modules/Test.CachingProxy.psm1') -Global -Force -Verbose:$false
@@ -236,10 +236,10 @@ if ($IsMacOS) {
 
     Write-Output ""
     Write-Output "Base image kept at: $downloadDir/host.ubuntu.kvm.guest.caching-proxy.qcow2"
-    Write-Output "  (delete manually if you want the next Start-CachingProxy.ps1"
+    Write-Output "  (delete manually if you want the next Start-CachingProxyVM.ps1"
     Write-Output "   to re-download a fresh cloud image)."
 } else {
-    Write-Error "Unsupported host. Stop-CachingProxy.ps1 runs on macOS (UTM), Windows (Hyper-V), or Linux (KVM/libvirt)."
+    Write-Error "Unsupported host. Stop-CachingProxyVM.ps1 runs on macOS (UTM), Windows (Hyper-V), or Linux (KVM/libvirt)."
     exit 1
 }
 

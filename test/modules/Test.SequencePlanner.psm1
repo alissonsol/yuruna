@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.22
+.VERSION 2026.07.24
 .GUID 42a1b2c3-d4e5-4f67-8901-bc012345677a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -67,7 +67,7 @@ function Get-CycleConfigPath {
     and degrade to legacy guestSequence if they want fallback behavior.
 
     Uses Read-SequenceFile (exported by Invoke-Sequence.psm1) as the
-    centralised powershell-yaml loader -- it parses any YAML file, not
+    centralized powershell-yaml loader -- it parses any YAML file, not
     just sequence files, and keeps the dependency check in one place.
 #>
 function Get-CycleConfig {
@@ -255,6 +255,11 @@ function Add-CyclePlanEntriesForTopLevel {
         }
         $effectiveUsername = if ($effectiveVars.Contains('username')) { [string]$effectiveVars['username'] } else { '' }
         $effectiveHostname = if ($effectiveVars.Contains('hostname')) { [string]$effectiveVars['hostname'] } else { '' }
+        # VM sizing overrides cascade the same way username/hostname do and feed
+        # New-VM directly (memory + vCPU count). Empty leaves each per-guest
+        # New-VM.ps1 on its built-in default.
+        $effectiveMemoryStartupBytes = if ($effectiveVars.Contains('memoryStartupBytes')) { [string]$effectiveVars['memoryStartupBytes'] } else { '' }
+        $effectiveCores    = if ($effectiveVars.Contains('cores')) { [string]$effectiveVars['cores'] } else { '' }
         $Entries.Add([pscustomobject]@{
             topLevel            = $TopName
             guestKey            = $guestKey
@@ -264,6 +269,8 @@ function Add-CyclePlanEntriesForTopLevel {
             effectiveVariables  = $effectiveVars
             effectiveUsername   = $effectiveUsername
             effectiveHostname   = $effectiveHostname
+            effectiveMemoryStartupBytes = $effectiveMemoryStartupBytes
+            effectiveCores      = $effectiveCores
             keystrokeMechanism  = $guestKsm
         })
     }
@@ -478,6 +485,9 @@ function Get-CyclePlanSequencesForGuest {
     $mergedVars     = [ordered]@{}
     $mergedUsername = ''
     $mergedHostname = ''
+    # VM sizing overrides merge under the same first-appearance rule as username.
+    $mergedMemoryStartupBytes = ''
+    $mergedCores    = ''
     # Per-guest keystrokeMechanism (set only on pool/test-set plans). First
     # non-null across this guest's entries wins -- same first-appearance rule as
     # effectiveUsername. $null on the legacy single-host path (the field is absent
@@ -498,6 +508,8 @@ function Get-CyclePlanSequencesForGuest {
         }
         if (-not $mergedUsername -and $e.effectiveUsername) { $mergedUsername = $e.effectiveUsername }
         if (-not $mergedHostname -and ($e.PSObject.Properties.Name -contains 'effectiveHostname') -and $e.effectiveHostname) { $mergedHostname = $e.effectiveHostname }
+        if (-not $mergedMemoryStartupBytes -and ($e.PSObject.Properties.Name -contains 'effectiveMemoryStartupBytes') -and $e.effectiveMemoryStartupBytes) { $mergedMemoryStartupBytes = $e.effectiveMemoryStartupBytes }
+        if (-not $mergedCores -and ($e.PSObject.Properties.Name -contains 'effectiveCores') -and $e.effectiveCores) { $mergedCores = $e.effectiveCores }
         if (-not $mergedKsm -and ($e.PSObject.Properties.Name -contains 'keystrokeMechanism') -and $e.keystrokeMechanism) { $mergedKsm = $e.keystrokeMechanism }
     }
     return @{
@@ -506,6 +518,8 @@ function Get-CyclePlanSequencesForGuest {
         effectiveVariables  = $mergedVars
         effectiveUsername   = $mergedUsername
         effectiveHostname   = $mergedHostname
+        effectiveMemoryStartupBytes = $mergedMemoryStartupBytes
+        effectiveCores      = $mergedCores
         keystrokeMechanism  = $mergedKsm
     }
 }
@@ -521,7 +535,7 @@ function Get-CyclePlanSequencesForGuest {
     have emitted for that sequence:
       topLevel / guestKey / fullChain / startSequences / workloadSequences
       / effectiveVariables / effectiveUsername / effectiveHostname
-      / chainPaths
+      / effectiveMemoryStartupBytes / effectiveCores / chainPaths
 
     When the named sequence has no `baseline:` block (rare -- the framework
     convention is that every workload declares the prereq it needs), the
@@ -581,6 +595,8 @@ function Resolve-NamedSequenceChain {
         $vars = if ($topSeq.variables) { $topSeq.variables } else { [ordered]@{} }
         $uname = if ($vars -is [System.Collections.IDictionary] -and $vars.Contains('username')) { [string]$vars['username'] } else { '' }
         $hname = if ($vars -is [System.Collections.IDictionary] -and $vars.Contains('hostname')) { [string]$vars['hostname'] } else { '' }
+        $mem   = if ($vars -is [System.Collections.IDictionary] -and $vars.Contains('memoryStartupBytes')) { [string]$vars['memoryStartupBytes'] } else { '' }
+        $cores = if ($vars -is [System.Collections.IDictionary] -and $vars.Contains('cores')) { [string]$vars['cores'] } else { '' }
         $paths = [ordered]@{ $SequenceName = $topPath }
         return [pscustomobject]@{
             topLevel            = $SequenceName
@@ -591,6 +607,8 @@ function Resolve-NamedSequenceChain {
             effectiveVariables  = $vars
             effectiveUsername   = $uname
             effectiveHostname   = $hname
+            effectiveMemoryStartupBytes = $mem
+            effectiveCores      = $cores
             chainPaths          = $paths
         }
     }
@@ -645,6 +663,8 @@ function Resolve-NamedSequenceChain {
     }
     $effectiveUsername = if ($effectiveVars.Contains('username')) { [string]$effectiveVars['username'] } else { '' }
     $effectiveHostname = if ($effectiveVars.Contains('hostname')) { [string]$effectiveVars['hostname'] } else { '' }
+    $effectiveMemoryStartupBytes = if ($effectiveVars.Contains('memoryStartupBytes')) { [string]$effectiveVars['memoryStartupBytes'] } else { '' }
+    $effectiveCores    = if ($effectiveVars.Contains('cores')) { [string]$effectiveVars['cores'] } else { '' }
 
     return [pscustomobject]@{
         topLevel            = $SequenceName
@@ -655,6 +675,8 @@ function Resolve-NamedSequenceChain {
         effectiveVariables  = $effectiveVars
         effectiveUsername   = $effectiveUsername
         effectiveHostname   = $effectiveHostname
+        effectiveMemoryStartupBytes = $effectiveMemoryStartupBytes
+        effectiveCores      = $effectiveCores
         chainPaths          = $paths
     }
 }

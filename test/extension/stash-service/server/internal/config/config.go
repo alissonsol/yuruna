@@ -14,7 +14,7 @@ const (
 	PerFileSizeLimit = 100 * 1024 * 1024
 )
 
-// UI HTTP listener (stash-service-ui.md §2, §11). The daemon adds a
+// UI HTTP listener. The daemon adds a
 // second listener for the browser UI + JSON API alongside the SCP/SFTP
 // sink. Port 80 is privileged; the service user holds CAP_NET_BIND_SERVICE
 // (already required for :22), so no extra privilege is needed. Both the
@@ -22,17 +22,16 @@ const (
 const (
 	DefaultHTTPAddress = "0.0.0.0:80"
 	// DefaultPoolWindowDays bounds how many days of cross-host sidecars the
-	// pool index holds in memory (stash-service-ui.md §3.2). Queries older
+	// pool index holds in memory. Queries older
 	// than the window fall back to an on-demand share scan.
 	DefaultPoolWindowDays = 30
 	// MaxListLimit caps a single /api/stashes response so a large pool can
-	// never return unbounded JSON (stash-service-ui.md §9, §11).
+	// never return unbounded JSON.
 	MaxListLimit = 500
 	// DefaultListLimit is the recent-list page size when none is requested
-	// (stash-service-ui.md §4.1, §11).
 	DefaultListLimit = 50
 	// InlineTextPreviewCap bounds inline text rendering; larger text is
-	// shown truncated with a download prompt (stash-service-ui.md §6.2, §11).
+	// shown truncated with a download prompt.
 	InlineTextPreviewCap = 1 * 1024 * 1024
 	// MaxRequestBytes caps a single create request body (multipart or JSON)
 	// so an unauthenticated POST cannot fill /tmp (multipart spill) or the
@@ -53,7 +52,7 @@ const (
 	PresenceArea            = "stash-service"
 )
 
-// Stash creation source (stash-service-ui.md §10). Distinguishes an
+// Stash creation source. Distinguishes an
 // SCP/SFTP-ingested stash from one created through the browser UI; both
 // flow through the same storage pipeline (a stash is a stash, §1).
 const (
@@ -61,8 +60,7 @@ const (
 	SourceUI  = "ui"
 )
 
-// Content classes the UI switches on for rendering (stash-service-ui.md
-// §6.1). Detection (the detect package) maps a MIME type onto one of
+// Content classes the UI switches on for rendering. Detection (the detect package) maps a MIME type onto one of
 // these; the daemon stores it on the record + sidecar.
 const (
 	ClassText    = "text"

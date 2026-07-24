@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.22
+.VERSION 2026.07.24
 .GUID 42c7a1b9-3d4e-4f80-9a21-5b6c7d8e9f01
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -16,18 +16,10 @@
 
 #requires -version 7
 
-# Orchestration-sequence execution for Test-Sequence.ps1.
-#
-# An "orchestration sequence" has no `baseline:` and its steps are
-# `action: InvokeTestSequence` entries -- each names an inner sequence
-# (a guest sequence with baseline+steps, or a host-action `host:` block).
-# The orchestrator runs every inner sequence IN-PROCESS under ONE
-# status.json cycle: each inner sequence is a distinct row (its own
-# synthetic guest key + sequences[] entry) so the dashboard shows one
-# unified cycle with per-sequence names and pass/fail, instead of the
-# one-cycle-per-child model the retired Test-SequenceSet.ps1 produced.
-#
-# This replaces the local one-shot Test-SequenceSet driver.
+# Orchestration-sequence execution for Test-Sequence.ps1: runs every
+# `InvokeTestSequence` inner sequence IN-PROCESS under ONE status.json
+# cycle, one dashboard row per inner sequence. Replaces the retired
+# one-shot Test-SequenceSet driver. See docs/test-runner.md.
 #
 # NOTE (dedup follow-up): Invoke-OrchestratorGuestRun below mirrors the
 # per-guest prep + chain-run Test-Sequence.ps1 performs inline for a

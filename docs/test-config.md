@@ -13,6 +13,26 @@ Top-level sections: `configService`, `guestSequence`, `logLevel`,
 `testCycle`, `vmCommunication`, `vmImage`, `vmStart`. Most are
 self-describing; the ones carrying non-obvious behavior are documented below.
 
+## Template reconciliation
+
+`test.config.yml.template` is the schema source of truth. `Test-Config`
+fully reconciles the live `test.config.yml` to it
+(`Sync-TestConfigToTemplate` in `Test.ConfigSync.psm1`): missing template
+fields are added with empty/default values; keys the template no longer
+defines are removed (a populated removed key first backs the previous file
+up to `test.config.yml.backup`); and the file is rewritten with all map
+keys and scalar-array elements in alphabetical order so it is byte-stable
+and diff-friendly. Operator values that still map are kept and the
+out-of-band `secrets` node is untouched.
+
+Outcomes: already canonical → PASS with no rewrite; fields added/re-sorted
+→ PASS listing new fields to fill in; populated keys dropped from the
+schema → WARN or FAIL per `-OnConfigSchemaDrift` (recover from the
+`.backup`). At cycle start the runner performs the same reconciliation via
+`Update-TestConfigFromTemplate`, which additionally STOPS the run when a
+populated value no longer maps; `-ApplyConfigMigration` runs that
+stop-on-unmappable variant immediately.
+
 ## configService — host mTLS credential service
 
 `configService.isEnabled` / `configService.port` (default `8443`) control the
@@ -20,7 +40,7 @@ per-host **config service** — the mTLS endpoint that serves NAS credentials to
 the VMs this host provisions so they don't have to ship in each seed. When
 enabled, the runner ensures it per cycle (given a Config CA exists); VMs fetch
 over the `yuruna-config-fetch.sh` mTLS path and fall back to baked creds only
-if it is unreachable. See [Host Config Service](design/host-config-service-and-extension-hosts.md).
+if it is unreachable.
 
 ## networkStorage — optional NAS-backed durable tiers
 
@@ -246,6 +266,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.22
+Last review: 2026.07.24
 
 Back to [Yuruna](../README.md)

@@ -2,12 +2,7 @@
 
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
-# Interaction sequence for driving VM workload testing.
-# See possible actions in the actions.yml file.
-# ${vmName}, ${hostType}, ${guestKey}, ${hostname} are built-in. ${ext:area.Method(args)}
-# invokes the active extension under test/extension/<area>/.
 
-# Perf-log identity (see https://yuruna.link/test/perf). Bump revision on step add/remove.
 sequenceGuid: 4246401e-0173-4605-b3b0-e2a85c16ade5
 sequenceRevision: 2
 
@@ -19,7 +14,6 @@ resource:
 variables:
   username: yauser1
 
-# component -- reach a logged-in shell.
 component:
   - action: retry
     maxAttempts: 2
@@ -43,20 +37,15 @@ component:
     timeoutSeconds: 90
     description: "OCR: ${username}@${hostname}"
 
-# workload -- install the Desktop package group and verify.
 workload:
   - action: inputTextAndEnter
-    # `&& echo DESKTOP_INSTALL_DONE` prints a sentinel only on dnf success.
     # Matching that rare marker instead of the shell prompt avoids the
-    # username@hostname false-match against the login banner (the prompt
-    # tokens also appear in "<host> login: <user>") and only reports success
-    # when the install actually completed exit-0.
+    # username@hostname false-match against the login banner
     text: 'sudo dnf groupinstall -y "Desktop" && echo DESKTOP_INSTALL_DONE'
     description: "GUI install"
 
   - action: waitForText
-    # Underscores keep this one atomic fuzzy token (not in the segment-split
-    # set), and freshMatch (last 12 OCR lines) ignores the echoed command that
+    # freshMatch (last 12 OCR lines) ignores the echoed command that
     # carried the same marker, matching only the post-install echo.
     pattern: "DESKTOP_INSTALL_DONE"
     timeoutSeconds: 300

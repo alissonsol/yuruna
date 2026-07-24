@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.22
+.VERSION 2026.07.24
 .GUID 42f4e5f6-a7b8-4c9d-0123-4e5f6a7b8c81
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -124,8 +124,8 @@ Import-Module (Join-Path $repoRoot 'test/modules/Test.Extension.psm1') -Global -
 $SshAuthorizedKey = Get-YurunaSshPublicKey
 if (-not $SshAuthorizedKey) { Write-Error "Get-YurunaSshPublicKey returned empty."; exit 1 }
 $_authActiveName = @(Import-Extension -Area 'authentication' -RequireSingle)[0]
-$YurunaPassword = Get-Password -Username 'yuruna'
-if (-not $YurunaPassword) { Write-Error "Get-Password returned empty for 'yuruna'."; exit 1 }
+$AdminPassword = Get-Password -Username 'stash-admin'
+if (-not $AdminPassword) { Write-Error "Get-Password returned empty for 'stash-admin'."; exit 1 }
 Write-Output "Password came from authentication mechanism: $_authActiveName"
 Write-Output "See configuration at: $(Resolve-ExtensionAreaDir -Area 'authentication')"
 
@@ -142,9 +142,13 @@ foreach ($f in @($baseUserData, $overlayUserData, $metaDataTemplate)) {
 # --- REGION: Pick libvirt network (BEFORE building user-data)
 # The baked share + source coordinates depend on whether this is NAT
 # 'default' (host = libvirt gateway) or bridged 'yuruna-external' (host =
-# LAN IP), so resolve the network first.
+# LAN IP), so resolve the network first. Resolve-GuestHostBinding returns the
+# matched pair -- the same helper the cache and the install guests use, so
+# every VM on this host lands on one network and the baked host address is
+# always routable from it.
 Import-Module (Join-Path (Split-Path -Parent $ScriptDir) 'modules/Yuruna.Host.psm1') -Force -DisableNameChecking
-$networkName = Get-ExternalNetwork
+$guestBinding = Resolve-GuestHostBinding
+$networkName  = $guestBinding.NetworkName
 if (-not $networkName) {
     Write-Error "No libvirt network defined. Run 'virsh net-start default' to enable the NAT default, or define 'yuruna-external' (see README.md) for LAN-bridged access."
     exit 1
@@ -153,22 +157,55 @@ if ($networkName -eq 'default') {
     Write-Warning "Using libvirt NAT 'default' network (192.168.122/24). The stash VM is reachable from this host only and the NAS likely isn't routable; define a bridged 'yuruna-external' libvirt network for LAN + NAS access."
 } else {
     Write-Output "Using libvirt network: $networkName (stash VM will get a LAN-routable IP)"
+
+    # --- REGION: bridge-uplink preflight (fail fast, not a silent 20-min wait)
+    # A libvirt <forward mode='bridge'/> network stays ACTIVE even after its host
+    # bridge loses its physical uplink (only guest tap ports remain): virsh reports
+    # the network as fine, the guest attaches and boots, but its DHCP request has no
+    # path to the LAN's DHCP server -- so it NEVER leases, cloud-init stalls with no
+    # network (disk growth freezes), and qemu-guest-agent, itself installed over that
+    # network, never comes up. The IP wait below would then burn its whole budget for
+    # nothing. Detect it HERE and stop with the remediation. The bridge lifecycle is
+    # owned by test/Start-CachingProxyVM.ps1 (New-YurunaExternalNetwork self-heals or
+    # rebuilds the uplink); this guest script only consumes the network, so it must
+    # not flap host networking itself -- it points at the owner instead. Same brif
+    # check as Test-YurunaBridgeHasUplink; inlined via direct virsh (the module's
+    # bridge probes are internal, not exported). Best-effort: any probe gap leaves
+    # the build to proceed rather than false-fail.
+    $netXml = (& virsh --connect $virshUri net-dumpxml $networkName 2>$null) -join "`n"
+    if ($netXml -match "<forward\s+mode='bridge'" -and $netXml -match "<bridge\s+name='([^']+)'") {
+        $extBridge = $Matches[1]
+        $brifDir   = "/sys/class/net/$extBridge/brif"
+        $physPorts = if (Test-Path -LiteralPath $brifDir) {
+            @(Get-ChildItem -LiteralPath $brifDir -ErrorAction SilentlyContinue |
+                Where-Object { $_.Name -notmatch '^(vnet|tap)\d+$' })
+        } else { @() }
+        if ($physPorts.Count -eq 0) {
+            Write-Error @"
+
+libvirt network '$networkName' is active, but its host bridge '$extBridge' has NO
+physical LAN uplink (only guest tap ports are attached). A guest on it can never
+obtain a DHCP lease -- this is the silent 20-minute 'no IP' wait, not a slow boot.
+
+Heal the bridge, then re-run this script:
+    test/Start-CachingProxyVM.ps1
+(it owns the 'yuruna-external' bridge lifecycle and self-heals or rebuilds the
+uplink NIC). Nothing was created; the stash VM was not started.
+"@
+            exit 1
+        }
+    }
 }
 
 # Host coordinates (status server, for the in-VM source fetch) + stash storage
-# coordinates (the share), baked into the seed. Honor an explicit override.
+# coordinates (the share), baked into the seed. The host address came from the
+# same binding as the network above ($env:YURUNA_GUEST_REACHABLE_HOST_IP wins
+# there); empty means the guest falls back to the public github mirror.
 Import-Module (Join-Path $repoRoot 'test/modules/Test.PoolStorage.psm1')  -Global -Force
 Import-Module (Join-Path $repoRoot 'test/modules/Test.YurunaDir.psm1')    -Global -Force
 Import-Module (Join-Path $repoRoot 'test/modules/Test.Config.psm1')       -Global -Force
 Import-Module (Join-Path $repoRoot 'test/modules/Test.CachingProxy.psm1') -Global -Force
-if ($env:YURUNA_GUEST_REACHABLE_HOST_IP) {
-    $YurunaHostIp = $env:YURUNA_GUEST_REACHABLE_HOST_IP
-} elseif ($networkName -eq 'default') {
-    $YurunaHostIp = Get-GuestReachableHostIp   # NAT 'default': libvirt gateway
-} else {
-    $YurunaHostIp = Get-BestHostIp             # bridged 'yuruna-external': host LAN IP
-}
-if (-not $YurunaHostIp) { $YurunaHostIp = '' }
+$YurunaHostIp = $guestBinding.HostIp
 $YurunaHostPort = '8080'
 $YurunaTestConfig = Join-Path $repoRoot 'test/test.config.yml'
 $tc = $null
@@ -191,7 +228,7 @@ $userData = New-CloudInitUserData `
     -RepoRoot    $repoRoot `
     -Replacement @{
         SSH_AUTHORIZED_KEY_PLACEHOLDER = $SshAuthorizedKey
-        PASSWORD_PLACEHOLDER           = $YurunaPassword
+        PASSWORD_PLACEHOLDER           = $AdminPassword
         YURUNA_HOST_IP_PLACEHOLDER     = $YurunaHostIp
         YURUNA_HOST_PORT_PLACEHOLDER   = $YurunaHostPort
         YSTASH_NAS_NETWORK_PATH_PLACEHOLDER  = $ystashNas.NetworkPath
@@ -218,8 +255,8 @@ if ($LASTEXITCODE -ne 0) {
 
 Write-Output ""
 Write-Output "== stash-service console/SSH login (available NOW) =="
-Write-Output "  user:     yuruna"
-Write-Output "  password: (in authentication vault under 'yuruna')"
+Write-Output "  user:     stash-admin"
+Write-Output "  password: (in authentication vault under 'stash-admin')"
 Write-Output "  If the wait below stalls or fails, open"
 Write-Output "    virt-viewer --connect $virshUri $VMName"
 Write-Output "  and log in with the credentials above to inspect cloud-init state."
@@ -287,11 +324,18 @@ if ($virtInstallExit -ne 0) {
 Remove-Item -LiteralPath $seedDir -Recurse -Force -ErrorAction SilentlyContinue
 
 # --- REGION: Wait for VM IP
+# On the bridged 'yuruna-external' network the host is NOT the DHCP server, so
+# `virsh domifaddr` (default --source lease) returns nothing and the address is
+# reported by qemu-guest-agent (--source agent), which the guest installs in its
+# package phase. ARP (--source arp) covers the window before the agent is up,
+# but only answers once the guest has sent this host a packet. So the budget has
+# to cover a first-boot apt run, not just DHCP.
 Write-Output "Waiting for VM to obtain an IP address..."
-Write-Output "  (cloud-init brings up networking; first boot can take 1-3 minutes)"
+Write-Output "  (cloud-init brings up networking, then installs packages -- on a"
+Write-Output "   first boot over a slow mirror this can take several minutes)"
 
 $dockIp = $null
-$maxIterations = 120  # 120 * 5s = 10 minutes
+$maxIterations = 240  # 240 * 5s = 20 minutes
 $startTime = Get-Date
 $baselineSizeMB = [math]::Round((Get-Item $diskImg).Length / 1MB, 0)
 # Plain Write-Output progress -- see feedback_pwsh_linux_write_progress_setcursor.md
@@ -314,12 +358,35 @@ for ($i = 0; $i -lt $maxIterations; $i++) {
 }
 
 if (-not $dockIp) {
+    # Dump what each discovery source actually said. "No IP" has three very
+    # different causes -- the guest never got a lease, the guest has a lease the
+    # host cannot observe, or the domain died -- and only the raw per-source
+    # output separates them.
+    Write-Output ""
+    Write-Output "Address discovery, per source:"
+    Write-Output "  domain state: $((& virsh --connect $virshUri domstate $VMName 2>&1 | Out-String).Trim())"
+    foreach ($src in @('lease', 'agent', 'arp')) {
+        $probe = (& virsh --connect $virshUri domifaddr $VMName --source $src 2>&1 | Out-String).Trim()
+        if (-not $probe) { $probe = '(empty)' }
+        Write-Output "  --source ${src}: $($probe -replace "`r?`n", ' | ')"
+    }
     Write-Error @"
 
-stash-service VM '$VMName' did not obtain an IP address within 10 minutes.
+stash-service VM '$VMName' did not obtain an IP address within 20 minutes
+(network '$networkName'; sources lease, agent, arp all returned empty).
+
+  * 'agent' says the agent is not connected -> the guest is still in its package
+    phase (or apt failed), so qemu-guest-agent has not started yet. The console
+    log below shows where cloud-init is.
+  * All three empty AND the VM is on a bridged network whose uplink is Wi-Fi:
+    some access points refuse to forward the guest's DHCP request (MAC-based AP
+    isolation). Use a wired uplink, or undefine 'yuruna-external' to fall back
+    to the NAT 'default' network.
+
 Accessing the VM for debugging:
   * Console:  virt-viewer --connect $virshUri $VMName
-              user: yuruna  (password in authentication vault)
+              user: stash-admin  (password in authentication vault)
+              then: cloud-init status --long; ip -4 addr
 "@
     exit 1
 }
@@ -329,13 +396,13 @@ Write-Output "== stash-service VM is READY =="
 Write-Output "  VM:       $VMName"
 Write-Output "  IP:       $dockIp"
 Write-Output "  Network:  $networkName"
-Write-Output "  SSH:      ssh yuruna@$dockIp  (harness key authorized)"
+Write-Output "  SSH:      ssh stash-admin@$dockIp  (harness key authorized)"
 Write-Output "  Console:  virt-viewer --connect $virshUri $VMName"
 Write-Output ""
 Write-Output "Cloud-init mounts the stash share, fetches the framework, and runs the"
 Write-Output "bring-up script. Once it finishes, the stash daemon owns :22 (the OS"
 Write-Output "sshd is disabled), so reach it with scp:  scp ./file user@$dockIp`:/scratch"
-Write-Output "Watch progress:  ssh yuruna@$dockIp 'tail -f /var/log/cloud-init-output.log'"
+Write-Output "Watch progress:  ssh stash-admin@$dockIp 'tail -f /var/log/cloud-init-output.log'"
 Write-Output "(harness key authorized until the daemon takes over :22). See"
 Write-Output "https://yuruna.link/stash-service."
 exit 0

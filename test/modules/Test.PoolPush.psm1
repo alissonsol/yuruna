@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.22
+.VERSION 2026.07.24
 .GUID 429b1c74-2a6d-4f38-91c0-7b3e8d2a4f16
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -257,5 +257,82 @@ function Invoke-PoolEventPush {
     return $summary
 }
 
+function Send-PoolForgetRequest {
+    <#
+    .SYNOPSIS
+        POST an empty-body /api/v1/forget-host request over CA-PINNED HTTPS with the shared
+        bearer token. Returns the HTTP status code, or 0 when the request could not be made
+        (no pinned-TLS type, transport/pinning error). Never throws. Sibling of
+        Send-PoolEventBatch; no body -- the hostId rides in the query string.
+    #>
+    [CmdletBinding()]
+    [OutputType([int])]
+    param(
+        [Parameter(Mandatory)][string]$Url,
+        [Parameter(Mandatory)][string]$CaCertPath,
+        [Parameter(Mandatory)][string]$Token,
+        [Parameter()][int]$TimeoutSec = 15
+    )
+    if (-not $script:PoolPinnedTlsType) { Write-Verbose 'Send-PoolForgetRequest: pinned-TLS helper unavailable.'; return 0 }
+    $client = $null
+    $ca = $null
+    try {
+        $ca = New-PoolX509Certificate -Path $CaCertPath
+        $client = [YurunaPoolPinnedTls]::Client($ca, $TimeoutSec)
+        $req = [System.Net.Http.HttpRequestMessage]::new([System.Net.Http.HttpMethod]::Post, $Url)
+        [void]$req.Headers.TryAddWithoutValidation('Authorization', "Bearer $Token")
+        $resp = $client.SendAsync($req).GetAwaiter().GetResult()
+        return [int]$resp.StatusCode
+    } catch {
+        Write-Verbose "Send-PoolForgetRequest: $($_.Exception.Message)"
+        return 0
+    } finally {
+        if ($client) { $client.Dispose() }
+        if ($ca) { $ca.Dispose() }
+    }
+}
+
+function Invoke-PoolForgetHost {
+    <#
+    .SYNOPSIS
+        Evict a stale host from the aggregator's live view NOW via POST
+        /api/v1/forget-host over CA-pinned HTTPS with the shared bearer token, instead of
+        waiting out its 24h TTL. Best-effort + bounded; never throws. Re-fetches the pool CA
+        once on failure (a rotated CA fails pinning), exactly like Invoke-PoolEventPush.
+        Returns @{ ok; status; reason }.
+    #>
+    [CmdletBinding()]
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+        Justification = 'Best-effort remote control call; never throws, mutates only the remote aggregator view.')]
+    [OutputType([hashtable])]
+    param(
+        [Parameter(Mandatory)][string]$ProxyIp,
+        [Parameter(Mandatory)][string]$HostId,
+        [Parameter(Mandatory)][string]$Token,
+        [Parameter(Mandatory)][string]$RuntimeDir,
+        [Parameter()][int]$Port = 9400,
+        [Parameter()][int]$TimeoutSec = 15
+    )
+    $result = @{ ok = $false; status = 0; reason = '' }
+    try {
+        $caPath = Get-PoolCaCertPath -ProxyIp $ProxyIp -RuntimeDir $RuntimeDir -TimeoutSec $TimeoutSec -Confirm:$false
+        if (-not $caPath) { $result.reason = 'pool CA unavailable (cannot pin -> not sending the token)'; return $result }
+        $url  = "https://${ProxyIp}:$Port/api/v1/forget-host?hostId=$HostId"
+        $code = Send-PoolForgetRequest -Url $url -CaCertPath $caPath -Token $Token -TimeoutSec $TimeoutSec
+        if ($code -lt 200 -or $code -ge 300) {
+            $fresh = Get-PoolCaCertPath -ProxyIp $ProxyIp -RuntimeDir $RuntimeDir -TimeoutSec $TimeoutSec -Refresh -Confirm:$false
+            if ($fresh) { $code = Send-PoolForgetRequest -Url $url -CaCertPath $fresh -Token $Token -TimeoutSec $TimeoutSec }
+        }
+        $result.status = $code
+        $result.ok     = ($code -ge 200 -and $code -lt 300)
+        if (-not $result.ok) { $result.reason = "aggregator returned HTTP $code" }
+    } catch {
+        $result.reason = "error: $($_.Exception.Message)"
+        Write-Verbose "Invoke-PoolForgetHost: $($_.Exception.Message)"
+    }
+    return $result
+}
+
 Export-ModuleMember -Function `
-    New-PoolX509Certificate, Get-PoolCaCertPath, Get-PoolPushBatch, Send-PoolEventBatch, Invoke-PoolEventPush
+    New-PoolX509Certificate, Get-PoolCaCertPath, Get-PoolPushBatch, Send-PoolEventBatch, Invoke-PoolEventPush, `
+    Send-PoolForgetRequest, Invoke-PoolForgetHost

@@ -38,6 +38,7 @@ func main() {
 	intentGitURL := flag.String("intent-git-url", "", "writable pool-intent git URL forwarded to the CLIs (defaults to test.config.yml's pool.intentGitUrl when empty)")
 	stateDir := flag.String("state-dir", "", "directory (under poolNetworkPath/pool-control/) for the audit log + status.json; empty disables persistence")
 	monitorInterval := flag.Duration("monitor-interval", 60*time.Second, "how often to probe the intent + refresh status.json")
+	configPath := flag.String("config-file", "/etc/yuruna/pool-control.env", "env file re-read before each intent operation for POOL_CONTROL_INTENT_GIT_URL (empty pins the launch flag)")
 	flag.Parse()
 
 	log.SetFlags(log.LstdFlags | log.LUTC | log.Lmicroseconds)
@@ -45,9 +46,13 @@ func main() {
 		log.Fatalf("pool-control: --repo-dir is required (the yuruna framework checkout with test/*.ps1)")
 	}
 
-	runner := &intent.Runner{Pwsh: *pwshPath, RepoDir: *repoDir, IntentGitUrl: *intentGitURL}
+	runner := &intent.Runner{Pwsh: *pwshPath, RepoDir: *repoDir, IntentGitUrl: *intentGitURL, ConfigPath: *configPath}
 	store := state.New(*stateDir, time.Now())
-	ui := httpsrv.New(runner, httpsrv.Options{Addr: *httpAddr, Version: version, Store: store})
+	ui := httpsrv.New(runner, httpsrv.Options{
+		Addr: *httpAddr, Version: version, Store: store,
+		PwshPath: *pwshPath, RepoDir: *repoDir, StateDir: *stateDir,
+		AggregatorURL: *aggregatorURL, HostID: *hostID, IntentGitURL: *intentGitURL,
+	})
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()

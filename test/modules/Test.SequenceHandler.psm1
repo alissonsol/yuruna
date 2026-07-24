@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.22
+.VERSION 2026.07.24
 .GUID 42a1b2c3-d4e5-4f67-8901-bc012345672a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -121,22 +121,10 @@ function Resolve-WaitForTextStepParam {
 }
 
 # --- REGION: Verb registrations
-# Each Register-SequenceAction binds (Name -> Handler).
-# Handlers communicate with the engine via $Context:
-#   $Context.Step             -- parsed YAML step (IDictionary)
-#   $Context.StepNum/StepCount-- 1-based position in the sequence
-#   $Context.Steps            -- full sequence (rare; retry uses it)
-#   $Context.Vars             -- variable scope (writable; auto-derived
-#                                fields like loginUser already merged in)
-#   $Context.VMName/GuestKey/HostType -- target VM / planner identity
-#   $Context.LogDir/RuntimeDir/ScreenshotDir -- per-cycle paths
-#   $Context.ShowSensitive    -- when $true, masked text is logged as-is
-#   $Context.SequencePath     -- path to the sequence YAML
-#   $Context.ExpandVariable   -- function-reference for variable expansion
-#   $Context.Default*         -- engine defaults from test.config.yml
-#   $Context.WriteCurrentAction, WaitWhilePaused, InvokeStepBlock -- engine
-#                                callbacks (used by break / retry-style verbs)
-#   $Context.Description      -- the engine-expanded description string
+# Each Register-SequenceAction binds (Name -> Handler). Handlers
+# communicate with the engine via the $Context hashtable (Step, Vars,
+# VMName/GuestKey/HostType, per-cycle paths, engine defaults and
+# callbacks). Full field table: See docs/handler-schema.md.
 
 # Send the optional Tab-navigation prefix a keyboard-input verb uses to reach the
 # target field before typing: read $Context.Step.tabCount, press Tab that many times
@@ -1197,7 +1185,7 @@ Register-SequenceAction -Name 'retry' -HostIORequirement @() -OcrRequired $false
             # already refreshes at step boundaries (top of
             # $invokeStepBlock); a multi-attempt retry block runs as
             # a SINGLE step from the watchdog's perspective and would
-            # blow past stepTimeoutMinutes without ever signalling
+            # blow past stepTimeoutMinutes without ever signaling
             # proof-of-life. Per-attempt refresh keeps the watchdog
             # aligned with reality.
             try {

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.22
+.VERSION 2026.07.24
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456742
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -67,12 +67,12 @@ if ($VMName -notmatch '^[a-zA-Z0-9._-]+$') {
 if ($IsWindows -and -not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator")) {
     Write-Output ""
     Write-Output "This script requires elevation (Run as Administrator)."
-    Write-Output "Start-CachingProxy needs an elevated session to:"
+    Write-Output "Start-CachingProxyVM needs an elevated session to:"
     Write-Output "  * query Hyper-V for the VHD folder (Get-VMHost)"
     Write-Output "  * create and remove the '$VMName' VM and its disk"
     Write-Output "  * set the host proxy (WinINet) and netsh portproxy rules"
     Write-Output "Re-launch PowerShell as Administrator and run this script again."
-    Write-Error "Start-CachingProxy requires Administrator on Windows. Nothing was changed."
+    Write-Error "Start-CachingProxyVM requires Administrator on Windows. Nothing was changed."
     exit 1
 }
 
@@ -153,7 +153,7 @@ if ($MacAddress) {
 }
 
 # Auto-relaunch under sg libvirt on host.ubuntu.kvm when this shell's
-# group set is stale -- Start-CachingProxy on Linux provisions the cache
+# group set is stale -- Start-CachingProxyVM on Linux provisions the cache
 # VM via virt-install and queries its IP via virsh, both of which need
 # libvirt-socket access. No-op on macOS / Windows / fresh shells.
 Invoke-LibvirtGroupReExecIfNeeded -HostType (Get-HostType) -ScriptPath $PSCommandPath -BoundParameters $PSBoundParameters
@@ -196,7 +196,7 @@ if ($IsMacOS) {
     $downloadDir  = Join-Path $HOME 'yuruna/image/caching-proxy'
     $ImageFile    = Join-Path $downloadDir 'host.ubuntu.kvm.guest.caching-proxy.qcow2'
 } else {
-    Write-Error "Unsupported host. Start-CachingProxy.ps1 runs on macOS (UTM), Windows (Hyper-V), or Linux (KVM/libvirt)."
+    Write-Error "Unsupported host. Start-CachingProxyVM.ps1 runs on macOS (UTM), Windows (Hyper-V), or Linux (KVM/libvirt)."
     exit 1
 }
 
@@ -216,7 +216,7 @@ foreach ($p in @($GetImageScript, $NewVMScript)) {
 }
 
 # --- REGION: Step 0: plan + preflight
-# Past this point Start-CachingProxy runs UNATTENDED -- it must not stop
+# Past this point Start-CachingProxyVM runs UNATTENDED -- it must not stop
 # for an interactive prompt. Everything that needs operator awareness is
 # surfaced and resolved HERE, at the start:
 #   * a host-networking change (the 'yuruna-external' bridge) is described
@@ -258,7 +258,7 @@ if ($IsLinux) {
             Write-Output "  >> This run WILL briefly interrupt host networking (detail above).  <<"
             Write-Output "  >> Proceeding automatically and unattended. To keep the cache VM   <<"
             Write-Output "  >> on host-only NAT and avoid the change, re-run with              <<"
-            Write-Output "  >>   YURUNA_EXTERNAL_BRIDGE_SKIP=1 ./Start-CachingProxy.ps1        <<"
+            Write-Output "  >>   YURUNA_EXTERNAL_BRIDGE_SKIP=1 ./Start-CachingProxyVM.ps1        <<"
         }
     }
 }
@@ -267,7 +267,7 @@ if ($preflightErrors.Count -gt 0) {
     Write-Output ""
     Write-Output "  Preflight FAILED -- the run cannot succeed. Nothing was created:"
     foreach ($e in $preflightErrors) { Write-Output "    - $e" }
-    Write-Error "Start-CachingProxy preflight failed ($($preflightErrors.Count) blocking issue(s)). Resolve the above and re-run."
+    Write-Error "Start-CachingProxyVM preflight failed ($($preflightErrors.Count) blocking issue(s)). Resolve the above and re-run."
     exit 1
 }
 
@@ -387,7 +387,7 @@ Write-Output "== Step 1: cleanup previous '$VMName' VM =="
 # squid is junk we want gone, not state we want to preserve. The earlier
 # snapshot/restore design captured whatever was on disk at first promotion
 # and faithfully reinstated it on each Stop, leaking stale IPs into every
-# subsequent Test-CachingProxy probe. Symmetric with Stop-CachingProxy.ps1.
+# subsequent Test-CachingProxy probe. Symmetric with Stop-CachingProxyVM.ps1.
 try {
     Import-Module (Join-Path $PSScriptRoot 'modules/Test.HostContract.psm1') -Force
     [void](Initialize-YurunaHost -RepoRoot (Split-Path -Parent $PSScriptRoot))
@@ -402,7 +402,7 @@ if ($IsMacOS) {
     # forwarders are no longer needed -- and if left running on
     # 0.0.0.0:3128 they would conflict with anyone who later sets
     # YURUNA_CACHING_PROXY_IP=<host-lan-ip> pointing back at this Mac.
-    # No-op on a fresh install. Stop-CachingProxy.ps1 also calls this
+    # No-op on a fresh install. Stop-CachingProxyVM.ps1 also calls this
     # symmetrically.
     try {
         Import-Module (Join-Path $PSScriptRoot 'modules/Test.HostContract.psm1') -Force
@@ -455,24 +455,10 @@ if ($IsMacOS) {
     }
 
     # --- REGION: Step 1.5: ensure the 'yuruna-external' libvirt bridge network
-    # The cache VM is only useful to other LAN hosts when it has its own
-    # LAN-routable DHCP lease. libvirt's NAT 'default' network keeps the
-    # VM host-only (192.168.122/24, behind libvirt's masquerade), so we
-    # promote to a bridged 'yuruna-external' network here. The helper is
-    # idempotent and self-healing: if the network already exists it
-    # ensures it is started + on autostart, verifies the backing bridge
-    # still has its LAN uplink, and heals or rebuilds the bridge when it
-    # does not (a brief network flap, announced by the Step 0 plan).
-    #
-    # This runs UNATTENDED: New-YurunaExternalNetwork is called with
-    # -Confirm:$false so its ShouldProcess gate never prompts. The
-    # operator was already shown the full host-networking impact (brief
-    # outage + rollback recipe) by Step 0's plan phase via
-    # Get-YurunaExternalNetworkPlan, so there is nothing left to ask.
-    #
-    # YURUNA_EXTERNAL_BRIDGE_SKIP=1 short-circuits this -- useful for
-    # the host-only path where the operator is fine with the cache VM
-    # being reachable only from this host.
+    # Promote the cache VM off libvirt's NAT 'default' network onto the
+    # bridged 'yuruna-external' network so other LAN hosts can reach it.
+    # Unattended; YURUNA_EXTERNAL_BRIDGE_SKIP=1 short-circuits it.
+    # See docs/caching-proxy.md (yuruna-external bridge bring-up).
     Import-Module (Join-Path $RepoRoot 'host/ubuntu.kvm/modules/Yuruna.Host.psm1') -Force -DisableNameChecking
     if ($env:YURUNA_EXTERNAL_BRIDGE_SKIP -eq '1') {
         Write-Output ""
@@ -618,7 +604,7 @@ if ($cpConfigDecision.ShouldStart) {
         Write-Output "  its ystash-nas/ypool-nas credentials -- so NO password rotation, and an EMPTY 'Extension"
         Write-Output "  Hosts' panel (the stash crawler never appears, since ystash-nas is never mounted)."
         Write-Output "  Fix the Host Config Service first (check config-server.err under the runtime dir), then re-run"
-        Write-Output "  Start-CachingProxy.ps1. To build without it intentionally, set configService.isEnabled=false."
+        Write-Output "  Start-CachingProxyVM.ps1. To build without it intentionally, set configService.isEnabled=false."
         Write-Error "Host Config Service is NOT accepting on :$($cpConfigDecision.Port) -- refusing to build the cache VM (configService is enabled)."
         exit 1
     }
@@ -787,7 +773,7 @@ if ($IsMacOS) {
         $cacheIp = Resolve-UtmGuestIpByMac -PlistPath (Join-Path $UtmDir 'config.plist') `
             -SubnetPrefix $sharedPrefix -HostIp $sharedGw -ProbePort $httpPort -TimeoutMinutes 15 -PollSeconds 5
         if (-not $cacheIp) {
-            Write-Warning "Shared-NAT discovery: our cache VM (by bundle MAC) did not appear on ${sharedPrefix}0/24 with squid on :${httpPort} within 15 min. The VM may still be running cloud-init -- re-run Start-CachingProxy.ps1, or open the UTM window to check."
+            Write-Warning "Shared-NAT discovery: our cache VM (by bundle MAC) did not appear on ${sharedPrefix}0/24 with squid on :${httpPort} within 15 min. The VM may still be running cloud-init -- re-run Start-CachingProxyVM.ps1, or open the UTM window to check."
         } else {
             Write-Output "  Cache VM (Shared NAT) is at $cacheIp (matched by bundle MAC; squid listening)."
             # Expose to the LAN via host port-forwarders (mirrors the Linux
@@ -887,7 +873,7 @@ if ($IsMacOS) {
     # forwarders from a prior shared-NAT cycle would now bind ports that
     # the operator expects to be free, and would tunnel to a stale IP.
     # Remove-PortMap clears every Yuruna-managed forwarder symmetrically
-    # with Stop-CachingProxy.ps1; on a fresh install this is a no-op.
+    # with Stop-CachingProxyVM.ps1; on a fresh install this is a no-op.
     if ($cacheIp) {
         Write-Output ""
         Write-Output "== Step 6: tear down any legacy host-side forwarders (bridged cache is LAN-direct) =="
@@ -921,7 +907,7 @@ if ($IsMacOS) {
     # (agent or arp) both resolve.
     $cacheIp = Get-VMIp -VMName $VMName
     if (-not $cacheIp) {
-        Write-Warning "  Get-VMIp returned no IPv4 for '$VMName'. New-VM.ps1 reported the VM started, but discovery sources (lease/agent/arp) are silent. The VM is likely still warming up the guest agent -- retry Start-CachingProxy.ps1 in 30 s, or run 'virsh -c qemu:///system domifaddr --source agent $VMName' to inspect."
+        Write-Warning "  Get-VMIp returned no IPv4 for '$VMName'. New-VM.ps1 reported the VM started, but discovery sources (lease/agent/arp) are silent. The VM is likely still warming up the guest agent -- retry Start-CachingProxyVM.ps1 in 30 s, or run 'virsh -c qemu:///system domifaddr --source agent $VMName' to inspect."
     } else {
         Write-Output "  Cache VM IP: $cacheIp"
         # Persist for guest provisioners + status server fast path.
@@ -980,7 +966,7 @@ if ($IsMacOS) {
             Write-Warning "  masks every client as the NAT gateway, so the pool-aggregator discovers"
             Write-Warning "  nothing. To fix, put the cache VM on the bridged 'yuruna-external' network"
             Write-Warning "  (needs a WIRED default-route NIC; Wi-Fi APs block bridging) and rebuild it:"
-            Write-Warning "    connect the host by Ethernet, then re-run ./Start-CachingProxy.ps1"
+            Write-Warning "    connect the host by Ethernet, then re-run ./Start-CachingProxyVM.ps1"
             Write-Warning "    (it auto-builds yuruna-external + rebuilds the cache VM on the bridge),"
             Write-Warning "    or define the bridge by hand per host/ubuntu.kvm/guest.caching-proxy/README.md."
             Write-Warning ""
@@ -1052,7 +1038,7 @@ if ($IsMacOS) {
 [void](Exit-CachingProxyLock -Handle $cpLock)
 
 # --- REGION: Final summary
-# The yuruna user's password is NOT printed in the banner -- the value
+# The caching-proxy-admin user's password is NOT printed in the banner -- the value
 # already lives in <track>/yuruna-caching-proxy.yml (written by squid-
 # cache's New-VM.ps1) and the vault. Reading it again here just to echo
 # to the terminal leaks the secret into operator transcripts / scrollback
@@ -1113,7 +1099,7 @@ if ($cacheIp) {
             Write-Output "    reach the cache via host $cacheLanIp, which forwards these ports to"
             Write-Output "    $cacheIp (pwsh socket-proxy). NOTE: this forwarder is torn down by any"
             Write-Output "    later Remove-PortMap (test run / status restart); if a remote client"
-            Write-Output "    gets 'connection refused', re-run Start-CachingProxy.ps1 to restore it."
+            Write-Output "    gets 'connection refused', re-run Start-CachingProxyVM.ps1 to restore it."
             Write-Output "    export YURUNA_CACHING_PROXY_IP=${cacheLanIp}    # remote host, before Invoke-TestRunner.ps1"
             Write-Output "      (or on Windows: setx YURUNA_CACHING_PROXY_IP ${cacheLanIp})"
             Write-Output "    quick check:  curl -x http://${cacheLanIp}:${summaryHttpPort} http://cdimage.ubuntu.com/ -I"
@@ -1156,10 +1142,10 @@ Write-Output "    password: (saved at $PasswordFile)"
 if ($cacheForwarded -and $cacheLanIp -and $cacheLanIp -ne $cacheIp) {
     # Linux NAT path: SSH reaches the cache via the host's 8022 -> 22
     # forwarder, not the VM's own (host-only) IP.
-    Write-Output "    direct:   ssh -p 8022 yuruna@${cacheLanIp}   (host forwards :8022 -> VM :22)"
+    Write-Output "    direct:   ssh -p 8022 caching-proxy-admin@${cacheLanIp}   (host forwards :8022 -> VM :22)"
 } elseif ($cacheIp) {
     # macOS bridged + Hyper-V External-vSwitch + Linux bridged: the cache
     # VM has its own LAN IP, so direct SSH from anywhere on the LAN works.
-    Write-Output "    direct:   ssh yuruna@${cacheIp}"
+    Write-Output "    direct:   ssh caching-proxy-admin@${cacheIp}"
 }
 Write-Output "================================================================="

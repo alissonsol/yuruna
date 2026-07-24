@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.22
+.VERSION 2026.07.24
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456811
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -261,7 +261,7 @@ function Resolve-ExtensionMethod {
     Discovery primitive: an entry point that wants to load "every
     declared extension" (instead of hard-coding a list of areas in
     its own bootstrap) calls Get-ExtensionAreaName + Import-Extension
-    in a loop. An area is recognised by having a `<area>.config.yml`
+    in a loop. An area is recognized by having a `<area>.config.yml`
     file at test/extension/<area>/<area>.config.yml -- bare
     directories without that file are ignored so a half-staged
     contribution can sit on disk without affecting the runtime.

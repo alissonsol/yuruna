@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.22
+.VERSION 2026.07.24
 .GUID 42bc8a7d-e6f5-4d23-9180-3a4b5c6d7e95
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -60,7 +60,7 @@
     so a downstream consumer sees the crash explicitly, not as a
     silent gap in the stream.
 
-    The transition validator NEVER rejects -- an unrecognised pair
+    The transition validator NEVER rejects -- an unrecognized pair
     logs a Write-Warning and writes the new state anyway. Same
     contract as the schema validator: catch drift loudly, never lose
     telemetry.
@@ -180,7 +180,7 @@ function Initialize-RunnerState {
     <#
     .SYNOPSIS
         Outer-startup entry point. Detects stale prior-runner state
-        and synthesises a fault transition pair so the crash is
+        and synthesizes a fault transition pair so the crash is
         explicit in the NDJSON stream.
     .DESCRIPTION
         Three cases on startup:
@@ -267,9 +267,9 @@ function Set-RunnerState {
         emits a `runner_state_transition` NDJSON event.
     .PARAMETER To
         Target state. Must be a value from Get-RunnerStateName; an
-        unrecognised target is rejected with a Write-Warning AND the
+        unrecognized target is rejected with a Write-Warning AND the
         write is skipped (the schema's "never lose telemetry" stance
-        does not apply here -- writing an unrecognised state would
+        does not apply here -- writing an unrecognized state would
         wedge the validator on every subsequent transition).
     .PARAMETER Reason
         Short free-text reason for the transition. Carried verbatim
@@ -278,7 +278,7 @@ function Set-RunnerState {
     .OUTPUTS
         Hashtable describing the new state, or $null when the call
         is a no-op (initialize required, write blocked by -WhatIf,
-        unrecognised target state, etc.).
+        unrecognized target state, etc.).
     #>
     [CmdletBinding(SupportsShouldProcess)]
     [OutputType([hashtable])]
@@ -297,7 +297,7 @@ function Set-RunnerState {
     if (-not $cur) {
         # Auto-initialize so a caller that forgot to call Initialize-RunnerState
         # at startup still gets a usable history. The Initialize call
-        # synthesises a fault recovery if appropriate; subsequent
+        # synthesizes a fault recovery if appropriate; subsequent
         # transitions land on top of that baseline.
         $cur = Initialize-RunnerState -Confirm:$false
     }

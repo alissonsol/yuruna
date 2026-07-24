@@ -1,7 +1,7 @@
 // LICENSEURI https://yuruna.link/license
 // Copyright (c) 2019-2026 by Alisson Sol et al.
 
-// HTTP handlers + routing for the stash UI/API (stash-service-ui.md §9).
+// HTTP handlers + routing for the stash UI/API.
 package httpsrv
 
 import (

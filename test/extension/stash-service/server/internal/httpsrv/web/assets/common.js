@@ -1,7 +1,6 @@
 // LICENSEURI https://yuruna.link/license
 // Copyright (c) 2019-2026 by Alisson Sol et al.
-// Shared helpers for the stash UI. Vanilla JS, no framework
-// (stash-service-ui.md §2.3). Untrusted stash content is ALWAYS placed via
+// Shared helpers for the stash UI. Vanilla JS, no framework. Untrusted stash content is ALWAYS placed via
 // textContent / safe DOM APIs, never innerHTML (§7.4).
 
 const Y = {
@@ -160,7 +159,7 @@ const Y = {
 
 // safeUrl gates href/src attribute values: only same-origin relative paths
 // and absolute http(s) URLs are allowed, so a javascript:/data:/vbscript:
-// value (e.g. a spoofed remoteStashUrl, stash-service-ui.md §7.4) can never
+// value (e.g. a spoofed remoteStashUrl) can never
 // become an executable link. Returns null to drop the attribute.
 function safeUrl(v) {
   const s = String(v).trim();

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.22
+.VERSION 2026.07.24
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456760
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -42,7 +42,7 @@ Import-Module (Join-Path $PSScriptRoot 'modules/Test.Prelude.psm1') -Global -For
 $paths      = Initialize-YurunaEntryPoint -ScriptRoot $PSScriptRoot
 $RepoRoot   = $paths.RepoRoot
 $ModulesDir = $paths.ModulesDir
-# Same module set as Start-CachingProxy: Test.HostContract (for Get-HostType /
+# Same module set as Start-CachingProxyVM: Test.HostContract (for Get-HostType /
 # Initialize-YurunaHost), Test.VMUtility (host-agnostic helpers),
 # Test.CachingProxy reuse not needed here (stash VM is independent of
 # the cache).
@@ -74,10 +74,9 @@ if ($tc) {
 }
 if (-not $stashCfg) {
     Write-Error @"
-Start-StashServer requires the stash storage to be configured (isolated from the pool):
+Start-StashVM requires the stash storage to be configured (isolated from the pool):
 set networkStorage.stashNetworkPath / stashNetworkUser / stashLocalPath in
-test/test.config.yml and Set-Password the stashNetworkUser. See docs/test-config.md
-and docs/design/stash-service.md (section 3.1).
+test/test.config.yml and Set-Password the stashNetworkUser. See docs/test-config.md.
 "@
     exit 1
 }
@@ -100,7 +99,7 @@ See docs/test-config.md (networkStorage credentials).
 # Soft gate: a credential IS stored -- verify it actually AUTHENTICATES to the
 # stash share (catches a stale/wrong stored password, which the read-only check
 # above cannot). WARNING, not a hard stop: the daemon buffers locally when the
-# share is offline (stash-service.md section 8.4), and the NAS may merely be
+# share is offline, and the NAS may merely be
 # transiently unreachable. Connect-YurunaPoolStorage is bounded + best-effort and
 # uses the SAME credential the seed will bake.
 if (Connect-YurunaPoolStorage -Config $stashCfg -Confirm:$false) {
@@ -116,6 +115,7 @@ password is stale, update it and rebuild:
 "@
 }
 
+# --- REGION: resolve the per-host New-VM
 $hostFolder = Get-HostFolder $HostType
 $guestDir   = Join-Path -Path $RepoRoot -ChildPath $hostFolder -AdditionalChildPath 'guest.stash-service'
 $newVm      = Join-Path $guestDir 'New-VM.ps1'
@@ -124,10 +124,30 @@ if (-not (Test-Path -LiteralPath $newVm)) {
     exit 1
 }
 
-# Delegate to the per-host New-VM. Each script already runs Get-Image
-# auto-fetch when the base image is missing, tears down any prior VM,
-# creates the new one, and (Hyper-V + KVM) starts it. UTM only builds
-# the bundle -- registration + start lives below.
+# --- REGION: host status service (serves the local repo to the guest) -- BEFORE the build
+# Two consumers need it, and the earlier one is the guest: the stash VM's
+# cloud-init fetches the framework from http://<host>:<port>/yuruna-archive.tar.gz
+# minutes into first boot, and falls back to a public github clone when that
+# fetch fails -- so a server started after the build is a server the guest never
+# saw. The second consumer is the pool-aggregator, which reads this host's
+# registration over the same port to list it under Extension hosts.
+# Honors statusService.isEnabled + port; a healthy server is left running.
+$statusDecision = $null
+try {
+    $statusScript = Join-Path $RepoRoot 'test/Start-StatusService.ps1'
+    if ($tc -and (Test-Path -LiteralPath $statusScript)) {
+        # Start-YurunaStatusServiceIfEnabled's own console output is intentionally
+        # not surfaced; keep only the {ShouldStart; Port} record, the last
+        # non-string object the gate returns.
+        $statusResult = Start-YurunaStatusServiceIfEnabled -Config $tc -StartScript $statusScript
+        $statusDecision = @($statusResult | Where-Object { $_ -is [System.Collections.IDictionary] }) | Select-Object -Last 1
+    }
+} catch { Write-Verbose "status service ensure: $($_.Exception.Message)" }
+
+# --- REGION: delegate to the per-host New-VM (build + start the VM)
+# Each New-VM already runs Get-Image auto-fetch when the base image is missing,
+# tears down any prior VM, creates the new one, and (Hyper-V + KVM) starts it.
+# UTM only builds the bundle -- register + start lives below.
 Write-Output ""
 Write-Output "== Bringing up '$VMName' on $HostType =="
 & pwsh -NoProfile -File $newVm -VMName $VMName
@@ -137,9 +157,9 @@ if ($rc -ne 0) {
     exit $rc
 }
 
-# UTM-only: register the bundle and start the VM. Hyper-V and KVM
-# already started the VM inside New-VM.ps1 (Hyper-V\Start-VM and
-# virt-install --import respectively).
+# --- REGION: UTM register + start (Hyper-V/KVM already started in New-VM)
+# Hyper-V and KVM already started the VM inside New-VM.ps1 (Hyper-V\Start-VM and
+# virt-install --import respectively); only UTM needs registration + start here.
 if ($HostType -eq 'host.macos.utm') {
     $UtmDir = "$HOME/yuruna/guest.nosync/$VMName.utm"
     if (-not (Test-Path $UtmDir)) {
@@ -174,7 +194,7 @@ if ($HostType -eq 'host.macos.utm') {
 # is folded into host.registration.json (activeExtensions + extensionTargets) by
 # Write-HostRegistrationRecord; the aggregator -- already polling every pool host's
 # registration -- reads it WITHOUT mounting ystash-nas or needing a Config Service on
-# its own host. Stop-StashServer.ps1 removes the marker. Best-effort throughout;
+# its own host. Stop-StashVM.ps1 removes the marker. Best-effort throughout;
 # never fails the bring-up.
 Import-Module (Join-Path $ModulesDir 'Test.YurunaDir.psm1') -Global -Force
 $runtimeDir = $null
@@ -198,7 +218,7 @@ try {
 # wired by Initialize-YurunaHost above.
 if ($runtimeDir) {
     try {
-        $stashUrl = Update-StashServerMarkerAddress -RuntimeDir $runtimeDir -VMName $VMName -TimeoutSeconds 180
+        $stashUrl = Update-StashServiceMarkerAddress -RuntimeDir $runtimeDir -VMName $VMName -TimeoutSeconds 180
         if ($stashUrl) { Write-Output "  Stash VM address: $stashUrl (Extension cell deep-links here)." }
         else { Write-Output "  Stash VM address not resolved yet -- the Extension deep-link populates on a later refresh." }
     } catch { Write-Verbose "stash address resolve: $($_.Exception.Message)" }
@@ -216,41 +236,25 @@ try {
     }
 } catch { Write-Verbose "registration refresh: $($_.Exception.Message)" }
 
-# The aggregator can only READ that registration if a status server is serving
-# /runtime/host.registration.json. A host that runs test cycles already has one up;
-# a stash-only host would not, so ensure it here -- making "start the stash service"
-# sufficient for the host to appear, no test runner required. Honors
-# statusService.isEnabled + port; a healthy server is left running (compare-and-skip).
-try {
-    $statusScript = Join-Path $RepoRoot 'test/Start-StatusService.ps1'
-    if ($tc -and (Test-Path -LiteralPath $statusScript)) {
-        # Capture the start decision. Start-StatusService's own console output is
-        # intentionally not surfaced here; keep only the {ShouldStart; Port}
-        # record, the last non-string object the gate returns.
-        $statusResult = Start-YurunaStatusServiceIfEnabled -Config $tc -StartScript $statusScript
-        $statusDecision = @($statusResult | Where-Object { $_ -is [System.Collections.IDictionary] }) | Select-Object -Last 1
-        # The aggregator lists this host under Extension hosts ONLY if its status
-        # server is actually serving host.registration.json. Start-StatusService
-        # runs its own readiness wait, but that verdict is invisible here, so
-        # confirm the port and warn in the stash context: a stash-only host whose
-        # status server never came up would otherwise print "complete" yet never
-        # appear in the dashboard.
-        if ($statusDecision -and $statusDecision.ShouldStart) {
-            $statusPort = [int]$statusDecision.Port
-            $probe = [System.Net.Sockets.TcpClient]::new()
-            $accepting = $false
-            try {
-                $iar = $probe.BeginConnect('127.0.0.1', $statusPort, $null, $null)
-                $accepting = ($iar.AsyncWaitHandle.WaitOne(2000) -and $probe.Connected)
-            } catch { Write-Verbose "status port probe: $($_.Exception.Message)" } finally { $probe.Dispose() }
-            if ($accepting) {
-                Write-Output "  Status server accepting on :$statusPort -- this host will appear under Extension hosts."
-            } else {
-                Write-Warning "Status server is not accepting on :$statusPort -- the pool aggregator cannot read host.registration.json over HTTP, so the Extension hosts row depends solely on the stash VM's own presence beacon (which the aggregator shows without the host's status baseUrl link). Run test/Start-StatusService.ps1 to diagnose."
-            }
-        }
+# The aggregator lists this host under Extension hosts ONLY if a status server is
+# actually serving /runtime/host.registration.json. The ensure above ran before the
+# build, and Start-StatusService runs its own readiness wait, but that verdict is
+# invisible here -- so confirm the port now: a stash-only host whose status server
+# never came up would otherwise print "complete" yet never appear in the dashboard.
+if ($statusDecision -and $statusDecision.ShouldStart) {
+    $statusPort = [int]$statusDecision.Port
+    $probe = [System.Net.Sockets.TcpClient]::new()
+    $accepting = $false
+    try {
+        $iar = $probe.BeginConnect('127.0.0.1', $statusPort, $null, $null)
+        $accepting = ($iar.AsyncWaitHandle.WaitOne(2000) -and $probe.Connected)
+    } catch { Write-Verbose "status port probe: $($_.Exception.Message)" } finally { $probe.Dispose() }
+    if ($accepting) {
+        Write-Output "  Status server accepting on :$statusPort -- this host will appear under Extension hosts."
+    } else {
+        Write-Warning "Status server is not accepting on :$statusPort -- the pool aggregator cannot read host.registration.json over HTTP, so the Extension hosts row depends solely on the stash VM's own presence beacon (which the aggregator shows without the host's status baseUrl link). Run test/Start-StatusService.ps1 to diagnose."
     }
-} catch { Write-Verbose "status service ensure: $($_.Exception.Message)" }
+}
 
 Write-Output ""
 Write-Output "== stash-service start: complete =="
@@ -262,5 +266,5 @@ Write-Output "bring-up script that builds + launches the stash daemon under syst
 Write-Output "Allow a few minutes after first boot; watch the VM's cloud-init-output.log."
 Write-Output "(See https://yuruna.link/stash-service.)"
 Write-Output ""
-Write-Output "Stop with: ./Stop-StashServer.ps1"
+Write-Output "Stop with: ./Stop-StashVM.ps1"
 exit 0

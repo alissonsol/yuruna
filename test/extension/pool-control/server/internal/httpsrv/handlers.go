@@ -19,6 +19,7 @@ import (
 func (s *Server) routes() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", s.handleHealth)
+	mux.HandleFunc("GET /api/diagnostics", s.handleDiagnostics)
 	mux.HandleFunc("GET /api/state", s.handleState)
 	mux.HandleFunc("POST /api/pool", s.handleNewPool)
 	mux.HandleFunc("DELETE /api/pool", s.handleRemovePool)
@@ -31,6 +32,7 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("GET /assets/", s.handleAsset)
 	mux.HandleFunc("GET /pools", s.servePage("pools.html"))
 	mux.HandleFunc("GET /test-sets", s.servePage("test-sets.html"))
+	mux.HandleFunc("GET /diagnostics", s.servePage("diagnostics.html"))
 	mux.HandleFunc("GET /{$}", s.servePage("index.html"))
 	return mux
 }
@@ -82,6 +84,14 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, s.state.Health())
+}
+
+// handleDiagnostics reports every dependency a UI request touches. It answers
+// 200 even when checks fail: collecting the report succeeded, and the failing
+// checks ARE the payload. Anything else would leave the one page meant to
+// explain an outage unable to render during that outage.
+func (s *Server) handleDiagnostics(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, s.collectDiagnostics(r.Context()))
 }
 
 // --- page + asset serving ---------------------------------------------------

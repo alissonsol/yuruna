@@ -2,9 +2,8 @@
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 #vim:syntax=yaml
-# NoCloud user-data for Amazon Linux 2023 (parity with hyper-v/utm/kvm siblings).
-# cloud-init chpasswd default expire=true is LOAD-BEARING -- it drives the
-# Current/New/Retype prompt the GUI sequence enters. See docs/vmconfig.md.
+# NoCloud user-data for Amazon Linux 2023 (parity with hyperv/kvm/utm siblings).
+# chpasswd default expire=true is LOAD-BEARING (first-login Current/New/Retype prompt) -- docs/vmconfig.md.
 users:
   - default
   - name: USERNAME_PLACEHOLDER
@@ -46,9 +45,8 @@ write_files:
     content: YURUNA_NETWORK_BASE64_PLACEHOLDER
     permissions: '0755'
   # --- REGION: https://yuruna.link/definition#defining-the-two-source-scheme-for-framework-and-project-urls
-  # git does NOT read GH_TOKEN (that name is a gh(1) convention), so a private
-  # clone hangs on a username prompt without this GIT_ASKPASS shim. Full
-  # rationale under "Private repositories" in the REGION topic above.
+  # git does NOT read GH_TOKEN (a gh(1) convention); without this GIT_ASKPASS shim a private
+  # clone hangs on a username prompt -- "Private repositories" in the REGION topic above.
   - path: /usr/local/lib/yuruna/git-askpass.sh
     permissions: '0755'
     content: |

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.22
+.VERSION 2026.07.24
 .GUID 4292b214-b454-46f0-976c-81a548f8de5d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -72,8 +72,8 @@ param(
     # Skip the built-in HTTP status server. Test-Project starts no server of
     # its own -- it delegates that to the inner runner it spawns -- so this is
     # forwarded to Invoke-TestInnerRunner, where the shared status-service gate
-    # honors it. Mirrors -NoServer on Invoke-TestRunner / Test-Sequence.
-    [switch]$NoServer,
+    # honors it. Mirrors -NoStatusService on Invoke-TestRunner / Test-Sequence.
+    [switch]$NoStatusService,
     [ValidateSet('Error', 'Warning', 'Information', 'Verbose', 'Debug', IgnoreCase = $true)]
     [string]$logLevel
 )
@@ -98,7 +98,7 @@ Initialize-YurunaEntryPointModuleSet -For Project -ModulesDir $ModulesDir
 # is what pass/fail consumers want; a CI consumer that needs to
 # discriminate between "preflight" / "clone failed" / "inner spawn
 # failed" reads the Stop-WithReason banner ("STOP at <Step>") rather
-# than a numeric code. Standardised on 0/1 across all entry points;
+# than a numeric code. Standardized on 0/1 across all entry points;
 # the $Step + $Reason in the banner carry the "why".
 $ExitOk      = Get-EntryPointExitCode -Outcome Ok
 $ExitFailure = Get-EntryPointExitCode -Outcome Failure
@@ -269,9 +269,9 @@ $innerParams = [ordered]@{
     NoGitPull      = [switch]::new($true)
     NoProjectClone = [switch]::new($true)
 }
-# Forward -NoServer so the inner's shared status-service gate honors it; the
+# Forward -NoStatusService so the inner's shared status-service gate honors it; the
 # server is the inner's responsibility, so Test-Project only passes it through.
-if ($NoServer)                                  { $innerParams['NoServer'] = [switch]::new($true) }
+if ($NoStatusService)                           { $innerParams['NoStatusService'] = [switch]::new($true) }
 if ($PSBoundParameters.ContainsKey('logLevel')) { $innerParams['logLevel'] = $logLevel }
 $argList = New-InnerRunnerArgList -ScriptPath $InnerScript -Parameters $innerParams
 

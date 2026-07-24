@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.22
+.VERSION 2026.07.24
 .GUID 421f2a9e-4b6d-4e83-9a5c-2d8e1f0b3c47
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -16,20 +16,11 @@
 
 #requires -version 7
 
-# Guest quarantine / circuit breaker. Persists a per-guest consecutive-failure
-# count keyed by failureClass in runner.quarantine.json (sibling of
-# runner.gating.json, same runtime dir, surviving the single-cycle inner
-# respawn). After N failures of the SAME class a guest is quarantined and
-# skipped for up to M cycles or until a framework/project commit changes -- so
-# a deterministically-broken guest stops burning a full provision+deploy every
-# cycle, while a flaky guest that fails differently each time is never trapped.
-# Keeping the class in the streak is deliberate: only a repeating, identical
-# failure is "deterministic"; a different class each time is noise, not a stuck
-# guest. The decision core is pure (no I/O) so it is unit-testable; the file
-# read/write and the guest_quarantined event emit are thin wrappers. Leaf
-# module: the two emit/persist dependencies (Send-CycleEventSafely,
-# Write-YurunaStateFileJson) are resolved at call time and Get-Command-guarded,
-# so load order among the runner modules does not matter.
+# Guest quarantine / circuit breaker: per-guest consecutive-failure count keyed
+# by failureClass; N same-class failures quarantine the guest for M cycles or
+# until a commit changes. The decision core is pure (no I/O) so it is
+# unit-testable; leaf module -- the emit/persist dependencies are resolved at
+# call time and Get-Command-guarded. See docs/failure-schema.md.
 
 $script:GuestQuarantineFileName = 'runner.quarantine.json'
 
@@ -114,7 +105,7 @@ function Add-GuestQuarantineFailure {
         quarantine once the streak reaches -FailuresToQuarantine.
     .OUTPUTS
         [hashtable] NewlyQuarantined [bool], ConsecutiveFailures [int],
-        FailureClass [string] (normalised, 'unknown' when blank).
+        FailureClass [string] (normalized, 'unknown' when blank).
     #>
     [CmdletBinding()]
     [OutputType([hashtable])]
@@ -215,7 +206,7 @@ function New-GuestQuarantineEvent {
 function Read-GuestQuarantineState {
     <#
     .SYNOPSIS
-        Load runner.quarantine.json into a normalised state hashtable, with a
+        Load runner.quarantine.json into a normalized state hashtable, with a
         soft parse fallback (a corrupt/partial file resets to empty, warns once).
     .OUTPUTS
         [hashtable] the quarantine state (see New-GuestQuarantineState).

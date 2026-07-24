@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.22
+.VERSION 2026.07.24
 .GUID 42f1b2c3-d4e5-4f67-8901-a2b3c4d5e6f9
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -165,7 +165,7 @@ Import-Module $TestSshModule -Force
 $SshAuthorizedKey = Get-YurunaSshPublicKey
 if (-not $SshAuthorizedKey) { Write-Error "Get-YurunaSshPublicKey returned empty. Module path: $TestSshModule"; exit 1 }
 
-# --- REGION: Cache-VM yuruna password
+# --- REGION: Cache-VM admin password
 # --- REGION: https://yuruna.link/caching-proxy#cache-vm-password-persistence
 # The runtime state file <track>/yuruna-caching-proxy.yml is the source of
 # truth; Set-Password rehydrates the vault from it before Get-Password.
@@ -174,12 +174,12 @@ Import-Module (Join-Path $_repoRootForExt 'test/modules/Test.Extension.psm1')   
 Import-Module (Join-Path $_repoRootForExt 'test/modules/Test.CachingProxy.psm1') -Global -Force -Verbose:$false
 $_authActiveName = @(Import-Extension -Area 'authentication' -RequireSingle)[0]
 $persisted = (Read-CachingProxyState).password
-if ($persisted) { Set-Password -Username 'yuruna' -NewPassword $persisted }
-$YurunaPassword = Get-Password -Username 'yuruna'
-if (-not $YurunaPassword) { Write-Error "Get-Password returned empty for 'yuruna'."; exit 1 }
+if ($persisted) { Set-Password -Username 'caching-proxy-admin' -NewPassword $persisted }
+$AdminPassword = Get-Password -Username 'caching-proxy-admin'
+if (-not $AdminPassword) { Write-Error "Get-Password returned empty for 'caching-proxy-admin'."; exit 1 }
 Write-Output "Password came from authentication mechanism: $_authActiveName"
 Write-Output "See configuration at: $(Resolve-ExtensionAreaDir -Area 'authentication')"
-[void](Save-CachingProxyState -Secret $YurunaPassword -Confirm:$false)
+[void](Save-CachingProxyState -Secret $AdminPassword -Confirm:$false)
 # Resolve the file path once for the Write-Output lines below.
 $PasswordFile = Get-CachingProxyStatePath
 
@@ -193,7 +193,7 @@ $PasswordFile = Get-CachingProxyStatePath
 # reaching the host at the VZ gateway (Get-GuestReachableHostIp = 192.168.64.1).
 # Test-MacUplinkNotBridgeable is idempotent (called again below).
 # $env:YURUNA_GUEST_REACHABLE_HOST_IP overrides. Empty -> github fallback.
-# Start-CachingProxy.ps1 starts the status server.
+# Start-CachingProxyVM.ps1 starts the status server.
 Import-Module (Join-Path $_repoRootForExt 'host/macos.utm/modules/Yuruna.Host.psm1') -Force
 if ($env:YURUNA_GUEST_REACHABLE_HOST_IP) {
     $YurunaHostIp = $env:YURUNA_GUEST_REACHABLE_HOST_IP
@@ -285,7 +285,7 @@ $UserData = New-CloudInitUserData `
     -RepoRoot    $_repoRootForExt `
     -Replacement @{
         SSH_AUTHORIZED_KEY_PLACEHOLDER = $SshAuthorizedKey
-        PASSWORD_PLACEHOLDER           = $YurunaPassword
+        PASSWORD_PLACEHOLDER           = $AdminPassword
         YURUNA_HOST_IP_PLACEHOLDER     = $YurunaHostIp
         YURUNA_HOST_PORT_PLACEHOLDER   = $YurunaHostPort
         YPOOL_NAS_REPLICATE_PLACEHOLDER     = $ypoolNasReplicate
@@ -345,7 +345,7 @@ $VncDisplay = Get-VncDisplayForVm -VMName $VMName
 # matches what Get-BestHostIp does and avoids hardcoding en0 (Ethernet
 # adapters often enumerate as en7/en8 instead). Falls back to en0 if
 # `route` reports no default; an unreachable bridge surfaces later as a
-# DHCP timeout in Start-CachingProxy.ps1 Step 4 (better diagnostic than
+# DHCP timeout in Start-CachingProxyVM.ps1 Step 4 (better diagnostic than
 # silently failing here).
 $BridgeInterface = $null
 try {
@@ -366,12 +366,12 @@ if (-not $BridgeInterface) {
 # frames from the VM's locally-administered MAC, so a bridged cache never
 # gets a LAN DHCP lease. On a Wi-Fi-only default route build the cache on
 # UTM Shared NAT (192.168.64.x) instead -- the host and other Shared-NAT
-# UTM guests reach it directly, and Start-CachingProxy.ps1 exposes it to
+# UTM guests reach it directly, and Start-CachingProxyVM.ps1 exposes it to
 # the wider LAN via host port-forwarders. Ethernet keeps bridged (LAN-
 # direct, real client IPs).
 if (Test-MacUplinkNotBridgeable) {
     $NetworkMode = 'Shared'
-    Write-Output "Default route is Wi-Fi ($BridgeInterface) -- bridged can't get a LAN lease over Wi-Fi; building the cache on UTM Shared NAT. Start-CachingProxy.ps1 will forward host ports to it for LAN access."
+    Write-Output "Default route is Wi-Fi ($BridgeInterface) -- bridged can't get a LAN lease over Wi-Fi; building the cache on UTM Shared NAT. Start-CachingProxyVM.ps1 will forward host ports to it for LAN access."
 } else {
     $NetworkMode = 'Bridged'
     Write-Output "Bridge interface: $BridgeInterface (cache VM will request DHCP on this LAN)"
@@ -437,7 +437,7 @@ Write-Output "  Path:      $UtmDir"
 Write-Output "  Backend:   QEMU (HVF) with -vnc 127.0.0.1:$VncDisplay (port $(5900 + $VncDisplay))"
 Write-Output ""
 Write-Output "  Console/SSH login:"
-Write-Output "    user:     yuruna"
+Write-Output "    user:     caching-proxy-admin"
 Write-Output "    password: $PasswordFile"
 Write-Output "    (also embedded in the seed.iso's user-data -- chpasswd)"
 $guidance = @'
@@ -471,12 +471,12 @@ verify all three checks below before starting guest installs):
        nc -z -w 3 "$ip" 3128 && echo 'squid OK' || echo 'squid DOWN'
 
   5. Verify pre-warm finished (cache occupancy should be > 0):
-       ssh yuruna@$ip "squidclient mgr:storedir"    # StoreEntries > 0
+       ssh caching-proxy-admin@$ip "squidclient mgr:storedir"    # StoreEntries > 0
 
 If step 4 reports 'squid DOWN' after 15 minutes, access the VM:
-  * UTM window:  login 'yuruna' / password '__PASSWORD__'
+  * UTM window:  login 'caching-proxy-admin' / password '__PASSWORD__'
                  (password also at __PASSWORD_FILE__; does NOT expire)
-  * SSH:         ssh yuruna@$ip   (uses the yuruna harness key
+  * SSH:         ssh caching-proxy-admin@$ip   (uses the yuruna harness key
                                    at test/status/ssh/yuruna_ed25519; passwordless)
 
 Then -- REAL apt/cloud-init errors live in the output log, not in
@@ -496,5 +496,5 @@ Wait 15-30 min and rebuild by re-running this script.
 Write-Output ($guidance.
     Replace('__VM_NAME__', $VMName).
     Replace('__UTM_DIR__', $UtmDir).
-    Replace('__PASSWORD__', $YurunaPassword).
+    Replace('__PASSWORD__', $AdminPassword).
     Replace('__PASSWORD_FILE__', $PasswordFile))

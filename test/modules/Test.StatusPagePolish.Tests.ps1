@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.22
+.VERSION 2026.07.24
 .GUID 42c3f5a8-0e61-4d92-b7a4-3f8c1d6e9b57
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -18,7 +18,7 @@
 
 <#
 .SYNOPSIS
-    Guards two status-page invariants: the faint foreground colour meets WCAG AA
+    Guards two status-page invariants: the faint foreground color meets WCAG AA
     contrast in both themes, and the yuruna.common.css REGION anchor matches the
     heading it points at in docs/definition.md.
 .DESCRIPTION

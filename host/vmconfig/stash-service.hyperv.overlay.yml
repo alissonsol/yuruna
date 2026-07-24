@@ -1,5 +1,11 @@
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 # Hyper-V overlay for stash-service.base.user-data.
-# Intentionally empty (no anchor sections): stash-service has no per-platform
-# divergence. Kept so a future platform-specific tweak has an obvious home.
+# Anchor sections in base-file order. An empty section emits nothing at that anchor.
+# Both host-agent sections are empty here: Hyper-V reports a guest address
+# through hv_kvp_daemon, which the Ubuntu cloud image already carries, and
+# hyperv-daemons pulls linux-cloud-tools-$(uname -r) -- a dependency that is not
+# always satisfiable against the running cloud-image kernel and would abort the
+# whole package phase. Address discovery falls back to ARP if KVP is silent.
+# === YURUNA_OVERLAY_HOST_AGENT_PKG ===
+# === YURUNA_OVERLAY_RUNCMD_HOST_AGENT ===

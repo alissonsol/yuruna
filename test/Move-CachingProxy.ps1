@@ -59,7 +59,9 @@
     IP or hostname of the OLD (source) caching-proxy VM.
 
 .PARAMETER OldUser
-    SSH login user on the old VM. Default: yuruna.
+    SSH login user on the old VM. Default: caching-proxy-admin, the
+    administrator the cache-VM seed provisions. Pass the actual account when
+    the source VM was seeded with a different one.
 
 .PARAMETER OldPassword
     Password for OldUser. Prompted (masked) when omitted.
@@ -68,7 +70,8 @@
     IP or hostname of the NEW (replacement) caching-proxy VM.
 
 .PARAMETER NewUser
-    SSH login user on the new VM. Default: yuruna.
+    SSH login user on the new VM. Default: caching-proxy-admin, the
+    administrator the cache-VM seed provisions.
 
 .PARAMETER NewPassword
     Password for NewUser. Prompted (masked) when omitted.
@@ -104,7 +107,7 @@ param(
     [string]$OldAddress,
 
     [ValidatePattern('^[A-Za-z0-9._][A-Za-z0-9._-]*$')]
-    [string]$OldUser = 'yuruna',
+    [string]$OldUser = 'caching-proxy-admin',
 
     [string]$OldPassword,
 
@@ -112,7 +115,7 @@ param(
     [string]$NewAddress,
 
     [ValidatePattern('^[A-Za-z0-9._][A-Za-z0-9._-]*$')]
-    [string]$NewUser = 'yuruna',
+    [string]$NewUser = 'caching-proxy-admin',
 
     [string]$NewPassword
 )
@@ -893,7 +896,7 @@ try {
             '       macOS UTM:   utmctl stop yuruna-caching-proxy'
             '  2. On that same host, tear down host-side plumbing that pointed at'
             '     it (port forwards, host-proxy promotion):'
-            '       pwsh test/Stop-CachingProxy.ps1'
+            '       pwsh test/Stop-CachingProxyVM.ps1'
             '  3. Keep the powered-off VM for a grace period in case of rollback'
             '     (boot it, then: sudo systemctl enable --now squid). Delete the'
             '     VM and its disk once the new cache has proven itself.'

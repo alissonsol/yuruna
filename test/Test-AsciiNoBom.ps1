@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.22
+.VERSION 2026.07.24
 .GUID 42d0c9e8-f7a6-4c54-5432-bad0c9e8f7a6
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -28,7 +28,7 @@
 
     The constraint holds today by convention only. This script is the
     automated guard so a future bulk encoding pass (line-ending
-    normalisation, find/replace, or broad changes converting encoding
+    normalization, find/replace, or broad changes converting encoding
     to UTF-8 with BOM) cannot silently break first-install on a fresh PS 5.1
     host without CI catching it.
 

@@ -65,7 +65,7 @@ back for later steps to consume) and the screenshot/log directories
 A Handler returns `[bool]`:
 
 - `$true` — the step succeeded. The engine moves on.
-- `$false` — the step failed, but in an *expected*, well-modelled way.
+- `$false` — the step failed, but in an *expected*, well-modeled way.
   The engine consults `FailureLabel`, `FailureClass`, `Severity`, and
   `SuggestedRecoveries` to fill out `last_failure.json` and routes to
   `retry` / `recoverFromSnapshot` if those wrap the failing step.
@@ -164,6 +164,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.22
+Last review: 2026.07.24
 
 Back to [Yuruna](../README.md)

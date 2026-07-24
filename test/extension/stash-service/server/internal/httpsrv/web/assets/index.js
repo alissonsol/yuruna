@@ -1,6 +1,6 @@
 // LICENSEURI https://yuruna.link/license
 // Copyright (c) 2019-2026 by Alisson Sol et al.
-// Recent-stashes list + search (stash-service-ui.md §4). Visibility-aware
+// Recent-stashes list + search. Visibility-aware
 // auto-refresh so a backgrounded tab does not poll.
 
 (function () {

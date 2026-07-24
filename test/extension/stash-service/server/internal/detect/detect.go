@@ -1,8 +1,7 @@
 // LICENSEURI https://yuruna.link/license
 // Copyright (c) 2019-2026 by Alisson Sol et al.
 
-// Package detect classifies a stored artifact's content type
-// (stash-service-ui.md §6.1). Detection runs server-side at upload/flush
+// Package detect classifies a stored artifact's content type. Detection runs server-side at upload/flush
 // so it runs ONCE per artifact (not per view) and classifies SCP- and
 // UI-created stashes identically — the classifier sees bytes, not origin.
 //
@@ -35,8 +34,7 @@ import (
 	"stash-server/internal/config"
 )
 
-// Result is the classification stored on the metadata record + sidecar
-// (stash-service-ui.md §10).
+// Result is the classification stored on the metadata record + sidecar.
 type Result struct {
 	MimeType     string
 	ContentClass string // config.Class* bucket the UI switches on
@@ -162,7 +160,7 @@ func mimeFromExtension(name string) string {
 }
 
 // ClassFromMime maps a (parameter-stripped) MIME type onto a UI content
-// class (stash-service-ui.md §6.1). SVG and HTML/XHTML are classed "other"
+// class. SVG and HTML/XHTML are classed "other"
 // on purpose: they are active content the UI serves download-only (§7.4),
 // so they must never land in an inline-rendered class.
 func ClassFromMime(mt string) string {

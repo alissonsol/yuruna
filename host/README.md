@@ -19,7 +19,7 @@ The host area splits documentation between two files per scope:
   one-liner, the steps an operator follows when nothing surprises
   them. Decisions and policy that everyone needs to know once
   (VM sizing, `Enable-TestAutomation.ps1` purpose, optional cache VM).
-- **`read.more.md`** — the gotcha catalogue and command reference.
+- **`read.more.md`** — the gotcha catalog and command reference.
   TCC grant details, VM resize commands, IP discovery cascades,
   per-platform first-run subtleties. Reach for it when the README's
   one-liner did not deliver.
@@ -28,7 +28,7 @@ The same split applies recursively under each platform folder
 ([`macos.utm/README.md`](macos.utm/README.md) vs
 [`macos.utm/read.more.md`](macos.utm/read.more.md), etc.). README
 entries link into the matching `read.more.md` section when a topic
-is summarised here and detailed there — the README never duplicates
+is summarized here and detailed there — the README never duplicates
 content already in `read.more.md`, only links to it.
 
 ## Folder layout
@@ -101,7 +101,7 @@ back-to-back cycles. The harness works without it.
 
 Full setup, monitoring (Grafana on :3000), HTTPS/SSL-bump, and offline
 replay live in [Caching](../docs/caching.md). Test-harness
-wrappers (`Start-CachingProxy.ps1`, `Test-CachingProxy.ps1`,
+wrappers (`Start-CachingProxyVM.ps1`, `Test-CachingProxy.ps1`,
 `YURUNA_CACHING_PROXY_IP`):
 [Caching proxy — test-harness operator reference](../docs/caching-proxy.md).
 
@@ -148,6 +148,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.22
+Last review: 2026.07.24
 
 Back to [Yuruna](../README.md)

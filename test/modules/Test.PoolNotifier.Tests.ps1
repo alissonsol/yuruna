@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.22
+.VERSION 2026.07.24
 .GUID 422d8f14-9a73-4e52-8c61-2d9b3a7e1f04
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -79,7 +79,7 @@ Describe 'ConvertFrom-PrometheusPoolGauge (parse the gating gauges)' {
         Assert-True  $GaugePools['wild'].degraded 'wild degraded gauge present'
         Assert-False $GaugePools['wild'].alertActive 'wild never alerts (no alert_active line)'
     }
-    It 'ignores unrelated/labelled series and an empty body' {
+    It 'ignores unrelated/labeled series and an empty body' {
         Assert-True (-not $GaugePools.ContainsKey('')) 'no empty pool key from host_status'
         Assert-Equal -Expected 0 -Actual (ConvertFrom-PrometheusPoolGauge -MetricsText '').Count -Because 'empty -> no pools'
     }

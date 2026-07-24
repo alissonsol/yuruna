@@ -88,9 +88,9 @@ flowchart TD
     runner[Invoke-TestRunner.ps1<br/>outer/inner loop, watchdog, state]
     sequences[sequences/ gui+ssh<br/>Invoke-Sequence + OCR]
     status[status/<br/>HTTP UI + runtime state]
-    extensions[extension/<br/>auth, notify, parser, pool-aggregator, stash]
+    extensions[extension/<br/>auth, notify, parser, pool-aggregator, pool-control, stash]
     pool[pool admin CLIs<br/>New-Pool, Set-PoolDesiredState, pool/]
-    cache-stash[caching proxy / stash / host-config<br/>Start-Stop scripts]
+    cache-stash[caching / stash / pool-control VMs<br/>+ status, host-config services]
     schemas[schemas/<br/>YAML validation schemas]
 
     runner --> sequences
@@ -168,4 +168,4 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.22
+Last review: 2026.07.24

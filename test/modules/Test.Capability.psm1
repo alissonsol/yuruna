@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.22
+.VERSION 2026.07.24
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456725
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -185,7 +185,7 @@ function Get-SequenceActionsUsed {
         verbs that appear in any step (including nested `retry` blocks).
     .DESCRIPTION
         Uses Read-SequenceFile from Invoke-Sequence.psm1 when available
-        (centralised parser + caching); falls back to a direct
+        (centralized parser + caching); falls back to a direct
         ConvertFrom-Yaml read so the function is usable from contexts
         that load this module without the engine.
     .OUTPUTS
@@ -455,13 +455,13 @@ function Write-HostRegistrationRecord {
         # true for every host). The pool-aggregator reads this to populate the
         # dashboard's Extension hosts table WITHOUT mounting ystash-nas (no cross-host
         # Config Service / NAS-credential dependency). Driven by per-service runtime
-        # markers a host writes when it brings a service up -- Start-StashServer.ps1
-        # writes runtime/stash-server.json; Stop-StashServer.ps1 removes it. File I/O
+        # markers a host writes when it brings a service up -- Start-StashVM.ps1
+        # writes runtime/stash-server.json; Stop-StashVM.ps1 removes it. File I/O
         # only (no foreign-module calls), matching this function's resolution policy.
         # extensionTargets carries the per-area deep-link the host advertises for its
         # service (the stash VM's UI base URL the host resolved via Get-VMIp into the
         # marker's stashBaseUrl), so the aggregator can /go/stash to it without an
-        # address store of its own -- docs/design/stash-service-ui.md (3.4).
+        # address store of its own.
         $activeExtensions = @()
         $extensionTargets = [ordered]@{}
         try {
@@ -478,7 +478,7 @@ function Write-HostRegistrationRecord {
             }
         } catch { Write-Verbose "activeExtensions (stash-server.json): $($_.Exception.Message)" }
         # pool-control: the Pool control service marker (runtime/pool-control.json,
-        # written by Start-PoolControlServer.ps1). Same contract as the stash marker
+        # written by Start-PoolControlVM.ps1). Same contract as the stash marker
         # -- presence = active, and poolControlBaseUrl is the deep-link the aggregator
         # surfaces from the Extension hosts table.
         try {

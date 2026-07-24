@@ -2,12 +2,7 @@
 
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
-# Interaction sequence for driving VM workload testing.
-# See possible actions in the actions.yml file.
-# ${vmName}, ${hostType}, ${guestKey}, ${hostname} are built-in. ${ext:area.Method(args)}
-# invokes the active extension under test/extension/<area>/.
 
-# Perf-log identity (see https://yuruna.link/test/perf). Bump revision on step add/remove.
 sequenceGuid: 42f51c93-670c-4995-9034-c06c275a357e
 sequenceRevision: 2
 
@@ -19,7 +14,6 @@ resource:
 variables:
   username: yuuser24
 
-# component -- reach a logged-in shell.
 component:
   - action: retry
     maxAttempts: 2
@@ -43,7 +37,6 @@ component:
     timeoutSeconds: 90
     description: "OCR: ${username}@${hostname}"
 
-# workload -- install VS Code and return to the login prompt.
 workload:
   - action: fetchAndExecute
     text: "/usr/local/lib/yuruna/fetch-and-execute.sh guest/ubuntu.server.24/ubuntu.server.24.code.sh"

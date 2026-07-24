@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.22
+.VERSION 2026.07.24
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456709
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -197,25 +197,11 @@ try {
 }
 
 # -- Section 2b: Config schema vs template ------------------------------------
-# The template is the schema source of truth. By default this validator fully
-# reconciles the live test.config.yml to it (Sync-TestConfigToTemplate in
-# Test.ConfigSync.psm1):
-#   * every template field the file lacks is added with its empty/default value
-#   * every key the template no longer defines (e.g. a renamed section's old keys)
-#     is REMOVED -- and when the removed key carried a value the previous file is
-#     first backed up to test.config.yml.backup so it is always recoverable
-#   * the file is rewritten with every map key AND scalar-array element in
-#     alphabetical order, so it is byte-stable and diff-friendly
-# Operator values for keys that still map are kept; the out-of-band 'secrets' node
-# is preserved untouched. Outcomes:
-#   * already canonical, shape matches        -> PASS (no rewrite)
-#   * fields added / re-sorted                -> PASS, listing any new fields to fill in
-#   * populated keys dropped from the schema  -> WARN or FAIL per -OnConfigSchemaDrift
-#                                                (recover from the .backup if needed)
-# Separately, at cycle start the runner does the same reconciliation via
-# Update-TestConfigFromTemplate (the path Invoke-TestRunner uses), which also STOPS
-# the run if a populated value no longer maps. -ApplyConfigMigration runs that
-# stop-on-unmappable reconciliation now instead of the validator's report-only one.
+# The template is the schema source of truth: Sync-TestConfigToTemplate fully
+# reconciles the live test.config.yml to it (add missing fields, remove
+# dropped keys with a .backup, rewrite alphabetically); at cycle start the
+# runner does the same via Update-TestConfigFromTemplate.
+# See docs/test-config.md (Template reconciliation).
 
 Write-Section "Config schema vs template"
 
@@ -681,8 +667,8 @@ if (Test-Path $VaultPath) {
 # identities (AD/Entra/...) plus the vault keys that hold the
 # corresponding passwords. Bootstrap-from-template runs on first cycle,
 # so a fresh checkout has a runtime file pre-seeded with the four
-# bundled logical users + the cache-VM 'yuruna' user, all with empty
-# corporate fields (today's local-only behavior).
+# bundled logical users + the three service-VM administrators, all with
+# empty corporate fields (local-only behavior).
 #
 # Strict-mode (default) blocks the cycle when an active sequence
 # references a logical username that's missing from users.yml, when
@@ -1159,7 +1145,7 @@ if (-not (Test-Path $poolMod)) {
 # -- Section 9c-stash: networkStorage stash (Stash Service) -------------------
 # The stash storage is ISOLATED from the pool (its own share + account). It is
 # optional (only the Stash Service uses it); issues here are advisory WARN, not
-# FAIL -- Start-StashServer hard-fails at build time when it is misconfigured.
+# FAIL -- Start-StashVM hard-fails at build time when it is misconfigured.
 Write-Section "networkStorage: stash (Stash Service)"
 
 if (-not (Test-Path $poolMod)) {
@@ -1188,7 +1174,7 @@ if (-not (Test-Path $poolMod)) {
                 $stashCredStored = $true
                 Write-Pass "networkStorage stash: a vault credential is stored for '$($stashCfg.NetworkUser)'."
             } else {
-                Write-Warn "networkStorage stash: '$($stashCfg.NetworkUser)' has NO stored vault credential -- the stash VM would bake a junk SMB password the NAS rejects. Set-Password it before Start-StashServer. See docs/test-config.md."
+                Write-Warn "networkStorage stash: '$($stashCfg.NetworkUser)' has NO stored vault credential -- the stash VM would bake a junk SMB password the NAS rejects. Set-Password it before Start-StashVM. See docs/test-config.md."
             }
         }
         $stashReachable = $false
@@ -1205,7 +1191,7 @@ if (-not (Test-Path $poolMod)) {
         # ('\\server\share\yuruna.stash'); New-SmbMapping to a missing subfolder fails
         # with a vague "network name cannot be found", so ensure the target folder
         # exists (create it via the parent share when missing), then verify an actual
-        # mount of it. Advisory throughout -- the stash is optional and Start-StashServer
+        # mount of it. Advisory throughout -- the stash is optional and Start-StashVM
         # hard-fails at build time -- but this catches the "reachable NAS, credential
         # stored, yet the mount still fails because the folder was never created" class
         # the passive checks above cannot see. Only attempted when a credential is
@@ -1222,12 +1208,12 @@ if (-not (Test-Path $poolMod)) {
                     if (Connect-YurunaPoolStorage -Config $stashCfg -Confirm:$false) {
                         Write-Pass "networkStorage stash: localPath mounted ('$($stashCfg.LocalPath)' -> '$($stashCfg.NetworkPath)')."
                     } else {
-                        Write-Warn "networkStorage stash: the target folder exists but mounting '$($stashCfg.LocalPath)' -> '$($stashCfg.NetworkPath)' still failed -- check the '$($stashCfg.NetworkUser)' password and that no other mapping holds the same NAS under a conflicting credential. Start-StashServer will buffer locally until this is fixed."
+                        Write-Warn "networkStorage stash: the target folder exists but mounting '$($stashCfg.LocalPath)' -> '$($stashCfg.NetworkPath)' still failed -- check the '$($stashCfg.NetworkUser)' password and that no other mapping holds the same NAS under a conflicting credential. Start-StashVM will buffer locally until this is fixed."
                         Show-LinuxSudoHintOnce
                     }
                 }
             } else {
-                Write-Warn "networkStorage stash: could not ensure the target folder '$($stashCfg.NetworkPath)' -- $($mk.error). Start-StashServer will buffer locally until this is fixed."
+                Write-Warn "networkStorage stash: could not ensure the target folder '$($stashCfg.NetworkPath)' -- $($mk.error). Start-StashVM will buffer locally until this is fixed."
                 if ($mk.error -match 'mount') { Show-LinuxSudoHintOnce }
             }
         }

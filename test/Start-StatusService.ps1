@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.22
+.VERSION 2026.07.24
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456740
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -416,7 +416,7 @@ try {
                     # subiquity sees "Connection failed [IP: 192.168.64.1
                     # 3128]" and falls back to offline install). Read
                     # the real VM IP from the yuruna-caching-proxy state
-                    # file written by Start-CachingProxy.ps1.
+                    # file written by Start-CachingProxyVM.ps1.
                     if ($IsMacOS) {
                         $vmIp = $null
                         $candidate = (Read-CachingProxyState).ipAddress
@@ -433,7 +433,7 @@ try {
                         }
                     }
                     # macOS: port 80 (<1024) is managed exclusively by
-                    # Start-CachingProxy.ps1 (it calls `sudo -v` first). Including
+                    # Start-CachingProxyVM.ps1 (it calls `sudo -v` first). Including
                     # it here would trigger a sudo prompt on every status-service
                     # restart. On macOS each port is independent (per-port pidfile),
                     # so excluding :80 does not affect the other ports.
@@ -474,7 +474,7 @@ try {
                         # portproxy because the user-mode listener path is
                         # unreachable from LAN on this host (squid logs the
                         # NAT-side IP -- see docs/caching.md).
-                        # macOS skips :80 -- Start-CachingProxy.ps1 is the
+                        # macOS skips :80 -- Start-CachingProxyVM.ps1 is the
                         # sole sudo owner of the privileged bind.
                         # Port values come from YURUNA_CACHING_PROXY_*_PORT
                         # env vars (defaults 3128 / 3129).
@@ -482,7 +482,7 @@ try {
                         $cacheHttpsPort = Get-CachingProxyPort -Scheme https
                         # The exposed-port set (incl. 9302 caching-proxy-parser
                         # live tail) comes from Get-CachingProxyExposedPort so it
-                        # cannot drift from Start-CachingProxy's install list;
+                        # cannot drift from Start-CachingProxyVM's install list;
                         # Add-PortMap is clear-all-first, so a dropped port goes
                         # dark on reinstall. macOS re-maps only Grafana.
                         $squidPorts = if ($IsMacOS) { @(3000) } else { Get-CachingProxyExposedPort -HttpPort $cacheHttpPort -HttpsPort $cacheHttpsPort }
@@ -1530,31 +1530,10 @@ try {
             }
 
             # --- REGION: /control/runner-status: is Invoke-TestRunner actually alive?
-            # Reads <track>/runner.pid (owned by the outer runner) and
-            # identifies the process as the outer runner via TWO paths:
-            #
-            #   1. <track>/runner.start sidecar (preferred): contains the
-            #      outer pwsh's ISO-8601 StartTime, recorded at launch.
-            #      We cross-check against Get-Process -Id <pid>'s live
-            #      StartTime -- a PID-reuse by a different process has a
-            #      different StartTime, so the check is forgery-resistant
-            #      without depending on argv visibility. This is what
-            #      makes the documented `pwsh ~/git/yuruna/test/Invoke-
-            #      TestRunner.ps1` launch (run from an interactive pwsh
-            #      REPL on macOS/Linux) get correctly identified -- there
-            #      the process's argv is just `pwsh` (no script name),
-            #      and the cmdline regex below false-negatives.
-            #
-            #   2. Cmdline regex (fallback): for older runners without
-            #      the sidecar and for launches that DO carry the script
-            #      in argv (Windows shortcut, `pwsh -File ...`). Uses the
-            #      same regex the outer runner uses itself for stale-PID
-            #      detection at startup.
-            #
-            # Returns: { running: bool, pid: int|null }
-            # The UI shows a "Stopped" banner when running=false so the
-            # operator isn't fooled by status.json showing the last
-            # cycle's data into thinking the runner is still active.
+            # Verifies <track>/runner.pid really is the outer runner
+            # (runner.start StartTime sidecar preferred; cmdline-regex
+            # fallback) and returns { running: bool, pid: int|null }.
+            # See docs/control-routes.md (GET /control/runner-status).
             if (`$path -eq 'control/runner-status') {
                 `$rs      = Test-RunnerAlive
                 `$running = `$rs.Running
@@ -2088,7 +2067,7 @@ try {
             }
 
             # --- REGION: /diagnostics/<folder>/<filename> -- guest-pushed diagnostic dump
-            # Second-defence path for Test.Diagnostic. The host has just
+            # Second-defense path for Test.Diagnostic. The host has just
             # injected a one-liner into the guest console that:
             #   1. wgets automation/Get-SystemDiagnostic.ps1 from us,
             #   2. runs it locally on the guest,
@@ -2162,7 +2141,7 @@ try {
                 }
                 # Pin the resolved file under logDir so a folder name that
                 # somehow normalized to a parent (won't happen given the
-                # checks above, but layered defence) still can't escape.
+                # checks above, but layered defense) still can't escape.
                 `$filePath = [System.IO.Path]::GetFullPath((Join-Path `$folderPath `$diagFile))
                 # Separator-anchored prefix: a bare StartsWith would also
                 # admit sibling directories sharing the prefix (log-root
@@ -2368,29 +2347,11 @@ try {
                 continue
             }
 
-            # Dispatch by URL prefix:
-            #   yuruna-repo/<rel> -> `$repoRoot (working tree, with deny-list)
-            #   runtime/<name>    -> `$runtimeDir (pids, status.json, control
-            #                                     flags, ipaddresses.txt,
-            #                                     caching-proxy.txt,
-            #                                     current-action.json, server.err,
-            #                                     yuruna-caching-proxy.yml,
-            #                                     host.uuid)
-            #   log/<name>        -> `$logDir    (HTML transcripts, OCR /
-            #                                     screenshot debug, failure
-            #                                     captures)
-            #   <anything>        -> `$statusDir (index.html, template, static
-            #                                     assets, plus perf/, extension/,
-            #                                     captures/, ssh/ subdirs)
-            # Each branch pins the resolved file under its mount root
-            # via a StartsWith check -- traversal like
-            # runtime/../../../etc/passwd can't escape.
-            #
-            # A unified deny-list (`$denyLikeStatus) is then applied to
-            # every served path before the file is written so secrets
-            # under status/ (vault.yml, transports.yml, events.log, the
-            # SSH private key, the caching-proxy state file) are blocked
-            # regardless of which URL route reached them.
+            # Dispatch file serving by URL prefix (yuruna-repo/ ->
+            # `$repoRoot, runtime/ -> `$runtimeDir, log/ -> `$logDir,
+            # else `$statusDir); each branch pins the path under its
+            # mount root, then the unified deny-list (`$denyLikeStatus)
+            # blocks secrets on every route. See docs/control-routes.md.
             if (`$path -like 'yuruna-repo/*') {
                 `$rel  = `$path.Substring(12)
                 `$root = `$repoRoot
@@ -2442,7 +2403,7 @@ try {
             }
             # Unified deny-list across non-yuruna-repo dispatches. The
             # /runtime/ route serves runtime/yuruna-caching-proxy.yml
-            # (plaintext yuruna user password); the catch-all serves
+            # (plaintext caching-proxy-admin password); the catch-all serves
             # status/extension/ (vault.yml, vault.lock, transports.yml,
             # events.log) and status/ssh/ (private SSH key). Block all
             # of those uniformly so URL probing never returns secrets.
@@ -2764,46 +2725,25 @@ if ($ip) {
 Write-Output "  Host:   http://${machineName}:$Port/status/"
 Write-Output ""
 
-# --- REGION: LAN reachability pre-check (Windows only)
-# The server binds to http://*:$Port so the socket is on every interface,
-# but on a fresh Windows 11 install the Defender Firewall drops inbound
-# TCP on non-loopback interfaces unless an Allow rule was created. The
-# local probe above only hit http://localhost which never exercises the
-# firewall -- so the Remote: URL above could look valid and still time
-# out from a LAN browser. Peek at the firewall rules Enable-TestAutomation
-# creates; if the Allow rule is missing or disabled, warn loudly and
-# print the remediation command before the user notices the silence.
-# Get-NetFirewallRule is a read operation and does not require admin.
-if ($IsWindows -and $ip) {
-    try {
-        $ruleName = "Yuruna: Allow inbound TCP :$Port (Status server)"
-        $statusRule = Get-NetFirewallRule -DisplayName $ruleName -ErrorAction SilentlyContinue
-        $remoteReachable = $false
-        if ($statusRule -and $statusRule.Enabled -eq 'True') {
-            $portFilter = $statusRule | Get-NetFirewallPortFilter -ErrorAction SilentlyContinue
-            if ($portFilter -and $portFilter.Protocol -eq 'TCP' -and $portFilter.LocalPort -eq "$Port") {
-                $remoteReachable = $true
-            }
-        }
-        if (-not $remoteReachable) {
-            # Distinguish "never configured" from "wrong port". Both paths
-            # recommend re-running Enable-TestAutomation.ps1 because that
-            # script is the single owner of these firewall rules.
-            if (-not $statusRule) {
-                Write-Warning "LAN reachability: no Windows Firewall rule found for inbound TCP :$Port."
-            } elseif ($statusRule.Enabled -ne 'True') {
-                Write-Warning "LAN reachability: firewall rule '$ruleName' exists but is DISABLED."
-            } else {
-                Write-Warning "LAN reachability: firewall rule '$ruleName' does not match TCP :$Port (test.config.yml port may have changed)."
-            }
-            Write-Warning "  http://localhost:$Port/status/ will work, but LAN clients hitting"
-            Write-Warning "  http://${ip}:$Port/status/ will time out."
-            Write-Warning "  To fix, open a new elevated pwsh and run:"
-            Write-Warning "    cd $(Split-Path -Parent $TestRoot)"
-            Write-Warning "    pwsh host\windows.hyper-v\Enable-TestAutomation.ps1"
-        }
-    } catch {
-        Write-Verbose "Firewall-rule reachability check skipped: $($_.Exception.Message)"
+# --- REGION: LAN reachability self-heal (all host types)
+# The server binds to http://*:$Port so the socket is on every interface, but a
+# host firewall silently DROPs inbound TCP on non-loopback interfaces without an
+# allow rule -- so the localhost probe above passes while a LAN browser (and the
+# pool aggregator) time out. Best-effort SELF-HEAL: ensure the allow rule when
+# this start is privileged (Windows admin / Linux root|sudo), else warn with the
+# durable-fix pointer only when we can positively determine it's blocked.
+# -NonInteractive so an unprivileged start never prompts and hangs; an
+# indeterminate state (e.g. can't read ufw unprivileged) stays quiet -- host
+# setup (Enable-TestAutomation) is the durable owner, which matters for a host
+# whose runner is stopped and so never re-runs this per-cycle start.
+Import-Module (Join-Path $ModulesDir 'Test.StatusFirewall.psm1') -Force
+$fw = Set-YurunaStatusFirewallRule -Port $Port -NonInteractive
+if ($fw.Changed) {
+    Write-Output "LAN reachability: $($fw.Message)"
+} elseif ($fw.Blocked) {
+    Write-Warning "LAN reachability: $($fw.Message)"
+    if ($ip) {
+        Write-Warning "  http://localhost:$Port/status/ works, but LAN clients hitting http://${ip}:$Port/status/ will time out."
     }
 }
 

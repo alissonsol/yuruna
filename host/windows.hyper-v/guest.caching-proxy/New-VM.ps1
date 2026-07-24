@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.22
+.VERSION 2026.07.24
 .GUID 42f1b2c3-d4e5-4f67-8901-a2b3c4d5e6f8
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -171,7 +171,7 @@ Import-Module $TestSshModule -Force
 $SshAuthorizedKey = Get-YurunaSshPublicKey
 if (-not $SshAuthorizedKey) { Write-Error "Get-YurunaSshPublicKey returned empty. Module path: $TestSshModule"; exit 1 }
 
-# --- REGION: Cache-VM yuruna password
+# --- REGION: Cache-VM admin password
 # --- REGION: https://yuruna.link/caching-proxy#cache-vm-password-persistence
 # The runtime state file <track>/yuruna-caching-proxy.yml is the source of
 # truth; Set-Password rehydrates the vault from it before Get-Password.
@@ -180,12 +180,12 @@ Import-Module (Join-Path $_repoRootForExt 'test/modules/Test.Extension.psm1')   
 Import-Module (Join-Path $_repoRootForExt 'test/modules/Test.CachingProxy.psm1') -Global -Force -Verbose:$false
 $_authActiveName = @(Import-Extension -Area 'authentication' -RequireSingle)[0]
 $persisted = (Read-CachingProxyState).password
-if ($persisted) { Set-Password -Username 'yuruna' -NewPassword $persisted }
-$YurunaPassword = Get-Password -Username 'yuruna'
-if (-not $YurunaPassword) { Write-Error "Get-Password returned empty for 'yuruna'."; exit 1 }
+if ($persisted) { Set-Password -Username 'caching-proxy-admin' -NewPassword $persisted }
+$AdminPassword = Get-Password -Username 'caching-proxy-admin'
+if (-not $AdminPassword) { Write-Error "Get-Password returned empty for 'caching-proxy-admin'."; exit 1 }
 Write-Output "Password came from authentication mechanism: $_authActiveName"
 Write-Output "See configuration at: $(Resolve-ExtensionAreaDir -Area 'authentication')"
-[void](Save-CachingProxyState -Secret $YurunaPassword -Confirm:$false)
+[void](Save-CachingProxyState -Secret $AdminPassword -Confirm:$false)
 # Resolve the file path once for the Write-Output lines below.
 $PasswordFile = Get-CachingProxyStatePath
 
@@ -209,7 +209,7 @@ if (-not $switchName) {
 # cloud-init build block fetches collector/parser source from the LOCAL host
 # working tree (/yuruna-repo/) instead of public github -- a rebuild never
 # waits on the private->public mirror. Empty values make the build fall back
-# to github. Start-CachingProxy.ps1 ensures the status server is running.
+# to github. Start-CachingProxyVM.ps1 ensures the status server is running.
 $YurunaHostIp = Get-GuestReachableHostIp -SwitchName $switchName
 if (-not $YurunaHostIp) { $YurunaHostIp = '' }
 $YurunaHostPort = '8080'
@@ -294,7 +294,7 @@ $UserData = New-CloudInitUserData `
     -RepoRoot    $_repoRootForExt `
     -Replacement @{
         SSH_AUTHORIZED_KEY_PLACEHOLDER = $SshAuthorizedKey
-        PASSWORD_PLACEHOLDER           = $YurunaPassword
+        PASSWORD_PLACEHOLDER           = $AdminPassword
         YURUNA_HOST_IP_PLACEHOLDER     = $YurunaHostIp
         YURUNA_HOST_PORT_PLACEHOLDER   = $YurunaHostPort
         YPOOL_NAS_REPLICATE_PLACEHOLDER     = $ypoolNasReplicate
@@ -322,7 +322,7 @@ CreateIso -SourceDir $SeedDir -OutputFile $SeedIso -VolumeId "cidata"
 # disk. The final "ready" banner reprints the same credentials.
 Write-Output ""
 Write-Output "== caching-proxy console/SSH login (available NOW) =="
-Write-Output "  user:     yuruna"
+Write-Output "  user:     caching-proxy-admin"
 Write-Output "  password: $PasswordFile"
 Write-Output "  If the wait below stalls or fails, open 'vmconnect localhost $VMName'"
 Write-Output "  and log in with the credentials above to inspect cloud-init state."
@@ -368,7 +368,7 @@ Write-Output "   this can take 5-15 minutes on a slow connection -- be patient)"
 
 # Discover the cache VM's IP via Get-CacheVmCandidateIp (Yuruna.Host.psm1,
 # KVP+ARP). Same primitive called by consumers (ubuntu guests) and
-# Start-CachingProxy.ps1's summary, so producer and consumers never see
+# Start-CachingProxyVM.ps1's summary, so producer and consumers never see
 # different answers about which IPs belong to this VM.
 #
 # No :3128 probe in this loop -- squid isn't listening yet (cloud-init is
@@ -473,7 +473,7 @@ to fall back to Default Switch on the next New-VM.ps1 run.
 
 Accessing the VM for debugging:
   * Console:  vmconnect localhost $VMName
-              login:    yuruna
+              login:    caching-proxy-admin
               password: $PasswordFile
               (cloud-init sets it from user-data; does NOT expire.)
   * SSH:      not available until the VM has a reachable IP -- that's
@@ -532,7 +532,7 @@ for ($i = 0; $i -lt $portMaxIterations; $i++) {
         Write-Output "  Monitor:   ssh to the VM, then 'squidclient mgr:info'  (web UI dropped in Ubuntu 26.04)"
         Write-Output ""
         Write-Output "  Console/SSH login:"
-        Write-Output "    user:     yuruna"
+        Write-Output "    user:     caching-proxy-admin"
         Write-Output "    password: $PasswordFile"
         Write-Output "    (also embedded in the seed.iso's user-data -- chpasswd)"
         Write-Output ""
@@ -578,10 +578,10 @@ silently fall back to direct CDN access and hit 429 rate limits.
 
 Accessing the VM for debugging:
   * Console:  vmconnect localhost $VMName
-              login:    yuruna
+              login:    caching-proxy-admin
               password: $PasswordFile
               (cloud-init sets it from user-data; does NOT expire.)
-  * SSH:      ssh yuruna@<candidate>    (try each of: $candidateList)
+  * SSH:      ssh caching-proxy-admin@<candidate>    (try each of: $candidateList)
               (uses the yuruna harness key at test\status\ssh\yuruna_ed25519 --
                same key the Ubuntu Server guest uses; passwordless)
 

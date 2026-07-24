@@ -51,7 +51,7 @@ Every `-interval` (default 30s) it:
    pool host's `host.registration.json` (already fetched for poolId/gating) and, for
    each `area` in that record's **`activeExtensions`** — the runtime list of
    extension services the host is ACTIVELY running (e.g. `stash-service` when it
-   hosts a stash-server VM; the host writes it via `Start-StashServer` →
+   hosts a stash-server VM; the host writes it via `Start-StashVM` →
    `runtime/stash-server.json` → `Write-HostRegistrationRecord`, which also refreshes
    it on bring-up so the host appears WITHOUT waiting for a test cycle) — exposes
    `yuruna_pool_host_extension{hostId,area,baseUrl,target}` (+`_last_seen_seconds`).
@@ -72,8 +72,7 @@ Every `-interval` (default 30s) it:
    above goes silent whenever the owning host's status server is down — routinely,
    after a host reboot — while the service VM auto-restarts and keeps serving. So the
    service announces ITSELF: the stash server POSTs `{hostId, area, targetPort}` at
-   startup, every beacon period (default 15 min), and `active:false` at shutdown
-   (stash-service.md §4.7). The advertised URL is derived from the announce's SOURCE
+   startup, every beacon period (default 15 min), and `active:false` at shutdown. The advertised URL is derived from the announce's SOURCE
    address (an announcer can only advertise itself — the same trust squid-log
    discovery extends to any LAN client), the row's `baseUrl` fills from the host view
    when the host is known, and a registration row for the same `(hostId, area)` wins.
@@ -193,8 +192,9 @@ the leaf is absent.
 | `/api/v1/pool-status` | GET | none | JSON snapshot of every discovered host's last poll |
 | `/go/cycle?host=<hostId>&t=<epochMs>` | GET | none | dashboard timeline click → 302 to that host's cycle-results folder. Resolves the host's **current** IP from the live view (so the link survives a host IP change) and the cycle covering `t` (current cycle in-memory, else the host's `/log/` listing, else the Loki transition feed); degrades to the host's status root when the folder can't be resolved |
 | `/go/host?host=<hostId>` | GET | none | dashboard timeline click → 302 to that host's status-page **root**. Same `host` uuid → **current** IP resolution as `/go/cycle` (survives a host IP change), but always lands on the status page rather than a cycle folder — the IP-free state-timeline rows can't carry the IP, so the link resolves it here |
-| `/go/stash?host=<hostId>&area=<area>` | GET | none | 302 to that host's extension-service UI (default `area=stash-service`, the stash VM), resolved from the URL the host **advertised** in `extensionTargets` (refreshed each cycle / on `Start-StashServer` via `Get-VMIp`). For IP-free, hostId-only consumers — the dashboard table itself links directly via the `target` label. Unknown host/target → 404 |
+| `/go/stash?host=<hostId>&area=<area>` | GET | none | 302 to that host's extension-service UI (default `area=stash-service`, the stash VM), resolved from the URL the host **advertised** in `extensionTargets` (refreshed each cycle / on `Start-StashVM` via `Get-VMIp`). For IP-free, hostId-only consumers — the dashboard table itself links directly via the `target` label. Unknown host/target → 404 |
 | `/ingest` | POST | Bearer | runner-side push of NDJSON events (supplements pull); disabled (503) until a shared bearer token is configured |
+| `/api/v1/forget-host?hostId=<42-hex>` | POST | Bearer | operator eviction: drop one hostId from the in-memory view NOW (all per-host maps → gone from the next `/metrics` scrape) instead of waiting its 24h TTL. Same token as `/ingest`; 503 when no token, 400 on a malformed id. JSON `{forgotten, hostId, wasPresent}`. A still-reachable host is re-discovered on the next poll — stop/drain it first. Called by `test/Remove-PoolHost.ps1` |
 | `/announce` | POST | none (self-identity-bound) | extension-presence beacon (stash server et al., point 5c): the advertised URL derives from / must match the sender's address, so an announcer can only advertise itself; telemetry-only, bounded, disabled (503) when `-announce-ttl` is `0` |
 
 ## Deploy + verify
@@ -210,7 +210,7 @@ binary + unit, and `systemctl enable --now`s. Failure is soft.
 
 Because it reads the host's **live working tree**, **no github mirror is
 required** — the host serves whatever is checked out at request time, so a
-rebuild always gets the latest local source. `Start-CachingProxy.ps1` starts the
+rebuild always gets the latest local source. `Start-CachingProxyVM.ps1` starts the
 status server before creating the VM. If the server is unreachable (or
 `statusService` is disabled in `test.config.yml`), the build falls back to github
 raw — where the private collector source may be absent, so the collector is
@@ -309,4 +309,4 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.22
+Last review: 2026.07.24

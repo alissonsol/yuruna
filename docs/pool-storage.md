@@ -287,6 +287,15 @@ The heavy lifting lives in `test/modules/Test.HostConfigSync.psm1`; the three
 per-host-type scripts are thin shells (run the one matching this host's OS;
 the Windows variant needs an elevated session for the hosts-file write).
 
+**Opting out of pool membership (`-NoPool`).** A disposable or self-verification
+host — e.g. the `example/nested.host` nested-host cycle — that only needs the
+reference host's *cache* but must NOT join the pool can pass `-NoPool`: the sync
+drops the `pool` + `networkStorage` nodes, so the host never mounts the NAS,
+replicates cycles, or writes a `hosts/info.<hostId>.yml` record. Without it an
+ephemeral host (a fresh `hostId` every rebuild) leaves a new dead entry in the
+pool set on each run. `vmStart.cachingProxyIP` + `repositories.*` still come
+across, so cache reuse is unaffected.
+
 What it does, in order:
 
 1. **Copy + convert.** Fetches the reference config over its status server
@@ -453,6 +462,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.22
+Last review: 2026.07.24
 
 Back to [Yuruna](../README.md)

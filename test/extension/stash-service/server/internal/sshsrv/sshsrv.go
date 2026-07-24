@@ -122,7 +122,7 @@ func permFor(conn ssh.ConnMetadata) *ssh.Permissions {
 }
 
 // ListenAndServe binds to addr and runs the accept loop until ctx is
-// cancelled. Connections are handled in their own goroutines.
+// canceled. Connections are handled in their own goroutines.
 func (s *Server) ListenAndServe(ctx context.Context, addr string) error {
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {
@@ -380,7 +380,7 @@ func (s *Server) commit(id, status string, final *store.FinalizeResult, buffered
 	}
 	// Detect the content type server-side, once, before the sidecar is
 	// written so SCP- and UI-created stashes classify identically and the
-	// type survives a reimage rebuild (stash-service-ui.md §6.1, §10). The
+	// type survives a reimage rebuild. The
 	// artifact exists locally now (share or buffer), so detection works in
 	// both cases; for a buffered upload the type lands in the DB row here and
 	// is carried onto the sidecar at flush time.

@@ -6,9 +6,9 @@
 See [Design overview](00-index.md) · [Yuruna Architecture](../architecture.md).
 
 Derived from `test/Invoke-TestRunner.ps1`, the
-`test/Start-{StatusService,CachingProxy,StashServer,HostConfigService}.ps1`
-scripts, `host/vmconfig/caching-proxy.base.user-data`,
-`test/extension/{pool-aggregator,stash-service}`, and
+`test/Start-{StatusService,HostConfigService}.ps1`, `test/Start-{CachingProxyVM,StashVM,PoolControlVM}.ps1`
+scripts, `host/vmconfig/{caching-proxy,stash-service,pool-control}.base.user-data`,
+`test/extension/{pool-aggregator,pool-control,stash-service}`, and
 `test.config.yml.template` (`statusService`, `configService`,
 `networkStorage`, `pool`). Mermaid has no deployment-diagram type, so each
 network node is a `subgraph`.
@@ -32,7 +32,8 @@ flowchart TD
         guest[fetch-and-execute.sh<br/>workload scripts]
     end
     subgraph pooltier[Pool Tier]
-        aggregator[pool-aggregator :9400<br/>+ Loki]
+        poolctl[Pool-control VM<br/>UI + API :80, pool intent]
+        aggregator[pool-aggregator :9400<br/>on caching-proxy host + Loki]
         nas[networkStorage NAS<br/>pool + stash shares]
     end
     subgraph cloud[Target Cloud and Cluster]
@@ -58,23 +59,32 @@ flowchart TD
     hostcfg -.->|NAS creds for pool hosts| nas
     runner -.->|cycle NDJSON /ingest| aggregator
     runner -.->|replicate| nas
+    cli -.->|pool admin CLIs| poolctl
+    poolctl -.->|state dir CIFS| nas
+    poolctl -.->|presence beacon| aggregator
     k8s -.- registry
 ```
 
 The caching-proxy VM co-locates squid (HTTP proxy :3128, ssl-bump :3129,
 CA cert served on :80), the zot OCI pull-through cache (:5000), Grafana
 (:3000), and the Go access-log parser (:9302); :3128 is the only port the
-runner hard-depends on. The stash VM's SSH sink is reached through an
-8022→22 port remap when NAT'd, and its presence beacon announces the host
-to the pool-aggregator. The host config service (`configService`, default
-port 8443) hands NAS credentials to pool hosts over mTLS.
+runner hard-depends on. The **pool-aggregator** (:9400, read-only pool
+view) also runs on the caching-proxy machine, auto-discovering members from
+the squid access log rather than a host list. The stash VM's SSH sink is
+reached through an 8022→22 port remap when NAT'd, and its presence beacon
+announces the host to the pool-aggregator. The host config service
+(`configService`, default port 8443) hands NAS credentials to pool hosts
+over mTLS.
 
 `%% planned` The **Pool Tier** is gated by `pool.enabled` (default `false`
 in `test.config.yml`); `pool.networkReplicate` (default `false`) governs
 the NAS `replicate` edge, and the `networkStorage` pool/stash paths are
 empty by default. The dashed edges activate only when those tiers are
-configured. A single machine commonly hosts both **Operator Workstation**
-and **Test-Runner / Hypervisor Host**.
+configured. **Pool-control** runs on its own VM (`Start-PoolControlVM.ps1`,
+`guest.pool-control`), serving the operator UI + pool-intent API on :80,
+CIFS-mounting the NAS for its state directory and beaconing the aggregator
+so it appears in the Extension hosts panel. A single machine commonly hosts
+both **Operator Workstation** and **Test-Runner / Hypervisor Host**.
 
 ---
 
@@ -82,4 +92,4 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.22
+Last review: 2026.07.24

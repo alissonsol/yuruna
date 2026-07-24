@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.22
+.VERSION 2026.07.24
 .GUID 42b0d2e3-f4a5-4678-9012-3b4c5d6e7f80
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -26,7 +26,7 @@ Import-Module (Join-Path $PSScriptRoot 'Yuruna.Result.psm1') -Global -Force
 Import-Module (Join-Path $PSScriptRoot 'Yuruna.Common.psm1') -Global -Force
 # Set-ExpandedVariableHashtable + Set-ExpandedResourcesOutput live in
 # Yuruna.VariableExpansion so [[Yuruna.Component]] can reuse the same
-# walk (with its -NoExpand flavour) instead of carrying a parallel
+# walk (with its -NoExpand flavor) instead of carrying a parallel
 # inline copy. -Global so the exported functions stay resolvable from
 # any nested scope Publish-WorkloadList enters.
 Import-Module (Join-Path $PSScriptRoot 'Yuruna.VariableExpansion.psm1') -Global -Force

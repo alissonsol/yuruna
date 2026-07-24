@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.22
+.VERSION 2026.07.24
 .GUID 42a2c3d4-e5f6-4b78-9012-c3d4e5f6a7b2
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -125,8 +125,8 @@ Import-Module (Join-Path $repoRoot 'test/modules/Test.Extension.psm1') -Global -
 $SshAuthorizedKey = Get-YurunaSshPublicKey
 if (-not $SshAuthorizedKey) { Write-Error "Get-YurunaSshPublicKey returned empty."; exit 1 }
 $_authActiveName = @(Import-Extension -Area 'authentication' -RequireSingle)[0]
-$YurunaPassword = Get-Password -Username 'yuruna'
-if (-not $YurunaPassword) { Write-Error "Get-Password returned empty for 'yuruna'."; exit 1 }
+$AdminPassword = Get-Password -Username 'pool-control-admin'
+if (-not $AdminPassword) { Write-Error "Get-Password returned empty for 'pool-control-admin'."; exit 1 }
 Write-Output "Password came from authentication mechanism: $_authActiveName"
 Write-Output "See configuration at: $(Resolve-ExtensionAreaDir -Area 'authentication')"
 
@@ -182,10 +182,10 @@ $poolNas = Get-YurunaPoolSeedValue -Config $tc
 # resolution; '' (no caching proxy known) leaves those features off in-guest.
 $aggregatorSeedUrl = Get-PoolAggregatorSeedUrl
 # Writable pool-intent git url the daemon commits to; empty degrades the daemon
-# (read-only). Read from test.config.yml pool.intentGitUrl, same accessor as
-# the pool-admin CLIs.
-$intentGitUrl = ''
-if ($tc -and $tc.pool -and $tc.pool.intentGitUrl) { $intentGitUrl = "$($tc.pool.intentGitUrl)" }
+# (read-only). An explicit test.config.yml pool.intentGitUrl wins; otherwise this
+# resolves the bare repo on the pool NAS, which the guest creates and seeds on
+# first bring-up so a fresh VM reaches a working UI with nothing pre-staged.
+$intentGitUrl = Get-PoolIntentSeedUrl -Config $tc
 
 # Render user-data from the shared base + KVM overlay (host/vmconfig/
 # pool-control.*). New-CloudInitUserData resolves placeholders with literal
@@ -197,7 +197,7 @@ $userData = New-CloudInitUserData `
     -RepoRoot    $repoRoot `
     -Replacement @{
         SSH_AUTHORIZED_KEY_PLACEHOLDER = $SshAuthorizedKey
-        PASSWORD_PLACEHOLDER           = $YurunaPassword
+        PASSWORD_PLACEHOLDER           = $AdminPassword
         YURUNA_HOST_IP_PLACEHOLDER     = $YurunaHostIp
         YURUNA_HOST_PORT_PLACEHOLDER   = $YurunaHostPort
         YURUNA_HOST_ID_PLACEHOLDER     = $poolNas.HostId
@@ -226,8 +226,8 @@ if ($LASTEXITCODE -ne 0) {
 
 Write-Output ""
 Write-Output "== pool-control console/SSH login (available NOW) =="
-Write-Output "  user:     yuruna"
-Write-Output "  password: (in authentication vault under 'yuruna')"
+Write-Output "  user:     pool-control-admin"
+Write-Output "  password: (in authentication vault under 'pool-control-admin')"
 Write-Output "  If the wait below stalls or fails, open"
 Write-Output "    virt-viewer --connect $virshUri $VMName"
 Write-Output "  and log in with the credentials above to inspect cloud-init state."
@@ -327,23 +327,24 @@ if (-not $dockIp) {
 pool-control VM '$VMName' did not obtain an IP address within 10 minutes.
 Accessing the VM for debugging:
   * Console:  virt-viewer --connect $virshUri $VMName
-              user: yuruna  (password in authentication vault)
+              user: pool-control-admin  (password in authentication vault)
 "@
     exit 1
 }
 
 Write-Output ""
-Write-Output "== pool-control VM is READY =="
+Write-Output "== pool-control VM booted (network up; daemon still building in-guest) =="
 Write-Output "  VM:       $VMName"
 Write-Output "  IP:       $dockIp"
 Write-Output "  Network:  $networkName"
 Write-Output "  UI:       http://$dockIp/  (Assign / Pools / Test sets)"
-Write-Output "  SSH:      ssh yuruna@$dockIp  (harness key authorized)"
+Write-Output "  SSH:      ssh pool-control-admin@$dockIp  (harness key authorized)"
 Write-Output "  Console:  virt-viewer --connect $virshUri $VMName"
 Write-Output ""
 Write-Output "Cloud-init fetches the framework and runs the bring-up script, which builds"
 Write-Output "the daemon, installs pwsh + the pool-admin CLIs, CIFS-mounts the pool NAS for"
 Write-Output "its state dir, and launches it under systemd on :80."
-Write-Output "Watch progress:  ssh yuruna@$dockIp 'tail -f /var/log/cloud-init-output.log'"
+Write-Output "Watch progress:  ssh pool-control-admin@$dockIp 'sudo tail -f /var/log/cloud-init-output.log'"
+Write-Output "  (the log is root-only; pool-control-admin has NOPASSWD sudo, so 'sudo tail' works over the harness key)"
 Write-Output "See https://yuruna.link/pool-control."
 exit 0

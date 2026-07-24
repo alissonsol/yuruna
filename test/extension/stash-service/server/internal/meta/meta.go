@@ -54,7 +54,7 @@ type Record struct {
 	// records are false.
 	LocallyBuffered bool
 
-	// UI fields (stash-service-ui.md §10). Populated by server-side
+	// UI fields. Populated by server-side
 	// detection at upload/flush time; carried on the durable sidecar so a
 	// stash classified on one host renders the same when viewed from
 	// another, and survives a reimage rebuild.
@@ -89,7 +89,7 @@ func Open(dbPath string) (*Store, error) {
 	return &Store{db: db}, nil
 }
 
-// migrate adds the UI columns (stash-service-ui.md §10) to an uploads table
+// migrate adds the UI columns to an uploads table
 // created by an earlier schema. CREATE TABLE IF NOT EXISTS does not alter an
 // existing table, so the columns are added here. It reads the current columns
 // via PRAGMA table_info and issues ADD COLUMN only for those missing, so it is
@@ -470,7 +470,7 @@ type Sidecar struct {
 	// written for artifacts already committed to the share. The field is
 	// carried for §8.1 completeness and forward-compatibility.
 	LocallyBuffered bool `json:"locallyBuffered"`
-	// UI detection fields (stash-service-ui.md §10). omitempty so a sidecar
+	// UI detection fields. omitempty so a sidecar
 	// from before the UI shipped round-trips unchanged; an empty
 	// contentClass signals "not yet classified" to the reader, which then
 	// detects on-the-fly (remote) or backfills (local owner).
@@ -500,7 +500,7 @@ func WriteSidecar(r *Record) error {
 
 // ReadSidecar reads and parses one <id>.yuruna.meta.json file into a
 // Record. Used by the pool-wide UI to read OTHER hosts' sidecars off the
-// share (stash-service-ui.md §3.1) without going through any host's local
+// share without going through any host's local
 // index. Returns an error for an unreadable / malformed / empty-id file.
 func ReadSidecar(path string) (*Record, error) {
 	data, err := os.ReadFile(path)

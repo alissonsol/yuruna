@@ -80,7 +80,7 @@ on the caching-proxy VM):
 ## Verifying after install
 
 ```
-ssh yuruna@<cache-ip>
+ssh caching-proxy-admin@<cache-ip>
 systemctl status caching-proxy-parser
 curl -s http://localhost:9302/healthz             # → begins "ok parsed=… skipped=… last_open_err=…"
 curl -s http://localhost:9302/recent-requests | jq '. | length'
@@ -104,6 +104,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.22
+Last review: 2026.07.24
 
 Back to [Yuruna](../../../README.md)

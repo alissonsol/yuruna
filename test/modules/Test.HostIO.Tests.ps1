@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.22
+.VERSION 2026.07.24
 .GUID 422f3b8c-4e95-4a72-9b16-7f8e3c0d5a29
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -25,13 +25,13 @@
     Send-Click). It must do a SINGLE registry lookup and branch on the local
     reference, not call Test-HostIOActionAvailable (its own lookup) and then look
     the host map up again. The behavioral tests pin the observable contract that
-    must survive that optimisation:
+    must survive that optimization:
       * a registered (HostType, Action) dispatches to its scriptblock, forwarding
         the arguments hashtable, and returns the block's value;
       * an unregistered Action on a known host throws, listing the available
         actions;
       * an unknown host throws with the '<host not registered>' marker.
-    The AST guards pin the optimisation itself (exactly one registry Get; no
+    The AST guards pin the optimization itself (exactly one registry Get; no
     Test-HostIOActionAvailable call) -- both fail if the dispatch path
     regresses to the double-lookup shape.
 

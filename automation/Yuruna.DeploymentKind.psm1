@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.22
+.VERSION 2026.07.24
 .GUID 42c7d8e9-f0a1-4b23-8456-7c8d9e0f1a23
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -158,7 +158,7 @@ function Get-YurunaDeploymentKindList {
     param()
     # Two-step build: a typed-array cast over an empty/loop result can
     # collapse to $null (the typed-array-cast-if-empty class:
-    # feedback_pwsh_typed_array_cast_if_empty_null.md), so initialise then
+    # feedback_pwsh_typed_array_cast_if_empty_null.md), so initialize then
     # append.
     $list = [System.Collections.Generic.List[hashtable]]::new()
     foreach ($key in $global:__YurunaDeploymentKindCatalog.Keys) {

@@ -95,7 +95,7 @@ same stored value).
 - `New-RandomPassword` is a pure helper used by the rotation flow.
 - `Set-Password -Username <name> -NewPassword <value>` commits a
   rotation (the only path that changes an existing password).
-- A named system mutex serialises read-modify-write so multiple guests
+- A named system mutex serializes read-modify-write so multiple guests
   provisioning in parallel cannot race.
 
 The caching-proxy `yuruna` user persists across cycles via
@@ -247,7 +247,7 @@ sequences (e.g. `workload.guest.ubuntu.server.24.k8s.text-to-sql.baseline`)
 auto-resolve to the existing `guest.ubuntu.server.24` folder. Pass
 `-GuestKey` to override the walk.
 
-To minimise surprises when a sequence is later wired into the runner,
+To minimize surprises when a sequence is later wired into the runner,
 Test-Sequence mirrors the relevant runner-side resolutions:
 
 * **Baseline chain walk** -- the same `Resolve-CyclePlan` logic the runner
@@ -327,6 +327,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.22
+Last review: 2026.07.24
 
 Back to [Yuruna](../README.md)

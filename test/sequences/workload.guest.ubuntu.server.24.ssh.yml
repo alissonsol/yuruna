@@ -2,10 +2,7 @@
 
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
-# SSH variant of workload.guest.ubuntu.server.24 (keystrokeMechanism: ssh).
-# See possible actions in the actions.yml file.
 
-# Perf-log identity (see https://yuruna.link/test/perf). Bump revision on step add/remove.
 sequenceGuid: 42b6702a-a4ae-4327-9e86-91b786690aff
 sequenceRevision: 1
 
@@ -17,7 +14,6 @@ resource:
 variables:
   username: yuuser24
 
-# component -- wait for sshd, smoke-test the session.
 component:
   - action: sshWaitReady
     timeoutSeconds: 300
@@ -27,7 +23,6 @@ component:
     command: "whoami && hostname"
     description: "Smoke test: whoami/hostname"
 
-# workload -- install VS Code and verify the package is present.
 workload:
   - action: sshFetchAndExecute
     command: "/usr/local/lib/yuruna/fetch-and-execute.sh guest/ubuntu.server.24/ubuntu.server.24.code.sh"

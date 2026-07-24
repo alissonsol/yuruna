@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.22
+.VERSION 2026.07.24
 .GUID 42a2b3c4-d5e6-4f78-9012-3a4b5c6d7e91
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -230,19 +230,19 @@ function Invoke-EntitledSwift {
     Start-CachingProxyForwarder spawns Start-CachingProxyForwarder.ps1
     as a detached `pwsh` subprocess that binds :3128 on the host and
     tunnels to $CacheIp:3128. Detached so the forwarder outlives
-    Start-CachingProxy.ps1 (it survives the launcher exiting -- it is
+    Start-CachingProxyVM.ps1 (it survives the launcher exiting -- it is
     reparented to launchd -- but any Remove-PortMap still tears it down).
 
     PID is written to $HOME/yuruna/image/caching-proxy/forwarder.<Port>.pid.
     Stop-CachingProxyForwarder reads it and sends SIGTERM.
-    Get-CachingProxyForwarder reports liveness without signalling.
+    Get-CachingProxyForwarder reports liveness without signaling.
 
     Returns $true when the forwarder is verified listening (Start),
     terminated (Stop), or currently running (Get).
 
 .PARAMETER CacheIp
     IP of the caching-proxy VM (Start-CachingProxyForwarder only). Typically
-    192.168.64.X discovered by Start-CachingProxy.ps1's subnet probe.
+    192.168.64.X discovered by Start-CachingProxyVM.ps1's subnet probe.
 #>
 function Start-CachingProxyForwarder {
     [CmdletBinding(SupportsShouldProcess)]
@@ -287,7 +287,7 @@ function Start-CachingProxyForwarder {
     $proxyTag = if ($PrependProxyV1) { ' [PROXY v1]' } else { '' }
     Write-Information "  Launching host-side forwarder: 0.0.0.0:${Port} -> ${CacheIp}:${VMPort}${proxyTag}" -InformationAction Continue
     # RedirectStandard* is required: without them pwsh inherits the
-    # parent TTY and dies when Start-CachingProxy.ps1 exits. The
+    # parent TTY and dies when Start-CachingProxyVM.ps1 exits. The
     # forwarder's own log gets live traffic; stdout/stderr go to files.
     $procArgs = @(
         '-NoProfile','-NoLogo','-File', $forwarderScript,
@@ -307,7 +307,7 @@ function Start-CachingProxyForwarder {
     $needsSudo = ($Port -lt 1024) -and (-not $isRoot)
 
     # If the privileged forwarder is already running (root-owned, started by
-    # Start-CachingProxy.ps1 which called `sudo -v` first), leave it alone.
+    # Start-CachingProxyVM.ps1 which called `sudo -v` first), leave it alone.
     # Killing a root process requires sudo credentials that the caller
     # (e.g. Invoke-TestRunner) may not have cached -- and the correct CacheIp
     # is already baked into the running process. Only restart if crashed.
@@ -377,7 +377,7 @@ function Start-CachingProxyForwarder {
 .DESCRIPTION
     Reads $HOME/yuruna/image/caching-proxy/forwarder.<Port>.pid and verifies the
     PID belongs to Start-CachingProxyForwarder.ps1 (via /bin/ps -o
-    command=) before signalling -- a stale pidfile pointing at an
+    command=) before signaling -- a stale pidfile pointing at an
     unrelated process must NOT be killed. Sends SIGTERM and waits up to
     2s; escalates to SIGKILL if no response. The pidfile is removed on
     every success path and on stale-pidfile detection so the next Start
@@ -541,7 +541,7 @@ function Stop-AllCachingProxyForwarder {
     Discovery order:
       1. The cache VM IP recorded in the yuruna-caching-proxy state
          file (<track>/yuruna-caching-proxy.yml, written by
-         Start-CachingProxy.ps1 with the VM's 192.168.64.X address).
+         Start-CachingProxyVM.ps1 with the VM's 192.168.64.X address).
          If reachable, return THIS IP; the caller can hit :80 / :3128
          / :3129 on it directly across Apple Virtualization shared NAT.
       2. 127.0.0.1 -- the local Start-CachingProxyForwarder bridges
@@ -1708,12 +1708,16 @@ function New-VM {
         [string]$Username,
         # Planner-cascaded guest hostname (variables.hostname); same
         # declare-or-drop forwarding rule as -Username.
-        [string]$Hostname
+        [string]$Hostname,
+        # Planner-cascaded VM sizing (variables.memoryStartupBytes /
+        # variables.cores); same declare-or-drop forwarding rule as -Username.
+        [string]$MemoryStartupBytes,
+        [string]$Cores
     )
     # Thin wrapper over the shared per-guest runner; the host subdir is the
     # only platform variable. Splatting $PSBoundParameters preserves the
-    # conditional -CachingProxyUrl/-Username/-Hostname forwarding (the runner
-    # checks ContainsKey) and propagates -WhatIf/-Confirm to its ShouldProcess.
+    # conditional -CachingProxyUrl/-Username/-Hostname/-MemoryStartupBytes/-Cores
+    # forwarding (the runner checks ContainsKey) and propagates -WhatIf/-Confirm.
     Invoke-PerGuestNewVm -HostSubdir 'host/macos.utm' @PSBoundParameters
 }
 
@@ -2801,7 +2805,7 @@ function Get-GuestReachableHostIp {
     Returns the host's LAN /24 prefix (e.g. '192.168.7.') based on the
     default-route interface, or $null when the host has no default route.
 .DESCRIPTION
-    Used by Start-CachingProxy.ps1 Step 5 to locate the just-booted
+    Used by Start-CachingProxyVM.ps1 Step 5 to locate the just-booted
     bridged caching-proxy VM by walking the same /24 the host sits on,
     and reserved for a future LAN-wide cache-discovery feature. (It is
     NOT consulted by Test-CachingProxyAvailable, which is restricted to
@@ -2833,7 +2837,7 @@ function Get-HostLanPrefix {
     or a remote cache the operator explicitly named, are returned:
       1. $Env:YURUNA_CACHING_PROXY_IP -- explicit remote cache override.
       2. State file (Read-CachingProxyState).ipAddress -- the cache VM's
-         LAN IP written by Start-CachingProxy.ps1 Step 4 (our own VM).
+         LAN IP written by Start-CachingProxyVM.ps1 Step 4 (our own VM).
 
     No LAN scan, no ARP discovery. The previous /24 subnet scan would
     happily lock onto a sibling host's yuruna-caching-proxy on the same

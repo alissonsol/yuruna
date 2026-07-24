@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.22
+.VERSION 2026.07.24
 .GUID 42c0ffee-a0de-4e1f-a2b3-c4d5e6f7aa02
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -34,7 +34,7 @@
     Pure PowerShell (TcpListener + runspace pool per connection) -- no
     brew/socat/HAProxy dependency, runs anywhere pwsh runs.
 
-    On macOS: typically launched detached by Start-CachingProxy.ps1 to
+    On macOS: typically launched detached by Start-CachingProxyVM.ps1 to
     let REMOTE LAN hosts reach squid via the Mac's LAN IP.
 
     On Windows: launched by the host driver's Add-PortMap
@@ -43,9 +43,9 @@
     stream so squid (with `accept-proxy-protocol`) sees the real
     client IP/port instead of the host's NAT-side IP.
 
-    Typically launched detached by Start-CachingProxy.ps1 (via
+    Typically launched detached by Start-CachingProxyVM.ps1 (via
     Yuruna.Host.psm1's Start-CachingProxyForwarder) and killed by
-    Stop-CachingProxy.ps1. PID is written to -PidFile so the stopper can
+    Stop-CachingProxyVM.ps1. PID is written to -PidFile so the stopper can
     find it without pgrep.
 
 .PARAMETER CacheIp
@@ -97,7 +97,7 @@
     pwsh Start-CachingProxyForwarder.ps1 -CacheIp 192.168.64.3 -Port 8022 -VMPort 22
 
 .EXAMPLE
-    # How Start-CachingProxy.ps1 launches it (detached):
+    # How Start-CachingProxyVM.ps1 launches it (detached):
     Start-Process pwsh -ArgumentList @(
         '-NoProfile','-File', $forwarderScript,
         '-CacheIp', '192.168.64.3',

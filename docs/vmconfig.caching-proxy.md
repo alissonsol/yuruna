@@ -54,11 +54,11 @@ source-tree directory `guest.caching-proxy/` and the image filename keep the
 template, not the running VM. This split prevents a rename cascade across the
 repo every time the runtime VM gets renamed.
 
-### Users replace cloud image default with yuruna
+### Users replace cloud image default with a per VM admin account
 
-Replace the Ubuntu cloud image's default `ubuntu` user with `yuruna`. Listing a `users:` block WITHOUT `- default` suppresses ubuntu creation entirely -- only the listed users land in /etc/passwd. yuruna gets:
+Replace the Ubuntu cloud image's default `ubuntu` user with `caching-proxy-admin`. Listing a `users:` block WITHOUT `- default` suppresses ubuntu creation entirely -- only the listed users land in /etc/passwd. Each VM family gets its OWN administrator name (`caching-proxy-admin`, `pool-control-admin`, `stash-admin`) so their vault entries are independent: a shared name means the vault holds one password and the most recently built VM invalidates the console credential of the others. `caching-proxy-admin` gets:
 - Passwordless sudo (this VM is a debug box on a private network).
-- The yuruna harness SSH key for passwordless `ssh yuruna@<cache-ip>`.
+- The yuruna harness SSH key for passwordless `ssh caching-proxy-admin@<cache-ip>`.
 - lock_passwd: false so chpasswd below can set a known random password for console fallback (the host VM console) when cloud-init hasn't finished and SSH isn't up yet.
 
 ### Grafana apt repo inline GPG key
@@ -205,6 +205,108 @@ PATH, so it works for any registry host: registry.k8s.io, ghcr.io,
 registry-1.docker.io, public.ecr.aws, us-east4-docker.pkg.dev, and the
 CDNs they 307-redirect to (cloudfront, S3, R2 cloudflarestorage) -- those
 all carry the `sha256:` segment in the redirected path.
+
+### Upstream stall and fetch pooling guards
+
+Four directives that together keep one bad origin from taking a whole
+cycle down. They are tuned as a group -- changing one in isolation
+usually just moves the stall somewhere else.
+
+**`quick_abort_min -1 KB`** disables the quick-abort threshold entirely,
+so a client that disconnects mid-fetch (a guest rebooting, say) does not
+cancel the transfer. Squid finishes the object and the next client gets a
+hit instead of restarting the download.
+
+**`read_timeout 2 minutes`** bounds upstream inactivity. Squid's default
+is 15 minutes, and with `collapsed_forwarding` on, every rider of a
+stalled fetch stalls with it -- clients hang mid-body with headers
+already received, which is precisely where no client-side connect or
+read-gap timeout fires (the stalled-transfer trap class). The timeout is
+inactivity-based and resets on every packet received, so a slow-but-moving
+large object is never cut off; only a genuinely silent upstream is. Two
+minutes matches the `Acquire::http::Timeout` the guests are seeded with.
+
+**`collapsed_forwarding on`** pools concurrent identical fetches: when N
+machines start the same uncached ISO at once, squid forwards ONE request
+to origin and the other N-1 ride the in-progress fetch. Without it every
+client races to origin in parallel, wasting mirror bandwidth and tripping
+per-IP rate limits at releases.ubuntu.com when a swarm rebuilds. It has
+no effect on CONNECT-tunneled HTTPS (uncacheable by definition); it
+applies to HTTP origins and to SSL-bumped HTTPS on :3129.
+
+**`range_offset_limit none`** changes how `Range:` requests populate the
+cache. The default (`0`) forwards the partial to origin and serves it
+back WITHOUT caching, so range and resumed downloads (BITS, browser
+resume, `curl --range`, apt's pdiff fetcher) leave nothing behind for the
+next client. `none` (unbounded) tells squid to fetch the FULL object on
+the first range request and serve subsequent ranges from cache --
+critical for the "many machines hit the same large ISO" case, where the
+first hit may well be a resume.
+
+Alongside these, **`cachemgr_passwd none config`** exposes the running
+config on `/squid-internal-mgr/config` without a password, which
+squid-meta-exporter.sh needs so the dashboard reads the daemon's RUNTIME
+state rather than the on-disk drop-in (which can be stale between an edit
+and `squid -k reconfigure`). The stock `http_access allow localhost
+manager` ACL in squid.conf keeps the dump off the LAN.
+
+### GitHub release and Helm chart pinning
+
+**GitHub release assets** (kubectl, helm, gh, jq, terraform-provider-*,
+tofu, …) live at `github.com/<owner>/<repo>/releases/download/<tag>/<asset>`,
+which 302-redirects to `objects.githubusercontent.com/<token>/…`. Both
+URLs are content-addressed by tag plus asset name -- release assets are
+immutable in GitHub's data model -- so both get the full-year pin. The
+rule matches the whole host rather than just terraform-provider assets,
+because non-extensioned binaries (raw `kubectl`, `helm`) would not
+otherwise match the catch-all `.zip` / `.tar.gz` patterns.
+
+**Helm chart packages** downloaded by `helm install <repo>/<chart>` have
+URLs ending in `.tgz` (e.g.
+`https://kubernetes.github.io/ingress-nginx/ingress-nginx-X.Y.Z.tgz`).
+The `\.tar\.gz$` pattern does NOT match the `.tgz` short form, so without
+a dedicated rule the package falls through to the catch-all
+`refresh_pattern .` and revalidates on every install -- which becomes a
+hard failure during a kubernetes.github.io blip. Chart packages are
+version-tagged and immutable in helm's data model, so they get the same
+full-year pin as GitHub release assets.
+
+**Helm repo indexes** (`index.yaml`, fetched by `helm repo update`) are
+treated as short-lived but cacheable: 60 minutes freshness with a 20 %
+last-modified factor, so back-to-back cycles inside an hour hit cache
+while new chart versions still land the same day. The rule is scoped to
+known helm-repo hosts so unrelated YAML is not over-cached.
+
+### Squid access log and self-scrape filtering
+
+The `yuruna` logformat feeds the Grafana "Recent 100 requests" panel and the
+caching-proxy-parser. `%>A` is deliberately absent: squid 6 turns it into a
+synchronous PTR lookup, and RFC1918 addresses come back as garbage from
+upstream resolvers. The User-Agent is wrapped in literal double quotes because
+`%{...}>h` does not escape embedded spaces on its own.
+
+It writes to its own file rather than the stock `access.log`, so
+cachemgr/`tail` debugging keeps the default format. Two `access_log` entries
+pointing at one file corrupt both, so the split is required, not cosmetic.
+
+**Why the self-scrape exclusion matches on source, not URL path.**
+squid-exporter polls three `/squid-internal-mgr` endpoints on a 15 s
+Prometheus interval -- roughly 580 requests an hour that are internal noise in
+both `yuruna_access.log` and the "Recent 100 requests" view. The `deny` is on
+`access_log`, not `http_access`, so the exporter still gets its response.
+
+The ACL matches `src 127.0.0.1/32 ::1/128` because the exporter runs on this
+VM and scrapes `127.0.0.1:3128`. A `urlpath`/`url` regex ACL cannot be
+evaluated for connection-level log events that carry no parsed HTTP request
+(CONNECT tunnels, pre-request TLS-bump errors); squid then writes "ACL is used
+in context without an HTTP request" to `cache.log` for every such event --
+hundreds per minute, burying genuine errors. `src` is always available, so the
+exclusion stays warning-free. Guest traffic is LAN-sourced, so dropping
+loopback removes only self-scrapes and local health probes, never a guest
+request.
+
+squid 7 requires the module prefix on `access_log`; without `stdio:` the
+parser emits a deprecation warning at every config load.
 
 ### Prometheus loopback only
 
@@ -403,7 +505,7 @@ unattended-upgrades + the daily apt timers will keep pulling fixes from here on;
 
 ### Confirm apt daily timers armed
 
-Confirm the timers that drive the 24-hour cadence are actually armed. If the apt package's postinst didn't enable them (rare on Ubuntu but has happened on minimised cloud images), surface a clear breadcrumb so an operator notices BEFORE CVEs pile up.
+Confirm the timers that drive the 24-hour cadence are actually armed. If the apt package's postinst didn't enable them (rare on Ubuntu but has happened on minimized cloud images), surface a clear breadcrumb so an operator notices BEFORE CVEs pile up.
 
 ### zot install binary and activation
 
@@ -433,6 +535,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.22
+Last review: 2026.07.24
 
 Back to [Yuruna](../README.md)

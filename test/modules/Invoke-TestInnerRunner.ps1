@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.22
+.VERSION 2026.07.24
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456706
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -24,7 +24,7 @@
 
 .PARAMETER ConfigPath           test.config.yml path (default: next to this script)
 .PARAMETER NoGitPull             Skip `git pull` at cycle start
-.PARAMETER NoServer              Skip the built-in HTTP status server
+.PARAMETER NoStatusService       Skip the built-in HTTP status server
 .PARAMETER CycleDelaySeconds     Pause between cycles (default 30)
 .PARAMETER logLevel              One of Error|Warning|Information|Verbose|Debug. Each level shows itself + all higher-priority levels (Error highest). Omit to read test.config.yml.logLevel (default "Information").
 #>
@@ -34,7 +34,7 @@
 param(
     [string]$ConfigPath        = $null,
     [switch]$NoGitPull,
-    [switch]$NoServer,
+    [switch]$NoStatusService,
     # Skip the in-cycle Update-ProjectClone (wipe + re-clone of
     # <RepoRoot>/project from repositories.projectUrl). Used by Test-Project.ps1,
     # which performs the wipe + clone itself as discrete steps before
@@ -66,7 +66,7 @@ $script:CmdLineLogLevel = if ($PSBoundParameters.ContainsKey('logLevel')) { $log
 Import-Module (Join-Path $PSScriptRoot 'Test.LogLevel.psm1') -Global -Force
 
 # Exponential-backoff helper for filesystem-state poll loops is
-# centralised in Test.Backoff.psm1 (Get-PollDelay) so a tuning change
+# centralized in Test.Backoff.psm1 (Get-PollDelay) so a tuning change
 # lands once. Imported with -Global by Test.Prelude's module sets,
 # so callers in this file resolve the function via the global scope.
 
@@ -340,8 +340,8 @@ if (Get-Command Write-HostRegistrationRecord -ErrorAction SilentlyContinue) {
 # it changes, so the Extension cell's /go/stash deep-link self-heals after a DHCP lease
 # change. The refreshed URL folds into host.registration.json on the next cycle's
 # Write-HostRegistrationRecord. No-op when this host runs no stash server.
-if (Get-Command Update-StashServerMarkerAddress -ErrorAction SilentlyContinue) {
-    $null = Update-StashServerMarkerAddress
+if (Get-Command Update-StashServiceMarkerAddress -ErrorAction SilentlyContinue) {
+    $null = Update-StashServiceMarkerAddress
 }
 
 if (-not (Assert-HostConditionSet -HostType $HostType)) { exit $ExitFailure }
@@ -365,7 +365,7 @@ Write-Output "Log directory:     $env:YURUNA_LOG_DIR"
 # --- REGION: Stale cycle-restart flag sweep
 # control.cycle-restart is written by the status server's /control/start-
 # cycle endpoint. The inter-cycle delay loop consumes it on its next tick;
-# the per-step gate in Invoke-Sequence.psm1 honours it too. But if a prior
+# the per-step gate in Invoke-Sequence.psm1 honors it too. But if a prior
 # session was killed mid-cycle before consuming the flag (operator Ctrl-C,
 # outer-runner restart, process crash), the file persists. A freshly
 # starting inner IS the restart the operator asked for, so consume the
@@ -438,7 +438,7 @@ $cachingProxyUrl = Test-CachingProxyAvailable
 # https://yuruna.link/caching-proxy
 #
 # Serialize this per-cycle port-map write against a caching-proxy
-# bring-up. Try-once (non-blocking): if Start-CachingProxy holds the lock (a
+# bring-up. Try-once (non-blocking): if Start-CachingProxyVM holds the lock (a
 # rebuild), skip this cycle's port-map -- the rebuild owns the maps and the
 # cache is down mid-rebuild anyway; the next cycle re-applies once it releases.
 # Get-Command-guarded so a long-running runner that predates the lock module
@@ -503,7 +503,7 @@ if ($cachingProxyUrl) {
             $cacheHttpsPort = Get-CachingProxyPort -Scheme https
             # The exposed-port set (incl. 9302 caching-proxy-parser live tail)
             # comes from Get-CachingProxyExposedPort so it cannot drift from
-            # Start-CachingProxy's install list; Add-PortMap is clear-all-first,
+            # Start-CachingProxyVM's install list; Add-PortMap is clear-all-first,
             # so a dropped port goes dark on reinstall. macOS re-maps only Grafana.
             $CachingProxyExposedPorts = if ($IsMacOS) { @(3000) } else { Get-CachingProxyExposedPort -HttpPort $cacheHttpPort -HttpsPort $cacheHttpsPort }
             $portMapArgs = @{
@@ -570,12 +570,12 @@ $startScript = Join-Path $TestRoot "Start-StatusService.ps1"
 # Startup: no -Restart -- Start-YurunaStatusServiceIfEnabled lets the server
 # compare-and-skip the relaunch when its in-memory code is still current (zero
 # downtime on the common no-change cycle). The shared gate (Test.Prelude) keeps
-# isEnabled / -NoServer / port handling identical across the entry-point trio.
-$null = Start-YurunaStatusServiceIfEnabled -Config $Config -StartScript $startScript -NoServer:$NoServer
+# isEnabled / -NoStatusService / port handling identical across the entry-point trio.
+$null = Start-YurunaStatusServiceIfEnabled -Config $Config -StartScript $startScript -NoStatusService:$NoStatusService
 
 # NOTE: the Host Config Service (mTLS NAS-credential endpoint) is NOT started here.
 # It is a companion of the CACHING PROXY (it serves NAS creds to the caching-proxy
-# / stash VMs a host created), so its lifecycle belongs to Start-CachingProxy.ps1
+# / stash VMs a host created), so its lifecycle belongs to Start-CachingProxyVM.ps1
 # (Step 2.6) on the caching-proxy host -- not the test runner. A plain test-runner
 # host that never brings up a caching proxy must not start it.
 
@@ -599,7 +599,7 @@ $script:CycleFinalized    = $true    # have Complete-Run/Stop-LogFile been calle
 $cycleState = @{
     RepoRoot=$RepoRoot; TestRoot=$TestRoot; SequencesDir=$SequencesDir; ScreenshotsDir=$ScreenshotsDir
     StatusFile=$StatusFile; ConfigPath=$ConfigPath; TemplatePath=$TemplatePath; HostType=$HostType; ModulesDir=$ModulesDir
-    NoServer=[bool]$NoServer; NoGitPull=[bool]$NoGitPull; NoProjectClone=[bool]$NoProjectClone; CycleDelaySeconds=$CycleDelaySeconds
+    NoStatusService=[bool]$NoStatusService; NoGitPull=[bool]$NoGitPull; NoProjectClone=[bool]$NoProjectClone; CycleDelaySeconds=$CycleDelaySeconds
     CachingProxyUrl=$cachingProxyUrl; StartScript=$startScript; StepHeartbeatFile=$StepHeartbeatFile
     ShutdownState=$script:ShutdownState; RunnerCfgState=$script:RunnerCfgState; Config=$script:Config
 }

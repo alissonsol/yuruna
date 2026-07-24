@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.22
+.VERSION 2026.07.24
 .GUID 42a3c4d5-f6a7-4c89-0123-d4e5f6a7b8c3
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -119,8 +119,8 @@ Import-Module (Join-Path $_repoRoot 'test/modules/Test.Extension.psm1') -Global 
 $SshAuthorizedKey = Get-YurunaSshPublicKey
 if (-not $SshAuthorizedKey) { Write-Error "Get-YurunaSshPublicKey returned empty."; exit 1 }
 $_authActiveName = @(Import-Extension -Area 'authentication' -RequireSingle)[0]
-$YurunaPassword = Get-Password -Username 'yuruna'
-if (-not $YurunaPassword) { Write-Error "Get-Password returned empty for 'yuruna'."; exit 1 }
+$AdminPassword = Get-Password -Username 'pool-control-admin'
+if (-not $AdminPassword) { Write-Error "Get-Password returned empty for 'pool-control-admin'."; exit 1 }
 Write-Output "Password came from authentication mechanism: $_authActiveName"
 Write-Output "See configuration at: $(Resolve-ExtensionAreaDir -Area 'authentication')"
 
@@ -154,10 +154,10 @@ $poolNas = Get-YurunaPoolSeedValue -Config $tc
 # resolution; '' (no caching proxy known) leaves those features off in-guest.
 $aggregatorSeedUrl = Get-PoolAggregatorSeedUrl
 # Writable pool-intent git url the daemon commits to; empty degrades the daemon
-# (read-only). Read from test.config.yml pool.intentGitUrl, same accessor as
-# the pool-admin CLIs.
-$intentGitUrl = ''
-if ($tc -and $tc.pool -and $tc.pool.intentGitUrl) { $intentGitUrl = "$($tc.pool.intentGitUrl)" }
+# (read-only). An explicit test.config.yml pool.intentGitUrl wins; otherwise this
+# resolves the bare repo on the pool NAS, which the guest creates and seeds on
+# first bring-up so a fresh VM reaches a working UI with nothing pre-staged.
+$intentGitUrl = Get-PoolIntentSeedUrl -Config $tc
 
 # Render user-data from the shared base + UTM overlay (host/vmconfig/
 # pool-control.*). New-CloudInitUserData resolves placeholders with literal
@@ -169,7 +169,7 @@ $UserData = New-CloudInitUserData `
     -RepoRoot    $_repoRoot `
     -Replacement @{
         SSH_AUTHORIZED_KEY_PLACEHOLDER = $SshAuthorizedKey
-        PASSWORD_PLACEHOLDER           = $YurunaPassword
+        PASSWORD_PLACEHOLDER           = $AdminPassword
         YURUNA_HOST_IP_PLACEHOLDER     = $YurunaHostIp
         YURUNA_HOST_PORT_PLACEHOLDER   = $YurunaHostPort
         YURUNA_HOST_ID_PLACEHOLDER     = $poolNas.HostId
@@ -270,8 +270,8 @@ Write-Output "  Path:      $UtmDir"
 Write-Output "  Backend:   QEMU (HVF) with -vnc 127.0.0.1:$VncDisplay (port $(5900 + $VncDisplay))"
 Write-Output ""
 Write-Output "  Console/SSH login:"
-Write-Output "    user:     yuruna"
-Write-Output "    password: (in authentication vault under 'yuruna')"
+Write-Output "    user:     pool-control-admin"
+Write-Output "    password: (in authentication vault under 'pool-control-admin')"
 $guidance = @'
 
 Next steps:
@@ -292,7 +292,7 @@ Next steps:
 
   4. Watch the bring-up (cloud-init fetches the framework and builds +
      launches the daemon; the harness key stays authorized on :22):
-       ssh yuruna@$ip 'tail -f /var/log/cloud-init-output.log'
+       ssh pool-control-admin@$ip 'sudo tail -f /var/log/cloud-init-output.log'
 
   5. Once cloud-init finishes, the pool-control UI serves on :80:
        open http://$ip/

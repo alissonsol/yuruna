@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.07.22
+# Version: 2026.07.24
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 
@@ -28,7 +28,7 @@ resolve_fetch_source() {
     # scheme, not by the fact that it was set: only a real http:// status server
     # is on the LAN, so only it may be fetched --no-proxy and POSTed perf
     # checkpoints. An https:// override is somewhere on the internet and gets
-    # neither -- 'base' exists to keep those two behaviours apart.
+    # neither -- 'base' exists to keep those two behaviors apart.
     if [ -n "${EXEC_BASE_URL:-}" ]; then
         HOST_BASE="$EXEC_BASE_URL"
         case "$EXEC_BASE_URL" in

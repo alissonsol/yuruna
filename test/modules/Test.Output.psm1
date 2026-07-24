@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.22
+.VERSION 2026.07.24
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456727
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -277,7 +277,7 @@ function Write-Summary {
 function Exit-WithSummary {
     <#
     .SYNOPSIS
-        Print Write-Summary then exit with the requested code. Centralised
+        Print Write-Summary then exit with the requested code. Centralized
         so every termination path -- including the early exits for missing
         config / YAML parse error / abort-before-network-checks -- always
         ends with the same banner.

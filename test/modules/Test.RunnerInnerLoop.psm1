@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.22
+.VERSION 2026.07.24
 .GUID 42d15e27-b2c3-4d4e-9f50-6b7c8d9e0f1a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -200,7 +200,7 @@ function Assert-CachingProxyStillReachable {
 
 # === Per-cycle config reload =============================================
 # Resolve the reloadable per-cycle knobs (with their defaults) from a parsed
-# test.config.yml. The cycle-start initialiser and the mid-cycle reload share
+# test.config.yml. The cycle-start initializer and the mid-cycle reload share
 # one rule-set here so they cannot drift. A 0 / absent value falls through to
 # the default (the runner's historical truthiness check), and CycleDelay falls
 # back to -CycleDelayFallback (the runner's -CycleDelaySeconds parameter) when
@@ -210,7 +210,7 @@ function Get-RunnerReloadableConfig {
 .SYNOPSIS
     Resolve the reloadable per-cycle knobs (StopOnFailure, VM start timeout,
     boot delay, image refresh hours, cycle delay) from a parsed test.config.yml,
-    falling back to defaults so the initialiser and the mid-cycle reload agree.
+    falling back to defaults so the initializer and the mid-cycle reload agree.
 .OUTPUTS
     [System.Collections.Specialized.OrderedDictionary] the resolved knob values.
 #>
@@ -1539,7 +1539,7 @@ function Invoke-RunnerInnerCycle {
     $TemplatePath      = $State.TemplatePath
     $HostType          = $State.HostType
     $ModulesDir        = $State.ModulesDir
-    $NoServer          = $State.NoServer
+    $NoStatusService   = $State.NoStatusService
     $NoGitPull         = $State.NoGitPull
     $NoProjectClone    = $State.NoProjectClone
     $CycleDelaySeconds = $State.CycleDelaySeconds
@@ -1807,12 +1807,12 @@ do {
 
     # --- REGION: Restart status server to pick up any file/config changes
     # -Restart forces a relaunch so a mid-cycle git pull / config edit is
-    # reflected; the shared gate honors isEnabled / -NoServer / port identically
+    # reflected; the shared gate honors isEnabled / -NoStatusService / port identically
     # to the startup path and Test-Sequence.
-    $null = Start-YurunaStatusServiceIfEnabled -Config $Config -StartScript $startScript -NoServer:$NoServer -Restart
+    $null = Start-YurunaStatusServiceIfEnabled -Config $Config -StartScript $startScript -NoStatusService:$NoStatusService -Restart
 
     # The Host Config Service is intentionally NOT ensured here: it is a
-    # caching-proxy companion (owned by Start-CachingProxy.ps1 on the caching-proxy
+    # caching-proxy companion (owned by Start-CachingProxyVM.ps1 on the caching-proxy
     # host), not a per-cycle runner concern. Coupling it to the test loop would
     # start it on plain runner hosts that never host a caching proxy, and would not
     # help a dedicated caching-proxy host that doesn't run the runner.
@@ -2746,7 +2746,7 @@ function Invoke-GuestProvisionIteration {
     # guest sitting in an installer ignores ACPI shutdown.
     # No continue/break in this loop: the enclosing helper's control-flow
     # invariant (see Test.RunnerInnerLoop.Tests.ps1) reserves loop escapes
-    # for $IterState.Control signalling, so the skip logic nests instead.
+    # for $IterState.Control signaling, so the skip logic nests instead.
     if (([Environment]::ProcessorCount -le 4) -and $VMNames -and $VMNames.Count -gt 1 -and
         (Get-Command Get-VMState -ErrorAction SilentlyContinue) -and
         (Get-Command Stop-VM -ErrorAction SilentlyContinue)) {
@@ -2810,6 +2810,10 @@ function Invoke-GuestProvisionIteration {
     # does not have to be threaded down from here.
     $effectiveUser = ''
     $effectiveHost = ''
+    # variables.memoryStartupBytes / variables.cores cascade the same way and
+    # override the per-host New-VM.ps1 sizing defaults. Empty leaves the default.
+    $effectiveMemory = ''
+    $effectiveCores  = ''
     if ($script:CyclePlan -and $script:CyclePlan.Count -gt 0) {
         $mergedPlan = Get-CyclePlanSequencesForGuest -Plan $script:CyclePlan -GuestKey $GuestKey
         if ($mergedPlan -and $mergedPlan.effectiveUsername) {
@@ -2817,6 +2821,12 @@ function Invoke-GuestProvisionIteration {
         }
         if ($mergedPlan -and $mergedPlan.effectiveHostname) {
             $effectiveHost = [string]$mergedPlan.effectiveHostname
+        }
+        if ($mergedPlan -and $mergedPlan.effectiveMemoryStartupBytes) {
+            $effectiveMemory = [string]$mergedPlan.effectiveMemoryStartupBytes
+        }
+        if ($mergedPlan -and $mergedPlan.effectiveCores) {
+            $effectiveCores = [string]$mergedPlan.effectiveCores
         }
     }
     $newVmArgs = @{ GuestKey = $GuestKey; RepoRoot = $RepoRoot; VMName = $VMName; CachingProxyUrl = $newVmProxy }
@@ -2827,6 +2837,14 @@ function Invoke-GuestProvisionIteration {
     if ($effectiveHost) {
         Write-Verbose "Cascaded hostname for $GuestKey -> $effectiveHost (overrides the VM-name default)"
         $newVmArgs.Hostname = $effectiveHost
+    }
+    if ($effectiveMemory) {
+        Write-Verbose "Cascaded memoryStartupBytes for $GuestKey -> $effectiveMemory (overrides per-host New-VM.ps1 default)"
+        $newVmArgs.MemoryStartupBytes = $effectiveMemory
+    }
+    if ($effectiveCores) {
+        Write-Verbose "Cascaded cores for $GuestKey -> $effectiveCores (overrides per-host New-VM.ps1 default)"
+        $newVmArgs.Cores = $effectiveCores
     }
     $r = New-VM @newVmArgs -Confirm:$false
     Sync-RunnerStepConfig -State $cfg -ConfigPath $ConfigPath

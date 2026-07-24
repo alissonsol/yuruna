@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.22
+.VERSION 2026.07.24
 .GUID 42c2a1aa-2e97-414a-9393-0d097d2e2a2c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -50,7 +50,7 @@ $ErrorActionPreference = 'Stop'
 # current package). Every call that matters checks $LASTEXITCODE explicitly.
 # On PowerShell 7.4+ $PSNativeCommandUseErrorActionPreference can be $true, which
 # turns ANY non-zero native exit into a terminating error under EAP=Stop and
-# would abort the install on those benign cases. Pin it off so behaviour does
+# would abort the install on those benign cases. Pin it off so behavior does
 # not depend on the host's PowerShell default. (Harmless no-op on PS 5.1.)
 $PSNativeCommandUseErrorActionPreference = $false
 

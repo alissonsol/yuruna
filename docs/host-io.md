@@ -24,7 +24,7 @@ Each dispatcher is a five-line `try { Invoke-HostIOAction … } catch
 
 ## Why the registry over inline dispatch
 
-The registry centralises the `(HostType, Action)` binding in one
+The registry centralizes the `(HostType, Action)` binding in one
 lookup table. Adding a new host or a new action verb is a single
 `Register-HostIOProvider` call; nothing in the dispatcher needs to
 change. Adding the same host across three separate `if/elseif` chains
@@ -56,7 +56,12 @@ eviction-safe global-anchor pattern but is hand-rolled in
 
 The macOS Send-Key VNC-first / AppleScript-fallback decision lives in
 the registered scriptblock, in one place — not a branch repeated across
-three dispatchers.
+three dispatchers. VNC comes first because
+`AXUIElementPostKeyboardEvent` was tested and UTM's SwiftUI VM display
+does not route Accessibility keyboard events into the guest — it reports
+success but the keys never reach the VM. `Send-Click` goes straight to
+the AppleScript/CGEvent backend: UTM's QEMU does not expose mouse-state
+changes on its VNC channel reliably enough for a VNC pointer path.
 
 `KeyName` also accepts a modifier chord (`CtrlU`, `CtrlC`) on every
 host. A chord is a named key rather than a separate modifier parameter
@@ -187,6 +192,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.22
+Last review: 2026.07.24
 
 Back to [Yuruna](../README.md)

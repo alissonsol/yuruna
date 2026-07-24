@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.22
+.VERSION 2026.07.24
 .GUID 42a2b3c4-d5e6-4f78-9012-3a4b5c6d7e8f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -122,12 +122,16 @@ function New-VM {
         [string]$Username,
         # Planner-cascaded guest hostname (variables.hostname); same
         # declare-or-drop forwarding rule as -Username.
-        [string]$Hostname
+        [string]$Hostname,
+        # Planner-cascaded VM sizing (variables.memoryStartupBytes /
+        # variables.cores); same declare-or-drop forwarding rule as -Username.
+        [string]$MemoryStartupBytes,
+        [string]$Cores
     )
     # Thin wrapper over the shared per-guest runner; the host subdir is the
     # only platform variable. Splatting $PSBoundParameters preserves the
-    # conditional -CachingProxyUrl/-Username/-Hostname forwarding (the runner
-    # checks ContainsKey) and propagates -WhatIf/-Confirm to its ShouldProcess.
+    # conditional -CachingProxyUrl/-Username/-Hostname/-MemoryStartupBytes/-Cores
+    # forwarding (the runner checks ContainsKey) and propagates -WhatIf/-Confirm.
     Invoke-PerGuestNewVm -HostSubdir 'host/ubuntu.kvm' @PSBoundParameters
 }
 
@@ -840,7 +844,7 @@ function Get-ExternalNetwork {
     foreach ($c in $candidates) {
         if ($active -contains $c) { return $c }
         if ($defined -contains $c) {
-            Write-Warning "libvirt network '$c' is defined but not active -- skipping it. Start it with 'virsh -c qemu:///system net-start $c', or re-run test/Start-CachingProxy.ps1 to rebuild/heal it."
+            Write-Warning "libvirt network '$c' is defined but not active -- skipping it. Start it with 'virsh -c qemu:///system net-start $c', or re-run test/Start-CachingProxyVM.ps1 to rebuild/heal it."
         }
     }
     return 'default'
@@ -1367,7 +1371,7 @@ function Repair-YurunaExternalBridgeSlave {
     #>
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute(
         'PSUseShouldProcessForStateChangingFunctions', '',
-        Justification = 'Private helper invoked from New-YurunaExternalNetwork only when its idempotency branch detects a half-built bridge. The user-facing caller (Start-CachingProxy.ps1) already opted in to network-changing behavior via New-YurunaExternalNetwork''s SupportsShouldProcess. Adding ShouldProcess here would double-prompt.')]
+        Justification = 'Private helper invoked from New-YurunaExternalNetwork only when its idempotency branch detects a half-built bridge. The user-facing caller (Start-CachingProxyVM.ps1) already opted in to network-changing behavior via New-YurunaExternalNetwork''s SupportsShouldProcess. Adding ShouldProcess here would double-prompt.')]
     [CmdletBinding()]
     [OutputType([string])]
     param([Parameter(Mandatory)][string]$NetworkName)
@@ -1528,7 +1532,7 @@ function Get-YurunaExternalNetworkPlan {
         Mirrors steps 1-3 of New-YurunaExternalNetwork (idempotency
         check, default-route NIC resolution, already-bridged check)
         without performing step 4 (the actual bridge build). Lets
-        Start-CachingProxy.ps1 print the brief-network-outage warning at
+        Start-CachingProxyVM.ps1 print the brief-network-outage warning at
         the very start of the run instead of mid-way, and proceed in one
         shot with no ShouldProcess prompt.
     .OUTPUTS
@@ -1859,9 +1863,9 @@ function New-YurunaExternalNetwork {
 
         # The full brief-network-outage warning + rollback recipe is
         # surfaced UP FRONT by the caller via Get-YurunaExternalNetworkPlan
-        # (Start-CachingProxy.ps1's plan phase), so it isn't repeated here.
+        # (Start-CachingProxyVM.ps1's plan phase), so it isn't repeated here.
         # ShouldProcess is kept so a standalone or -Confirm caller still
-        # gets a gate; Start-CachingProxy passes -Confirm:$false because it
+        # gets a gate; Start-CachingProxyVM passes -Confirm:$false because it
         # already explained the impact and planned the run.
         Write-Information "Building Linux bridge '$BridgeName' on NIC '$nic' (brief network outage; rollback recipe: the Step 0 plan above, or the Rollback section of host/ubuntu.kvm/guest.caching-proxy/README.md)."
 
@@ -1886,7 +1890,7 @@ function New-YurunaExternalNetwork {
         # Refresh the sudo timestamp BEFORE the outage window opens: the
         # build and its rollbacks issue sudo calls while host networking
         # flaps, where an expired timestamp would hang an unattended run
-        # on an invisible password prompt. (Start-CachingProxy primes the
+        # on an invisible password prompt. (Start-CachingProxyVM primes the
         # cache up-front; this covers standalone callers and long gaps.)
         & sudo -v 2>&1 | Out-Null
 
@@ -1999,18 +2003,11 @@ function New-YurunaBridgeViaNmcli {
     # Stale profiles/devices from previous attempts were already removed
     # by Clear-YurunaExternalBridgeResidue in the caller's build path.
 
-    # Clone $Nic's MAC onto the bridge IN THE ADD COMMAND, for two
-    # reasons. DHCP identity: with the cloned MAC the bridge takes
-    # $Nic's place in the DHCP server's lease table and the same IP
-    # comes back, so the operator's SSH session and DNS A records
-    # survive the migration. Activation determinism: a later
-    # `connection modify` of the MAC races NM's handling of the
-    # just-added profile -- if NM has already created the device with a
-    # random MAC, re-activating a profile whose MAC no longer matches
-    # the device fails with "Failed to find a compatible device for
-    # this connection". Best-effort: if the MAC is unreadable we build
-    # without the pin and warn (the bridge still works, just with a
-    # fresh IP).
+    # Clone $Nic's MAC onto the bridge IN THE ADD COMMAND: DHCP
+    # identity (same lease/IP -- see docs/network.md) plus activation
+    # determinism -- a later `connection modify` of the MAC races NM's
+    # device creation and fails "Failed to find a compatible device".
+    # Best-effort: unreadable MAC -> build unpinned, warn, fresh IP.
     $nicMac = Get-YurunaNicMac -Iface $Nic
     if (-not $nicMac) {
         Write-Warning "Could not read /sys/class/net/$Nic/address -- not cloning MAC onto bridge. DHCP may return a different IP than '$Nic' currently holds."
@@ -2166,24 +2163,10 @@ function New-YurunaBridgeViaNmcli {
 }
 
 # Internal, pure (no side effects): the netplan yaml that moves $Nic
-# onto $BridgeName. Three identity/ownership pins make this yaml behave
-# the same on every host:
-#   * renderer: networkd on each stanza -- a global 'renderer:
-#     NetworkManager' (standard on Ubuntu Desktop) would otherwise turn
-#     these definitions into NM keyfiles, and the build's explicit
-#     NIC handoff to systemd-networkd would then fight the very config
-#     it wrote.
-#   * macaddress: pins the bridge's MAC to the NIC's, so the upstream
-#     DHCP server re-issues the SAME lease the NIC held -- the host
-#     keeps its IP and the operator's SSH session reconnects. Without
-#     the pin, systemd's default MACAddressPolicy=persistent hands the
-#     bridge a generated MAC: the host's IP changes, and MAC-filtering
-#     DHCP setups issue nothing at all. NOTE: [NetDev] MACAddress only
-#     applies at device CREATION -- the bridge device must not already
-#     exist when this yaml is first applied.
-#   * dhcp-identifier: mac -- networkd's DHCPv4 client defaults to a
-#     machine-id-derived DUID, so even with the cloned MAC a server
-#     that keys leases on client-id would renumber the host.
+# onto $BridgeName. Three identity/ownership pins (renderer: networkd,
+# macaddress: cloned from the NIC, dhcp-identifier: mac) make it behave
+# the same on every host. See docs/network.md (KVM host bridge
+# netplan: identity pins).
 function Get-YurunaBridgeNetplanYaml {
     [CmdletBinding()]
     [OutputType([string])]
@@ -2660,7 +2643,7 @@ function Resolve-GuestHostBinding {
     or a remote cache the operator explicitly named, are returned:
       1. $Env:YURUNA_CACHING_PROXY_IP -- explicit remote cache override.
       2. State file (Read-CachingProxyState).ipAddress -- the cache VM's
-         IP recorded by Start-CachingProxy.ps1 (our own VM).
+         IP recorded by Start-CachingProxyVM.ps1 (our own VM).
 
     No libvirt enumeration, no loopback-forwarder fallback. Get-Caching-
     ProxyVMIp still exposes the recorded IP for direct callers that need
@@ -2695,7 +2678,7 @@ function Get-CachingProxyVMIp {
     [CmdletBinding()]
     [OutputType([string])]
     param()
-    # Prefer the recorded IP from Start-CachingProxy.ps1 (matches macOS / Windows).
+    # Prefer the recorded IP from Start-CachingProxyVM.ps1 (matches macOS / Windows).
     $ip = (Read-CachingProxyState).ipAddress
     if ($ip -and (Test-IpAddress $ip)) { return $ip }
     # Live discovery via libvirt: ask the VM.
@@ -2712,7 +2695,7 @@ function Get-CachingProxyVMIp {
     Discovery order (same shape as the macOS / Hyper-V drivers):
       1. $Env:YURUNA_CACHING_PROXY_IP -- explicit remote-cache override.
       2. Get-CachingProxyVMIp -- the cache VM's recorded IP (state file written
-         by Start-CachingProxy.ps1), or a live libvirt domifaddr query for the
+         by Start-CachingProxyVM.ps1), or a live libvirt domifaddr query for the
          by-name VM.
     The chosen IP is returned only if it answers the squid HTTP port, so a stale
     state entry or a stopped cache VM falls through to $null and the caller

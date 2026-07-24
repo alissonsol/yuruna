@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.22
+.VERSION 2026.07.24
 .GUID 42c7d3a9-5e1b-4f80-9a2c-6d8e3f1b0a47
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -71,7 +71,7 @@ function Read-SequenceFile {
     .SYNOPSIS
         Parses a YAML sequence file into an OrderedDictionary.
     .DESCRIPTION
-        Centralises the powershell-yaml dependency for every sequence reader
+        Centralizes the powershell-yaml dependency for every sequence reader
         (Invoke-Sequence, Test.SequencePlanner, Test-Sequence). Uses
         -Ordered so the steps array and the variables map preserve their
         on-disk order. The returned object is an [OrderedDictionary]; callers
@@ -417,7 +417,7 @@ function Get-SnippetMap {
         }
     }
     # Always consider the sequence's own dir (covers standalone temp dirs used by
-    # tests and any layout the regexes above didn't recognise). De-dup against
+    # tests and any layout the regexes above didn't recognize). De-dup against
     # the tiers already collected so a framework/project file isn't double-loaded.
     $localLib = Join-Path $modeDir '_snippets.yml'
     if (Test-Path -LiteralPath $localLib) {

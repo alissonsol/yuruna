@@ -410,7 +410,7 @@ uses the fully-qualified `Microsoft.PowerShell.Utility\Write-Verbose`
 to bypass the module's own override.
 
 Severity is stamped as a CSS class on a wrapping `<span>` so the same
-transcript is both eye-scannable (a stylesheet can colour
+transcript is both eye-scannable (a stylesheet can color
 errors/warnings) and machine-filterable (a reader can select
 `.log-error` / `.log-warning` records) without reparsing free text.
 Only the message body is HtmlEncode'd; the span markup is emitted
@@ -421,6 +421,84 @@ tag is additive and never gates whether a line is written.
 
 Source:
 [`automation/Yuruna.Log.psm1`](../automation/Yuruna.Log.psm1).
+
+### Why port-ownership diagnostics live in one module?
+
+`Test.PortOwner.psm1` is shared by Start-StatusService,
+Stop-StatusService, Test-CachingProxy, and future health checks so the
+Windows HTTP.sys / `netsh` versus Unix `lsof` dispatch is written once.
+Every caller asks the same three questions in the same order, and the
+answers are not interchangeable:
+
+**Who holds the port?** `Get-PortListenerPid` uses `netsh` on Windows —
+HTTP.sys hides the real owner from `Get-NetTCPConnection` — and `lsof`
+on macOS/Linux. It returns empty when the holder belongs to another
+user, because both tools hide those without elevation. Empty therefore
+means "no PID resolvable", not "port free", which is why it cannot be
+the source of truth on its own.
+
+**Can we bind?** `Test-PortListenerFree` actually attempts
+`http://*:$Port/` and is the OS-agnostic source of truth: a holder owned
+by another user still makes it `$false` even when no PID is resolvable.
+
+**Were we merely not allowed to ask?** `Test-PortPrivilegeBlocked`
+separates "something holds the port" from "this process may not RESERVE
+the wildcard URL while the port is in fact empty". Wanting the bind and
+being permitted to request it are different questions, and a failed bind
+alone cannot tell them apart.
+
+`Resolve-PortOrphan` is the one opinionated entry point. It reclaims an
+orphan pwsh holder this user owns; otherwise it classifies the port as
+`Conflict`, or as `PrivilegeRequired` when nothing holds it and the
+wildcard reservation was simply refused. Both outcomes refuse to start —
+the status server binds the same prefix and would fail identically — but
+only one of them has a holder that can be stopped. It returns a
+structured result and never exits or throws, so the caller
+(Start-StatusService) decides how to refuse and that refusal can
+propagate and abort the cycle instead of running blind with no status
+server.
+
+`Get-ProcessOwnerName` and `Get-PortHolderServiceInfo` are the
+best-effort identity helpers those classifications report with.
+
+Source:
+[`test/modules/Test.PortOwner.psm1`](../test/modules/Test.PortOwner.psm1).
+
+### Why warm resume is sound?
+
+On an eligible transient workload failure the runner re-runs the failed
+sequence from its last-good step on the SAME live VM, instead of tearing
+the guest down and redoing the whole (~40-minute) install from step 0.
+`Test.WarmResume.psm1` is only the pure decision core plus the
+checkpoint reader and the `warm_resume` event builder; the retry loop
+lives in the runner (`Test.RunnerInnerLoop`) and the re-invocation in the
+engine (`Invoke-Sequence`'s `-StartStep`, `Invoke-GuestSequenceList`'s
+`-ResumeFromSequence` / `-ResumeFromStep`).
+
+Two constraints make it sound. First, resume is attempted only for
+genuinely transient failure classes — the same allow-list the outer
+loop's gated auto-remediation uses. A hard, deterministic failure would
+simply redo the install and fail again, so there is nothing to gain and
+a cycle of wall-clock to lose.
+
+Second, resume runs only in the runner path, where each workload
+sequence runs as a single file (`Invoke-SequenceByName`). That makes
+`last_failure.json`'s file-local `repro.resumeFromStep` map directly onto
+`Invoke-Sequence`'s file-local `-StartStep`. `Test-Sequence`'s chain
+runner concatenates baselines, which would make the same mapping
+chain-global rather than file-local; the runner does not concatenate, so
+the mapping is exact. See [failure-schema.md](failure-schema.md).
+
+The mechanism is safe-on-failure regardless: a resume that targets the
+wrong VM or step merely fails and falls through to the ordinary teardown
+plus cold re-provision.
+
+The module is a leaf — `Send-CycleEventSafely` is resolved at call time
+(`Get-Command`-guarded) by the runner, not here; this module only builds
+the event record.
+
+Source:
+[`test/modules/Test.WarmResume.psm1`](../test/modules/Test.WarmResume.psm1).
 
 ---
 
@@ -488,7 +566,7 @@ activated it, but never activated the matching `bridge-slave` —
 leaving the bridge interface up with only tap ports (`vnetN`) attached
 and no LAN uplink. In that state DHCP loops forever on the bridge,
 any guest on this libvirt network stays stranded with no IP, and
-`Start-CachingProxy.ps1` times out at `Get-VMIp`.
+`Start-CachingProxyVM.ps1` times out at `Get-VMIp`.
 
 - **Detection:** the bridge's `/sys/class/net/<br>/brif` directory
   lists only `vnet*` / `tap*` ports.
@@ -1189,6 +1267,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.22
+Last review: 2026.07.24
 
 Back to [Yuruna](../README.md)

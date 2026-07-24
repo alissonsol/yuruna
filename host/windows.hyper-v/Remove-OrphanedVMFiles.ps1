@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.22
+.VERSION 2026.07.24
 .GUID 42b7e3a1-c8d9-4f56-ab12-3e4f5a6b7c8d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -307,7 +307,7 @@ if ($Force) {
 } else {
     $confirmation = Read-Host "Type YES to delete all listed items, or anything else to cancel"
     if ($confirmation -ne "YES") {
-        Write-CleanupMessage "Operation cancelled. No files were deleted."
+        Write-CleanupMessage "Operation canceled. No files were deleted."
         exit 0
     }
 }

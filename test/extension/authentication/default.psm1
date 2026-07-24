@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.22
+.VERSION 2026.07.24
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456810
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -42,6 +42,20 @@ $script:Alphabet       = [char[]]('abcdefghijklmnopqrstuvwxyz' +
                                   'ABCDEFGHIJKLMNOPQRSTUVWXYZ' +
                                   '0123456789' +
                                   '!@#$%^&*()-_=+')
+# Leading-character alphabet: alphanumerics ONLY (no symbols). A symbol in the
+# first position -- notably a YAML indicator (! @ # % & *) -- forces the YAML
+# serializer to wrap the whole scalar in single quotes when the vault is
+# written. The cloud-init seed then substitutes the value UNQUOTED into
+# `password: <value>` via literal .Replace (New-CloudInitUserData), where a
+# leading indicator is an invalid/misparsed YAML scalar: it silently mangles the
+# guest's chpasswd (login becomes impossible) and can abort the cloud-config
+# stage so the VM never finishes cloud-init and never gets an IP. Interior
+# symbols are safe (the password has no spaces, so no `: ` / ` #` sequences form
+# and no serializer needs to quote), so only position 0 is constrained. The
+# quoting characters (' ") are already absent from $script:Alphabet.
+$script:AlphabetLeading = [char[]]('abcdefghijklmnopqrstuvwxyz' +
+                                   'ABCDEFGHIJKLMNOPQRSTUVWXYZ' +
+                                   '0123456789')
 
 function Get-VaultLogPath {
     if (-not (Test-Path $script:VaultDir)) {
@@ -141,9 +155,10 @@ function Write-VaultUnlocked {
     identities (Active Directory / Entra / etc.) and onto the vault
     keys that hold the corresponding passwords. The mapping is operator-
     curated; the template ships pre-seeded with the four bundled Yuruna
-    logical users (yuuser24, yuuser26, yauser1, ywuser1) plus the
-    cache-VM 'yuruna' user, all with empty corporate fields so the
-    out-of-the-box behavior is identical to today's local-only flow.
+    logical users (yuuser24, yuuser26, yauser1, ywuser1) plus the three
+    service-VM administrators (caching-proxy-admin, pool-control-admin,
+    stash-admin), all with empty corporate fields so the out-of-the-box
+    behavior stays local-only.
 
     The return shape:
         @{ strict = $true; users = @{ <name> = @{ ... } } }
@@ -329,6 +344,14 @@ function Initialize-VaultConnection {
     purpose: quoting characters (`'` `"`), backslash, and YAML/shell
     separators (`:` `,` `<` `>` `|` `;` `~` `` ` ``).
 
+    The FIRST character is drawn from alphanumerics only
+    ($script:AlphabetLeading): a symbol there -- notably a YAML
+    indicator (! @ # % & *) -- makes the serialized vault value need
+    single-quote wrapping, which the literal-.Replace cloud-init bake
+    then substitutes UNQUOTED into `password: <value>`, mangling
+    chpasswd (login impossible) and stalling cloud-init (no guest IP).
+    Interior positions keep the full symbol set.
+
     The 'New-' verb is intentional even though the function does not
     mutate system state -- it constructs a fresh value, matching the
     PowerShell convention for object-creation helpers (New-Guid,
@@ -343,8 +366,11 @@ function New-RandomPassword {
     if ($Length -lt 1) { throw "Length must be >= 1." }
     $sb = [System.Text.StringBuilder]::new($Length)
     for ($i = 0; $i -lt $Length; $i++) {
-        $idx = [System.Security.Cryptography.RandomNumberGenerator]::GetInt32(0, $script:Alphabet.Length)
-        [void]$sb.Append($script:Alphabet[$idx])
+        # Position 0 draws from alphanumerics only so the value never needs YAML
+        # quoting (see the alphabet comment); interior positions use the full set.
+        $pool = if ($i -eq 0) { $script:AlphabetLeading } else { $script:Alphabet }
+        $idx = [System.Security.Cryptography.RandomNumberGenerator]::GetInt32(0, $pool.Length)
+        [void]$sb.Append($pool[$idx])
     }
     Write-VaultEvent -EventName 'generate' -Outcome 'ok' -Detail "len=$Length"
     return $sb.ToString()

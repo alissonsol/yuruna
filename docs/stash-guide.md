@@ -127,16 +127,12 @@ host's stash UI to delete it there.
 - **Type detection** is automatic from the content, so a file's type is
   recognized even without an extension.
 
-For how the service is built, see the design specs:
-[Stash Service](design/stash-service.md) and
-[Stash Service UI](design/stash-service-ui.md).
-
 ---
 
 LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.22
+Last review: 2026.07.24
 
 Back to [Yuruna](../README.md)

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.22
+.VERSION 2026.07.24
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456729
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -16,42 +16,10 @@
 
 #requires -version 7
 
-# Port-ownership diagnostics. Shared by harness components
-# (Start-StatusService, Stop-StatusService, Test-CachingProxy,
-# future health-checks) so the Windows HTTP.sys / netsh + Unix
-# lsof dispatch lives in one place.
-#
-# Functions:
-#
-#   Get-PortListenerPid     -- pure: PID(s) holding a TCP port. Cross-platform:
-#                             netsh on Windows (because HTTP.sys hides the real
-#                             owner from Get-NetTCPConnection), lsof on
-#                             macOS/Linux. Empty when the holder is owned by
-#                             another user (lsof/netsh hide it without elevation).
-#   Test-PortListenerFree   -- pure: $true when THIS process can bind
-#                             http://*:$Port/. The OS-agnostic source of truth:
-#                             a holder owned by another user still makes it
-#                             $false even when no PID is resolvable.
-#   Test-PortPrivilegeBlocked -- pure: $true when that bind failed only because
-#                             this process may not RESERVE the wildcard URL, and
-#                             the port is in fact empty. Wanting the bind and
-#                             being allowed to ask for it are different questions,
-#                             and a failed bind alone cannot tell them apart.
-#   Get-ProcessOwnerName    -- pure: best-effort OS user owning a PID.
-#   Get-PortHolderServiceInfo -- pure: best-effort identity of a Yuruna status
-#                             service already answering on the port.
-#   Resolve-PortOrphan      -- opinionated: reclaim an orphan pwsh holder THIS
-#                             user owns; otherwise classify the port as a
-#                             'Conflict', or as 'PrivilegeRequired' when nothing
-#                             holds it and the wildcard reservation was simply
-#                             refused. Both refuse to start -- the status server
-#                             binds the same prefix and would fail the same way --
-#                             but only one of them has a holder to go and stop.
-#                             Returns a structured result and never
-#                             exits/throws -- the caller (Start-StatusService)
-#                             decides how to refuse, so the refusal can
-#                             propagate and abort the cycle rather than letting
-#                             it run blind without a status server.
+# --- REGION: https://yuruna.link/memory#why-port-ownership-diagnostics-live-in-one-module
+# Shared port-ownership diagnostics: the Windows HTTP.sys / netsh vs Unix lsof
+# dispatch, and the classification Start-StatusService refuses to start on.
+# Each function's contract is in its own .SYNOPSIS block below.
 
 function Get-PortListenerPid {
     <#

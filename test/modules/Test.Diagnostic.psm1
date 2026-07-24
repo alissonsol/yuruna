@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.22
+.VERSION 2026.07.24
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456712
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -42,7 +42,7 @@
          not installed (Windows out-of-box). Pure pwsh ssh works on
          every host so we get diagnostics even where the password path
          isn't available; the operator can install sshpass to upgrade.
-      3. SECOND-DEFENCE console keystroke injection. When SSH itself is
+      3. SECOND-DEFENSE console keystroke injection. When SSH itself is
          unavailable (sshd down, network partition, or auth genuinely
          the bug we're trying to debug), we fall back to typing a one-
          liner into the guest's tty1 via the Yuruna.Host Send-Text
@@ -545,7 +545,7 @@ function Clear-GuestTtyLine {
     no-op for our purpose, and it is why this is not gated on any
     screen-state check: gating tty hygiene on OCR would make the
     emergency path depend on the OCR path, whose degradation is itself
-    a modelled failure class.
+    a modeled failure class.
 
     Never throws -- cleanup must not convert a soft diagnostic failure
     into a thrown exception, and a failed clear must not stop the
@@ -918,7 +918,7 @@ function Get-ConsoleEchoVerdict {
 function Invoke-RemoteDiagnosticsConsole {
 <#
 .SYNOPSIS
-    Second-defence diagnostics path: types a fetch+run+POST one-liner
+    Second-defense diagnostics path: types a fetch+run+POST one-liner
     into the guest's tty1 via the Yuruna.Host Send-Text contract and
     waits for the resulting file to appear in the failure folder.
 .DESCRIPTION

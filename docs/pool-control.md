@@ -40,23 +40,43 @@ A small Go daemon (`test/extension/pool-control/server`, module `pool-control`) 
 
 ## Running it
 
-**Host-side (proof / fallback):**
+**Default &mdash; on its own VM:**
 
+```powershell
+pwsh test/Start-PoolControlVM.ps1 [-VMName yuruna-pool-control]
+# stop (and tear down the VM) with test/Stop-PoolControlVM.ps1
 ```
-pwsh test/Start-PoolControlServer.ps1 [-Port 8090] [-AggregatorUrl <url>]
-# UI at http://<host>:8090/ ; stop with test/Stop-PoolControlServer.ps1
-```
 
-Needs `go` + `pwsh` on PATH and the framework checkout (the CLIs live at
-`<repo>/test/*.ps1`).
-
-**On its own VM:** `host/vmconfig/pool-control.base.user-data` seeds an Ubuntu guest
+Like Start-CachingProxyVM / Start-StashVM, this brings the service up on a
+dedicated VM. `host/vmconfig/pool-control.base.user-data` seeds an Ubuntu guest
 that builds the daemon, installs pwsh + `powershell-yaml`, CIFS-mounts the pool NAS
 for the state dir, and runs it under systemd (`guest/ubuntu.server.26/ubuntu.server.26.pool-control.sh`).
 The per-hypervisor `guest.pool-control/New-VM.ps1` (mirroring the stash VM chain)
 generates the seed with `/etc/yuruna/{pool.env,host.env,pool-nas.cifs.cred}` and a
-distinct guest username. The Extension-hosts row then points at the VM (beacon
-self-IP); deleting the VM clears it after the announce TTL.
+distinct guest username. **No `go` toolchain is needed on the host** &mdash; the
+daemon is built inside the guest. The Extension-hosts row then points at the VM
+(beacon self-IP); deleting the VM clears it after the announce TTL.
+
+After the VM boots, the launcher waits for the daemon to actually serve on `:80`
+(up to 15 min; override with `YURUNA_POOL_CONTROL_READY_TIMEOUT=<seconds>`) before
+reporting success &mdash; an IP alone is not "up", since the guest still has to
+build the daemon. If `:80` never comes up, it pulls the in-guest build log,
+`cloud-init status`, and the `pool-control.service` journal over the harness SSH
+key and prints them, so a failed build shows you the reason instead of a dead URL.
+(That log is root-only; the harness `yuruna` account has NOPASSWD `sudo`, so
+`sudo tail /var/log/cloud-init-output.log` reads it &mdash; a plain `tail` returns
+`Permission denied`.)
+
+**Host-side (proof / fallback):**
+
+```powershell
+pwsh test/Start-PoolControlVM.ps1 -HostSideProof [-Port 8090] [-AggregatorUrl <url>]
+# UI at http://<host>:8090/ ; stop with test/Stop-PoolControlVM.ps1
+```
+
+`-HostSideProof` builds + runs the daemon directly on this host instead of a VM.
+Needs `go` + `pwsh` on PATH and the framework checkout (the CLIs live at
+`<repo>/test/*.ps1`).
 
 ---
 
@@ -64,6 +84,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.22
+Last review: 2026.07.24
 
 Back to [Yuruna](../README.md)

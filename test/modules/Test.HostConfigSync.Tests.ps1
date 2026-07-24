@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.22
+.VERSION 2026.07.24
 .GUID 42f6a2c8-1d3e-4b90-8a7f-2e3d4c5b6a7e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -140,6 +140,15 @@ Describe 'Merge-ConfigSyncReferenceConfig' {
         $m = Merge-ConfigSyncReferenceConfig -Reference $ref -Local $null -HostType 'host.macos.utm'
         Assert-Equal -Expected '' -Actual $m.Config['pool']['localClonePath']
         Assert-True (@($m.Warnings) -match 'localClonePath') 'the non-portable clone path is warned about'
+    }
+
+    It '-NoPool drops the pool + networkStorage nodes but keeps the cache + repos' {
+        $m = Merge-ConfigSyncReferenceConfig -Reference (New-ReferenceDoc) -Local $null -HostType 'host.windows.hyper-v' -NoPool
+        Assert-True (-not $m.Config.Contains('pool'))           'pool node is dropped (-NoPool = no pool membership / registration)'
+        Assert-True (-not $m.Config.Contains('networkStorage')) 'networkStorage node is dropped (-NoPool = no NAS mount / replication)'
+        Assert-Equal -Expected '192.168.7.229' -Actual $m.Config['vmStart']['cachingProxyIP'] -Because 'cache reuse survives -NoPool'
+        Assert-Equal -Expected 'https://example/framework' -Actual $m.Config['repositories']['frameworkUrl'] -Because 'repository settings survive -NoPool'
+        Assert-True (@($m.Warnings) -match 'NoPool') 'dropping the pool nodes is warned about'
     }
 
     # The sync is a FULL copy with a short list of named exceptions, not an

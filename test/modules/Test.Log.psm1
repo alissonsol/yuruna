@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.22
+.VERSION 2026.07.24
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456790
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -44,23 +44,10 @@ if (-not (Get-Variable -Name '__YurunaRunId' -Scope Global -ErrorAction Silently
 }
 
 # === Cycle-log rotation policy ============================================
-# Bound the per-host log directory so a long-running runner doesn't fill
-# disk with thousands of cycle folders. Rotation fires when the top-level
-# count reaches CYCLE_HISTORY_TRIGGER, moving the oldest folders into a
-# history.YYYY-MM-DD/ subdirectory and keeping the most recent
-# CYCLE_HISTORY_KEEP (30) at the top level for quick triage. CYCLE_HISTORY_LIMIT
-# (1000) is the absolute hard ceiling on the top-level count; the trigger sits
-# well below it so the steady-state directory size stays bounded near the
-# trigger instead of climbing all the way to the ceiling before every trim.
-# A trigger equal to the ceiling would let the count swing KEEP..LIMIT
-# (30..1000) between trims -- a large, mostly-idle backlog -- so the trigger
-# is kept a small multiple of KEEP to hold the swing to KEEP..TRIGGER while
-# still trimming infrequently enough that the sort cost is negligible.
-# All values are code constants by design -- NOT in test.config.yml -- so an
-# operator can grep + tune without a schema migration. Mirrors the
-# FailurePauseMaxSeconds policy in Invoke-TestRunner.ps1: tunables that
-# only matter on the failure / boundary paths are kept close to the code
-# that enforces them.
+# Bound the per-host cycle-log directory: at CYCLE_HISTORY_TRIGGER folders
+# the oldest move to history.YYYY-MM-DD/, keeping CYCLE_HISTORY_KEEP at top
+# level under a CYCLE_HISTORY_LIMIT hard ceiling. Code constants by design
+# -- NOT in test.config.yml. See docs/definition.md (Cycle-folder rotation policy).
 $script:CycleHistoryLimit   = 1000
 $script:CycleHistoryKeep    = 30
 $script:CycleHistoryTrigger = 120
@@ -635,7 +622,7 @@ function Stop-LogFile {
             # step_failure event in cycle.events.ndjson. The engine/infra paths
             # write it to $env:YURUNA_LOG_DIR (the log root, shared across
             # cycles); Write-CycleManifest already classifies last_failure.json
-            # as kind 'failure', so the copied file is catalogued automatically.
+            # as kind 'failure', so the copied file is cataloged automatically.
             # Only on a non-pass outcome: a passing cycle has no failure of its
             # own, so any last_failure.json present is stale from an earlier cycle.
             if ($Outcome -ne 'pass' -and $env:YURUNA_LOG_DIR) {
@@ -723,7 +710,7 @@ function Start-NestedLogFile {
         cycle-context handle). Its mid-cycle `.incomplete` suffix is tolerated;
         the flipped (bare/renamed) variant is tried as a fallback.
     .PARAMETER NodeId
-        The nested node id (path-derived). Sanitised into a folder-safe leaf.
+        The nested node id (path-derived). Sanitized into a folder-safe leaf.
     .PARAMETER CycleId
         The owner's cycleId, stamped on this process's NDJSON events.
     .OUTPUTS
@@ -884,7 +871,7 @@ function Write-CycleNdjsonEvent {
 function Send-CycleEventSafely {
     <#
     .SYNOPSIS
-        Centralised guard for cycle.events.ndjson emission. Validates
+        Centralized guard for cycle.events.ndjson emission. Validates
         the record against the cycle-event schema, surfaces violations
         as a sibling `schema_violation` event, and writes both.
     .DESCRIPTION

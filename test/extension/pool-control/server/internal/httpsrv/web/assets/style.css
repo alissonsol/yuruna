@@ -4,7 +4,7 @@
 * { box-sizing: border-box; }
 body { font: 14px/1.5 -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; color: var(--fg); background: var(--bg); margin: 0; }
 /* Space flex children with margins, not `gap` (flex gap is Safari/iOS 14.5+ only). */
-header.app { display: flex; align-items: center; padding: .75rem 1.25rem; border-bottom: 1px solid var(--line); }
+header.app { display: flex; flex-wrap: wrap; align-items: center; padding: .75rem 1.25rem; border-bottom: 1px solid var(--line); }
 header.app > * + * { margin-left: 1rem; }
 header.app .brand { font-weight: 600; }
 header.app nav a { margin-right: 1rem; color: var(--accent); text-decoration: none; }
@@ -27,3 +27,21 @@ input, select { font: inherit; padding: .35rem .5rem; border: 1px solid var(--li
 .notice.ok { background: #e8f5ec; color: var(--ok); border: 1px solid #b7e0c2; }
 .notice.error { background: #fde8ea; color: var(--err); border: 1px solid #f3b6bd; }
 .muted { color: var(--muted); }
+h2 { font-size: 1rem; margin: 1.75rem 0 .25rem; }
+code { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: .85rem; word-break: break-all; }
+/* Check verdicts. Scoped to table cells so they do not collide with the
+   .notice.ok / .notice.error banner rules above. */
+td.ok { color: var(--ok); font-weight: 600; }
+td.error { color: var(--err); font-weight: 600; }
+/* Probe output is captured verbatim (version banners, stderr), so keep the
+   newlines but let long single lines wrap instead of widening the table. */
+pre.detail { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: .85rem; margin: 0; white-space: pre-wrap; word-break: break-word; }
+@media (max-width: 600px) {
+  /* The 4-6 column tables overflow a 375px phone; scroll the table itself
+     instead of the whole page (matches the stash UI's .table-wrap idiom). */
+  table { display: block; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  /* iOS Safari zooms the viewport when a focused text control computes under
+     16px and never zooms back out; keep desktop density, pay 16px on phones.
+     min-height widens the tap targets toward the 44px touch minimum. */
+  input, select, button { font-size: 16px; min-height: 2.75rem; }
+}

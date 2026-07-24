@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.22
+.VERSION 2026.07.24
 .GUID 42d3e6a1-9b74-4c25-8f30-1a2b3c4d5e6f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -82,8 +82,23 @@ try {
     }
 
     $findings = New-Object System.Collections.Generic.List[object]
+    $unanalyzed = New-Object System.Collections.Generic.List[string]
     foreach ($f in $files) {
-        foreach ($r in @(Invoke-ScriptAnalyzer -Path $f -Settings $Settings)) { $findings.Add($r) }
+        # Invoke-ScriptAnalyzer intermittently throws a NullReferenceException on
+        # a file it analyzes cleanly in isolation -- the fault depends on the
+        # analyzer state left by files scanned earlier in the same session, so it
+        # moves between files and runs. Retrying that one file in isolation
+        # usually succeeds. A file that fails twice is reported and fails the run
+        # rather than aborting it: an unscanned file must never look like a clean
+        # one, but one flaky file must not hide the findings in the other 350.
+        $results = $null
+        foreach ($attempt in 1..2) {
+            try { $results = @(Invoke-ScriptAnalyzer -Path $f -Settings $Settings); break }
+            catch {
+                if ($attempt -eq 2) { $unanalyzed.Add("${f}: $($_.Exception.Message)") }
+            }
+        }
+        if ($null -ne $results) { foreach ($r in $results) { $findings.Add($r) } }
     }
 
     if (-not $Quiet) {
@@ -91,8 +106,10 @@ try {
             Write-Output ("{0}:{1}:{2}  {3}  {4}" -f $r.ScriptName, $r.Line, $r.Column, $r.RuleName, $r.Message)
         }
     }
-    Write-Output ("PSScriptAnalyzer: {0} finding(s) across {1} tracked/new PowerShell file(s)." -f $findings.Count, $files.Count)
-    exit ($findings.Count -gt 0 ? 1 : 0)
+    foreach ($u in $unanalyzed) { Write-Output "UNANALYZED  $u" }
+    Write-Output ("PSScriptAnalyzer: {0} finding(s) across {1} tracked/new PowerShell file(s){2}." -f `
+        $findings.Count, $files.Count, $(if ($unanalyzed.Count) { ", $($unanalyzed.Count) UNANALYZED" } else { '' }))
+    exit (($findings.Count -gt 0 -or $unanalyzed.Count -gt 0) ? 1 : 0)
 } finally {
     Pop-Location
 }

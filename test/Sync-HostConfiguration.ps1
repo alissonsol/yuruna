@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.22
+.VERSION 2026.07.24
 .GUID 42795a67-cd5f-42ad-bd44-8d466ffec8fb
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -54,6 +54,11 @@
     Never prompt; skip anything needing operator input, with a warning.
 .PARAMETER SkipValidation
     Skip the Test-Config.ps1 run the per-host script finishes with.
+.PARAMETER NoPool
+    Sync the reference config but do NOT join the pool (drops the pool +
+    networkStorage nodes: no NAS mount, no replication, no pool registration).
+    Caching-proxy + repository settings still come across, so cache reuse is
+    unaffected. For disposable / self-verification hosts (e.g. example/nested.host).
 .PARAMETER RemainingArguments
     Anything not declared here is forwarded to the per-host script verbatim
     (-WhatIf among them), so a parameter added there needs no edit here.
@@ -80,6 +85,7 @@ param(
     [switch]$PersistSharedToken,
     [switch]$NonInteractive,
     [switch]$SkipValidation,
+    [switch]$NoPool,
 
     [Parameter(ValueFromRemainingArguments)]
     [string[]]$RemainingArguments
@@ -113,7 +119,7 @@ if ($PersistSharedToken) {
     if (-not ($pwshExe -and (Test-Path -LiteralPath $pwshExe))) {
         throw 'Could not resolve the pwsh executable to run Set-PoolAuthToken.ps1.'
     }
-    $persistArgs = @('-NoProfile', '-File', $persistScript, '-Token', $SharedToken, '-BounceStatusServer')
+    $persistArgs = @('-NoProfile', '-File', $persistScript, '-Token', $SharedToken, '-BounceStatusService')
     if ($PSBoundParameters.ContainsKey('WhatIf')) { $persistArgs += '-WhatIf' }
     & $pwshExe @persistArgs
     if ($LASTEXITCODE -ne 0) {

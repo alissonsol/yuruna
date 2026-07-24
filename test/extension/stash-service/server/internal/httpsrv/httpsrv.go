@@ -1,8 +1,7 @@
 // LICENSEURI https://yuruna.link/license
 // Copyright (c) 2019-2026 by Alisson Sol et al.
 
-// Package httpsrv serves the browser UI and JSON API for the Stash Service
-// (stash-service-ui.md). It runs as a second listener inside the same Go
+// Package httpsrv serves the browser UI and JSON API for the Stash Service. It runs as a second listener inside the same Go
 // daemon as the SCP/SFTP sink (§2.1), sharing the ID allocator, storage
 // pipeline, and local index. It presents a POOL-WIDE view (§3): this host's
 // live local index merged with every other host's on-share sidecars. Writes
@@ -42,7 +41,7 @@ type Server struct {
 	deleteHostIPs []net.IP // host IPs permitted to DELETE; nil = VM-only
 }
 
-// Options carries the VM-side configurable knobs (stash-service-ui.md §11).
+// Options carries the VM-side configurable knobs.
 // Zero values fall back to the spec defaults.
 type Options struct {
 	Addr           string
@@ -103,7 +102,7 @@ func (s *Server) store() *store.Store       { return s.ssh.Store }
 func (s *Server) buffer() *store.Store      { return s.ssh.Buffer }
 func (s *Server) detector() detect.Detector { return s.ssh.Detector }
 
-// ListenAndServe runs the HTTP server until ctx is cancelled, and kicks off
+// ListenAndServe runs the HTTP server until ctx is canceled, and kicks off
 // the pool-index background refresher (§3.2). Returns nil on graceful
 // shutdown.
 func (s *Server) ListenAndServe(ctx context.Context) error {

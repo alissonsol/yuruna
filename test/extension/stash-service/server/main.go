@@ -41,11 +41,11 @@ func main() {
 	metadataDir := flag.String("metadata-dir", config.DefaultMetadataDir, "VM-local metadata index directory (§8)")
 	bufferDir := flag.String("buffer-dir", config.DefaultBufferDir, "VM-local NAS-offline buffer directory (§8.4)")
 	listenAddr := flag.String("listen-addr", config.ListenAddress, "SCP/SFTP sink listen address (§4.2); override only for dev when :22 is taken by the OS sshd")
-	httpAddr := flag.String("http-addr", config.DefaultHTTPAddress, "UI/API HTTP listen address (stash-service-ui.md §2); empty disables the UI")
-	poolWindowDays := flag.Int("pool-window-days", config.DefaultPoolWindowDays, "days of cross-host sidecars the pool index holds in memory (stash-service-ui.md §3.2)")
-	poolRefreshSecs := flag.Int("pool-refresh-secs", 60, "pool-index rescan interval in seconds (stash-service-ui.md §11)")
-	listLimit := flag.Int("list-default-limit", config.DefaultListLimit, "default page size for the recent-stash list (stash-service-ui.md §11)")
-	aggregatorURL := flag.String("aggregator-url", "", "pool-aggregator base URL for hostId→stash-UI resolution (stash-service-ui.md §3.4) and the presence beacon (§4.7); empty disables both (best-effort)")
+	httpAddr := flag.String("http-addr", config.DefaultHTTPAddress, "UI/API HTTP listen address; empty disables the UI")
+	poolWindowDays := flag.Int("pool-window-days", config.DefaultPoolWindowDays, "days of cross-host sidecars the pool index holds in memory")
+	poolRefreshSecs := flag.Int("pool-refresh-secs", 60, "pool-index rescan interval in seconds")
+	listLimit := flag.Int("list-default-limit", config.DefaultListLimit, "default page size for the recent-stash list")
+	aggregatorURL := flag.String("aggregator-url", "", "pool-aggregator base URL for hostId→stash-UI resolution and the presence beacon (§4.7); empty disables both (best-effort)")
 	hostID := flag.String("host-id", "", "owning HOST's hostId (the pool-table identity) the presence beacon announces under (§4.7); empty disables the beacon")
 	hostIP := flag.String("host-ip", "", "the deploying host's IP address: the one non-VM source permitted to DELETE stashes. Reads and writes stay open to any host. Comma-separated list accepted; empty = only this VM may delete")
 	presenceInterval := flag.Duration("presence-interval", config.DefaultPresenceInterval, "presence re-announce period to the pool-aggregator (§4.7); 0 disables the beacon")
@@ -118,7 +118,7 @@ func main() {
 	// a restart after the outage ended) (§8.4).
 	go srv.RunFlushWorker(ctx)
 
-	// Two listeners in one process (stash-service-ui.md §2.1): the SCP/SFTP
+	// Two listeners in one process: the SCP/SFTP
 	// sink on :22 and the UI/API HTTP server (default :80). Both stop on ctx
 	// cancel and return nil; a real bind/serve failure on either is fatal.
 	// Each goroutine sends exactly one result to errCh when its
@@ -180,7 +180,7 @@ func main() {
 	}
 	// Either a listener returned nil on its own or the signal fired: cancel so
 	// every remaining listener observes it and returns (idempotent when the
-	// signal already cancelled ctx), which guarantees the drain below cannot
+	// signal already canceled ctx), which guarantees the drain below cannot
 	// block waiting on a still-serving listener.
 	cancel()
 

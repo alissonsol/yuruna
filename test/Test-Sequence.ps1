@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.22
+.VERSION 2026.07.24
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456708
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -85,7 +85,7 @@ param(
     # Skip the built-in HTTP status server, matching Invoke-TestRunner /
     # Invoke-TestInnerRunner. Without it, an enabled statusService is started
     # (restarted) so the dashboard tracks this run.
-    [switch]$NoServer,
+    [switch]$NoStatusService,
 
     # Skip refreshing <RepoRoot>/project. Test-SequenceSet clones the project
     # ONCE before iterating a test-set, then passes this so each child
@@ -119,7 +119,7 @@ $ConfigPath   = $paths.ConfigPath
 # <elsewhere> is in play.
 $env:YURUNA_CONFIG_PATH = $ConfigPath
 
-# Canonical exit codes (centralised in Test.Prelude so a future change
+# Canonical exit codes (centralized in Test.Prelude so a future change
 # to the contract -- e.g. introduce code 2 for "needs operator action" --
 # lands in one place rather than touching ~15 bare `exit 1` sites here.)
 $ExitOk      = Get-EntryPointExitCode -Outcome Ok
@@ -232,15 +232,15 @@ if ($NoProjectClone) {
 }
 
 # --- REGION: Ensure status server is running (restart to pick up any changes)
-# Shared gate (Test.Prelude) so isEnabled / -NoServer / port / restart match the
+# Shared gate (Test.Prelude) so isEnabled / -NoStatusService / port / restart match the
 # inner runner. -Restart: a re-invoked Test-Sequence must pick up edits.
 # Skipped when nested: the owner already started (and owns) the status service;
 # a nested child restarting it would bounce the owner's live server mid-cycle.
 if (-not $isNested) {
     $startScript = Join-Path $TestRoot "Start-StatusService.ps1"
-    $null = Start-YurunaStatusServiceIfEnabled -Config $Config -StartScript $startScript -NoServer:$NoServer -Restart
+    $null = Start-YurunaStatusServiceIfEnabled -Config $Config -StartScript $startScript -NoStatusService:$NoStatusService -Restart
 }
-# The Host Config Service is a caching-proxy companion (owned by Start-CachingProxy.ps1),
+# The Host Config Service is a caching-proxy companion (owned by Start-CachingProxyVM.ps1),
 # not a test-entry-point concern, so it is intentionally not started here.
 
 # --- REGION: Detect host type
@@ -494,6 +494,8 @@ $ChainEntries       = $plan.chainEntries
 $ChainPlan          = $plan.chainPlan
 $effectiveUser      = $plan.effectiveUser
 $effectiveHost      = $plan.effectiveHost
+$effectiveMemory    = $plan.effectiveMemoryStartupBytes
+$effectiveCores     = $plan.effectiveCores
 $ChainTotalSteps    = $plan.chainTotalSteps
 $requiredSnapshotId = $plan.requiredSnapshotId
 # Warm path targets the persisted snapshot VM by its recorded id. An
@@ -574,6 +576,17 @@ if ((Get-VMState -VMName $VMName) -ne 'absent') {
     if ($effectiveHost) {
         Write-Verbose "Forwarding -Hostname '$effectiveHost' from $($SequenceName).variables.hostname."
         $newVmArgs.Hostname = $effectiveHost
+    }
+    # VM sizing overrides (variables.memoryStartupBytes / variables.cores) under
+    # the same declare-or-drop rule as -Username: forwarded only when the target
+    # New-VM.ps1 declares them, else surfaced on Verbose by Invoke-PerGuestNewVm.
+    if ($effectiveMemory) {
+        Write-Verbose "Forwarding -MemoryStartupBytes '$effectiveMemory' from $($SequenceName).variables.memoryStartupBytes."
+        $newVmArgs.MemoryStartupBytes = $effectiveMemory
+    }
+    if ($effectiveCores) {
+        Write-Verbose "Forwarding -Cores '$effectiveCores' from $($SequenceName).variables.cores."
+        $newVmArgs.Cores = $effectiveCores
     }
     $r = New-VM @newVmArgs -Confirm:$false
     if (-not $r.success) {

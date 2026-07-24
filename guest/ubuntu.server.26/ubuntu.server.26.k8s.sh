@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.07.22
+# Version: 2026.07.24
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 set -euo pipefail
@@ -88,7 +88,7 @@ EOF
 # --- REGION: https://yuruna.link/memory#why-the-k8s-guest-configures-the-docker-registry-mirror-before-installing-docker-ce
 # CACHE_HOST is parsed from $http_proxy (set system-wide by the
 # guest's cloud-init late-commands). Fallback: the well-known cache
-# VM hostname, resolvable on the LAN where Start-CachingProxy ran.
+# VM hostname, resolvable on the LAN where Start-CachingProxyVM ran.
 CACHE_HOST=$(echo "${http_proxy:-}" | sed -E 's|^https?://([^:/]+).*|\1|')
 [ -z "$CACHE_HOST" ] && CACHE_HOST="yuruna-caching-proxy"
 sudo install -d -m 0755 /etc/docker

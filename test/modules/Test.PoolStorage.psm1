@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.22
+.VERSION 2026.07.24
 .GUID 42c5e8a1-9b3d-4f27-8a6c-1d2e3f4a5b6c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -1485,7 +1485,7 @@ function Get-PoolStorageHealthWarning {
 
 <#
 .SYNOPSIS
-Resolves the STASH storage coordinates the stash VM's cloud-init seed needs -- the share UNC (unix form), the stashNetworkUser, its vault password, and this host's id -- read from the ISOLATED networkStorage stash* keys (Get-YurunaStashStorageConfig), not the pool keys. Returns empty strings when unavailable so a caller bakes blanks (the guest then uses local fallback); the fail-fast gate lives in Start-StashServer, not here. Get-YurunaHostId and Get-Password must be loaded in the caller's session.
+Resolves the STASH storage coordinates the stash VM's cloud-init seed needs -- the share UNC (unix form), the stashNetworkUser, its vault password, and this host's id -- read from the ISOLATED networkStorage stash* keys (Get-YurunaStashStorageConfig), not the pool keys. Returns empty strings when unavailable so a caller bakes blanks (the guest then uses local fallback); the fail-fast gate lives in Start-StashVM, not here. Get-YurunaHostId and Get-Password must be loaded in the caller's session.
 #>
 function Get-YurunaStashSeedValue {
     [CmdletBinding()]
@@ -1532,7 +1532,7 @@ function Get-YurunaStashSeedValue {
 
 <#
 .SYNOPSIS
-Resolves the POOL storage coordinates the pool-control VM's cloud-init seed needs -- the pool NAS share UNC (unix form), the poolNetworkUser, its vault password, and this host's id -- read from the pool networkStorage keys via Get-YurunaPoolStorageConfig -IgnoreReplicate (so the seed bakes regardless of the replicate flag, matching how the stash seed has no replicate gate). Returns empty strings when unavailable so a caller bakes blanks (the guest then degrades to no persistence); the fail-fast gate lives in Start-PoolControlServer, not here. Get-YurunaHostId and Get-Password must be loaded in the caller's session.
+Resolves the POOL storage coordinates the pool-control VM's cloud-init seed needs -- the pool NAS share UNC (unix form), the poolNetworkUser, its vault password, and this host's id -- read from the pool networkStorage keys via Get-YurunaPoolStorageConfig -IgnoreReplicate (so the seed bakes regardless of the replicate flag, matching how the stash seed has no replicate gate). Returns empty strings when unavailable so a caller bakes blanks (the guest then degrades to no persistence); the fail-fast gate lives in Start-PoolControlVM, not here. Get-YurunaHostId and Get-Password must be loaded in the caller's session.
 #>
 function Get-YurunaPoolSeedValue {
     [CmdletBinding()]

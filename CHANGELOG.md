@@ -4,9 +4,25 @@ Yuruna uses [Calendar Versioning](https://calver.org/): `YYYY.MM.DD`.
 Tags are cut from the `main` branch; entries below summarize each
 tagged release.
 
-## 2026.07.22
+## 2026.07.24
 
-- **Schema change**: Scheme change for test sequences and adjustments for projects.
+- **Each service VM now has its own administrator account.** The
+  caching-proxy, pool-control, and stash VMs shared one seeded account, so
+  all three passwords resolved to one vault entry: building any one overwrote
+  the other two's credential. They now use `caching-proxy-admin`,
+  `pool-control-admin`, and `stash-admin`, each with its own vault key. VMs
+  seeded with the old account keep it until rebuilt; `Move-CachingProxy.ps1`
+  takes `-OldUser` for a source VM whose account differs. See
+  [operator.md](docs/operator.md).
+- **Scripts that build a VM now say so**: `Start-CachingProxyVM.ps1`,
+  `Start-PoolControlVM.ps1`, `Start-StashVM.ps1`** (with matching `Stop-`
+  counterparts). `Start-StatusService.ps1` and `Start-HostConfigService.ps1`
+  start host-side services and keep their names. `Set-PoolAuthToken.ps1` and
+  `Sync-HostConfiguration.ps1` renamed `-BounceStatusServer` to
+  `-BounceStatusService`.
+- **Also in this release**: Breaking schema change for test sequences with
+  matching project adjustment (and a 2026.07.22 early release for cross-release tests),
+  `memoryStartupBytes` sequence variable.
 
 ## 2026.07.21
 
@@ -70,9 +86,7 @@ tagged release.
   survives host reboots and aggregator restarts (announces are journaled to
   Loki and rehydrated on startup). The aggregator also serves pool-status
   `stashBaseUrl` (registration target with announce fallback), completing
-  the stash UI's remote-host resolution. See
-  [stash-service.md](docs/design/stash-service.md) (§4.7) and the
-  [pool-aggregator README](test/extension/pool-aggregator/README.md).
+  the stash UI's remote-host resolution. See the [pool-aggregator README](test/extension/pool-aggregator/README.md).
 
 ## 2026.07.07
 
@@ -111,7 +125,7 @@ tagged release.
   `Start-StashServer` builds from a clean slate. The durable stash data is
   unaffected — received files, sidecar records, and the persisted SSH host key
   live on the NAS share, not the disposable VM disk. See
-  [stash-service.md](docs/design/stash-service.md) (§3.2).
+  [stash-guide.md](docs/stash-guide.md).
 - **Dashboards update.** Extension hosts panel added to the Yuruna hosts dashboard. The Pool hosts panel now reports the paused status. Other minor visual updates.
 - **Mid-week release.** Test release to verify automated scripts.
 
@@ -122,7 +136,7 @@ tagged release.
   refuses a `v`-prefixed variant or a moved tag), and the installers resolve a
   pinned tag whether it was published with or without a `v` prefix — closing a
   tag-drift break that may break one-line installs. See
-  [release.md](tools/release.md) and [install.md](docs/install.md).
+  [install.md](docs/install.md).
 - **Installer and fetch resilience.** Transient-HTTP retries now cover bare
   `500`s on helm/kubectl/tofu fetches, in-guest Kubernetes install steps retry,
   and the three platform installers are hardened (arm64 hard gate, brew
@@ -196,6 +210,6 @@ LICENSEURI <https://yuruna.link/license>
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.22
+Last review: 2026.07.24
 
 Back to [Yuruna](README.md)

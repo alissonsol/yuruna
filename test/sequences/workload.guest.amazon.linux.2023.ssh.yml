@@ -2,10 +2,7 @@
 
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
-# SSH variant of workload.guest.amazon.linux.2023 (keystrokeMechanism: ssh).
-# See possible actions in the actions.yml file.
 
-# Perf-log identity (see https://yuruna.link/test/perf). Bump revision on step add/remove.
 sequenceGuid: 42450c58-14b7-4458-80f0-ac05c42761df
 sequenceRevision: 1
 
@@ -17,7 +14,6 @@ resource:
 variables:
   username: yauser1
 
-# component -- wait for sshd, smoke-test the session.
 component:
   - action: sshWaitReady
     timeoutSeconds: 300
@@ -27,7 +23,6 @@ component:
     command: "whoami && hostname"
     description: "Smoke test: whoami/hostname"
 
-# workload -- install the Desktop group and verify.
 workload:
   - action: sshFetchAndExecute
     command: 'sudo dnf groupinstall -y "Desktop"'

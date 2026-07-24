@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.22
+.VERSION 2026.07.24
 .GUID 42e2607c-3d4e-4f50-8a61-7c8d9e0f1a2b
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -728,7 +728,7 @@ Describe 'Inner-cycle control-flow shape (guest dispatch + single-pass invariant
         $f = Get-InnerCycleControlFlow -Psm1Path (Join-Path $here 'Test.RunnerInnerLoop.psm1')
         Assert-True ($f.HelperLoopBreaks -eq 0) "iteration must contain 0 break statements (escapes route through `$IterState.Control), found $($f.HelperLoopBreaks)"
         Assert-True ($f.HelperLoopContinues -eq 0) "iteration must contain 0 continue statements, found $($f.HelperLoopContinues)"
-        Assert-True ($f.HelperReturns -eq 15) "iteration must have 15 signalled returns (1 shutdown + 6 stop + 1 skip + 6 teardown + 1 cleanup-hazard), found $($f.HelperReturns)"
+        Assert-True ($f.HelperReturns -eq 15) "iteration must have 15 signaled returns (1 shutdown + 6 stop + 1 skip + 6 teardown + 1 cleanup-hazard), found $($f.HelperReturns)"
         Assert-True ($f.HelperControlSets -eq 16) "iteration must set `$IterState.Control 16 times (1 init + 8 break + 7 continue), found $($f.HelperControlSets)"
     }
 }

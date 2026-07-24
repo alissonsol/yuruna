@@ -61,6 +61,34 @@ failure (with retry-wrapping as documented under `retry`).
   `variables:` block or the planner cascade overwrites it when
   declared.
 
+### New-VM-consumed variables (`username`, `hostname`, `memoryStartupBytes`, `cores`)
+
+Four sequence `variables:` are also forwarded to the per-guest `New-VM.ps1`
+when it declares the matching parameter (a "declare-or-drop" rule — a guest
+that does not take the parameter simply ignores it, logged on the Verbose
+stream). They cascade top-down like any other variable, so a top-level
+sequence sets the value for its whole chain:
+
+| Variable | New-VM param | Effect | Default when unset |
+|---|---|---|---|
+| `username` | `-Username` | cloud-init account | per-guest (`yuuser24`) |
+| `hostname` | `-Hostname` | cloud-init `local-hostname` | the VM name |
+| `memoryStartupBytes` | `-MemoryStartupBytes` | VM RAM | 12 GB (Hyper-V / UTM), 8 GB (KVM) |
+| `cores` | `-Cores` | vCPU count (overrules the host/2 default) | `max(4, host/2)` |
+
+`memoryStartupBytes` accepts a raw byte count or a binary `KB`/`MB`/`GB`/`TB`
+suffix (`34359738368`, `32768MB`, and `32GB` are equivalent) — normalized by
+`ConvertTo-MemoryStartupBytes` in `automation/Yuruna.Common.psm1`. `cores` is a
+positive integer, clamped to the host's physical core count. Both are honored
+today by the `guest.ubuntu.server.24` scripts on all three hosts; other guests
+adopt them by adding the parameter (the plumbing already forwards it). Example:
+
+```yaml
+variables:
+  memoryStartupBytes: 32GB   # a nested host that runs inner guests
+  cores: 8
+```
+
 ## Failure artifacts
 
 When a step fails, the engine writes the following under the cycle's
@@ -511,7 +539,7 @@ Capture a screenshot for debugging.
 ### tapOn
 
 Wait for a button label to appear on the VM screen via OCR, then click
-at the label's centre. Hyper-V uses `vmconnect` + SendInput
+at the label's center. Hyper-V uses `vmconnect` + SendInput
 (`vmconnect` must be open). UTM uses CGEvent mouse-click synthesis
 (requires Accessibility permission on macOS).
 
@@ -520,7 +548,7 @@ at the label's centre. Hyper-V uses `vmconnect` + SendInput
 | `label` | string or string[] | Candidate labels. |
 | `timeoutSeconds` | number | Default `vmCommunication.timeoutSeconds`. |
 | `pollSeconds` | number | Default `vmCommunication.pollSeconds`. |
-| `offsetX`, `offsetY` | number | Pixel offset from the centre; default `0`. |
+| `offsetX`, `offsetY` | number | Pixel offset from the center; default `0`. |
 
 ### waitForAndEnter
 
@@ -719,6 +747,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.22
+Last review: 2026.07.24
 
 Back to [Yuruna](../README.md)

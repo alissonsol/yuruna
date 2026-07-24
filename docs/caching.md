@@ -142,7 +142,7 @@ pwsh ./New-VM.ps1
   for squid to listen on `:3128`. Prints the proxy URL on ready.
 
 The bridged `yuruna-external` network is auto-provisioned by
-`test/Start-CachingProxy.ps1` on first run; see
+`test/Start-CachingProxyVM.ps1` on first run; see
 [Squid Cache ...](../host/ubuntu.kvm/guest.caching-proxy/README.md)
 for manual bridge setup and rollback.
 
@@ -277,7 +277,7 @@ every request.
 Temporary — serve from origin for one burst, then offline again:
 
 ```
-ssh yuruna@<caching-proxy-ip>
+ssh caching-proxy-admin@<caching-proxy-ip>
 sudo rm /etc/squid/conf.d/yuruna-offline.conf && sudo squid -k reconfigure
 # ... apt-get update etc. ...
 echo "offline_mode on" | sudo tee /etc/squid/conf.d/yuruna-offline.conf
@@ -624,25 +624,25 @@ suppresses ubuntu creation):
   `New-VM.ps1` aligns the vault entry with that file's password on
   each cycle's first call (the vault itself persists across cycles to
   simulate an external auth provider, but the runtime file remains the
-  source of truth for the cache VM's yuruna user, so divergence is
+  source of truth for the cache VM's caching-proxy-admin user, so divergence is
   corrected on every rebuild). Printed in the ready banner; baked
   into the seed via
   `chpasswd`. Expiry disabled. The first-ever rebuild on a host
   generates a fresh 10-char alphanumeric password; subsequent rebuilds
   preserve it.
 - **SSH key** — harness public key from `test/status/ssh/yuruna_ed25519` via
-  [Test.Ssh.psm1](../test/modules/Test.Ssh.psm1). `ssh yuruna@<ip>` is
+  [Test.Ssh.psm1](../test/modules/Test.Ssh.psm1). `ssh caching-proxy-admin@<ip>` is
   passwordless from the host.
 - **Sudo** — passwordless (`NOPASSWD:ALL`). VM is on a private switch,
   RFC1918-only.
 
 ### Reaching the cache from outside the host (port 8022)
 
-`Start-CachingProxy.ps1` adds an `8022 -> 22` host port forward
+`Start-CachingProxyVM.ps1` adds an `8022 -> 22` host port forward
 alongside the squid/Grafana ones:
 
 ```
-ssh -p 8022 yuruna@<host-lan-ip>     # -> cache VM :22
+ssh -p 8022 caching-proxy-admin@<host-lan-ip>     # -> cache VM :22
 ```
 
 Port 8022 (not 22) avoids colliding with the host's own sshd. Managed
@@ -782,7 +782,7 @@ Implementation:
   consumed by
   [`guest.caching-proxy/New-VM.ps1`](../host/windows.hyper-v/guest.caching-proxy/New-VM.ps1)
   and by the Windows branches of
-  [`Start-CachingProxy.ps1`](../test/Start-CachingProxy.ps1),
+  [`Start-CachingProxyVM.ps1`](../test/Start-CachingProxyVM.ps1),
   [`Invoke-TestRunner.ps1`](../test/Invoke-TestRunner.ps1), and
   [`Start-StatusService.ps1`](../test/Start-StatusService.ps1).
 
@@ -814,7 +814,7 @@ destroyed by [Invoke-TestRunner.ps1](../test/Invoke-TestRunner.ps1).
 - Clear cache (wipe objects, keep VM):
 
 ```
-ssh yuruna@<cache-ip>
+ssh caching-proxy-admin@<cache-ip>
 sudo systemctl stop squid && sudo rm -rf /var/spool/squid/* && sudo squid -z -N
 sudo systemctl start squid
 ```
@@ -866,7 +866,7 @@ HTTPS apt go direct.
 
 **UTM (host pre-fetch + base64 in seed):** `guest.ubuntu.*/New-VM.ps1`
 reads the cache VM IP from `test/status/runtime/yuruna-caching-proxy.yml`
-(written by `Start-CachingProxy.ps1` via `Test.CachingProxy.psm1`) or
+(written by `Start-CachingProxyVM.ps1` via `Test.CachingProxy.psm1`) or
 `$Env:YURUNA_CACHING_PROXY_IP`, fetches the CA, base64-encodes it, and
 splices into the seed as `CA_CERT_BASE64_PLACEHOLDER`. Guest
 `late-commands`:
@@ -875,7 +875,7 @@ splices into the seed as `CA_CERT_BASE64_PLACEHOLDER`. Guest
 2. `curtin in-target -- update-ca-certificates`
 3. `Acquire::https::Proxy "http://192.168.64.1:3129";` — the VZ gateway,
    not the cache IP, because the host-side `:3129` forwarder (from
-   `Start-CachingProxy.ps1`) is the only path guests have.
+   `Start-CachingProxyVM.ps1`) is the only path guests have.
 
 Empty placeholder → HTTPS apt bypasses the cache.
 
@@ -927,6 +927,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.22
+Last review: 2026.07.24
 
 Back to [Yuruna](../README.md)

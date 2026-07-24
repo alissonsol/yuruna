@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.22
+.VERSION 2026.07.24
 .GUID 42e8b3c5-7f1a-4d62-9c40-6b2d3e4f5a61
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -36,7 +36,7 @@
       GET /v1/nas/stash     -> ystash-nas connection info + credential (JSON)
       GET /v1/nas/pool      -> ypool-nas connection info + credential (JSON)
 
-    Design: docs/design/host-config-service-and-extension-hosts.md. Posture
+    Design: docs/test-config.md. Posture
     (mTLS, TLS, EC P-256) is operator-approved; the NAS password keeps its
     existing vault storage (see feedback_no_unauthorized_security_changes).
 
@@ -67,7 +67,7 @@ $ErrorActionPreference = 'Stop'
 # abort under EAP=Stop (feedback_winget_self_upgrade_kills_running_pwsh class).
 $PSNativeCommandUseErrorActionPreference = $false
 # In the detached -Serve process, force PLAIN-TEXT rendering so the redirected
-# stderr (config-server.err) is readable text, not ANSI/VT colour escapes that make
+# stderr (config-server.err) is readable text, not ANSI/VT color escapes that make
 # the file look "binary" when a startup error is written. $PSStyle is PS 7.2+;
 # guard for 7.0/7.1 where it does not exist.
 if ($Serve -and (Get-Variable -Name PSStyle -ErrorAction Ignore)) {
@@ -341,7 +341,7 @@ function Show-YurunaConfigServerLog {
         $raw = ''
         try { $raw = [System.IO.File]::ReadAllText($logFile) } catch { continue }
         if ([string]::IsNullOrWhiteSpace($raw)) { continue }
-        $clean = [regex]::Replace($raw, "\x1b\[[0-9;?]*[ -/]*[@-~]", '')          # ANSI CSI (colour/cursor)
+        $clean = [regex]::Replace($raw, "\x1b\[[0-9;?]*[ -/]*[@-~]", '')          # ANSI CSI (color/cursor)
         $clean = $clean -replace "\x1b", ''                                       # stray ESC introducers
         $clean = [regex]::Replace($clean, "[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]", '')  # control bytes (keep tab/CR/LF)
         $clean = $clean.Trim()
@@ -387,7 +387,7 @@ if (Test-Path -LiteralPath $PidFile) { Remove-Item -LiteralPath $PidFile -Force 
 
 # Best-effort: open the host firewall for the config port on Windows (the raw
 # TcpListener needs no urlacl/sslcert, but Defender's inbound filter still
-# applies). Start-CachingProxy already runs elevated. Idempotent.
+# applies). Start-CachingProxyVM already runs elevated. Idempotent.
 if ($IsWindows) {
     try {
         $ruleName = 'Yuruna Host Config Service'

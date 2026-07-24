@@ -104,8 +104,7 @@ provisioning:
 - Each host automatically runs only the guests it can (folder present + capability supported
   + hypervisor-compatible) and skips the rest, trusting another pool member to cover them —
   there is no central dispatcher.
-- Full field reference: [`test/schemas/test-set.schema.yml`](../test/schemas/test-set.schema.yml).
-  Working example: [`test/pool/examples/test-sets/smoke.yml`](../test/pool/examples/test-sets/smoke.yml).
+- Full field reference: [`test/schemas/pool-test-sets.schema.yml`](../test/schemas/pool-test-sets.schema.yml).
 
 ## Step 4 — Assign the test-set to the pool
 
@@ -148,13 +147,41 @@ pwsh test/Remove-HostFromPool.ps1  -PoolId lab -HostId 42<...30 hex...> -IntentG
 
 In-flight cycles always finish, so pause/drain never corrupt an accumulating run.
 
+## Purging a stale host
+
+`Remove-HostFromPool` only drops a host from ONE pool's `members[]`. A host that
+ran cycles also leaves a `hosts/info.<hostId>.yml` identity record plus replicated
+cycle folders on the NAS, and — separately — keeps showing on the **Yuruna hosts**
+dashboard, which is the pool-aggregator's own polled, in-memory view (each host
+kept for a 24h TTL after last contact), *not* the NAS records. To fully retire a
+stale host — a disposable `example/nested.host` run, a decommissioned box, an id
+that will never return — use:
+
+```powershell
+pwsh test/Remove-PoolHost.ps1 -HostId 42<...30 hex...>          # add -WhatIf to preview
+```
+
+It (1) reads `networkStorage.poolLocalPath` from `test.config.yml` and deletes
+`<poolLocalPath>/hosts/info.<hostId>.yml` + `<poolLocalPath>/<hostId>/`; (2) strips
+the id from EVERY pool's `members[]` (needs `pool.intentGitUrl`; without it the NAS
+records are still removed and membership is skipped with a warning); and (3) asks
+the aggregator to **forget** the host (`POST /api/v1/forget-host`) so it leaves the
+dashboard NOW instead of after its 24h TTL. Step 3 is opt-in + best-effort: it
+fires only when a `pool-auth-token` and a caching-proxy are configured (the same
+CA-pinned bearer transport as pool push), and a missing token / unreachable
+aggregator is a silent skip — the panel still self-clears on the TTL. A host that
+is still live is re-discovered on the aggregator's next poll, so stop/drain it
+before forgetting. It refuses this host's own uuid, or a record last seen < 24 h
+ago, unless `-Force`. Run it on a host with the pool share mounted.
+
 ## Command summary
 
 | Command | Does | Key parameters |
 |---|---|---|
 | `New-Pool.ps1` | create a pool | `-PoolId` (req), `-DisplayName`, `-DesiredState` |
 | `Add-HostToPool.ps1` | add a host | `-PoolId` (req), `-HostId` (req) |
-| `Remove-HostFromPool.ps1` | remove a host | `-PoolId` (req), `-HostId` (req) |
+| `Remove-HostFromPool.ps1` | remove a host from ONE pool's members | `-PoolId` (req), `-HostId` (req) |
+| `Remove-PoolHost.ps1` | **purge** a stale host: delete its NAS records + strip ALL memberships | `-HostId` (req), `-Force`, `-ConfigPath` |
 | `Set-PoolTestSet.ps1` | assign a test-set | `-PoolId` (req), `-Name` (req), `-Order`, `-CycleStrategy` |
 | `Set-PoolDesiredState.ps1` | run / pause / drain | `-PoolId` (req), `-State` (req) |
 | `Get-PoolStatus.ps1` | read members + test-sets (intent) | `-PoolId` |
@@ -214,6 +241,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.22
+Last review: 2026.07.24
 
 Back to [Yuruna](../README.md)

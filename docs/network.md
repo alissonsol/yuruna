@@ -1,7 +1,7 @@
 # Yuruna network workarounds
 
 This file collects rationale for network-related workarounds in guest
-scripts and the host harness. Centralising the long explanations here
+scripts and the host harness. Centralizing the long explanations here
 keeps the source comments short and the workarounds discoverable from
 one place.
 
@@ -508,12 +508,33 @@ verify the binary actually landed: a swallowed failure here otherwise
 surfaces far away as a `helm: not recognized` abort in the k8s.website
 workload.
 
+## KVM host bridge netplan: identity pins
+
+The generated netplan that moves the NIC onto the yuruna bridge
+(`host/ubuntu.kvm/modules/Yuruna.Host.psm1`) carries three
+identity/ownership pins so it behaves the same on every host:
+
+- `renderer: networkd` on each stanza — a global
+  `renderer: NetworkManager` (standard on Ubuntu Desktop) would turn the
+  definitions into NM keyfiles and fight the explicit NIC handoff to
+  systemd-networkd.
+- `macaddress:` pins the bridge's MAC to the NIC's so the upstream DHCP
+  server re-issues the same lease (host keeps its IP; the operator's SSH
+  session reconnects). Without it, `MACAddressPolicy=persistent` hands
+  the bridge a generated MAC: the IP changes, and MAC-filtering DHCP
+  setups issue nothing. Note `[NetDev] MACAddress` only applies at
+  device creation — the bridge must not already exist when the yaml is
+  first applied.
+- `dhcp-identifier: mac` — networkd's DHCPv4 client defaults to a
+  machine-id-derived DUID, so even with the cloned MAC a server keying
+  leases on client-id would renumber the host.
+
 ---
 
 LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.22
+Last review: 2026.07.24
 
 Back to [Yuruna](../README.md)

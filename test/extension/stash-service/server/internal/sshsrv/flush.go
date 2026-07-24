@@ -35,7 +35,7 @@ func (s *Server) triggerFlush() {
 
 // RunFlushWorker drains the buffer backlog on startup (covers a daemon
 // restart after the outage ended) and then on every tick or trigger until
-// ctx is cancelled. Run it in its own goroutine.
+// ctx is canceled. Run it in its own goroutine.
 func (s *Server) RunFlushWorker(ctx context.Context) {
 	ticker := time.NewTicker(flushInterval)
 	defer ticker.Stop()

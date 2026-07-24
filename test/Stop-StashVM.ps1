@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.22
+.VERSION 2026.07.24
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456761
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -20,12 +20,12 @@
 .SYNOPSIS
     Stops the Yuruna Stash Service VM and removes every file it owns --
     the registry/domain entry, the copied disk image, the cloud-init
-    seed, and (UTM) the .utm bundle -- so the next Start-StashServer
+    seed, and (UTM) the .utm bundle -- so the next Start-StashVM
     builds from a clean slate with no leftover VM files.
 
     The durable stash data is untouched: received files, the per-artifact
     sidecar records, and the persisted SSH host key live on the NAS stash
-    share (stash-service.md sec 1, sec 4.4, sec 6.1), not on the disposable VM
+    share, not on the disposable VM
     disk. Start rebuilds the disk from the base image.
 
     In-flight uploads are not drained (sec 3.2): a graceful stop runs first
@@ -63,7 +63,7 @@ Write-Output "Host type: $HostType"
 [void](Initialize-YurunaHost -RepoRoot $RepoRoot -HostType $HostType)
 
 # Clear the Extension hosts advertisement: this host no longer runs a stash server.
-# (Written by Start-StashServer; folded into host.registration.json by
+# (Written by Start-StashVM; folded into host.registration.json by
 # Write-HostRegistrationRecord and read by the pool-aggregator.) Removed regardless
 # of VM state -- a stopped/absent server must drop from the dashboard. Best-effort.
 Import-Module (Join-Path $ModulesDir 'Test.YurunaDir.psm1') -Global -Force
@@ -78,7 +78,7 @@ try {
 
 # Publish the removal NOW: regenerate host.registration.json so the marker's absence
 # (activeExtensions drops 'stash-service') reaches the aggregator on its next poll,
-# without waiting for a test cycle -- the symmetric counterpart to Start-StashServer.
+# without waiting for a test cycle -- the symmetric counterpart to Start-StashVM.
 try {
     Set-Variable -Name '__YurunaHostId' -Scope Global -Value (Get-YurunaHostId)
     Import-Module (Join-Path $ModulesDir 'Test.Capability.psm1') -Global -Force
@@ -94,7 +94,7 @@ if ($state -eq 'absent') {
     Write-Output "  VM '$VMName' is already stopped."
 } else {
     # Graceful stop FIRST: a clean systemd shutdown lets the stash daemon's
-    # flush worker (stash-service.md sec 8.4) push any NAS-offline buffered uploads
+    # flush worker push any NAS-offline buffered uploads
     # to the share before the disk is deleted below, shrinking the unflushed-loss
     # window. A hard stop is still acceptable, so escalate on a stuck graceful
     # stop rather than blocking (the teardown below force-stops a half-up daemon).
@@ -108,10 +108,9 @@ if ($state -eq 'absent') {
 
 # Remove the VM and EVERY on-disk file it owns -- the registry/domain entry, the
 # copied disk image, the cloud-init seed, and (UTM) the .utm bundle -- so the next
-# Start-StashServer builds from a clean slate with no leftover VM files. The
+# Start-StashVM builds from a clean slate with no leftover VM files. The
 # durable stash data is untouched: received files, the per-artifact sidecar
-# records, and the persisted SSH host key live on the NAS stash share
-# (stash-service.md sec 1, sec 4.4, sec 6.1), not on the disposable VM disk, which Start
+# records, and the persisted SSH host key live on the NAS stash share, not on the disposable VM disk, which Start
 # rebuilds from the base image. Run unconditionally -- even an 'absent'
 # (unregistered) VM can leave a disk directory behind from a New-VM that crashed
 # mid-build, and this sweeps it. Best-effort: a cleanup hiccup must not abort the

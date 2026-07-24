@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.22
+.VERSION 2026.07.24
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456721
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -21,7 +21,7 @@
 # calls below resolve wherever Test.Config is loaded (including its ad-hoc importers).
 Import-Module (Join-Path $PSScriptRoot 'Test.Hash.psm1') -Global -Force
 
-# Single source of truth for reading test.config.yml. Centralises the
+# Single source of truth for reading test.config.yml. Centralizes the
 # `Get-Content -Raw $cfg | ConvertFrom-Yaml -Ordered` flow so error
 # handling stays uniform across call sites: parse failures, $null on
 # miss, and -is [IDictionary] validation all happen here. New validation

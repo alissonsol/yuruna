@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.22
+.VERSION 2026.07.24
 .GUID 42c04f16-a1b2-4c3d-8e4f-5a6b7c8d9e0f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -326,7 +326,7 @@ function Update-TestConfigFromTemplate {
     # keystrokeMechanism is no longer a machine-global config knob (it is a
     # per-sequence attribute), so there is nothing to validate here. A stale key
     # left in an operator's test.config.yml is inert and merges out against the
-    # template on the next canonicalising write.
+    # template on the next canonicalizing write.
 
     # Canonicalise ordering before any write/diff: every map key and scalar-array
     # element alphabetically, so a regenerated test.config.yml is byte-stable and
@@ -435,7 +435,7 @@ function Sync-TestConfigToTemplate {
 
     # Strict merge: template shape wins (orphan keys dropped, missing fields filled,
     # operator values kept), then re-attach the out-of-band 'secrets' node so the
-    # validator never strips credentials, then canonicalise key + array ordering.
+    # validator never strips credentials, then canonicalize key + array ordering.
     $strict = ConvertTo-MergedHashtable -Template $Template -Current $Current
     if (($Current -is [System.Collections.IDictionary]) -and $Current.Contains('secrets')) {
         $strict['secrets'] = $Current['secrets']

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.22
+.VERSION 2026.07.24
 .GUID 42e5f6a7-b8c9-4d12-9345-6e7f8a9b0c1d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -336,22 +336,22 @@ function Get-OuterProjectUrl {
     return $null
 }
 
-function Test-OuterNoServerForwarded {
+function Test-OuterNoStatusServiceForwarded {
     <#
     .SYNOPSIS
-        True when -NoServer was forwarded to the inner runner.
+        True when -NoStatusService was forwarded to the inner runner.
     .DESCRIPTION
         New-InnerRunnerArgList folds the forwarded switches into a single
         combined -Command string element, so the token is embedded mid-string
         rather than a standalone arg -- a start-anchored per-element test would
-        never see it. Match -NoServer as a whole token in the joined list so a
-        hypothetical -NoServerFoo cannot false-match.
+        never see it. Match -NoStatusService as a whole token in the joined list
+        so a hypothetical -NoStatusServiceFoo cannot false-match.
     #>
     [CmdletBinding()]
     [OutputType([bool])]
     param([string[]]$ArgList)
     if (-not $ArgList) { return $false }
-    return (($ArgList -join ' ') -match '(?<![\w-])-NoServer(?![\w-])')
+    return (($ArgList -join ' ') -match '(?<![\w-])-NoStatusService(?![\w-])')
 }
 
 # === Forward-env + outer.log helpers ======================================
@@ -499,7 +499,7 @@ function Invoke-RunnerOuterLoop {
         # runner.state.json sees "cycle-start" while the git pull /
         # pre-spawn cleanup is in flight; a crash during that window
         # leaves "cycle-start" stale, which the next outer's
-        # Initialize-RunnerState detects + synthesises a fault.
+        # Initialize-RunnerState detects + synthesizes a fault.
         if (Get-Command Set-RunnerState -ErrorAction SilentlyContinue) {
             $null = Set-RunnerState -To 'cycle-start' -Reason "cycle $cycle starting" -Confirm:$false
         }
@@ -985,11 +985,11 @@ function Invoke-RunnerOuterLoop {
         # when the operator's UI recovery path (/control/start-cycle) is needed
         # during the failure-pause below. (The Unix branch re-parents the server
         # so its kill spares it; the Host Config Service is owned by
-        # Start-CachingProxy, not the inner, so it is never in the kill-tree and
+        # Start-CachingProxyVM, not the inner, so it is never in the kill-tree and
         # needs no re-ensure here.) Re-spawning from THIS outer process makes it
         # a stable child that survives the pause; it is a no-op when the server
         # is still alive (the common non-watchdog inner exit -- skip-if-healthy)
-        # or when -NoServer was requested. Start-StatusService.ps1 is invoked
+        # or when -NoStatusService was requested. Start-StatusService.ps1 is invoked
         # directly (not via Start-YurunaStatusServiceIfEnabled) so that a status-
         # port conflict -- which that wrapper turns into a process-level exit --
         # is caught and logged here, letting the pause proceed instead of tearing
@@ -997,7 +997,7 @@ function Invoke-RunnerOuterLoop {
         # failure it is nursing (an `exit` inside the &-invoked script only sets
         # $LASTEXITCODE; the wrapper's exit is inside a function and would not).
         try {
-            if (-not (Test-OuterNoServerForwarded -ArgList $State.ArgList) -and
+            if (-not (Test-OuterNoStatusServiceForwarded -ArgList $State.ArgList) -and
                 (Get-Command Resolve-StatusServiceStart -ErrorAction SilentlyContinue) -and
                 (Get-Command Read-TestConfig -ErrorAction SilentlyContinue)) {
                 $ensureStartScript = Join-Path $State.RepoRoot 'test/Start-StatusService.ps1'
@@ -1167,7 +1167,7 @@ function Invoke-RunnerOuterLoop {
 Export-ModuleMember -Function `
     Get-OuterCommitSha, Test-OuterNewCommitsAvailable, Invoke-OuterGitPull, Invoke-OuterNetworkGit, `
     Get-OuterRemoteSha, Get-OuterConfigMtime, Get-OuterStepTimeoutMinute, Get-OuterProjectUrl, `
-    Get-OuterPoolTestCycleOverride, Get-OuterAutoRemediation, Test-OuterNoServerForwarded, `
+    Get-OuterPoolTestCycleOverride, Get-OuterAutoRemediation, Test-OuterNoStatusServiceForwarded, `
     Sync-ForwardEnv, Write-OuterLog, `
     Clear-TerminalNotifierJob, `
     Invoke-RunnerOuterLoop

@@ -133,7 +133,7 @@ which:
   guest-console capture would freeze on a stale frame. Because the topology is a
   clone, the operator still sees the identical image on the physical monitor
   while it is attached;
-- **resolution policy** — the physical monitor is **always normalised to
+- **resolution policy** — the physical monitor is **always normalized to
   1920×1080** so it shares the virtual display's only mode and the clone can
   bind, **downscaling** a higher-resolution monitor for the duration of the
   run (the accepted cost of an always-duplicated surface). The lone exception
@@ -151,7 +151,7 @@ which:
   per-monitor DPI device-info call (OCR needs 100%; the registry knobs in
   `Set-WindowsHostConditionSet` are the persisted backstop that only apply
   on next sign-in);
-- **pulls any window whose centre sits off the primary** back onto it, so a
+- **pulls any window whose center sits off the primary** back onto it, so a
   window can't strand on an extended (invisible) virtual display — this also
   covers the rare exotic-panel case that stays extended.
 
@@ -199,12 +199,29 @@ fires if any value changed.
 | System-wide DPI fallback (non-per-monitor-aware processes) | `HKCU:\Control Panel\Desktop\LogPixels` + `Win8DpiScaling` | 96 + 1 |
 | Win11 text size (Settings → Accessibility → Text size) | `HKCU:\Software\Microsoft\Accessibility\TextScaleFactor` | 100 |
 
+## ICMP echo (ping) and the host firewall
+
+For `ping <host>` to work two conditions must hold: (a) an enabled Allow
+rule for inbound ICMPv4 Echo Request in every profile whose interface you
+want ping on — Windows ships built-in rules ("File and Printer Sharing
+(Echo Request - ICMPv4-In)") in all three profiles (Domain, Private,
+Public) but DISABLED — and (b) no higher-precedence block rule matches. A
+custom `-InterfaceAlias`-scoped rule (e.g. for `vEthernet (Default
+Switch)`) does not make ping work on its own: disabled built-ins coexist
+with it without being triggered, and Windows Firewall does not merge
+them. The reliable fix (applied by `Test.HostCondition.Windows.psm1`) is
+to enable the built-in echo-request rules across all profiles. This opens
+ping on the LAN NIC too (expected — operators also want to ping the host
+from peers for diagnostics); no TCP is exposed. A custom scoped rule is
+still created as belt-and-suspenders in case built-ins are missing
+(stripped server SKUs, GPO).
+
 ---
 
 LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.22
+Last review: 2026.07.24
 
 Back to [Yuruna](../README.md)

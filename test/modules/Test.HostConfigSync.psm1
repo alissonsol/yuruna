@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.22
+.VERSION 2026.07.24
 .GUID 42d7f3b9-5c1e-4a80-9e2d-7f8a9b0c1d2e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -159,7 +159,15 @@ function Merge-ConfigSyncReferenceConfig {
     param(
         [Parameter(Mandatory)]$Reference,
         [Parameter()][AllowNull()]$Local,
-        [Parameter(Mandatory)][string]$HostType
+        [Parameter(Mandatory)][string]$HostType,
+        # Strip the pool-membership nodes (pool + networkStorage) so a host can
+        # sync a reference config WITHOUT joining the pool: no NAS mount, no cycle
+        # replication, and thus no hosts/info.<hostId>.yml identity record on the
+        # share. vmStart / repositories (incl. the caching proxy) are untouched,
+        # so cache reuse still works. For disposable / self-verification hosts
+        # (e.g. example/nested.host) whose ephemeral hostId would otherwise
+        # register a new dead entry in the pool set on every run.
+        [switch]$NoPool
     )
     if ($Reference -isnot [System.Collections.IDictionary]) {
         throw "Merge-ConfigSyncReferenceConfig: the reference config is not a map (got $($Reference.GetType().Name))."
@@ -169,14 +177,25 @@ function Merge-ConfigSyncReferenceConfig {
     # mutated in place rather than deep-copied.
     $merged = $Reference
 
-    $localNs = $null
-    if ($Local -is [System.Collections.IDictionary] -and $Local.Contains('networkStorage')) {
-        $localNs = $Local['networkStorage']
+    if ($NoPool) {
+        # Drop the pool-membership nodes outright. The pool.localClonePath block
+        # further down is a no-op once 'pool' is gone (it guards on Contains).
+        foreach ($poolKey in @('networkStorage', 'pool')) {
+            if ($merged.Contains($poolKey)) {
+                $merged.Remove($poolKey)
+                [void]$warnings.Add("${poolKey}: dropped (-NoPool) -- config synced without pool membership; this host will not mount the NAS, replicate cycles, or register in the pool set.")
+            }
+        }
+    } else {
+        $localNs = $null
+        if ($Local -is [System.Collections.IDictionary] -and $Local.Contains('networkStorage')) {
+            $localNs = $Local['networkStorage']
+        }
+        $refNs = if ($merged.Contains('networkStorage')) { $merged['networkStorage'] } else { $null }
+        $conv  = Convert-ConfigSyncNetworkStorage -Reference $refNs -Local $localNs -HostType $HostType
+        $merged['networkStorage'] = $conv.NetworkStorage
+        foreach ($w in $conv.Warnings) { [void]$warnings.Add($w) }
     }
-    $refNs = if ($merged.Contains('networkStorage')) { $merged['networkStorage'] } else { $null }
-    $conv  = Convert-ConfigSyncNetworkStorage -Reference $refNs -Local $localNs -HostType $HostType
-    $merged['networkStorage'] = $conv.NetworkStorage
-    foreach ($w in $conv.Warnings) { [void]$warnings.Add($w) }
 
     # Credentials are host-managed: the local 'secrets' node survives the
     # sync, and a reference host's node is never adopted.
@@ -653,7 +672,7 @@ function Get-ConfigSyncCredentialReadiness {
             return @{ Ready = $true; Status = 403; Error = $null }
         }
         503 {
-            return @{ Ready = $false; Status = 503; Error = "$ReferenceHost has no shared pool-auth-token configured, so it cannot serve credentials to a peer. Provision one on BOTH hosts (on ${ReferenceHost}: pwsh test/Set-PoolAuthToken.ps1 -Token <shared-secret> -BounceStatusServer), then re-run this sync." }
+            return @{ Ready = $false; Status = 503; Error = "$ReferenceHost has no shared pool-auth-token configured, so it cannot serve credentials to a peer. Provision one on BOTH hosts (on ${ReferenceHost}: pwsh test/Set-PoolAuthToken.ps1 -Token <shared-secret> -BounceStatusService), then re-run this sync." }
         }
         404 {
             return @{ Ready = $false; Status = 404; Error = "$ReferenceHost cannot serve the credential for '$User' ($ServerError)." }
@@ -1015,6 +1034,12 @@ function Sync-ConfigSyncVaultCredential {
     warning instead.
 .PARAMETER SkipValidation
     Skip the final `pwsh test/Test-Config.ps1` run.
+.PARAMETER NoPool
+    Sync the reference config but DO NOT join the pool: the pool + networkStorage
+    nodes are dropped, so this host never mounts the NAS, replicates cycles, or
+    registers a hosts/info.<hostId>.yml identity record. The caching proxy and
+    repository settings still come across, so cache reuse is unaffected. Use for
+    disposable / self-verification hosts (e.g. example/nested.host).
 #>
 function Sync-HostConfiguration {
     [CmdletBinding(SupportsShouldProcess)]
@@ -1025,7 +1050,8 @@ function Sync-HostConfiguration {
         [Parameter()][string]$RepoRoot,
         [Parameter()][string]$SharedToken = '',
         [switch]$NonInteractive,
-        [switch]$SkipValidation
+        [switch]$SkipValidation,
+        [switch]$NoPool
     )
     if (-not $RepoRoot) {
         $RepoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
@@ -1042,7 +1068,7 @@ function Sync-HostConfiguration {
         $local = Get-Content -Raw -LiteralPath $configPath | ConvertFrom-Yaml -Ordered
     }
 
-    $merge = Merge-ConfigSyncReferenceConfig -Reference $reference -Local $local -HostType $hostType
+    $merge = Merge-ConfigSyncReferenceConfig -Reference $reference -Local $local -HostType $hostType -NoPool:$NoPool
     foreach ($w in $merge.Warnings) { Write-Warning $w }
 
     $canonical = ConvertTo-SortedConfig $merge.Config
@@ -1263,7 +1289,7 @@ function Set-PoolAuthToken {
     [OutputType([hashtable])]
     param(
         [Parameter(Mandatory)][string]$Token,
-        [switch]$BounceStatusServer,
+        [switch]$BounceStatusService,
         [ValidateRange(10, 900)][int]$BounceTimeoutSeconds = 180
     )
     $logical = 'pool-auth-token'
@@ -1281,7 +1307,7 @@ function Set-PoolAuthToken {
     # seconds (port map + readiness wait), and a silent script in that window is
     # indistinguishable from a wedged one -- the operator needs to see which step
     # owns the wait.
-    $steps = if ($BounceStatusServer) { 4 } else { 3 }
+    $steps = if ($BounceStatusService) { 4 } else { 3 }
 
     # vaultKey == the logical name so Set-Password's -Username and the gate's
     # vaultKey resolution address the identical vault slot.
@@ -1301,7 +1327,7 @@ function Set-PoolAuthToken {
     $verifyNote = if ($result.verified) { 'round-trip verified' } else { 'round-trip FAILED -- the token cannot be read back' }
     Write-Information "[3/$steps] vault: $verifyNote." -InformationAction Continue
 
-    if ($BounceStatusServer) {
+    if ($BounceStatusService) {
         $startScript = Join-Path (Split-Path -Parent $PSScriptRoot) 'Start-StatusService.ps1'
         $pwshExe = [System.Environment]::ProcessPath
         if ((Test-Path -LiteralPath $startScript) -and $pwshExe -and (Test-Path -LiteralPath $pwshExe)) {

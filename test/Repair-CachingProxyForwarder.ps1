@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.22
+.VERSION 2026.07.24
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456771
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -28,7 +28,7 @@
     layer to revive -- the LAN cable IS the data path. What can still
     drift is the state file under <track>/yuruna-caching-proxy.yml: an
     old shared-NAT IP from before the upgrade, or an empty entry from
-    Stop-CachingProxy. This script:
+    Stop-CachingProxyVM. This script:
 
       1. Calls Test-CachingProxyAvailable (state file only, no scan --
          see Yuruna.Host.psm1). Returns the URL or $null.
@@ -43,7 +43,7 @@
 
     Auto-discovery: if the state file is empty (e.g. after Stop-
     CachingProxy.ps1) auto-discovery has nothing to consult and the
-    script errors out. Re-run Start-CachingProxy.ps1 to repopulate, or
+    script errors out. Re-run Start-CachingProxyVM.ps1 to repopulate, or
     pass -CacheIp <lan-ip> to commit a known IP directly. LAN-wide
     cache discovery is a separate future feature.
 
@@ -131,7 +131,7 @@ if ($CacheIp) {
     if (-not $foundUrl) {
         Write-Error "Could not locate yuruna-caching-proxy VM on the LAN."
         Write-Error "  Yuruna.Host.psm1's Test-CachingProxyAvailable returned no URL."
-        Write-Error "  If the VM is stopped/missing, rebuild with: pwsh test/Start-CachingProxy.ps1"
+        Write-Error "  If the VM is stopped/missing, rebuild with: pwsh test/Start-CachingProxyVM.ps1"
         Write-Error "  If you already know the VM's LAN IP, rerun with:"
         Write-Error "    pwsh test/Repair-CachingProxyForwarder.ps1 -CacheIp <lan-ip>"
         exit 1

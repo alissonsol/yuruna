@@ -84,7 +84,7 @@ func (s *Store) FilesRoot() string {
 
 // StagingDir returns and creates a per-invocation staging directory
 // under the day folder. Files received via SCP land here first; the
-// finalisation step either renames the single file out or zips the
+// finalization step either renames the single file out or zips the
 // whole tree into <id>.yuruna.archive.zip.
 func (s *Store) StagingDir(t time.Time, id string) (string, error) {
 	dayDir, err := s.DayDir(t)

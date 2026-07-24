@@ -1,7 +1,7 @@
 // LICENSEURI https://yuruna.link/license
 // Copyright (c) 2019-2026 by Alisson Sol et al.
 
-// Pool-wide aggregation (stash-service-ui.md §3). The local host's stashes
+// Pool-wide aggregation. The local host's stashes
 // come from its SQLite index (live, including pending/buffered); every OTHER
 // host's come from its on-share sidecars. To keep memory bounded as the pool
 // ages (§3.2), the in-memory pool index holds only the last windowDays of
@@ -63,7 +63,7 @@ func NewPoolIndex(stashRoot, localHostID string, windowDays int, refresh time.Du
 }
 
 // RunRefresher does an initial scan then refreshes on every tick until ctx
-// is cancelled. Run it in its own goroutine.
+// is canceled. Run it in its own goroutine.
 func (p *PoolIndex) RunRefresher(ctx context.Context) {
 	p.Refresh()
 	t := time.NewTicker(p.refreshInterval)
@@ -354,7 +354,7 @@ func dayFloor(t time.Time) time.Time {
 }
 
 // listFilter is the parsed query shared by the local SQL search and the
-// in-memory remote match (stash-service-ui.md §4.2).
+// in-memory remote match.
 type listFilter struct {
 	ID           string
 	Username     string // substring (also matches exact)

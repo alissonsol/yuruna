@@ -4,7 +4,8 @@
 // Package httpsrv serves the pool-control UI (3 static pages) and the JSON API
 // that drives it. It mirrors the stash-service httpsrv: static pages + a strict
 // CSP, all dynamic data over /api/*, and mutating endpoints that relay the
-// pool-admin CLIs' outcome (a failed push surfaces as a UI error, C4 discipline).
+// pool-admin CLIs' outcome (a failed push surfaces as a UI error, never a
+// silent success).
 package httpsrv
 
 import (
@@ -38,6 +39,16 @@ type Options struct {
 	// Store persists the audit log + status under the pool NAS; nil disables it
 	// (host-side launcher / tests run without a NAS).
 	Store *state.Store
+	// The launch values below are carried purely so /diagnostics can report the
+	// daemon's own view of its dependencies. The intent layer holds its own
+	// copies; these are for the report, which is why they are plain strings
+	// rather than a second source of truth.
+	PwshPath      string
+	RepoDir       string
+	StateDir      string
+	AggregatorURL string
+	HostID        string
+	IntentGitURL  string
 }
 
 // Server is the pool-control UI/API HTTP server.
@@ -46,11 +57,12 @@ type Server struct {
 	state   *state.Store
 	opts    Options
 	httpSrv *http.Server
+	started time.Time
 }
 
 // New builds a Server over the given intent API.
 func New(api IntentAPI, opts Options) *Server {
-	s := &Server{intent: api, state: opts.Store, opts: opts}
+	s := &Server{intent: api, state: opts.Store, opts: opts, started: time.Now()}
 	s.httpSrv = &http.Server{
 		Addr:              opts.Addr,
 		Handler:           s.routes(),
@@ -61,7 +73,7 @@ func New(api IntentAPI, opts Options) *Server {
 	return s
 }
 
-// ListenAndServe runs until ctx is cancelled, then shuts down gracefully.
+// ListenAndServe runs until ctx is canceled, then shuts down gracefully.
 func (s *Server) ListenAndServe(ctx context.Context) error {
 	if s.opts.Addr == "" {
 		<-ctx.Done()

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.22
+.VERSION 2026.07.24
 .GUID 42e5b4c3-d2a1-4f9a-6789-0b1c2d3e4f51
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -31,14 +31,14 @@ function Test-YurunaUsbmmiddDevice {
     .SYNOPSIS
     True when a Get-PnpDevice object is an Amyuni usbmmidd virtual monitor.
     .DESCRIPTION
-    The single source of truth for recognising the usbmmidd indirect-display
+    The single source of truth for recognizing the usbmmidd indirect-display
     device across the install/converge and teardown census paths. The device
     surfaces under two independent identifiers depending on whether the adapter
     node or the child monitor node is being enumerated -- a FriendlyName of
     'USB Mobile Monitor ...' and an InstanceId containing 'USBMMIDD' -- so the
     canonical predicate matches either. Keeping every census site on this one
     function stops the two forms from drifting apart: if a caller checked only
-    one identifier, a present-but-unhealthy monitor could go unrecognised and
+    one identifier, a present-but-unhealthy monitor could go unrecognized and
     the convergence loop would stack a duplicate every cycle. Operates on the
     Get-PnpDevice shape (FriendlyName / InstanceId); the display-clone path
     keys off the DISPLAY_DEVICE DeviceString instead and is intentionally
@@ -330,7 +330,7 @@ function Set-YurunaDisplayCloneAndResolution {
 
     A clone binds only when every display shares one identical mode; usbmmidd's
     native mode is 1920x1080, so the virtual display is held at 1920x1080 and set
-    as the primary at desktop origin (0,0), and the physical monitor is normalised
+    as the primary at desktop origin (0,0), and the physical monitor is normalized
     to that same 1920x1080 mode -- batched with CDS_NORESET and committed in one
     ChangeDisplaySettingsEx apply -- which is what lets the clone bind instead of
     silently falling back to an extended desktop (the symptom: host windows like
@@ -358,7 +358,7 @@ function Set-YurunaDisplayCloneAndResolution {
     primary is forced to 100% live via the CCD per-monitor DPI device-info call
     (the only way to apply it without a sign-out; the registry knobs in
     Set-WindowsHostConditionSet are the persisted backstop). Finally, every
-    top-level app window whose centre sits off the primary monitor is pulled back
+    top-level app window whose center sits off the primary monitor is pulled back
     onto it, so windows can't strand on an extended (invisible) desktop region.
     Idempotent; safe to call every cycle.
     Returns $true when topology, primary, resolution, or scale changed.
@@ -438,9 +438,9 @@ namespace Yuruna {
     public static extern uint GetDpiForSystem();
 
     // -- Window-repositioning sweep --------------------------------------
-    // Moves any top-level app window whose centre sits off the PRIMARY
+    // Moves any top-level app window whose center sits off the PRIMARY
     // monitor's work area back inside it, so windows can't strand on an
-    // extended (invisible) virtual display. Centre-based so a window that is
+    // extended (invisible) virtual display. Center-based so a window that is
     // merely hanging slightly off-edge is left alone; only windows that
     // genuinely live on the other monitor are pulled in.
     public delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
@@ -488,8 +488,8 @@ namespace Yuruna {
         int w = r.right - r.left, h = r.bottom - r.top;
         if (w <= 0 || h <= 0) return true;
         int cx = r.left + w / 2, cy = r.top + h / 2;
-        bool centreInside = (cx >= wa.left && cx < wa.right && cy >= wa.top && cy < wa.bottom);
-        if (centreInside) return true;
+        bool centerInside = (cx >= wa.left && cx < wa.right && cy >= wa.top && cy < wa.bottom);
+        if (centerInside) return true;
         int newX = (w > waw) ? wa.left : Math.Max(wa.left, Math.Min(r.left, wa.right - w));
         int newY = (h > wah) ? wa.top  : Math.Max(wa.top,  Math.Min(r.top,  wa.bottom - h));
         if (newX != r.left || newY != r.top) {
@@ -657,7 +657,7 @@ namespace Yuruna {
 
     # Stage a per-device width/height/position/primary change with CDS_NORESET
     # so a batch of displays is laid out coherently before one apply. Only
-    # W/H/position are touched (refresh + colour depth left to Windows to keep
+    # W/H/position are touched (refresh + color depth left to Windows to keep
     # the mode valid). Returns the ChangeDisplaySettingsEx rc, or $null when the
     # device's current mode could not be read.
     $stageDeviceMode = {
@@ -733,7 +733,7 @@ namespace Yuruna {
         # physical monitor then only drops a secondary and the guest-console
         # capture never freezes. A clone binds only when every active display
         # shares one identical mode; the virtual display is fixed at 1920x1080
-        # (step 1), so the physical monitor is normalised to 1920x1080 as well --
+        # (step 1), so the physical monitor is normalized to 1920x1080 as well --
         # downscaled if it was running higher. Downscaling a high-resolution
         # monitor for the duration of a test run is the accepted cost of an
         # always-duplicated surface; the alternative (leaving a high-res monitor
@@ -1235,25 +1235,10 @@ function Set-WindowsHostConditionSet {
     }
 
     # -- 5. Allow ICMPv4 echo (ping) from VM guests and the LAN ----------
-    # For `ping <host>` to work:
-    #   (a) An Allow rule for inbound ICMPv4 Echo Request must exist and
-    #       be enabled for every profile whose interface you want ping
-    #       on. Windows ships built-in rules
-    #       ('File and Printer Sharing (Echo Request - ICMPv4-In)') in
-    #       all three profiles (Domain, Private, Public) but DISABLED.
-    #   (b) No higher-precedence block rule matches.
-    #
-    # A custom -InterfaceAlias-scoped rule (e.g. for 'vEthernet (Default
-    # Switch)') doesn't make ping work on its own -- disabled built-ins
-    # coexist with it without being triggered, and Windows Firewall
-    # doesn't merge them. The reliable fix is to enable the built-in
-    # echo-request rules across all profiles. This opens ping on the
-    # LAN NIC too (expected -- operators also want to ping the host from
-    # peers for diagnostics). No TCP is exposed; ping is just a liveness
-    # probe.
-    #
-    # A custom scoped rule is still created as belt-and-suspenders in
-    # case built-ins are missing (stripped server SKUs, GPO, etc.).
+    # Enable the built-in echo-request Allow rules across all profiles
+    # (a scoped custom rule alone doesn't work), plus a scoped rule as
+    # belt-and-suspenders for missing built-ins. See docs/host-hyperv.md
+    # (ICMP echo (ping) and the host firewall).
 
     # 5a. Enable built-in Allow + Inbound + ICMPv4 Echo Request rules.
     $icmpAllowRules = Get-NetFirewallRule -Direction Inbound -Action Allow -ErrorAction SilentlyContinue |
@@ -1348,62 +1333,14 @@ function Set-WindowsHostConditionSet {
         }
     }
 
-    $statusRuleName = "Yuruna: Allow inbound TCP :$statusPort (Status server)"
-    $existingStatusRule = Get-NetFirewallRule -DisplayName $statusRuleName -ErrorAction SilentlyContinue
-    if ($existingStatusRule) {
-        # Pre-existing rule may have the right name but wrong port (user
-        # changed statusService.port in test.config.yml after running
-        # this once) or wrong Action/Direction/Profile (a stale hand-made
-        # rule, or a prior version that scoped the profile differently).
-        # Any of those leaves LAN clients blocked despite the rule
-        # "existing", so verify the full shape -- inbound TCP Allow on this
-        # port across all profiles, matching what the create branch builds
-        # (-Direction Inbound -Action Allow -Protocol TCP -Profile Any) --
-        # and rebuild on any mismatch instead of silently leaving it.
-        $portFilter = $existingStatusRule | Get-NetFirewallPortFilter -ErrorAction SilentlyContinue
-        $rulePortMatches = $portFilter -and
-            ($portFilter.Protocol -eq 'TCP') -and
-            ($portFilter.LocalPort -eq "$statusPort") -and
-            ($existingStatusRule.Direction -eq 'Inbound') -and
-            ($existingStatusRule.Action -eq 'Allow') -and
-            ("$($existingStatusRule.Profile)" -eq 'Any')
-        if (-not $rulePortMatches) {
-            if ($PSCmdlet.ShouldProcess($statusRuleName, "Recreate with port $statusPort")) {
-                Write-Information "Rebuilding firewall rule for status server on port $statusPort..."
-                Remove-NetFirewallRule -DisplayName $statusRuleName -ErrorAction SilentlyContinue
-                $null = New-NetFirewallRule `
-                    -DisplayName $statusRuleName `
-                    -Description "Allow inbound TCP on the yuruna status-service port so LAN clients can reach http://<host>:$statusPort/status/. Created by Yuruna Enable-TestAutomation (test/modules/Test.HostCondition.Windows.psm1)." `
-                    -Direction Inbound `
-                    -Action Allow `
-                    -Protocol TCP `
-                    -LocalPort $statusPort `
-                    -Profile Any
-                $changed = $true
-            }
-        } elseif ($existingStatusRule.Enabled -ne 'True') {
-            if ($PSCmdlet.ShouldProcess($statusRuleName, 'Enable existing firewall rule')) {
-                Enable-NetFirewallRule -DisplayName $statusRuleName
-                Write-Information "Enabled firewall rule: $statusRuleName"
-                $changed = $true
-            }
-        } else {
-            Write-Information "Firewall rule already present and enabled: $statusRuleName"
-        }
-    } else {
-        if ($PSCmdlet.ShouldProcess($statusRuleName, "Create TCP :$statusPort inbound allow rule (all profiles)")) {
-            Write-Information "Creating firewall rule: $statusRuleName (all profiles)..."
-            $null = New-NetFirewallRule `
-                -DisplayName $statusRuleName `
-                -Description "Allow inbound TCP on the yuruna status-service port so LAN clients can reach http://<host>:$statusPort/status/. Created by Yuruna Enable-TestAutomation (test/modules/Test.HostCondition.Windows.psm1)." `
-                -Direction Inbound `
-                -Action Allow `
-                -Protocol TCP `
-                -LocalPort $statusPort `
-                -Profile Any
-            $changed = $true
-        }
-    }
+    # Ensure the inbound-allow rule through the shared cross-platform helper --
+    # the SAME code the status service self-heals with at start, so host setup
+    # and the service address one rule with one shape (create / enable / rebuild
+    # on a stale port or profile). The Windows branch needs admin, already gated
+    # at the top of this function; -WhatIf flows in through $WhatIfPreference.
+    # $changed folds in whatever it applied.
+    Import-Module (Join-Path $PSScriptRoot 'Test.StatusFirewall.psm1') -Force
+    if ((Set-YurunaStatusFirewallRule -Port $statusPort).Changed) { $changed = $true }
 
     # 6b. Diagnostic: any enabled TCP Block rule covering this port
     # vetoes the Allow above -- surface it instead of leaving the user

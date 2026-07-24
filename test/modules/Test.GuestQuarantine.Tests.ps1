@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.22
+.VERSION 2026.07.24
 .GUID 422b4f6a-1c3e-4a57-8b90-6e2d4c1a7f38
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -86,7 +86,7 @@ Describe 'Add-GuestQuarantineFailure (same-class streak + trip)' {
         Assert-Equal -Expected 1 -Actual $r.ConsecutiveFailures -Because 'a different class is not the same deterministic failure'
         Assert-Equal -Expected $false -Actual $r.NewlyQuarantined
     }
-    It 'normalises a blank failure class to unknown' {
+    It 'normalizes a blank failure class to unknown' {
         $s = New-GuestQuarantineState
         $r = Add-GuestQuarantineFailure -State $s -GuestKey 'g' -FailureClass '' -GitCommit 'a' -ProjectGitCommit '' -FailuresToQuarantine 3 -SkipCycles 5
         Assert-Equal -Expected 'unknown' -Actual $r.FailureClass

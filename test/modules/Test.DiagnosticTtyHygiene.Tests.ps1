@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.22
+.VERSION 2026.07.24
 .GUID 42d1e2f3-a4b5-4c67-89ab-cd0e1f2a3b52
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -138,7 +138,7 @@ Describe 'Clear-GuestTtyLine' {
     It 'sends exactly one Ctrl-U' {
         Invoke-TtyHelper -Name 'Clear-GuestTtyLine'
         Assert-Equal -Expected 'key:CtrlU' -Actual ($TtyStub.Log -join ',') `
-            -Because 'Ctrl-U is VKILL: it discards the pending line without signalling any process'
+            -Because 'Ctrl-U is VKILL: it discards the pending line without signaling any process'
     }
     It 'swallows a keystroke failure instead of throwing' {
         # A failed clear must not stop the payload from being typed, and must

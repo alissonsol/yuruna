@@ -1,7 +1,7 @@
 // LICENSEURI https://yuruna.link/license
 // Copyright (c) 2019-2026 by Alisson Sol et al.
 
-// Host resolution (stash-service-ui.md §3.4). A stash's hostId is an opaque
+// Host resolution. A stash's hostId is an opaque
 // UUID; to build the remote-host deep-link (§8.3) the UI turns it into a
 // reachable stash-UI base URL by reusing the pool-aggregator's existing
 // hostId→address mapping rather than storing addresses in stash metadata.

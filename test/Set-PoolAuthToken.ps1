@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.22
+.VERSION 2026.07.24
 .GUID 42e1a9c4-2d63-4f58-9a17-3c8e0b6d5f24
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -25,14 +25,14 @@
     config-sync can verify the shared token. Sets the users.yml vaultKey
     EQUAL to the Set-Password username, which removes the silent
     "stored under one key, read under another" 403 by construction, stores
-    the token, and verifies the round-trip. With -BounceStatusServer it
+    the token, and verifies the round-trip. With -BounceStatusService it
     restarts the status server so the running process picks up the new
     vaultKey immediately instead of at the next cycle.
 
     Read the shared token once from the pool aggregator's proxy and pass
     the SAME value on every host + the proxy:
 
-        ssh yuruna@<proxy> 'sudo cat /etc/yuruna/pool-auth.token'
+        ssh caching-proxy-admin@<proxy> 'sudo cat /etc/yuruna/pool-auth.token'
 
     This is the host-neutral bootstrap that Sync-HostConfiguration.ps1
     -PersistSharedToken calls; run it directly to seed a host that is not
@@ -40,11 +40,11 @@
 .PARAMETER Token
     The shared pool-auth-token (operator-owned). Identical on every host and
     on the proxy, or a minted proof will not validate.
-.PARAMETER BounceStatusServer
+.PARAMETER BounceStatusService
     Restart the status server after storing, so the change is live now
     rather than at the next cycle.
 .EXAMPLE
-    pwsh test/Set-PoolAuthToken.ps1 -Token '<shared-token>' -BounceStatusServer
+    pwsh test/Set-PoolAuthToken.ps1 -Token '<shared-token>' -BounceStatusService
 .EXAMPLE
     pwsh test/Set-PoolAuthToken.ps1 -Token '<shared-token>' -WhatIf
 #>
@@ -52,14 +52,14 @@
 [CmdletBinding(SupportsShouldProcess)]
 param(
     [Parameter(Mandatory)][string]$Token,
-    [switch]$BounceStatusServer
+    [switch]$BounceStatusService
 )
 
 $ErrorActionPreference = 'Stop'
 $InformationPreference = 'Continue'
 
 $elapsed = [System.Diagnostics.Stopwatch]::StartNew()
-$plan = if ($BounceStatusServer) {
+$plan = if ($BounceStatusService) {
     'users.yml vaultKey -> store token -> verify round-trip -> restart status server'
 } else {
     'users.yml vaultKey -> store token -> verify round-trip (status server NOT bounced)'
@@ -75,7 +75,7 @@ Write-Information 'Importing the authentication extension and the config-sync mo
 Import-Module (Join-Path $PSScriptRoot 'extension/authentication/default.psm1') -Global -Force -DisableNameChecking
 Import-Module (Join-Path $PSScriptRoot 'modules/Test.HostConfigSync.psm1') -Global -Force -DisableNameChecking
 
-$persistArgs = @{ Token = $Token; BounceStatusServer = [bool]$BounceStatusServer }
+$persistArgs = @{ Token = $Token; BounceStatusService = [bool]$BounceStatusService }
 foreach ($k in @('WhatIf', 'Confirm')) {
     if ($PSBoundParameters.ContainsKey($k)) { $persistArgs[$k] = $PSBoundParameters[$k] }
 }
@@ -91,10 +91,10 @@ if ($provision.ok) {
     $msg = "Done in ${took}: pool-auth-token stored and verified (vaultKey '$($provision.vaultKey)')."
     if ($provision.bounced) {
         $msg += ' Status server restarted, so the token is live now.'
-    } elseif ($BounceStatusServer) {
+    } elseif ($BounceStatusService) {
         $msg += ' Status-server bounce did not complete; the token takes effect at the next cycle.'
     } else {
-        $msg += ' Re-run with -BounceStatusServer (or wait for the next cycle) to make the running status server pick it up.'
+        $msg += ' Re-run with -BounceStatusService (or wait for the next cycle) to make the running status server pick it up.'
     }
     Write-Information $msg -InformationAction Continue
     exit 0

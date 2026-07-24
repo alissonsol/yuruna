@@ -1,6 +1,6 @@
 // LICENSEURI https://yuruna.link/license
 // Copyright (c) 2019-2026 by Alisson Sol et al.
-// Create page: paste text or upload file(s) (stash-service-ui.md §5). Both
+// Create page: paste text or upload file(s). Both
 // post to /api/stashes and redirect to the new stash on success (§5.4).
 
 (function () {

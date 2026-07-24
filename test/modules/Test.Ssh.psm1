@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.22
+.VERSION 2026.07.24
 .GUID 422c9a3d-41bb-4e8c-9b64-5f7a1d0c9a12
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -62,7 +62,7 @@ $script:CachedSshKey = $null
 #
 # Anchored in the global scope: Save-GuestDiagnostic and several
 # host drivers -Force re-import Test.Ssh defensively. A module-scoped
-# `$script:GuestSshUserOverrides = @{}` would be re-initialised on
+# `$script:GuestSshUserOverrides = @{}` would be re-initialized on
 # every re-import, wiping the cascade value Test-Sequence /
 # Invoke-TestInnerRunner registered at plan-resolution time, falling
 # SSH auth back to the per-guest default (e.g. yauser1) and breaking
@@ -317,6 +317,13 @@ version in the suffix so 24.04 and 26.04 don't collide in shared logs:
   guest.ubuntu.server.26  -> yuuser26  (replaces the cloud-image default
                                      'ubuntu' via autoinstall)
   guest.windows.11     -> ywuser1   (created by autounattend.xml)
+The service VMs the harness brings up on a host each get their OWN
+administrator, so their vault entries stay independent -- one shared name
+means one vault password, and the most recently built VM invalidates the
+console credential of the others:
+  guest.caching-proxy  -> caching-proxy-admin
+  guest.pool-control   -> pool-control-admin
+  guest.stash-service  -> stash-admin
 The username for each guest must match the `username:` variable in
 the corresponding test/sequences/**/*.<guest>.yml file.
 .PARAMETER GuestKey
@@ -337,6 +344,9 @@ System.String. Username to log in as over SSH.
         "guest.ubuntu.server.26"  { return "yuuser26" }
         "guest.amazon.linux.2023"   { return "yauser1" }
         "guest.windows.11"     { return "ywuser1" }
+        "guest.caching-proxy"  { return "caching-proxy-admin" }
+        "guest.pool-control"   { return "pool-control-admin" }
+        "guest.stash-service"  { return "stash-admin" }
         default { return "root" }
     }
 }
@@ -727,6 +737,15 @@ Guest identifier (e.g. guest.amazon.linux.2023); determines the SSH login user.
 Shell command to run on the guest. Passed as a single argument to ssh.
 .PARAMETER TimeoutSeconds
 Maximum total seconds to let the command run. Default 900.
+.PARAMETER User
+Login user to force, bypassing the Get-GuestSshUser lookup. Empty (the
+default) keeps the lookup. Use this for a guest whose account was created by
+its cloud-init seed rather than by a sequence's `variables.username:` -- the
+seed account is the only one that exists, so a per-cycle cascade override
+registered for that guest key would send the login to an account the VM never
+had. The overrides live in the global scope and outlive the module re-import a
+standalone bring-up script performs, so an earlier cycle in the same shell
+session can otherwise leak its username into this call.
 .OUTPUTS
 System.Collections.Hashtable with keys: success (bool), exitCode (int), output (string).
 #>
@@ -736,12 +755,15 @@ System.Collections.Hashtable with keys: success (bool), exitCode (int), output (
         [string]$VMName,
         [string]$GuestKey,
         [string]$Command,
-        [int]$TimeoutSeconds = 900
+        [int]$TimeoutSeconds = 900,
+        [string]$User
     )
-    $user    = Get-GuestSshUser -GuestKey $GuestKey
+    # Not $user: PowerShell variable names are case-insensitive, so that would
+    # be the same storage as the $User parameter and read as a self-assignment.
+    $loginUser = if ($User) { $User } else { Get-GuestSshUser -GuestKey $GuestKey }
     $keyPath = Get-YurunaSshPrivateKeyPath
     $address = Get-GuestAddress -VMName $VMName
-    $target  = "$user@$address"
+    $target  = "$loginUser@$address"
     Write-Debug "Invoke-GuestSsh: target=$target command=$Command timeout=${TimeoutSeconds}s"
 
     # Run ssh via an in-process .NET Process with a hard WaitForExit cap so TimeoutSeconds

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.22
+.VERSION 2026.07.24
 .GUID 42b6c7d8-e9f0-4a12-8b34-5c6d7e8f9a01
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -20,7 +20,7 @@
 .SYNOPSIS
     Structural (AST) guards on the host-service lifecycle entry-point scripts:
     Stop-HostConfigService.ps1, Stop-StatusService.ps1, Start-HostConfigService.ps1,
-    and Start-StashServer.ps1.
+    and Start-StashVM.ps1.
 .DESCRIPTION
     These scripts run top-to-bottom with `exit`/`return` and heavy I/O
     (Import-Module, runtime-dir init, process control), so they are not
@@ -42,7 +42,7 @@
 
     These are structural guards: they verify the required nodes are present and
     correctly shaped/gated, not that the scripts execute correctly end to end.
-      * Start-StashServer captures the status-service start decision (rather than
+      * Start-StashVM captures the status-service start decision (rather than
         discarding it) and TCP-probes the status port via BeginConnect, warning
         when the host will not be reachable by the pool aggregator.
 
@@ -57,7 +57,7 @@ $testDir = Split-Path -Parent $here   # .../test
 $stopHostConfig  = Join-Path $testDir 'Stop-HostConfigService.ps1'
 $stopStatus      = Join-Path $testDir 'Stop-StatusService.ps1'
 $startHostConfig = Join-Path $testDir 'Start-HostConfigService.ps1'
-$startStash      = Join-Path $testDir 'Start-StashServer.ps1'
+$startStash      = Join-Path $testDir 'Start-StashVM.ps1'
 
 function Assert-True { param($Condition, [string]$Because = '') if (-not $Condition) { throw "Expected true. $Because" } }
 
@@ -185,7 +185,7 @@ Describe 'Start-HostConfigService.ps1 verifies the Linux child survived launch' 
     }
 }
 
-Describe 'Start-StashServer.ps1 surfaces status-server unreachability' {
+Describe 'Start-StashVM.ps1 surfaces status-server unreachability' {
     It 'captures the start decision, TCP-probes the status port, and warns on unreachable' {
         $ast = Get-ScriptAst $startStash
         Assert-True (Test-AssignsFromCommand -Ast $ast -Command 'Start-YurunaStatusServiceIfEnabled') 'the start decision is captured in an assignment (not discarded)'

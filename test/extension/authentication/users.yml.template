@@ -59,13 +59,28 @@ users:
     vaultKey:           ""
     localOsPasswordRef: ""
 
-  # The cache-VM (yuruna-caching-proxy) provisioning sequence uses the
-  # 'yuruna' logical user. Cross-cycle persistence is owned by
-  # Test.CachingProxy (yuruna-caching-proxy.yml under status/runtime/);
-  # the entry is declared here so strict mode does not refuse the
-  # cycle when a sequence references it.
-  yuruna:
-    localOsUser: yuruna
+  # Administrators of the service VMs a host brings up. Each VM family has
+  # its OWN account so the vault entries are independent: a shared name
+  # means one vault password, and the most recently built VM invalidates
+  # the console credential of the others. Declared here so strict mode
+  # does not refuse the cycle when a sequence references them.
+  #
+  # Cross-cycle persistence of the cache VM's password is owned by
+  # Test.CachingProxy (yuruna-caching-proxy.yml under status/runtime/).
+  caching-proxy-admin:
+    localOsUser: caching-proxy-admin
+    corporate:   { domain: "", sam: "", upn: "" }
+    vaultKey:           ""
+    localOsPasswordRef: ""
+
+  pool-control-admin:
+    localOsUser: pool-control-admin
+    corporate:   { domain: "", sam: "", upn: "" }
+    vaultKey:           ""
+    localOsPasswordRef: ""
+
+  stash-admin:
+    localOsUser: stash-admin
     corporate:   { domain: "", sam: "", upn: "" }
     vaultKey:           ""
     localOsPasswordRef: ""

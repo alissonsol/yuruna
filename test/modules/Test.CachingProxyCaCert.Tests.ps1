@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.22
+.VERSION 2026.07.24
 .GUID 42a4c5d6-e7f8-4a90-8b12-3c4d5e6f7081
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -22,7 +22,7 @@
     helpers in Test.CachingProxy.psm1, the guest CA self-heal in the ubuntu
     update scripts, and the /ca.crt status-server endpoint.
 .DESCRIPTION
-    Behavioural tests exercise Test-CachingProxyCaPem / the caCert state
+    Behavioral tests exercise Test-CachingProxyCaPem / the caCert state
     round-trip / Resolve-CachingProxyCaCertPem / Get-CachingProxyCaCertBase64
     against a temp YURUNA_RUNTIME_DIR (never the live runtime file). Structural
     guards assert the self-heal SHAPE in the bash update scripts (bump-port

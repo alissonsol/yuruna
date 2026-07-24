@@ -68,7 +68,7 @@ following as your responsibility, not the project's:
   and the caching proxy bind to the host. Restrict ingress before
   running outside a trusted LAN.
 - **Cloud cost and blast radius** — see the cost warning in
-  [Yuruna ...](README.md) and [Yuruna Resources Clean Up](docs/cleanup.md).
+  [Yuruna ...](README.md) and [Yuruna Resources Clean Up](docs/kubernetes.md#cleaning-up-cloud-resources).
 - **Verifying fetched scripts** — installer one-liners and
   cloud-init pull from `main`. Pin to a commit SHA if you require
   reproducibility.
@@ -92,6 +92,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.22
+Last review: 2026.07.24
 
 Back to [Yuruna](README.md)

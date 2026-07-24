@@ -1,6 +1,6 @@
 // LICENSEURI https://yuruna.link/license
 // Copyright (c) 2019-2026 by Alisson Sol et al.
-// Stash detail view (stash-service-ui.md §6, §7, §8). Renders by content
+// Stash detail view. Renders by content
 // class, always offers download, deletes only local-host stashes.
 
 (function () {

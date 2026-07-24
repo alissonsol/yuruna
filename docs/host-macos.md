@@ -188,12 +188,30 @@ key is treated as "macOS no longer surfaces it under that name", not
 as a verification failure. This skips an unnecessary sudo prompt when
 the values are already correct.
 
+## macOS guest install: embedded Swift VZMacOSInstaller helper
+
+The macOS 26 guest is restored by an embedded Swift helper
+(`host/macos.utm/guest.macos.26/New-VM.ps1`) that drives
+`VZMacOSInstaller`: it loads the IPSW (`VZMacOSRestoreImage.load(from:)`),
+picks `mostFeaturefulSupportedConfiguration` (VZ rejects an install
+requesting a hardwareModel the host cannot run), sanity-checks the
+requested CPU/memory against
+`minimumSupportedCPUCount`/`minimumSupportedMemorySize`, creates a fresh
+`VZMacMachineIdentifier`, `VZMacAuxiliaryStorage` at `aux.img` and a
+sparse raw `disk.img`, builds a minimal `VZVirtualMachineConfiguration`
+(graphics/network are deferred to UTM at runtime via the generated
+`config.plist`), restores the IPSW with progress on stderr, and finally
+emits `MAC_PLATFORM<TAB>{hardwareModel-base64}<TAB>{machineId-base64}`
+for PowerShell to place into the UTM plist. `defer { sema.signal() }`
+keeps the wait deterministic in every code path; an unhandled crash
+inside the install handler would otherwise hang forever.
+
 ---
 
 LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.22
+Last review: 2026.07.24
 
 Back to [Yuruna](../README.md)

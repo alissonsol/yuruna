@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.22
+.VERSION 2026.07.24
 .GUID 42f2c5e4-b9a0-4367-cd15-4e6f9b3c2d51
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -16,27 +16,11 @@
 
 #requires -version 7
 
-# Chain planning + chain execution helpers for Test-Sequence.ps1.
-# Two functions:
-#
-#   Resolve-TestSequencePlan  -- Build the $ChainEntries list (name,
-#                                path, sequence, stepCount, globalStart)
-#                                and detect a warm-path requiresSnapshot.
-#                                Returns @{ chainEntries; chainPlan;
-#                                effectiveUser; effectiveHost;
-#                                chainTotalSteps; requiredSnapshotId;
-#                                warmPath; resolveFailed }.
-#
-#   Invoke-TestSequenceChain  -- Run the requested step range across the
-#                                planned chain. Returns @{ ok; finishedVmName }
-#                                so the caller can update its outer
-#                                $VMName when a mid-chain saveDiskSnapshot
-#                                renamed the VM.
-#
-# Each function takes its inputs by parameter (no script-scope reads)
-# so a test harness can call them with fixture data. The host-driver-
-# resolved $VMName and Invoke-Sequence's $ShowSensitive switch are
-# passed through verbatim.
+# Chain planning + chain execution helpers for Test-Sequence.ps1; each
+# function's inputs and return shape are in its own .SYNOPSIS block below.
+# Every input arrives by parameter (no script-scope reads) so a test harness
+# can call these with fixture data. The host-driver-resolved $VMName and
+# Invoke-Sequence's $ShowSensitive switch are passed through verbatim.
 
 function Resolve-TestSequencePlan {
     <#
@@ -88,8 +72,10 @@ function Resolve-TestSequencePlan {
     }
     if ($SequencePathOverride) { $plannerArgs.TopLevelPath = $SequencePathOverride }
     $ChainPlan = Resolve-NamedSequenceChain @plannerArgs
-    $effectiveUser = $ChainPlan.effectiveUsername
-    $effectiveHost = $ChainPlan.effectiveHostname
+    $effectiveUser   = $ChainPlan.effectiveUsername
+    $effectiveHost   = $ChainPlan.effectiveHostname
+    $effectiveMemory = $ChainPlan.effectiveMemoryStartupBytes
+    $effectiveCores  = $ChainPlan.effectiveCores
 
     # Build (name, path, sequence, stepCount, globalStart) per chain entry
     # using the planner's chainPaths map. Re-reading the YAML here (vs.
@@ -115,6 +101,8 @@ function Resolve-TestSequencePlan {
                 chainPlan          = $ChainPlan
                 effectiveUser      = $effectiveUser
         effectiveHost      = $effectiveHost
+                effectiveMemoryStartupBytes = $effectiveMemory
+                effectiveCores     = $effectiveCores
                 chainTotalSteps    = 0
                 requiredSnapshotId = $null
                 warmPath           = $false
@@ -189,6 +177,8 @@ function Resolve-TestSequencePlan {
                 chainPlan          = $ChainPlan
                 effectiveUser      = $effectiveUser
         effectiveHost      = $effectiveHost
+                effectiveMemoryStartupBytes = $effectiveMemory
+                effectiveCores     = $effectiveCores
                 chainTotalSteps    = 0
                 requiredSnapshotId = $requiredSnapshotId
                 warmPath           = $false
@@ -215,6 +205,8 @@ function Resolve-TestSequencePlan {
         chainPlan          = $ChainPlan
         effectiveUser      = $effectiveUser
         effectiveHost      = $effectiveHost
+        effectiveMemoryStartupBytes = $effectiveMemory
+        effectiveCores     = $effectiveCores
         chainTotalSteps    = $ChainTotalSteps
         requiredSnapshotId = $requiredSnapshotId
         warmPath           = $warmPath

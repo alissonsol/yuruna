@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.22
+.VERSION 2026.07.24
 .GUID 42c6a4b0-7182-4394-8ea5-1a2b3c4d5e6f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -50,10 +50,10 @@ Describe 'Resolve-StatusServiceStart' {
         Assert-True $d.ShouldStart 'enabled -> ShouldStart'
         Assert-Equal -Expected 8080 -Actual $d.Port -Because 'default port'
     }
-    It 'does not start when -NoServer is requested even if enabled' {
+    It 'does not start when -NoStatusService is requested even if enabled' {
         $cfg = @{ statusService = @{ isEnabled = $true; port = 9090 } }
-        $d = Resolve-StatusServiceStart -Config $cfg -NoServer
-        Assert-True (-not $d.ShouldStart) '-NoServer overrides isEnabled'
+        $d = Resolve-StatusServiceStart -Config $cfg -NoStatusService
+        Assert-True (-not $d.ShouldStart) '-NoStatusService overrides isEnabled'
         Assert-Equal -Expected 9090 -Actual $d.Port -Because 'port still resolved (for diagnostics)'
     }
     It 'does not start when statusService is disabled, missing, or config is null' {
@@ -117,12 +117,12 @@ Describe 'Start-YurunaStatusServiceIfEnabled' {
         $null = Start-YurunaStatusServiceIfEnabled -Config @{ statusService = @{ isEnabled = $true } } -StartScript $script:StubScript -Restart
         Assert-True ([bool]((Get-Content $script:StubMarker -Raw) -match 'restart=True')) '-Restart forwarded'
     }
-    It 'does NOT invoke the start script when disabled or -NoServer' {
+    It 'does NOT invoke the start script when disabled or -NoStatusService' {
         Remove-Item -LiteralPath $script:StubMarker -Force -ErrorAction SilentlyContinue
         $null = Start-YurunaStatusServiceIfEnabled -Config @{ statusService = @{ isEnabled = $false } } -StartScript $script:StubScript
         Assert-True (-not (Test-Path $script:StubMarker)) 'disabled -> not invoked'
-        $null = Start-YurunaStatusServiceIfEnabled -Config @{ statusService = @{ isEnabled = $true } } -StartScript $script:StubScript -NoServer
-        Assert-True (-not (Test-Path $script:StubMarker)) '-NoServer -> not invoked'
+        $null = Start-YurunaStatusServiceIfEnabled -Config @{ statusService = @{ isEnabled = $true } } -StartScript $script:StubScript -NoStatusService
+        Assert-True (-not (Test-Path $script:StubMarker)) '-NoStatusService -> not invoked'
     }
 
     It 'aborts the entry point when the start script reports a tagged port conflict' {

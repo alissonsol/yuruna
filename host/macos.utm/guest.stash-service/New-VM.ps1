@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.22
+.VERSION 2026.07.24
 .GUID 42f1b2c3-d4e5-4f67-8901-a2b3c4d5e681
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -118,8 +118,8 @@ Import-Module (Join-Path $_repoRoot 'test/modules/Test.Extension.psm1') -Global 
 $SshAuthorizedKey = Get-YurunaSshPublicKey
 if (-not $SshAuthorizedKey) { Write-Error "Get-YurunaSshPublicKey returned empty."; exit 1 }
 $_authActiveName = @(Import-Extension -Area 'authentication' -RequireSingle)[0]
-$YurunaPassword = Get-Password -Username 'yuruna'
-if (-not $YurunaPassword) { Write-Error "Get-Password returned empty for 'yuruna'."; exit 1 }
+$AdminPassword = Get-Password -Username 'stash-admin'
+if (-not $AdminPassword) { Write-Error "Get-Password returned empty for 'stash-admin'."; exit 1 }
 Write-Output "Password came from authentication mechanism: $_authActiveName"
 Write-Output "See configuration at: $(Resolve-ExtensionAreaDir -Area 'authentication')"
 
@@ -163,7 +163,7 @@ $UserData = New-CloudInitUserData `
     -RepoRoot    $_repoRoot `
     -Replacement @{
         SSH_AUTHORIZED_KEY_PLACEHOLDER = $SshAuthorizedKey
-        PASSWORD_PLACEHOLDER           = $YurunaPassword
+        PASSWORD_PLACEHOLDER           = $AdminPassword
         YURUNA_HOST_IP_PLACEHOLDER     = $YurunaHostIp
         YURUNA_HOST_PORT_PLACEHOLDER   = $YurunaHostPort
         YSTASH_NAS_NETWORK_PATH_PLACEHOLDER  = $ystashNas.NetworkPath
@@ -262,8 +262,8 @@ Write-Output "  Path:      $UtmDir"
 Write-Output "  Backend:   QEMU (HVF) with -vnc 127.0.0.1:$VncDisplay (port $(5900 + $VncDisplay))"
 Write-Output ""
 Write-Output "  Console/SSH login:"
-Write-Output "    user:     yuruna"
-Write-Output "    password: (in authentication vault under 'yuruna')"
+Write-Output "    user:     stash-admin"
+Write-Output "    password: (in authentication vault under 'stash-admin')"
 $guidance = @'
 
 Next steps:
@@ -285,7 +285,7 @@ Next steps:
   4. Watch the bring-up (harness key authorized until the daemon takes
      over :22; cloud-init mounts the share, fetches the framework, and
      builds + launches the daemon):
-       ssh yuruna@$ip 'tail -f /var/log/cloud-init-output.log'
+       ssh stash-admin@$ip 'tail -f /var/log/cloud-init-output.log'
 
   5. Once cloud-init finishes, the stash daemon owns :22 (the OS sshd is
      disabled) -- send files with scp:

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.22
+.VERSION 2026.07.24
 .GUID 42e060d7-36ff-4d1a-8a46-0ee20e443f51
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -23,10 +23,10 @@
     runner leaves behind), and the persistence contract of Set-RunnerState.
 .DESCRIPTION
     The module's two loudest invariants are pinned here:
-      * the validator NEVER rejects a recognised state -- an unrecognised
+      * the validator NEVER rejects a recognized state -- an unrecognized
         (from, to) PAIR warns and is still recorded, so drift is visible
         instead of silently dropped;
-      * an unrecognised TARGET state is refused outright, because writing one
+      * an unrecognized TARGET state is refused outright, because writing one
         would wedge the validator on every later transition.
     Both directions are asserted, along with the trailing history cap and the
     cycle-context fields a quick read of runner.state.json must carry.
@@ -227,7 +227,7 @@ Describe 'Initialize-RunnerState' {
         Assert-Equal -Expected 'in-cycle' -Actual $s.current -Because 'the running cycle survives a re-initialize'
         Assert-Equal -Expected 'in-cycle' -Actual (Get-RunnerState).current
     }
-    It 'synthesises a fault pair when a prior runner died mid-lifecycle' {
+    It 'synthesizes a fault pair when a prior runner died mid-lifecycle' {
         Initialize-TestRunId -RunId 'run-A'
         $null = Initialize-RunnerState -Confirm:$false
         $null = Set-RunnerState -To 'cycle-start' -Confirm:$false
@@ -295,15 +295,15 @@ Describe 'Set-RunnerState' {
         Assert-Equal -Expected 'cycle-start' -Actual $history[0].to
     }
     It 'refuses a target state that is not in the enum, and leaves the file alone' {
-        # Writing an unrecognised state would wedge the validator on every
+        # Writing an unrecognized state would wedge the validator on every
         # later transition, so this one is a hard refusal, not a warn-and-write.
         $null = Initialize-RunnerState -Confirm:$false
         $s = Set-RunnerState -To 'exploded' -Confirm:$false -WarningAction SilentlyContinue
-        Assert-True ($null -eq $s) 'an unrecognised target returns null'
+        Assert-True ($null -eq $s) 'an unrecognized target returns null'
         Assert-Equal -Expected 'idle' -Actual (Get-RunnerState).current -Because 'the refused write must not touch the file'
     }
     It 'records a transition outside the adjacency map anyway, so drift stays visible' {
-        # The opposite policy from an unrecognised target: idle -> in-cycle is
+        # The opposite policy from an unrecognized target: idle -> in-cycle is
         # not a documented hop, but dropping the telemetry would hide the drift.
         $null = Initialize-RunnerState -Confirm:$false
         $s = Set-RunnerState -To 'in-cycle' -Reason 'skipped cycle-start' -Confirm:$false -WarningAction SilentlyContinue
@@ -319,7 +319,7 @@ Describe 'Set-RunnerState' {
     It 'auto-initializes when the caller never called Initialize-RunnerState' {
         $s = Set-RunnerState -To 'cycle-start' -Reason 'cold start' -Confirm:$false -WarningAction SilentlyContinue
         Assert-Equal -Expected 'cycle-start' -Actual $s.current
-        Assert-Equal -Expected 'idle' -Actual $s.history[-1].from -Because 'the synthesised baseline is idle'
+        Assert-Equal -Expected 'idle' -Actual $s.history[-1].from -Because 'the synthesized baseline is idle'
         Assert-Equal -Expected $PID -Actual $s.writerPid
     }
     It 'caps the in-file history at the trailing 20 transitions' {

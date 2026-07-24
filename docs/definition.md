@@ -938,7 +938,7 @@ Every status page renders the same header shape:
 
 | Element            | Populated by                           | Content                              |
 |--------------------|----------------------------------------|--------------------------------------|
-| `#header-title`    | `Yuruna.populateHeader`                | Capitalised repo name (`Yuruna`, `Yurunadev`, …). Hard-coded `Yuruna` is the no-JS fallback. |
+| `#header-title`    | `Yuruna.populateHeader`                | Capitalized repo name (`Yuruna`, `Yurunadev`, …). Hard-coded `Yuruna` is the no-JS fallback. |
 | `#header-version`  | `Yuruna.populateHeader`                | `v<VERSION>` from the project root.  |
 | `#header-machine`  | `Yuruna.populateHeader` then per page  | Hostname stack (`name` / `(host-type)`) plus a right-edge CTA link. |
 
@@ -1386,7 +1386,7 @@ runtime-only files live under `<runtimeDir>/` (typically
 | `runner.heartbeat` | `<runtimeDir>` | C# `Yuruna.HeartbeatWriter` timer in [Invoke-TestInnerRunner.ps1](../test/modules/Invoke-TestInnerRunner.ps1) | overwritten every 30 s | Process-level proof of life. Stays fresh even when the runspace is wedged inside a long SSH/OCR call. |
 | `runner.stepHeartbeat` | `<runtimeDir>` | runspace-side touch at the top of every step in [Invoke-Sequence.psm1](../test/modules/Invoke-Sequence.psm1); outer pre-wipes + force-touches before each spawn | overwritten per step | Runspace-level proof of life. Mtime older than `testCycle.stepTimeoutMinutes` means the inner is wedged inside a step → outer watchdog kills it. |
 | `.test.config.snapshot.json` | `<runtimeDir>` | `Publish-TestConfigSnapshot` in [Test.Config.psm1](../test/modules/Test.Config.psm1), auto-fired by every `Read-TestConfig` parse | overwritten on next parse | Cross-process parsed-config snapshot (envelope: sourcePath, sourceMtime, sourceHash, publishedAt, publisherPid, config). `Read-TestConfigOrSnapshot` validates the envelope's mtime+hash against the live YAML and uses the snapshot when both still match, avoiding a redundant YAML parse in the inner. |
-| `.caching-proxy.env.json` | `<runtimeDir>` | atomic temp→rename in [test/Start-CachingProxy.ps1](../test/Start-CachingProxy.ps1) | wiped by `Remove-TestVMFiles.ps1` | Cleared `*_proxy` env-var snapshot so a re-invocation of Start-CachingProxy can restore them without operator re-typing. |
+| `.caching-proxy.env.json` | `<runtimeDir>` | atomic temp→rename in [test/Start-CachingProxyVM.ps1](../test/Start-CachingProxyVM.ps1) | wiped by `Remove-TestVMFiles.ps1` | Cleared `*_proxy` env-var snapshot so a re-invocation of Start-CachingProxyVM can restore them without operator re-typing. |
 | `caching-proxy.state.yml` | `<runtimeDir>` | `Save-CachingProxyState` in [Test.CachingProxy.psm1](../test/modules/Test.CachingProxy.psm1) (temp-file + Move-Item + `.backup` rotation) | merged on next save | Cache-VM password + IP. Has a `.backup` sibling rotated on each successful write; `Read-CachingProxyState` falls back to the backup when the main is corrupt and rotates the bad copy to `.corrupt.<UTC>` for forensics. |
 
 Conventions:
@@ -1632,7 +1632,7 @@ routes the operator straight to the snapshot subsystem.
 
 ## Image-integrity gateway
 
-[Yuruna.Image.psm1](../host/modules/Yuruna.Image.psm1) generalises
+[Yuruna.Image.psm1](../host/modules/Yuruna.Image.psm1) generalizes
 the warn-only SHA-256 verification policy first established for the
 Ubuntu live-server ISOs.
 
@@ -1701,6 +1701,21 @@ Currently wired into `Write-VaultEvent` in the authentication
 extension. Other future `Add-Content` paths adopt the helper with
 one `Invoke-LogRotation -Path $logPath -Confirm:$false` call before
 each append.
+
+### Cycle-folder rotation policy (`Invoke-CycleLogRotation`)
+
+The per-host cycle-log directory is bounded so a long-running runner
+does not fill disk with thousands of cycle folders. Rotation fires when
+the top-level folder count reaches `CYCLE_HISTORY_TRIGGER`, moving the
+oldest folders into a `history.YYYY-MM-DD/` subdirectory and keeping the
+most recent `CYCLE_HISTORY_KEEP` (30) at the top level for quick triage.
+`CYCLE_HISTORY_LIMIT` (1000) is the absolute hard ceiling; the trigger
+sits well below it so the steady-state directory size stays bounded near
+the trigger. A trigger equal to the ceiling would let the count swing
+KEEP..LIMIT (30..1000) between trims — a large, mostly-idle backlog — so
+the trigger is kept a small multiple of KEEP, holding the swing to
+KEEP..TRIGGER while trimming infrequently enough that the sort cost is
+negligible.
 
 ## Runner state machine
 
@@ -1840,6 +1855,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.22
+Last review: 2026.07.24
 
 Back to [Yuruna](../README.md)

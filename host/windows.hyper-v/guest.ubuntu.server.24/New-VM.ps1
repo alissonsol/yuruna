@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.22
+.VERSION 2026.07.24
 .GUID 42d9e0f1-a2b3-4c45-d678-9e0f1a2b3c47
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -46,7 +46,16 @@ param(
     # cloud-init local-hostname for the guest. Empty means "follow the VM
     # name", which keeps host-side lookups that assume hostname == VM name
     # working for every caller that does not ask for a specific hostname.
-    [string]$Hostname = ''
+    [string]$Hostname = '',
+    # Planner-cascaded VM memory (variables.memoryStartupBytes). Accepts a raw
+    # byte count or a KB/MB/GB suffix (e.g. 34359738368, 32768MB, 32GB) via
+    # ConvertTo-MemoryStartupBytes. Empty keeps the 12 GB default below --
+    # enough for k8s + dotnet builds, bumped for nested-host / heavy workloads.
+    [string]$MemoryStartupBytes = '',
+    # Planner-cascaded vCPU count (variables.cores). Overrules the default
+    # host/2 calculation below. Empty keeps the default. Clamped to the host's
+    # physical core count.
+    [string]$Cores = ''
 )
 
 if ($VMName -notmatch '^[a-zA-Z0-9._-]+$') {
@@ -129,7 +138,7 @@ Write-Output "Password came from authentication mechanism: $_authActiveName"
 Write-Output "See configuration at: $(Resolve-ExtensionAreaDir -Area 'authentication')"
 
 # SHA-512 ($6$) password hash for the autoinstall HASH_PLACEHOLDER.
-# ConvertTo-Sha512CryptHash centralises the openssl probe + the `--`
+# ConvertTo-Sha512CryptHash centralizes the openssl probe + the `--`
 # end-of-options safety that keeps a leading-dash password
 # (e.g. `-4aWj*CRw` from New-RandomPassword) from being parsed as an
 # option. See Yuruna.Common\ConvertTo-Sha512CryptHash for rationale.
@@ -243,7 +252,7 @@ if (-not $cacheVM) {
 } else {
     # KVP+ARP discovery + :3128 probe live in Yuruna.Host.psm1
     # (Get-WorkingCachingProxyUrl). One module means this consumer, the
-    # producer, and Start-CachingProxy.ps1's summary all see the same
+    # producer, and Start-CachingProxyVM.ps1's summary all see the same
     # answer (avoids the regression class where a KVP-only summary
     # reports "discovery failed" while the ARP path already found it).
     $CachingProxyUrl = Get-WorkingCachingProxyUrl -VMName "yuruna-caching-proxy"
@@ -266,10 +275,10 @@ CDN access and hit the 429 rate limiter.
 
 Accessing the yuruna-caching-proxy VM for debugging:
   * Console:  vmconnect localhost yuruna-caching-proxy
-              login:    yuruna
+              login:    caching-proxy-admin
               password: read the 'password:' field from
                 test/status/runtime/yuruna-caching-proxy.yml
-  * SSH:      ssh yuruna@<ip>
+  * SSH:      ssh caching-proxy-admin@<ip>
 
 Rebuild the cache VM:
   host\windows.hyper-v\guest.caching-proxy\New-VM.ps1
@@ -385,9 +394,16 @@ $SeedIso = Join-Path $vmDir "seed.iso"
 Write-Verbose "Generating seed.iso with autoinstall configuration..."
 CreateIso -SourceDir $SeedDir -OutputFile $SeedIso -VolumeId "cidata"
 
+# Resolve VM memory: cascaded variables.memoryStartupBytes wins; empty falls
+# back to the 12 GB default. Static (min=max=startup, dynamic disabled) so a
+# hung swap/paging never distorts a cycle -- see docs/vmconfig.md#disable-swap.
+try { $vmMemoryBytes = ConvertTo-MemoryStartupBytes $MemoryStartupBytes } catch { Write-Error $_.Exception.Message; exit 1 }
+if ($vmMemoryBytes -le 0) { $vmMemoryBytes = 12288MB }
+Write-Verbose "VM memory: $([math]::Round($vmMemoryBytes / 1GB, 2)) GB ($vmMemoryBytes bytes)."
+
 Write-Verbose "Creating new VM '$VMName' on switch '$switchName'..."
-Hyper-V\New-VM -Name $VMName -Generation 2 -MemoryStartupBytes 12288MB -SwitchName $switchName -VHDPath $vhdxFile | Out-Null
-Set-VM -Name $VMName -MemoryStartupBytes 12288MB -MemoryMinimumBytes 12288MB -MemoryMaximumBytes 12288MB -AutomaticCheckpointsEnabled $false | Out-Null
+Hyper-V\New-VM -Name $VMName -Generation 2 -MemoryStartupBytes $vmMemoryBytes -SwitchName $switchName -VHDPath $vhdxFile | Out-Null
+Set-VM -Name $VMName -MemoryStartupBytes $vmMemoryBytes -MemoryMinimumBytes $vmMemoryBytes -MemoryMaximumBytes $vmMemoryBytes -AutomaticCheckpointsEnabled $false | Out-Null
 Set-VMMemory -VMName $VMName -DynamicMemoryEnabled $false
 Set-VMFirmware -VMName $VMName -EnableSecureBoot Off | Out-Null
 
@@ -412,6 +428,20 @@ if ($hostCores -lt 4) {
     exit 1
 }
 $vmCores = [math]::Max(4, [math]::Floor($hostCores / 2))
+# Cascaded variables.cores overrules the default calculation; clamp to the
+# host's physical cores so an over-ask can't fail Set-VMProcessor.
+if ($Cores) {
+    $coresInt = 0
+    if (-not [int]::TryParse($Cores, [ref]$coresInt) -or $coresInt -lt 1) {
+        Write-Error "Invalid -Cores '$Cores': expected a positive integer."
+        exit 1
+    }
+    if ($coresInt -gt $hostCores) {
+        Write-Warning "Requested -Cores $coresInt exceeds host physical cores ($hostCores); clamping to $hostCores."
+        $coresInt = $hostCores
+    }
+    $vmCores = $coresInt
+}
 Set-VMProcessor -VMName $VMName -Count $vmCores -ExposeVirtualizationExtensions $true | Out-Null
 
 # WARNING: The test harness OCR is calibrated for 1920x1080.

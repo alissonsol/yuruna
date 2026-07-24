@@ -131,7 +131,7 @@ back to the enclosing function's param block.
 
 - [Outer-loop dispatcher](runner-outer-loop.md) — the caller that
   arms and disarms the watchdog each cycle.
-- [Runner state machine](runner-state.md) — what state the outer
+- [Runner state machine](runner-outer-loop.md#runner-state-machine) — what state the outer
   transitions through around the watchdog arm/disarm.
 
 ---
@@ -140,6 +140,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.22
+Last review: 2026.07.24
 
 Back to [Yuruna](../README.md)

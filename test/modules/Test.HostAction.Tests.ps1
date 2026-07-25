@@ -156,35 +156,78 @@ Describe 'Get-HostActionFinding -- Hyper-V dependence vs the detected host' {
         $p = New-Fixture -Name 'hv-win' -Scripts @{ 'Clear.ps1' = $script:WindowsOnly } -Declared @('Clear.ps1')
         Assert-Equal 0 (Get-Finding -SequencePath $p -HostType 'host.windows.hyper-v').Count -Because 'the check must not fire where the module genuinely exists'
     }
-    It 'downgrades to WARN when the script demonstrably branches on host type' {
-        # A script that guards its Hyper-V calls behind a host check is CORRECT.
-        # The guard is a runtime condition this static pass cannot evaluate, so
-        # failing it would block every cycle on working code -- and a gate that
-        # cries wolf stops being read. Surface it, don't block on it.
+    It 'is SILENT when the call is wrapped in a host-type conditional' {
+        # A correctly guarded call is correct code. Warning about it on every
+        # cycle -- with no way for an operator to ever discharge the warning --
+        # is noise that trains people to skip the whole warnings block, which
+        # also carries genuinely actionable rows.
         $guarded = @'
 param()
 $hostType = Get-HostType
 if ($hostType -eq 'host.windows.hyper-v') { Hyper-V\Get-VM -Name 'lab' }
 '@
         $p = New-Fixture -Name 'guarded' -Scripts @{ 'Clear.ps1' = $guarded } -Declared @('Clear.ps1')
+        Assert-Equal 0 (Get-Finding -SequencePath $p).Count -Because 'a wrapped call is verifiably unreachable off-Windows'
+    }
+    It 'is SILENT for a guard CLAUSE earlier in the same function' {
+        # The shape the real project uses: the call is NOT inside the if, so
+        # ancestor-walking alone cannot see the guard -- the enclosing function
+        # has to be searched. This is what the production warning was about.
+        $guardClause = @'
+param()
+$HostType = Get-HostType
+$IsHyperV = ($HostType -eq 'host.windows.hyper-v')
+function Remove-InstallMedia {
+    param([string]$Name)
+    if (-not $IsHyperV) { return }
+    Hyper-V\Get-VMDvdDrive -VMName $Name | Hyper-V\Remove-VMDvdDrive
+}
+Remove-InstallMedia -Name 'lab'
+'@
+        $p = New-Fixture -Name 'guardclause' -Scripts @{ 'Clear.ps1' = $guardClause } -Declared @('Clear.ps1')
+        Assert-Equal 0 (Get-Finding -SequencePath $p).Count -Because 'an early-return guard in the same function protects the calls after it'
+    }
+    It 'WARNS when the file branches on host type but THIS call is unguarded' {
+        # Awareness elsewhere is not a guard here. Worth surfacing, not worth
+        # blocking -- it may still be unreachable for a reason we cannot see.
+        $partly = @'
+param()
+$HostType = Get-HostType
+function Safe { if ($HostType -eq 'host.windows.hyper-v') { Hyper-V\Get-VM -Name 'a' } }
+function Unsafe { Hyper-V\Get-VMDvdDrive -VMName 'b' }
+'@
+        $p = New-Fixture -Name 'partly' -Scripts @{ 'Clear.ps1' = $partly } -Declared @('Clear.ps1')
         $f = Get-Finding -SequencePath $p
-        Assert-Equal 1 $f.Count -Because 'the reference is still worth surfacing'
-        Assert-Equal 'Warn' $f[0].Severity -Because 'a guarded call must not block the cycle'
-        Assert-True ($f[0].Message -match 'presumably guarded') 'the message says why it is only advisory'
+        Assert-Equal 1 $f.Count -Because 'only the unguarded call is reported'
+        Assert-Equal 'Warn' $f[0].Severity -Because 'the file does branch on host type, so this is advisory'
+        Assert-True ($f[0].Message -match 'Get-VMDvdDrive') 'the UNGUARDED call is the one named, not the guarded one'
     }
     It 'still FAILS a script whose only host mention is Hyper-V itself' {
-        # The regression case: no Get-HostType, no $IsWindows, no host-type
-        # literal -- unconditionally Hyper-V, so it genuinely cannot run here.
+        # The regression case: no Get-HostType, no $IsWindows -- unconditionally
+        # Hyper-V, so it genuinely cannot run here.
         $p = New-Fixture -Name 'unguarded' -Scripts @{ 'Clear.ps1' = $script:WindowsOnly } -Declared @('Clear.ps1')
         $f = @((Get-Finding -SequencePath $p) | Where-Object { $_.Severity -eq 'Fail' })
         Assert-Equal 1 $f.Count -Because 'an unguarded Hyper-V dependence must still block'
         Assert-True ($f[0].Message -match 'no host-type branch anywhere') 'the message states the distinguishing fact'
     }
-    It 'treats an $IsWindows branch as host awareness too' {
+    It 'does NOT accept a hard-coded host-type literal as host awareness' {
+        # The original Set-Resource.ps1 passed 'host.windows.hyper-v' to
+        # Initialize-HostDisplay. Hard-coding Windows is evidence AGAINST
+        # portability, so counting it as awareness downgraded a genuinely
+        # broken script from FAIL to WARN.
+        $literalOnly = @'
+param()
+Initialize-HostDisplay -HostType 'host.windows.hyper-v'
+Hyper-V\Get-VMDvdDrive -VMName 'lab'
+'@
+        $p = New-Fixture -Name 'literal' -Scripts @{ 'Clear.ps1' = $literalOnly } -Declared @('Clear.ps1')
+        $f = @((Get-Finding -SequencePath $p) | Where-Object { $_.Severity -eq 'Fail' })
+        Assert-Equal 1 $f.Count -Because 'passing a host-type string is not branching on it'
+    }
+    It 'is SILENT for an $IsWindows-wrapped call' {
         $viaIsWindows = "param()`nif (`$IsWindows) { Hyper-V\Get-VM -Name 'lab' }`n"
         $p = New-Fixture -Name 'iswindows' -Scripts @{ 'Clear.ps1' = $viaIsWindows } -Declared @('Clear.ps1')
-        $f = Get-Finding -SequencePath $p
-        Assert-Equal 'Warn' $f[0].Severity -Because '$IsWindows is the other idiomatic platform guard'
+        Assert-Equal 0 (Get-Finding -SequencePath $p).Count -Because '$IsWindows is the other idiomatic platform guard'
     }
     It 'does not confuse an unrelated Get-VM with the Hyper-V-qualified one' {
         # Bare Get-VM is the framework's own cross-platform helper; only the

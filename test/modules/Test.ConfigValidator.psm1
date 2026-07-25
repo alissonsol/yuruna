@@ -154,6 +154,100 @@ function Test-RepoFreshness {
     }
 }
 
+function Test-HostTypeConditionAst {
+    <#
+    .SYNOPSIS
+        $true when an AST subtree (an `if` condition) tests the host platform.
+    .DESCRIPTION
+        Recognizes the idioms the framework and its projects actually use:
+        Get-HostType, the automatic $IsWindows/$IsLinux/$IsMacOS variables, a
+        'host.<something>' literal, and a variable whose NAME carries the
+        platform decision ($IsHyperV, $hostType) -- the last one matters because
+        a script that computes the test once at the top and reuses the boolean is
+        the clearest way to write this, not a reason to be treated as unguarded.
+    .OUTPUTS
+        [bool]
+    #>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param([Parameter(Mandatory)][AllowNull()]$Condition)
+    if ($null -eq $Condition) { return $false }
+    return [bool]($Condition.FindAll({
+        param($n)
+        ($n -is [System.Management.Automation.Language.CommandAst] -and
+         $n.GetCommandName() -eq 'Get-HostType') -or
+        ($n -is [System.Management.Automation.Language.VariableExpressionAst] -and
+         ($n.VariablePath.UserPath -in @('IsWindows', 'IsLinux', 'IsMacOS') -or
+          $n.VariablePath.UserPath -match '(?i)(hyperv|hosttype)')) -or
+        ($n -is [System.Management.Automation.Language.StringConstantExpressionAst] -and
+         $n.Value -match '^host\.[a-z0-9.\-]+$')
+    }, $true) | Select-Object -First 1)
+}
+
+function Test-CallHostTypeGuarded {
+    <#
+    .SYNOPSIS
+        $true when a platform-specific call sits behind a host-type check in its
+        own scope -- either wrapped in one, or preceded by a guard clause.
+    .DESCRIPTION
+        Two shapes, both idiomatic and both genuinely safe:
+
+          * WRAPPED -- the call is inside `if ($IsWindows) { ... }`. Found by
+            walking the call's ancestors.
+          * GUARD CLAUSE -- the enclosing function opens with
+            `if (-not $IsHyperV) { return }` and the call comes later. Ancestor
+            walking cannot see this (the call is not inside the if), so the
+            enclosing FUNCTION body is searched for a host-type conditional.
+
+        The function boundary is what keeps this honest. A guard anywhere in the
+        same function plausibly covers its calls; a guard in some OTHER function
+        does not, and a call at script top level is only credited when an
+        ancestor actually wraps it -- otherwise any host check anywhere in the
+        file would excuse everything, which is the imprecision this replaces.
+
+        Still not a proof -- reachability is a runtime property. It is a large
+        precision gain over "the file mentions a host type somewhere", which
+        flagged correct code on every cycle with no way for an operator to ever
+        discharge the warning.
+    .OUTPUTS
+        [bool]
+    #>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param([Parameter(Mandatory)]$Call)
+
+    # 1) Wrapped in a host-type conditional?
+    $node = $Call
+    $enclosingFunction = $null
+    while ($null -ne $node.Parent) {
+        $node = $node.Parent
+        if ($node -is [System.Management.Automation.Language.IfStatementAst]) {
+            foreach ($clause in $node.Clauses) {
+                if (Test-HostTypeConditionAst -Condition $clause.Item1) { return $true }
+            }
+        }
+        if ($null -eq $enclosingFunction -and
+            $node -is [System.Management.Automation.Language.FunctionDefinitionAst]) {
+            $enclosingFunction = $node
+        }
+    }
+
+    # 2) Guard clause earlier in the same function?
+    if ($null -ne $enclosingFunction) {
+        $guard = $enclosingFunction.Body.FindAll({
+            param($n) $n -is [System.Management.Automation.Language.IfStatementAst]
+        }, $true) | Where-Object {
+            $hit = $false
+            foreach ($clause in $_.Clauses) {
+                if (Test-HostTypeConditionAst -Condition $clause.Item1) { $hit = $true }
+            }
+            $hit
+        } | Select-Object -First 1
+        if ($guard) { return $true }
+    }
+    return $false
+}
+
 function Get-HostActionFinding {
     <#
     .SYNOPSIS
@@ -266,35 +360,50 @@ function Get-HostActionFinding {
         # a Windows-authored teardown script typically has a dozen, and listing
         # them all buries the actionable point.
         #
-        # Severity turns on whether the script shows ANY host awareness. A script
-        # that never mentions Get-HostType / $IsWindows / a host-type literal is
-        # unconditionally Hyper-V and simply cannot run here: FAIL. One that does
-        # branch on platform has most likely guarded these calls (the guard is a
-        # runtime condition this static pass cannot evaluate), so it gets a WARN
-        # instead -- blocking every cycle on a correctly-guarded script would be a
-        # false positive, and a gate that cries wolf stops being read.
+        # Severity is decided per CALL, in three tiers:
+        #   * every Hyper-V call sits behind a host-type guard in its own scope
+        #     -> SILENT. The script is correct, and a warning an operator can
+        #     never discharge is pure noise that trains people to skip the whole
+        #     warnings block (which also carries genuinely actionable rows).
+        #   * some call is NOT guarded, but the file does branch on host type
+        #     somewhere -> WARN. Probably fine, worth a look, not worth blocking.
+        #   * the file never mentions a host type at all -> FAIL. It is
+        #     unconditionally Hyper-V and cannot run here; this is the case that
+        #     actually broke a cycle.
+        # Report the FIRST unguarded occurrence: a Windows-authored teardown
+        # typically has a dozen, and listing them all buries the actionable point.
         if ($HostType -ne 'host.windows.hyper-v') {
-            $hyperV = $ast.FindAll({
+            $hyperVCalls = @($ast.FindAll({
                 param($n)
                 $n -is [System.Management.Automation.Language.CommandAst] -and
                 $n.GetCommandName() -and
                 $n.GetCommandName().StartsWith('Hyper-V\', [System.StringComparison]::OrdinalIgnoreCase)
-            }, $true) | Select-Object -First 1
-            if ($hyperV) {
+            }, $true))
+            $unguarded = @($hyperVCalls | Where-Object { -not (Test-CallHostTypeGuarded -Call $_) }) |
+                Select-Object -First 1
+            if ($unguarded) {
+                # Deliberately NOT counting a bare 'host.<type>' literal as
+                # awareness. A script that merely PASSES 'host.windows.hyper-v'
+                # as an argument -- as the original Set-Resource.ps1 did with
+                # Initialize-HostDisplay -- is hard-coding Windows, which is
+                # evidence of the opposite of portability. Awareness means the
+                # script DERIVES the platform (Get-HostType, $IsWindows, or a
+                # variable holding that decision); a literal only counts inside a
+                # condition, which Test-HostTypeConditionAst handles separately.
                 $hostAware = [bool]($ast.FindAll({
                     param($n)
                     ($n -is [System.Management.Automation.Language.CommandAst] -and
                      $n.GetCommandName() -eq 'Get-HostType') -or
                     ($n -is [System.Management.Automation.Language.VariableExpressionAst] -and
-                     $n.VariablePath.UserPath -in @('IsWindows', 'IsLinux', 'IsMacOS')) -or
-                    ($n -is [System.Management.Automation.Language.StringConstantExpressionAst] -and
-                     $n.Value -match '^host\.[a-z0-9.\-]+$')
+                     ($n.VariablePath.UserPath -in @('IsWindows', 'IsLinux', 'IsMacOS') -or
+                      $n.VariablePath.UserPath -match '(?i)(hyperv|hosttype)'))
                 }, $true) | Select-Object -First 1)
 
+                $hyperV = $unguarded
                 if ($hostAware) {
                     $findings.Add(@{
                         Severity = 'Warn'
-                        Message  = "host-action script '$scriptName' calls '$($hyperV.GetCommandName())' (line $($hyperV.Extent.StartLineNumber)) on host '$HostType'. The script does branch on host type, so this is presumably guarded -- but the guard cannot be verified statically. Confirm the call is unreachable here."
+                        Message  = "host-action script '$scriptName' calls '$($hyperV.GetCommandName())' (line $($hyperV.Extent.StartLineNumber)) on host '$HostType' with no host-type guard in that scope. The script branches on host type elsewhere, so this may still be unreachable -- but nothing in the enclosing function or an enclosing 'if' checks the platform. Wrap it, or add a guard clause to that function."
                         Path     = $scriptPath
                     })
                 } else {

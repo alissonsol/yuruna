@@ -240,7 +240,12 @@ function Initialize-YurunaEntryPointModuleSet {
             # re-handshakes) and Repair-ScreenshotRing. Loaded so Wait-ForText's
             # no-text self-heal can reach them and the capability banner can show
             # which hosts have a reconnect provider.
-            'Test.VncProvider.psm1', 'Test.ScreenshotProvider.psm1'
+            'Test.VncProvider.psm1', 'Test.ScreenshotProvider.psm1',
+            # Test.PoolDiscovery: pool-level "where is this extension service
+            # right now?" lookups (the aggregator's advertised extension
+            # targets). The cycle's ${ext:...} expansions resolve through it, so
+            # a service running on ANOTHER pool host is still found.
+            'Test.PoolDiscovery.psm1'
         )
         Project  = @(
             'Test.Config.psm1', 'Test.YurunaDir.psm1',
@@ -289,7 +294,13 @@ function Initialize-YurunaEntryPointModuleSet {
             'Test.Tesseract.psm1', 'Test.ConfigPreflight.psm1',
             # Bounded recovery primitives reached by Wait-ForText's no-text
             # self-heal (Repair-VncConnection / Repair-ScreenshotRing).
-            'Test.VncProvider.psm1', 'Test.ScreenshotProvider.psm1'
+            'Test.VncProvider.psm1', 'Test.ScreenshotProvider.psm1',
+            # Test.PoolDiscovery answers "where is the extension service that is
+            # active right now?" from the pool aggregator. A sequence's
+            # `variables:` block expands ${ext:stash-service.ResolveHost(...)}
+            # during THIS entry point's run, and that resolution must not be
+            # limited to services that happen to run on the local hypervisor.
+            'Test.PoolDiscovery.psm1'
         )
         StatusService = @(
             # Modules the parent (non-detached-server) status-service

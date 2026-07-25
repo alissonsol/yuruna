@@ -130,7 +130,18 @@ function Get-PoolCaCertPath {
     try {
         $resp = Invoke-WebRequest -Uri "http://${ProxyIp}/yuruna-pool-ca.crt" -TimeoutSec $TimeoutSec -UseBasicParsing -ErrorAction Stop -Verbose:$false
         if ($resp.StatusCode -ne 200) { return $null }
-        $content = [string]$resp.Content
+        # Apache serves the CA as application/x-x509-ca-cert, and for a non-text
+        # content type Invoke-WebRequest hands back a [byte[]] -- on which
+        # [string] renders the DECIMAL BYTE VALUES ("45 45 45 66 69 ..."), never
+        # the PEM text. Casting straight to string therefore failed the
+        # BEGIN CERTIFICATE check on every fetch and returned $null, silently
+        # disabling every CA-pinned pool call (ingest, forget-host, extension
+        # discovery) with no error anywhere -- they are all best-effort.
+        $content = if ($resp.Content -is [byte[]]) {
+            [System.Text.Encoding]::UTF8.GetString($resp.Content)
+        } else {
+            [string]$resp.Content
+        }
         if ($content -notmatch 'BEGIN CERTIFICATE') { return $null }
         [System.IO.File]::WriteAllText($path, $content, [System.Text.UTF8Encoding]::new($false))
         return $path

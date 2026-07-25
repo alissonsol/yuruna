@@ -79,3 +79,41 @@ Describe 'pinned-TLS helper compiled' {
         Assert-True ([bool]([System.Management.Automation.PSTypeName]'YurunaPoolPinnedTls').Type) 'YurunaPoolPinnedTls present'
     }
 }
+
+Describe 'Get-PoolCaCertPath -- the CA body may arrive as bytes, not text' {
+    # Apache serves the pool CA as application/x-x509-ca-cert, and for a non-text
+    # content type Invoke-WebRequest returns a [byte[]]. Casting that straight to
+    # [string] renders the DECIMAL BYTE VALUES ("45 45 45 66 69 ..."), so the
+    # BEGIN CERTIFICATE check failed on every real fetch and the function returned
+    # $null -- silently disabling every CA-pinned pool call (ingest, forget-host,
+    # extension discovery), all of which are best-effort and so stayed quiet.
+    # Mock bodies run in the MODULE's session state (-ModuleName), where this
+    # file's $script: variables do not exist -- so each fixture body is inlined.
+    BeforeEach {
+        $script:caDir = Join-Path ([System.IO.Path]::GetTempPath()) ("yuruna-poolca-" + [guid]::NewGuid().ToString('N'))
+        New-Item -ItemType Directory -Path $script:caDir -Force | Out-Null
+    }
+    AfterEach { Remove-Item -LiteralPath $script:caDir -Recurse -Force -ErrorAction SilentlyContinue }
+
+    It 'accepts a byte[] body (what a real Apache CA fetch returns)' {
+        Mock -ModuleName Test.PoolPush Invoke-WebRequest {
+            [pscustomobject]@{ StatusCode = 200
+                Content = [System.Text.Encoding]::UTF8.GetBytes("-----BEGIN CERTIFICATE-----`nMIIBstub`n-----END CERTIFICATE-----`n") }
+        }
+        $path = Get-PoolCaCertPath -ProxyIp '10.0.0.1' -RuntimeDir $script:caDir -Confirm:$false
+        Assert-True (-not [string]::IsNullOrWhiteSpace($path)) 'a byte[] PEM must be accepted, not silently rejected'
+        Assert-True ((Get-Content -Raw -LiteralPath $path) -match 'BEGIN CERTIFICATE') 'the cached file holds the decoded PEM'
+    }
+    It 'still accepts a plain string body' {
+        Mock -ModuleName Test.PoolPush Invoke-WebRequest {
+            [pscustomobject]@{ StatusCode = 200; Content = "-----BEGIN CERTIFICATE-----`nMIIBstub`n-----END CERTIFICATE-----`n" }
+        }
+        $path = Get-PoolCaCertPath -ProxyIp '10.0.0.2' -RuntimeDir $script:caDir -Confirm:$false
+        Assert-True (-not [string]::IsNullOrWhiteSpace($path)) 'the string path must keep working'
+    }
+    It 'still rejects a body that is not a certificate' {
+        Mock -ModuleName Test.PoolPush Invoke-WebRequest { [pscustomobject]@{ StatusCode = 200; Content = [System.Text.Encoding]::UTF8.GetBytes('<html>404</html>') } }
+        $path = Get-PoolCaCertPath -ProxyIp '10.0.0.3' -RuntimeDir $script:caDir -Confirm:$false
+        Assert-True ([string]::IsNullOrWhiteSpace($path)) 'an error page must not be pinned as a CA'
+    }
+}

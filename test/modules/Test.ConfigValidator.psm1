@@ -154,4 +154,153 @@ function Test-RepoFreshness {
     }
 }
 
-Export-ModuleMember -Function Test-IsSet, Test-AgainstSchema, Test-RepoFreshness
+function Get-HostActionFinding {
+    <#
+    .SYNOPSIS
+        Statically validate one sequence's `host:` action block against THIS
+        host: the named scripts must exist, and must not depend on a platform
+        this host is not. Returns findings; the caller renders them.
+    .DESCRIPTION
+        A `host:` sequence runs sibling PowerShell scripts directly on the host
+        (Invoke-OrchestratorHostAction), and until this check existed nothing
+        looked at them before a cycle started. Two failure modes reached the
+        operator only as a mid-cycle stack trace on step 1:
+
+          * a renamed / missing script -- the orchestrator's own
+            "script not found" error, but 30+ seconds into a cycle that had
+            already torn down VMs and re-cloned the project;
+          * a script written for another hypervisor. A project authored on
+            Windows calls `Hyper-V\Get-VM`; on host.ubuntu.kvm the Hyper-V
+            module cannot load, so every call errors and the script fails
+            partway through -- after its destructive teardown has already run.
+
+        Both are decidable without executing anything, which matters: a
+        host-action script is typically a lab teardown, so the gate must never
+        run it to find out. The Hyper-V check keys off the module-qualified
+        command name, which is unambiguous -- that module ships only on
+        Windows, so a non-Windows host can never satisfy it.
+
+        Windows-absolute parameter defaults (`[string]$Root = 'c:\git\yuruna'`)
+        are reported as a WARNING, not a failure: `host.arguments` can override
+        a default, so the gate flags the hazard without blocking a sequence that
+        legitimately passes its own value.
+    .PARAMETER Sequence
+        Parsed sequence document (from Read-SequenceFile).
+    .PARAMETER SequencePath
+        Path to that sequence file -- host scripts resolve relative to its
+        folder, exactly as Invoke-OrchestratorHostAction resolves them.
+    .PARAMETER HostType
+        Detected host type ('host.windows.hyper-v', 'host.ubuntu.kvm',
+        'host.macos.utm'). When null/empty the platform checks are skipped and
+        only existence is validated.
+    .OUTPUTS
+        [hashtable[]] @{ Severity = 'Fail'|'Warn'; Message; Path }, empty when
+        the sequence declares no host block or everything checks out.
+    #>
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseOutputTypeCorrectly', '',
+        Justification = 'Returns [hashtable[]]; callers wrap with @(...), so a pipeline unroll is harmless.')]
+    [CmdletBinding()]
+    [OutputType([hashtable[]])]
+    param(
+        [Parameter(Mandatory)][AllowNull()]$Sequence,
+        [Parameter(Mandatory)][string]$SequencePath,
+        [Parameter()][AllowNull()][AllowEmptyString()][string]$HostType
+    )
+    $findings = [System.Collections.Generic.List[hashtable]]::new()
+    if ($Sequence -isnot [System.Collections.IDictionary] -or -not $Sequence.Contains('host')) {
+        return $findings.ToArray()
+    }
+    $hostBlock = $Sequence['host']
+    if ($hostBlock -isnot [System.Collections.IDictionary]) { return $findings.ToArray() }
+
+    # Mirror Invoke-OrchestratorHostAction's resolution exactly -- a gate that
+    # reads the block differently from the runner would pass what then fails.
+    $scriptNames = @()
+    if ($hostBlock.Contains('scripts') -and $hostBlock['scripts']) {
+        $scriptNames = @($hostBlock['scripts'] | ForEach-Object { [string]$_ })
+    } elseif ($hostBlock.Contains('script') -and -not [string]::IsNullOrWhiteSpace([string]$hostBlock['script'])) {
+        $scriptNames = @([string]$hostBlock['script'])
+    }
+    if ($scriptNames.Count -eq 0) {
+        $findings.Add(@{
+            Severity = 'Fail'
+            Message  = "host-action sequence declares a 'host:' block with no 'script' or 'scripts' -- the orchestrator will fail this step immediately."
+            Path     = $SequencePath
+        })
+        return $findings.ToArray()
+    }
+
+    $entryDir = Split-Path -Parent $SequencePath
+    foreach ($scriptName in $scriptNames) {
+        $scriptPath = Join-Path $entryDir $scriptName
+        if (-not (Test-Path -LiteralPath $scriptPath)) {
+            $findings.Add(@{
+                Severity = 'Fail'
+                Message  = "host-action script '$scriptName' not found next to its sequence (expected: $scriptPath). The orchestrator resolves host scripts relative to the sequence file."
+                Path     = $SequencePath
+            })
+            continue
+        }
+        if ([string]::IsNullOrWhiteSpace($HostType)) { continue }
+
+        $parseErrors = $null
+        $ast = $null
+        try {
+            $ast = [System.Management.Automation.Language.Parser]::ParseFile($scriptPath, [ref]$null, [ref]$parseErrors)
+        } catch {
+            Write-Verbose "Get-HostActionFinding: could not parse '$scriptPath': $($_.Exception.Message)"
+            continue
+        }
+        if ($null -eq $ast) { continue }
+        if ($parseErrors -and $parseErrors.Count -gt 0) {
+            $findings.Add(@{
+                Severity = 'Fail'
+                Message  = "host-action script '$scriptName' does not parse: $($parseErrors[0].Message) (line $($parseErrors[0].Extent.StartLineNumber)). It will fail the moment the orchestrator runs it."
+                Path     = $scriptPath
+            })
+            continue
+        }
+
+        # Hyper-V is a Windows-only module, so a module-qualified call to it can
+        # never resolve elsewhere. Report the FIRST occurrence with its line --
+        # a Windows-authored teardown script typically has a dozen, and listing
+        # them all buries the actionable point.
+        if ($HostType -ne 'host.windows.hyper-v') {
+            $hyperV = $ast.FindAll({
+                param($n)
+                $n -is [System.Management.Automation.Language.CommandAst] -and
+                $n.GetCommandName() -and
+                $n.GetCommandName().StartsWith('Hyper-V\', [System.StringComparison]::OrdinalIgnoreCase)
+            }, $true) | Select-Object -First 1
+            if ($hyperV) {
+                $findings.Add(@{
+                    Severity = 'Fail'
+                    Message  = "host-action script '$scriptName' calls '$($hyperV.GetCommandName())' (line $($hyperV.Extent.StartLineNumber)), but this host is '$HostType' -- the Hyper-V module exists only on Windows, so every such call fails. The script needs a '$HostType' code path (or the sequence needs a host-specific variant)."
+                    Path     = $scriptPath
+                })
+            }
+        }
+
+        # A Windows-absolute default ('c:\git\yuruna') silently becomes a bogus
+        # path on Linux/macOS: PowerShell reads 'c:' as a PSDrive name, so
+        # Join-Path throws "Cannot find drive" long before anyone sees a path.
+        if ($HostType -ne 'host.windows.hyper-v') {
+            $winDefault = $ast.FindAll({
+                param($n)
+                $n -is [System.Management.Automation.Language.ParameterAst] -and
+                $n.DefaultValue -is [System.Management.Automation.Language.StringConstantExpressionAst] -and
+                $n.DefaultValue.Value -match '^[A-Za-z]:[\\/]'
+            }, $true) | Select-Object -First 1
+            if ($winDefault) {
+                $findings.Add(@{
+                    Severity = 'Warn'
+                    Message  = "host-action script '$scriptName' defaults $($winDefault.Name.Extent.Text) to the Windows path '$($winDefault.DefaultValue.Value)' (line $($winDefault.Extent.StartLineNumber)) on host '$HostType'. Unless the sequence overrides it via host.arguments, Join-Path/Test-Path will fail with 'Cannot find drive'."
+                    Path     = $scriptPath
+                })
+            }
+        }
+    }
+    return $findings.ToArray()
+}
+
+Export-ModuleMember -Function Test-IsSet, Test-AgainstSchema, Test-RepoFreshness, Get-HostActionFinding

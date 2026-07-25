@@ -880,6 +880,8 @@ if (-not (Test-Path $seqResolveMod)) {
 
     $seqOk = 0
     $seqDirsScanned = 0
+    $hostActionSeqs     = 0
+    $hostActionFindings = 0
     foreach ($sd in $seqDirs) {
         if (-not (Test-Path -LiteralPath $sd)) { continue }
         $seqDirsScanned++
@@ -887,8 +889,24 @@ if (-not (Test-Path $seqResolveMod)) {
             Where-Object { $_.Name -notin @('_snippets.yml', 'actions.yml') } |
             ForEach-Object {
                 try {
-                    $null = Read-SequenceFile -Path $_.FullName -NoCache
+                    $seq = Read-SequenceFile -Path $_.FullName -NoCache
                     $seqOk++
+                    # A `host:` sequence runs sibling scripts DIRECTLY on this
+                    # host, and those scripts are usually destructive (lab
+                    # teardown). Validate them statically here -- a missing
+                    # script, or one written for another hypervisor, otherwise
+                    # surfaces only as a mid-cycle stack trace on step 1, after
+                    # the cycle has already re-cloned the project and begun
+                    # tearing VMs down.
+                    if ($seq -is [System.Collections.IDictionary] -and $seq.Contains('host')) { $hostActionSeqs++ }
+                    foreach ($finding in @(Get-HostActionFinding -Sequence $seq -SequencePath $_.FullName -HostType $HostType)) {
+                        $hostActionFindings++
+                        if ($finding.Severity -eq 'Fail') {
+                            Write-Fail "Sequence '$($_.Name)': $($finding.Message)" -FullPath $finding.Path
+                        } else {
+                            Write-Warn "Sequence '$($_.Name)': $($finding.Message)"
+                        }
+                    }
                 } catch {
                     Write-Fail "Sequence '$($_.Name)' failed to load: $($_.Exception.Message)" -FullPath $_.FullName
                 }
@@ -921,6 +939,9 @@ if (-not (Test-Path $seqResolveMod)) {
         Write-Warn "No sequence directories found under $TestRoot/sequences or the project tree."
     } else {
         Write-Pass "Sequence files loaded + snippet-expanded OK: $seqOk file(s) across $seqDirsScanned dir(s)."
+        if ($hostActionSeqs -gt 0 -and $hostActionFindings -eq 0) {
+            Write-Pass "Host-action sequences: $hostActionSeqs checked -- every 'host:' script exists and carries no dependency this host ('$HostType') cannot satisfy."
+        }
     }
 }
 

@@ -265,6 +265,14 @@ function Get-HostActionFinding {
         # never resolve elsewhere. Report the FIRST occurrence with its line --
         # a Windows-authored teardown script typically has a dozen, and listing
         # them all buries the actionable point.
+        #
+        # Severity turns on whether the script shows ANY host awareness. A script
+        # that never mentions Get-HostType / $IsWindows / a host-type literal is
+        # unconditionally Hyper-V and simply cannot run here: FAIL. One that does
+        # branch on platform has most likely guarded these calls (the guard is a
+        # runtime condition this static pass cannot evaluate), so it gets a WARN
+        # instead -- blocking every cycle on a correctly-guarded script would be a
+        # false positive, and a gate that cries wolf stops being read.
         if ($HostType -ne 'host.windows.hyper-v') {
             $hyperV = $ast.FindAll({
                 param($n)
@@ -273,11 +281,29 @@ function Get-HostActionFinding {
                 $n.GetCommandName().StartsWith('Hyper-V\', [System.StringComparison]::OrdinalIgnoreCase)
             }, $true) | Select-Object -First 1
             if ($hyperV) {
-                $findings.Add(@{
-                    Severity = 'Fail'
-                    Message  = "host-action script '$scriptName' calls '$($hyperV.GetCommandName())' (line $($hyperV.Extent.StartLineNumber)), but this host is '$HostType' -- the Hyper-V module exists only on Windows, so every such call fails. The script needs a '$HostType' code path (or the sequence needs a host-specific variant)."
-                    Path     = $scriptPath
-                })
+                $hostAware = [bool]($ast.FindAll({
+                    param($n)
+                    ($n -is [System.Management.Automation.Language.CommandAst] -and
+                     $n.GetCommandName() -eq 'Get-HostType') -or
+                    ($n -is [System.Management.Automation.Language.VariableExpressionAst] -and
+                     $n.VariablePath.UserPath -in @('IsWindows', 'IsLinux', 'IsMacOS')) -or
+                    ($n -is [System.Management.Automation.Language.StringConstantExpressionAst] -and
+                     $n.Value -match '^host\.[a-z0-9.\-]+$')
+                }, $true) | Select-Object -First 1)
+
+                if ($hostAware) {
+                    $findings.Add(@{
+                        Severity = 'Warn'
+                        Message  = "host-action script '$scriptName' calls '$($hyperV.GetCommandName())' (line $($hyperV.Extent.StartLineNumber)) on host '$HostType'. The script does branch on host type, so this is presumably guarded -- but the guard cannot be verified statically. Confirm the call is unreachable here."
+                        Path     = $scriptPath
+                    })
+                } else {
+                    $findings.Add(@{
+                        Severity = 'Fail'
+                        Message  = "host-action script '$scriptName' calls '$($hyperV.GetCommandName())' (line $($hyperV.Extent.StartLineNumber)), but this host is '$HostType' -- the Hyper-V module exists only on Windows, and the script has no host-type branch anywhere, so every such call fails. The script needs a '$HostType' code path (or the sequence needs a host-specific variant)."
+                        Path     = $scriptPath
+                    })
+                }
             }
         }
 

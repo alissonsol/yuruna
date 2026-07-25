@@ -156,6 +156,36 @@ Describe 'Get-HostActionFinding -- Hyper-V dependence vs the detected host' {
         $p = New-Fixture -Name 'hv-win' -Scripts @{ 'Clear.ps1' = $script:WindowsOnly } -Declared @('Clear.ps1')
         Assert-Equal 0 (Get-Finding -SequencePath $p -HostType 'host.windows.hyper-v').Count -Because 'the check must not fire where the module genuinely exists'
     }
+    It 'downgrades to WARN when the script demonstrably branches on host type' {
+        # A script that guards its Hyper-V calls behind a host check is CORRECT.
+        # The guard is a runtime condition this static pass cannot evaluate, so
+        # failing it would block every cycle on working code -- and a gate that
+        # cries wolf stops being read. Surface it, don't block on it.
+        $guarded = @'
+param()
+$hostType = Get-HostType
+if ($hostType -eq 'host.windows.hyper-v') { Hyper-V\Get-VM -Name 'lab' }
+'@
+        $p = New-Fixture -Name 'guarded' -Scripts @{ 'Clear.ps1' = $guarded } -Declared @('Clear.ps1')
+        $f = Get-Finding -SequencePath $p
+        Assert-Equal 1 $f.Count -Because 'the reference is still worth surfacing'
+        Assert-Equal 'Warn' $f[0].Severity -Because 'a guarded call must not block the cycle'
+        Assert-True ($f[0].Message -match 'presumably guarded') 'the message says why it is only advisory'
+    }
+    It 'still FAILS a script whose only host mention is Hyper-V itself' {
+        # The regression case: no Get-HostType, no $IsWindows, no host-type
+        # literal -- unconditionally Hyper-V, so it genuinely cannot run here.
+        $p = New-Fixture -Name 'unguarded' -Scripts @{ 'Clear.ps1' = $script:WindowsOnly } -Declared @('Clear.ps1')
+        $f = @((Get-Finding -SequencePath $p) | Where-Object { $_.Severity -eq 'Fail' })
+        Assert-Equal 1 $f.Count -Because 'an unguarded Hyper-V dependence must still block'
+        Assert-True ($f[0].Message -match 'no host-type branch anywhere') 'the message states the distinguishing fact'
+    }
+    It 'treats an $IsWindows branch as host awareness too' {
+        $viaIsWindows = "param()`nif (`$IsWindows) { Hyper-V\Get-VM -Name 'lab' }`n"
+        $p = New-Fixture -Name 'iswindows' -Scripts @{ 'Clear.ps1' = $viaIsWindows } -Declared @('Clear.ps1')
+        $f = Get-Finding -SequencePath $p
+        Assert-Equal 'Warn' $f[0].Severity -Because '$IsWindows is the other idiomatic platform guard'
+    }
     It 'does not confuse an unrelated Get-VM with the Hyper-V-qualified one' {
         # Bare Get-VM is the framework's own cross-platform helper; only the
         # module-qualified call is decidable as Windows-only.

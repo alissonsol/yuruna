@@ -131,6 +131,8 @@ $env:YURUNA_CONFIG_PATH = $ConfigPath
 # cycles propagates source changes to every covered module in lockstep --
 # without having to maintain a parallel list.
 Initialize-YurunaEntryPointModuleSet -For Inner -ModulesDir $ModulesDir
+$null = Initialize-YurunaRuntimeDir
+$null = Initialize-YurunaLogDir
 
 # Publish repositories.GH_TOKEN into $env:GH_TOKEN before this cycle's
 # Invoke-GitPull / Update-ProjectClone, which read the token from the
@@ -140,10 +142,12 @@ Initialize-YurunaEntryPointModuleSet -For Inner -ModulesDir $ModulesDir
 # spawns a FRESH pwsh per cycle -- so an operator who fixes an expired token
 # mid-run has it picked up at the next cycle instead of only after an outer
 # restart (outer bridges once, at startup).
+#
+# Must stay AFTER Initialize-YurunaRuntimeDir: reading the config
+# auto-publishes a parsed snapshot, which lands in the shared temp dir (not
+# the runtime dir) while YURUNA_RUNTIME_DIR is null -- leaking GH_TOKEN to a
+# mode-664 /tmp file on the standalone path, where nothing pre-set it.
 $null = Import-YurunaGitHubToken -ConfigPath $ConfigPath
-
-$null = Initialize-YurunaRuntimeDir
-$null = Initialize-YurunaLogDir
 # Stable per-host pool identity on the process global (before any NDJSON event)
 # so cycle events + status.json carry hostId for cross-host joins. Script-top
 # assignment, mirroring $global:__YurunaRunId.

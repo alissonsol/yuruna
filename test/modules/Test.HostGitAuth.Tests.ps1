@@ -384,6 +384,27 @@ Describe 'Entry points bridge the configured token before any network git' {
         Assert-True ($lsRemoteAt -ge 0)             'the gate must still probe projectUrl'
         Assert-True ($bridgeAt -lt $lsRemoteAt)     'the bridge must run BEFORE the reachability probe, or the probe still runs uncredentialed'
     }
+    It 'the runners bridge only AFTER the runtime dir exists -- else the snapshot leaks the token to /tmp' {
+        # Reading the config auto-publishes a parsed snapshot, and
+        # Get-TestConfigSnapshotPath falls back to the SHARED temp dir while
+        # YURUNA_RUNTIME_DIR is null. Bridging before Initialize-YurunaRuntimeDir
+        # therefore wrote the whole parsed config -- GH_TOKEN and all -- to a
+        # mode-664 file under /tmp instead of the runner's own runtime dir.
+        foreach ($rel in @('test/Invoke-TestRunner.ps1', 'test/modules/Invoke-TestInnerRunner.ps1')) {
+            $text      = Get-Content -Raw -LiteralPath (Join-Path $repoRoot $rel)
+            $runtimeAt = $text.IndexOf('Initialize-YurunaRuntimeDir')
+            $bridgeAt  = $text.IndexOf('Import-YurunaGitHubToken')
+            Assert-True ($runtimeAt -ge 0) "$rel must initialize the runtime dir"
+            Assert-True ($bridgeAt -ge 0)  "$rel must bridge the configured token"
+            Assert-True ($bridgeAt -gt $runtimeAt) "$rel must bridge AFTER Initialize-YurunaRuntimeDir so the config snapshot lands in the runtime dir, not shared temp"
+        }
+    }
+    It 'Test-Config.ps1 bridges from the PARSED document, so it publishes no extra snapshot' {
+        # It holds the template-reconciled config already; passing -ConfigPath
+        # would re-read (and re-publish) it for no reason.
+        $text = Get-Content -Raw -LiteralPath (Join-Path $repoRoot 'test/Test-Config.ps1')
+        Assert-True ($text -match 'Import-YurunaGitHubToken\s+-Config\s+\$Config') 'the gate must bridge from its in-memory document, not a fresh read'
+    }
     It 'Test.HostContract re-exports the bridge so the runners can call it' {
         $facade = Get-Content -Raw -LiteralPath (Join-Path $repoRoot 'test/modules/Test.HostContract.psm1')
         Assert-True ($facade -match 'Export-ModuleMember[^\r\n]*Import-YurunaGitHubToken') 'the runners import Test.HostContract, not Test.HostGit directly'

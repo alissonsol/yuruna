@@ -131,6 +131,17 @@ $env:YURUNA_CONFIG_PATH = $ConfigPath
 # cycles propagates source changes to every covered module in lockstep --
 # without having to maintain a parallel list.
 Initialize-YurunaEntryPointModuleSet -For Inner -ModulesDir $ModulesDir
+
+# Publish repositories.GH_TOKEN into $env:GH_TOKEN before this cycle's
+# Invoke-GitPull / Update-ProjectClone, which read the token from the
+# environment only. Outer already bridged it and the inner inherits that
+# environment, so this is usually a no-op re-affirmation. It earns its keep
+# twice: on the standalone-direct invocation noted above, and because outer
+# spawns a FRESH pwsh per cycle -- so an operator who fixes an expired token
+# mid-run has it picked up at the next cycle instead of only after an outer
+# restart (outer bridges once, at startup).
+$null = Import-YurunaGitHubToken -ConfigPath $ConfigPath
+
 $null = Initialize-YurunaRuntimeDir
 $null = Initialize-YurunaLogDir
 # Stable per-host pool identity on the process global (before any NDJSON event)

@@ -269,6 +269,32 @@ if (-not (Test-Path $TemplatePath)) {
     }
 }
 
+# -- Section 2c: GitHub credential bridge -------------------------------------
+# Publish repositories.GH_TOKEN into $env:GH_TOKEN before ANY probe that talks
+# to a remote: Section 6 runs Test-RepoFreshness (git fetch) and the projectUrl
+# ls-remote, both of which route through Invoke-GitNetworkCommand and therefore
+# read the token from the environment only. Without this the gate validated a
+# private projectUrl with no credential at all and reported the configured
+# token's repo as "not reachable". $Config -- not $ConfigPath -- is passed
+# deliberately: the reconciliation above may have rewritten the file, and this
+# in-memory document is the authoritative post-reconciliation state.
+$ghBridge = Import-YurunaGitHubToken -Config $Config
+switch ($ghBridge.Source) {
+    'config' {
+        if ($ghBridge.Replaced) {
+            Write-Info "repositories.GH_TOKEN published to the environment for this run, REPLACING a different GH_TOKEN inherited from the shell (the config file wins)."
+        } else {
+            Write-Pass "repositories.GH_TOKEN published to the environment -- git will authenticate to github.com with the configured token."
+        }
+    }
+    'environment' {
+        Write-Info "repositories.GH_TOKEN is empty; using the GH_TOKEN already exported in this shell. Set it in test.config.yml to make private-repo access survive a fresh shell."
+    }
+    default {
+        Write-Info "No GitHub token configured (repositories.GH_TOKEN empty) and none exported -- only PUBLIC repositories will be reachable. Populate repositories.GH_TOKEN if frameworkUrl or projectUrl is private."
+    }
+}
+
 # -- Section 3: Host requirements (quick) -------------------------------------
 # Imports Test.HostContract.psm1 and runs the same fast pre-flight that
 # operator-facing helpers (Remove-TestVMFiles.ps1, ...) call: detects

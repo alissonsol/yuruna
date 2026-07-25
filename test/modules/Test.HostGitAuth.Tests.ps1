@@ -254,3 +254,138 @@ Describe 'Update-ProjectClone -- the project clone is prompt-proof too' {
         Assert-True ($updateProjectCloneText -match 'Write-GitAuthRefreshBanner') 'a project-clone auth failure must surface the refresh-access banner'
     }
 }
+
+Describe 'Import-YurunaGitHubToken -- config.repositories.GH_TOKEN reaches the host git auth chain' {
+    # repositories.GH_TOKEN is documented as THE place an operator configures
+    # private-repo access, but every host credential path reads $env:GH_TOKEN and
+    # nothing else -- so a populated config token authenticated NOTHING on the
+    # host and the config gate reported a private projectUrl as unreachable.
+    # These pin the bridge and, above all, its precedence rule.
+    BeforeEach {
+        $script:savedBridgeToken = $env:GH_TOKEN
+        $script:bridgeDir = Join-Path ([System.IO.Path]::GetTempPath()) ("yuruna-ghbridge-" + [guid]::NewGuid().ToString('N'))
+        New-Item -ItemType Directory -Path $script:bridgeDir -Force | Out-Null
+    }
+    AfterEach {
+        if ($null -eq $script:savedBridgeToken) { Remove-Item Env:GH_TOKEN -ErrorAction SilentlyContinue }
+        else { $env:GH_TOKEN = $script:savedBridgeToken }
+        Remove-Item -LiteralPath $script:bridgeDir -Recurse -Force -ErrorAction SilentlyContinue
+    }
+
+    It 'publishes a configured token into the environment where the auth chain can see it' {
+        Remove-Item Env:GH_TOKEN -ErrorAction SilentlyContinue
+        $cfg = [ordered]@{ repositories = [ordered]@{ GH_TOKEN = 'github_pat_UNIT_config' } }
+        $res = Import-YurunaGitHubToken -Config $cfg
+        Assert-True ($res.Applied)                        'a configured token must be applied'
+        Assert-True ($res.Source -eq 'config')            'the config is the reported source'
+        Assert-True ($env:GH_TOKEN -eq 'github_pat_UNIT_config') 'the token lands in the environment'
+        # The bridge is only worth anything if the auth chain then picks it up.
+        Assert-True (@(Get-YurunaGitCredentialArg).Count -eq 4) 'the credential chain now injects a token attempt it previously had none for'
+    }
+
+    It 'lets the config OVERRIDE a different token inherited from the shell' {
+        $env:GH_TOKEN = 'github_pat_UNIT_stale_shell'
+        $cfg = [ordered]@{ repositories = [ordered]@{ GH_TOKEN = 'github_pat_UNIT_config' } }
+        $res = Import-YurunaGitHubToken -Config $cfg
+        Assert-True ($env:GH_TOKEN -eq 'github_pat_UNIT_config') 'the file the operator edits outranks a stale exported token'
+        Assert-True ($res.Replaced) 'displacing a DIFFERENT ambient value is reported so the operator can be told'
+    }
+
+    It 'does not report Replaced when the config merely restates the ambient token' {
+        $env:GH_TOKEN = 'github_pat_UNIT_same'
+        $cfg = [ordered]@{ repositories = [ordered]@{ GH_TOKEN = 'github_pat_UNIT_same' } }
+        $res = Import-YurunaGitHubToken -Config $cfg
+        Assert-True ($res.Applied)         'still applied'
+        Assert-True (-not $res.Replaced)   'nothing was displaced, so the operator gets no confusing override notice'
+    }
+
+    It 'leaves an exported token alone when the config value is EMPTY (the shipped template default)' {
+        # test.config.yml.template ships GH_TOKEN: "" -- treating that as
+        # "forbid tokens" would break every public-repo operator who exports one.
+        $env:GH_TOKEN = 'github_pat_UNIT_ambient'
+        $cfg = [ordered]@{ repositories = [ordered]@{ GH_TOKEN = '' } }
+        $res = Import-YurunaGitHubToken -Config $cfg
+        Assert-True ($env:GH_TOKEN -eq 'github_pat_UNIT_ambient') 'an empty config value must NOT clear the environment'
+        Assert-True ($res.Source -eq 'environment') 'the ambient token is reported as the surviving source'
+    }
+
+    It 'leaves an exported token alone when the config has no repositories section at all' {
+        $env:GH_TOKEN = 'github_pat_UNIT_ambient'
+        $null = Import-YurunaGitHubToken -Config ([ordered]@{ testCycle = [ordered]@{} })
+        Assert-True ($env:GH_TOKEN -eq 'github_pat_UNIT_ambient') 'an absent key states nothing, so it overrides nothing'
+    }
+
+    It 'reports none when the host has neither a configured nor an exported token' {
+        Remove-Item Env:GH_TOKEN -ErrorAction SilentlyContinue
+        $res = Import-YurunaGitHubToken -Config ([ordered]@{ repositories = [ordered]@{ GH_TOKEN = '' } })
+        Assert-True ($res.Source -eq 'none')  'public-repo-only hosts are reported as having no token'
+        Assert-True (-not $res.Applied)       'nothing was applied'
+    }
+
+    It 'trims surrounding whitespace so a stray copy-paste newline cannot corrupt the credential' {
+        Remove-Item Env:GH_TOKEN -ErrorAction SilentlyContinue
+        $null = Import-YurunaGitHubToken -Config ([ordered]@{ repositories = [ordered]@{ GH_TOKEN = "  github_pat_UNIT_padded`n" } })
+        Assert-True ($env:GH_TOKEN -eq 'github_pat_UNIT_padded') 'the token is trimmed before it reaches git'
+    }
+
+    It 'reads the token from a config PATH when no parsed document is supplied' {
+        Remove-Item Env:GH_TOKEN -ErrorAction SilentlyContinue
+        $cfgPath = Join-Path $script:bridgeDir 'test.config.yml'
+        Set-Content -LiteralPath $cfgPath -Encoding UTF8 -Value @(
+            'repositories:'
+            '  frameworkUrl: https://github.com/acme/framework'
+            '  GH_TOKEN: github_pat_UNIT_from_file'
+            '  projectUrl: https://github.com/acme/project'
+        )
+        $res = Import-YurunaGitHubToken -ConfigPath $cfgPath
+        Assert-True ($res.Source -eq 'config') 'the runners pass a path, not a parsed document -- that path must work'
+        Assert-True ($env:GH_TOKEN -eq 'github_pat_UNIT_from_file') 'the file-sourced token lands in the environment'
+    }
+
+    It 'never returns the token value in its result (logs must stay safe to publish)' {
+        Remove-Item Env:GH_TOKEN -ErrorAction SilentlyContinue
+        $res = Import-YurunaGitHubToken -Config ([ordered]@{ repositories = [ordered]@{ GH_TOKEN = 'github_pat_UNIT_secret' } })
+        $rendered = ($res.GetEnumerator() | ForEach-Object { "$($_.Key)=$($_.Value)" }) -join ' '
+        Assert-True ($rendered -notmatch 'github_pat_UNIT_secret') 'the descriptor is logged by callers, so it must never carry the secret'
+    }
+
+    It 'survives a missing or unparseable config without throwing' {
+        # The gate must still run (and say something useful) on a broken file.
+        $env:GH_TOKEN = 'github_pat_UNIT_ambient'
+        $missing = Join-Path $script:bridgeDir 'does-not-exist.yml'
+        Assert-True ((Import-YurunaGitHubToken -ConfigPath $missing).Source -eq 'environment') 'a missing config falls back to the ambient token instead of throwing'
+        $bad = Join-Path $script:bridgeDir 'bad.yml'
+        Set-Content -LiteralPath $bad -Encoding UTF8 -Value "repositories:`n  - this: [is not: a mapping"
+        Assert-True ((Import-YurunaGitHubToken -ConfigPath $bad).Source -eq 'environment') 'an unparseable config must not take down the entry point'
+    }
+}
+
+Describe 'Entry points bridge the configured token before any network git' {
+    # A correct bridge that nobody calls fixes nothing -- this is the regression
+    # that actually bit: the gate probed a private projectUrl with no credential.
+    $entryPoints = @(
+        @{ Path = 'test/Test-Config.ps1';                    Why = 'the pre-cycle gate probes projectUrl + fetches for staleness' }
+        @{ Path = 'test/Invoke-TestRunner.ps1';              Why = 'outer must bridge before spawning the gate and the inner' }
+        @{ Path = 'test/modules/Invoke-TestInnerRunner.ps1'; Why = 'inner runs Invoke-GitPull / Update-ProjectClone each cycle' }
+    )
+    foreach ($ep in $entryPoints) {
+        It "$($ep.Path) calls Import-YurunaGitHubToken -- $($ep.Why)" {
+            $full = Join-Path $repoRoot $ep.Path
+            Assert-True (Test-Path -LiteralPath $full) "entry point missing: $($ep.Path)"
+            Assert-True ((Get-Content -Raw -LiteralPath $full) -match 'Import-YurunaGitHubToken') "$($ep.Path) must bridge the configured token"
+        }
+    }
+    It 'Test-Config.ps1 bridges BEFORE it probes projectUrl reachability' {
+        # Ordering is the whole point: a bridge after the probe is a no-op.
+        $text        = Get-Content -Raw -LiteralPath (Join-Path $repoRoot 'test/Test-Config.ps1')
+        $bridgeAt    = $text.IndexOf('Import-YurunaGitHubToken')
+        $lsRemoteAt  = $text.IndexOf("'ls-remote'")
+        Assert-True ($bridgeAt -ge 0)               'the gate must bridge the token'
+        Assert-True ($lsRemoteAt -ge 0)             'the gate must still probe projectUrl'
+        Assert-True ($bridgeAt -lt $lsRemoteAt)     'the bridge must run BEFORE the reachability probe, or the probe still runs uncredentialed'
+    }
+    It 'Test.HostContract re-exports the bridge so the runners can call it' {
+        $facade = Get-Content -Raw -LiteralPath (Join-Path $repoRoot 'test/modules/Test.HostContract.psm1')
+        Assert-True ($facade -match 'Export-ModuleMember[^\r\n]*Import-YurunaGitHubToken') 'the runners import Test.HostContract, not Test.HostGit directly'
+    }
+}

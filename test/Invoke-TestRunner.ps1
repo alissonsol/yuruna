@@ -138,6 +138,20 @@ Invoke-LibvirtGroupReExecIfNeeded -HostType (Get-HostType) -ScriptPath $PSComman
 # failure-pause break-out triggers read repositories.projectUrl and
 # watch the file's mtime without each call site re-deriving the path.
 
+# === GitHub credential bridge ===============================================
+# Publish repositories.GH_TOKEN into $env:GH_TOKEN, which is the ONLY place
+# the host's git auth chain looks (Get-YurunaGitCredentialArg). Done here --
+# after the libvirt re-exec, before the config gate and the first cycle -- so
+# the token reaches every descendant for free: Invoke-ConfigGate spawns
+# Test-Config.ps1 and Start-InnerRunner spawns the inner pwsh WITHOUT
+# -UseNewEnvironment, so both inherit it. A non-empty config value overrides
+# whatever this shell exported; an empty one leaves the shell's value alone.
+$ghBridge = Import-YurunaGitHubToken -ConfigPath $ConfigPath
+if ($ghBridge.Source -eq 'config') {
+    $replacedNote = if ($ghBridge.Replaced) { ' (replacing a different token inherited from the shell)' } else { '' }
+    Write-Information "GitHub credential: using repositories.GH_TOKEN from $ConfigPath$replacedNote." -InformationAction Continue
+}
+
 # === Bootstrap runtime dir + log dir ========================================
 # Initialize-YurunaRuntimeDir / Initialize-YurunaLogDir publish the canonical
 # locations as $env:YURUNA_RUNTIME_DIR / $env:YURUNA_LOG_DIR. The inner pwsh

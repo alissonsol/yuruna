@@ -339,6 +339,20 @@ or a remote URL, so it cannot leak through `git remote -v` or the process
 list. Leave `GH_TOKEN` empty for public repositories and none of this is
 installed.
 
+The **host** needs the same credential — its pre-cycle config gate probes
+`projectUrl`, and cycle start pulls the framework and re-clones the project —
+but it reaches it a different way. Each entry point
+(`Invoke-TestRunner.ps1`, `Invoke-TestInnerRunner.ps1`, `Test-Config.ps1`)
+calls `Import-YurunaGitHubToken` during startup, which publishes
+`repositories.GH_TOKEN` into the host process's `GH_TOKEN` variable; from
+there the github.com-scoped credential helper in
+`Get-YurunaGitCredentialArg` picks it up, and child processes (the gate, the
+per-cycle inner `pwsh`) inherit it. **The config is authoritative**: a
+non-empty `repositories.GH_TOKEN` overrides a `GH_TOKEN` already exported in
+the operator's shell. An empty or absent one overrides nothing, so an
+exported token still works and the template's `GH_TOKEN: ""` stays a safe
+default.
+
 **Scope it read-only.** The guests only ever pull, but the token is copied
 onto every test VM and is served on `/control/test-config`, so it should be
 the least-privileged credential that works: a fine-grained token, scoped to

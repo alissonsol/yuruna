@@ -104,12 +104,108 @@ function Test-GitRemoteAuthFailure {
     return [bool]($Output -match '(?i)(terminal prompts disabled|could not read (Username|Password)|Authentication failed|Invalid username or password|Permission denied \(publickey\)|Repository not found|returned error: 40[13])')
 }
 
+function Import-YurunaGitHubToken {
+    <#
+    .SYNOPSIS
+        Publish test.config.yml's `repositories.GH_TOKEN` into this process's
+        $env:GH_TOKEN so the host's git auth chain can actually use it.
+    .DESCRIPTION
+        `repositories.GH_TOKEN` is documented (CONTRIBUTING.md, "reading a
+        private framework/project repo") as THE place an operator configures
+        access to a private frameworkUrl / projectUrl -- but until this bridge
+        existed only the GUEST seed consumed it (New-VM.ps1 writes it into the
+        VM's environment). On the HOST every credential path --
+        Get-YurunaGitCredentialArg, and through it Invoke-GitNetworkCommand and
+        the whole Get-YurunaGitAuthAttemptList chain -- reads $env:GH_TOKEN and
+        nothing else. A host whose only credential was the configured token
+        therefore failed every private fetch / clone / ls-remote with "could not
+        read Username", including the pre-cycle config gate, while the operator
+        stared at a populated GH_TOKEN in the file they had just edited.
+
+        PRECEDENCE -- the config is authoritative wherever it states a value:
+          * non-empty `repositories.GH_TOKEN` -> OVERWRITES $env:GH_TOKEN, even
+            when the environment already carries a different token. The file the
+            operator edits outranks whatever a stale shell happened to export.
+          * empty or absent -> the environment is left EXACTLY as it was. The
+            shipped template carries `GH_TOKEN: ""`, so "empty" is the default
+            state of every config and cannot be read as "forbid tokens"; an
+            operator on public repos with an exported GH_TOKEN keeps working.
+
+        Publishing to the process environment (rather than returning git args) is
+        what makes one call reach everything: the outer runner spawns both the
+        inner pwsh and the Test-Config.ps1 gate as child processes WITHOUT
+        -UseNewEnvironment, so both inherit the bridged token.
+
+        The token VALUE is never returned, logged, or written anywhere -- only
+        which source won.
+    .PARAMETER Config
+        An already-parsed config dictionary. Preferred wherever the caller holds
+        one: Test-Config.ps1's document is the TEMPLATE-RECONCILED result, which
+        a fresh read from disk would not reflect.
+    .PARAMETER ConfigPath
+        Path to test.config.yml, read when -Config was not supplied.
+    .OUTPUTS
+        [hashtable] @{ Applied; Source; Replaced }. Source is 'config' when the
+        configured token was published, 'environment' when an ambient token was
+        left untouched, 'none' when the host has neither. Replaced is $true only
+        when a config token displaced a DIFFERENT ambient value.
+    #>
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+        Justification = 'Entry-point bootstrap that publishes one process env var; the operator has no -WhatIf intent here.')]
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param(
+        [Parameter()][AllowNull()]$Config,
+        [Parameter()][AllowNull()][AllowEmptyString()][string]$ConfigPath
+    )
+    $ambient = $env:GH_TOKEN
+
+    if ($null -eq $Config -and -not [string]::IsNullOrWhiteSpace($ConfigPath)) {
+        if (Get-Command Read-TestConfig -ErrorAction SilentlyContinue) {
+            # Shared mtime+hash-keyed parse; free when the caller already read it.
+            $Config = Read-TestConfig -Path $ConfigPath
+        } else {
+            # Test.Config not loaded (a lean caller). Parse directly rather than
+            # silently reporting 'none' for a config that does carry a token.
+            try {
+                $Config = Get-Content -Raw -LiteralPath $ConfigPath -ErrorAction Stop |
+                    ConvertFrom-Yaml -Ordered -ErrorAction Stop
+            } catch {
+                Write-Verbose "Import-YurunaGitHubToken: could not read '$ConfigPath': $($_.Exception.Message)"
+                $Config = $null
+            }
+        }
+    }
+
+    # Walked by hand rather than via Get-TestConfigValue so this stays usable
+    # before/without Test.Config -- the fallback parse above exists for exactly
+    # those callers, and a missing helper must not silently mean "no token".
+    $configured = ''
+    if ($Config -is [System.Collections.IDictionary] -and $Config.Contains('repositories')) {
+        $repositories = $Config['repositories']
+        if ($repositories -is [System.Collections.IDictionary] -and $repositories.Contains('GH_TOKEN')) {
+            $configured = ([string]$repositories['GH_TOKEN']).Trim()
+        }
+    }
+
+    if (-not [string]::IsNullOrWhiteSpace($configured)) {
+        $replaced = (-not [string]::IsNullOrWhiteSpace($ambient)) -and ($ambient -ne $configured)
+        $env:GH_TOKEN = $configured
+        return @{ Applied = $true; Source = 'config'; Replaced = $replaced }
+    }
+    if (-not [string]::IsNullOrWhiteSpace($ambient)) {
+        return @{ Applied = $false; Source = 'environment'; Replaced = $false }
+    }
+    return @{ Applied = $false; Source = 'none'; Replaced = $false }
+}
+
 function Get-YurunaGitCredentialArg {
     <#
     .SYNOPSIS
         The `git -c ...` arguments that make git authenticate to github.com with
         $env:GH_TOKEN, or an empty array when GH_TOKEN is unset. Pure (reads only
-        the environment variable).
+        the environment variable -- Import-YurunaGitHubToken is what puts the
+        CONFIGURED token there, and entry points call it during bootstrap).
     .DESCRIPTION
         Plain `git` does NOT read GH_TOKEN -- only the GitHub CLI (`gh`) does --
         so a host whose only GitHub credential is GH_TOKEN (a headless runner, a
@@ -969,4 +1065,4 @@ function Install-PSScriptAnalyzerIfMissing {
     return Install-YurunaGalleryModuleIfMissing -Name 'PSScriptAnalyzer' @PSBoundParameters
 }
 
-Export-ModuleMember -Function Invoke-GitPull, Get-GitUpstreamStatus, Get-CurrentGitCommit, Get-FileLockingProcess, Update-ProjectClone, Resolve-GitRepositoryWebUrl, Install-PowerShellYamlIfMissing, Install-PSScriptAnalyzerIfMissing, Test-GitRemoteAuthFailure, Write-GitAuthRefreshBanner, Invoke-GitNetworkCommand, Get-YurunaGitCredentialArg, Get-YurunaGhCliCredentialArg, Get-YurunaGitAuthAttemptList
+Export-ModuleMember -Function Invoke-GitPull, Get-GitUpstreamStatus, Get-CurrentGitCommit, Get-FileLockingProcess, Update-ProjectClone, Resolve-GitRepositoryWebUrl, Install-PowerShellYamlIfMissing, Install-PSScriptAnalyzerIfMissing, Test-GitRemoteAuthFailure, Write-GitAuthRefreshBanner, Invoke-GitNetworkCommand, Import-YurunaGitHubToken, Get-YurunaGitCredentialArg, Get-YurunaGhCliCredentialArg, Get-YurunaGitAuthAttemptList

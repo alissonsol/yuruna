@@ -375,10 +375,25 @@ function Rename-VM {
     to capture, so the snapshot is purely a disk-level point. The
     --atomic flag rolls back partially-created snapshots on failure.
 
-    After a successful snapshot, the domain is renamed to $Id (via
-    Rename-VM, which also relocates ~/yuruna/vms/<old> -> .../<Id>
-    and rewrites the XML disk sources) so the next cycle's
-    Remove-TestVMFiles.ps1 leaves the persisted domain alone.
+    ORDER IS LOAD-BEARING: the domain is renamed to $Id FIRST, and only
+    then is the snapshot taken. A libvirt snapshot embeds a full COPY of
+    the domain definition as it stood when the snapshot was created --
+    including <name> and every <disk><source file=...>. Rename-VM
+    rewrites the LIVE domain XML (and moves ~/yuruna/vms/<old> ->
+    .../<Id>, renaming the qcow2 with it), but nothing rewrites that
+    embedded copy. Snapshotting first therefore produced metadata
+    pointing at a path the rename had just made non-existent, and the
+    next cycle's loadDiskSnapshot died with libvirt's least helpful
+    message:
+
+        error: Failed to revert snapshot <id>
+        error: An error occurred, but the cause is unknown
+
+    Renaming first makes the recorded name and disk paths the final ones,
+    so snapshot-revert stays valid for the life of the domain. (Hyper-V
+    never had this bug: its checkpoints are tracked by VM GUID, so a
+    rename does not invalidate them -- which is why the same chain worked
+    there and only KVM failed.)
 #>
 function Save-VMDiskSnapshot {
     [CmdletBinding(SupportsShouldProcess)]
@@ -393,20 +408,33 @@ function Save-VMDiskSnapshot {
             [void](Stop-VMForce -VMName $VMName)
         }
     }
+    # Rename BEFORE snapshotting -- see the ORDER IS LOAD-BEARING note above.
+    # The snapshot must be created against the domain's FINAL name and final
+    # disk paths, because it captures both into metadata nothing later rewrites.
+    $domain = $VMName
+    if ($VMName -ne $Id) {
+        if (-not (Rename-VM -VMName $VMName -NewName $Id -Confirm:$false)) {
+            Write-Warning "Save-VMDiskSnapshot: rename '$VMName' -> '$Id' failed; no snapshot taken. The domain keeps its test- name and will be wiped on the next cycle cleanup."
+            return $false
+        }
+        $domain = $Id
+    }
     # Idempotent overwrite: drop any prior snapshot with the same name
     # before creating a new one. Failure here (no such snapshot) is
     # expected on the common path and intentionally ignored.
-    Invoke-Virsh -VirshArgs @('snapshot-delete', $VMName, '--snapshotname', $Id) 2>&1 | Out-Null
-    $out = Invoke-Virsh -VirshArgs @('snapshot-create-as', '--domain', $VMName, '--name', $Id, '--atomic')
+    Invoke-Virsh -VirshArgs @('snapshot-delete', $domain, '--snapshotname', $Id) 2>&1 | Out-Null
+    $out = Invoke-Virsh -VirshArgs @('snapshot-create-as', '--domain', $domain, '--name', $Id, '--atomic')
     if ($LASTEXITCODE -ne 0) {
-        Write-Warning "Save-VMDiskSnapshot: virsh snapshot-create-as failed for '$VMName/$Id': $($out -join '; ')"
-        return $false
-    }
-    if ($VMName -ne $Id) {
-        if (-not (Rename-VM -VMName $VMName -NewName $Id -Confirm:$false)) {
-            Write-Warning "Save-VMDiskSnapshot: snapshot '$Id' saved but rename '$VMName' -> '$Id' failed; domain will be wiped on next cycle cleanup."
-            return $false
+        # The rename already happened, so the domain now holds $Id with no
+        # snapshot on it. That matters for the NEXT run: Rename-VM refuses a
+        # destination name that already exists, so the rebuilt chain cannot
+        # re-take this name until the stale domain is gone. Say so explicitly
+        # rather than leaving the operator to discover it a cycle later.
+        Write-Warning "Save-VMDiskSnapshot: virsh snapshot-create-as failed for '$domain/$Id': $($out -join '; ')"
+        if ($domain -ne $VMName) {
+            Write-Warning "Save-VMDiskSnapshot: '$domain' now exists WITHOUT a snapshot. Remove it (virsh undefine --nvram '$domain', and delete ~/yuruna/vms/$domain) before the next run, or the rebuild's rename will refuse the taken name."
         }
+        return $false
     }
     return $true
 }

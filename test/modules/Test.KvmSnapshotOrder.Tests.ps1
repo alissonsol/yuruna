@@ -64,8 +64,9 @@ function Get-FunctionText {
 # passes vacuously -- silently un-testing the thing.
 $kvmDriver   = Join-Path $repo 'host/ubuntu.kvm/modules/Yuruna.Host.psm1'
 $utmDriver   = Join-Path $repo 'host/macos.utm/modules/Yuruna.Host.psm1'
-$kvmSaveText = Get-FunctionText -Path $kvmDriver -Name 'Save-VMDiskSnapshot'
-$utmSaveText = Get-FunctionText -Path $utmDriver -Name 'Save-VMDiskSnapshot'
+$kvmSaveText   = Get-FunctionText -Path $kvmDriver -Name 'Save-VMDiskSnapshot'
+$kvmRemoveText = Get-FunctionText -Path $kvmDriver -Name 'Remove-VM'
+$utmSaveText   = Get-FunctionText -Path $utmDriver -Name 'Save-VMDiskSnapshot'
 
 Describe 'KVM Save-VMDiskSnapshot -- renames BEFORE it snapshots' {
     It 'calls Rename-VM before snapshot-create-as' {
@@ -89,6 +90,38 @@ Describe 'KVM Save-VMDiskSnapshot -- renames BEFORE it snapshots' {
         # Rename-VM refuses a destination that already exists, so a half-done
         # save would block the next rebuild until the stale domain is removed.
         Assert-True ($kvmSaveText -match 'WITHOUT a snapshot') 'the failure path must tell the operator the name is now taken'
+    }
+}
+
+Describe 'KVM Remove-VM -- must be able to delete a SNAPSHOTTED domain' {
+    # libvirt refuses `undefine` while snapshot metadata exists:
+    #   "Requested operation is not valid: cannot delete inactive domain with N snapshots"
+    # Every persisted topology VM has a snapshot by construction, so without
+    # --snapshots-metadata the teardown could not remove the exact VMs it exists
+    # to remove. The domain survived while its qcow2 was deleted anyway, and the
+    # next cycle reused that wreckage and failed the snapshot restore.
+    It 'passes --snapshots-metadata so a snapshotted domain can be undefined' {
+        Assert-True ($kvmRemoveText -match '--snapshots-metadata') 'a persisted VM always has a snapshot; without this flag undefine always refuses'
+    }
+    It 'passes --managed-save, the sibling blocker' {
+        Assert-True ($kvmRemoveText -match '--managed-save') 'a managed-save image refuses undefine the same way'
+    }
+    It 'checks the undefine exit code instead of always reporting success' {
+        # The old code returned $true unconditionally, so a surviving domain was
+        # announced as removed and only surfaced later as a post-sweep survivor.
+        $undefineAt = $kvmRemoveText.IndexOf('undefine')
+        $checkAt    = $kvmRemoveText.IndexOf('LASTEXITCODE', $undefineAt)
+        Assert-True ($undefineAt -ge 0) 'Remove-VM must still undefine the domain'
+        Assert-True ($checkAt -gt $undefineAt) 'the undefine result must be checked'
+        Assert-True ($kvmRemoveText -match 'return \$false') 'a failed undefine must report failure to the caller'
+    }
+    It 'does not delete the disk before knowing the domain is gone' {
+        # Deleting the qcow2 while the domain survives leaves a registered VM
+        # pointing at a missing disk -- worse than either failure alone.
+        $failReturnAt = $kvmRemoveText.IndexOf('return $false')
+        $removeDirAt  = $kvmRemoveText.IndexOf('Remove-Item')
+        Assert-True ($failReturnAt -ge 0) 'the failure path must exist'
+        Assert-True ($removeDirAt -gt $failReturnAt) 'the artifact dir must only be deleted after a successful undefine'
     }
 }
 

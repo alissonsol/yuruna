@@ -240,7 +240,25 @@ function Remove-VM {
     Invoke-Virsh -VirshArgs @('destroy', $VMName) | Out-Null
 
     # --- REGION: https://yuruna.link/memory#why-remove-vm-on-kvm-omits-remove-all-storage
-    Invoke-Virsh -VirshArgs @('undefine', '--nvram', $VMName) | Out-Null
+    # --snapshots-metadata is REQUIRED, not belt-and-braces: libvirt refuses to
+    # undefine a domain that still has snapshot metadata --
+    #   "Requested operation is not valid: cannot delete inactive domain with N snapshots"
+    # -- and every PERSISTED topology VM has a snapshot by construction
+    # (Save-VMDiskSnapshot puts one there). Without the flag, Remove-VM could
+    # not delete any of the very VMs a lab teardown exists to remove: the domain
+    # survived, the next cycle reused it, and the stale snapshot on it failed the
+    # restore. --managed-save covers the sibling blocker (a managed-save image
+    # refuses undefine the same way). Dropping libvirt's snapshot metadata is
+    # safe here because the qcow2 holding the internal snapshots is deleted
+    # below anyway.
+    $undefineOut = Invoke-Virsh -VirshArgs @('undefine', '--nvram', '--snapshots-metadata', '--managed-save', $VMName)
+    if ($LASTEXITCODE -ne 0) {
+        # Report the failure instead of returning $true regardless. The old
+        # unconditional success is why a surviving domain was announced as
+        # "removed" and only surfaced later, as a post-sweep survivor warning.
+        Write-Warning "Remove-VM: virsh undefine failed for '$VMName': $($undefineOut -join '; ')"
+        return $false
+    }
 
     # Per-VM artifact directory (qcow2, seed.iso, autounattend.iso, nvram).
     # New-VM.ps1 places everything under ~/yuruna/vms/<vmname>/. This is

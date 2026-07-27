@@ -1,7 +1,7 @@
 /*
   LICENSEURI https://yuruna.link/license
   Copyright (c) 2019-2026 by Alisson Sol et al.
-  Version: 2026.07.24
+  Version: 2026.07.26
 
   Shared helpers for the Yuruna status pages. Mounted on window.Yuruna.
   --- REGION: https://yuruna.link/definition#defining-the-status-page-browser-baseline
@@ -10,7 +10,7 @@
 (function() {
   'use strict';
 
-  var VERSION = '2026.07.24';
+  var VERSION = '2026.07.26';
 
   // --- REGION: control-route auth (proof from the Caching Proxy /go/host redirect)
   // A Grafana deep-link routes through the Caching Proxy's /go/host, which appends a
@@ -379,8 +379,52 @@
     setInterval(pollBanner, 60000);
   }
 
+  // Seconds until the captured control proof expires, or null when there is no
+  // proof. The wire is "<unix-expiry>.<base64-hmac>", so the deadline is readable
+  // without the token: the page can warn BEFORE a save fails instead of after.
+  // Never used to decide access -- the host re-verifies the HMAC either way.
+  function controlProofSecondsLeft() {
+    var t = '';
+    try { t = window.sessionStorage.getItem('yurunaCtl') || ''; } catch (e) { t = ''; }
+    if (!t) { return null; }
+    var dot = t.indexOf('.');
+    if (dot <= 0) { return null; }
+    var exp = parseInt(t.substring(0, dot), 10);
+    if (!isFinite(exp)) { return null; }
+    return exp - Math.floor(new Date().getTime() / 1000);
+  }
+
+  // One sentence naming the precondition that actually failed, from the reason
+  // the gate reports. Falls back to the bare status when a route predates it.
+  function controlErrorText(status, body) {
+    var reason = (body && typeof body.reason === 'string') ? body.reason : '';
+    if (reason === 'host-token-missing') {
+      return 'This host has no pool-auth-token, so remote control is loopback-only. ' +
+             'Open this page as http://localhost:' + window.location.port + '/ on the host, ' +
+             'or provision the token. See https://yuruna.link/control-proof';
+    }
+    if (reason === 'proof-expired') {
+      return 'The control proof expired. Re-open this host from the dashboard link to get a fresh one.';
+    }
+    if (reason === 'proof-missing') {
+      return 'No control proof was presented. Reach this page through the dashboard link, ' +
+             'or use http://localhost:' + window.location.port + '/ on the host itself.';
+    }
+    if (reason === 'proof-invalid') {
+      return 'The control proof was rejected. It may have been minted with a different ' +
+             'pool-auth-token than this host holds.';
+    }
+    if (reason === 'verifier-unavailable') {
+      return 'The host could not load its control-proof verifier; check the status service log.';
+    }
+    if (body && typeof body.error === 'string' && body.error) { return body.error; }
+    return 'HTTP ' + status;
+  }
+
   window.Yuruna = {
     version:             VERSION,
+    controlProofSecondsLeft: controlProofSecondsLeft,
+    controlErrorText:    controlErrorText,
     safeWarn:            safeWarn,
     escHtml:             escHtml,
     cls:                 cls,
@@ -1560,8 +1604,16 @@
       // Two independent fetches: the aggregates drive the icicles; status.json
       // supplies the cycleId -> folder map that makes each row's timestamp a
       // deep link. A status.json miss only costs the links, not the charts.
+      // Read the body before failing: a 403 here carries the precondition that
+      // actually failed (no token on this host, no/expired proof), and reporting
+      // only the status code sends the operator hunting for a perf bug when the
+      // cause is the shared control gate.
       var aggP = fetch('control/perf-aggregates', opts).then(function(r) {
-        if (!r.ok) throw new Error('HTTP ' + r.status);
+        if (!r.ok) {
+          return r.json()['catch'](function() { return null; }).then(function(body) {
+            throw new Error(Yuruna.controlErrorText(r.status, body));
+          });
+        }
         return r.json();
       });
       var statusP = fetch('runtime/status.json?_=' + Date.now(), { cache: 'no-store' })
@@ -1648,6 +1700,34 @@
           });
         })
         ['catch'](function() { availableGuestFolders = null; });
+    }
+
+    // A proof is minted once when the operator follows the dashboard link and is
+    // never refreshed, so a long edit can outlive it and the first sign would be
+    // a failed Save with the typing already done. Surface the deadline while the
+    // edit is still cheap to rescue; the edits stay in the tree either way.
+    function startControlProofWatch() {
+      var status = document.getElementById('config-status');
+      if (!status || Yuruna.controlProofSecondsLeft() === null) { return; }
+      var warned = false;
+      function tick() {
+        var left = Yuruna.controlProofSecondsLeft();
+        if (left === null) { return; }
+        if (left <= 0) {
+          status.textContent = 'Control proof expired -- re-open this host from the dashboard link ' +
+                               'before saving. Your edits are kept until you do.';
+          status.className = 'error';
+          return;
+        }
+        if (left <= 120 && !warned) {
+          warned = true;
+          status.textContent = 'Control proof expires in ' + left + 's -- save soon, or re-open ' +
+                               'this host from the dashboard link for a fresh one.';
+          status.className = '';
+        }
+        setTimeout(tick, 5000);
+      }
+      tick();
     }
 
     function loadConfig() {
@@ -2457,7 +2537,9 @@
           var body = null;
           try { body = JSON.parse(text); } catch (_e) { /* non-JSON error */ }
           if (!res.ok || !body || !body.ok) {
-            var msg = (body && body.error) ? body.error : ('HTTP ' + res.status);
+            var msg = (res.status === 403)
+              ? Yuruna.controlErrorText(res.status, body)
+              : ((body && body.error) ? body.error : ('HTTP ' + res.status));
             status.textContent = 'Save failed: ' + msg;
             status.className = 'error';
             saveBtn.disabled    = false;
@@ -2538,7 +2620,9 @@
           var body = null;
           try { body = JSON.parse(text); } catch (_e) { /* non-JSON error */ }
           if (!res.ok || !body || !body.ok) {
-            var msg = (body && body.error) ? body.error : ('HTTP ' + res.status);
+            var msg = (res.status === 403)
+              ? Yuruna.controlErrorText(res.status, body)
+              : ((body && body.error) ? body.error : ('HTTP ' + res.status));
             throw new Error(msg);
           }
           status.textContent = 'Saved. Stopping in-progress VMs (up to ~30s each) and starting a new cycle -- this can take a minute or two…';
@@ -2590,6 +2674,7 @@
     startBannerPolling();
     Yuruna.populateHeader(PAGE_CTA);
     loadConfig();
+    startControlProofWatch();
   }
 
   // Page dispatch keyed on a stable per-page id. Each page boots exactly

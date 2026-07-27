@@ -163,6 +163,14 @@ accounts**, you set **two** passwords: one for `poolNetworkUser` and one for
 (`test/status/extension/authentication/vault.yml`) is git-ignored, plaintext, and
 persists across cycles.
 
+**Easiest (interactive):** run `pwsh test/Test-Config.ps1` from a terminal. When
+the pool account has no usable credential, the validator asks for the
+`poolNetworkUser` password (typed twice, not echoed), maps the `vaultKey` in
+`users.yml`, stores the password, and re-checks — so the run ends with the gate
+satisfied instead of a failure to act on later. Run non-interactively (the
+unattended runner, a redirected stdin) it never prompts and reports the failure
+as before. The `stashNetworkUser` password is still set by hand, below.
+
 **Recommended (fail-safe):** map a `vaultKey` so the harness never silently
 auto-generates a wrong password, then store the value. Do this for **both** users.
 
@@ -258,7 +266,7 @@ Empty string means absent (fall through to the env var / local
 discovery). The status-page editor validates the value at save time:
 it must parse as an IPv4/IPv6 address **and** answer on TCP `:3128`,
 so a dead IP is rejected before it is ever persisted. Full cache-source
-story: [caching-proxy.md](caching-proxy.md#external-cache-override).
+story: [caching.md](caching.md#external-cache-override).
 
 ---
 
@@ -266,6 +274,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.24
+Last review: 2026.07.26
 
 Back to [Yuruna](../README.md)

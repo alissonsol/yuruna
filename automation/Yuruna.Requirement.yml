@@ -102,21 +102,21 @@ requirements:
     releases: "https://www.gnu.org/software/wget/"
   - tool: "tesseract"
     command: "(tesseract --version 2>&1 | Select-Object -First 1)"
-    version: "tesseract 5.5.2"
+    version: "tesseract 5.5.3"
     releases: "https://github.com/tesseract-ocr/tesseract/releases"
   - tool: "qemu-img"
     # First line is `qemu-img version X.Y.Z, Copyright (c) ... Fabrice
     # Bellard`; the Copyright tail is a constant suffix.
     command: |-
       ((qemu-img --version | Select-Object -First 1) -replace ',\s*Copyright.*$','')
-    version: "qemu-img version 11.0.2"
+    version: "qemu-img version 11.0.3"
     releases: "https://www.qemu.org/download/"
   - tool: "AWS cli"
     # `aws-cli/X.Y.Z Python/X.Y.Z OS/build prompt/...`; everything past
     # the first whitespace is environment context, not version.
     command: |-
       ((aws --version) -replace '\s.*$','')
-    version: "aws-cli/2.36.6"
+    version: "aws-cli/2.36.8"
     releases: "https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html"
   - tool: "Azure cli"
     command: "($(az version) | ConvertFrom-Json).\"azure-cli\""

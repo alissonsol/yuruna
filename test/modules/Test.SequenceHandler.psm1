@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.24
+.VERSION 2026.07.26
 .GUID 42a1b2c3-d4e5-4f67-8901-bc012345672a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -558,8 +558,20 @@ Register-SequenceAction -Name 'loadDiskSnapshot' -HostIORequirement @() -OcrRequ
         Write-Debug "      Starting $($c.VMName) after snapshot restore"
         try {
             $startRes = Start-VM -VMName $c.VMName -Confirm:$false
-            if ($startRes -is [hashtable] -and -not $startRes.success) {
-                Write-Warning "      loadDiskSnapshot: Start-VM returned failure: $($startRes.errorMessage)"
+            # Take the LAST status record rather than testing $startRes itself.
+            # A driver that writes progress to the success stream returns an
+            # Object[] with the record at the end, and `$startRes -is
+            # [hashtable]` is then false -- which silently skipped this check
+            # and let a VM that never started report a restored, running guest.
+            # The step passed and the failure surfaced minutes later as an SSH
+            # timeout against a powered-off VM.
+            $startRec = @($startRes) | Where-Object { $_ -is [System.Collections.IDictionary] } | Select-Object -Last 1
+            if (-not $startRec) {
+                Write-Warning "      loadDiskSnapshot: Start-VM returned no status record for '$($c.VMName)'; treating as failure."
+                return $false
+            }
+            if (-not $startRec.success) {
+                Write-Warning "      loadDiskSnapshot: Start-VM returned failure: $($startRec.errorMessage)"
                 return $false
             }
         } catch {

@@ -21,7 +21,7 @@ Ubuntu terminals trip on.)
 Installs `qemu-system-x86` / `qemu-system-arm` (per arch) + `qemu-utils`,
 `libvirt-daemon-system`, `virtinst`, `swtpm`,
 `ovmf` (or `qemu-efi-aarch64`), `genisoimage`, `whois`, `git`, `pwsh`,
-and `tesseract-ocr`; clones the repo to `~/git/yuruna`; enables
+`tesseract-ocr`, and `virt-manager`; clones the repo to `~/git/yuruna`; enables
 `libvirtd` + `virtlogd`; sets the libvirt `default` network to
 autostart; adds `$USER` to the `libvirt` and `kvm` groups; seeds
 `test/test.config.yml`. Idempotent; prompts for your sudo password
@@ -60,7 +60,7 @@ The really short guide. A self-serving memory!
 - Download the latest [Ubuntu Server](https://ubuntu.com/download/server).
 - Create a bootable USB, with tools like [Rufus](https://rufus.ie).
 - Install the Ubuntu Server. Create some "test account" that is not a real person account as the local admin.
-- Login and update.
+- Log in and update.
   - `sudo apt update`
   - `sudo apt upgrade -y`
 - Install the desktop.
@@ -75,6 +75,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.24
+Last review: 2026.07.26
 
 Back to [Yuruna](../../README.md)

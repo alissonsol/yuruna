@@ -4,6 +4,26 @@ Yuruna uses [Calendar Versioning](https://calver.org/): `YYYY.MM.DD`.
 Tags are cut from the `main` branch; entries below summarize each
 tagged release.
 
+## 2026.07.26
+
+- **Pool control runs as its own service.** `Start-PoolControlVM.ps1` and
+  `Stop-PoolControlVM.ps1` build and run it on a dedicated VM, matching the
+  caching-proxy and stash scripts. It now reports version, build, environment,
+  and a pass/fail check list on a `/diagnostics` page, and `Remove-PoolHost.ps1`
+  retires decommissioned hosts. See
+  [pool-admin.md](docs/pool-admin.md#pool-control-service).
+- **Teardown actually destroys again: `Invoke-Clear.ps1`.** Clearing a
+  configuration reported success while destroying nothing, so cloud resources
+  kept billing: it looked for a `resources:` list that `resources.output.yml`
+  never carries. Teardown now walks the deployed resource keys and runs
+  `tofu destroy` in each work folder. See
+  [cleanup](docs/kubernetes.md#cleaning-up-cloud-resources).
+- **Also in this release**: leftover VMs swept at cycle start rather than
+  aborting the run; VM starts without a VNC display now fail; dedicated test
+  user; the status document surviving per-cycle re-import; quieter steady-state
+  warnings; hardened UTM keystrokes; and fixes across KVM snapshots, pool-share
+  deletes, host IP, and Ubuntu setup.
+
 ## 2026.07.24
 
 - **Each service VM now has its own administrator account.** The
@@ -15,7 +35,7 @@ tagged release.
   takes `-OldUser` for a source VM whose account differs. See
   [operator.md](docs/operator.md).
 - **Scripts that build a VM now say so**: `Start-CachingProxyVM.ps1`,
-  `Start-PoolControlVM.ps1`, `Start-StashVM.ps1`** (with matching `Stop-`
+  `Start-PoolControlVM.ps1`, `Start-StashVM.ps1` (with matching `Stop-`
   counterparts). `Start-StatusService.ps1` and `Start-HostConfigService.ps1`
   start host-side services and keep their names. `Set-PoolAuthToken.ps1` and
   `Sync-HostConfiguration.ps1` renamed `-BounceStatusServer` to
@@ -34,7 +54,7 @@ tagged release.
 - **The cache VM's IP can be pinned across rebuilds: `-MacAddress` on
   `Start-CachingProxy.ps1`.** Each rebuild booted with a random [MAC address](https://en.wikipedia.org/wiki/MAC_address), so [DHCP](https://en.wikipedia.org/wiki/Dynamic_Host_Configuration_Protocol) leased a new IP. The optional parameter pins the MAC on all three
   hypervisors; a one-time DHCP reservation keeps the cache IP stable. See
-  [caching-proxy.md](docs/caching-proxy.md).
+  [caching.md](docs/caching.md#caching-proxy--test-harness-operator-reference).
 - **`gh auth login` (or `GH_TOKEN`) now works for git, everywhere the runner
   talks to GitHub.** Plain `git` reads neither, so fresh hosts failed the
   first cycle's framework pull. Every network git call now chains the host's
@@ -174,7 +194,7 @@ tagged release.
   [install.md](docs/install.md) and [opportunities.md](docs/opportunities.md).
 - **Converged cloud-init.** AL2023 and Ubuntu guests collapse drifting per-platform
   `user-data`/`meta-data` into one shared base plus per-host overlays; orphaned
-  anchors throw at merge time. See [cloud-init-template.md](docs/cloud-init-template.md).
+  anchors throw at merge time. See [vmconfig.md](docs/vmconfig.md#how-user-data-is-rendered).
 - **Actionable failure telemetry.** First-failure records carry a shared taxonomy,
   copy-paste repro command, classified-cause enrichment, and remediation routing.
   See [failure-schema.md](docs/failure-schema.md).
@@ -210,6 +230,6 @@ LICENSEURI <https://yuruna.link/license>
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.24
+Last review: 2026.07.26
 
 Back to [Yuruna](README.md)

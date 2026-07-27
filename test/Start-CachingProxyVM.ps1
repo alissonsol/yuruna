@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.24
+.VERSION 2026.07.26
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456742
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -19,7 +19,7 @@
 <#
 .SYNOPSIS
     Brings up the yuruna-caching-proxy VM and exposes its ports
-    (80, 3128, 3129, 3000, 9302) on the host. See docs/caching-proxy.md
+    (80, 3128, 3129, 3000, 9302) on the host. See the operator reference in docs/caching.md
     for remote-client setup, elevation requirements (Windows admin;
     macOS `sudo -E` to bind :80), and the external-cache sources
     (vmStart.cachingProxyIP probed first, YURUNA_CACHING_PROXY_IP as
@@ -458,7 +458,7 @@ if ($IsMacOS) {
     # Promote the cache VM off libvirt's NAT 'default' network onto the
     # bridged 'yuruna-external' network so other LAN hosts can reach it.
     # Unattended; YURUNA_EXTERNAL_BRIDGE_SKIP=1 short-circuits it.
-    # See docs/caching-proxy.md (yuruna-external bridge bring-up).
+    # See the operator reference in docs/caching.md (yuruna-external bridge bring-up).
     Import-Module (Join-Path $RepoRoot 'host/ubuntu.kvm/modules/Yuruna.Host.psm1') -Force -DisableNameChecking
     if ($env:YURUNA_EXTERNAL_BRIDGE_SKIP -eq '1') {
         Write-Output ""

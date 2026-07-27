@@ -34,17 +34,20 @@ registry needs one `Register-HostConditionProvider` call.
 
 | Function | Used by |
 |---|---|
-| `Register-HostConditionProvider -HostType -Set -Assert -AssertMinimum [-RequiresElevation] [-Display] [-DisplayTeardown]` | Facade loader; external host plugins |
+| `Register-HostConditionProvider -HostType -Set -Assert -AssertMinimum [-RequiresElevation] [-Display] [-DisplayTeardown] [-ClockSync]` | Facade loader; external host plugins |
 | `Get-HostConditionProvider -HostType` | Dispatchers; introspection |
 | `Get-HostConditionProviderMatrix` | Startup capability matrix |
 | `Clear-HostConditionProvider` | Tests only |
 | `Assert-HostConditionSet -HostType` | Outer runner per-cycle gate |
+| `Get-HostClockSkew` / `Get-HostClockSkewLimit` | Host-clock measurement (direct NTP over UDP) |
+| `Assert-HostClock -HostType` | Every platform's `Assert`; `Test-Config` reporting |
+| `Sync-HostClock -HostType` | Outer runner cycle boundary; `Test-Config` fix offer |
 | `Test-ElevationRequired -HostType` | Cleanup helpers ([`Test.HostDetection`](../test/modules/Test.HostDetection.psm1)) |
 | `Test-HostRequirement -HostType [-Quiet]` | One-off operator helpers ([`Test.HostDetection`](../test/modules/Test.HostDetection.psm1)) |
 
 ## Provider record shape
 
-Each registration carries a seven-field ordered dict:
+Each registration carries an eight-field ordered dict:
 
 ```
 @{
@@ -55,6 +58,7 @@ Each registration carries a seven-field ordered dict:
     RequiresElevation = $true   # consumed by Test-ElevationRequired
     Display           = { param() ... }   # optional: per-cycle display-surface ensure (e.g. attach a virtual monitor on headless Hyper-V); $null when unneeded. Invoked by Initialize-HostDisplay.
     DisplayTeardown   = { param() ... }   # optional inverse: tear the surface down; $null when unneeded. Invoked by Remove-HostDisplay.
+    ClockSync         = { param() ... @{ Succeeded; Message } }   # optional: put this host's clock back under NTP discipline. Invoked by Sync-HostClock.
 }
 ```
 
@@ -66,16 +70,44 @@ maintenance.
 
 ## Three platforms today
 
-| HostType | RequiresElevation | What `Assert` gates on |
-|---|---|---|
-| `host.windows.hyper-v` | `$true` | Administrator elevation, vmms service, display timeout, lock screen |
-| `host.macos.utm` | `$false` | Accessibility + Screen Recording TCC grants, display sleep, screen lock |
-| `host.ubuntu.kvm` | `$false` | `/dev/kvm` present, libvirtd active, virsh round-trip, current shell's group set includes `libvirt` |
+| HostType | RequiresElevation | What `Assert` gates on | `ClockSync` |
+|---|---|---|---|
+| `host.windows.hyper-v` | `$true` | Administrator elevation, vmms service, display timeout, lock screen, host clock | W32Time → Automatic + started + `w32tm /resync /force` |
+| `host.macos.utm` | `$false` | Accessibility + Screen Recording TCC grants, display sleep, screen lock, host clock | `systemsetup -setusingnetworktime on` + `sntp -sS` |
+| `host.ubuntu.kvm` | `$false` | Host clock, `/dev/kvm` present, libvirtd active, virsh round-trip, current shell's group set includes `libvirt` | `timedatectl set-ntp true` + step the active daemon |
 
 The Linux `Assert` diagnostic distinguishes "kvm missing" from
 "libvirtd down" from "stale group set" from "not in libvirt group at
 all" so the operator gets actionable steps, not a generic
 "permission denied".
+
+## The host clock
+
+Every hypervisor here seeds a guest's clock from the host at
+power-on, so a host that has drifted starts every VM equally wrong —
+and the guest's own NTP client steps it to real time seconds into the
+boot, landing in the middle of whatever that guest is bringing up. A
+Kubernetes guest survives that step looking healthy from every angle
+except the one that matters: pods `Running` but never `Ready` (their
+status timestamps sit in the future, so `kubectl` prints their age as
+`<invalid>`), Services with no endpoints, every NodePort refusing,
+while a `curl` straight at the pod IP answers `200`. Nothing in that
+picture points back at a clock.
+
+So the clock is handled at three levels:
+
+| Level | What happens |
+|---|---|
+| `Assert-HostClock`, in every platform's `Assert` | Refuses the cycle past `Get-HostClockSkewLimit` (120s) with the symptom spelled out. An **unmeasurable** clock passes — an isolated lab has no route to a time server and must still run. |
+| `Sync-HostClock`, at the outer runner's cycle boundary | Best-effort repair, warn-only. This is the one safe moment to correct a drifted host: no guest is running, so the step cannot do to our own VMs what it would do mid-cycle. |
+| `Set-*HostConditionSet` / `Enable-TestAutomation.ps1` | The durable fix: enable the platform's time service so it stays disciplined. `Test-Config.ps1` reports the skew and offers the same repair interactively. |
+
+`Get-HostClockSkew` speaks NTP directly over UDP rather than shelling
+out to the platform's time client: on a drifting host that client is
+usually the thing that is broken or absent, its output is localized,
+and its timeouts are not ours to choose. It returns `$null` — never
+`0` — when nothing answers, so "unreachable network" can never be
+mistaken for "disciplined clock".
 
 ## Registry shape
 
@@ -99,7 +131,10 @@ use.
    and export the triplet.
 3. Add the sibling to the facade's `Import-Module` block; add the
    `Register-IfAvailable` line listing the new HostType + function
-   names + `RequiresElevation`.
+   names + `RequiresElevation`. Add `-ClockSyncFn` pointing at a
+   `Sync-<Platform>HostClock` that returns `@{ Succeeded; Message }`
+   — without it the platform is gated on its clock but cannot repair
+   it, and every drifted run stops at the gate.
 4. Add the matching `HostType` token to
    [`Test.HostDetection`](../test/modules/Test.HostDetection.psm1)'s
    `Get-HostType` discovery so the new platform is detectable.
@@ -122,6 +157,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.24
+Last review: 2026.07.26
 
 Back to [Yuruna](../README.md)

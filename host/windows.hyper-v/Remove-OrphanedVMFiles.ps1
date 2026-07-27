@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.24
+.VERSION 2026.07.26
 .GUID 42b7e3a1-c8d9-4f56-ab12-3e4f5a6b7c8d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -326,9 +326,9 @@ foreach ($filePath in $orphanedFiles) {
 # Remove empty subfolders, deepest first so parents empty as children go.
 # Hyper-V's system subdirs under VirtualMachinePath (Planned Virtual Machines,
 # Snapshots Cache, Resource Types, ...) are normally empty on a no-VMs
-# host but are part of vmms's expected layout -- earlier logs showed
-# "Removed empty folder: ..." for 15+ system dirs per cycle. Skip
-# anything Test-IsHyperVSystemPath flags.
+# host but are part of vmms's expected layout -- without a guard the
+# empty-folder sweep removes 15+ vmms system dirs on every run, only for
+# vmms to recreate them. Skip anything Test-IsHyperVSystemPath flags.
 foreach ($scanPath in $scanPaths) {
     $dirs = Get-ChildItem -Path $scanPath -Recurse -Directory -ErrorAction SilentlyContinue |
         Sort-Object { $_.FullName.Length } -Descending

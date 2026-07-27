@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.24
+.VERSION 2026.07.26
 .GUID 42f1b2c3-d4e5-4f67-8901-a2b3c4d5e681
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -26,7 +26,7 @@
     fetches the framework, and runs the bring-up script which builds +
     launches the daemon under systemd.
 
-    See https://yuruna.link/stash-service for the full specification.
+    See https://yuruna.link/stash-guide for the stash user guide.
 
 .PARAMETER VMName
     Name of the UTM VM. Default: yuruna-stash-service.
@@ -285,13 +285,14 @@ Next steps:
   4. Watch the bring-up (harness key authorized until the daemon takes
      over :22; cloud-init mounts the share, fetches the framework, and
      builds + launches the daemon):
-       ssh stash-admin@$ip 'tail -f /var/log/cloud-init-output.log'
+       ssh stash-admin@$ip 'sudo tail -f /var/log/cloud-init-output.log'
+     (the log is root-only; stash-admin has NOPASSWD sudo)
 
   5. Once cloud-init finishes, the stash daemon owns :22 (the OS sshd is
      disabled) -- send files with scp:
        scp ./file user@$ip:/scratch
 
-See https://yuruna.link/stash-service.
+See https://yuruna.link/stash-guide.
 '@
 Write-Output ($guidance.
     Replace('__VM_NAME__', $VMName).

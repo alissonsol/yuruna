@@ -120,27 +120,23 @@ re-connecting contexts often helps. `automation/context-copy.ps1
 **PodSecurityPolicy** — `kubectl get psp -A` /
 `kubectl delete psp <name>`.
 
-**Ubuntu latest-point-release picker is a string sort, not a version
-sort** — `Resolve-UbuntuServerStableImage` in
+**Ubuntu latest-point-release picker sorts on the parsed version, not
+the filename string** — `Resolve-UbuntuServerStableImage` in
 [`host/modules/Yuruna.UbuntuImage.psm1`](../host/modules/Yuruna.UbuntuImage.psm1)
 (consumed by every per-guest `Get-Image.ps1` across Hyper-V, UTM and
 KVM — noble + resolute) resolves the "latest stable" ISO by
-regex-matching `ubuntu-[\d.]+-live-server-<arch>.iso` on the release
-directory listing and then
-`Sort-Object Value -Descending | Select-Object -First 1`. That is a
-lexicographic sort on the filename, not a `[version]` comparison.
-Today it works because Ubuntu LTS has historically capped at ~5 point
-releases (`24.04.1` … `24.04.5`), so single-digit components sort
-correctly. The sort would silently mis-rank if Ubuntu ever shipped a
-`.10`+ point release: `ubuntu-24.04.10-...` sorts BEFORE `ubuntu-24.04.2-...`
-(because `'1' < '2'`), so the picker would pin `24.04.9` and skip the
-newer `.10`. Symptom in that scenario: `Selected stable ISO:
-ubuntu-<NN>.04.9-live-server-<arch>.iso` even though releases.ubuntu.com
-already serves `.10`. Fix when it bites: replace the string sort in
-`Resolve-UbuntuServerStableImage` with a `[version]`-keyed sort, e.g.
-`Sort-Object @{ Expression = { [version]([regex]::Match($_.Value, 'ubuntu-([\d.]+)-').Groups[1].Value) } } -Descending`,
-or grab the version from `releases.ubuntu.com/<codename>/SHA256SUMS`
-ordering. One edit in the shared module covers every per-guest caller.
+regex-matching `ubuntu-[\d.]+-live-server-<arch>\.iso` on the release
+directory listing and then sorting the matches on the `[version]`
+parsed out of each filename, descending, taking the first.
+The `[version]` key is load-bearing: a plain
+`Sort-Object Value -Descending` is lexicographic, so once Ubuntu ships
+a `.10`+ point release `ubuntu-24.04.10-...` sorts BEFORE
+`ubuntu-24.04.2-...` (because `'1' < '2'`) and the picker would pin
+`24.04.9` while releases.ubuntu.com already serves `.10` — symptom:
+`Selected stable ISO: ubuntu-<NN>.04.9-live-server-<arch>.iso`.
+Keep the version-keyed sort (and its unparseable-value fallback) if
+this resolver is ever rewritten; one edit in the shared module affects
+every per-guest caller.
 
 ## A detached grandchild pins the caller's pipe on Windows
 
@@ -302,6 +298,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.24
+Last review: 2026.07.26
 
 Back to [Yuruna](../README.md)

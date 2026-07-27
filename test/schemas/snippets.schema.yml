@@ -6,9 +6,9 @@ title: Yuruna sequence snippet library
 description: >
   A _snippets.yml library: a map of snippet name -> ordered step list. Each list
   is spliced into a sequence wherever a `{ snippet: <name> }` step appears (see
-  sequence.schema.yml). Lives in a mode dir alongside sequences --
-  test/sequences/<mode>/_snippets.yml (framework) or
-  <...>/test/<mode>/_snippets.yml (project). A step in a snippet is the same
+  sequence.schema.yml). Lives alongside the sequences --
+  test/sequences/_snippets.yml (framework) or
+  <...>/test/_snippets.yml (project). A step in a snippet is the same
   shape as a sequence step, so snippets may themselves reference other snippets.
 
 type: object

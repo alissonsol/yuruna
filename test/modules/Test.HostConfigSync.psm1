@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.24
+.VERSION 2026.07.26
 .GUID 42d7f3b9-5c1e-4a80-9e2d-7f8a9b0c1d2e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -356,7 +356,11 @@ function Test-YurunaControlProof {
         # binding throw that would break the route.
         [Parameter(Mandatory)][AllowEmptyString()][string]$Token,
         [Parameter(Mandatory)][AllowEmptyString()][string]$Wire,
-        [int]$MaxTtlSeconds = 900
+        # Held strictly ABOVE the aggregator's 15-minute mint. There is no skew
+        # grace on this window, so an equal bound would reject a freshly minted
+        # proof on any host whose clock trails the proxy; the surplus is that
+        # tolerance, not a longer replay window (the minted expiry still governs).
+        [int]$MaxTtlSeconds = 1200
     )
     if ([string]::IsNullOrWhiteSpace($Token) -or [string]::IsNullOrWhiteSpace($Wire)) { return $false }
     $dot = $Wire.IndexOf('.')

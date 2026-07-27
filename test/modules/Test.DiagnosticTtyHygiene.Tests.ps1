@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.24
+.VERSION 2026.07.26
 .GUID 42d1e2f3-a4b5-4c67-89ab-cd0e1f2a3b52
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -110,6 +110,35 @@ function global:Send-Text {
         if (-not $VMName) { throw 'endpoint stub: called without -VMName' }
         return @{ ip = '127.0.0.1'; port = 8080; url = 'http://127.0.0.1:8080' }
     }
+    # Force the echo verdict without a screenshot or OCR engine, so the
+    # retype and abandon branches can be driven deterministically. The queue
+    # of verdicts lives in module scope, the only scope both this replacement
+    # and the test that loads it can reach. An empty queue yields 'unknown',
+    # which is the real verdict on a host with no capture path, so every other
+    # test keeps its straight-to-Enter route.
+    function script:Get-ConsoleEchoVerdict {
+        param([string]$VMName, [string]$Expected)
+        if (-not $VMName)   { throw 'echo stub: called without -VMName' }
+        if (-not $Expected) { throw 'echo stub: called without -Expected' }
+        $q = $script:TtyEchoVerdicts
+        if ($q -and $q.Count -gt 0) { return $q.Dequeue() }
+        return 'unknown'
+    }
+}
+
+function Invoke-EchoVerdictQueue {
+    # Loads the module-scope verdict queue the echo stub reads, then runs the
+    # console rung once so the queued verdicts drive its retype/abandon paths.
+    param([string[]]$Verdicts, [string]$FolderPath, [string]$FileName, [int]$TimeoutSeconds = 1)
+    & (Get-Module Test.Diagnostic) {
+        param($v)
+        $script:TtyEchoVerdicts = [System.Collections.Queue]::new([object[]]$v)
+    } $Verdicts
+    try {
+        return Invoke-ConsoleRung -FolderPath $FolderPath -FileName $FileName -TimeoutSeconds $TimeoutSeconds
+    } finally {
+        & (Get-Module Test.Diagnostic) { $script:TtyEchoVerdicts = $null }
+    }
 }
 
 function Invoke-ConsoleRung {
@@ -216,6 +245,44 @@ Describe 'Console rung tty bracket' {
         } finally {
             $TtyStub.UploadPath = $null
         }
+    }
+}
+
+Describe 'Console rung echo-corruption recovery' {
+    It 'clears the line, retypes once, and submits when the echo recovers' {
+        # First capture reads corrupt, the retype reads intact: the rung must
+        # discard the bad line (Ctrl-U), type the command again, and only then
+        # press Enter to submit -- one Ctrl-U + text pair more than the clean
+        # path, with a single submitting Enter.
+        $fileName = 'landed.system.diagnostic.ok.txt'
+        $TtyStub.UploadPath = Join-Path $TtyFolder $fileName
+        try {
+            $r = Invoke-EchoVerdictQueue -Verdicts @('corrupt', 'intact') `
+                -FolderPath $TtyFolder -FileName $fileName -TimeoutSeconds 5
+            Assert-Equal -Expected $true -Actual $r.success -Because 'a recovered line must be submitted'
+            Assert-Equal -Expected 'key:CtrlU,text,key:CtrlU,text,key:Enter' -Actual ($TtyStub.Log -join ',') `
+                -Because 'Ctrl-U precedes the retype, and the recovered line is submitted with one Enter'
+        } finally {
+            $TtyStub.UploadPath = $null
+        }
+    }
+
+    It 'abandons without ever submitting when the echo stays corrupt' {
+        # Both captures read corrupt: the rung must NOT press the submitting
+        # Enter -- that would run exactly the malformed command it detected.
+        # It returns failure, and the finally restores the prompt (Ctrl-C then
+        # Enter) so the next sequence step does not land on the dirty line.
+        $r = Invoke-EchoVerdictQueue -Verdicts @('corrupt', 'corrupt') `
+            -FolderPath $TtyFolder -FileName 'never.arrives.txt'
+        Assert-Equal -Expected $false -Actual $r.success
+        $joined = $TtyStub.Log -join ','
+        Assert-Equal -Expected 'key:CtrlU,text,key:CtrlU,text,key:CtrlC,key:Enter' -Actual $joined `
+            -Because 'the corrupted line is discarded and the prompt reset, never submitted'
+        # The load-bearing property, asserted independently of the exact log:
+        # the only Enter is the restore Enter, which comes AFTER Ctrl-C. A
+        # submitting Enter would appear before any Ctrl-C.
+        Assert-True ($joined.IndexOf('key:Enter') -gt $joined.IndexOf('key:CtrlC')) `
+            'no Enter may precede the restore Ctrl-C: the malformed line must never be submitted'
     }
 }
 

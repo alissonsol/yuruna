@@ -3,7 +3,7 @@
 What each document under `docs/` covers, so you can jump straight to the
 right one. Start with [Yuruna Architecture](architecture.md) for the
 cross-cutting model every other doc builds on, or with
-[Operator runbook](operator.md) if you are bringing up a lab.
+[Operator runbook](operator.md) if you are bringing up a test machine.
 
 ## Start here
 
@@ -17,9 +17,12 @@ cross-cutting model every other doc builds on, or with
 - **[install.md](install.md)** — load-bearing rationale for the three bootstrap
   installers (Windows Hyper-V, Ubuntu KVM, macOS UTM): what each step does and
   why it is ordered that way.
-- **[operator.md](operator.md)** — bring-up runbook for a test lab, from one
-  machine to a passing cycle, then the caching-proxy / stash / pool-control
-  VMs, each additional machine, and a two-pool split running a different
+- **[operator.md](operator.md)** — bring-up runbook for a single test
+  machine: OS baseline to a passing cycle, the test user, and the
+  caching-proxy / stash VMs.
+- **[lab-operator.md](lab-operator.md)** — bring-up runbook for a lab:
+  shared NAS storage, caching proxy, stash and pool-control services,
+  each additional machine, and a two-pool split running a different
   test set on each.
 - **[definition.md](definition.md)** — the glossary. Generic and
   Yuruna-specific terms in one place, so the framework, guest scripts, and docs
@@ -100,19 +103,19 @@ cross-cutting model every other doc builds on, or with
   only the deltas.
 - **[guest-workloads.md](guest-workloads.md)** — optional software workloads
   installed into a guest via `fetch-and-execute.sh`.
-- **[cloud-init-template.md](cloud-init-template.md)** — how the three host
-  platforms install a guest OS through cloud-init's NoCloud datasource.
 - **[vmconfig.md](vmconfig.md)** — rationale behind every non-trivial line in the
-  per-guest `vmconfig/` artifacts, so the seed files themselves stay short.
+  per-guest `vmconfig/` artifacts, so the seed files themselves stay short, plus
+  the shared base + per-host overlay rendering pipeline that produces them.
 - **[vmconfig.caching-proxy.md](vmconfig.caching-proxy.md)** — the same, for the
   cloud-init seed that builds the caching-proxy VM.
 
 ## Caching, network, and storage
 
 - **[caching.md](caching.md)** — the two composable caching layers: the
-  `YurunaCacheContent` cache-buster and the Squid cache VM.
-- **[caching-proxy.md](caching-proxy.md)** — the operator wrappers: exposing the
-  cache to remote clients, pointing a host at a remote cache, and preflighting.
+  `YurunaCacheContent` cache-buster and the Squid cache VM — plus the
+  [operator reference](caching.md#caching-proxy--test-harness-operator-reference):
+  exposing the cache to remote clients, pointing a host at a remote
+  cache, and preflighting.
 - **[network.md](network.md)** — rationale for network-related workarounds in the
   guest scripts and the host harness.
 - **[pool-storage.md](pool-storage.md)** — the optional NAS-backed durable tier,
@@ -121,9 +124,10 @@ cross-cutting model every other doc builds on, or with
 ## Pools and services
 
 - **[pool-admin.md](pool-admin.md)** — the pool administrator's guide: group
-  hosts into a pool and assign them test sets through the admin commands.
-- **[pool-control.md](pool-control.md)** — the operator UI and API service that
-  drives the pool-intent git store, which runners only ever pull read-only.
+  hosts into a pool and assign them test sets through the admin commands, and
+  the [Pool control service](pool-admin.md#pool-control-service) — the operator
+  UI and API that drives the pool-intent git store, which runners only ever
+  pull read-only.
 - **[control-routes.md](control-routes.md)** — the state-changing `/control/*`
   routes on a host's status server and the proof required to call them.
 - **[stash-guide.md](stash-guide.md)** — the shared drop box for files and
@@ -207,6 +211,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.24
+Last review: 2026.07.26
 
 Back to [Yuruna](../README.md)

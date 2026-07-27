@@ -251,7 +251,7 @@ write_files:
       refresh_pattern -i /v2/.+/manifests/[^/]+$        5 50%  60
 
       # --- REGION: OpenTofu / Terraform provider + binary caching
-      # See https://yuruna.link/caching#opentofu-provider-binary-caching
+      # See https://yuruna.link/caching#opentofu-provider--binary-caching
       refresh_pattern -i \.zip$                                            525600 100% 525600 override-expire override-lastmod ignore-reload ignore-no-store ignore-private
       refresh_pattern -i ^https?://registry\.opentofu\.org/                525600 100% 525600 override-expire override-lastmod ignore-reload ignore-no-store ignore-private
       refresh_pattern -i ^https?://releases\.opentofu\.org/                525600 100% 525600 override-expire override-lastmod ignore-reload ignore-no-store ignore-private
@@ -935,7 +935,9 @@ write_files:
       if [ "$CHANGED" = "1" ]; then
         mountpoint -q "$MOUNT" 2>/dev/null && timeout 30 umount "$MOUNT" >/dev/null 2>&1
         # MODEOPT is ,ro for stash (read-only scan) and empty (read-write) for pool.
-        timeout 60 mount -t cifs "$NETPATH" "$MOUNT" -o "credentials=$CRED,vers=3.0,uid=0,gid=0,iocharset=utf8,nofail$MODEOPT" >/dev/null 2>&1 || true
+        # NO iocharset=utf8: nls_utf8 is absent on the minimal cloud kernel and the
+        # mount fails with error(79); the on-disk names are ASCII.
+        timeout 60 mount -t cifs "$NETPATH" "$MOUNT" -o "credentials=$CRED,vers=3.0,uid=0,gid=0,nofail$MODEOPT" >/dev/null 2>&1 || true
         printf '%s' "$VERSION" > "$VERF" 2>/dev/null || true
       fi
       if mountpoint -q "$MOUNT" 2>/dev/null; then note "mounted (credential current)"; else note "mount-failed (NAS unreachable or wrong credential)"; fi
@@ -1017,7 +1019,7 @@ write_files:
             "id": 2,
             "type": "stat",
             "title": "Hosts total",
-            "description": "Distinct pool hosts seen within the last 24h, keyed on the stable hostId (reachable or not). Driven by yuruna_pool_hosts_total from the pool-aggregator.",
+            "description": "Distinct pool hosts seen within the aggregator's host TTL (24h by default, -host-ttl), keyed on the stable hostId (reachable or not). Driven by yuruna_pool_hosts_total from the pool-aggregator.",
             "gridPos": { "h": 4, "w": 3, "x": 4, "y": 0 },
             "datasource": { "type": "prometheus", "uid": "yuruna-prometheus" },
             "targets": [
@@ -2443,7 +2445,7 @@ runcmd:
     else
         echo "== YURUNA: failed to fetch Grafana dashboard 20501 from grafana.com -- the 'Zot (official)' dashboard will be missing until the next boot retries =="
     fi
-  # --- REGION: https://yuruna.link/caching#loki-promtail-boot-order-traps
+  # --- REGION: https://yuruna.link/caching#loki--promtail-boot-order-traps
   - id zot >/dev/null 2>&1 || useradd --system --no-create-home --shell /usr/sbin/nologin zot
   - install -d -o promtail -m 0755 /var/lib/promtail
   - install -d -o loki -m 0755 /var/lib/loki

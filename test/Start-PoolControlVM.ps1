@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.24
+.VERSION 2026.07.26
 .GUID 42e5f6a7-b8c9-4d01-8234-5f6a7b8c9d0e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -118,7 +118,7 @@ if (-not $HostSideProof) {
 Start-PoolControlVM requires the pool storage to be configured:
 set networkStorage.poolNetworkPath / poolNetworkUser / poolLocalPath in
 test/test.config.yml and Set-Password the poolNetworkUser. See docs/test-config.md
-and docs/pool-control.md.
+and the Pool control service section of docs/pool-admin.md.
 "@
         exit $ExitFailure
     }

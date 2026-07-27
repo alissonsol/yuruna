@@ -339,20 +339,6 @@ or a remote URL, so it cannot leak through `git remote -v` or the process
 list. Leave `GH_TOKEN` empty for public repositories and none of this is
 installed.
 
-The **host** needs the same credential — its pre-cycle config gate probes
-`projectUrl`, and cycle start pulls the framework and re-clones the project —
-but it reaches it a different way. Each entry point
-(`Invoke-TestRunner.ps1`, `Invoke-TestInnerRunner.ps1`, `Test-Config.ps1`)
-calls `Import-YurunaGitHubToken` during startup, which publishes
-`repositories.GH_TOKEN` into the host process's `GH_TOKEN` variable; from
-there the github.com-scoped credential helper in
-`Get-YurunaGitCredentialArg` picks it up, and child processes (the gate, the
-per-cycle inner `pwsh`) inherit it. **The config is authoritative**: a
-non-empty `repositories.GH_TOKEN` overrides a `GH_TOKEN` already exported in
-the operator's shell. An empty or absent one overrides nothing, so an
-exported token still works and the template's `GH_TOKEN: ""` stays a safe
-default.
-
 **Scope it read-only.** The guests only ever pull, but the token is copied
 onto every test VM and is served on `/control/test-config`, so it should be
 the least-privileged credential that works: a fine-grained token, scoped to
@@ -806,7 +792,7 @@ busy pool.
 match: squid's `cache_mem` is tuned to 7 GB (58 % of the VM) with 2 GB left
 for the zot registry cache, and swap is masked, so an OOM is unrecoverable.
 Tune VM RAM, `cache_mem`, and zot together — see
-[caching-proxy.md](caching-proxy.md).
+[caching.md](caching.md#caching-proxy--test-harness-operator-reference).
 
 **Changing it.** Edit the guest's `New-VM.ps1`; the value is expressed
 differently per host — Hyper-V takes `-MemoryStartupBytes` /
@@ -1401,7 +1387,7 @@ runtime-only files live under `<runtimeDir>/` (typically
 | `runner.stepHeartbeat` | `<runtimeDir>` | runspace-side touch at the top of every step in [Invoke-Sequence.psm1](../test/modules/Invoke-Sequence.psm1); outer pre-wipes + force-touches before each spawn | overwritten per step | Runspace-level proof of life. Mtime older than `testCycle.stepTimeoutMinutes` means the inner is wedged inside a step → outer watchdog kills it. |
 | `.test.config.snapshot.json` | `<runtimeDir>` | `Publish-TestConfigSnapshot` in [Test.Config.psm1](../test/modules/Test.Config.psm1), auto-fired by every `Read-TestConfig` parse | overwritten on next parse | Cross-process parsed-config snapshot (envelope: sourcePath, sourceMtime, sourceHash, publishedAt, publisherPid, config). `Read-TestConfigOrSnapshot` validates the envelope's mtime+hash against the live YAML and uses the snapshot when both still match, avoiding a redundant YAML parse in the inner. |
 | `.caching-proxy.env.json` | `<runtimeDir>` | atomic temp→rename in [test/Start-CachingProxyVM.ps1](../test/Start-CachingProxyVM.ps1) | wiped by `Remove-TestVMFiles.ps1` | Cleared `*_proxy` env-var snapshot so a re-invocation of Start-CachingProxyVM can restore them without operator re-typing. |
-| `caching-proxy.state.yml` | `<runtimeDir>` | `Save-CachingProxyState` in [Test.CachingProxy.psm1](../test/modules/Test.CachingProxy.psm1) (temp-file + Move-Item + `.backup` rotation) | merged on next save | Cache-VM password + IP. Has a `.backup` sibling rotated on each successful write; `Read-CachingProxyState` falls back to the backup when the main is corrupt and rotates the bad copy to `.corrupt.<UTC>` for forensics. |
+| `yuruna-caching-proxy.yml` | `<runtimeDir>` | `Save-CachingProxyState` in [Test.CachingProxy.psm1](../test/modules/Test.CachingProxy.psm1) (temp-file + Move-Item + `.backup` rotation) | merged on next save | Cache-VM password + IP. Has a `.backup` sibling rotated on each successful write; `Read-CachingProxyState` falls back to the backup when the main is corrupt and rotates the bad copy to `.corrupt.<UTC>` for forensics. |
 
 Conventions:
 
@@ -1869,6 +1855,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.24
+Last review: 2026.07.26
 
 Back to [Yuruna](../README.md)

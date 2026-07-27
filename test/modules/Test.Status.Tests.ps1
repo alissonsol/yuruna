@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.24
+.VERSION 2026.07.26
 .GUID 42e6b2d9-4a17-4c83-9f25-3b8c1d6e0a47
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -243,6 +243,57 @@ Describe 'Test.Status nested-cycle support' {
         Assert-True (Test-Path "$sf.lock") 'lock file exists while held'
         Exit-StatusLock -Lock $lock
         Assert-True (-not (Test-Path "$sf.lock")) 'lock file removed on release'
+        Remove-Item -Recurse -Force $dir -ErrorAction SilentlyContinue
+    }
+}
+
+# --- REGION: No-document tolerance
+# The in-memory document is module state, so it does not survive the -Force
+# re-import the runner does every cycle, and a cycle whose top-level is an
+# orchestration sequence carries an empty guest list -- it never reaches
+# Initialize-StatusDocument, which is what rebuilds the document on a per-guest
+# cycle. Every helper the runner can reach in that window must no-op rather than
+# throw: a throw there aborts a whole cycle from a path that had nothing to
+# record in the first place, and on a freshly installed host that is the very
+# first cycle.
+Describe 'Test.Status with no status document loaded' {
+    It 'Set-LastGetImageTime and Write-StatusJson no-op instead of throwing' {
+        $dir = New-TempStatusDir
+        $mp  = Join-Path $here 'Test.Status.psm1'
+        # A virgin module instance IS the assertion, and $script:Doc is
+        # per-instance state the Describes above have already populated in this
+        # process -- so the calls have to happen in a fresh one.
+        $job = Start-Job -ScriptBlock {
+            $env:YURUNA_RUNTIME_DIR = $using:dir
+            Import-Module $using:mp -Force -DisableNameChecking
+            $out = @{}
+            try { Set-LastGetImageTime -Confirm:$false; $out.stamp = 'no-op' } catch { $out.stamp = "threw: $($_.Exception.Message)" }
+            try { Write-StatusJson;                     $out.flush = 'no-op' } catch { $out.flush = "threw: $($_.Exception.Message)" }
+            $out.files = @(Get-ChildItem -LiteralPath $using:dir -File).Count
+            $out
+        }
+        $r = $job | Wait-Job -Timeout 90 | Receive-Job
+        $job | Remove-Job -Force
+        Assert-Equal -Expected 'no-op' -Actual $r.stamp -Because 'stamping the Get-Image refresh window with no document must not abort the cycle'
+        Assert-Equal -Expected 'no-op' -Actual $r.flush -Because 'a flush with no document has nothing to serialize'
+        Assert-Equal -Expected 0 -Actual $r.files -Because 'with no document there is no status path either, so nothing may be written'
+        Remove-Item -Recurse -Force $dir -ErrorAction SilentlyContinue
+    }
+
+    It 'a document rebuilt from the shipped template is stampable (first cycle on a new host)' {
+        $dir = New-TempStatusDir
+        $env:YURUNA_RUNTIME_DIR = $dir
+        $sf  = Join-Path $dir 'status.json'
+        $tmpl = Join-Path -Path $here -ChildPath '..' -AdditionalChildPath 'status', 'status.json.template'
+        Copy-Item -LiteralPath $tmpl -Destination $sf
+        Reset-StatusDocumentForCycleStart -StatusFilePath $sf -Confirm:$false
+        Set-LastGetImageTime -Confirm:$false
+        # Assert on the raw text, not on ConvertFrom-Json output: the parser coerces
+        # an ISO 8601 string into a [datetime] and re-renders it in the current
+        # culture's format, which hides the shape actually written to disk.
+        $raw = Get-Content -Raw $sf
+        Assert-True ($raw -match '"lastGetImageAt"\s*:\s*"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z"') `
+            'the rebuilt document must carry a stampable lastGetImageAt -- the template seeds it null'
         Remove-Item -Recurse -Force $dir -ErrorAction SilentlyContinue
     }
 }

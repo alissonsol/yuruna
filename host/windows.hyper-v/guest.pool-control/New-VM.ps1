@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.24
+.VERSION 2026.07.26
 .GUID 42a1c2d3-e4f5-4a67-8901-b2c3d4e5f6a1
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -157,8 +157,8 @@ Write-Output "See configuration at: $(Resolve-ExtensionAreaDir -Area 'authentica
 # is reachable only from same-host peers and the NAS likely isn't routable.
 $switchName = Get-OrCreateYurunaExternalSwitch
 if (-not $switchName) {
-    Write-Output "WARNING: External vSwitch unavailable -- falling back to 'Default Switch'."
-    Write-Output "  The pool-control VM won't be reachable from LAN by its own IP, and the NAS may be unreachable."
+    Write-Verbose "External vSwitch unavailable -- falling back to 'Default Switch'."
+    Write-Verbose "  The pool-control VM won't be reachable from LAN by its own IP, and the NAS may be unreachable."
     $switchName = 'Default Switch'
 }
 

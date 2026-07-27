@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.24
+.VERSION 2026.07.26
 .GUID 42ab19c1-07c0-4d84-be69-80c4f1c780a8
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -180,6 +180,12 @@ function Initialize-YurunaEntryPointModuleSet {
             # inline call sites so dependency edges (Test.HostContract depends on
             # Test.VMUtility, etc.) are preserved.
             'Test.SingleInstance.psm1', 'Test.YurunaDir.psm1', 'Test.Backoff.psm1',
+            # Test.Config supplies the config readers plus
+            # Resolve-CleanupVmNamePrefix, which the cycle-start and teardown
+            # sweeps call to decide which VM names are disposable. The inner
+            # loop resolves that set on every cycle, so the module has to be
+            # in this set rather than reached transitively.
+            'Test.Config.psm1',
             # Test.ConfigSync (test.config.yml <-> template overlay) is leaf
             # apart from Get-EntryPointExitCode (Test.Prelude, always loaded)
             # and powershell-yaml; loaded early so the cycle-start
@@ -240,12 +246,7 @@ function Initialize-YurunaEntryPointModuleSet {
             # re-handshakes) and Repair-ScreenshotRing. Loaded so Wait-ForText's
             # no-text self-heal can reach them and the capability banner can show
             # which hosts have a reconnect provider.
-            'Test.VncProvider.psm1', 'Test.ScreenshotProvider.psm1',
-            # Test.PoolDiscovery: pool-level "where is this extension service
-            # right now?" lookups (the aggregator's advertised extension
-            # targets). The cycle's ${ext:...} expansions resolve through it, so
-            # a service running on ANOTHER pool host is still found.
-            'Test.PoolDiscovery.psm1'
+            'Test.VncProvider.psm1', 'Test.ScreenshotProvider.psm1'
         )
         Project  = @(
             'Test.Config.psm1', 'Test.YurunaDir.psm1',
@@ -294,13 +295,7 @@ function Initialize-YurunaEntryPointModuleSet {
             'Test.Tesseract.psm1', 'Test.ConfigPreflight.psm1',
             # Bounded recovery primitives reached by Wait-ForText's no-text
             # self-heal (Repair-VncConnection / Repair-ScreenshotRing).
-            'Test.VncProvider.psm1', 'Test.ScreenshotProvider.psm1',
-            # Test.PoolDiscovery answers "where is the extension service that is
-            # active right now?" from the pool aggregator. A sequence's
-            # `variables:` block expands ${ext:stash-service.ResolveHost(...)}
-            # during THIS entry point's run, and that resolution must not be
-            # limited to services that happen to run on the local hypervisor.
-            'Test.PoolDiscovery.psm1'
+            'Test.VncProvider.psm1', 'Test.ScreenshotProvider.psm1'
         )
         StatusService = @(
             # Modules the parent (non-detached-server) status-service

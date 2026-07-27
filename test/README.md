@@ -100,7 +100,7 @@ pwsh test/Invoke-TestRunner.ps1
 
 Setup, monitoring, SSL-bump, and offline replay:
 [Caching](../docs/caching.md). Test-harness wrappers:
-[Caching proxy](../docs/caching-proxy.md).
+[Caching proxy](../docs/caching.md#caching-proxy--test-harness-operator-reference).
 
 ## Usage
 
@@ -150,6 +150,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.24
+Last review: 2026.07.26
 
 Back to [Yuruna](../README.md)

@@ -92,7 +92,7 @@ shell profiles), and the companion Squid VM:
 
 ### Cost warning
 
-Cloud resources incur charges. Always [cleanup](kubernetes.md#cleaning-up-cloud-resources) what
+Cloud resources incur charges. Always [clean up](kubernetes.md#cleaning-up-cloud-resources) what
 you stop using.
 
 ### Windows line endings
@@ -223,6 +223,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.24
+Last review: 2026.07.26
 
 Back to [Yuruna](../README.md)

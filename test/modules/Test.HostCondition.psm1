@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.24
+.VERSION 2026.07.26
 .GUID 42b8c9d0-e1f2-4a34-9567-8f9a0b1c2d31
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -87,7 +87,13 @@ function Register-HostConditionProvider {
         # one doesn't hang around). Signature: `param()`, returns a status
         # string. $null for hosts that need nothing. Invoked by
         # Remove-HostDisplay from Remove-TestVMFiles.
-        [scriptblock]$DisplayTeardown = $null
+        [scriptblock]$DisplayTeardown = $null,
+        # Optional "put this host's clock back under NTP discipline".
+        # Signature: `param()`, returns @{ Succeeded; Message }. Invoked by
+        # Sync-HostClock at a cycle boundary and by the operator-facing
+        # Enable-TestAutomation path. $null for a host with no way to
+        # discipline its own clock.
+        [scriptblock]$ClockSync = $null
     )
     & $script:HostConditionRegistry.Register $HostType ([ordered]@{
         HostType          = $HostType
@@ -97,7 +103,222 @@ function Register-HostConditionProvider {
         RequiresElevation = $RequiresElevation
         Display           = $Display
         DisplayTeardown   = $DisplayTeardown
+        ClockSync         = $ClockSync
     })
+}
+
+function Get-HostClockSkew {
+    <#
+    .SYNOPSIS
+        Signed seconds between this host's clock and real time (positive =
+        host ahead), or $null when no time server answers.
+
+    .DESCRIPTION
+        Every hypervisor here seeds a guest's virtual clock from the host
+        at power-on, so a host that has drifted starts every VM equally
+        wrong -- and the guest's own NTP client steps it to real time
+        seconds into the boot. That step lands in the middle of whatever
+        the guest is bringing up. On a Kubernetes guest it leaves the
+        control plane and part of the workload Running but never Ready,
+        their status timestamps sitting in the future; Services lose every
+        endpoint and each NodePort refuses, while a curl straight at the
+        pod IP still answers 200. Nothing in that picture points back at a
+        clock, which is why the host clock is worth measuring up front
+        rather than reconstructing afterwards.
+
+        Speaks NTP directly over UDP rather than shelling out to the
+        platform's time client: on a drifting host that client is usually
+        the thing that is broken or absent, its output is localized, and
+        its timeouts are not ours to choose. One socket answers the same
+        question identically on all three hosts.
+
+        Returns $null -- never 0 -- when nothing answers, so an isolated
+        lab reads as "unmeasured" and callers can skip rather than mistake
+        an unreachable network for a disciplined clock.
+
+    .PARAMETER TimeServer
+        Servers to try in order; the first that answers wins.
+
+    .PARAMETER Port
+        NTP port. Exposed so the epoch/endianness arithmetic can be
+        verified against a local responder instead of the public clock.
+
+    .PARAMETER TimeoutMilliseconds
+        Per-server send/receive timeout.
+
+    .OUTPUTS
+        [double] signed seconds, or $null when unmeasured.
+    #>
+    [CmdletBinding()]
+    [OutputType([double])]
+    param(
+        [string[]]$TimeServer = @('time.cloudflare.com', 'pool.ntp.org', 'time.windows.com'),
+        [int]$Port = 123,
+        [int]$TimeoutMilliseconds = 3000
+    )
+
+    $ntpEpoch = [datetime]::new(1900, 1, 1, 0, 0, 0, [System.DateTimeKind]::Utc)
+    foreach ($server in $TimeServer) {
+        $client = $null
+        try {
+            $client = [System.Net.Sockets.UdpClient]::new()
+            $client.Client.ReceiveTimeout = $TimeoutMilliseconds
+            $client.Client.SendTimeout    = $TimeoutMilliseconds
+            $client.Connect($server, $Port)
+            # 0x1B: leap indicator 0, version 3, mode 3 (client). Every
+            # other byte of the request stays zero.
+            $request = [byte[]]::new(48)
+            $request[0] = 0x1B
+            $sentAt = [datetime]::UtcNow
+            [void]$client.Send($request, $request.Length)
+            $remote   = [System.Net.IPEndPoint]::new([System.Net.IPAddress]::Any, 0)
+            $response = $client.Receive([ref]$remote)
+            $heardAt  = [datetime]::UtcNow
+            if ($response.Length -lt 48) { continue }
+            # Transmit timestamp: bytes 40-47, big-endian seconds + binary
+            # fraction since 1900. The slices run backwards because
+            # BitConverter reads little-endian.
+            $seconds  = [System.BitConverter]::ToUInt32($response[43..40], 0)
+            $fraction = [System.BitConverter]::ToUInt32($response[47..44], 0)
+            if ($seconds -eq 0) { continue }
+            $reference = $ntpEpoch.AddSeconds($seconds).AddSeconds($fraction / 4294967296.0)
+            # The server's timestamp describes an instant in the middle of
+            # the exchange, so compare it against the middle of ours --
+            # otherwise the whole round trip is charged to the host as skew.
+            $localAtReference = $sentAt.AddTicks((($heardAt - $sentAt).Ticks / 2))
+            return [double]($localAtReference - $reference).TotalSeconds
+        } catch {
+            Write-Verbose "Host clock: no answer from '$server' ($($_.Exception.Message))."
+        } finally {
+            if ($client) { $client.Dispose() }
+        }
+    }
+    return $null
+}
+
+# How far a host clock may sit from real time before a cycle is refused.
+# An NTP-disciplined host holds milliseconds, so this is not a precision
+# budget -- it is the line between "disciplined" and "nothing is correcting
+# this clock", well clear of the seconds-scale wander of a host that syncs
+# but syncs rarely.
+$script:YurunaMaxHostClockSkewSeconds = 120
+
+function Get-HostClockSkewLimit {
+    <#
+    .SYNOPSIS
+        The skew, in seconds, past which a host clock fails the gate.
+    .DESCRIPTION
+        Exposed so a reporting caller (Test-Config) states the same number
+        the gate enforces instead of carrying its own copy of it.
+    .OUTPUTS
+        [int]
+    #>
+    [CmdletBinding()]
+    [OutputType([int])]
+    param()
+    return $script:YurunaMaxHostClockSkewSeconds
+}
+
+function Assert-HostClock {
+    <#
+    .SYNOPSIS
+        Gate: $true when the host clock is close enough to real time (or
+        cannot be measured), $false with an actionable diagnostic when it
+        has drifted past $MaxSkewSeconds.
+
+    .DESCRIPTION
+        Shared by every platform's Assert-*HostConditionSet: the fault is
+        the same everywhere (guests inherit the host clock at power-on and
+        get stepped to real time mid-boot), so the threshold and the
+        wording are held in one place rather than drifting between three.
+
+        An unmeasurable clock passes. A lab with no route to a time server
+        is a normal deployment, and refusing to run there would trade a
+        rare fault for a certain one.
+
+    .OUTPUTS
+        [bool]
+    #>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param(
+        [string]$HostType,
+        [int]$MaxSkewSeconds = $script:YurunaMaxHostClockSkewSeconds
+    )
+
+    $skew = Get-HostClockSkew
+    if ($null -eq $skew) {
+        Write-Verbose "Host clock: no time server answered; skew left unchecked."
+        return $true
+    }
+    if ([math]::Abs($skew) -le $MaxSkewSeconds) {
+        Write-Verbose "Host clock: $([math]::Round($skew, 1))s from real time (limit ${MaxSkewSeconds}s)."
+        return $true
+    }
+
+    $offBy     = [math]::Round([math]::Abs($skew), 1)
+    $direction = if ($skew -gt 0) { 'ahead of' } else { 'behind' }
+    $hostFolder = ($HostType -replace '^host\.', '')
+    Write-Warning "==================================================================="
+    Write-Warning " Host clock is ${offBy}s $direction real time (limit: ${MaxSkewSeconds}s)."
+    Write-Warning " Guests take this clock from their virtual RTC at power-on, and"
+    Write-Warning " their own NTP client steps them to real time seconds into the"
+    Write-Warning " boot. That step lands mid-startup: a Kubernetes guest comes up"
+    Write-Warning " with its pods Running but never Ready and every NodePort"
+    Write-Warning " refusing, hours before anything blames a clock."
+    Write-Warning ""
+    Write-Warning " Quick fix -- run from the repo root (elevated / with sudo):"
+    Write-Warning "   pwsh host/$hostFolder/Enable-TestAutomation.ps1"
+    Write-Warning "==================================================================="
+    return $false
+}
+
+function Sync-HostClock {
+    <#
+    .SYNOPSIS
+        Platform dispatcher: put the host clock back under NTP discipline.
+        Returns @{ Attempted; Succeeded; Message }.
+
+    .DESCRIPTION
+        Best-effort by contract. A host clock is fixed with privileged
+        calls that can fail for reasons the caller cannot resolve mid-run
+        (no elevation, a managed time service, an air-gapped network), and
+        no caller should abandon a cycle over the attempt -- so this never
+        throws and reports what happened instead. The gate in each
+        platform's Assert-*HostConditionSet is what refuses a cycle when
+        the clock is genuinely too far out.
+
+        Safe only at a cycle boundary. Correcting a drifted host steps its
+        clock, and a step during a running cycle is the very fault this
+        exists to prevent -- guests take their time from the host.
+
+    .OUTPUTS
+        [hashtable] Attempted (bool), Succeeded (bool), Message (string).
+    #>
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([hashtable])]
+    param([string]$HostType)
+
+    $provider = Get-HostConditionProvider -HostType $HostType
+    if (-not $provider -or -not $provider.ClockSync) {
+        return @{ Attempted = $false; Succeeded = $false; Message = "No clock-sync capability registered for '$HostType'." }
+    }
+    if (-not $PSCmdlet.ShouldProcess("$HostType clock", 'Resynchronize against NTP')) {
+        return @{ Attempted = $false; Succeeded = $false; Message = 'Skipped (WhatIf).' }
+    }
+    try {
+        $result = & $provider.ClockSync
+        if ($result -isnot [System.Collections.IDictionary]) {
+            return @{ Attempted = $true; Succeeded = $false; Message = "Clock sync for '$HostType' returned no status record." }
+        }
+        return @{
+            Attempted = $true
+            Succeeded = [bool]$result.Succeeded
+            Message   = [string]$result.Message
+        }
+    } catch {
+        return @{ Attempted = $true; Succeeded = $false; Message = $_.Exception.Message }
+    }
 }
 
 function Get-HostConditionProvider {
@@ -169,7 +390,10 @@ function script:Register-IfAvailable {
         [string]$DisplayFn,
         # Optional: name of the inverse teardown function for the display
         # surface. Resolved only when present; absent on hosts that need nothing.
-        [string]$TeardownFn
+        [string]$TeardownFn,
+        # Optional: name of this platform's clock-discipline function.
+        # Resolved only when present.
+        [string]$ClockSyncFn
     )
     $missing = @()
     foreach ($fn in @($SetFn, $AssertFn, $MinimumFn)) {
@@ -194,23 +418,33 @@ function script:Register-IfAvailable {
         if ($teardownCmd) { $teardownBlock = $teardownCmd.ScriptBlock }
         else { Write-Verbose "Test.HostCondition: $HostType display teardown '$TeardownFn' not found; skipping that capability." }
     }
+    $clockBlock = $null
+    if ($ClockSyncFn) {
+        $clockCmd = Get-Command -Name $ClockSyncFn -ErrorAction SilentlyContinue
+        if ($clockCmd) { $clockBlock = $clockCmd.ScriptBlock }
+        else { Write-Verbose "Test.HostCondition: $HostType clock sync '$ClockSyncFn' not found; skipping that capability." }
+    }
     Register-HostConditionProvider -HostType $HostType `
         -Set             (Get-Command $SetFn).ScriptBlock `
         -Assert          (Get-Command $AssertFn).ScriptBlock `
         -AssertMinimum   (Get-Command $MinimumFn).ScriptBlock `
         -RequiresElevation $RequiresElevation `
         -Display         $displayBlock `
-        -DisplayTeardown $teardownBlock
+        -DisplayTeardown $teardownBlock `
+        -ClockSync       $clockBlock
 }
 Register-IfAvailable -HostType 'host.windows.hyper-v' `
     -SetFn 'Set-WindowsHostConditionSet' -AssertFn 'Assert-WindowsHostConditionSet' -MinimumFn 'Test-WindowsHostMinimum' `
     -DisplayFn 'Install-YurunaVirtualDisplay' -TeardownFn 'Remove-YurunaVirtualDisplay' `
+    -ClockSyncFn 'Sync-WindowsHostClock' `
     -RequiresElevation $true
 Register-IfAvailable -HostType 'host.macos.utm' `
     -SetFn 'Set-MacHostConditionSet'     -AssertFn 'Assert-MacHostConditionSet'     -MinimumFn 'Test-MacHostMinimum' `
+    -ClockSyncFn 'Sync-MacHostClock' `
     -RequiresElevation $false
 Register-IfAvailable -HostType 'host.ubuntu.kvm' `
     -SetFn 'Set-LinuxHostConditionSet'   -AssertFn 'Assert-LinuxHostConditionSet'   -MinimumFn 'Test-LinuxHostMinimum' `
+    -ClockSyncFn 'Sync-LinuxHostClock' `
     -RequiresElevation $false
 
 function Assert-HostConditionSet {
@@ -300,7 +534,8 @@ function Remove-HostDisplay {
 Export-ModuleMember -Function `
     Register-HostConditionProvider, Get-HostConditionProvider, Get-HostConditionProviderMatrix, Clear-HostConditionProvider, `
     Assert-HostConditionSet, Initialize-HostDisplay, Remove-HostDisplay, `
+    Get-HostClockSkew, Get-HostClockSkewLimit, Assert-HostClock, Sync-HostClock, `
     Assert-ScreenLock, Initialize-SudoCache, `
-    Set-MacHostConditionSet, Assert-Accessibility, Assert-ScreenRecording, Assert-MacHostConditionSet, Test-MacHostMinimum, `
-    Set-WindowsHostConditionSet, Assert-WindowsHostConditionSet, Test-WindowsHostMinimum, `
-    Set-LinuxHostConditionSet, Assert-LinuxHostConditionSet, Test-LinuxHostMinimum
+    Set-MacHostConditionSet, Assert-Accessibility, Assert-ScreenRecording, Assert-MacHostConditionSet, Test-MacHostMinimum, Sync-MacHostClock, `
+    Set-WindowsHostConditionSet, Assert-WindowsHostConditionSet, Test-WindowsHostMinimum, Sync-WindowsHostClock, `
+    Set-LinuxHostConditionSet, Assert-LinuxHostConditionSet, Test-LinuxHostMinimum, Sync-LinuxHostClock

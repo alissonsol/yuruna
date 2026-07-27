@@ -239,7 +239,7 @@ literals.
 
 | Variable | Pins | Consumed by |
 |---|---|---|
-| `YURUNA_K8S_MINOR` | Kubernetes apt-repo minor track (`pkgs.k8s.io/core:/stable:/v<minor>/deb`) | Ubuntu/AL2023 `*.k8s.sh` |
+| `YURUNA_K8S_MINOR` | Kubernetes apt-repo minor track (`pkgs.k8s.io/core:/stable:/v<minor>/deb`) | Ubuntu `*.k8s.sh` |
 | `YURUNA_OPENTOFU_VERSION` | OpenTofu release for the standalone installer's `--opentofu-version` | guest OpenTofu install |
 | `YURUNA_HELM_VERSION` | Helm release, passed to the installer as `DESIRED_VERSION=v<x>` | Ubuntu `*.k8s.sh` |
 | `YURUNA_NVM_VERSION` | nvm release tag (`nvm-sh/nvm`) the Ubuntu guests fetch `install.sh` from | Ubuntu `*.n8n.sh` / `*.openclaw.sh` |
@@ -535,6 +535,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.24
+Last review: 2026.07.26
 
 Back to [Yuruna](../README.md)

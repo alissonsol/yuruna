@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.24
+.VERSION 2026.07.26
 .GUID 42634a21-7352-4663-b6f4-cff499ce7a2b
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -654,9 +654,13 @@ function Send-ChordUTM {
     $baseCode = [int]$chord[1]
     $modFlag  = [int]$chord[2]
 
-    # Only integers are interpolated into the template below: it is assembled
-    # with -replace, whose REPLACEMENT string is substitution-aware ($&, $1),
-    # so a non-numeric value could be reinterpreted rather than inserted.
+    # The template is assembled with -replace, whose REPLACEMENT string is
+    # substitution-aware ($&, $1), so any value spliced in must carry no
+    # replacement metacharacters. The three keycode placeholders are coerced
+    # to [int] above, so they never can. The VM name is a string and is
+    # escaped just below -- for the JavaScript string literal (backslash,
+    # single quote) AND for -replace itself ($ doubled), so a name containing
+    # $& or $1 is inserted literally rather than reinterpreted.
     $jxaTemplate = @'
 ObjC.import('CoreGraphics');
 
@@ -710,7 +714,7 @@ if (!found) {
     'ok';
 }
 '@
-    $safeJxaVMName = $VMName -replace '\\', '\\\\' -replace "'", "\'"
+    $safeJxaVMName = $VMName -replace '\\', '\\\\' -replace "'", "\'" -replace '\$', '$$$$'
     $jxaScript = $jxaTemplate -replace '__VMNAME__', $safeJxaVMName `
                               -replace '__MODCODE__', $modCode `
                               -replace '__MODFLAG__', $modFlag `

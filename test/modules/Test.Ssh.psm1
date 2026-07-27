@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.24
+.VERSION 2026.07.26
 .GUID 422c9a3d-41bb-4e8c-9b64-5f7a1d0c9a12
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -620,11 +620,16 @@ System.Boolean. $true if SSH became ready, $false on timeout.
 
     # Failure path. Classify WHY before dumping diagnostics, so the dumps and
     # the operator guidance target the actual cause.
+    # The whole dump is Verbose: readiness failure is soft (callers fall back to
+    # the console rung and the cycle still passes), and the same multi-line block
+    # repeats for every diagnostic capture on a guest whose sshd is unreachable.
+    # The structured ssh_handshake_failed event below is the durable signal;
+    # raise the log level when actually debugging a handshake.
     $cause = Get-SshReadinessFailureCause -IpDiscovered $ipEverDiscovered -LastError $lastError
-    Write-Warning "SSH did not become ready within ${TimeoutSeconds}s (${attempts} attempts): $user@$lastTarget"
-    Write-Warning "  cause         : $cause (ipDiscovered=$ipEverDiscovered)"
-    Write-Warning "  last ssh error: $lastError"
-    Write-Warning "  private key   : $key"
+    Write-Verbose "SSH did not become ready within ${TimeoutSeconds}s (${attempts} attempts): $user@$lastTarget"
+    Write-Verbose "  cause         : $cause (ipDiscovered=$ipEverDiscovered)"
+    Write-Verbose "  last ssh error: $lastError"
+    Write-Verbose "  private key   : $key"
 
     if ($cause -eq 'ip_not_discovered') {
         # Never resolved a guest IP and never reached sshd: a host-side
@@ -633,11 +638,11 @@ System.Boolean. $true if SSH became ready, $false on timeout.
         # / verbose-handshake dumps below diagnose sshd+auth, so against the
         # bare VM-name fallback they would only echo DNS failures -- skip them
         # and point at the real fix instead.
-        Write-Warning "  guest IP was never discovered within the budget -- the host-side"
-        Write-Warning "  discovery layer (KVP / DHCP lease / utmctl) did not report an"
-        Write-Warning "  address. This is a discovery wait, not an sshd/auth failure:"
-        Write-Warning "  extend the budget or repair discovery (e.g. active ARP probe on a"
-        Write-Warning "  Hyper-V External vSwitch) before debugging sshd."
+        Write-Verbose "  guest IP was never discovered within the budget -- the host-side"
+        Write-Verbose "  discovery layer (KVP / DHCP lease / utmctl) did not report an"
+        Write-Verbose "  address. This is a discovery wait, not an sshd/auth failure:"
+        Write-Verbose "  extend the budget or repair discovery (e.g. active ARP probe on a"
+        Write-Verbose "  Hyper-V External vSwitch) before debugging sshd."
     } else {
         # We reached (or could resolve) a host: dump the sshd/auth diagnostics.
         # 1. Local public key + fingerprint
@@ -645,18 +650,18 @@ System.Boolean. $true if SSH became ready, $false on timeout.
             $pubPath = "$key.pub"
             if (Test-Path $pubPath) {
                 $pubLine = (Get-Content -Raw $pubPath).Trim()
-                Write-Warning "  local pubkey  : $pubLine"
+                Write-Verbose "  local pubkey  : $pubLine"
                 $fp = & ssh-keygen -lf $pubPath 2>&1
-                Write-Warning "  fingerprint   : $fp"
+                Write-Verbose "  fingerprint   : $fp"
             }
-        } catch { Write-Warning "  pubkey dump failed: $_" }
+        } catch { Write-Verbose "  pubkey dump failed: $_" }
 
         # 2. Private-key ACL (Windows OpenSSH strict-mode rejection diagnostic)
         if ($IsWindows) {
             try {
                 $aclLines = (& icacls $key 2>&1) -split "`r?`n" | Where-Object { $_.Trim() }
-                foreach ($l in $aclLines) { Write-Warning "  acl: $l" }
-            } catch { Write-Warning "  icacls failed: $_" }
+                foreach ($l in $aclLines) { Write-Verbose "  acl: $l" }
+            } catch { Write-Verbose "  icacls failed: $_" }
         }
 
         # 3. One verbose handshake so the actual reason is in the log. Bounded
@@ -665,7 +670,7 @@ System.Boolean. $true if SSH became ready, $false on timeout.
         # accepts TCP then stalls in banner/kex would otherwise hang the runner
         # during the failure/diagnostics phase (saveDiagnostics is downstream --
         # the worst place to block).
-        Write-Warning "  --- verbose handshake follows ---"
+        Write-Verbose "  --- verbose handshake follows ---"
         try {
             $vpsi = [System.Diagnostics.ProcessStartInfo]::new()
             $vpsi.FileName = 'ssh'
@@ -684,15 +689,15 @@ System.Boolean. $true if SSH became ready, $false on timeout.
             $veTask = $vproc.StandardError.ReadToEndAsync()
             if ($vproc.WaitForExit($probeCapSeconds * 1000)) {
                 foreach ($line in (($voTask.Result + $veTask.Result) -split "`r?`n")) {
-                    if ($line.Trim()) { Write-Warning "    [ssh -v] $($line.TrimEnd())" }
+                    if ($line.Trim()) { Write-Verbose "    [ssh -v] $($line.TrimEnd())" }
                 }
             } else {
                 try { $vproc.Kill($true) } catch { Write-Verbose "verbose-dump Kill failed: $($_.Exception.Message)" }
-                Write-Warning "    [ssh -v] verbose handshake exceeded ${probeCapSeconds}s (ssh hung post-TCP; killed)."
+                Write-Verbose "    [ssh -v] verbose handshake exceeded ${probeCapSeconds}s (ssh hung post-TCP; killed)."
             }
             $vproc.Dispose()
-        } catch { Write-Warning "  verbose dump failed: $($_.Exception.Message)" }
-        Write-Warning "  --- end verbose handshake ---"
+        } catch { Write-Verbose "  verbose dump failed: $($_.Exception.Message)" }
+        Write-Verbose "  --- end verbose handshake ---"
     }
 
     # Surface the failure as a structured NDJSON event so an autonomous

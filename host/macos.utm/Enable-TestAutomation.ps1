@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.24
+.VERSION 2026.07.26
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456754
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -29,6 +29,8 @@
       * AutoLogOutDelay -> 0 (kills "Log out after N min of inactivity")
       * App Nap for UTM.app -> suppressed
       * Power Nap / standby / auto-poweroff / hibernation -> all off
+      * lid-close (clamshell) sleep -> disabled, so a MacBook keeps running
+        its cycle with the lid shut
       * hot corners bound to Start Screen Saver / Display Sleep / Lock
         Screen -> neutralized
       * AppleSpacesSwitchOnActivation -> false (UTM activate during a run

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.24
+.VERSION 2026.07.26
 .GUID 42e1f2a3-b4c5-4d67-e890-1f2a3b4c5d68
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -279,11 +279,11 @@ if (Test-Path $baseImageFile) {
 }
 Move-Item -Path $downloadFile -Destination $baseImageFile
 
-# Origin sentinel records the IPSW filename, source URL, and byte count.
-# Test-DownloadAlreadyCurrent reads this on the next run to skip an
-# identical re-download. The IPSW filename is derived from the URL leaf.
-$isoFileName = [System.IO.Path]::GetFileName(([System.Uri]$sourceUrl).LocalPath)
-Set-Content -Path $baseImageOrigin -Value @($isoFileName, $sourceUrl, "$downloadedSize")
-Write-Output "Recorded source filename, URL, and byte count to: $baseImageOrigin"
+# Origin sentinel (filename, URL, byte count, Last-Modified) read back by
+# Test-DownloadAlreadyCurrent on the next run to skip an identical re-download.
+# Must go through the shared 4-line writer: the reader rejects shorter
+# sentinels, and a hand-rolled 3-line one silently disables the skip guard.
+Write-ImageSentinel -SourceUrl $sourceUrl -OriginFile $baseImageOrigin -SizeBytes $downloadedSize -Confirm:$false
+Write-Output "Recorded source filename, URL, byte count, and Last-Modified to: $baseImageOrigin"
 
 Write-Output "Download complete: $baseImageFile"

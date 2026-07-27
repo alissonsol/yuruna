@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.24
+.VERSION 2026.07.26
 .GUID 424c2b1a-6d93-4e57-b8a0-3c1f9d2e7b64
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -22,7 +22,7 @@
 # and the host port-map writes cannot interleave; the two hold profiles
 # ('rebuild' and 'portmap') differ only in their acquire timeout. Lock identity,
 # the stale-holder drain, the hold-profile table, and the adopt-or-rebuild
-# decision shape: docs/caching-proxy.md#rebuild-adopt-if-healthy-and-the-bring-up-lock
+# decision shape: docs/caching.md#rebuild-adopt-if-healthy-and-the-bring-up-lock
 
 $script:CachingProxyLockFile = 'caching-proxy.lock'
 

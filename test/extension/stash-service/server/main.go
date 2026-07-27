@@ -1,7 +1,7 @@
 // LICENSEURI https://yuruna.link/license
 // Copyright (c) 2019-2026 by Alisson Sol et al.
 
-// Yuruna Stash Service daemon. Spec: https://yuruna.link/stash-service.
+// Yuruna Stash Service daemon. Guide: https://yuruna.link/stash-guide.
 //
 // Single binary with two listeners: the SCP/SFTP sink on TCP/22 and the
 // UI/API HTTP server (default :80). In production the daemon is
@@ -54,7 +54,7 @@ func main() {
 	log.SetFlags(log.LstdFlags | log.LUTC | log.Lmicroseconds)
 
 	if *shareFolder == "" {
-		log.Fatalf("--share-folder is required (the daemon writes to the mounted stash share; see https://yuruna.link/stash-service §6.1)")
+		log.Fatalf("--share-folder is required (the daemon writes to the mounted stash share; see https://yuruna.link/stash-guide)")
 	}
 	log.Printf("stash-server starting; share=%s metadata=%s buffer=%s", *shareFolder, *metadataDir, *bufferDir)
 

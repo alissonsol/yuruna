@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.24
+.VERSION 2026.07.26
 .GUID 42d4a3b2-c1f0-4e89-5678-9a0b1c2d3e40
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -34,12 +34,22 @@ function Get-MacPmsetGuardList {
     set -- a host that drifts (MDM re-enables a guard, pmset reverts on an OS
     update) fails the gate instead of blanking UTM mid-run. Per-key rationale at
     https://yuruna.link/host/macos.
+
+    A key absent from `pmset -g custom` normally counts as "this macOS no longer
+    surfaces it under that name" and is left alone. AlwaysApply marks the keys
+    where absence proves nothing instead -- Set- writes those unconditionally.
     #>
     [CmdletBinding()]
     [OutputType([object[]])]
     param()
     return @(
-        @{ Key = 'disablesleep'  ; Want = 1 }
+        # AlwaysApply: macOS does not list disablesleep in `pmset -g custom`
+        # until it has been written at least once, so on a Mac that never had
+        # it set -- the exact host that needs it -- absence would otherwise read
+        # as "already 1" and the write would never happen. With disablesleep 0 a
+        # MacBook suspends the moment its lid closes, taking every running guest
+        # and the rest of the cycle down with it.
+        @{ Key = 'disablesleep'  ; Want = 1 ; AlwaysApply = $true }
         @{ Key = 'powernap'      ; Want = 0 }
         @{ Key = 'standby'       ; Want = 0 }
         @{ Key = 'standbydelay'  ; Want = 0 }
@@ -49,6 +59,51 @@ function Get-MacPmsetGuardList {
         @{ Key = 'tcpkeepalive'  ; Want = 1 }
         @{ Key = 'proximitywake' ; Want = 0 }
     )
+}
+
+function Get-MacPmsetGuardPending {
+    <#
+    .SYNOPSIS
+    The guards that still need `sudo pmset -a <key> <want>`, decided from the
+    output of `pmset -g custom`.
+    .DESCRIPTION
+    Kept as a pure function of that output so the rule can be exercised without
+    a Mac (Test.HostConditionMacPmset.Tests.ps1) -- the alternative is a rule
+    that only ever runs on the one host it is supposed to protect.
+
+    A key present with the wrong value is pending. A key macOS does not list is
+    NOT pending: absence means this release renamed or dropped it, and writing a
+    name pmset no longer knows buys nothing but a sudo prompt. AlwaysApply keys
+    invert that -- for those, absence carries no information at all (see
+    Get-MacPmsetGuardList), so they are pending until they read back correct.
+    .PARAMETER PmsetCustom
+    The lines of `pmset -g custom`. Empty (pmset absent or failed) leaves every
+    non-AlwaysApply guard alone rather than guessing.
+    .PARAMETER Guard
+    Guard entries to evaluate; defaults to the canonical Get-MacPmsetGuardList.
+    .OUTPUTS
+    The subset of Guard needing a write, in list order.
+    #>
+    [CmdletBinding()]
+    [OutputType([object[]])]
+    param(
+        [string[]]$PmsetCustom,
+        [object[]]$Guard
+    )
+    if (-not $Guard) { $Guard = Get-MacPmsetGuardList }
+    $pending = @()
+    foreach ($g in $Guard) {
+        # Every block pmset prints (Battery Power / AC Power / UPS Power) counts,
+        # not just the first one: the writes go out with `-a`, so a key that is
+        # right on battery and wrong on AC is drift that still needs re-applying.
+        $lines = @($PmsetCustom | Select-String -Pattern ('^\s*' + [regex]::Escape($g.Key) + '\s+(\d+)'))
+        if ($lines.Count -gt 0) {
+            if (@($lines | Where-Object { [int]$_.Matches[0].Groups[1].Value -ne $g.Want }).Count -gt 0) { $pending += $g }
+        } elseif ($g.AlwaysApply) {
+            $pending += $g
+        }
+    }
+    return @($pending)
 }
 
 function Confirm-MacDefaultWrite {
@@ -285,7 +340,10 @@ function Assert-ScreenLock {
     #    same Get-MacPmsetGuardList Set- applies, so the asserted set is exactly
     #    the applied set and a drifted host fails here instead of blanking UTM
     #    mid-run. A key absent from 'pmset -g custom' (macOS-version dependent) is
-    #    skipped, matching how Set- decides.
+    #    skipped here even when Set- force-writes it (AlwaysApply): a Mac with no
+    #    lid never surfaces disablesleep at all, and failing the gate on a key
+    #    that host cannot have would block a perfectly good desktop test host.
+    #    A laptop that drifts back to 0 does list the key, so it still fails here.
     try {
         $pmCustom = & pmset -g custom 2>$null
         foreach ($k in @('sleep', 'disksleep')) {
@@ -591,22 +649,22 @@ function Set-MacHostConditionSet {
     # shared with Assert-ScreenLock (Get-MacPmsetGuardList) so the gate re-checks
     # exactly what is applied here. Per-key rationale, OptionalKey policy, and
     # precheck-before-sudo logic at https://yuruna.link/host/macos
-    $pmsetGuards = Get-MacPmsetGuardList
-    $pmCustom = & pmset -g custom 2>$null
-    $pmsetAnyMismatch = $false
-    foreach ($g in $pmsetGuards) {
-        $line = $pmCustom | Select-String -Pattern ('^\s*' + [regex]::Escape($g.Key) + '\s+(\d+)') | Select-Object -First 1
-        if ($line -and [int]$line.Matches[0].Groups[1].Value -ne $g.Want) {
-            $pmsetAnyMismatch = $true; break
-        }
-    }
-    $pmsetAllApplied = -not $pmsetAnyMismatch
-    if ($pmsetAllApplied) {
+    $pmsetGuards  = Get-MacPmsetGuardList
+    $pmsetPending = @(Get-MacPmsetGuardPending -PmsetCustom (& pmset -g custom 2>$null) -Guard $pmsetGuards)
+    if ($pmsetPending.Count -eq 0) {
         Write-Information "Extended pmset guards verified (no mismatched keys in 'pmset -g custom')."
     } elseif ($wrapperPrimed) {
-        Write-Warning "Extended pmset guards have a mismatch in 'pmset -g custom'; bash prelude may need updating for this macOS version. Skipping."
+        # Name the exact commands: the operator has to run them by hand here,
+        # and a generic "there is a mismatch" leaves them reading pmset output
+        # against a guard list they can't see.
+        Write-Warning "Extended pmset guards are not applied. Run these yourself before starting tests:"
+        foreach ($g in $pmsetPending) { Write-Warning "  sudo pmset -a $($g.Key) $($g.Want)" }
     } elseif ($PSCmdlet.ShouldProcess("Extended pmset guards", "Apply via sudo pmset -a")) {
-        Write-Information "Applying extended pmset guards (powernap, standby, autopoweroff, hibernatemode, ttyskeepawake, tcpkeepalive)..."
+        # Re-apply the whole list, not just the pending keys: every write is
+        # idempotent, and a key macOS renamed is cheaper to write blindly than
+        # to track per release. Key names come from the list so this message
+        # cannot drift away from what is actually written.
+        Write-Information "Applying extended pmset guards ($(($pmsetGuards | ForEach-Object { $_.Key }) -join ', '))..."
         foreach ($g in $pmsetGuards) { & sudo pmset -a $g.Key $g.Want 2>$null | Out-Null }
         $changed = $true
     }
@@ -877,6 +935,18 @@ if (!granted) { $.CGRequestScreenCaptureAccess(); }
         Write-Warning "Could not check Screen Recording status. Grant it manually in System Settings."
     }
 
+    # -- 6. Host clock -> network time on + stepped -------------------------
+    # Guests inherit this clock at power-on; see Sync-MacHostClock for what
+    # a drifting one does to them. The sudo cache primed at the top of this
+    # function covers the two calls, so no extra prompt appears here.
+    $clock = Sync-MacHostClock
+    if ($clock.Succeeded) {
+        Write-Information "Host clock: $($clock.Message)"
+        $changed = $true
+    } else {
+        Write-Warning "Host clock not disciplined: $($clock.Message)"
+    }
+
     if ($changed) {
         Write-Information ""
         Write-Information "Settings updated. Re-run Assert-MacHostConditionSet to verify:"
@@ -1027,13 +1097,70 @@ if (!list) { 'false' } else {
     return $false
 }
 
+function Sync-MacHostClock {
+    <#
+    .SYNOPSIS
+    Put the host clock back under NTP discipline: network time on, then a
+    forced sync against the configured server. Returns @{ Succeeded; Message }.
+
+    .DESCRIPTION
+    UTM/Virtualization.framework seeds each guest's clock from this host
+    at power-on, so a drifting host hands the same error to every VM it
+    starts and the guest's own NTP client then steps the clock mid-boot
+    -- which is what leaves a Kubernetes guest with pods Running but
+    never Ready and its NodePorts refusing.
+
+    `systemsetup -setusingnetworktime on` is the durable half (it survives
+    reboots); `sntp -sS` is the immediate half, because turning the daemon
+    on does not itself step a clock that is already hours out.
+
+    Both need root. Reports rather than throws: a caller at a cycle
+    boundary has to be free to carry on with a warning when sudo is not
+    available, and this must never sit waiting on a password prompt --
+    hence sudo -n throughout.
+
+    .OUTPUTS
+    [hashtable] Succeeded (bool), Message (string).
+    #>
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([hashtable])]
+    param([string]$TimeServer = 'time.apple.com')
+
+    if (-not $IsMacOS) {
+        return @{ Succeeded = $false; Message = 'Sync-MacHostClock is only supported on macOS.' }
+    }
+    $manual = "Fix by hand: sudo systemsetup -setusingnetworktime on; sudo sntp -sS $TimeServer"
+    if (-not $PSCmdlet.ShouldProcess('Host clock', "Enable network time and resynchronize against $TimeServer")) {
+        return @{ Succeeded = $false; Message = 'Skipped (WhatIf).' }
+    }
+
+    $steps = @()
+    # -n: never prompt. An unattended runner blocked on a hidden sudo
+    # password prompt is a hang, not a failed clock sync.
+    $netTimeOut = & sudo -n systemsetup -setusingnetworktime on 2>&1
+    if ($LASTEXITCODE -eq 0) {
+        $steps += 'network time on'
+    } else {
+        return @{ Succeeded = $false; Message = "systemsetup -setusingnetworktime failed: $(($netTimeOut | Out-String).Trim()). $manual" }
+    }
+    # -s steps the clock, -S sets it even for a large offset; timesyncd-
+    # style slewing would take hours to close a multi-minute gap.
+    $sntpOut = & sudo -n sntp -sS $TimeServer 2>&1
+    if ($LASTEXITCODE -ne 0) {
+        return @{ Succeeded = $false; Message = "sntp -sS $TimeServer failed: $(($sntpOut | Out-String).Trim()). $manual" }
+    }
+    $steps += "stepped against $TimeServer"
+    return @{ Succeeded = $true; Message = "Host clock: $($steps -join ', ')." }
+}
+
 function Assert-MacHostConditionSet {
     <#
     .SYNOPSIS
     Single gate for macOS prerequisites: Accessibility + Screen Recording
-    permissions and screen lock / display sleep settings. Returns $true
-    on non-macOS or when all conditions pass; $false with diagnostics on
-    failure. Invoke once at startup and again before each test cycle.
+    permissions, screen lock / display sleep settings, and host clock.
+    Returns $true on non-macOS or when all conditions pass; $false with
+    diagnostics on failure. Invoke once at startup and again before each
+    test cycle.
     #>
     param([string]$HostType)
     if ($HostType -ne "host.macos.utm") { return $true }
@@ -1041,6 +1168,8 @@ function Assert-MacHostConditionSet {
     if (-not (Assert-Accessibility    -HostType $HostType)) { return $false }
     if (-not (Assert-ScreenRecording  -HostType $HostType)) { return $false }
     if (-not (Assert-ScreenLock       -HostType $HostType)) { return $false }
+    # Guests inherit this clock at power-on; see Assert-HostClock.
+    if (-not (Assert-HostClock        -HostType $HostType)) { return $false }
 
     return $true
 }
@@ -1075,4 +1204,4 @@ function Test-MacHostMinimum {
     return $ok
 }
 
-Export-ModuleMember -Function Assert-ScreenLock, Initialize-SudoCache, Set-MacHostConditionSet, Assert-Accessibility, Assert-ScreenRecording, Assert-MacHostConditionSet, Test-MacHostMinimum
+Export-ModuleMember -Function Assert-ScreenLock, Initialize-SudoCache, Set-MacHostConditionSet, Assert-Accessibility, Assert-ScreenRecording, Assert-MacHostConditionSet, Test-MacHostMinimum, Sync-MacHostClock

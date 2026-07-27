@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.24
+.VERSION 2026.07.26
 .GUID 42a1b2c3-d4e5-4f67-8901-bc012345674a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -20,7 +20,7 @@
 .SYNOPSIS
     Smoke-tests a caching-proxy (local or remote) before Invoke-TestRunner.
     Probes :3128, :3129, :80, :3000 and GETs /yuruna-squid-ca.crt, PASS/
-    FAIL/WARN per check. See docs/caching-proxy.md for the full story.
+    FAIL/WARN per check. See the operator reference in docs/caching.md for the full story.
     Resolves the cache in the SAME order Invoke-TestRunner does at cycle
     start: vmStart.cachingProxyIP (test.config.yml) first, then
     $Env:YURUNA_CACHING_PROXY_IP, then local discovery -- so the IP this

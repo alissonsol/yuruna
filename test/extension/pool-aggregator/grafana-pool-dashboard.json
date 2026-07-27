@@ -44,7 +44,7 @@
       "id": 2,
       "type": "stat",
       "title": "Hosts total",
-      "description": "Distinct pool hosts seen within the last 24h, keyed on the stable hostId (reachable or not). Driven by yuruna_pool_hosts_total from the pool-aggregator.",
+      "description": "Distinct pool hosts seen within the aggregator's host TTL (24h by default, -host-ttl), keyed on the stable hostId (reachable or not). Driven by yuruna_pool_hosts_total from the pool-aggregator.",
       "gridPos": { "h": 4, "w": 3, "x": 4, "y": 0 },
       "datasource": { "type": "prometheus", "uid": "yuruna-prometheus" },
       "targets": [

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.24
+.VERSION 2026.07.26
 .GUID 42f1b2c3-d4e5-4f67-8901-a2b3c4d5e680
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -26,7 +26,7 @@
     stash share, fetches the framework, and runs the bring-up script which
     builds + launches the daemon under systemd.
 
-    See https://yuruna.link/stash-service for the full specification.
+    See https://yuruna.link/stash-guide for the stash user guide.
 
 .PARAMETER VMName
     Name of the Hyper-V VM. Default: yuruna-stash-service.
@@ -156,8 +156,8 @@ Write-Output "See configuration at: $(Resolve-ExtensionAreaDir -Area 'authentica
 # is reachable only from same-host peers and the NAS likely isn't routable.
 $switchName = Get-OrCreateYurunaExternalSwitch
 if (-not $switchName) {
-    Write-Output "WARNING: External vSwitch unavailable -- falling back to 'Default Switch'."
-    Write-Output "  The stash VM won't be reachable from LAN by its own IP, and the NAS may be unreachable."
+    Write-Verbose "External vSwitch unavailable -- falling back to 'Default Switch'."
+    Write-Verbose "  The stash VM won't be reachable from LAN by its own IP, and the NAS may be unreachable."
     $switchName = 'Default Switch'
 }
 
@@ -326,7 +326,8 @@ Write-Output ""
 Write-Output "Cloud-init mounts the stash share, fetches the framework, and runs the"
 Write-Output "bring-up script. Once it finishes, the stash daemon owns :22 (the OS"
 Write-Output "sshd is disabled), so reach it with scp:  scp ./file user@$dockIp`:/scratch"
-Write-Output "Watch progress:  ssh stash-admin@$dockIp 'tail -f /var/log/cloud-init-output.log'"
+Write-Output "Watch progress:  ssh stash-admin@$dockIp 'sudo tail -f /var/log/cloud-init-output.log'"
+Write-Output "(the log is root-only; stash-admin has NOPASSWD sudo, so 'sudo tail' works over the harness key)"
 Write-Output "(harness key authorized until the daemon takes over :22). See"
-Write-Output "https://yuruna.link/stash-service."
+Write-Output "https://yuruna.link/stash-guide."
 exit 0

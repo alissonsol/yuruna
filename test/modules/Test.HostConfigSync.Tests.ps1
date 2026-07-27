@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.24
+.VERSION 2026.07.26
 .GUID 42f6a2c8-1d3e-4b90-8a7f-2e3d4c5b6a7e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -260,6 +260,18 @@ Describe 'Yuruna control proof (status-server control-route auth)' {
         Assert-True (-not (Test-YurunaControlProof -Token 'tok-1' -Wire 'no-dot')) 'malformed wire rejected'
         Assert-True (-not (Test-YurunaControlProof -Token 'tok-1' -Wire '')) 'empty wire rejected'
         Assert-True (-not (Test-YurunaControlProof -Token '' -Wire $wire)) 'no token configured -> reject'
+    }
+    It 'accepts a proof minted at the aggregator TTL, so the cap stays above the mint' {
+        # The aggregator mints expiry = now + 15 min. The verifier window has no skew
+        # grace, so an acceptance cap equal to the mint would reject a freshly minted
+        # proof on any host whose clock trails the proxy by a second. Pin the surplus:
+        # mint-length proof accepted, and a proof past the cap still rejected.
+        $now = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
+        $mintTtl = 15 * 60
+        $atMint = Get-YurunaControlProof -Token 'tok-1' -ExpiryUnixSeconds ($now + $mintTtl)
+        Assert-True (Test-YurunaControlProof -Token 'tok-1' -Wire $atMint) 'proof minted at the aggregator TTL is accepted'
+        $beyondCap = Get-YurunaControlProof -Token 'tok-1' -ExpiryUnixSeconds ($now + 1800)
+        Assert-True (-not (Test-YurunaControlProof -Token 'tok-1' -Wire $beyondCap)) 'proof beyond the acceptance cap is still rejected'
     }
     It 'rejects an expired proof and a far-future (beyond MaxTtl) proof' {
         $now = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()

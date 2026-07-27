@@ -78,7 +78,7 @@ After the guest OS is up, test workloads:
 
 - **[All documentation](docs/README.md)** — what every doc under `docs/` covers
 - [Requirements](docs/requirements.md) · [Workarounds & FAQ](docs/workarounds.md) · [Roadmap](docs/opportunities.md#roadmap)
-- Lab [operator](docs/operator.md) guide
+- Machine [operator](docs/operator.md) and [lab operator](docs/lab-operator.md) guides
 - [Contributing](CONTRIBUTING.md) · [Contributors](CONTRIBUTING.md#contributors) · [Opportunities](docs/opportunities.md)
 
 **Cost warning**: Cloud resources incur charges. Always clean up
@@ -90,4 +90,4 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.24
+Last review: 2026.07.26

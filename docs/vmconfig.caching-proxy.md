@@ -22,8 +22,8 @@ across sibling docs:
 - [vmconfig.md](vmconfig.md) -- shared guest user-data rationale; the cache
   appears there only as a *client* concern (apt proxy block, CA trust, proxy
   egress enforcement).
-- [caching-proxy.md](caching-proxy.md) -- the operator / wiring reference
-  (serving remote clients, port-map dispatch, host-proxy promotion). That doc
+- [caching.md -> operator reference](caching.md#caching-proxy--test-harness-operator-reference) -- the operator / wiring
+  (serving remote clients, port-map dispatch, host-proxy promotion). That section
   is about *using* the cache; this one is about how the cache VM is *built*.
 - [caching.md](caching.md) -- squid SSL-bump, refresh_pattern and
   YurunaCacheContent concepts referenced from the embedded squid.conf.
@@ -150,7 +150,7 @@ caching-proxy-parser / kernel / page cache. Swap is masked, so tune VM
 RAM + `cache_mem` + zot together -- 58 % on a smaller VM would OOM
 mid-cycle with no swap fallback. The VM-side numbers (12 GB / 4 vCPU on
 every host) are in
-[caching-proxy.md -> Cache VM sizing](caching-proxy.md#cache-vm-sizing).
+[caching.md -> Cache VM sizing](caching.md#cache-vm-sizing).
 
 **Disk cache sizing.** `cache_dir ufs /var/spool/squid 393216 16 256`:
 384 GB of the 512 GB VM disk for squid (393216 MB in squid's three-int
@@ -475,6 +475,12 @@ caching-proxy-parser fails closed (the binary may not be present if the build ab
 
 pool-aggregator: read-only pool view. Soft-fail like the parser -- the binary may be absent if the build above failed; prometheus already has the pool-aggregator scrape job (it just reads 'down' until the daemon is up).
 
+How long a host stays in that view after its last contact is `-host-ttl` in the unit's `ExecStart` (default `24h`): change it and run `systemctl daemon-reload && systemctl restart pool-aggregator` -- no rebuild. The `daemon-reload` is load-bearing; without it systemd restarts from its cached copy of the unit and the old value silently stays in force (the same trap [caching.md](caching.md) documents for the squid units). A non-positive value falls back to 24h. The flag only exists in binaries built from the commit that introduced it, so on a proxy provisioned before that, re-provision first -- an unknown flag makes the binary exit immediately and `Restart=on-failure` turns it into a crash loop.
+
+Restarting is not free, and for this particular knob it partly works against you. On startup the aggregator re-seeds host stubs from the Loki presence feed over `-rehydrate-window` (default `168h`, **not** the host TTL) and stamps each stub as last-seen *now*, so a machine that has been gone for days comes back as a `Reachable=false` row and then survives a full host TTL of failed probes. The restart you perform to shorten the TTL is what re-creates the rows you were trying to remove. A restart also resets the degraded/alert hysteresis latch. So `-host-ttl` sets the steady-state window; to evict a specific decommissioned host deterministically use `Remove-PoolHost.ps1` / `POST /api/v1/forget-host`, which also clears its cumulative counters.
+
+Note this 24h is not the dashboard's default time range mentioned above, and not the last-seen window `Remove-PoolHost.ps1` enforces before it will forget a record. Three different 24-hour values, three different meanings.
+
 ### Pool intent store seeding
 
 Yuruna pool intent store: a bare git repo pooled hosts clone + pull READ-ONLY over HTTP (the yuruna-pool-intent apache conf) to learn pool membership + desiredState. The admin CLI (run on the proxy) pushes intent here. Seeded with an empty, schema-valid pools.yml on 'main' so the first clone is non-empty + deterministic. The post-update hook keeps the dumb-HTTP info current on every push. Idempotent (re-run skips an existing repo) and soft-fail (each fallible step is `|| true`) so it can never abort the phase.
@@ -535,6 +541,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.24
+Last review: 2026.07.26
 
 Back to [Yuruna](../README.md)

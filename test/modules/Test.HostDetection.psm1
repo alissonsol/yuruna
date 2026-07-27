@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.24
+.VERSION 2026.07.26
 .GUID 42a7b8c9-d0e1-4f23-9456-7e8f9a0b1c20
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -152,10 +152,10 @@ function Invoke-LibvirtGroupReExecIfNeeded {
 
     .PARAMETER BoundParameters
         $PSBoundParameters from the calling script. Forwarded verbatim
-        so explicit args survive the relaunch. Supported types in the
-        affected scripts: [string], [int], [double], [switch] -- no
-        complex types (arrays/hashtables) appear in any current entry
-        point's param block.
+        so explicit args survive the relaunch. Handles the types that
+        appear in the affected entry points: [string], [int], [double],
+        [switch] and [string[]] (multi-value parameters such as
+        Remove-TestVMFiles' -Prefix keep their element boundaries).
     #>
     [CmdletBinding()]
     param(
@@ -176,24 +176,37 @@ function Invoke-LibvirtGroupReExecIfNeeded {
     $scriptName = Split-Path -Leaf $ScriptPath
     Write-Output "This shell's group set predates 'libvirt' membership -- re-launching '$scriptName' under 'sg libvirt'."
 
-    # Build the forwarded-args string for bash. Single-quote each value
-    # and escape internal single quotes via the classic bash idiom
-    # 'foo' + \' + 'bar' (a closing quote, an escaped quote, a reopening
-    # quote). Switches emit "-Name" only when .IsPresent.
+    # Build the relaunch as a PowerShell command line, not a `pwsh -File`
+    # argument list: -File binds every token as a plain string, so a
+    # multi-value parameter (-Prefix a,b) arrives as the single literal
+    # "a,b" -- a prefix that matches no VM, reported as a clean sweep.
+    # Values are quoted PowerShell-side (single quotes, internal ' doubled)
+    # and a collection becomes a comma-joined quoted list.
     $argParts = @()
     foreach ($key in $BoundParameters.Keys) {
         $val = $BoundParameters[$key]
         if ($val -is [System.Management.Automation.SwitchParameter]) {
             if ($val.IsPresent) { $argParts += "-$key" }
+        } elseif ($val -is [string] -or $val -isnot [System.Collections.IEnumerable]) {
+            $argParts += "-$key '$("$val" -replace "'", "''")'"
         } else {
-            $escaped = "$val" -replace "'", "'\''"
-            $argParts += "-$key '$escaped'"
+            $items = @($val | ForEach-Object { "'$("$_" -replace "'", "''")'" })
+            $argParts += "-$key $($items -join ',')"
         }
     }
-    $argString     = if ($argParts.Count -gt 0) { ' ' + ($argParts -join ' ') } else { '' }
-    $scriptEscaped = $ScriptPath -replace "'", "'\''"
+    $invocation = (@("& '$($ScriptPath -replace "'", "''")'") + $argParts) -join ' '
+    # -Command reports its own success, not the script's: without the
+    # trailing exit the relaunched script's exit code is flattened to 0/1
+    # and a caller that branches on it (the cycle sweep treats non-zero as
+    # "VMs survived") reads a failed sweep as clean. The catch keeps a
+    # terminating error at exit 1, which is what -File would have returned.
+    $psCommand = "try { $invocation } catch { Write-Error `$_; exit 1 }; exit `$LASTEXITCODE"
 
-    & sg libvirt -c "YURUNA_SG_RELAUNCH=1 pwsh -NoLogo -NoProfile -File '$scriptEscaped'$argString"
+    # The whole pwsh command line is one bash word, so it is single-quoted
+    # for bash with the classic 'foo' + \' + 'bar' escape (a closing quote,
+    # an escaped quote, a reopening quote) around any internal quote.
+    $bashEscaped = $psCommand -replace "'", "'\''"
+    & sg libvirt -c "YURUNA_SG_RELAUNCH=1 pwsh -NoLogo -NoProfile -Command '$bashEscaped'"
     exit $LASTEXITCODE
 }
 

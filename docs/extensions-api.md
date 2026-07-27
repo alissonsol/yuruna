@@ -153,12 +153,44 @@ instead:
 
 `-announce-ttl 0` disables the route.
 
+`-host-ttl <duration>` (default `24h`) sets how long a host stays in the pool
+view after its last contact; the reap drops the row on the next poll. Two values
+follow it rather than being configured separately, so they cannot be ordered
+wrongly:
+
+- the **per-cycle dedup state** (which `hostId|cycleId` pairs have been counted)
+  is kept one hour past the row, so a host that is reaped and then re-appears
+  cannot re-count a terminal cycle it was already counted for;
+- the Loki lookback resolving a departed host's address for dashboard deep links
+  — including the `/go/host` redirect that mints a control proof — follows the
+  TTL upward but never drops below 24h, so shortening the TTL cannot 404 a link
+  the dashboard still displays. (`/go/cycle`'s own cycle-folder match keeps a
+  separate fixed 6h window.)
+
+This does **not** bound the cumulative `yuruna_pool_cycles_pass_total` /
+`_fail_total` counters: those are not time-expired at all, and survive until the
+process restarts or `POST /api/v1/forget-host` clears that host. Shortening the
+TTL also does not by itself evict a host that keeps being re-seeded from the
+presence feed on restart — `Remove-PoolHost.ps1` / forget-host is the
+deterministic path.
+
+To change it, edit `pool-aggregator.service` and run
+`systemctl daemon-reload && systemctl restart pool-aggregator` — no rebuild.
+**`daemon-reload` is not optional:** a bare restart re-execs systemd's cached
+unit and the old value stays in force. A drop-in works too, but the unit is
+`Type=simple`, so the drop-in must reset `ExecStart` first (`ExecStart=` on its
+own line, then the full replacement) or systemd refuses to load the service. A
+non-positive value falls back to the 24h default. The flag exists only in
+binaries built from the commit that added it — on an older proxy, check
+`pool-aggregator -h | grep host-ttl` before adding it, or the service crash-loops
+on `flag provided but not defined`.
+
 ---
 
 LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.24
+Last review: 2026.07.26
 
 Back to [Yuruna](../README.md)

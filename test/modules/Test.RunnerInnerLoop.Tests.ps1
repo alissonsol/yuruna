@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.24
+.VERSION 2026.07.26
 .GUID 42e2607c-3d4e-4f50-8a61-7c8d9e0f1a2b
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -730,6 +730,38 @@ Describe 'Inner-cycle control-flow shape (guest dispatch + single-pass invariant
         Assert-True ($f.HelperLoopContinues -eq 0) "iteration must contain 0 continue statements, found $($f.HelperLoopContinues)"
         Assert-True ($f.HelperReturns -eq 15) "iteration must have 15 signaled returns (1 shutdown + 6 stop + 1 skip + 6 teardown + 1 cleanup-hazard), found $($f.HelperReturns)"
         Assert-True ($f.HelperControlSets -eq 16) "iteration must set `$IterState.Control 16 times (1 init + 8 break + 7 continue), found $($f.HelperControlSets)"
+    }
+}
+
+Describe 'Inner-cycle status-document lifetime (the orchestration-cycle window)' {
+    # The status document lives in Test.Status module state, so the -Force
+    # re-import that propagates a mid-run `git pull` discards it. A per-guest
+    # cycle rebuilds it a few regions later at Initialize-StatusDocument; a cycle
+    # whose top-level is an orchestration sequence skips that block entirely and
+    # would run every status write -- infra-failure records included -- against no
+    # document until the orchestrator installs its own. These two guards pin the
+    # rebuild and the empty-guest-list gate that go with it; both are invisible to
+    # a green per-guest cycle, so only source text can hold them in place.
+    It 'rebuilds the status document after the per-cycle module re-import and before the first status write' {
+        # Position math, not a (?s) regex: the cycle-start Reset also matches the
+        # call text, so only "which one comes after the re-import" distinguishes
+        # the rebuild from it.
+        $src      = Get-Content -LiteralPath (Join-Path $here 'Test.RunnerInnerLoop.psm1') -Raw
+        $reimport = $src.IndexOf('Update-CycleModuleImport -RepoRoot')
+        Assert-True ($reimport -ge 0) 'the per-cycle module re-import call must be present'
+        $rebuild  = $src.IndexOf('Reset-StatusDocumentForCycleStart -StatusFilePath $StatusFile', $reimport)
+        $stamp    = $src.IndexOf('Set-LastGetImageTime', $reimport)
+        Assert-True ($rebuild -gt $reimport) `
+            'the re-import must be followed by a Reset-StatusDocumentForCycleStart, or the rest of the cycle mutates no document'
+        Assert-True ($stamp -gt $rebuild) `
+            'the rebuild must precede the first status mutator the cycle reaches'
+    }
+    It 'stamps the Get-Image refresh window only when the cycle actually had guests' {
+        $src = Get-Content -LiteralPath (Join-Path $here 'Test.RunnerInnerLoop.psm1') -Raw
+        Assert-True ($src -match 'if\s*\(\s*\$OverallPassed\s+-and\s+\$GuestList\.Count\s+-gt\s+0\s*\)') `
+            'Set-LastGetImageTime must be gated on a non-empty guest list'
+        Assert-True ($src -notmatch 'if\s*\(\s*\$OverallPassed\s*\)\s*\{\s*\r?\n\s*Set-LastGetImageTime') `
+            'an ungated stamp opens a fresh refresh window for images an orchestration cycle never fetched'
     }
 }
 

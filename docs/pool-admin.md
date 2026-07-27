@@ -72,8 +72,11 @@ Run once per host:
 pwsh test/Add-HostToPool.ps1 -PoolId lab -HostId 42abcdef0123456789abcdef01234567 -IntentGitUrl <writable-url>
 ```
 
-- `-HostId` is the host's `runtime/host.uuid` (`42` + 30 hex). Membership is the single
-  source of truth and is idempotent — re-adding a host is a no-op.
+- `-HostId` is the host's `runtime/host.uuid` (`42` + 30 hex). The pool dashboard's
+  **Host ID** column renders it GUID-dashed for readability, and every pool-admin
+  command accepts that form too, so a value copied off the panel works as pasted.
+  Membership is the single source of truth and is idempotent — re-adding a host is
+  a no-op.
 - To remove a host later, see **Step 6** below (drain it first if it is running).
 
 ## Step 3 — Group your test sequences into a test-set
@@ -153,7 +156,8 @@ In-flight cycles always finish, so pause/drain never corrupt an accumulating run
 ran cycles also leaves a `hosts/info.<hostId>.yml` identity record plus replicated
 cycle folders on the NAS, and — separately — keeps showing on the **Yuruna hosts**
 dashboard, which is the pool-aggregator's own polled, in-memory view (each host
-kept for a 24h TTL after last contact), *not* the NAS records. To fully retire a
+kept for the aggregator's host TTL after last contact — 24h by default, set with
+`-host-ttl`), *not* the NAS records. To fully retire a
 stale host — a disposable `example/nested.host` run, a decommissioned box, an id
 that will never return — use:
 
@@ -166,7 +170,7 @@ It (1) reads `networkStorage.poolLocalPath` from `test.config.yml` and deletes
 the id from EVERY pool's `members[]` (needs `pool.intentGitUrl`; without it the NAS
 records are still removed and membership is skipped with a warning); and (3) asks
 the aggregator to **forget** the host (`POST /api/v1/forget-host`) so it leaves the
-dashboard NOW instead of after its 24h TTL. Step 3 is opt-in + best-effort: it
+dashboard NOW instead of after the host TTL. Step 3 is opt-in + best-effort: it
 fires only when a `pool-auth-token` and a caching-proxy are configured (the same
 CA-pinned bearer transport as pool push), and a missing token / unreachable
 aggregator is a silent skip — the panel still self-clears on the TTL. A host that
@@ -194,6 +198,87 @@ schemas **before** writing, and `git commit` + `push` for you. `-IntentGitUrl` d
 command discards it — recover by re-running from a writable location (on the proxy: a `file://`
 or local path to the bare repo), or delete the admin clone dir to discard the local change and
 re-clone from the remote. Every command has full help: e.g. `Get-Help test/Set-PoolTestSet.ps1 -Full`.
+
+## Pool control service
+
+The Pool control service is the operator UI + API for the LAN pool intent. It
+serves three pages and drives the pool-intent git store; runners only PULL that
+store read-only. Every button routes through the same admin CLIs documented
+above, so the UI and the command line cannot diverge.
+
+### What it does
+
+- **Assign** (`/`) &mdash; assign a test-set (a framework/project repo pair) to each
+  pool; show members and the copy-config-from-a-peer command.
+- **Pools** (`/pools`) &mdash; create a pool (mints its stable `poolGuid`, the
+  dashboard "Pool ID"), set desiredState (run/paused/drain), add/remove hosts (a
+  host belongs to at most one pool), delete an empty pool.
+- **Test sets** (`/test-sets`) &mdash; CRUD the named-triple library
+  (`test-sets.yml`). GH_TOKEN is **never** stored here &mdash; it stays host-local.
+
+Assigning copies the chosen library triple into the pool's inline `testSet`; a
+pooled runner then overrides its `repositories.frameworkUrl`/`projectUrl` with it
+for the cycle and runs the assigned project's own `test.runner.yml`.
+
+### Architecture
+
+A small Go daemon (`test/extension/pool-control/server`, module `pool-control`) that:
+
+- Serves the embedded static pages + a JSON API (`/api/state`, `/api/pool`,
+  `/api/pool/testset`, `/api/testset`, ...). Strict page CSP; XSS-safe DOM.
+- **Shells out to the PowerShell pool-admin CLIs** (`New-Pool.ps1`,
+  `Set-PoolTestSet.ps1`, `Add-HostToPool.ps1`, `Remove-Pool.ps1`,
+  `Set-PoolTestSetDefinition.ps1`, `Get-PoolIntent.ps1`) rather than reimplementing
+  git + YAML + schema validation + commit/push in Go &mdash; one authoritative
+  implementation. A failed push surfaces to the UI as an error (never a silent
+  success).
+- **Self-announces** to the pool aggregator (beacon, area `pool-control`) and, via
+  the `runtime/pool-control.json` marker + `host.registration.json`, appears in the
+  Extension hosts table (shown as "Pool control"). Either path alone paints the row.
+- Persists an **audit log** (`audit.jsonl`) + **status.json** (last write,
+  last-publish outcome, heartbeat, intent-readable, health) under
+  `poolNetworkPath/pool-control/` (the pool NAS), surviving restarts. `/healthz`
+  serves that status. A monitor loop probes the intent every `--monitor-interval`.
+
+### Running it
+
+**Default &mdash; on its own VM:**
+
+```powershell
+pwsh test/Start-PoolControlVM.ps1 [-VMName yuruna-pool-control]
+# stop (and tear down the VM) with test/Stop-PoolControlVM.ps1
+```
+
+Like Start-CachingProxyVM / Start-StashVM, this brings the service up on a
+dedicated VM. `host/vmconfig/pool-control.base.user-data` seeds an Ubuntu guest
+that builds the daemon, installs pwsh + `powershell-yaml`, CIFS-mounts the pool NAS
+for the state dir, and runs it under systemd (`guest/ubuntu.server.26/ubuntu.server.26.pool-control.sh`).
+The per-hypervisor `guest.pool-control/New-VM.ps1` (mirroring the stash VM chain)
+generates the seed with `/etc/yuruna/{pool.env,host.env,pool-nas.cifs.cred}` and a
+distinct guest username. **No `go` toolchain is needed on the host** &mdash; the
+daemon is built inside the guest. The Extension-hosts row then points at the VM
+(beacon self-IP); deleting the VM clears it after the announce TTL.
+
+After the VM boots, the launcher waits for the daemon to actually serve on `:80`
+(up to 15 min; override with `YURUNA_POOL_CONTROL_READY_TIMEOUT=<seconds>`) before
+reporting success &mdash; an IP alone is not "up", since the guest still has to
+build the daemon. If `:80` never comes up, it pulls the in-guest build log,
+`cloud-init status`, and the `pool-control.service` journal over the harness SSH
+key and prints them, so a failed build shows you the reason instead of a dead URL.
+(That log is root-only; the harness `yuruna` account has NOPASSWD `sudo`, so
+`sudo tail /var/log/cloud-init-output.log` reads it &mdash; a plain `tail` returns
+`Permission denied`.)
+
+**Host-side (proof / fallback):**
+
+```powershell
+pwsh test/Start-PoolControlVM.ps1 -HostSideProof [-Port 8090] [-AggregatorUrl <url>]
+# UI at http://<host>:8090/ ; stop with test/Stop-PoolControlVM.ps1
+```
+
+`-HostSideProof` builds + runs the daemon directly on this host instead of a VM.
+Needs `go` + `pwsh` on PATH and the framework checkout (the CLIs live at
+`<repo>/test/*.ps1`).
 
 ## Current limitations
 
@@ -241,6 +326,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.24
+Last review: 2026.07.26
 
 Back to [Yuruna](../README.md)

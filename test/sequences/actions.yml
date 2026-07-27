@@ -21,9 +21,9 @@
 #
 # Besides the actions below, a step may be a SNIPPET REFERENCE -- a step
 # whose only key is `snippet: <name>` (no `action:`). The loader splices
-# the named step list (from a `_snippets.yml` library in the same mode
-# dir) in place, including inside retry blocks. See the Snippets section
-# of docs/test-sequences.md.
+# the named step list (from the `_snippets.yml` library alongside the
+# sequences) in place, including inside retry blocks. See the Snippets
+# section of docs/test-sequences.md.
 
 # Define defaults per sequence file. ${vmName}, ${hostType}, ${guestKey}
 # are built-in. Use ${varName} in step parameters.

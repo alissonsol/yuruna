@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.24
+.VERSION 2026.07.26
 .GUID 42a7c3e5-1f2b-4d6e-8a90-3c5b7d9e1f04
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -42,7 +42,8 @@
     which only edits ONE named pool's membership and never touches storage.
 .PARAMETER HostId
     Stable hostId to purge -- the record's hostUuid / runtime/host.uuid:
-    '42' + 30 hex.
+    '42' + 30 hex. The GUID-dashed rendering shown in the dashboard's Host ID
+    column is accepted too, so a value copied off the panel works as typed.
 .PARAMETER Force
     Override the safety refusals (own uuid / recently-seen record).
 .PARAMETER ConfigPath
@@ -57,6 +58,8 @@
     ./Remove-PoolHost.ps1 -HostId 42abcdef0123456789abcdef01234567
 .EXAMPLE
     ./Remove-PoolHost.ps1 -HostId 42abcdef0123456789abcdef01234567 -WhatIf
+.EXAMPLE
+    ./Remove-PoolHost.ps1 -HostId 42abcdef-0123-4567-89ab-cdef01234567
 #>
 
 [CmdletBinding(SupportsShouldProcess)]
@@ -89,10 +92,12 @@ $ExitOk      = Get-EntryPointExitCode -Outcome Ok
 $ExitFailure = Get-EntryPointExitCode -Outcome Failure
 Import-Module powershell-yaml -ErrorAction Stop
 
-if ($HostId -notmatch '^42[0-9a-fA-F]{30}$') {
-    Write-Error "HostId '$HostId' is invalid (expected the host's uuid: '42' + 30 hex)."
+$canonicalHostId = ConvertTo-YurunaHostId -Value $HostId
+if (-not $canonicalHostId) {
+    Write-Error "HostId '$HostId' is invalid (expected the host's uuid: '42' + 30 hex, with or without the dashboard's GUID dashes)."
     exit $ExitFailure
 }
+$HostId = $canonicalHostId
 
 # --- REGION: Resolve the pool storage path from test.config.yml
 $cfg = $null
@@ -143,19 +148,31 @@ if ((Test-Path -LiteralPath $infoPath) -and -not $Force) {
 }
 
 # --- REGION: Remove the NAS records
-$removed = [System.Collections.Generic.List[string]]::new()
+$removed           = [System.Collections.Generic.List[string]]::new()
+$storageIncomplete = $false
 if (Test-Path -LiteralPath $infoPath) {
     if ($PSCmdlet.ShouldProcess($infoPath, 'Delete pool host-identity record')) {
-        Remove-Item -LiteralPath $infoPath -Force -Confirm:$false -ErrorAction Stop
-        [void]$removed.Add("identity record  $infoPath")
+        if (Remove-PoolStorageTree -Path $infoPath -Confirm:$false) {
+            [void]$removed.Add("identity record  $infoPath")
+        } else {
+            $storageIncomplete = $true
+        }
     }
 } else {
     Write-Verbose "No identity record at $infoPath (already gone)."
 }
 if (Test-Path -LiteralPath $hostFolder) {
+    # Retry-tolerant: the SMB share acknowledges child deletes before it releases the
+    # directory entries, so a single-shot recursive delete fails on a directory that
+    # is already empty. A leftover tree must not abort the run either -- the
+    # membership strip and the dashboard eviction below are what actually stop the
+    # host reappearing, and they are worth doing even when the NAS is being slow.
     if ($PSCmdlet.ShouldProcess($hostFolder, 'Delete replicated cycle folder')) {
-        Remove-Item -LiteralPath $hostFolder -Recurse -Force -Confirm:$false -ErrorAction Stop
-        [void]$removed.Add("cycle data       $hostFolder")
+        if (Remove-PoolStorageTree -Path $hostFolder -Confirm:$false) {
+            [void]$removed.Add("cycle data       $hostFolder")
+        } else {
+            $storageIncomplete = $true
+        }
     }
 } else {
     Write-Verbose "No replicated cycle folder at $hostFolder (already gone)."
@@ -199,7 +216,7 @@ if ([string]::IsNullOrWhiteSpace($t.IntentGitUrl)) {
 # --- REGION: Evict from the live dashboard view (aggregator forget-host, best-effort)
 # The "Yuruna hosts" panel is the pool-aggregator's in-memory view (Prometheus
 # yuruna_pool_host_info), NOT the NAS records above -- a host it discovered by
-# POLLING status servers lingers there for its 24h TTL after last contact, so the
+# POLLING status servers lingers there for the aggregator's host TTL (-host-ttl, default 24h) after last contact, so the
 # deletions so far do not clear it. When a pool-auth-token + caching-proxy are
 # configured, ask the aggregator to forget the host NOW. Opt-in + best-effort: a
 # missing token, unknown proxy, or unreachable aggregator is a silent skip (pull +
@@ -226,13 +243,13 @@ try {
         if ([string]::IsNullOrWhiteSpace($proxyIp) -and $env:YURUNA_CACHING_PROXY_IP) { $proxyIp = $env:YURUNA_CACHING_PROXY_IP.Trim() }
 
         if ([string]::IsNullOrWhiteSpace($token)) {
-            Write-Verbose 'forget-host: no pool-auth-token configured; skipping live-view eviction (the panel clears on its 24h TTL).'
+            Write-Verbose 'forget-host: no pool-auth-token configured; skipping live-view eviction (the panel clears on the aggregator host TTL).'
         } elseif ([string]::IsNullOrWhiteSpace($proxyIp)) {
             Write-Verbose 'forget-host: no caching-proxy IP known; skipping live-view eviction.'
         } elseif (Get-Command Invoke-PoolForgetHost -ErrorAction SilentlyContinue) {
             $f = Invoke-PoolForgetHost -ProxyIp $proxyIp -HostId $HostId -Token $token -RuntimeDir $runtimeDir
             if ($f.ok) { [void]$removed.Add("dashboard view   pool-aggregator forgot $HostId") }
-            else { Write-Warning "forget-host: aggregator did not evict $HostId ($($f.reason)). The panel clears on its own after the 24h TTL." }
+            else { Write-Warning "forget-host: aggregator did not evict $HostId ($($f.reason)). The panel clears on its own after the aggregator host TTL (-host-ttl, default 24h)." }
         }
     }
 } catch {
@@ -245,5 +262,11 @@ if ($removed.Count -eq 0) {
 } else {
     Write-Information "Purged host ${HostId}:" -InformationAction Continue
     foreach ($r in $removed) { Write-Information "  - $r" -InformationAction Continue }
+}
+# Membership and the dashboard eviction already ran; only the NAS delete is unfinished,
+# and re-running is a safe no-op for everything that did succeed.
+if ($storageIncomplete) {
+    Write-Error "Host ${HostId}: NAS records under $localPath were not fully deleted (see the warning above). Re-run this command; it resumes where it stopped."
+    exit $ExitFailure
 }
 exit $ExitOk

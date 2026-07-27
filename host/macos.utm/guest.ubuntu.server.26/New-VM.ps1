@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.24
+.VERSION 2026.07.26
 .GUID 42f2a3b4-c5d6-4e78-9012-3f4a5b6c7d81
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -460,7 +460,7 @@ Write-Verbose "VM bundle created: $UtmDir"
 Write-Verbose "Backend: QEMU (HVF) with -vnc 127.0.0.1:$VncDisplay (port $(5900 + $VncDisplay))"
 Write-Verbose "Drive without focus: the harness picks up VNC automatically (Get-VncScreenshot,"
 Write-Verbose "Send-TextVNC, Send-KeyVNC). UTM no longer needs to be raised to inject keystrokes."
-Write-Verbose "Double-click '$VMName.utm' on your Desktop to import it into UTM."
+Write-Verbose "Double-click '$VMName.utm' in ~/yuruna/guest.nosync/ to import it into UTM."
 Write-Verbose ""
 Write-Verbose "Boot sequence:"
 Write-Verbose "  1. Ubuntu Server autoinstalls via subiquity (~5-10 min)."

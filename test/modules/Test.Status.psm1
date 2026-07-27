@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.24
+.VERSION 2026.07.26
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456702
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -625,6 +625,11 @@ function Complete-Run {
     the runtime dir would silently desync.
 #>
 function Write-StatusJson {
+    # No document loaded -> nothing to serialize, and $script:File is empty too,
+    # so a write would target an empty path. Same tolerance the sibling mutators
+    # (Set-LastFailureSummary / Complete-Run / Get-CycleNumber) already grant
+    # callers that reach the status helpers before a document exists.
+    if (-not $script:Doc) { return }
     $runtimeDir = $env:YURUNA_RUNTIME_DIR
     $stepPauseFlag  = Join-Path $runtimeDir 'control.step-pause'
     $cyclePauseFlag = Join-Path $runtimeDir 'control.cycle-pause'
@@ -693,11 +698,13 @@ function Get-LastGetImageTime {
 
 <#
 .SYNOPSIS
-    Records the current time as the last Get-Image timestamp and flushes status.json.
+    Records the current time as the last Get-Image timestamp and flushes
+    status.json. No-op when no status document is loaded.
 #>
 function Set-LastGetImageTime {
     [CmdletBinding(SupportsShouldProcess)]
     param()
+    if (-not $script:Doc) { return }
     if ($PSCmdlet.ShouldProcess("lastGetImageAt", "Set to current UTC time")) {
         $script:Doc.lastGetImageAt = (Get-UtcTimestamp)
         Write-StatusJson

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.24
+.VERSION 2026.07.26
 .GUID 42e0f1a2-b3c4-4d56-e789-0f1a2b3c4d56
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -246,6 +246,6 @@ Write-Verbose "VM bundle created: $UtmDir"
 Write-Verbose "Backend: QEMU (HVF) with -vnc 127.0.0.1:$VncDisplay (port $(5900 + $VncDisplay))"
 Write-Verbose "Drive without focus: the harness picks up VNC automatically (Get-VncScreenshot,"
 Write-Verbose "Send-TextVNC, Send-KeyVNC). UTM no longer needs to be raised to inject keystrokes."
-Write-Verbose "Double-click '$VMName.utm' on your Desktop to import it into UTM."
+Write-Verbose "Double-click '$VMName.utm' in ~/yuruna/guest.nosync/ to import it into UTM."
 Write-Verbose "Cloud-init will configure the VM on first boot."
 Write-Verbose "Default credentials - username: $Username, password: <vault-managed> (must be changed on first login). Vault: test/status/extension/authentication/vault.yml"

@@ -214,7 +214,7 @@ non-fatal — only the side effect matters.
 
 - [Yuruna Architecture](architecture.md#cli-entry-points) — CLI reference for the three phases
 - [Yuruna Workarounds and FAQ](workarounds.md)
-- [Yuruna Website example](../project/example/website/), [Further reading](README.md#further-reading)
+- [Yuruna Website example](https://github.com/alissonsol/yuruna-project/tree/main/example/website), [Further reading](README.md#further-reading)
 
 ---
 
@@ -222,6 +222,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.24
+Last review: 2026.07.26
 
 Back to [Yuruna](../README.md)

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.24
+.VERSION 2026.07.26
 .GUID 42f4e5f6-a7b8-4c9d-0123-4e5f6a7b8c9d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -159,7 +159,13 @@ $virshUri = 'qemu:///system'
 # when something unusual surfaces between the two idempotent ops.
 $destroyOut = & virsh --connect $virshUri destroy $VMName 2>&1
 Write-Verbose "virsh destroy '$VMName' exit=$LASTEXITCODE output='$($destroyOut -join '; ')'"
-$undefineOut = & virsh --connect $virshUri undefine --nvram $VMName 2>&1
+# Snapshot metadata, checkpoint metadata and a managed-save image each
+# pin the domain: undefine refuses ("cannot delete inactive domain with
+# N snapshots") unless asked to drop them, and the re-creation below
+# then fails with "domain already defined". A guest workload that takes
+# a disk snapshot is routine, so clear every kind of metadata here.
+$undefineOut = & virsh --connect $virshUri undefine --nvram --managed-save `
+    --snapshots-metadata --checkpoints-metadata $VMName 2>&1
 Write-Verbose "virsh undefine '$VMName' exit=$LASTEXITCODE output='$($undefineOut -join '; ')'"
 # Post-condition: virsh destroy/undefine on a non-existing domain is
 # idempotent (returns non-zero; stderr captured and shown only at
@@ -289,6 +295,16 @@ try {
 if ($poolAuthToken -match '[\r\n''"]') {
     Write-Warning "pool.auth.token contains a newline or quote character; refusing to bake (push disabled)."
     $poolAuthToken = ''
+}
+# An empty token here is silent but total: the aggregator then mints no control
+# proof at all (/go/host redirects with no fragment) and /ingest answers 503, so
+# every host's remote-config page rejects the operator with a 403 that reads like
+# a host misconfiguration. Say so at build time, while it is still cheap to fix.
+if ([string]::IsNullOrEmpty($poolAuthToken)) {
+    Write-Warning ("No pool-auth-token in this host's vault, so the caching proxy is being built with an " +
+        "EMPTY token: it will mint no control proofs and push-ingest stays disabled, and remote control " +
+        "of pool hosts will fail with a 403 until that is fixed. Set one first with: " +
+        "pwsh test/Set-PoolAuthToken.ps1 -Token <shared-token>")
 }
 
 # --- REGION: Host Config Service mTLS materials

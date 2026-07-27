@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.24
+.VERSION 2026.07.26
 .GUID 42f1b2c3-d4e5-4f67-8901-a2b3c4d5e6f8
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -198,10 +198,10 @@ $PasswordFile = Get-CachingProxyStatePath
 # topology (Default Switch = 172.x gateway; External = host LAN IP).
 $switchName = Get-OrCreateYurunaExternalSwitch
 if (-not $switchName) {
-    Write-Output "WARNING: External vSwitch unavailable -- falling back to 'Default Switch'."
-    Write-Output "  Cache VM will not be reachable from LAN by its own IP, and remote"
-    Write-Output "  clients routed via netsh portproxy will appear as the host's"
-    Write-Output "  vEthernet IP in squid's access.log (see docs/caching.md)."
+    Write-Verbose "External vSwitch unavailable -- falling back to 'Default Switch'."
+    Write-Verbose "  Cache VM will not be reachable from LAN by its own IP, and remote"
+    Write-Verbose "  clients routed via netsh portproxy will appear as the host's"
+    Write-Verbose "  vEthernet IP in squid's access.log (see docs/caching.md)."
     $switchName = 'Default Switch'
 }
 
@@ -261,6 +261,16 @@ try {
 if ($poolAuthToken -match '[\r\n''"]') {
     Write-Warning "pool.auth.token contains a newline or quote character; refusing to bake (push disabled)."
     $poolAuthToken = ''
+}
+# An empty token here is silent but total: the aggregator then mints no control
+# proof at all (/go/host redirects with no fragment) and /ingest answers 503, so
+# every host's remote-config page rejects the operator with a 403 that reads like
+# a host misconfiguration. Say so at build time, while it is still cheap to fix.
+if ([string]::IsNullOrEmpty($poolAuthToken)) {
+    Write-Warning ("No pool-auth-token in this host's vault, so the caching proxy is being built with an " +
+        "EMPTY token: it will mint no control proofs and push-ingest stays disabled, and remote control " +
+        "of pool hosts will fail with a 403 until that is fixed. Set one first with: " +
+        "pwsh test/Set-PoolAuthToken.ps1 -Token <shared-token>")
 }
 
 # --- REGION: Host Config Service mTLS materials
@@ -538,8 +548,8 @@ for ($i = 0; $i -lt $portMaxIterations; $i++) {
         Write-Output ""
         Write-Output "Pre-warm may still be running in the background (pulling"
         Write-Output "linux-firmware and the HWE kernel meta through the local"
-        Write-Output "proxy). Confirm completion by opening the Monitor URL"
-        Write-Output "above -> 'storedir' and checking cache occupancy > 0."
+        Write-Output "proxy). Confirm completion with 'squidclient mgr:storedir'"
+        Write-Output "on the VM and checking cache occupancy > 0."
         Write-Output ""
         Write-Output "Guest VMs will auto-detect squid at port 3128 when their"
         Write-Output "New-VM.ps1 runs. Keep the VM running across cycles."

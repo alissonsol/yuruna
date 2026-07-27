@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.24
+.VERSION 2026.07.26
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456770
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -1632,7 +1632,7 @@ function Invoke-Sequence {
     # Anchor on $PSScriptRoot (this module lives at <TestRoot>/modules/);
     # $SequencePath is unreliable as an anchor because the chain runner
     # writes per-entry slices to the OS temp dir and project-tree
-    # sequences live under <RepoRoot>/project/.../test/<mode>/.
+    # sequences live under <RepoRoot>/project/.../test/.
     $testRoot = Split-Path -Parent $PSScriptRoot
     $screenshotDir = Join-Path -Path $testRoot -ChildPath 'status' `
                          -AdditionalChildPath 'captures', 'sequences'

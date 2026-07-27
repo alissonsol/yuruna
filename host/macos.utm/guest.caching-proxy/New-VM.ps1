@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.24
+.VERSION 2026.07.26
 .GUID 42f1b2c3-d4e5-4f67-8901-a2b3c4d5e6f9
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -252,6 +252,16 @@ try {
 if ($poolAuthToken -match '[\r\n''"]') {
     Write-Warning "pool.auth.token contains a newline or quote character; refusing to bake (push disabled)."
     $poolAuthToken = ''
+}
+# An empty token here is silent but total: the aggregator then mints no control
+# proof at all (/go/host redirects with no fragment) and /ingest answers 503, so
+# every host's remote-config page rejects the operator with a 403 that reads like
+# a host misconfiguration. Say so at build time, while it is still cheap to fix.
+if ([string]::IsNullOrEmpty($poolAuthToken)) {
+    Write-Warning ("No pool-auth-token in this host's vault, so the caching proxy is being built with an " +
+        "EMPTY token: it will mint no control proofs and push-ingest stays disabled, and remote control " +
+        "of pool hosts will fail with a 403 until that is fixed. Set one first with: " +
+        "pwsh test/Set-PoolAuthToken.ps1 -Token <shared-token>")
 }
 
 # --- REGION: Host Config Service mTLS materials

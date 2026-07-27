@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.24
+.VERSION 2026.07.26
 .GUID 42f4a5b6-c7d8-4e90-8f12-4a5b6c7d8e90
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -114,5 +114,32 @@ Describe 'Resolve-YurunaPoolAdminTarget (defaults)' {
         $t = Resolve-YurunaPoolAdminTarget -IntentGitUrl 'http://p/i.git' -IntentDir ''
         Assert-Equal -Expected 'http://p/i.git' -Actual $t.IntentGitUrl -Because 'url passthrough'
         Assert-True ($t.IntentDir -match 'pool-intent-admin$') 'default clone dir'
+    }
+}
+
+Describe 'ConvertTo-YurunaHostId (operator input normalization)' {
+    It 'passes a canonical hostId through unchanged' {
+        Assert-Equal -Expected '42abcdef0123456789abcdef01234567' `
+            -Actual (ConvertTo-YurunaHostId -Value '42abcdef0123456789abcdef01234567') -Because 'canonical is a no-op'
+    }
+    It 'accepts the dashboard Host ID column rendering (8-4-4-4-12)' {
+        Assert-Equal -Expected '425bed3d40a041c2be882ac911279d50' `
+            -Actual (ConvertTo-YurunaHostId -Value '425bed3d-40a0-41c2-be88-2ac911279d50') -Because 'dashes stripped'
+    }
+    It 'tolerates braces, surrounding whitespace, and uppercase hex' {
+        Assert-Equal -Expected '42abcdef0123456789abcdef01234567' `
+            -Actual (ConvertTo-YurunaHostId -Value "  {42ABCDEF-0123-4567-89AB-CDEF01234567}`t") -Because 'copy-paste noise stripped, lowercased'
+    }
+    It 'rejects non-hostId input' {
+        foreach ($bad in @('', '   ', $null, 'not-a-uuid', '43abcdef0123456789abcdef01234567',
+                           '42abcdef0123456789abcdef0123456', '42abcdef0123456789abcdef012345678',
+                           '42abcdefg123456789abcdef01234567')) {
+            Assert-Null (ConvertTo-YurunaHostId -Value $bad) "rejects [$bad]"
+        }
+    }
+    It 'does not accept dashes as free padding to the right length' {
+        # Stripping happens before the length check, so a 32-char string that is only
+        # 32 long BECAUSE of its dashes must still fail.
+        Assert-Null (ConvertTo-YurunaHostId -Value '42-abcdef0123456789abcdef0123456') 'short after stripping'
     }
 }

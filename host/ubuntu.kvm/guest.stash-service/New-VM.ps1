@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.24
+.VERSION 2026.07.26
 .GUID 42f4e5f6-a7b8-4c9d-0123-4e5f6a7b8c81
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -26,7 +26,7 @@
     Cloud-init mounts the stash share, fetches the framework, and runs the
     bring-up script which builds + launches the daemon under systemd.
 
-    See https://yuruna.link/stash-service for the full specification.
+    See https://yuruna.link/stash-guide for the stash user guide.
 
 .PARAMETER VMName
     libvirt domain name. Default: yuruna-stash-service.
@@ -100,7 +100,13 @@ New-Item -ItemType Directory -Force -Path $vmDir | Out-Null
 $virshUri = 'qemu:///system'
 $destroyOut = & virsh --connect $virshUri destroy $VMName 2>&1
 Write-Verbose "virsh destroy '$VMName' exit=$LASTEXITCODE output='$($destroyOut -join '; ')'"
-$undefineOut = & virsh --connect $virshUri undefine --nvram $VMName 2>&1
+# Snapshot metadata, checkpoint metadata and a managed-save image each
+# pin the domain: undefine refuses ("cannot delete inactive domain with
+# N snapshots") unless asked to drop them, and the re-creation below
+# then fails with "domain already defined". A guest workload that takes
+# a disk snapshot is routine, so clear every kind of metadata here.
+$undefineOut = & virsh --connect $virshUri undefine --nvram --managed-save `
+    --snapshots-metadata --checkpoints-metadata $VMName 2>&1
 Write-Verbose "virsh undefine '$VMName' exit=$LASTEXITCODE output='$($undefineOut -join '; ')'"
 $stillDefined = & virsh --connect $virshUri list --all --name 2>$null |
     Where-Object { $_.Trim() -eq $VMName }
@@ -402,7 +408,8 @@ Write-Output ""
 Write-Output "Cloud-init mounts the stash share, fetches the framework, and runs the"
 Write-Output "bring-up script. Once it finishes, the stash daemon owns :22 (the OS"
 Write-Output "sshd is disabled), so reach it with scp:  scp ./file user@$dockIp`:/scratch"
-Write-Output "Watch progress:  ssh stash-admin@$dockIp 'tail -f /var/log/cloud-init-output.log'"
+Write-Output "Watch progress:  ssh stash-admin@$dockIp 'sudo tail -f /var/log/cloud-init-output.log'"
+Write-Output "(the log is root-only; stash-admin has NOPASSWD sudo, so 'sudo tail' works over the harness key)"
 Write-Output "(harness key authorized until the daemon takes over :22). See"
-Write-Output "https://yuruna.link/stash-service."
+Write-Output "https://yuruna.link/stash-guide."
 exit 0

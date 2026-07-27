@@ -14,7 +14,30 @@ Group=proxy
 # absent/empty -> plain HTTP. -auth-token-file gates POST /ingest; absent/empty ->
 # /ingest disabled. All three flags are always present and self-gate on the files, so
 # an unconfigured proxy degrades to plain HTTP with /ingest disabled.
-ExecStart=/usr/local/bin/pool-aggregator -tls-cert /etc/squid/ssl_cert/pool-aggregator.crt -tls-key /etc/squid/ssl_cert/pool-aggregator.key -auth-token-file /etc/yuruna/pool-auth.token
+#
+# -host-ttl is how long a host stays on the dashboard after its last contact. It is
+# stated here rather than left implicit so the knob is where an operator looks for it.
+# To change it:  edit the value, then
+#     systemctl daemon-reload && systemctl restart pool-aggregator
+# daemon-reload is NOT optional -- a bare restart re-execs systemd's CACHED unit and the
+# old value silently stays in force. A non-positive value falls back to the 24h default.
+# On a live VM a drop-in (systemctl edit pool-aggregator) survives a hand edit being
+# overwritten, but this unit is Type=simple, so the drop-in MUST reset ExecStart first or
+# systemd refuses to load the service entirely:
+#     [Service]
+#     ExecStart=
+#     ExecStart=/usr/local/bin/pool-aggregator ... -host-ttl 6h
+# Either way cloud-init reinstalls this file from the repo, so the repo edit is durable.
+# The flag only exists in binaries built from the commit that introduced it: adding it to
+# an older proxy's unit makes the binary exit "flag provided but not defined" and
+# Restart=on-failure turns that into a crash loop. Check with
+# `/usr/local/bin/pool-aggregator -h | grep host-ttl` before adding it by hand.
+# Per-cycle dedup state is kept an hour past the TTL (so a returning host cannot
+# double-count), and dashboard deep links keep resolving over at least 24h, so shortening
+# this cannot break links the dashboard still shows. It does NOT expire cumulative
+# pass/fail counters, and it does not evict a host that keeps being re-seeded from the
+# presence feed -- forget-host does that.
+ExecStart=/usr/local/bin/pool-aggregator -tls-cert /etc/squid/ssl_cert/pool-aggregator.crt -tls-key /etc/squid/ssl_cert/pool-aggregator.key -auth-token-file /etc/yuruna/pool-auth.token -host-ttl 24h
 Restart=on-failure
 RestartSec=5
 # Auto-discovers pool members by reading the squid access log (proxy owns it,

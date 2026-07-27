@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.24
+.VERSION 2026.07.26
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456708
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -87,7 +87,7 @@ param(
     # (restarted) so the dashboard tracks this run.
     [switch]$NoStatusService,
 
-    # Skip refreshing <RepoRoot>/project. Test-SequenceSet clones the project
+    # Skip refreshing <RepoRoot>/project. An orchestration caller clones the project
     # ONCE before iterating a test-set, then passes this so each child
     # Test-Sequence reuses that fresh tree instead of re-cloning per entry.
     # Standalone callers should omit it -- the default clone keeps a lone
@@ -468,6 +468,10 @@ if (-not $VMName) {
 # caching-proxy VM (a dependency the guests consume, reachable on the
 # shared bridge) and the operator's own target VM ($VMName, so the
 # iterate-on-an-existing-VM dev loop still works).
+# Stop first, refuse second: a leftover guest is stopped rather than left to
+# strand the host, and the guard below refuses only over what would not stop.
+# The operator's own target VM is left running so the dev loop still works.
+[void](Stop-ConcurrentVM -ExceptVmName $VMName)
 if ($HostType -eq 'host.macos.utm') {
     if (-not (Assert-NoConcurrentUtmVm -ExceptVmName $VMName)) { exit $ExitFailure }
 }

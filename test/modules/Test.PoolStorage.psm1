@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.24
+.VERSION 2026.07.26
 .GUID 42c5e8a1-9b3d-4f27-8a6c-1d2e3f4a5b6c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -35,16 +35,27 @@ $script:PoolStorageMountTimeoutSec     = 90
 $script:PoolStorageCopyTimeoutSec      = 600
 $script:PoolStorageSmbCmdletTimeoutSec = 60
 
-# Invoke-PoolStorageProcess runs a native command bounded by a wall-clock cap and
-# kills the whole process tree on timeout, so a hung mount/copy can never block
+# Verbatim reason the last Connect-YurunaPoolStorage attempt failed, so the
+# write-path pre-flight can report WHAT went wrong instead of enumerating every
+# cause a mount can have. Written only by Connect; '' means "no failure recorded".
+$script:PoolStorageLastMountError = ''
+
+# Invoke-PoolStorageProcessResult runs a native command bounded by a wall-clock cap
+# and kills the whole process tree on timeout, so a hung mount/copy can never block
 # the loop. stdin is redirected + closed immediately, so a child that would
 # otherwise prompt (e.g. sudo asking for a password) gets EOF and fails fast
-# instead of stalling. Returns the process exit code, or 124 on timeout
-# (conventional), or -1 if the process could not be started. Mirrors the bounded
-# Process.Start + WaitForExit + Kill($true) idiom used in Test.Ssh.psm1.
-function Invoke-PoolStorageProcess {
+# instead of stalling. Returns @{ ExitCode; StdOut; StdErr }, where ExitCode is 124
+# on timeout (conventional) or -1 if the process could not be started. Mirrors the
+# bounded Process.Start + WaitForExit + Kill($true) idiom used in Test.Ssh.psm1.
+#
+# The child's stderr has to be REDIRECTED (an un-drained pipe deadlocks a chatty
+# child), so it is captured either way -- returning it costs nothing and is the
+# difference between "sudo mount -t cifs rc=32" plus a guess at the cause and the
+# verbatim kernel/mount.cifs reason ("unknown filesystem type 'cifs'", "Permission
+# denied", "Host is down"), each of which needs a completely different fix.
+function Invoke-PoolStorageProcessResult {
     [CmdletBinding()]
-    [OutputType([int])]
+    [OutputType([hashtable])]
     param(
         [Parameter(Mandatory)][string]$FilePath,
         [Parameter()][string[]]$ArgumentList = @(),
@@ -65,7 +76,7 @@ function Invoke-PoolStorageProcess {
         $proc = [System.Diagnostics.Process]::Start($psi)
     } catch {
         Write-Verbose "Invoke-PoolStorageProcess: failed to start '$resolved': $($_.Exception.Message)"
-        return -1
+        return @{ ExitCode = -1; StdOut = ''; StdErr = "$($_.Exception.Message)" }
     }
     # Closing stdin gives a prompting child EOF (sudo can't block on a password
     # prompt). Drain stdout/stderr asynchronously so a chatty child can't deadlock
@@ -78,12 +89,61 @@ function Invoke-PoolStorageProcess {
         try { $proc.Kill($true) } catch { $null = $_ }
         try { $null = $proc.WaitForExit(5000) } catch { $null = $_ }
         try { $proc.Dispose() } catch { $null = $_ }
-        return 124
+        return @{ ExitCode = 124; StdOut = ''; StdErr = "timed out after ${TimeoutSeconds}s" }
     }
     try { $null = [System.Threading.Tasks.Task]::WaitAll(@($outTask, $errTask), 2000) } catch { $null = $_ }
     $code = [int]$proc.ExitCode
+    $so = ''; $se = ''
+    try { if ($outTask.IsCompleted) { $so = [string]$outTask.Result } } catch { $null = $_ }
+    try { if ($errTask.IsCompleted) { $se = [string]$errTask.Result } } catch { $null = $_ }
     try { $proc.Dispose() } catch { $null = $_ }
-    return $code
+    return @{ ExitCode = $code; StdOut = $so; StdErr = $se }
+}
+
+# Exit-code-only wrapper for the call sites that only branch on success/failure.
+function Invoke-PoolStorageProcess {
+    [CmdletBinding()]
+    [OutputType([int])]
+    param(
+        [Parameter(Mandatory)][string]$FilePath,
+        [Parameter()][string[]]$ArgumentList = @(),
+        [Parameter()][int]$TimeoutSeconds = 60
+    )
+    return [int](Invoke-PoolStorageProcessResult -FilePath $FilePath -ArgumentList $ArgumentList -TimeoutSeconds $TimeoutSeconds).ExitCode
+}
+
+# Condenses a child's stderr into one appendable clause for an exception message:
+# collapses the multi-line mount/mount.cifs output onto a single line and caps the
+# length so a pathological child cannot flood the operator's console. Returns ''
+# for empty stderr, so callers can append it unconditionally.
+function Get-PoolStorageProcessErrorDetail {
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([Parameter()][AllowEmptyString()][AllowNull()][string]$StdErr)
+    $t = "$StdErr".Trim()
+    if ([string]::IsNullOrWhiteSpace($t)) { return '' }
+    $one = (($t -split '\r?\n' | Where-Object { $_.Trim() }) -join '; ').Trim()
+    if ($one.Length -gt 400) { $one = $one.Substring(0, 400) + '...' }
+    return ": $one"
+}
+
+<#
+.SYNOPSIS
+True when this Linux host can mount an SMB share at all -- i.e. the mount.cifs helper from cifs-utils is installed. Returns $true on non-Linux (macOS mount_smbfs and the Windows SMB redirector are built in).
+.DESCRIPTION
+`mount -t cifs` is not self-contained: mount(8) execs the external /sbin/mount.cifs helper, which ships in cifs-utils and is NOT pulled in by libvirt/qemu. Without it the mount fails with "unknown filesystem type 'cifs'" and exit 32 -- the SAME exit code an ordinary permission or credential failure produces, so the numeric code alone cannot tell the two apart and the operator gets sent to fix passwordless sudo that was never the problem. Probing for the helper separates "this host is missing a package" from "this mount was rejected" before the mount is attempted.
+
+The helper lives in /sbin (a directory not on an unprivileged PATH on many distros), so the conventional locations are stat'd directly rather than trusting a PATH lookup alone.
+#>
+function Test-PoolStorageCifsHelper {
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param()
+    if (-not $IsLinux) { return $true }
+    foreach ($p in @('/sbin/mount.cifs', '/usr/sbin/mount.cifs', '/bin/mount.cifs', '/usr/bin/mount.cifs')) {
+        if (Test-Path -LiteralPath $p) { return $true }
+    }
+    return [bool](Get-Command -CommandType Application -Name 'mount.cifs' -ErrorAction SilentlyContinue)
 }
 
 # Invoke-PoolStorageBoundedScript runs a scriptblock under a wall-clock cap via a
@@ -508,6 +568,9 @@ function Connect-YurunaPoolStorage {
     [CmdletBinding(SupportsShouldProcess)]
     [OutputType([bool])]
     param([Parameter(Mandatory)][pscustomobject]$Config)
+    # Reset up front so a caller reading the reason after a LATER call can never
+    # be handed the previous attempt's message.
+    $script:PoolStorageLastMountError = ''
     if (Test-YurunaPoolStorageMounted -Config $Config) {
         Write-Verbose "poolStorage already mounted at $($Config.LocalPath)"
         return $true
@@ -519,6 +582,7 @@ function Connect-YurunaPoolStorage {
         try { $password = Get-Password -Username $Config.NetworkUser } catch { Write-Verbose "Get-Password failed: $($_.Exception.Message)" }
     }
     if ([string]::IsNullOrEmpty($password)) {
+        $script:PoolStorageLastMountError = "no password is stored in the vault for '$($Config.NetworkUser)'"
         Write-Warning "poolStorage: no password available for '$($Config.NetworkUser)'; cannot mount the share."
         return $false
     }
@@ -547,10 +611,22 @@ function Connect-YurunaPoolStorage {
             $encUser = [uri]::EscapeDataString($Config.NetworkUser)
             $encPass = [uri]::EscapeDataString($password)
             $url = "//$($encUser):$($encPass)@$bare"
-            $rc = Invoke-PoolStorageProcess -FilePath 'mount_smbfs' -ArgumentList @('-N', $url, $Config.LocalPath) -TimeoutSeconds $script:PoolStorageMountTimeoutSec
-            if ($rc -ne 0) { throw "mount_smbfs rc=$rc" }
+            # The URL carries the credentials, but mount_smbfs echoes only its own
+            # diagnostic ("Authentication error", "File exists" for a share already
+            # mounted elsewhere), never the argument -- safe to surface, and the
+            # bare rc alone does not distinguish those.
+            $sm = Invoke-PoolStorageProcessResult -FilePath 'mount_smbfs' -ArgumentList @('-N', $url, $Config.LocalPath) -TimeoutSeconds $script:PoolStorageMountTimeoutSec
+            if ($sm.ExitCode -ne 0) { throw "mount_smbfs rc=$($sm.ExitCode)$(Get-PoolStorageProcessErrorDetail -StdErr $sm.StdErr)" }
         } else {
             $remote = Get-PoolStorageUncPath -Path $Config.NetworkPath -Style unix
+            # Establish WHICH precondition is missing before spending a mount
+            # attempt: a host without cifs-utils and a host without passwordless
+            # sudo both fail the mount with exit 32, and the two need different
+            # fixes. Checked first so the operator is never sent to edit sudoers
+            # for a missing package.
+            if (-not (Test-PoolStorageCifsHelper)) {
+                throw "the mount.cifs helper is not installed, so 'mount -t cifs' cannot work on this host (it fails with `"unknown filesystem type 'cifs'`"). Install it: sudo apt-get install -y cifs-utils"
+            }
             if (-not (Test-Path -LiteralPath $Config.LocalPath)) {
                 # Create the mount point. Try unprivileged first -- it succeeds when
                 # the parent is user-writable (e.g. a localPath under $HOME). A
@@ -563,8 +639,8 @@ function Connect-YurunaPoolStorage {
                 # handled by the fallback, so an error record there would be noise.
                 New-Item -ItemType Directory -Force -Path $Config.LocalPath -ErrorAction SilentlyContinue | Out-Null
                 if (-not (Test-Path -LiteralPath $Config.LocalPath)) {
-                    $mk = Invoke-PoolStorageProcess -FilePath 'sudo' -ArgumentList @('-n', 'mkdir', '-p', $Config.LocalPath) -TimeoutSeconds $script:PoolStorageMountTimeoutSec
-                    if ($mk -ne 0) { throw "could not create mount point '$($Config.LocalPath)' (sudo -n mkdir rc=$mk; a root-owned mount-point parent such as /mnt needs passwordless sudo for mkdir as well as mount)" }
+                    $mk = Invoke-PoolStorageProcessResult -FilePath 'sudo' -ArgumentList @('-n', 'mkdir', '-p', $Config.LocalPath) -TimeoutSeconds $script:PoolStorageMountTimeoutSec
+                    if ($mk.ExitCode -ne 0) { throw "could not create mount point '$($Config.LocalPath)' (sudo -n mkdir rc=$($mk.ExitCode); a root-owned mount-point parent such as /mnt needs passwordless sudo for mkdir as well as mount)$(Get-PoolStorageProcessErrorDetail -StdErr $mk.StdErr)" }
                 }
             }
             $credDir = if ($env:YURUNA_RUNTIME_DIR) { $env:YURUNA_RUNTIME_DIR } else { [System.IO.Path]::GetTempPath() }
@@ -586,8 +662,18 @@ function Connect-YurunaPoolStorage {
                 $opts = "credentials=$credFile,vers=3.0,uid=$uid,gid=$gid,iocharset=utf8,nofail"
                 # sudo -n: never prompt. Without passwordless sudo for this mount it
                 # fails fast instead of blocking the loop on a hidden password prompt.
-                $rc = Invoke-PoolStorageProcess -FilePath 'sudo' -ArgumentList @('-n', 'mount', '-t', 'cifs', $remote, $Config.LocalPath, '-o', $opts) -TimeoutSeconds $script:PoolStorageMountTimeoutSec
-                if ($rc -ne 0) { throw "sudo mount -t cifs rc=$rc (passwordless sudo for mount may be required)" }
+                $mnt = Invoke-PoolStorageProcessResult -FilePath 'sudo' -ArgumentList @('-n', 'mount', '-t', 'cifs', $remote, $Config.LocalPath, '-o', $opts) -TimeoutSeconds $script:PoolStorageMountTimeoutSec
+                if ($mnt.ExitCode -ne 0) {
+                    # The credentials went in via a 0600 file, so neither the account
+                    # nor the password can appear in what mount prints back -- the
+                    # verbatim stderr is safe to show and is the only thing that
+                    # distinguishes the several failures sharing exit 32.
+                    $detail = Get-PoolStorageProcessErrorDetail -StdErr $mnt.StdErr
+                    $hint = if ("$($mnt.StdErr)" -match 'a password is required|sudo: a terminal is required|may not run') {
+                        ' (passwordless sudo for mount is required -- see docs/pool-storage.md)'
+                    } else { '' }
+                    throw "sudo mount -t cifs rc=$($mnt.ExitCode)$hint$detail"
+                }
             } finally {
                 if ($credFile -and (Test-Path -LiteralPath $credFile)) {
                     Remove-Item -LiteralPath $credFile -Force -ErrorAction SilentlyContinue
@@ -595,9 +681,15 @@ function Connect-YurunaPoolStorage {
             }
         }
     } catch {
+        # Stash the verbatim reason for the pre-flight caller. Connect returns a
+        # bare bool (every cycle-path caller only branches on it), so without this
+        # the one line that says WHY exists only as a warning on the console while
+        # the gate's [FAIL] falls back to listing every possible cause.
+        $script:PoolStorageLastMountError = "$($_.Exception.Message)"
         Write-Warning "poolStorage: failed to mount $($Config.NetworkPath) at $($Config.LocalPath): $($_.Exception.Message)"
         return $false
     }
+    $script:PoolStorageLastMountError = ''
     Write-Information "poolStorage: mounted $($Config.NetworkPath) at $($Config.LocalPath)" -InformationAction Continue
     return $true
 }
@@ -651,6 +743,54 @@ function Get-PoolStorageLinuxSudoHint {
 
 <#
 .SYNOPSIS
+Resolves the mkdir/mount/umount binary paths the poolStorage mount actually invokes, falling back to the conventional /usr/bin/* when a lookup comes up empty. Shared by the drop-in installer, the operator hint, and the readiness probe so all three name the very same commands.
+#>
+function Get-PoolStorageSudoCommandPath {
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param()
+    $resolve = {
+        param($name, $fallback)
+        # sudoers matches the FULLY-QUALIFIED command sudo resolves via
+        # secure_path, so a rule written against the wrong path silently never
+        # matches and the mount keeps failing as if no rule existed.
+        $src = (Get-Command -CommandType Application -Name $name -ErrorAction SilentlyContinue | Select-Object -First 1).Source
+        if ([string]::IsNullOrWhiteSpace($src)) { $fallback } else { $src }
+    }
+    return @{
+        Mkdir  = (& $resolve 'mkdir'  '/usr/bin/mkdir')
+        Mount  = (& $resolve 'mount'  '/usr/bin/mount')
+        Umount = (& $resolve 'umount' '/usr/bin/umount')
+    }
+}
+
+<#
+.SYNOPSIS
+True when passwordless sudo is ALREADY in effect for every command the poolStorage mount runs. Non-Linux returns $true (those mounts need no sudo).
+.DESCRIPTION
+`sudo -n -l <cmd>` exits 0 when the invoking user may run <cmd> and, because of -n, never prompts -- so this is safe on the unattended path as well as the interactive one.
+
+Biased toward $false: any check that is not a clean 0 reports "not configured". For the installer a redundant re-install merely re-prompts once, whereas a false "already configured" would leave the mount broken exactly as before. Callers use it in the other direction too -- to STOP printing the "install this drop-in" instructions at an operator who already has it installed, which otherwise reads as the install having silently failed.
+#>
+function Test-PoolStorageSudoReady {
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param([Parameter()][string[]]$Commands = @())
+    if (-not $IsLinux) { return $true }
+    if (-not $Commands -or $Commands.Count -eq 0) {
+        $p = Get-PoolStorageSudoCommandPath
+        $Commands = @($p.Mkdir, $p.Mount, $p.Umount)
+    }
+    foreach ($c in $Commands) {
+        if ([string]::IsNullOrWhiteSpace($c)) { continue }
+        $rc = Invoke-PoolStorageProcess -FilePath 'sudo' -ArgumentList @('-n', '-l', $c) -TimeoutSeconds 15
+        if ($rc -ne 0) { return $false }
+    }
+    return $true
+}
+
+<#
+.SYNOPSIS
 Idempotently installs the Linux passwordless-sudo drop-in the poolStorage mount needs, prompting the operator ONCE for their sudo password. Interactive path only -- the unattended runner still cannot (and must not) self-elevate.
 .DESCRIPTION
 The mount path runs `sudo -n mount/mkdir/umount` (never prompts), so without an /etc/sudoers.d drop-in granting those NOPASSWD it fails and the runner buffers locally. An operator running Sync-HostConfiguration IS at a terminal and can supply the password once. This:
@@ -684,28 +824,14 @@ function Set-PoolStorageSudoers {
         return @{ Action = 'failed'; DropInPath = ''; Rule = ''; Message = 'could not determine the current user to grant passwordless sudo to.' }
     }
 
-    # Resolve the REAL binary paths -- sudoers matches the fully-qualified command
-    # sudo resolves via secure_path, so the rule must list what the mount actually
-    # runs. Fall back to the conventional /usr/bin/* when a lookup comes up empty.
-    $mkdir  = (Get-Command -CommandType Application -Name 'mkdir'  -ErrorAction SilentlyContinue | Select-Object -First 1).Source
-    $mount  = (Get-Command -CommandType Application -Name 'mount'  -ErrorAction SilentlyContinue | Select-Object -First 1).Source
-    $umount = (Get-Command -CommandType Application -Name 'umount' -ErrorAction SilentlyContinue | Select-Object -First 1).Source
-    if ([string]::IsNullOrWhiteSpace($mkdir))  { $mkdir  = '/usr/bin/mkdir' }
-    if ([string]::IsNullOrWhiteSpace($mount))  { $mount  = '/usr/bin/mount' }
-    if ([string]::IsNullOrWhiteSpace($umount)) { $umount = '/usr/bin/umount' }
+    $paths  = Get-PoolStorageSudoCommandPath
+    $mkdir  = $paths.Mkdir
+    $mount  = $paths.Mount
+    $umount = $paths.Umount
     $spec = Get-PoolStorageSudoSpec -User $User -MkdirPath $mkdir -MountPath $mount -UmountPath $umount
 
     # Idempotency: is passwordless sudo for every command already in effect?
-    # `sudo -n -l <cmd>` exits 0 when the user may run <cmd> and never prompts (-n).
-    # Bias toward 'not configured' (offer to install) if any check is not a clean 0
-    # -- a redundant re-install just re-prompts once; a false 'present' would leave
-    # the mount broken exactly as before.
-    $already = $true
-    foreach ($c in $spec.Commands) {
-        $rc = Invoke-PoolStorageProcess -FilePath 'sudo' -ArgumentList @('-n', '-l', $c) -TimeoutSeconds 15
-        if ($rc -ne 0) { $already = $false; break }
-    }
-    if ($already) {
+    if (Test-PoolStorageSudoReady -Commands $spec.Commands) {
         return @{ Action = 'present'; DropInPath = $spec.File; Rule = $spec.Rule; Message = "passwordless sudo for mount/mkdir/umount is already configured for '$User'." }
     }
 
@@ -1244,7 +1370,16 @@ function Initialize-PoolStorageHostFolder {
         return $result
     }
     if (-not (Connect-YurunaPoolStorage -Config $Config -Confirm:$false)) {
-        $result.error = "could not mount the SMB share '$($Config.NetworkPath)' at localPath '$($Config.LocalPath)' (check the networkUser password in the vault, the share name, and -- on Linux -- passwordless sudo for mount)"
+        # Prefer the verbatim reason the mount reported. Only when none was
+        # recorded does the message fall back to listing the candidate causes --
+        # that list is a last resort, not the default, because it reads as an
+        # instruction to fix all of them.
+        $why = "$script:PoolStorageLastMountError".Trim()
+        $result.error = if ($why) {
+            "could not mount the SMB share '$($Config.NetworkPath)' at localPath '$($Config.LocalPath)': $why"
+        } else {
+            "could not mount the SMB share '$($Config.NetworkPath)' at localPath '$($Config.LocalPath)' (check the networkUser password in the vault, the share name, and -- on Linux -- passwordless sudo for mount)"
+        }
         # A stale mount of the SAME share at a DIFFERENT point (e.g. left under a
         # retired host alias) makes macOS reject the new mount with "File exists".
         # This is macOS-only: Linux and Windows both allow the same share at a
@@ -1576,12 +1711,61 @@ function Get-YurunaPoolSeedValue {
     return $out
 }
 
+<#
+.SYNOPSIS
+Recursively deletes a path on the pool share, retrying within a wall-clock budget.
+Returns $true when the path is gone, $false when the budget ran out (the last error
+is written as a warning).
+.DESCRIPTION
+A plain Remove-Item -Recurse -Force is not reliable against an SMB-backed share: the
+server acknowledges the child deletes before it has fully released the directory
+entries, so the RemoveDirectory that follows fails with "The directory is not empty"
+against a directory that enumeration already reports as empty. Retrying the SAME
+call succeeds once the server settles.
+
+Each attempt deletes what it can, so progress is monotonic across retries and a deep
+tree converges even if several levels race. The budget is a deadline rather than an
+attempt count, so one slow attempt shrinks the remaining retries instead of extending
+the total. A path that has already vanished is success, which keeps callers idempotent.
+.OUTPUTS
+System.Boolean -- $true when the path no longer exists.
+#>
+function Remove-PoolStorageTree {
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([bool])]
+    param(
+        [Parameter(Mandatory)][string]$Path,
+        [int]$BudgetSeconds = 60,
+        [int]$DelayMilliseconds = 250
+    )
+    if (-not (Test-Path -LiteralPath $Path)) { return $true }
+    if (-not $PSCmdlet.ShouldProcess($Path, 'Delete recursively')) { return $false }
+    $deadlineUtc = [DateTime]::UtcNow.AddSeconds([Math]::Max(1, $BudgetSeconds))
+    $lastError   = ''
+    while ($true) {
+        try {
+            Remove-Item -LiteralPath $Path -Recurse -Force -Confirm:$false -ErrorAction Stop
+            return $true
+        } catch {
+            $lastError = $_.Exception.Message
+            if (-not (Test-Path -LiteralPath $Path)) { return $true }
+        }
+        if ([DateTime]::UtcNow.AddMilliseconds($DelayMilliseconds) -ge $deadlineUtc) {
+            Write-Warning "poolStorage: could not fully delete '$Path' within ${BudgetSeconds}s: $lastError"
+            return $false
+        }
+        Write-Verbose "poolStorage: retrying delete of '$Path' ($lastError)"
+        Start-Sleep -Milliseconds $DelayMilliseconds
+    }
+}
+
 Export-ModuleMember -Function `
     Get-PoolStorageUncPath, Test-PoolStorageMountMatch, Get-PoolStorageServerName, `
     ConvertFrom-PoolStorageMountLine, Find-PoolStorageConflictingMount, `
     Get-PoolStorageConflictingMount, Clear-PoolStorageConflictingMount, `
     Get-YurunaPoolStorageConfig, Get-YurunaStashStorageConfig, Test-YurunaPoolStorageMounted, Connect-YurunaPoolStorage, `
     Get-PoolStorageLinuxSudoHint, Get-PoolStorageSudoSpec, Set-PoolStorageSudoers, `
+    Get-PoolStorageSudoCommandPath, Test-PoolStorageSudoReady, Test-PoolStorageCifsHelper, `
     Sync-YurunaPoolStorageFolder, Test-PoolStorageVaultDecision, Get-PoolStorageCycleIdentity, `
     Get-PoolStoragePendingSet, Merge-PoolStorageLedger, Read-PoolStorageLedger, `
     Write-PoolStorageLedger, Test-PoolStorageServerReachable, Test-PoolStorageVaultReady, `
@@ -1590,4 +1774,5 @@ Export-ModuleMember -Function `
     Remove-PoolStorageStaleAliasMount, Initialize-PoolStorageTargetFolder, `
     Get-PoolStorageHostFolderPath, Initialize-PoolStorageHostFolder, `
     Get-PoolStorageDrainOrder, Get-PoolStorageHealthWarning, `
-    Invoke-PoolStorageDrain, Get-YurunaStashSeedValue, Get-YurunaPoolSeedValue
+    Invoke-PoolStorageDrain, Get-YurunaStashSeedValue, Get-YurunaPoolSeedValue, `
+    Remove-PoolStorageTree

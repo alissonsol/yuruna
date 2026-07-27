@@ -168,7 +168,7 @@ keys (Test.HostCondition.Mac.psm1, `$pmsetGuards`):
 
 | Key | Want | Why |
 |-----|------|-----|
-| `disablesleep` | 1 | Belt-and-suspenders against another subsystem re-enabling idle-sleep on battery. `-a` covers AC + battery + UPS. |
+| `disablesleep` | 1 | Closing a MacBook's lid suspends the host, and every guest running on it, unless this is 1. Also belt-and-suspenders against another subsystem re-enabling idle-sleep on battery. `-a` covers AC + battery + UPS. |
 | `powernap` | 0 | Stops dark-wake Mail/Backup cycles. |
 | `standby`, `standbydelay*`, `autopoweroff`, `hibernatemode` | 0 | Stops deep sleep / RAM-to-disk transitions that hide UTM. |
 | `ttyskeepawake` | 1 | Active tty (SSH, screen capture) keeps the system awake. |
@@ -178,15 +178,28 @@ keys (Test.HostCondition.Mac.psm1, `$pmsetGuards`):
 Every guard is treated as `OptionalKey` because macOS evolves these
 names across major versions (Sonoma split `standbydelay` into
 `standbydelaylow`/`standbydelayhigh`; later releases rename or remove
-more). The in-cycle host condition setup (`Set-MacHostConditionSet`
-in `Test.HostCondition.Mac.psm1`) applies them all using the legacy
-names, which `pmset` accepts as compatibility aliases. The install
+more). The host setup step (`Set-MacHostConditionSet` in
+`Test.HostCondition.Mac.psm1`, run by
+`host/macos.utm/Enable-TestAutomation.ps1`) applies them all using the
+legacy names, which `pmset` accepts as compatibility aliases. The install
 script does not apply `pmset` settings; it only primes the sudo cache
 for that step. The precheck reads `pmset -g custom` (no sudo) and only invokes
 `sudo pmset` if a key is present AND has the wrong value — a missing
 key is treated as "macOS no longer surfaces it under that name", not
 as a verification failure. This skips an unnecessary sudo prompt when
 the values are already correct.
+
+`disablesleep` is the one key exempt from that rule (`AlwaysApply` in
+`Get-MacPmsetGuardList`). macOS does not list it in `pmset -g custom`
+until it has been written at least once, so on a Mac that never had it
+set — precisely the host that needs it — absence would read as "already
+1" and `sudo pmset -a disablesleep 1` would never run. Closing the lid
+then suspends the host mid-cycle. `Set-MacHostConditionSet` therefore
+writes it unconditionally. `Assert-ScreenLock` still skips it when
+absent: a Mac with no lid never surfaces the key, and failing the gate
+on a setting that host cannot have would block a working desktop test
+host. A laptop that drifts back to 0 does list the key, so the gate
+still catches it.
 
 ## macOS guest install: embedded Swift VZMacOSInstaller helper
 
@@ -212,6 +225,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.24
+Last review: 2026.07.26
 
 Back to [Yuruna](../README.md)

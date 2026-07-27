@@ -44,4 +44,13 @@ pre.detail { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: .
      16px and never zooms back out; keep desktop density, pay 16px on phones.
      min-height widens the tap targets toward the 44px touch minimum. */
   input, select, button { font-size: 16px; min-height: 2.75rem; }
+  /* min-height alone still leaves a single-glyph control -- the per-host remove
+     button -- around 32px wide. Square the floor so it clears 44px on both axes,
+     matching the touch minimum the status and stash UIs share; mis-tapping it
+     drops a host from a pool with no confirmation. */
+  button { min-width: 2.75rem; }
+  /* The 16px bump also widens the size="40" URL inputs past the content box of a
+     375px phone, and a flex item's automatic minimum stops them shrinking, so the
+     page scrolls sideways. min-width: 0 lets flex-shrink do its job. */
+  .row > input { min-width: 0; }
 }

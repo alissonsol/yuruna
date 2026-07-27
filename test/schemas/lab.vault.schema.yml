@@ -1,0 +1,77 @@
+# LICENSEURI https://yuruna.link/license
+# Copyright (c) 2019-2026 by Alisson Sol et al.
+$schema: https://json-schema.org/draft/2020-12/schema
+$id: https://yuruna.com/schemas/lab.vault.schema.yml
+title: Yuruna lab vault
+description: >
+  Credentials for one lab -- a physically local set of hosts -- written once when
+  the lab is created and copied to each host that joins it.
+
+  Deliberately PLAIN TEXT, protected by filesystem permissions only. The obvious
+  alternatives do not survive the one thing this file exists for, which is being
+  copied to another machine: Export-Clixml and ConvertFrom-SecureString bind to the
+  current user and machine through DPAPI on Windows, so a copied file will not
+  decrypt on the target host, and on non-Windows PowerShell they use a fixed key,
+  which is obfuscation rather than protection. A lab is physically local and that
+  locality is the whole protection story; stating it plainly beats implying a
+  guarantee that is not there.
+
+  Kept separate from vault.yml rather than nested inside it: that schema is
+  additionalProperties:false with required [users], so a lab node cannot be added
+  to it without breaking every existing validation.
+
+type: object
+additionalProperties: false
+required: [schemaVersion, lab, users]
+
+properties:
+  schemaVersion:
+    description: Bumped only on a breaking shape change.
+    const: 1
+
+  lab:
+    type: object
+    additionalProperties: false
+    required: [name, createdUtc]
+    properties:
+      name:
+        description: >
+          Lab identifier. Same charset as a pool id so the two can never disagree
+          about what is a legal name.
+        type: string
+        pattern: '^[a-z0-9][a-z0-9-]{0,62}$'
+      createdUtc:
+        type: string
+        format: date-time
+      poolPath:
+        description: Filesystem path of the lab's yuruna.pool folder on the creating host.
+        type: string
+      stashPath:
+        description: Filesystem path of the lab's yuruna.stash folder on the creating host.
+        type: string
+      intentGitPath:
+        description: >
+          Path of the bare pool-intent repository inside yuruna.pool. Pool Control
+          serves this over git:// and that URL becomes the lab's intentGitUrl.
+        type: string
+
+  users:
+    description: >
+      Same entry shape as vault.yml, so a host reads a lab credential with the
+      existing Get-Password path once the entries are merged into its own vault.
+    type: object
+    propertyNames:
+      pattern: '^[A-Za-z0-9._-]+$'
+    additionalProperties:
+      type: object
+      additionalProperties: false
+      required: [password, updatedUtc]
+      properties:
+        password:
+          type: string
+          minLength: 1
+        previousPassword:
+          type: string
+        updatedUtc:
+          type: string
+          format: date-time

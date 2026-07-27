@@ -131,18 +131,9 @@ No assistance will be provided to help migrate changes you made in the public re
 #### `repositories.GH_TOKEN` — reading a private framework/project repo
 
 Leave `GH_TOKEN: ""` if both `frameworkUrl` and `projectUrl` are public. You
-need it as soon as either repo is **private** — on the guests (to clone the
-framework/project, or to fetch the update script from GitHub when the host
-status server is unreachable) *and* on the host itself, whose pre-cycle config
-gate probes `projectUrl` and whose cycle start pulls the framework and re-clones
-the project.
-
-At entry-point startup the runner publishes this value into the host process's
-`GH_TOKEN` environment variable, which is where every host git call looks for a
-credential. **The config file wins**: a non-empty `repositories.GH_TOKEN`
-overrides a `GH_TOKEN` already exported in the shell, so the file you edit is
-the one that takes effect. Leaving it empty changes nothing — an exported
-`GH_TOKEN` still works, which is why the template's `GH_TOKEN: ""` is safe.
+need it only when a guest has to read a **private** repo — either to clone
+the framework/project, or to fetch its update script from GitHub when the host
+status server is unreachable.
 
 **Use a read-only, fine-grained token scoped to exactly those two repositories.**
 This token is copied onto every test VM and is served by the status server on
@@ -361,6 +352,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.24
+Last review: 2026.07.26
 
 Back to [Yuruna](README.md)

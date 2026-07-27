@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.24
+.VERSION 2026.07.26
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456712
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -617,13 +617,26 @@ function Reset-GuestTtyPrompt {
 # misread character invalidates at most GramSize consecutive windows, so
 # scattered noise can never accumulate into a long unexplained run.
 $script:ConsoleEchoGramSize = 4
-# Longest tolerated run of consecutive normalized characters that the
-# expected command cannot account for. Calibrated against real captures:
-# a correctly typed line yields 16 (the shell prompt, which is genuinely
-# not part of the command), while the mildest real keystroke corruption
-# yields 135 and the severe one 4362. 80 sits 5x above the healthy value
-# and 1.7x below the mildest observed corruption.
+# Longest tolerated run of consecutive normalized characters, counted only
+# once the command's own echo has been recognized (see AnchorMinRun below),
+# that the expected command cannot account for. Calibrated against real
+# captures: a correctly typed line -- even with a screenful of unrelated
+# scrollback above it -- keeps this run under 40, while a real autorepeat-
+# corrupted capture measures ~860 and a synthetic stuck key runs into the
+# thousands. 80 sits roughly 2x above the healthy ceiling and an order of
+# magnitude below observed corruption.
 $script:ConsoleEchoMaxUnexplainedRun = 80
+# How many consecutive explained positions mark where the command's echo
+# genuinely begins on screen. Until that many have been seen in a row, an
+# explained position is treated as a coincidental OCR gram hit inside
+# unrelated scrollback rather than the command itself, and the unexplained
+# stretch that follows such a hit is NOT counted toward corruption. This is
+# what lets a login banner, a boot log, or earlier command output printed
+# ahead of the command sit on screen -- legitimately unexplained and
+# unbounded -- without being scored as a stuck key. 12 is comfortably longer
+# than the incidental run a shell prompt or log line shares with the command,
+# and far shorter than the command's own contiguous echo.
+$script:ConsoleEchoAnchorMinRun = 12
 # Fraction of the command's distinct grams that must appear somewhere in
 # the OCR text. Guards gross truncation, where the screen shows only the
 # first few characters. Real captures put a healthy line at 52-87% and a
@@ -705,12 +718,18 @@ function Test-ConsoleEchoIntact {
       2. The command's distinct GramSize-character windows form the set of
          everything the screen is allowed to show.
       3. Walking the OCR text, each position is 'explained' if its window is
-         in that set. The longest run of consecutive UNEXPLAINED positions is
-         the corruption signal. This is the discriminating measure because
-         isolated OCR noise can only ever produce a run of at most GramSize,
-         whereas a stuck key produces one continuous run hundreds of
-         characters long. Measurement starts at the first explained position
-         so the shell prompt printed before the command is not counted.
+         in that set. The corruption signal is the longest run of consecutive
+         UNEXPLAINED positions that follows the command's OWN echo. A run is
+         counted only once at least AnchorMinRun explained positions have
+         appeared in a row, which marks where the command genuinely landed on
+         screen. This is the measure that separates corruption from ordinary
+         scrollback: text printed BEFORE the command -- a login banner, a boot
+         log, earlier output -- is unexplained and unbounded, but it is never
+         preceded by the command's dense echo, so it is left uncounted. A
+         stuck key, in contrast, appends or inserts its garbage AT or AFTER
+         the command it corrupted, producing one continuous counted run
+         hundreds of characters long. Isolated OCR noise can only ever
+         invalidate GramSize consecutive windows, so it cannot accumulate.
       4. Independently, the fraction of the command's windows that appear
          anywhere in the OCR text is the truncation signal.
 
@@ -741,6 +760,10 @@ function Test-ConsoleEchoIntact {
     Window length used to decide whether a position is explained.
 .PARAMETER MaxUnexplainedRun
     Longest run of unexplained normalized characters still called 'intact'.
+.PARAMETER AnchorMinRun
+    Consecutive explained positions that must appear before the following
+    unexplained stretch is counted, so scrollback ahead of the command is
+    not scored as corruption.
 .PARAMETER MinCoveragePercent
     Minimum percentage of the command's windows that must appear in the OCR
     text before the echo is considered present at all.
@@ -756,6 +779,7 @@ function Test-ConsoleEchoIntact {
         [Parameter(Mandatory)][AllowEmptyString()][string]$OcrText,
         [int]$GramSize            = $script:ConsoleEchoGramSize,
         [int]$MaxUnexplainedRun   = $script:ConsoleEchoMaxUnexplainedRun,
+        [int]$AnchorMinRun        = $script:ConsoleEchoAnchorMinRun,
         [int]$MinCoveragePercent  = $script:ConsoleEchoMinCoveragePercent,
         [int]$MinNormalizedLength = $script:ConsoleEchoMinNormalizedLength
     )
@@ -795,21 +819,30 @@ function Test-ConsoleEchoIntact {
     }
 
     # Corruption signal: the longest stretch the command cannot account
-    # for. Counting starts only once something HAS been explained, so the
-    # prompt and any banner printed ahead of the command are excluded --
-    # they are legitimately not part of the command and are unbounded in
-    # length.
-    $longestRun  = 0
-    $currentRun  = 0
-    $anyExplained = $false
-    $lastStart   = $normOcr.Length - $GramSize
+    # for, but counted only once the command's OWN echo has been seen. An
+    # unexplained stretch is scored only after AnchorMinRun explained
+    # positions have appeared in a row; a lone coincidental gram hit inside
+    # scrollback does not qualify, so a banner, a boot log, or earlier output
+    # printed ahead of the command -- legitimately unexplained and unbounded
+    # -- never anchors the count. A stuck key's garbage sits at or after the
+    # command it corrupted, so the command's dense echo has already anchored
+    # the count by the time the garbage is reached.
+    $longestRun   = 0
+    $currentRun   = 0
+    $explainedRun = 0
+    $anchored     = $false
+    $lastStart    = $normOcr.Length - $GramSize
     for ($i = 0; $i -le $lastStart; $i++) {
         if ($expectedGrams.Contains($normOcr.Substring($i, $GramSize))) {
-            $anyExplained = $true
+            $explainedRun++
+            if ($explainedRun -ge $AnchorMinRun) { $anchored = $true }
             $currentRun = 0
-        } elseif ($anyExplained) {
-            $currentRun++
-            if ($currentRun -gt $longestRun) { $longestRun = $currentRun }
+        } else {
+            if ($anchored) {
+                $currentRun++
+                if ($currentRun -gt $longestRun) { $longestRun = $currentRun }
+            }
+            $explainedRun = 0
         }
     }
 
@@ -1276,7 +1309,7 @@ function Save-GuestDiagnostic {
         # Do NOT return here. The console-keystroke rung below is the fallback built precisely
         # for the sshd-down / auth-broken / network-partitioned cases -- the exact scenarios
         # where SSH readiness fails. Skip only the two SSH rungs and still give console a chance.
-        Write-Warning ("Save-GuestDiagnostic: SSH did not become ready within {0}s for VM '{1}' (mid-reboot, late-binding KVP, or sshd not yet up); skipping SSH rungs, will try the console fallback." -f $waitBudget, $VMName)
+        Write-Verbose ("Save-GuestDiagnostic: SSH did not become ready within {0}s for VM '{1}' (mid-reboot, late-binding KVP, or sshd not yet up); skipping SSH rungs, will try the console fallback." -f $waitBudget, $VMName)
         $sshReady = $false
         $attempted += 'ssh-not-ready'
     }
@@ -1290,7 +1323,7 @@ function Save-GuestDiagnostic {
     if (-not $address -or $address -eq $VMName) {
         # No routable IP means the SSH rungs cannot run, but the console rung drives the VM
         # console (tty1 keystrokes) and needs no IP -- fall through to it instead of returning.
-        Write-Warning "Save-GuestDiagnostic: no routable IP for '$VMName' (guest may be mid-reboot); skipping SSH rungs, will try the console fallback."
+        Write-Verbose "Save-GuestDiagnostic: no routable IP for '$VMName' (guest may be mid-reboot); skipping SSH rungs, will try the console fallback."
         $sshReady = $false
     }
 

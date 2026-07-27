@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.24
+.VERSION 2026.07.26
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456707
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -145,27 +145,6 @@ Invoke-LibvirtGroupReExecIfNeeded -HostType (Get-HostType) -ScriptPath $PSComman
 # and the status server agree on the on-disk track + log paths every cycle.
 $null = Initialize-YurunaRuntimeDir
 $null = Initialize-YurunaLogDir
-
-# === GitHub credential bridge ===============================================
-# Publish repositories.GH_TOKEN into $env:GH_TOKEN, which is the ONLY place
-# the host's git auth chain looks (Get-YurunaGitCredentialArg), so the token
-# reaches every descendant for free: Invoke-ConfigGate spawns Test-Config.ps1
-# and Start-InnerRunner spawns the inner pwsh WITHOUT -UseNewEnvironment, so
-# both inherit it. A non-empty config value overrides whatever this shell
-# exported; an empty one leaves the shell's value alone.
-#
-# Ordering is load-bearing and must stay AFTER Initialize-YurunaRuntimeDir:
-# reading the config auto-publishes a parsed snapshot (Read-TestConfig ->
-# Publish-TestConfigSnapshot), and Get-TestConfigSnapshotPath falls back to
-# the shared temp dir while YURUNA_RUNTIME_DIR is still null. Bridging any
-# earlier therefore wrote the whole parsed config -- GH_TOKEN included -- to
-# a mode-664 file under /tmp instead of the runner's own runtime dir. Still
-# well before the config gate and the first cycle, which is all it needs.
-$ghBridge = Import-YurunaGitHubToken -ConfigPath $ConfigPath
-if ($ghBridge.Source -eq 'config') {
-    $replacedNote = if ($ghBridge.Replaced) { ' (replacing a different token inherited from the shell)' } else { '' }
-    Write-Information "GitHub credential: using repositories.GH_TOKEN from $ConfigPath$replacedNote." -InformationAction Continue
-}
 # Stable per-host pool identity, cached on the process global so NDJSON events
 # (Write-CycleNdjsonEvent) and status.json carry hostId for cross-host joins.
 # Set at script top (not inside a function) -- same pattern as $global:__YurunaRunId.
@@ -338,7 +317,16 @@ if (-not $gate.passed) {
 # the call-op argv) so the function reads no caller-scope variables
 # implicitly. ShutdownState is reference-shared with the Ctrl+C handler
 # above; flipping ['Requested'] there ends the loop here.
+$CycleScript = Join-Path $TestRoot 'Invoke-TestCycleRunner.ps1'
+if (-not (Test-Path -LiteralPath $CycleScript)) {
+    # Not fatal: the loop falls back to running the cycle in-process, which behaves
+    # identically except that an edit then needs a runner restart to take effect.
+    Write-Warning "Invoke-TestCycleRunner.ps1 not found at $CycleScript -- running cycles in-process; edits to cycle logic will need a runner restart."
+    $CycleScript = ''
+}
+
 Invoke-RunnerOuterLoop -State @{
+    CycleScript               = $CycleScript
     RepoRoot                  = $RepoRoot
     ConfigPath                = $ConfigPath
     InnerScript               = $InnerScript

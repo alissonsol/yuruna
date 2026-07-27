@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.24
+.VERSION 2026.07.26
 .GUID 42e5f6a7-b8c9-4d12-9345-6e7f8a9b0c1d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -454,26 +454,34 @@ function Clear-TerminalNotifierJob {
 
 # === Main loop ============================================================
 
-function Invoke-RunnerOuterLoop {
+function Invoke-RunnerOuterCycle {
     <#
     .SYNOPSIS
-        Run the eternal cycle loop until ShutdownState['Requested'] flips.
-    .PARAMETER State
-        Hashtable carrying per-run config + cross-thread references.
-        Required keys (all enforced via the validation block below):
-          RepoRoot, ConfigPath, InnerScript, PwshExe, ArgList,
-          ForwardEnvSnapshot, ShutdownState, NoGitPull,
-          FailurePauseMaxSeconds, FailureCommitPollSeconds,
-          OuterPullErrorSleepSec, InnerSpawnErrorSleepSec,
-          StepTimeoutMinutesDefault, WatchdogPollSeconds.
-        ShutdownState is a hashtable (reference-shared with the
-        caller's Ctrl+C handler) whose ['Requested'] key flipping
-        ends the loop.
+        Run ONE cycle: repo pull, pool-intent gate, clock sync, pre-spawn cleanup,
+        watchdog, the inner spawn, and the cycle-end hooks.
+    .DESCRIPTION
+        Split out of Invoke-RunnerOuterLoop so it can be executed in a FRESH process
+        per cycle (see Invoke-TestCycleRunner.ps1). That is what lets an edit to this
+        logic take effect on the very next cycle: the loop process holds it resident
+        and would otherwise keep running the copy it parsed at startup.
+
+        Waits belong to the caller, never here. This function runs where the
+        operator's Ctrl+C is NOT observable, so a Start-Sleep here could not be cut
+        short; the transient outcomes below report and return instead.
+    .OUTPUTS
+        pscustomobject with Outcome and ExitCode. Outcome is 'completed' when the
+        inner ran (ExitCode is then the inner's own status), or one of
+        'pull-error' | 'paused' | 'drain' | 'spawn-failed' -- the caller owns the
+        pause and the decision to stop.
     #>
     [CmdletBinding()]
+    [OutputType([pscustomobject])]
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', '',
         Justification = 'Implementation reads keys from $State; PSSA cannot track hashtable indexer reads.')]
-    param([Parameter(Mandatory)][hashtable]$State)
+    param(
+        [Parameter(Mandatory)][hashtable]$State,
+        [int]$cycle = 1
+    )
     $required = @(
         'RepoRoot','ConfigPath','InnerScript','PwshExe','ArgList',
         'ForwardEnvSnapshot','ShutdownState','NoGitPull',
@@ -483,16 +491,9 @@ function Invoke-RunnerOuterLoop {
     )
     foreach ($k in $required) {
         if (-not $State.ContainsKey($k)) {
-            throw "Invoke-RunnerOuterLoop: -State is missing required key '$k'."
+            throw "Invoke-RunnerOuterCycle: -State is missing required key '$k'."
         }
     }
-    $cycle = 0
-    # Consecutive auto-remediation pause-skips; reset on a passing cycle so a
-    # deterministic transient still escalates to the normal wait-for-human
-    # pause after the per-streak cap, while an isolated transient retries fast.
-    $remediationAutoSkips = 0
-    while (-not $State.ShutdownState['Requested']) {
-        $cycle++
 
         # State machine: idle -> cycle-start. The transition lands
         # before any per-cycle work so a watchdog reading
@@ -512,9 +513,11 @@ function Invoke-RunnerOuterLoop {
             Write-Output ""
             Write-Output "[outer cycle $cycle] git pull (framework)"
             if (-not (Invoke-OuterGitPull -RepoRoot $State.RepoRoot)) {
-                Write-Warning "[outer cycle $cycle] git pull failed -- sleeping $($State.OuterPullErrorSleepSec)s before retry."
-                Start-Sleep -Seconds $State.OuterPullErrorSleepSec
-                continue
+                Write-Warning "[outer cycle $cycle] git pull failed."
+                # The retry pause is the CALLER's, deliberately: sleeping here would
+                # block inside the per-cycle child, where the outer's Ctrl+C flag is
+                # not observable and the wait could not be cut short.
+                return [pscustomobject]@{ Outcome = 'pull-error'; ExitCode = 0 }
             }
         }
 
@@ -548,8 +551,10 @@ function Invoke-RunnerOuterLoop {
                 # back to run + restart the runner) rejoins the pool.
                 Write-Output "[outer cycle $cycle] pool desiredState=drain -- stopping (no further cycles)."
                 Write-OuterLog "[outer cycle $cycle] pool desiredState=drain -- requesting shutdown at the cycle boundary."
-                $State.ShutdownState['Requested'] = $true
-                break
+                # Reported rather than set here: the flag lives in the caller's
+                # process, so flipping this copy would not reach the loop that owns
+                # the shutdown decision.
+                return [pscustomobject]@{ Outcome = 'drain'; ExitCode = 0 }
             }
             if ($poolState -eq 'paused') {
                 # Healthy hold (distinct from the failure-pause below): the outer
@@ -559,10 +564,41 @@ function Invoke-RunnerOuterLoop {
                 if (Get-Command Set-RunnerState -ErrorAction SilentlyContinue) {
                     $null = Set-RunnerState -To 'paused' -Reason "pool desiredState=paused (cycle $cycle)" -Confirm:$false
                 }
-                Write-Output "[outer cycle $cycle] pool desiredState=paused -- holding; re-checking intent in 30s."
+                Write-Output "[outer cycle $cycle] pool desiredState=paused -- holding; re-checking intent shortly."
                 Write-OuterLog "[outer cycle $cycle] pool desiredState=paused -- holding (no cycle spawned)."
-                Start-Sleep -Seconds 30
-                continue
+                # Caller owns the hold, for the same reason as the pull retry: a
+                # sleep here is not interruptible from the shell the operator
+                # actually pressed Ctrl+C in.
+                return [pscustomobject]@{ Outcome = 'paused'; ExitCode = 0 }
+            }
+        }
+
+        # 1c. Host clock (best-effort, warn-only). Guests take their clock
+        #     from the host's virtual RTC at power-on; a host that has
+        #     drifted starts every VM equally wrong and the guest's own NTP
+        #     client steps it to real time seconds into the boot, landing
+        #     mid-startup. A Kubernetes guest survives that step looking
+        #     healthy from every angle except the one that matters: pods
+        #     Running but never Ready, Services with no endpoints, every
+        #     NodePort refusing.
+        #
+        #     Here, at the cycle boundary, is the ONLY safe place to correct
+        #     it: no guest is running, so stepping the host clock cannot do
+        #     to our own VMs what it would do mid-cycle. Never fatal -- the
+        #     sync needs privileges this process may not hold, and a host
+        #     that cannot fix its clock is still refused by
+        #     Assert-HostConditionSet inside the inner, with the diagnostic.
+        if (Get-Command Sync-HostClock -ErrorAction SilentlyContinue) {
+            try {
+                $clockSync = Sync-HostClock -HostType (Get-HostType) -Confirm:$false
+                if ($clockSync.Attempted -and -not $clockSync.Succeeded) {
+                    Write-Warning "[outer cycle $cycle] host clock sync failed (continuing): $($clockSync.Message)"
+                    Write-OuterLog "[outer cycle $cycle] host clock sync failed: $($clockSync.Message)"
+                } elseif ($clockSync.Succeeded) {
+                    Write-OuterLog "[outer cycle $cycle] host clock: $($clockSync.Message)"
+                }
+            } catch {
+                Write-Warning "[outer cycle $cycle] host clock sync threw (continuing): $($_.Exception.Message)"
             }
         }
 
@@ -715,8 +751,7 @@ function Invoke-RunnerOuterLoop {
             Remove-Item -LiteralPath $wdLapseFile -Force -ErrorAction SilentlyContinue
         }
         if ($innerSpawnFailed) {
-            Start-Sleep -Seconds $State.InnerSpawnErrorSleepSec
-            continue
+            return [pscustomobject]@{ Outcome = 'spawn-failed'; ExitCode = 0 }
         }
         # Outer regained control. Emit BOTH to console and to runtime/
         # outer.log so a conhost wedge (documented above) can't hide
@@ -955,6 +990,209 @@ function Invoke-RunnerOuterLoop {
             }
         }
 
+    return [pscustomobject]@{ Outcome = 'completed'; ExitCode = $exitCode }
+}
+
+function Wait-OuterInterruptible {
+    <#
+    .SYNOPSIS
+        Sleep in short slices, returning early once shutdown is requested.
+    .DESCRIPTION
+        A plain Start-Sleep cannot be cut short by the CancelKeyPress handler: the
+        handler only flips a flag, and every consumer has to poll it. Long unsliced
+        sleeps are why a Ctrl+C could appear to be ignored for the better part of a
+        minute. Returns $true when it was cut short.
+    #>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param(
+        [Parameter(Mandatory)][int]$Seconds,
+        [Parameter(Mandatory)][hashtable]$ShutdownState,
+        [int]$SliceSeconds = 5
+    )
+    $remaining = $Seconds
+    while ($remaining -gt 0) {
+        if ($ShutdownState['Requested']) { return $true }
+        $slice = [math]::Min($SliceSeconds, $remaining)
+        Start-Sleep -Seconds $slice
+        $remaining -= $slice
+    }
+    return [bool]$ShutdownState['Requested']
+}
+
+function Stop-ProcessTree {
+    <#
+    .SYNOPSIS
+        Kill a process and everything it spawned.
+    .DESCRIPTION
+        Killing only the cycle process would orphan the inner pwsh it spawned (and
+        the watchdog job), leaving VMs mid-operation with nothing supervising them.
+        Windows has taskkill /T; elsewhere the child is its own process-group leader
+        so a group kill reaches the whole tree.
+    #>
+    [CmdletBinding(SupportsShouldProcess)]
+    param([Parameter(Mandatory)][int]$ProcessId)
+    if (-not $PSCmdlet.ShouldProcess("PID $ProcessId", 'Stop process tree')) { return }
+    try {
+        if ($IsWindows) {
+            & taskkill /PID $ProcessId /T /F 2>&1 | Out-Null
+        } else {
+            & pkill -TERM -P $ProcessId 2>&1 | Out-Null
+            Start-Sleep -Milliseconds 500
+            # Full path, not the bare name: `kill` is also a PowerShell alias for
+            # Stop-Process, which would target the wrong thing on a host where the
+            # alias wins name resolution.
+            & '/bin/kill' -TERM $ProcessId 2>&1 | Out-Null
+        }
+    } catch {
+        Write-Verbose "Stop-ProcessTree($ProcessId) swallowed: $($_.Exception.Message)"
+    }
+}
+
+function Invoke-OuterCycleDispatch {
+    <#
+    .SYNOPSIS
+        Run one cycle -- in a fresh process when a cycle script is configured,
+        in-process otherwise -- and normalize the result.
+    .DESCRIPTION
+        The fresh process is the whole point of the split: it re-reads the cycle
+        logic and its modules from disk every cycle, so an edit lands on the next
+        cycle without restarting the runner. The child is polled rather than waited
+        on so Ctrl+C is observable mid-cycle, and on shutdown its entire tree is
+        killed so no inner pwsh survives.
+
+        The child reports a transient outcome through a small JSON file rather than
+        an exit code, because the inner runner's own exit codes share that space and
+        a sentinel number could collide with a real failure.
+    .OUTPUTS
+        pscustomobject with Outcome and ExitCode.
+    #>
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param(
+        [Parameter(Mandatory)][hashtable]$State,
+        [Parameter(Mandatory)][int]$Cycle
+    )
+    $cycleScript = if ($State.ContainsKey('CycleScript')) { [string]$State.CycleScript } else { '' }
+    if (-not $cycleScript -or -not (Test-Path -LiteralPath $cycleScript)) {
+        # In-process fallback: same code path, no reload benefit. Unit tests drive
+        # this shape, and it keeps the loop working if the script is ever missing.
+        return Invoke-RunnerOuterCycle -State $State -Cycle $Cycle
+    }
+
+    $outcomeFile = Join-Path $env:YURUNA_RUNTIME_DIR 'runner.cycle.outcome.json'
+    Remove-Item -LiteralPath $outcomeFile -Force -ErrorAction SilentlyContinue
+
+    $argList = @('-NoLogo', '-NoProfile', '-File', $cycleScript, '-Cycle', "$Cycle")
+    $proc = $null
+    try {
+        $proc = Start-Process -FilePath $State.PwshExe -ArgumentList $argList -NoNewWindow -PassThru -ErrorAction Stop
+    } catch {
+        Write-Warning "[outer cycle $Cycle] could not start the cycle runner: $($_.Exception.Message)"
+        return [pscustomobject]@{ Outcome = 'spawn-failed'; ExitCode = 0 }
+    }
+
+    while (-not $proc.HasExited) {
+        if ($State.ShutdownState['Requested']) {
+            Write-OuterLog "[outer cycle $Cycle] shutdown requested -- stopping the cycle process tree (PID $($proc.Id))."
+            Stop-ProcessTree -ProcessId $proc.Id -Confirm:$false
+            try { $null = $proc.WaitForExit(15000) } catch { $null = $_ }
+            return [pscustomobject]@{ Outcome = 'shutdown'; ExitCode = 0 }
+        }
+        $null = $proc.WaitForExit(1000)
+    }
+    $childExit = $proc.ExitCode
+
+    $outcome = 'completed'
+    if (Test-Path -LiteralPath $outcomeFile) {
+        try {
+            $doc = Get-Content -LiteralPath $outcomeFile -Raw | ConvertFrom-Json
+            if ($doc -and $doc.outcome) { $outcome = [string]$doc.outcome }
+            if ($doc -and $null -ne $doc.exitCode) { $childExit = [int]$doc.exitCode }
+        } catch {
+            Write-Verbose "[outer cycle $Cycle] unreadable cycle outcome: $($_.Exception.Message)"
+        }
+        Remove-Item -LiteralPath $outcomeFile -Force -ErrorAction SilentlyContinue
+    }
+    return [pscustomobject]@{ Outcome = $outcome; ExitCode = $childExit }
+}
+
+function Invoke-RunnerOuterLoop {
+    <#
+    .SYNOPSIS
+        Run the eternal cycle loop until ShutdownState['Requested'] flips.
+    .DESCRIPTION
+        Each iteration runs its cycle in a FRESH pwsh (Invoke-TestCycleRunner.ps1)
+        rather than in-process, so the cycle logic -- and every module it imports --
+        is re-read from disk every cycle. An operator edit therefore takes effect on
+        the next cycle with no runner restart. This process keeps only what must not
+        be re-derived per cycle: the pidfile, the boot-recovery sweep, the runner
+        state machine, the Ctrl+C subscription, and the cross-cycle counters below.
+
+        The child is waited on in slices rather than blocked on, which is what makes
+        Ctrl+C both observable during a cycle and able to take the cycle down with
+        it: the whole child tree is killed, so no inner pwsh survives the shutdown.
+    .PARAMETER State
+        Hashtable carrying per-run config + cross-thread references.
+        Required keys (all enforced via the validation block below):
+          RepoRoot, ConfigPath, InnerScript, PwshExe, ArgList,
+          ForwardEnvSnapshot, ShutdownState, NoGitPull,
+          FailurePauseMaxSeconds, FailureCommitPollSeconds,
+          OuterPullErrorSleepSec, InnerSpawnErrorSleepSec,
+          StepTimeoutMinutesDefault, WatchdogPollSeconds.
+        Optional: CycleScript -- path to Invoke-TestCycleRunner.ps1. Absent, the
+        cycle runs IN-PROCESS via Invoke-RunnerOuterCycle, which is the shape the
+        unit tests drive and a usable fallback if the script is missing.
+        ShutdownState is a hashtable (reference-shared with the caller's Ctrl+C
+        handler) whose ['Requested'] key flipping ends the loop.
+    #>
+    [CmdletBinding()]
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', '',
+        Justification = 'Implementation reads keys from $State; PSSA cannot track hashtable indexer reads.')]
+    param([Parameter(Mandatory)][hashtable]$State)
+    $required = @(
+        'RepoRoot','ConfigPath','InnerScript','PwshExe','ArgList',
+        'ForwardEnvSnapshot','ShutdownState','NoGitPull',
+        'FailurePauseMaxSeconds','FailureCommitPollSeconds',
+        'OuterPullErrorSleepSec','InnerSpawnErrorSleepSec',
+        'StepTimeoutMinutesDefault','WatchdogPollSeconds'
+    )
+    foreach ($k in $required) {
+        if (-not $State.ContainsKey($k)) {
+            throw "Invoke-RunnerOuterLoop: -State is missing required key '$k'."
+        }
+    }
+    $cycle = 0
+    # Consecutive auto-remediation pause-skips; reset on a passing cycle so a
+    # deterministic transient still escalates to the normal wait-for-human
+    # pause after the per-streak cap, while an isolated transient retries fast.
+    # Deliberately held HERE and not in the per-cycle child: a fresh process each
+    # cycle would reset the streak to zero every time, so the cap would never be
+    # reached and a deterministic transient would auto-retry forever.
+    $remediationAutoSkips = 0
+    while (-not $State.ShutdownState['Requested']) {
+        $cycle++
+
+        $cycleResult = Invoke-OuterCycleDispatch -State $State -Cycle $cycle
+        $outcome  = $cycleResult.Outcome
+        $exitCode = $cycleResult.ExitCode
+
+        if ($outcome -eq 'drain') {
+            Write-OuterLog "[outer cycle $cycle] pool desiredState=drain -- shutting down at the cycle boundary."
+            $State.ShutdownState['Requested'] = $true
+            break
+        }
+        # Transient, non-fault outcomes: hold, then re-enter. The hold is sliced so
+        # a Ctrl+C during it is seen within a few seconds instead of at the end.
+        if ($outcome -in @('pull-error','paused','spawn-failed')) {
+            $holdSec = switch ($outcome) {
+                'pull-error'   { $State.OuterPullErrorSleepSec }
+                'spawn-failed' { $State.InnerSpawnErrorSleepSec }
+                default        { 30 }
+            }
+            Wait-OuterInterruptible -Seconds $holdSec -ShutdownState $State.ShutdownState
+            continue
+        }
         if ($exitCode -eq 0) {
             # 3a. Success -- next iteration pulls and respawns
             # immediately. State machine: in-cycle -> cycle-end ->
@@ -1163,11 +1401,11 @@ function Invoke-RunnerOuterLoop {
         }
     }
 }
-
 Export-ModuleMember -Function `
     Get-OuterCommitSha, Test-OuterNewCommitsAvailable, Invoke-OuterGitPull, Invoke-OuterNetworkGit, `
     Get-OuterRemoteSha, Get-OuterConfigMtime, Get-OuterStepTimeoutMinute, Get-OuterProjectUrl, `
     Get-OuterPoolTestCycleOverride, Get-OuterAutoRemediation, Test-OuterNoStatusServiceForwarded, `
     Sync-ForwardEnv, Write-OuterLog, `
     Clear-TerminalNotifierJob, `
-    Invoke-RunnerOuterLoop
+    Wait-OuterInterruptible, Stop-ProcessTree, Invoke-OuterCycleDispatch, `
+    Invoke-RunnerOuterCycle, Invoke-RunnerOuterLoop

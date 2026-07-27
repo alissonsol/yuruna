@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.24
+.VERSION 2026.07.26
 .GUID 42d6f9b2-0c4e-4a38-9b7d-2e3f4a5b6c7d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -545,5 +545,44 @@ Describe 'Get-PoolStorageHealthWarning (loud-fail surfacing logic)' {
     It 'is SILENT when fully caught up (pending 0, copied 0)' {
         $led = [ordered]@{ lastConnectOk = $true; lastCopied = 0; pendingCount = 0; lastError = '' }
         Assert-Null (Get-PoolStorageHealthWarning -Ledger $led -Replicate $true) 'caught up -> no noise'
+    }
+}
+
+
+Describe 'Remove-PoolStorageTree (retry-tolerant recursive delete)' {
+    It 'deletes a nested tree and reports success' {
+        $root = Join-Path ([System.IO.Path]::GetTempPath()) ('yrn-rmtree-' + [guid]::NewGuid().ToString('N'))
+        try {
+            $leaf = Join-Path $root 'a/b/c'
+            $null = New-Item -ItemType Directory -Force -Path $leaf
+            Set-Content (Join-Path $leaf 'f.txt') 'x'
+            Assert-True (Remove-PoolStorageTree -Path $root -Confirm:$false) 'deep tree deleted'
+            Assert-True (-not (Test-Path -LiteralPath $root)) 'root is gone'
+        } finally { Remove-Item -Recurse -Force -LiteralPath $root -ErrorAction SilentlyContinue }
+    }
+    It 'treats an already-absent path as success (idempotent)' {
+        $gone = Join-Path ([System.IO.Path]::GetTempPath()) ('yrn-rmtree-' + [guid]::NewGuid().ToString('N'))
+        Assert-True (Remove-PoolStorageTree -Path $gone -Confirm:$false) 'missing path -> true'
+    }
+    It 'gives up on its budget and returns false rather than throwing' {
+        # An open handle makes the delete fail the same way every retry, which is the
+        # branch that must surface as a warning + $false instead of a terminating error.
+        $root = Join-Path ([System.IO.Path]::GetTempPath()) ('yrn-rmtree-' + [guid]::NewGuid().ToString('N'))
+        $null = New-Item -ItemType Directory -Force -Path $root
+        $held = Join-Path $root 'locked.bin'
+        $fs   = [System.IO.File]::Open($held, 'CreateNew', 'Write', 'None')
+        try {
+            $r = Remove-PoolStorageTree -Path $root -BudgetSeconds 1 -DelayMilliseconds 100 -Confirm:$false -WarningAction SilentlyContinue
+            Assert-True (-not $r) 'undeletable tree -> false'
+            Assert-True (Test-Path -LiteralPath $root) 'the tree survives'
+        } finally { $fs.Dispose(); Remove-Item -Recurse -Force -LiteralPath $root -ErrorAction SilentlyContinue }
+    }
+    It 'honors -WhatIf' {
+        $root = Join-Path ([System.IO.Path]::GetTempPath()) ('yrn-rmtree-' + [guid]::NewGuid().ToString('N'))
+        try {
+            $null = New-Item -ItemType Directory -Force -Path $root
+            $null = Remove-PoolStorageTree -Path $root -WhatIf
+            Assert-True (Test-Path -LiteralPath $root) '-WhatIf deletes nothing'
+        } finally { Remove-Item -Recurse -Force -LiteralPath $root -ErrorAction SilentlyContinue }
     }
 }

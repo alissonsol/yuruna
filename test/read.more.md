@@ -250,8 +250,8 @@ auto-resolve to the existing `guest.ubuntu.server.24` folder. Pass
 To minimize surprises when a sequence is later wired into the runner,
 Test-Sequence mirrors the relevant runner-side resolutions:
 
-* **Baseline chain walk** -- the same `Resolve-CyclePlan` logic the runner
-  uses. When a sequence's `baseline:` field declares prereqs, every
+* **Resource chain walk** -- the same `Resolve-CyclePlan` logic the runner
+  uses. When a sequence's `resource:` field declares prereqs, every
   prereq is run in dependency order (deepest first, top-level last)
   before the named sequence. `-StartStep`/`-StopStep` index into the
   CONCATENATED step list across the whole chain, so step 1 is always
@@ -315,9 +315,9 @@ the detached server with `pwsh test/Stop-StatusService.ps1`.
 
 ## Adding a test sequence
 
-Drop a YAML sequence under `test/sequences/{gui,ssh}/` (framework
-generic) or `project/<...>/test/{gui,ssh}/` (project-specific), wire
-its `baseline` to declare prerequisites, then reference the top-level
+Drop a YAML sequence under `test/sequences/` (framework
+generic) or `project/<...>/test/` (project-specific), wire
+its `resource` to declare prerequisites, then reference the top-level
 sequence from the `project/test/test.runner.yml` `sequences` list. Full
 architecture: [Test Modules ...](modules/README.md).
 
@@ -327,6 +327,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.24
+Last review: 2026.07.26
 
 Back to [Yuruna](../README.md)

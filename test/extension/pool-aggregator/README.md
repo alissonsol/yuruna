@@ -176,7 +176,7 @@ unaffected (graceful degradation).
 (default `30s`) · `-listen` (default `:9400`) · `-rehydrate-window` (default
 `168h`; `0` disables — see above) · `-incident-fails` (default `3`) ·
 `-incident-window` (default `2h`) · `-cross-host-fails` (default `3`) ·
-`-cross-host-window` (default `15m`) · `-announce-ttl` (default `45m`; `0`
+`-cross-host-window` (default `15m`) · `-host-ttl` (default `24h`) · `-announce-ttl` (default `45m`; `0`
 disables `POST /announce`).
 
 ## Endpoints (`:9400`)
@@ -194,7 +194,7 @@ the leaf is absent.
 | `/go/host?host=<hostId>` | GET | none | dashboard timeline click → 302 to that host's status-page **root**. Same `host` uuid → **current** IP resolution as `/go/cycle` (survives a host IP change), but always lands on the status page rather than a cycle folder — the IP-free state-timeline rows can't carry the IP, so the link resolves it here |
 | `/go/stash?host=<hostId>&area=<area>` | GET | none | 302 to that host's extension-service UI (default `area=stash-service`, the stash VM), resolved from the URL the host **advertised** in `extensionTargets` (refreshed each cycle / on `Start-StashVM` via `Get-VMIp`). For IP-free, hostId-only consumers — the dashboard table itself links directly via the `target` label. Unknown host/target → 404 |
 | `/ingest` | POST | Bearer | runner-side push of NDJSON events (supplements pull); disabled (503) until a shared bearer token is configured |
-| `/api/v1/forget-host?hostId=<42-hex>` | POST | Bearer | operator eviction: drop one hostId from the in-memory view NOW (all per-host maps → gone from the next `/metrics` scrape) instead of waiting its 24h TTL. Same token as `/ingest`; 503 when no token, 400 on a malformed id. JSON `{forgotten, hostId, wasPresent}`. A still-reachable host is re-discovered on the next poll — stop/drain it first. Called by `test/Remove-PoolHost.ps1` |
+| `/api/v1/forget-host?hostId=<42-hex>` | POST | Bearer | operator eviction: drop one hostId from the in-memory view NOW (all per-host maps → gone from the next `/metrics` scrape) instead of waiting out the configured host TTL (`-host-ttl`). Same token as `/ingest`; 503 when no token, 400 on a malformed id. JSON `{forgotten, hostId, wasPresent}`. A still-reachable host is re-discovered on the next poll — stop/drain it first. Called by `test/Remove-PoolHost.ps1` |
 | `/announce` | POST | none (self-identity-bound) | extension-presence beacon (stash server et al., point 5c): the advertised URL derives from / must match the sender's address, so an announcer can only advertise itself; telemetry-only, bounded, disabled (503) when `-announce-ttl` is `0` |
 
 ## Deploy + verify
@@ -309,4 +309,4 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.24
+Last review: 2026.07.26

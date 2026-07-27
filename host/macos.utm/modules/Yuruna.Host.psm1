@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.24
+.VERSION 2026.07.26
 .GUID 42a2b3c4-d5e6-4f78-9012-3a4b5c6d7e91
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -753,14 +753,71 @@ function Start-UtmVM {
             $vmstatePath = Join-Path $utmBundle "Data/vmstate"
             if (Test-Path $vmstatePath) {
                 Remove-Item -LiteralPath $vmstatePath -Force -ErrorAction SilentlyContinue
-                Write-Output "  Removed stale vmstate for '$VMName' -- forcing cold boot."
+                # Progress on the information stream, never the success stream:
+                # this function returns a status record, and anything written to
+                # output becomes part of that return. A caller checking
+                # `$result -is [hashtable]` then sees an Object[] and skips its
+                # own failure check, so a VM that never started reports success.
+                Write-Information -MessageData "  Removed stale vmstate for '$VMName' -- forcing cold boot." -InformationAction Continue
+            }
+            # Resolve the VNC display before starting. The display is baked into
+            # the bundle when the VM is BUILT, and every guest of a kind is built
+            # under the same test-VM name, so a topology that promotes several
+            # VMs out of that namespace ends up with all of them pinned to one
+            # port -- QEMU then refuses to start every VM after the first with
+            # "Failed to find an available port: Address already in use". Prefer
+            # the display derived from the VM's CURRENT name (distinct per VM),
+            # and exclude what the other bundles already claim so a genuine hash
+            # collision falls through to the next free slot.
+            #
+            # This write only reaches QEMU for a bundle UTM has not loaded yet.
+            # UTM reads config.plist when it loads a VM and keeps that copy for
+            # the life of the app, so for an already-registered VM the file and
+            # the command line diverge silently. Rename-VM does the durable
+            # allocation, in the window where it has UTM quit.
+            $wantDisplay = Find-FreeVncDisplay `
+                -Preferred (Get-VncDisplayForVm -VMName $VMName) `
+                -ExcludeDisplays (Get-ClaimedVncDisplay -ExcludeVMName $VMName)
+            if ($wantDisplay -lt 0) {
+                return @{ success = $false; errorMessage = "No free VNC display in 10..89 for '$VMName'; every port 5910-5989 is in use." }
+            }
+            if ((Get-VncDisplayFromBundle -VMName $VMName) -ne $wantDisplay) {
+                if (Set-VncDisplayInBundle -VMName $VMName -Display $wantDisplay -Confirm:$false) {
+                    Write-Information -MessageData "  VNC display for '$VMName' set to $wantDisplay (port $(5900 + $wantDisplay))." -InformationAction Continue
+                } else {
+                    # Not fatal on its own: the bundle may still hold a usable
+                    # display. Say so, because a screenshot aimed at the stale
+                    # port would otherwise capture another VM's framebuffer.
+                    Write-Warning "Start-UtmVM: could not set the VNC display for '$VMName'; the bundle keeps its previous port."
+                }
             }
             Start-UtmDialogWatchdog
             & open "$utmBundle"
             Start-Sleep -Seconds 3
-            & utmctl start "$VMName" 2>&1 | Write-Output
+            $startOutput = & utmctl start "$VMName" 2>&1
             if ($LASTEXITCODE -ne 0) {
-                return @{ success = $false; errorMessage = "utmctl start failed for '$VMName' (exit code $LASTEXITCODE)" }
+                return @{ success = $false; errorMessage = "utmctl start failed for '$VMName' (exit code $LASTEXITCODE): $(($startOutput | ForEach-Object { "$_" }) -join '; ')" }
+            }
+            # utmctl can exit 0 while QEMU dies immediately afterwards (a port
+            # it cannot bind, a missing disk). Surface whatever it printed AND
+            # fail on it: reporting success here buys a dead VM a full sequence
+            # of downstream steps before anything notices, and the eventual
+            # symptom (an SSH timeout, a guest script asserting on a peer that
+            # never came up) names neither this VM nor this reason.
+            $startFailure = $null
+            if ($startOutput) {
+                foreach ($line in $startOutput) {
+                    $text = "$line".Trim()
+                    if (-not $text) { continue }
+                    Write-Information -MessageData "  utmctl start: $text" -InformationAction Continue
+                    if (-not $startFailure -and
+                        $text -match 'QEMU error|QEMU exited from an error|Error from event') {
+                        $startFailure = $text
+                    }
+                }
+            }
+            if ($startFailure) {
+                return @{ success = $false; errorMessage = "utmctl start exited 0 but QEMU did not survive for '$VMName': $startFailure" }
             }
         }
         return @{ success = $true; errorMessage = $null }
@@ -1285,12 +1342,157 @@ function Get-VncDisplayForVm {
 
 <#
 .SYNOPSIS
+    Return the VNC display recorded in the VM bundle's config.plist, or -1
+    when the bundle has no -vnc argument (or cannot be read).
+.DESCRIPTION
+    The bundle is the authority on which port a VM actually listens on:
+    the display is written into QEMU's AdditionalArguments when the VM is
+    built, and Start-UtmVM may rewrite it to avoid a collision. A caller
+    that derived the port from the VM name instead would aim a screenshot
+    at whatever else happens to hold that port.
+#>
+function Get-VncDisplayFromBundle {
+    [CmdletBinding()]
+    [OutputType([int])]
+    param([Parameter(Mandatory)][string]$VMName)
+    $configPath = "$HOME/yuruna/guest.nosync/$VMName.utm/config.plist"
+    if (-not (Test-Path -LiteralPath $configPath)) { return -1 }
+    try {
+        $json = & plutil -convert json -o - $configPath 2>$null | ConvertFrom-Json
+        $qemuArgs = @($json.QEMU.AdditionalArguments)
+        for ($i = 0; $i -lt $qemuArgs.Count - 1; $i++) {
+            if ("$($qemuArgs[$i])" -ne '-vnc') { continue }
+            # Value shape: 127.0.0.1:<display>[,share=force-shared]
+            if ("$($qemuArgs[$i + 1])" -match ':(\d+)') { return [int]$Matches[1] }
+        }
+    } catch {
+        Write-Debug "Get-VncDisplayFromBundle: could not read $configPath`: $($_.Exception.Message)"
+    }
+    return -1
+}
+
+<#
+.SYNOPSIS
+    Write $Display into the VM bundle's -vnc QEMU argument. Returns $true
+    when the bundle now carries that display.
+#>
+function Set-VncDisplayInBundle {
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([bool])]
+    param(
+        [Parameter(Mandatory)][string]$VMName,
+        [Parameter(Mandatory)][int]$Display
+    )
+    $configPath = "$HOME/yuruna/guest.nosync/$VMName.utm/config.plist"
+    if (-not (Test-Path -LiteralPath $configPath)) { return $false }
+    if (-not $PSCmdlet.ShouldProcess($VMName, "Set VNC display to $Display")) { return $false }
+    try {
+        $json = & plutil -convert json -o - $configPath 2>$null | ConvertFrom-Json
+        $qemuArgs = @($json.QEMU.AdditionalArguments)
+        for ($i = 0; $i -lt $qemuArgs.Count - 1; $i++) {
+            if ("$($qemuArgs[$i])" -ne '-vnc') { continue }
+            # Preserve whatever suffix the builder attached (share=force-shared
+            # lets the screenshot client attach while the console is open);
+            # only the display number changes.
+            $suffix = ''
+            if ("$($qemuArgs[$i + 1])" -match ':\d+(,.*)$') { $suffix = $Matches[1] }
+            $value = "127.0.0.1:${Display}${suffix}"
+            & /usr/libexec/PlistBuddy -c "Set :QEMU:AdditionalArguments:$($i + 1) $value" $configPath 2>&1 | Out-Null
+            return ((Get-VncDisplayFromBundle -VMName $VMName) -eq $Display)
+        }
+    } catch {
+        Write-Warning "Set-VncDisplayInBundle: could not update $configPath`: $($_.Exception.Message)"
+    }
+    return $false
+}
+
+<#
+.SYNOPSIS
+    $true when nothing is listening on 127.0.0.1:$Port right now.
+.DESCRIPTION
+    A real bind, not a connect probe: QEMU fails to start when it cannot
+    bind, and only a bind tells us whether it will be able to.
+#>
+function Test-VncPortFree {
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param([Parameter(Mandatory)][int]$Port)
+    $listener = $null
+    try {
+        $listener = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Loopback, $Port)
+        $listener.Start()
+        return $true
+    } catch {
+        return $false
+    } finally {
+        if ($listener) { try { $listener.Stop() } catch { Write-Debug "Test-VncPortFree: listener stop on $Port`: $($_.Exception.Message)" } }
+    }
+}
+
+<#
+.SYNOPSIS
+    Return a VNC display in 10..89 whose port is free, preferring $Preferred.
+    Returns -1 when every display in the range is taken.
+#>
+function Find-FreeVncDisplay {
+    [CmdletBinding()]
+    [OutputType([int])]
+    param([int]$Preferred = -1, [int[]]$ExcludeDisplays = @())
+    # A bind test only sees VMs that are running RIGHT NOW. When the caller
+    # is allocating for a fleet whose members are stopped -- or with UTM
+    # quit entirely -- every port answers "free" and two VMs happily take
+    # the same one. ExcludeDisplays carries the displays already spoken for
+    # by other bundles so the choice holds once they all start.
+    $excluded = [System.Collections.Generic.HashSet[int]]::new()
+    foreach ($d in $ExcludeDisplays) { $null = $excluded.Add([int]$d) }
+    if ($Preferred -ge 10 -and $Preferred -le 89 -and
+        -not $excluded.Contains($Preferred) -and (Test-VncPortFree -Port (5900 + $Preferred))) {
+        return $Preferred
+    }
+    for ($d = 10; $d -le 89; $d++) {
+        if (-not $excluded.Contains($d) -and (Test-VncPortFree -Port (5900 + $d))) { return $d }
+    }
+    return -1
+}
+
+<#
+.SYNOPSIS
+    Return the VNC displays recorded in every .utm bundle except $ExcludeVMName.
+.DESCRIPTION
+    The bundles on disk are the only durable record of which display each
+    VM will ask QEMU for, so they are what a new allocation has to avoid.
+#>
+function Get-ClaimedVncDisplay {
+    [CmdletBinding()]
+    [OutputType([int[]])]
+    param([string]$ExcludeVMName)
+    $guestDir = "$HOME/yuruna/guest.nosync"
+    if (-not (Test-Path -LiteralPath $guestDir)) { return [int[]]@() }
+    $displays = @()
+    foreach ($bundle in (Get-ChildItem -LiteralPath $guestDir -Filter '*.utm' -Directory -ErrorAction SilentlyContinue)) {
+        $name = [System.IO.Path]::GetFileNameWithoutExtension($bundle.Name)
+        if ($name -eq $ExcludeVMName) { continue }
+        $display = Get-VncDisplayFromBundle -VMName $name
+        if ($display -ge 0) { $displays += $display }
+    }
+    return [int[]]$displays
+}
+
+<#
+.SYNOPSIS
     Return the VNC TCP port (5910..5989) for the given VM.
+.DESCRIPTION
+    The bundle's own -vnc argument wins: Start-UtmVM resolves the display
+    at start time, so the name-derived value is only the seed, not the
+    answer. Falling back to the hash keeps callers working for a VM that
+    has no bundle on this host (or none yet).
 #>
 function Get-VncPortForVm {
     [CmdletBinding()]
     [OutputType([int])]
     param([Parameter(Mandatory)][string]$VMName)
+    $fromBundle = Get-VncDisplayFromBundle -VMName $VMName
+    if ($fromBundle -ge 0) { return 5900 + $fromBundle }
     return 5900 + (Get-VncDisplayForVm -VMName $VMName)
 }
 
@@ -1787,6 +1989,60 @@ function Remove-VM {
 
 <#
 .SYNOPSIS
+    Return the names of every VM registered with UTM, optionally filtered
+    to those starting with one of $Prefix.
+.DESCRIPTION
+    Host-neutral inventory call (see the contract's VM inventory block).
+    Every VM UTM knows about is returned regardless of run state, so a
+    caller sweeping by prefix removes stopped leftovers as well as
+    running ones.
+
+    THROWS when utmctl cannot reach UTM.app rather than returning an
+    empty list. utmctl exits 0 and prints its error to stderr when Apple
+    Events are denied (OSStatus -1743, typical from an SSH session or a
+    process without Automation access) or when UTM.app is wedged under
+    memory pressure (-1712), so an exit-code check alone reads "cannot
+    ask" as "nothing registered". A sweep that accepted that empty list
+    would report a clean host, and the orphan-file pass behind it would
+    delete bundles UTM still has registered.
+.PARAMETER Prefix
+    Zero or more name prefixes. A VM is returned when its name starts
+    with any of them. Omit (or pass none) to return every VM.
+.OUTPUTS
+    [string[]] matching VM names; empty when none match.
+#>
+function Get-VMName {
+    [CmdletBinding()]
+    [OutputType([string[]])]
+    param([string[]]$Prefix)
+    if (-not (Get-Command utmctl -ErrorAction SilentlyContinue)) {
+        throw "Get-VMName: utmctl not found on PATH; cannot enumerate UTM VMs."
+    }
+    $output = & utmctl list 2>&1
+    $text = ($output | ForEach-Object { "$_" }) -join "`n"
+    if ($LASTEXITCODE -ne 0 -or $text -match 'OSStatus error -174[23]|utmctl does not work from SSH') {
+        throw "Get-VMName: utmctl could not reach UTM. Run from a Terminal session with Automation access for pwsh, after UTM.app is launched and a user is logged in graphically. Output:`n$text"
+    }
+    $names = [System.Collections.Generic.List[string]]::new()
+    foreach ($line in ($text -split "`r?`n")) {
+        $line = $line.Trim()
+        if (-not $line -or $line -match '^-+$') { continue }
+        # utmctl list is FIXED-COLUMN, not 2+-space delimited: the UUID
+        # column is 36 chars plus a single pad space, so splitting on
+        # \s{2,} merges UUID and Status into one 44-char field that never
+        # matches a UUID and silently yields zero rows. Anchor on the UUID
+        # and take the remainder as the name so names containing spaces
+        # survive intact.
+        if ($line -match '^([0-9A-Fa-f-]{36})\s+(\S+)\s+(\S.*)$') {
+            $name = $matches[3].Trim()
+            if ($name) { [void]$names.Add($name) }
+        }
+    }
+    return Select-NameByPrefix -Name $names.ToArray() -Prefix $Prefix
+}
+
+<#
+.SYNOPSIS
     Returns 'absent', 'stopped', 'running', or 'unknown' for the given VM.
 #>
 function Get-VMState {
@@ -1938,6 +2194,28 @@ function Rename-VM {
         & killall cfprefsd 2>$null | Out-Null
         & open -a UTM 2>$null | Out-Null
         return $false
+    }
+
+    # Re-derive the VNC display for the NEW name, here, while UTM is down.
+    # UTM reads a bundle's -vnc argument only when it loads the VM, and
+    # loads it once per app launch: a rewrite performed while UTM already
+    # holds the VM changes the file without changing the QEMU command
+    # line, so the guest still starts on the display it was loaded with.
+    # This relaunch is the one moment the file is authoritative again.
+    # It matters because bundles are built under a single per-kind test
+    # name -- every VM promoted out of that namespace inherits the same
+    # display, and only the first of them can bind the port.
+    $wantDisplay = Find-FreeVncDisplay `
+        -Preferred (Get-VncDisplayForVm -VMName $NewName) `
+        -ExcludeDisplays (Get-ClaimedVncDisplay -ExcludeVMName $NewName)
+    if ($wantDisplay -lt 0) {
+        Write-Warning "Rename-VM: no free VNC display in 10..89 for '$NewName'; it keeps display $(Get-VncDisplayFromBundle -VMName $NewName) and may collide with another VM."
+    } elseif ((Get-VncDisplayFromBundle -VMName $NewName) -ne $wantDisplay) {
+        if (Set-VncDisplayInBundle -VMName $NewName -Display $wantDisplay -Confirm:$false) {
+            Write-Verbose "Rename-VM: VNC display for '$NewName' set to $wantDisplay (port $(5900 + $wantDisplay))."
+        } else {
+            Write-Warning "Rename-VM: could not set the VNC display for '$NewName'; it keeps display $(Get-VncDisplayFromBundle -VMName $NewName) and may collide with another VM."
+        }
     }
 
     # Force cfprefsd to reload from our edited file on next access.
@@ -3022,8 +3300,9 @@ function Assert-Virtualization {
     [CmdletBinding()]
     [OutputType([bool])]
     param()
-    # Assert-VirtualizationFrameworkEnabled lives in Enable-TestAutomation.ps1
-    # not in a module. UTM's presence + Apple Virtualization availability is
+    # There is no separate framework probe: host enablement runs through
+    # Enable-TestAutomation.ps1 -> Set-MacHostConditionSet, not a module
+    # function. UTM's presence + Apple Virtualization availability is
     # the practical signal here.
     return [bool](Test-Path '/Applications/UTM.app')
 }
@@ -3031,7 +3310,7 @@ function Assert-Virtualization {
 # --- REGION: Exports
 
 Export-ModuleMember -Function `
-    New-VM, Start-VM, Stop-VM, Stop-VMForce, Remove-VM, Rename-VM, Get-VMState, `
+    New-VM, Start-VM, Stop-VM, Stop-VMForce, Remove-VM, Rename-VM, Get-VMState, Get-VMName, `
     Save-VMDiskSnapshot, Restore-VMDiskSnapshot, Test-VMDiskSnapshot, `
     Test-VMConsoleOpen, Restart-VMConsole, `
     Get-Image, Get-ImagePath, `
@@ -3052,14 +3331,14 @@ Export-ModuleMember -Function `
     Get-MacProxyMarkerPath, Test-MacProxyIsYurunaManaged, Get-MacActiveNetworkService, Read-MacProxyState, `
     Invoke-MacElevationIfNeeded, Invoke-MacNetworksetup, `
     Set-MacHostProxy, Restore-MacHostProxy, Disable-MacHostProxy, Remove-MacHostProxy, `
-    Get-VncDisplayForVm, Get-VncPortForVm, Get-VncScreenshot, Get-UtmScreenshot, Get-UtmWindowScreenshot
+    Get-VncDisplayForVm, Get-VncPortForVm, Get-VncDisplayFromBundle, Set-VncDisplayInBundle, Test-VncPortFree, Find-FreeVncDisplay, Get-ClaimedVncDisplay, Get-VncScreenshot, Get-UtmScreenshot, Get-UtmWindowScreenshot
 
 # Contract-coverage assertion: warns at load time if the export block
 # above drifts away from the canonical Yuruna.Host contract. See
 # host/Yuruna.Host.Contract.psm1 for the verb list and rationale.
 Import-Module (Join-Path -Path $PSScriptRoot -ChildPath '..' -AdditionalChildPath '..', 'Yuruna.Host.Contract.psm1') -Force -DisableNameChecking
 $null = Assert-YurunaHostContractCoverage -HostType 'macos.utm' -ExportedFunction @(
-    'New-VM','Start-VM','Stop-VM','Stop-VMForce','Remove-VM','Rename-VM','Get-VMState',
+    'New-VM','Start-VM','Stop-VM','Stop-VMForce','Remove-VM','Rename-VM','Get-VMState','Get-VMName',
     'Save-VMDiskSnapshot','Restore-VMDiskSnapshot','Test-VMDiskSnapshot',
     'Test-VMConsoleOpen','Restart-VMConsole',
     'Get-Image','Get-ImagePath',

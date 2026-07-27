@@ -8,7 +8,7 @@
 // restart re-learns the row within one period), and a best-effort goodbye
 // at shutdown.
 //
-// Design: https://yuruna.link/stash-service (section 4.7).
+// Guide: https://yuruna.link/stash-guide.
 package beacon
 
 import (

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.24
+.VERSION 2026.07.26
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456709
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -269,32 +269,6 @@ if (-not (Test-Path $TemplatePath)) {
     }
 }
 
-# -- Section 2c: GitHub credential bridge -------------------------------------
-# Publish repositories.GH_TOKEN into $env:GH_TOKEN before ANY probe that talks
-# to a remote: Section 6 runs Test-RepoFreshness (git fetch) and the projectUrl
-# ls-remote, both of which route through Invoke-GitNetworkCommand and therefore
-# read the token from the environment only. Without this the gate validated a
-# private projectUrl with no credential at all and reported the configured
-# token's repo as "not reachable". $Config -- not $ConfigPath -- is passed
-# deliberately: the reconciliation above may have rewritten the file, and this
-# in-memory document is the authoritative post-reconciliation state.
-$ghBridge = Import-YurunaGitHubToken -Config $Config
-switch ($ghBridge.Source) {
-    'config' {
-        if ($ghBridge.Replaced) {
-            Write-Info "repositories.GH_TOKEN published to the environment for this run, REPLACING a different GH_TOKEN inherited from the shell (the config file wins)."
-        } else {
-            Write-Pass "repositories.GH_TOKEN published to the environment -- git will authenticate to github.com with the configured token."
-        }
-    }
-    'environment' {
-        Write-Info "repositories.GH_TOKEN is empty; using the GH_TOKEN already exported in this shell. Set it in test.config.yml to make private-repo access survive a fresh shell."
-    }
-    default {
-        Write-Info "No GitHub token configured (repositories.GH_TOKEN empty) and none exported -- only PUBLIC repositories will be reachable. Populate repositories.GH_TOKEN if frameworkUrl or projectUrl is private."
-    }
-}
-
 # -- Section 3: Host requirements (quick) -------------------------------------
 # Imports Test.HostContract.psm1 and runs the same fast pre-flight that
 # operator-facing helpers (Remove-TestVMFiles.ps1, ...) call: detects
@@ -336,6 +310,69 @@ if (-not (Test-Path $hostModPath)) {
             Write-Pass "Host requirements quick check passed."
         } else {
             Write-Fail "Host requirements quick check failed -- see the [WARN] line(s) in this section."
+        }
+    }
+}
+
+# -- Section 3b: Host clock ---------------------------------------------------
+# Every hypervisor here seeds a guest's clock from the host at power-on, so
+# a drifting host starts every VM equally wrong and the guest's own NTP
+# client steps it to real time seconds into the boot -- mid-startup for
+# whatever that guest is bringing up. On a Kubernetes guest that leaves pods
+# Running but never Ready and every NodePort refusing, with nothing in the
+# picture pointing back at a clock. Cheap to measure here; expensive to
+# diagnose later.
+
+# Interactive only: offer to resynchronize the clock right now. Returns $true
+# only when a sync actually succeeded (the caller then re-measures rather
+# than trusting the attempt). A headless run -- the pre-cycle config gate --
+# returns $false immediately and keeps the printed instructions, because the
+# unattended path must never block on a prompt.
+function Invoke-HostClockSyncOffer {
+    [OutputType([bool])]
+    param([Parameter(Mandatory)][string]$HostType)
+    if (-not (Get-Command Sync-HostClock -ErrorAction SilentlyContinue)) { return $false }
+    $canPrompt = $false
+    try { $canPrompt = ([Environment]::UserInteractive -and -not [Console]::IsInputRedirected) } catch { $canPrompt = $false }
+    if (-not $canPrompt) { return $false }
+    $ans = Read-Host "Host clock: resynchronize it against NTP now (needs Administrator / sudo)? [y/N]"
+    if ($ans -notmatch '^\s*(y|yes)\s*$') { return $false }
+    $result = Sync-HostClock -HostType $HostType -Confirm:$false
+    if ($result.Succeeded) {
+        Write-Info "  $($result.Message)"
+        return $true
+    }
+    Write-Info "  Clock sync did not complete: $($result.Message)"
+    return $false
+}
+
+Write-Section "Host clock"
+
+if (-not $HostType) {
+    Write-Warn "Host type unknown -- host clock not checked."
+} elseif (-not (Get-Command Get-HostClockSkew -ErrorAction SilentlyContinue)) {
+    Write-Warn "Get-HostClockSkew not available -- host clock not checked."
+} else {
+    $skewLimit = Get-HostClockSkewLimit
+    $skew      = Get-HostClockSkew
+    if ($null -eq $skew) {
+        # Unmeasured is not the same as bad: an isolated lab has no route to
+        # a time server and still runs.
+        Write-Info "No time server answered -- host clock skew not measured (expected on an isolated host)."
+    } elseif ([math]::Abs($skew) -le $skewLimit) {
+        Write-Pass "Host clock is $([math]::Round($skew, 1))s from real time (limit ${skewLimit}s)."
+    } else {
+        $direction = if ($skew -gt 0) { 'ahead of' } else { 'behind' }
+        Write-Warn "Host clock is $([math]::Round([math]::Abs($skew), 1))s $direction real time (limit ${skewLimit}s). Guests inherit this clock at power-on and get stepped to real time mid-boot; a Kubernetes guest then comes up with pods Running but never Ready and every NodePort refusing."
+        if (Invoke-HostClockSyncOffer -HostType $HostType) {
+            $skew = Get-HostClockSkew
+            if ($null -ne $skew -and [math]::Abs($skew) -le $skewLimit) {
+                Write-Pass "Host clock resynchronized -- now $([math]::Round($skew, 1))s from real time."
+            } else {
+                Write-Warn "Host clock still off after the sync attempt. Check the host's time source before starting a cycle."
+            }
+        } else {
+            Write-Info "  Fix with: pwsh host/$($HostType -replace '^host\.', '')/Enable-TestAutomation.ps1  (elevated / with sudo)"
         }
     }
 }
@@ -427,13 +464,21 @@ switch ($HostType) {
         if (Get-Command qemu-system-x86_64 -ErrorAction SilentlyContinue) {
             Write-Pass "qemu-system-x86_64 found on PATH."
         } else {
-            Write-Fail "qemu-system-x86_64 not found. Install with: sudo apt install qemu-kvm"
+            Write-Fail "qemu-system-x86_64 not found -- the QEMU package is not installed. Run install/ubuntu.kvm.sh, or: sudo apt-get install -y qemu-system-x86"
         }
+        # Distinguish "the service is stopped" from "the package that provides the
+        # service was never installed": 'systemctl start' is useless advice for a
+        # unit that does not exist, and sends the operator down the wrong path.
         $libvirtd = (& systemctl is-active libvirtd 2>$null)
         if ("$libvirtd".Trim() -eq 'active') {
             Write-Pass "libvirtd: active."
         } else {
-            Write-Fail "libvirtd: $libvirtd. Start with: sudo systemctl start libvirtd"
+            $unitFiles = & systemctl list-unit-files libvirtd.service 2>$null
+            if ("$unitFiles" -match 'libvirtd\.service') {
+                Write-Fail "libvirtd: $libvirtd. Start with: sudo systemctl enable --now libvirtd"
+            } else {
+                Write-Fail "libvirtd: the libvirtd.service unit does not exist -- libvirt-daemon-system is not installed. Run install/ubuntu.kvm.sh, or: sudo apt-get install -y libvirt-daemon-system libvirt-clients"
+            }
         }
         if (Test-Path '/dev/kvm') {
             Write-Pass "/dev/kvm present."
@@ -880,8 +925,6 @@ if (-not (Test-Path $seqResolveMod)) {
 
     $seqOk = 0
     $seqDirsScanned = 0
-    $hostActionSeqs     = 0
-    $hostActionFindings = 0
     foreach ($sd in $seqDirs) {
         if (-not (Test-Path -LiteralPath $sd)) { continue }
         $seqDirsScanned++
@@ -889,24 +932,8 @@ if (-not (Test-Path $seqResolveMod)) {
             Where-Object { $_.Name -notin @('_snippets.yml', 'actions.yml') } |
             ForEach-Object {
                 try {
-                    $seq = Read-SequenceFile -Path $_.FullName -NoCache
+                    $null = Read-SequenceFile -Path $_.FullName -NoCache
                     $seqOk++
-                    # A `host:` sequence runs sibling scripts DIRECTLY on this
-                    # host, and those scripts are usually destructive (lab
-                    # teardown). Validate them statically here -- a missing
-                    # script, or one written for another hypervisor, otherwise
-                    # surfaces only as a mid-cycle stack trace on step 1, after
-                    # the cycle has already re-cloned the project and begun
-                    # tearing VMs down.
-                    if ($seq -is [System.Collections.IDictionary] -and $seq.Contains('host')) { $hostActionSeqs++ }
-                    foreach ($finding in @(Get-HostActionFinding -Sequence $seq -SequencePath $_.FullName -HostType $HostType)) {
-                        $hostActionFindings++
-                        if ($finding.Severity -eq 'Fail') {
-                            Write-Fail "Sequence '$($_.Name)': $($finding.Message)" -FullPath $finding.Path
-                        } else {
-                            Write-Warn "Sequence '$($_.Name)': $($finding.Message)"
-                        }
-                    }
                 } catch {
                     Write-Fail "Sequence '$($_.Name)' failed to load: $($_.Exception.Message)" -FullPath $_.FullName
                 }
@@ -939,9 +966,6 @@ if (-not (Test-Path $seqResolveMod)) {
         Write-Warn "No sequence directories found under $TestRoot/sequences or the project tree."
     } else {
         Write-Pass "Sequence files loaded + snippet-expanded OK: $seqOk file(s) across $seqDirsScanned dir(s)."
-        if ($hostActionSeqs -gt 0 -and $hostActionFindings -eq 0) {
-            Write-Pass "Host-action sequences: $hostActionSeqs checked -- every 'host:' script exists and carries no dependency this host ('$HostType') cannot satisfy."
-        }
     }
 }
 
@@ -996,19 +1020,26 @@ $script:LinuxSudoHintShown = $false
 function Show-LinuxSudoHintOnce {
     if (-not $IsLinux -or $script:LinuxSudoHintShown) { return }
     if (-not (Get-Command Get-PoolStorageLinuxSudoHint -ErrorAction SilentlyContinue)) { return }
+    # A mount can fail at the mount STAGE for reasons that have nothing to do with
+    # sudo. Printing the drop-in instructions to an operator whose drop-in is
+    # already installed and working reads as "the install silently failed", and
+    # sends them to redo the one thing that is not broken. Probe first; when
+    # passwordless sudo is already in effect, say so and name what is left.
+    if ((Get-Command Test-PoolStorageSudoReady -ErrorAction SilentlyContinue) -and (Test-PoolStorageSudoReady)) {
+        $script:LinuxSudoHintShown = $true
+        Write-Info "Passwordless sudo for mount/mkdir/umount is already in effect for this account -- the /etc/sudoers.d drop-in is NOT the problem. The mount failed for the reason quoted above."
+        if ((Get-Command Test-PoolStorageCifsHelper -ErrorAction SilentlyContinue) -and -not (Test-PoolStorageCifsHelper)) {
+            Write-Info "  Missing package: the mount.cifs helper is not installed. Fix: sudo apt-get install -y cifs-utils"
+        }
+        return
+    }
     $script:LinuxSudoHintShown = $true
     $acct = ''
     try { $acct = [string](& id -un 2>$null | Select-Object -First 1) } catch { $null = $_ }
     if ([string]::IsNullOrWhiteSpace($acct)) { $acct = [string]$env:USER }
-    $resolve = {
-        param($cmd, $fallback)
-        $src = (Get-Command -CommandType Application -Name $cmd -ErrorAction SilentlyContinue | Select-Object -First 1).Source
-        if ([string]::IsNullOrWhiteSpace($src)) { $fallback } else { $src }
-    }
+    $p = Get-PoolStorageSudoCommandPath
     $hint = Get-PoolStorageLinuxSudoHint -User ($acct.Trim()) `
-        -MkdirPath  (& $resolve 'mkdir'  '/usr/bin/mkdir') `
-        -MountPath  (& $resolve 'mount'  '/usr/bin/mount') `
-        -UmountPath (& $resolve 'umount' '/usr/bin/umount')
+        -MkdirPath $p.Mkdir -MountPath $p.Mount -UmountPath $p.Umount
     foreach ($line in $hint) { Write-Info $line }
 }
 
@@ -1037,6 +1068,92 @@ function Invoke-LinuxSudoInstallOffer {
         'present'   { Write-Info "Passwordless sudo is already configured -- the mount is failing for another reason (share name / credential); see the details below."; return $false }
         default     { Write-Info "Passwordless-sudo install did not complete ($($result.Action)): $($result.Message)"; return $false }
     }
+}
+
+# Interactive only: collect the missing pool NAS password and store it in the
+# vault, so an operator who has the secret in hand ends the run with a working
+# credential instead of a gate failure that points at a doc plus a second
+# command. The password is the one value the harness must never invent -- the SMB
+# account already exists on the NAS, so an auto-generated one is always junk it
+# rejects (cifs mount error(13)). Returns $true ONLY when a credential was
+# stored; the caller then re-runs the read-only pre-check rather than trusting
+# the write. A headless session -- the unattended runner -- returns $false at
+# once and keeps the printed instructions.
+function Invoke-PoolStorageVaultCredentialOffer {
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidUsingPlainTextForPassword', '',
+        Justification = 'The password is read as a SecureString; the brief plaintext only feeds the vault Set-Password, which stores plaintext by design.')]
+    [OutputType([bool])]
+    param([Parameter(Mandatory)][pscustomobject]$Config)
+
+    $who = [string]$Config.NetworkUser
+    if ([string]::IsNullOrWhiteSpace($who)) { return $false }
+    $canPrompt = $false
+    try { $canPrompt = ([Environment]::UserInteractive -and -not [Console]::IsInputRedirected) } catch { $canPrompt = $false }
+    if (-not $canPrompt) { return $false }
+    if (-not (Get-Command Set-Password -ErrorAction SilentlyContinue)) {
+        Write-Info "networkStorage pool: the authentication extension is not loaded here, so the password cannot be stored from this run. Store it manually -- see docs/test-config.md."
+        return $false
+    }
+
+    $ans = Read-Host "networkStorage pool: store the NAS password for '$who' in the vault now? [y/N]"
+    if ($ans -notmatch '^\s*(y|yes)\s*$') { return $false }
+
+    # Typed twice: with the NAS offline nothing in this run reads the value back,
+    # so a typo would otherwise sit in the vault until a cycle's mount fails.
+    $plain   = ''
+    $confirm = ''
+    try {
+        $plain   = [System.Net.NetworkCredential]::new('', (Read-Host "  NAS password for '$who'" -AsSecureString)).Password
+        $confirm = [System.Net.NetworkCredential]::new('', (Read-Host '  Re-enter the password' -AsSecureString)).Password
+    } catch {
+        Write-Info "networkStorage pool: could not read the password ($($_.Exception.Message)); nothing stored."
+        return $false
+    }
+    if ([string]::IsNullOrEmpty($plain)) {
+        Write-Info "networkStorage pool: empty password; nothing stored (the NAS rejects an empty SMB credential)."
+        return $false
+    }
+    if ($plain -ne $confirm) {
+        Write-Info "networkStorage pool: the two entries do not match; nothing stored. Re-run to try again."
+        return $false
+    }
+
+    # Map the account to a vault key equal to its own name when users.yml carries
+    # none: that is the same slot Set-Password writes below, and a non-empty
+    # vaultKey is what keeps Get-Password off the auto-generate path from here on.
+    $vaultKey = ''
+    if (Get-Command Get-EffectiveUser -ErrorAction SilentlyContinue) {
+        try { $vaultKey = [string](Get-EffectiveUser -LogicalUser $who).vaultKey } catch { $null = $_ }
+    }
+    if ([string]::IsNullOrWhiteSpace($vaultKey)) {
+        $vaultKey = $who
+        if (Get-Command Set-UserVaultKey -ErrorAction SilentlyContinue) {
+            try {
+                if (Set-UserVaultKey -LogicalUser $who -VaultKey $vaultKey -Confirm:$false) {
+                    Write-Info "networkStorage pool: mapped '$who' to vault key '$vaultKey' in users.yml."
+                }
+            } catch {
+                Write-Info "networkStorage pool: could not map the vaultKey in users.yml ($($_.Exception.Message)); storing under '$vaultKey' anyway."
+            }
+        }
+    }
+
+    try { Set-Password -Username $vaultKey -NewPassword $plain }
+    catch {
+        Write-Info "networkStorage pool: storing the credential for '$who' failed ($($_.Exception.Message)). Set it manually -- see docs/test-config.md."
+        return $false
+    }
+    # This process resolved users.yml before the vaultKey write, so drop the
+    # cached parse; the re-check below must read the mapping just written.
+    if (Get-Command Reset-UsersConfigCache -ErrorAction SilentlyContinue) { $null = Reset-UsersConfigCache -Confirm:$false }
+    Write-Info "networkStorage pool: stored the NAS password for '$who' under vault key '$vaultKey'."
+    # A single quote survives the vault fine but unbalances the single-quoted
+    # cifs credential/env entries the guest seeds are built from, so the pool
+    # share would never mount inside the caching-proxy and pool-control VMs.
+    if ($plain -match "'") {
+        Write-Info "networkStorage pool: the password contains a single quote -- the host mount works, but the guest VM seeds cannot bake it. Change it on the NAS to avoid quotes, backslash, and YAML/shell separators."
+    }
+    return $true
 }
 
 # A bare drive-letter (e.g. 'z:') is a localPath value, never a valid SMB
@@ -1115,11 +1232,17 @@ if (-not (Test-Path $poolMod)) {
             $psVaultReady = $false
             $psReachable  = $false
             if (Get-Command Test-PoolStorageVaultReady -ErrorAction SilentlyContinue) {
-                if (Test-PoolStorageVaultReady -Config $psCfg -WarningAction SilentlyContinue) {
-                    $psVaultReady = $true
+                $psVaultReady = [bool](Test-PoolStorageVaultReady -Config $psCfg -WarningAction SilentlyContinue)
+                # Missing credential + an operator at the keyboard: ask for the
+                # password now, then re-run the same read-only pre-check so what
+                # is reported is what the mount path can actually resolve.
+                if (-not $psVaultReady -and (Invoke-PoolStorageVaultCredentialOffer -Config $psCfg)) {
+                    $psVaultReady = [bool](Test-PoolStorageVaultReady -Config $psCfg -WarningAction SilentlyContinue)
+                }
+                if ($psVaultReady) {
                     Write-Pass "networkStorage pool: a vault credential is configured for '$($psCfg.NetworkUser)'."
                 } else {
-                    $vmsg = "networkStorage pool: '$($psCfg.NetworkUser)' has no usable vault credential -- mounting would auto-generate a junk SMB password the NAS rejects. Map a non-empty vaultKey in users.yml and Set-Password it. See docs/test-config.md."
+                    $vmsg = "networkStorage pool: '$($psCfg.NetworkUser)' has no usable vault credential -- mounting would auto-generate a junk SMB password the NAS rejects. Re-run this check from a terminal to be prompted for the password, or map a non-empty vaultKey in users.yml and Set-Password it. See docs/test-config.md."
                     if ($psReplicate) { Write-Fail $vmsg -FullPath $ConfigPath }
                     else              { Write-Warn "$vmsg (Advisory: replicate is false, so this won't block the cycle -- fix before enabling.)" }
                 }
@@ -1138,8 +1261,22 @@ if (-not (Test-Path $poolMod)) {
                 }
             }
 
+            # mount(8) execs the external mount.cifs helper from cifs-utils, which
+            # nothing else in the harness pulls in. Establish it BEFORE the active
+            # pre-flight: without the helper every mount fails with the same exit
+            # code a credential rejection produces, so reporting the missing
+            # package is both the accurate finding and the only actionable one.
+            # The doomed mount attempt is then skipped rather than raising a second
+            # finding for the same cause.
+            $psCanMount = $true
             if ($IsLinux) {
                 Write-Info "networkStorage on Linux needs passwordless sudo for 'mount'/'umount' (and 'mkdir' when localPath is under a root-owned dir like /mnt) -- an /etc/sudoers.d drop-in. See docs/pool-storage.md."
+                if ((Get-Command Test-PoolStorageCifsHelper -ErrorAction SilentlyContinue) -and -not (Test-PoolStorageCifsHelper)) {
+                    $psCanMount = $false
+                    $cmsg = "networkStorage pool: the mount.cifs helper (package cifs-utils) is not installed, so 'mount -t cifs' cannot mount '$($psCfg.NetworkPath)' at all -- replication would silently never happen. Fix: sudo apt-get install -y cifs-utils"
+                    if ($psReplicate) { Write-Fail $cmsg -FullPath $ConfigPath }
+                    else              { Write-Warn "$cmsg (Advisory: replicate is false, so this won't block the cycle -- fix before enabling.)" }
+                }
             }
 
             # ACTIVE write-path pre-flight: actually mount localPath and create the
@@ -1152,7 +1289,7 @@ if (-not (Test-Path $poolMod)) {
             # Only attempted when a credential is configured AND the server is
             # reachable, so a merely-offline NAS stays the transient WARN above.
             # FAIL (block the cycle) when replicate is on; advisory WARN when off.
-            if ($psVaultReady -and $psReachable -and (Get-Command Initialize-PoolStorageHostFolder -ErrorAction SilentlyContinue)) {
+            if ($psVaultReady -and $psReachable -and $psCanMount -and (Get-Command Initialize-PoolStorageHostFolder -ErrorAction SilentlyContinue)) {
                 if (-not (Get-Command Get-YurunaHostId -ErrorAction SilentlyContinue)) {
                     $ydMod = Join-Path $ModulesDir 'Test.YurunaDir.psm1'
                     if (Test-Path $ydMod) { Import-Module $ydMod -Global -Force -ErrorAction SilentlyContinue }

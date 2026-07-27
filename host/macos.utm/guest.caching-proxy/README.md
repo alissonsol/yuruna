@@ -4,7 +4,7 @@ Canonical documentation (setup, configuration, monitoring, credentials,
 management): **[Caching](../../../docs/caching.md)**.
 Test-harness wrappers (`Start-CachingProxyVM.ps1`,
 `Test-CachingProxy.ps1`, `YURUNA_CACHING_PROXY_IP`):
-**[Caching proxy — test-harness operator reference](../../../docs/caching-proxy.md)**.
+**[Caching proxy — test-harness operator reference](../../../docs/caching.md#caching-proxy--test-harness-operator-reference)**.
 
 Scripts and config in this folder:
 
@@ -28,6 +28,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.24
+Last review: 2026.07.26
 
 Back to [Yuruna](../../../README.md)

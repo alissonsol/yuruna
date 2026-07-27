@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.24
+.VERSION 2026.07.26
 .GUID 42d9e0f1-a2b3-4c45-d678-9e0f1a2b3c46
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -207,7 +207,7 @@ CreateIso -SourceDir $SeedDir -OutputFile $SeedIso -VolumeId "OEMDRV"
 # that can't create an External vSwitch. Same pattern as guest.caching-proxy.
 $switchName = Get-OrCreateYurunaExternalSwitch
 if (-not $switchName) {
-    Write-Output "WARNING: External vSwitch unavailable -- falling back to 'Default Switch'."
+    Write-Verbose "External vSwitch unavailable -- falling back to 'Default Switch'."
     $switchName = 'Default Switch'
 }
 

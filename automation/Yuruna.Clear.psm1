@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.24
+.VERSION 2026.07.26
 .GUID 42c1e3f4-a5b6-4789-0123-4c5d6e7f8091
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -52,37 +52,50 @@ function Clear-Configuration {
     # what deploy set.
     Set-ExpandedVariableHashtable -Variables $yaml.globalVariables -DebugLabel 'globalVariables' -CacheExpanded
 
-    if ($null -eq $yaml.resources) { Write-Information "Resources null or empty in file: $resourcesFile"; return $true; }
+    # The deployed resource names are the top-level keys of resources.output.yml
+    # other than globalVariables: Set-Resource writes that map plus one
+    # `<resourceName>: <tofu outputs>` block per resource it actually created.
+    # There is no `resources:` list in this file -- that shape belongs to the
+    # forward resources.yml, and reading it here would silently find nothing and
+    # report a successful teardown that destroyed no resource.
+    #
+    # Two properties of that key set matter. A resource declared with an empty
+    # template is never written here at all -- it only names an already-existing
+    # resource and owns no work folder -- so the keys are exactly the set that
+    # has something to destroy. And the keys are already variable-expanded, so
+    # they match the .yuruna work folder names verbatim and must not be expanded
+    # a second time.
+    $resourceNames = @()
+    if (($null -ne $yaml) -and ($null -ne $yaml.Keys)) {
+        $resourceNames = @($yaml.Keys | Where-Object { (-Not [string]::IsNullOrWhiteSpace($_)) -and ($_ -ne 'globalVariables') })
+    }
+    if ($resourceNames.Count -eq 0) { Write-Information "No deployed resources in file: $resourcesFile"; return $true; }
     $destroyFailed = $false
-    foreach ($resource in $yaml.resources) {
-        $resourceName = $ExecutionContext.InvokeCommand.ExpandString($resource['name'])
-        $resourceTemplate = $resource['template']
-        Write-Debug "resource: $resourceName - template: $resourceTemplate"
-        if ([string]::IsNullOrEmpty($resourceName)) { Write-Information "Resource without name in file: $resourcesFile"; return $false; }
-        # Empty template: just naming an already-existing resource, nothing to destroy
-        if (![string]::IsNullOrEmpty($resourceTemplate)) {
-            $workFolder = Join-Path -Path $project_root -ChildPath ".yuruna/$config_subfolder/resources/$resourceName"
-            if (-Not ([string]::IsNullOrEmpty($workFolder))) {
-                $workFolder = Resolve-Path -Path $workFolder -ErrorAction SilentlyContinue
-                if (-Not ([string]::IsNullOrEmpty($workFolder))) {
-                    Push-Location $workFolder
-                    Write-Information "-- Clear: $workFolder"
-                    $result = tofu destroy -auto-approve -refresh=false 2>&1
-                    $destroyExit = if ($null -eq $LASTEXITCODE) { 0 } else { $LASTEXITCODE }
-                    Write-Debug "OpenTofu destroy (exit $destroyExit): $result"
-                    Pop-Location
-                    if ($destroyExit -ne 0) {
-                        # Keep the work folder (and its tfstate) when destroy fails: it is the
-                        # only local state that lets the destroy be retried. Deleting it here
-                        # would orphan the real cloud/VM resource with no way to recover.
-                        Write-Information "OpenTofu destroy failed (exit ${destroyExit}) for ${resourceName}; preserving $workFolder for retry"
-                        $destroyFailed = $true
-                    }
-                    else {
-                        Remove-Item -Path $workFolder -Force -Recurse -ErrorAction SilentlyContinue
-                    }
-                }
-            }
+    foreach ($resourceName in $resourceNames) {
+        Write-Debug "resource: $resourceName"
+        $workFolder = Join-Path -Path $project_root -ChildPath ".yuruna/$config_subfolder/resources/$resourceName"
+        $workFolder = Resolve-Path -Path $workFolder -ErrorAction SilentlyContinue
+        # No work folder: already destroyed and removed by an earlier run, so
+        # there is no local tfstate left to destroy from.
+        if ([string]::IsNullOrEmpty($workFolder)) {
+            Write-Debug "No work folder for ${resourceName}; nothing to destroy"
+            continue
+        }
+        Push-Location $workFolder
+        Write-Information "-- Clear: $workFolder"
+        $result = tofu destroy -auto-approve -refresh=false 2>&1
+        $destroyExit = if ($null -eq $LASTEXITCODE) { 0 } else { $LASTEXITCODE }
+        Write-Debug "OpenTofu destroy (exit $destroyExit): $result"
+        Pop-Location
+        if ($destroyExit -ne 0) {
+            # Keep the work folder (and its tfstate) when destroy fails: it is the
+            # only local state that lets the destroy be retried. Deleting it here
+            # would orphan the real cloud/VM resource with no way to recover.
+            Write-Information "OpenTofu destroy failed (exit ${destroyExit}) for ${resourceName}; preserving $workFolder for retry"
+            $destroyFailed = $true
+        }
+        else {
+            Remove-Item -Path $workFolder -Force -Recurse -ErrorAction SilentlyContinue
         }
     }
 

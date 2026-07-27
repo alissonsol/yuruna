@@ -69,3 +69,11 @@ vmStart:
   cachingProxyIP: ""
   startTimeoutSeconds: 120
   testVmNamePrefix: test-
+  # Extra VM-name prefixes the cycle sweep may stop and delete, for a
+  # project whose VMs are promoted out of the test-VM namespace (a
+  # snapshot id becomes the VM name, so those guests no longer carry
+  # testVmNamePrefix and would otherwise survive every cycle and block
+  # the next one). testVmNamePrefix is always swept and does not need
+  # repeating here. Prefixes match literally, never as wildcards; an
+  # empty entry is ignored rather than matching every VM on the host.
+  cleanupVmNamePrefixes: []

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.24
+.VERSION 2026.07.26
 .GUID 42a2b3c4-d5e6-4f78-9012-3a4b5c6d7e93
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -23,6 +23,8 @@
 .DESCRIPTION
     Configures host-side settings needed for unattended, long-running test
     runs against libvirt-managed guest VMs:
+      * missing host packages (qemu, libvirt, virtinst, virt-manager, ...)
+        named up front, and installed with apt-get on an interactive run
       * libvirtd + virtlogd enabled and running
       * libvirt 'default' network up + autostart (NAT 192.168.122.0/24)
       * yuruna VM image directory created under $HOME/yuruna/{image,vms}
@@ -65,6 +67,58 @@ Initialize-HostSetupModule -RepoRoot $RepoRoot -BoundParameters $PSBoundParamete
     'read host hardware fingerprint (/sys/class/dmi product_uuid + board_serial) to register/reclaim this host pool identity'
 )
 
+function Test-AptPackageInstalled {
+    # dpkg-query is the only authority on "is the package installed": probing for
+    # a binary on PATH gives false negatives for helpers that live in /sbin, and
+    # a half-configured package still leaves its files behind. 'ii' is the only
+    # state that means fully installed and configured.
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param([Parameter(Mandatory)][string]$Name)
+    $state = & dpkg-query -W -f='${db:Status-Abbrev}' $Name 2>$null
+    return ("$state".Trim() -eq 'ii')
+}
+
+function Get-MissingHostPackage {
+    <#
+    .SYNOPSIS
+        The apt packages this host needs but does not have, as
+        @{ Package; Why } records. Empty means every prerequisite is present.
+    .DESCRIPTION
+        This script CONFIGURES a KVM host; install/ubuntu.kvm.sh is what
+        INSTALLS one. Run standalone on a host that never went through the
+        installer, every step below fails on a missing binary and reports its
+        own symptom -- "systemctl enable libvirtd" says the unit does not
+        exist, the group probe says usermod "must have failed earlier" for a
+        group no package ever created, and the SMB mount blames passwordless
+        sudo for a missing mount.cifs. None of those name the actual cause.
+        Establishing it once, up front, replaces that cascade with the one
+        fact that explains all of it.
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable[]], [object[]])]
+    param()
+    # Mirrors the KVM-relevant subset of what install/ubuntu.kvm.sh installs
+    # (APT_PACKAGES plus the separate virt-manager call).
+    # Critical means no guest can run at all without it, so the steps that follow
+    # are skipped rather than left to fail one by one; the rest degrade a single
+    # feature and are reported without blocking.
+    $qemuPkg = switch ("$(& uname -m)".Trim()) {
+        'aarch64' { 'qemu-system-arm' }
+        default   { 'qemu-system-x86' }
+    }
+    $required = @(
+        @{ Package = $qemuPkg;                Critical = $true;  Why = 'the QEMU system emulator that actually runs the guests' }
+        @{ Package = 'libvirt-daemon-system'; Critical = $true;  Why = 'the libvirtd/virtlogd services and the libvirt + kvm groups' }
+        @{ Package = 'libvirt-clients';       Critical = $true;  Why = 'virsh, used by every VM lifecycle step' }
+        @{ Package = 'virtinst';              Critical = $true;  Why = 'virt-install, used to build guests' }
+        @{ Package = 'acl';                   Critical = $false; Why = 'setfacl, so libvirt-qemu can traverse $HOME to reach the VM disks' }
+        @{ Package = 'cifs-utils';            Critical = $false; Why = 'the mount.cifs helper the optional networkStorage pool share needs' }
+        @{ Package = 'virt-manager';          Critical = $false; Why = 'the libvirt GUI, to watch a guest a headless step is stuck on' }
+    )
+    return @($required | Where-Object { -not (Test-AptPackageInstalled -Name $_.Package) })
+}
+
 function Invoke-Step {
     # SupportsShouldProcess on the script-level param() does NOT propagate to
     # nested functions -- $PSCmdlet inside this function refers to the
@@ -81,6 +135,55 @@ function Invoke-Step {
     }
 }
 
+# --- REGION: host package prerequisites
+# Establish the ONE fact that explains a whole class of downstream symptoms
+# before any step can misreport it (see Get-MissingHostPackage). Interactive
+# operators are offered the install right here so a standalone run of this
+# script can leave the host actually working; a declined or unattended run
+# skips the steps that cannot succeed instead of emitting a warning per step.
+$missingPkgs   = @(Get-MissingHostPackage)
+$missingCrit   = @($missingPkgs | Where-Object { $_.Critical })
+$libvirtReady  = ($missingCrit.Count -eq 0)
+
+if ($missingPkgs.Count -gt 0) {
+    Write-Output ''
+    Write-Output 'Missing host packages -- this host either never went through install/ubuntu.kvm.sh, or predates one of these:'
+    foreach ($p in $missingPkgs) {
+        $tag = if ($p.Critical) { 'required' } else { 'optional' }
+        Write-Output "  [$tag] $($p.Package) -- $($p.Why)"
+    }
+    $aptLine = "sudo apt-get install -y $(($missingPkgs | ForEach-Object { $_.Package }) -join ' ')"
+
+    $canPrompt = $false
+    try { $canPrompt = ([Environment]::UserInteractive -and -not [Console]::IsInputRedirected) } catch { $canPrompt = $false }
+    $installed = $false
+    if ($canPrompt -and -not $WhatIfPreference) {
+        $ans = Read-Host "Install them now with apt-get? [y/N]"
+        if ($ans -match '^\s*(y|yes)\s*$') {
+            # sudo is invoked directly (not through a stream-redirecting helper) so
+            # its password prompt and apt's progress reach the operator's terminal.
+            & sudo apt-get update -q
+            & sudo apt-get install -y @($missingPkgs | ForEach-Object { $_.Package })
+            if ($LASTEXITCODE -eq 0) {
+                $installed   = $true
+                $missingPkgs = @(Get-MissingHostPackage)
+                $missingCrit = @($missingPkgs | Where-Object { $_.Critical })
+                $libvirtReady = ($missingCrit.Count -eq 0)
+                if ($missingPkgs.Count -eq 0) { Write-Output 'All host packages are now installed.' }
+            } else {
+                Write-Warning "apt-get install failed (exit $LASTEXITCODE). Run it manually: $aptLine"
+            }
+        }
+    }
+    if (-not $installed -and $missingPkgs.Count -gt 0) {
+        Write-Output "  Install them with: $aptLine"
+        Write-Output '  (install/ubuntu.kvm.sh installs these plus the rest of the host toolchain.)'
+    }
+    if (-not $libvirtReady) {
+        Write-Warning 'Skipping the libvirt service, network, group and search-ACL steps: they cannot succeed until the packages above are installed. Re-run this script afterwards.'
+    }
+}
+
 # --- REGION: libvirt services + default network
 # When invoked from install/ubuntu.kvm.sh (YURUNA_SUDO_PRIMED=1), the bash
 # wrapper has ALREADY done every sudo step in this block:
@@ -94,7 +197,11 @@ function Invoke-Step {
 # (no wrapper) we still do the writes so the script works on its own.
 $wrapperPrimed = ($env:YURUNA_SUDO_PRIMED -eq '1')
 
-if ($wrapperPrimed) {
+if (-not $libvirtReady) {
+    # Reported once by the package gate above; per-step warnings here would only
+    # restate it in terms that point away from the cause.
+    Write-Verbose 'libvirt packages missing -- skipping the service + default-network steps.'
+} elseif ($wrapperPrimed) {
     foreach ($unit in @('libvirtd', 'virtlogd')) {
         $raw = & systemctl is-active $unit 2>$null
         $active = if ($raw) { "$raw".Trim() } else { '' }
@@ -155,6 +262,25 @@ Import-Module (Join-Path $RepoRoot 'test/modules/Test.StatusFirewall.psm1') -For
 Invoke-Step -Description "Allow inbound TCP :$statusPort (status server) through the host firewall (ufw)" -Action {
     $fwResult = Set-YurunaStatusFirewallRule -Port $statusPort
     Write-Output "  status firewall: $($fwResult.Message)"
+}
+
+# --- REGION: host clock
+# libvirt seeds each guest's clock from this host at power-on, so a host
+# that has drifted starts every VM equally wrong and the guest's own NTP
+# client steps it to real time seconds into the boot -- mid-startup for
+# whatever that guest is bringing up. On a Kubernetes guest that leaves
+# pods Running but never Ready and every NodePort refusing, with nothing
+# in the picture pointing back at a clock. The Windows and macOS paths do
+# this inside their Set-*HostConditionSet; this host's setup script does
+# not route through Set-LinuxHostConditionSet, so the same call lands here.
+Import-Module (Join-Path $RepoRoot 'test/modules/Test.HostCondition.psm1') -Force -DisableNameChecking
+Invoke-Step -Description 'Put the host clock under NTP discipline (timedatectl set-ntp true)' -Action {
+    $clockResult = Sync-LinuxHostClock
+    if ($clockResult.Succeeded) {
+        Write-Output "  host clock: $($clockResult.Message)"
+    } else {
+        Write-Warning "host clock not disciplined: $($clockResult.Message)"
+    }
 }
 
 # --- REGION: yuruna image / VM storage layout
@@ -230,7 +356,9 @@ if (Test-Path -LiteralPath $cfgPath) {
 & getent passwd libvirt-qemu *> $null
 $haveLibvirtQemu = ($LASTEXITCODE -eq 0)
 $haveSetfacl    = [bool](Get-Command -Name 'setfacl' -ErrorAction SilentlyContinue)
-if ($haveLibvirtQemu -and $haveSetfacl) {
+if (-not $libvirtReady) {
+    Write-Verbose 'libvirt packages missing -- skipping the search-ACL step.'
+} elseif ($haveLibvirtQemu -and $haveSetfacl) {
     Invoke-Step -Description "setfacl -m u:libvirt-qemu:--x $HOME" -Action {
         & setfacl -m 'u:libvirt-qemu:--x' $HOME
         if ($LASTEXITCODE -ne 0) {
@@ -277,9 +405,30 @@ if ($gsettings) {
 $activeGroups = (& id -nG 2>$null) -split '\s+'
 foreach ($grp in @('libvirt','kvm')) {
     $line    = & getent group $grp 2>$null
-    $members = if ($line) { (($line -split ':',4)[3]) -split ',' } else { @() }
+    # No such group at all: the package that creates it is not installed. Saying
+    # usermod "must have failed" here would be false -- usermod cannot add anyone
+    # to a group that does not exist, and the operator would chase the wrong fix.
+    if (-not $line) {
+        if ($libvirtReady) {
+            Write-Warning "group '$grp' does not exist even though the libvirt packages are installed -- check 'sudo dpkg-reconfigure libvirt-daemon-system'."
+        } else {
+            Write-Verbose "group '$grp' absent; the package that creates it is not installed (reported above)."
+        }
+        continue
+    }
+    $members = (($line -split ':',4)[3]) -split ','
     if ($members -notcontains $env:USER) {
-        Write-Warning "$env:USER is not a member of '$grp' in /etc/group -- 'sudo usermod -aG $grp $env:USER' must have failed earlier. Run it manually, then re-run this script."
+        # The group exists, so this is fixable right here -- sudo is already
+        # primed for this run. Telling the operator to go run usermod themselves
+        # leaves the host broken for no reason.
+        Invoke-Step -Description "usermod -aG $grp $env:USER" -Action {
+            & sudo usermod -aG $grp $env:USER
+            if ($LASTEXITCODE -ne 0) {
+                Write-Warning "'sudo usermod -aG $grp $env:USER' failed (exit $LASTEXITCODE). Run it manually, then re-run this script."
+            } else {
+                Write-Output "  added $env:USER to '$grp'; log out and back in (or 'newgrp $grp') before the next interactive pwsh call."
+            }
+        }
     }
     elseif (-not $wrapperPrimed -and $activeGroups -notcontains $grp) {
         # Standalone invocation only. When called via install/ubuntu.kvm.sh, the

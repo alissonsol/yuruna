@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.24
+.VERSION 2026.07.26
 .GUID 42e2f3a4-b5c6-4d78-9abc-de1f2a3b4c63
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -22,7 +22,12 @@
     console one-liner reached the guest tty intact before it is submitted.
 .DESCRIPTION
     The predicate is pure, so these run with no host, no VM and no OCR
-    engine: the samples are the OCR text itself, taken from real captures.
+    engine. The healthy sample is the OCR text of a real capture verbatim.
+    The corrupt samples are built from it: real captures of the stuck-key
+    failure contain the non-ASCII glyphs OCR invents, which cannot live in an
+    ASCII source file, so the appended garbage is reconstructed here in the
+    shape those captures take (a clean autorepeat run, and the mixed-glyph
+    run tesseract actually produces from one).
 
     The two anchors are the reason this file exists. A correctly typed line
     OCRs badly -- ';' as ':', 'H=' as 'HF', '//' as '/7', 'curl' as 'cur',
@@ -62,6 +67,24 @@ $EchoHealthy = 'Lch0luser1@ch01host1 JS HFhttp:/7192.168.64.1:8080:F=003688.2026
 # The same line after a key stuck in autorepeat.
 $EchoCorrupt = $EchoHealthy + ('y' * 1400)
 
+# The stuck key as OCR actually renders it: a wall of repeated glyphs does
+# not survive OCR as one clean character, it comes back as mixed noise across
+# many lines ('PUPPY PY BBY PPP...'). This shape, not the clean run, is what
+# a real capture holds, so it is what pins the threshold against reality.
+$EchoMixedCorrupt = $EchoHealthy + 'rm y1.' + (('PUPPY PY BBY PPP YB BP PY BBY PPP YB ') * 40)
+
+# A screenful of ordinary, heterogeneous console output ABOVE the command --
+# a reboot/shutdown log rather than a repeated banner. Unlike a repeated
+# banner it offers no periodic coincidental gram hits, so it is the honest
+# test that scrollback preceding the command is not scored as corruption.
+$EchoScrollback = @'
+The system is going down for reboot now. Broadcast message from root.
+Stopping User Manager for UID 1000. Removed slice User Slice of ch01user1.
+Reached target Shutdown. Reached target Final Step. Unmounting /home.
+Please stand by while the operating system reconfigures the network stack.
+Authentication required to manage system services over the control bus.
+'@ + $EchoHealthy
+
 # Gross truncation: the echo died a few characters in.
 $EchoTruncated = 'Lch0luser1@ch01host1 JS HFhttp:/7192.168.64'
 
@@ -77,6 +100,14 @@ Describe 'Test-ConsoleEchoIntact - real capture samples' {
     It 'fails the autorepeat-corrupted capture' {
         Assert-Equal -Expected 'corrupt' -Actual (Test-ConsoleEchoIntact -Expected $EchoExpected -OcrText $EchoCorrupt) `
             -Because 'A stuck key appending ~1400 characters must be caught before Enter.'
+    }
+
+    It 'fails a stuck key that OCR rendered as mixed glyphs, not a clean run' {
+        # The default-threshold pin: this is the realistic shape of the real
+        # failure (garbage read as 'PUPPY PY BBY...'), and it must be caught
+        # with NO threshold override, so loosening the default breaks here.
+        Assert-Equal -Expected 'corrupt' -Actual (Test-ConsoleEchoIntact -Expected $EchoExpected -OcrText $EchoMixedCorrupt) `
+            -Because 'A stuck key must be caught at the default threshold even when OCR scatters it into mixed glyphs.'
     }
 
     It 'fails a grossly truncated echo' {
@@ -150,6 +181,23 @@ Describe 'Test-ConsoleEchoIntact - noise tolerance properties' {
         # has been recognized.
         $banner = ('Welcome to Amazon Linux 2023. Last login: Mon Jul 20 16:18:13 2026 from 192.168.64.1. ' * 6)
         Assert-Equal -Expected 'intact' -Actual (Test-ConsoleEchoIntact -Expected $EchoExpected -OcrText ($banner + $EchoHealthy))
+    }
+
+    It 'ignores a screenful of heterogeneous scrollback ahead of the command' {
+        # The honest version of the banner test, and the regression guard for
+        # a real defect: ordinary console output above the command (a boot or
+        # shutdown log) is unexplained and shares no periodic run with the
+        # command, so a naive "count everything after the first explained
+        # position" measure scored a perfectly healthy frame as corrupt and
+        # abandoned the capture without pressing Enter. It must verify.
+        Assert-Equal -Expected 'intact' -Actual (Test-ConsoleEchoIntact -Expected $EchoExpected -OcrText $EchoScrollback) `
+            -Because 'A healthy command with unrelated scrollback above it must not be judged corrupt.'
+    }
+
+    It 'still catches corruption that trails scrollback plus the command' {
+        # The complement of the guard above: excluding leading scrollback must
+        # not blind the check to garbage that follows the command echo.
+        Assert-Equal -Expected 'corrupt' -Actual (Test-ConsoleEchoIntact -Expected $EchoExpected -OcrText ($EchoScrollback + ('y' * 400)))
     }
 }
 

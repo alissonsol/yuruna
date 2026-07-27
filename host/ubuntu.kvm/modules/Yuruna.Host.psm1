@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.24
+.VERSION 2026.07.26
 .GUID 42a2b3c4-d5e6-4f78-9012-3a4b5c6d7e8f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -21,7 +21,8 @@
     Drives guest VMs on a Linux host running libvirt + KVM. Sibling
     implementations live at host/macos.utm/modules/Yuruna.Host.psm1
     (macOS UTM) and host/windows.hyper-v/modules/Yuruna.Host.psm1
-    (Windows Hyper-V). Same 36-function contract on all three; the
+    (Windows Hyper-V). Same driver contract
+    (host/Yuruna.Host.Contract.psm1) on all three; the
     test harness is host-agnostic.
 
     All libvirt calls go through `qemu:///system` (the system
@@ -240,36 +241,86 @@ function Remove-VM {
     Invoke-Virsh -VirshArgs @('destroy', $VMName) | Out-Null
 
     # --- REGION: https://yuruna.link/memory#why-remove-vm-on-kvm-omits-remove-all-storage
-    # --snapshots-metadata is REQUIRED, not belt-and-braces: libvirt refuses to
-    # undefine a domain that still has snapshot metadata --
-    #   "Requested operation is not valid: cannot delete inactive domain with N snapshots"
-    # -- and every PERSISTED topology VM has a snapshot by construction
-    # (Save-VMDiskSnapshot puts one there). Without the flag, Remove-VM could
-    # not delete any of the very VMs a lab teardown exists to remove: the domain
-    # survived, the next cycle reused it, and the stale snapshot on it failed the
-    # restore. --managed-save covers the sibling blocker (a managed-save image
-    # refuses undefine the same way). Dropping libvirt's snapshot metadata is
-    # safe here because the qcow2 holding the internal snapshots is deleted
-    # below anyway.
-    $undefineOut = Invoke-Virsh -VirshArgs @('undefine', '--nvram', '--snapshots-metadata', '--managed-save', $VMName)
-    if ($LASTEXITCODE -ne 0) {
-        # Report the failure instead of returning $true regardless. The old
-        # unconditional success is why a surviving domain was announced as
-        # "removed" and only surfaced later, as a post-sweep survivor warning.
-        Write-Warning "Remove-VM: virsh undefine failed for '$VMName': $($undefineOut -join '; ')"
-        return $false
+    # libvirt refuses to undefine a domain that still owns per-domain
+    # metadata, and each kind needs its own opt-in flag: snapshot metadata
+    # ("cannot delete inactive domain with N snapshots"), checkpoint
+    # metadata, a managed-save image, and the NVRAM file. A workload that
+    # takes a disk snapshot would otherwise leave a domain that can never
+    # be undefined. Ask for all of them in one call so removal does not
+    # depend on which features the guest workload happened to use.
+    $undefineArgs = @('undefine', '--nvram', '--managed-save',
+                      '--snapshots-metadata', '--checkpoints-metadata', $VMName)
+    $undefineOut = Invoke-Virsh -VirshArgs $undefineArgs
+    $undefined = ($LASTEXITCODE -eq 0)
+    if (-not $undefined) {
+        # undefine also fails when the domain was never defined; that is
+        # already the desired end state, so only a domain that is still
+        # there counts as a failure.
+        if (Get-VirshDomState -VMName $VMName) {
+            Write-Warning "Remove-VM: virsh undefine failed for '$VMName': $($undefineOut -join '; ')"
+        } else {
+            $undefined = $true
+        }
     }
 
     # Per-VM artifact directory (qcow2, seed.iso, autounattend.iso, nvram).
     # New-VM.ps1 places everything under ~/yuruna/vms/<vmname>/. This is
     # what actually deletes the per-VM disk; the virsh undefine above
     # only drops the libvirt domain definition + tracked NVRAM file.
+    #
+    # Only once the domain is gone. A defined domain whose disk has been
+    # deleted is worse than a leaked file: the next run finds the VM
+    # "already there", skips creation, and every guest step fails against
+    # a domain that cannot boot. Files kept here stay claimed by the
+    # surviving domain, which is exactly what the orphan-file sweep
+    # expects to skip.
+    $filesRemoved = $true
     $vmDir = Join-Path $script:VmRootDir $VMName
-    if (Test-Path -LiteralPath $vmDir) {
+    if ($undefined -and (Test-Path -LiteralPath $vmDir)) {
         try { Remove-Item -LiteralPath $vmDir -Recurse -Force -ErrorAction Stop }
-        catch { Write-Warning "Remove-VM: could not delete '$vmDir' ($($_.Exception.Message))." }
+        catch {
+            Write-Warning "Remove-VM: could not delete '$vmDir' ($($_.Exception.Message))."
+            $filesRemoved = $false
+        }
     }
-    return $true
+    return ($undefined -and $filesRemoved)
+}
+
+<#
+.SYNOPSIS
+    Return the names of every defined libvirt domain, optionally filtered
+    to those starting with one of $Prefix.
+.DESCRIPTION
+    Host-neutral inventory call (see the contract's VM inventory block).
+    `list --all` covers running, paused and shut-off domains, so a caller
+    sweeping by prefix removes stopped leftovers as well as running ones.
+
+    THROWS when virsh cannot be reached rather than returning an empty
+    list: a missing binary, a stopped libvirtd, or a shell whose group set
+    lacks libvirt all fail the query, and a caller that read that as
+    "nothing defined" would report a clean host and let the orphan-file
+    pass delete storage still owned by a defined domain.
+.PARAMETER Prefix
+    Zero or more name prefixes. A domain is returned when its name starts
+    with any of them. Omit to return every domain.
+.OUTPUTS
+    [string[]] matching domain names; empty when none match.
+#>
+function Get-VMName {
+    [CmdletBinding()]
+    [OutputType([string[]])]
+    param([string[]]$Prefix)
+    if (-not (Get-Command virsh -ErrorAction SilentlyContinue)) {
+        throw "Get-VMName: virsh not found on PATH; cannot enumerate libvirt domains."
+    }
+    $output = Invoke-Virsh -VirshArgs @('list', '--all', '--name')
+    if ($LASTEXITCODE -ne 0) {
+        throw "Get-VMName: virsh could not enumerate domains (is libvirtd running and this shell in the libvirt group?): $($output -join '; ')"
+    }
+    # `--name` prints one name per line and a trailing blank line; the
+    # blank entries are dropped by the shared prefix filter.
+    $all = @($output | ForEach-Object { "$_".Trim() })
+    return Select-NameByPrefix -Name $all -Prefix $Prefix
 }
 
 <#
@@ -385,33 +436,29 @@ function Rename-VM {
 
 <#
 .SYNOPSIS
-    Save a disk-only snapshot of the VM, then rename the VM (and
-    relocate its storage) so it persists across test-cycle cleanup.
+    Rename the VM to $Id (relocating its storage) so it persists across
+    test-cycle cleanup, then save a disk-only snapshot of it.
 .DESCRIPTION
-    Uses libvirt's `virsh snapshot-create-as --atomic` against an
-    offline domain. With the guest stopped there is no runtime state
-    to capture, so the snapshot is purely a disk-level point. The
-    --atomic flag rolls back partially-created snapshots on failure.
+    Rename-VM moves ~/yuruna/vms/<old> -> .../<Id> and rewrites the XML
+    disk sources so the next cycle's Remove-TestVMFiles.ps1 leaves the
+    persisted domain alone.
 
-    ORDER IS LOAD-BEARING: the domain is renamed to $Id FIRST, and only
-    then is the snapshot taken. A libvirt snapshot embeds a full COPY of
-    the domain definition as it stood when the snapshot was created --
-    including <name> and every <disk><source file=...>. Rename-VM
-    rewrites the LIVE domain XML (and moves ~/yuruna/vms/<old> ->
-    .../<Id>, renaming the qcow2 with it), but nothing rewrites that
-    embedded copy. Snapshotting first therefore produced metadata
-    pointing at a path the rename had just made non-existent, and the
-    next cycle's loadDiskSnapshot died with libvirt's least helpful
-    message:
+    The rename MUST happen before the snapshot. libvirt freezes a full
+    copy of the domain XML inside the snapshot metadata, and neither
+    `virsh domrename` nor a later `virsh define` rewrites that frozen
+    copy. A snapshot taken under the old name therefore keeps the old
+    <name> and the old <disk source file=...> paths forever; when
+    Restore-VMDiskSnapshot later runs `snapshot-revert`, libvirt tries
+    to reinstate a domain whose disks live at a directory the rename
+    already moved away, and fails with the unhelpful "An error
+    occurred, but the cause is unknown". Snapshotting after the rename
+    keeps the frozen copy consistent with the live domain.
 
-        error: Failed to revert snapshot <id>
-        error: An error occurred, but the cause is unknown
-
-    Renaming first makes the recorded name and disk paths the final ones,
-    so snapshot-revert stays valid for the life of the domain. (Hyper-V
-    never had this bug: its checkpoints are tracked by VM GUID, so a
-    rename does not invalidate them -- which is why the same chain worked
-    there and only KVM failed.)
+    The snapshot itself uses `virsh snapshot-create-as --atomic`
+    against an offline domain. With the guest stopped there is no
+    runtime state to capture, so the snapshot is purely a disk-level
+    point. The --atomic flag rolls back partially-created snapshots on
+    failure.
 #>
 function Save-VMDiskSnapshot {
     [CmdletBinding(SupportsShouldProcess)]
@@ -420,38 +467,25 @@ function Save-VMDiskSnapshot {
         [Parameter(Mandatory)][string]$VMName,
         [Parameter(Mandatory)][string]$Id
     )
-    if (-not $PSCmdlet.ShouldProcess($VMName, "Save disk snapshot '$Id' and rename to '$Id'")) { return $false }
+    if (-not $PSCmdlet.ShouldProcess($VMName, "Rename to '$Id' and save disk snapshot '$Id'")) { return $false }
     if ((Get-VMState -VMName $VMName) -eq 'running') {
         if (-not (Stop-VM -VMName $VMName)) {
             [void](Stop-VMForce -VMName $VMName)
         }
     }
-    # Rename BEFORE snapshotting -- see the ORDER IS LOAD-BEARING note above.
-    # The snapshot must be created against the domain's FINAL name and final
-    # disk paths, because it captures both into metadata nothing later rewrites.
-    $domain = $VMName
     if ($VMName -ne $Id) {
         if (-not (Rename-VM -VMName $VMName -NewName $Id -Confirm:$false)) {
-            Write-Warning "Save-VMDiskSnapshot: rename '$VMName' -> '$Id' failed; no snapshot taken. The domain keeps its test- name and will be wiped on the next cycle cleanup."
+            Write-Warning "Save-VMDiskSnapshot: rename '$VMName' -> '$Id' failed; no snapshot taken, domain will be wiped on next cycle cleanup."
             return $false
         }
-        $domain = $Id
     }
     # Idempotent overwrite: drop any prior snapshot with the same name
     # before creating a new one. Failure here (no such snapshot) is
     # expected on the common path and intentionally ignored.
-    Invoke-Virsh -VirshArgs @('snapshot-delete', $domain, '--snapshotname', $Id) 2>&1 | Out-Null
-    $out = Invoke-Virsh -VirshArgs @('snapshot-create-as', '--domain', $domain, '--name', $Id, '--atomic')
+    Invoke-Virsh -VirshArgs @('snapshot-delete', $Id, '--snapshotname', $Id) 2>&1 | Out-Null
+    $out = Invoke-Virsh -VirshArgs @('snapshot-create-as', '--domain', $Id, '--name', $Id, '--atomic')
     if ($LASTEXITCODE -ne 0) {
-        # The rename already happened, so the domain now holds $Id with no
-        # snapshot on it. That matters for the NEXT run: Rename-VM refuses a
-        # destination name that already exists, so the rebuilt chain cannot
-        # re-take this name until the stale domain is gone. Say so explicitly
-        # rather than leaving the operator to discover it a cycle later.
-        Write-Warning "Save-VMDiskSnapshot: virsh snapshot-create-as failed for '$domain/$Id': $($out -join '; ')"
-        if ($domain -ne $VMName) {
-            Write-Warning "Save-VMDiskSnapshot: '$domain' now exists WITHOUT a snapshot. Remove it (virsh undefine --nvram '$domain', and delete ~/yuruna/vms/$domain) before the next run, or the rebuild's rename will refuse the taken name."
-        }
+        Write-Warning "Save-VMDiskSnapshot: virsh snapshot-create-as failed for '$Id': $($out -join '; ')"
         return $false
     }
     return $true
@@ -2981,7 +3015,7 @@ function Assert-Virtualization {
 # --- REGION: Exports
 
 Export-ModuleMember -Function `
-    New-VM, Start-VM, Stop-VM, Stop-VMForce, Remove-VM, Rename-VM, Get-VMState, `
+    New-VM, Start-VM, Stop-VM, Stop-VMForce, Remove-VM, Rename-VM, Get-VMState, Get-VMName, `
     Save-VMDiskSnapshot, Restore-VMDiskSnapshot, Test-VMDiskSnapshot, `
     Test-VMConsoleOpen, Restart-VMConsole, `
     Get-Image, Get-ImagePath, `
@@ -2998,7 +3032,7 @@ Export-ModuleMember -Function `
 # host/Yuruna.Host.Contract.psm1 for the verb list and rationale.
 Import-Module (Join-Path -Path $PSScriptRoot -ChildPath '..' -AdditionalChildPath '..', 'Yuruna.Host.Contract.psm1') -Force -DisableNameChecking
 $null = Assert-YurunaHostContractCoverage -HostType 'ubuntu.kvm' -ExportedFunction @(
-    'New-VM','Start-VM','Stop-VM','Stop-VMForce','Remove-VM','Rename-VM','Get-VMState',
+    'New-VM','Start-VM','Stop-VM','Stop-VMForce','Remove-VM','Rename-VM','Get-VMState','Get-VMName',
     'Save-VMDiskSnapshot','Restore-VMDiskSnapshot','Test-VMDiskSnapshot',
     'Test-VMConsoleOpen','Restart-VMConsole',
     'Get-Image','Get-ImagePath',

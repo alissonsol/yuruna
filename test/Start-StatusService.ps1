@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.24
+.VERSION 2026.07.26
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456740
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -380,7 +380,7 @@ try {
             $isExternal = [bool]$Env:YURUNA_CACHING_PROXY_IP
             if ($isExternal) {
                 $externUrlIp = if ($cachingProxyUrl -match '^http://([0-9.]+):') { $matches[1] } else { $null }
-                # External handling below Remove-PortMaps this host's
+                # External handling below removes this host's
                 # forwarders, so it may only run when the endpoint is
                 # POSITIVELY not this host. 'local': the endpoint is this
                 # host's own forwarder set fronting its NAT'd cache VM --
@@ -854,11 +854,39 @@ try {
                                 `$ctlToken = Get-Password -Username 'pool-auth-token'
                             }
                         } catch { `$ctlToken = '' }
-                        if (-not (Get-Command Test-YurunaControlProof -ErrorAction SilentlyContinue) -or
-                            -not (Test-YurunaControlProof -Token `$ctlToken -Wire ([string]`$req.Headers['X-Yuruna-Control']))) {
+                        # Which precondition failed is invisible from the status line alone:
+                        # an unconfigured host, a caller that sent no proof, and a genuinely
+                        # bad proof all render as one 403, so the operator cannot tell
+                        # "finish the setup" from "your proof expired". Name the failing
+                        # precondition in a stable machine-readable reason so the pages can
+                        # say which one, while the human-facing message keeps pointing at
+                        # the same guidance section.
+                        `$ctlWire   = [string]`$req.Headers['X-Yuruna-Control']
+                        `$ctlReason = ''
+                        if (-not (Get-Command Test-YurunaControlProof -ErrorAction SilentlyContinue)) {
+                            `$ctlReason = 'verifier-unavailable'
+                        } elseif ([string]::IsNullOrWhiteSpace(`$ctlToken)) {
+                            `$ctlReason = 'host-token-missing'
+                        } elseif ([string]::IsNullOrWhiteSpace(`$ctlWire)) {
+                            `$ctlReason = 'proof-missing'
+                        } elseif (-not (Test-YurunaControlProof -Token `$ctlToken -Wire `$ctlWire)) {
+                            # Expired vs forged is decidable from the wire's own expiry
+                            # segment without trusting it: a well-formed but past expiry is
+                            # the routine case (the operator sat on the page too long).
+                            `$ctlReason = 'proof-invalid'
+                            `$ctlDot = `$ctlWire.IndexOf('.')
+                            if (`$ctlDot -gt 0) {
+                                [long]`$ctlExp = 0
+                                if ([long]::TryParse(`$ctlWire.Substring(0, `$ctlDot), [ref]`$ctlExp) -and
+                                    `$ctlExp -lt [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()) {
+                                    `$ctlReason = 'proof-expired'
+                                }
+                            }
+                        }
+                        if (`$ctlReason) {
                             `$res.ContentType = 'application/json; charset=utf-8'
                             `$res.Headers.Add('Cache-Control', 'no-store')
-                            Send-JsonError -Response `$res -StatusCode 403 -Json '{"ok":false,"error":"follow guidance at https://yuruna.link/control-proof"}'
+                            Send-JsonError -Response `$res -StatusCode 403 -Json ('{"ok":false,"reason":"' + `$ctlReason + '","error":"follow guidance at https://yuruna.link/control-proof"}')
                             continue
                         }
                     }

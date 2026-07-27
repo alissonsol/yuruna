@@ -45,8 +45,21 @@ no access to personal data in the local machine.
 ### Create a test account
 
   - Use the script `test/New-LocalTestUser.ps1` to create a local test account.
-  - Reset the password to a known value. **Do not leave this information in open text files and sticky notes.**
-  - Make the local test account a machine administrator.
+    It creates the account, sets the password, and grants machine-administrator
+    rights in one step, on Windows, macOS, and Ubuntu alike:
+
+    ```
+    pwsh test/New-LocalTestUser.ps1 -Admin
+    ```
+
+    The account name defaults to `yurunatest`; pass `-AccountName <name>` for a
+    different one. The password is asked for at a prompt (on the elevated side,
+    so it never reaches shell history), and the account can log in immediately.
+    `-Password <value>` is the non-interactive equivalent for a scripted run,
+    `-NoPassword` creates the account locked to have a password set out-of-band,
+    and `-ForcePasswordChange` makes the password a one-shot credential that
+    must be changed at first login.
+  - **Do not leave the password in open text files and sticky notes.**
   - Log in using the test account.
   - Execute the install script one-liners for your host, as per the [install](../install/README.md) instructions.
   - Run the `Enable-TestAutomation.ps1` script that ships under your host type:
@@ -186,6 +199,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.24
+Last review: 2026.07.26
 
 Back to [Yuruna](../README.md)

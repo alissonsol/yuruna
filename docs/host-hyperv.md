@@ -216,12 +216,52 @@ from peers for diagnostics); no TCP is exposed. A custom scoped rule is
 still created as belt-and-suspenders in case built-ins are missing
 (stripped server SKUs, GPO).
 
+## Host clock skew reaches the guests
+
+Hyper-V seeds a guest's virtual RTC from the host clock at power-on. A host
+whose clock is not being disciplined starts every VM equally wrong, and a
+few seconds into the boot the guest's own NTP client contacts a real time
+server and **steps** the clock to true time. That step lands in the middle
+of whatever the guest is starting.
+
+The symptom is nowhere near the cause. On a Kubernetes guest the step
+leaves the control-plane static pods and part of the workload `Running`
+but never `Ready` — with no probe-failure events, because kubelet recorded
+their status at a timestamp that is now in the future (`kubectl` prints
+their age as `<invalid>`). Services lose every endpoint and each NodePort
+refuses, while `curl http://<podIP>:8080/health` from the node answers
+`200`. A test that waits on a NodePort simply times out.
+
+This is not Hyper-V-specific — all three hosts gate and repair the clock
+the same way, described in
+[host-condition-registry.md](host-condition-registry.md#the-host-clock).
+On Windows: `Assert-WindowsHostConditionSet` measures against a public NTP
+server (`Get-HostClockSkew`, direct UDP — the Windows Time service is
+exactly what is broken on a drifting host) and refuses the cycle past 120s
+of skew; the outer runner calls `Sync-HostClock` at each cycle boundary and
+warns without stopping when it cannot fix it; `Test-Config.ps1` reports the
+skew and offers the repair.
+
+`Sync-WindowsHostClock` — reached from `Set-WindowsHostConditionSet`, so
+`Enable-TestAutomation.ps1` applies it — fixes the underlying state: W32Time
+set to Automatic, started, and resynchronized. W32Time ships trigger-started,
+so on a lab host that never joins a domain it can sit stopped for weeks —
+long enough to drift by hours. To repair by hand, from an elevated
+PowerShell:
+
+```powershell
+Set-Service W32Time -StartupType Automatic
+Start-Service W32Time
+w32tm /resync /force
+w32tm /stripchart /computer:time.windows.com /samples:1 /dataonly   # verify
+```
+
 ---
 
 LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.24
+Last review: 2026.07.26
 
 Back to [Yuruna](../README.md)

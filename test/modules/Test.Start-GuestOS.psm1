@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.24
+.VERSION 2026.07.26
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456716
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -42,7 +42,7 @@ if (Test-Path $script:EngineModule) {
     # from the global session (the engine becomes private to this module's
     # scope), so the runner's later guests crash with "Write-ProgressTick /
     # Wait-ForText is not recognized". Same engine-import convention as
-    # Test.Prelude's Reset-SequenceRegistry.
+    # Test.Prelude's Initialize-SequenceEngineRegistry.
     Import-Module $script:EngineModule -Global -Force -DisableNameChecking -Verbose:$false -ErrorAction SilentlyContinue
 }
 

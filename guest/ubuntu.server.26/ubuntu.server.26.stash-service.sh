@@ -1,12 +1,12 @@
 #!/bin/bash
-# Version: 2026.07.24
+# Version: 2026.07.26
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 #
 # Bring up the Yuruna Stash Service daemon: build the in-repo Go stash-server,
 # bind :22, and register its systemd unit (the cifs share is mounted by the
-# cloud-init bring-up, not here). Design + storage layout:
-# --- REGION: https://yuruna.link/stash-service
+# cloud-init bring-up, not here). User guide:
+# --- REGION: https://yuruna.link/stash-guide
 # With no stash storage configured (e.g. a dev/test guest with no NAS) the
 # daemon falls back to a local share folder -- it still starts, but data is
 # then NOT durable across reimage.
@@ -250,7 +250,7 @@ echo -e "\e[1;36m==== /etc/systemd/system/stash-server.service ====\e[0m"
 sudo tee /etc/systemd/system/stash-server.service >/dev/null <<UNIT
 [Unit]
 Description=Yuruna Stash Service daemon
-Documentation=https://yuruna.link/stash-service
+Documentation=https://yuruna.link/stash-guide
 After=network-online.target mnt-ystash\x2dnas.mount
 Wants=network-online.target
 

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.24
+.VERSION 2026.07.26
 .GUID 42e2f3a4-b5c6-4d78-9e01-2f3a4b5c6d7e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -27,9 +27,12 @@
 .PARAMETER PoolId
     Target pool id.
 .PARAMETER HostId
-    Stable hostId to add (runtime/host.uuid, 42-prefixed 32-hex).
+    Stable hostId to add (runtime/host.uuid, 42-prefixed 32-hex). The GUID-dashed
+    rendering shown in the dashboard's Host ID column is accepted too.
 .EXAMPLE
     ./Add-HostToPool.ps1 -PoolId lab -HostId 42abcdef0123456789abcdef01234567
+.EXAMPLE
+    ./Add-HostToPool.ps1 -PoolId lab -HostId 42abcdef-0123-4567-89ab-cdef01234567
 #>
 
 [CmdletBinding(SupportsShouldProcess)]
@@ -50,10 +53,12 @@ $ExitOk      = Get-EntryPointExitCode -Outcome Ok
 $ExitFailure = Get-EntryPointExitCode -Outcome Failure
 Import-Module powershell-yaml -ErrorAction Stop
 
-if ($HostId -notmatch '^42[0-9a-fA-F]{30}$') {
-    Write-Error "HostId '$HostId' is invalid (expected the host's runtime/host.uuid: '42' + 30 hex)."
+$canonicalHostId = ConvertTo-YurunaHostId -Value $HostId
+if (-not $canonicalHostId) {
+    Write-Error "HostId '$HostId' is invalid (expected the host's runtime/host.uuid: '42' + 30 hex, with or without the dashboard's GUID dashes)."
     exit $ExitFailure
 }
+$HostId = $canonicalHostId
 
 $t = Resolve-YurunaPoolAdminTarget -IntentGitUrl $IntentGitUrl -IntentDir $IntentDir
 if ([string]::IsNullOrWhiteSpace($t.IntentGitUrl)) {

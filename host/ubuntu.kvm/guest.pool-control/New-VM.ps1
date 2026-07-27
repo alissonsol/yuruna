@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.24
+.VERSION 2026.07.26
 .GUID 42a2c3d4-e5f6-4b78-9012-c3d4e5f6a7b2
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -101,7 +101,13 @@ New-Item -ItemType Directory -Force -Path $vmDir | Out-Null
 $virshUri = 'qemu:///system'
 $destroyOut = & virsh --connect $virshUri destroy $VMName 2>&1
 Write-Verbose "virsh destroy '$VMName' exit=$LASTEXITCODE output='$($destroyOut -join '; ')'"
-$undefineOut = & virsh --connect $virshUri undefine --nvram $VMName 2>&1
+# Snapshot metadata, checkpoint metadata and a managed-save image each
+# pin the domain: undefine refuses ("cannot delete inactive domain with
+# N snapshots") unless asked to drop them, and the re-creation below
+# then fails with "domain already defined". A guest workload that takes
+# a disk snapshot is routine, so clear every kind of metadata here.
+$undefineOut = & virsh --connect $virshUri undefine --nvram --managed-save `
+    --snapshots-metadata --checkpoints-metadata $VMName 2>&1
 Write-Verbose "virsh undefine '$VMName' exit=$LASTEXITCODE output='$($undefineOut -join '; ')'"
 $stillDefined = & virsh --connect $virshUri list --all --name 2>$null |
     Where-Object { $_.Trim() -eq $VMName }

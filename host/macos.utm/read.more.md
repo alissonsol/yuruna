@@ -92,7 +92,9 @@ To → All Desktops.
 
 When the display blanks, UTM captures return black and OCR fails. The
 helper disables display sleep, screen-saver idle, and the screen-lock
-password requirement via `pmset` and `defaults`:
+password requirement via `pmset` and `defaults`. It also sets
+`disablesleep`, so a MacBook host keeps running its cycle with the lid
+closed instead of suspending every guest:
 
 ```
 cd ~/git/yuruna/host/macos.utm
@@ -135,6 +137,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.24
+Last review: 2026.07.26
 
 Back to [Yuruna](../../README.md)

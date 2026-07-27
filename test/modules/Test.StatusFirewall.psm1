@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.24
+.VERSION 2026.07.26
 .GUID 42d7e8f9-a0b1-4c23-8d45-6e7f80912a34
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -23,9 +23,20 @@
 # nftables/iptables without ufw and the macOS firewall. See docs/test-harness.md.
 
 function Get-YurunaStatusFirewallRuleName {
-    # Single source of truth for the Windows rule DisplayName so the setup path
-    # and the self-heal path address the very same rule (Start-StatusService's
-    # own reachability warning matches on this string too).
+    <#
+    .SYNOPSIS
+        The Windows Defender Firewall rule DisplayName for the status-service port.
+    .DESCRIPTION
+        Single source of truth for the DisplayName so the setup path and the
+        self-heal path address the very same rule (Start-StatusService's own
+        reachability warning matches on this string too).
+    .PARAMETER Port
+        The status-service TCP port (test.config.yml statusService.port, 8080 default).
+    .OUTPUTS
+        [string] the rule DisplayName.
+    .EXAMPLE
+        Get-YurunaStatusFirewallRuleName -Port 8080
+    #>
     [CmdletBinding()]
     [OutputType([string])]
     param([Parameter(Mandatory)][int]$Port)
@@ -168,16 +179,22 @@ function Set-YurunaStatusFirewallRule {
             $result.Platform = 'Linux'
             # ufw is the Ubuntu standard and the only Linux firewall Yuruna manages;
             # a host on raw nftables/iptables is reported (indeterminate), not touched.
-            if (-not (Get-Command ufw -ErrorAction SilentlyContinue)) {
+            $ufwCmd = Get-Command ufw -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+            if (-not $ufwCmd) {
                 $result.Message = "ufw not found; nftables/iptables are not managed. If inbound TCP :$Port is firewalled, allow it manually (e.g. an nft accept rule)."
                 Write-Verbose $result.Message
                 return $result
             }
+            # Run the ABSOLUTE path under sudo. ufw installs to /usr/sbin, which is
+            # on an interactive PATH but not necessarily on sudo's secure_path --
+            # and sudo reports a command it cannot resolve as exit 127, which is
+            # indistinguishable here from ufw not being installed.
+            $ufwExe = if ($ufwCmd.Source) { $ufwCmd.Source } else { 'ufw' }
             # ufw needs root even to READ status. Root -> no prefix; otherwise sudo,
             # and 'sudo -n' in self-heal so an unprivileged runner fails fast (no prompt).
             $uid = "$(& id -u 2>$null)".Trim()
             $prefix = if ($uid -eq '0') { @() } elseif ($NonInteractive) { @('sudo', '-n') } else { @('sudo') }
-            $st = Invoke-YurunaFirewallNative -CommandLine ($prefix + @('ufw', 'status'))
+            $st = Invoke-YurunaFirewallNative -CommandLine ($prefix + @($ufwExe, 'status'))
             if ($st.ExitCode -ne 0) {
                 # Unprivileged self-heal can't even read ufw -> INDETERMINATE (not
                 # Blocked): the routine state on the unprivileged Linux runner. Stay
@@ -201,7 +218,7 @@ function Set-YurunaStatusFirewallRule {
                 return $result
             }
             if ($PSCmdlet.ShouldProcess('ufw', "allow $Port/tcp")) {
-                $al = Invoke-YurunaFirewallNative -CommandLine ($prefix + @('ufw', 'allow', "$Port/tcp"))
+                $al = Invoke-YurunaFirewallNative -CommandLine ($prefix + @($ufwExe, 'allow', "$Port/tcp"))
                 if ($al.ExitCode -eq 0) {
                     $result.Ensured = $true
                     $result.Changed = $true

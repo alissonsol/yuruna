@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.24
+.VERSION 2026.07.26
 .GUID 42e5b4c3-d2a1-4f9a-6789-0b1c2d3e4f51
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -18,10 +18,10 @@
 
 # Windows sibling of Test.HostCondition.psm1: applies AND asserts the
 # per-host preconditions for unattended VM testing on host.windows.hyper-v
-# (Hyper-V service, display timeout, inactivity lock, firewall rules for
-# ICMPv4 + the status-service TCP port, and -- when YURUNA_VIRTUAL_DISPLAY
-# is set -- display/text scale = 100% so HiDPI doesn't defeat OCR on VM
-# screenshots). Loaded by the
+# (Hyper-V service, display timeout, inactivity lock, host clock, firewall
+# rules for ICMPv4 + the status-service TCP port, and -- when
+# YURUNA_VIRTUAL_DISPLAY is set -- display/text scale = 100% so HiDPI
+# doesn't defeat OCR on VM screenshots). Loaded by the
 # Test.HostCondition.psm1 facade; callers continue to import the facade
 # and resolve these names through its Export-ModuleMember. See
 # Test.HostCondition.psm1 for the per-platform split rationale.
@@ -1361,6 +1361,17 @@ function Set-WindowsHostConditionSet {
         Write-Warning "If remote clients still get 'connection timed out' on port $statusPort, disable these or ask your admin -- GPO may be pushing them."
     }
 
+    # -- 7. Host clock -> disciplined by the Windows Time service ---------
+    # Guests inherit this clock from their virtual RTC at power-on; see
+    # Sync-WindowsHostClock for what a drifting one does to them.
+    $clock = Sync-WindowsHostClock
+    if ($clock.Succeeded) {
+        Write-Information "Host clock: $($clock.Message)"
+        $changed = $true
+    } else {
+        Write-Warning "Host clock not disciplined: $($clock.Message)"
+    }
+
     # Display/text scale = 100% (HKCU per-monitor DPI, system DPI, Win11
     # TextScaleFactor) is the persisted backstop for the opt-in virtual
     # display's live CCD scale enforcement (Set-YurunaDisplayCloneAndResolution).
@@ -1388,12 +1399,76 @@ function Set-WindowsHostConditionSet {
     }
 }
 
+function Sync-WindowsHostClock {
+    <#
+    .SYNOPSIS
+    Put the host clock back under NTP discipline: W32Time to Automatic,
+    started, and resynchronized. Returns @{ Succeeded; Message }.
+
+    .DESCRIPTION
+    Hyper-V seeds every guest's virtual RTC from this clock at power-on,
+    so a drifting host hands the same error to each VM it starts, and the
+    guest's own NTP client then steps the clock mid-boot -- which is what
+    leaves a Kubernetes guest with pods Running but never Ready and its
+    NodePorts refusing. W32Time ships trigger-started: on a lab host that
+    never joins a domain it can sit stopped for weeks, long enough to
+    drift by hours.
+
+    Reports rather than throws. Every step here needs Administrator, and
+    a caller at a cycle boundary has to be free to carry on with a
+    warning when it does not have it.
+
+    .OUTPUTS
+    [hashtable] Succeeded (bool), Message (string).
+    #>
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([hashtable])]
+    param()
+
+    if (-not $IsWindows) {
+        return @{ Succeeded = $false; Message = 'Sync-WindowsHostClock is only supported on Windows.' }
+    }
+    $manual = 'From an elevated PowerShell: Set-Service W32Time -StartupType Automatic; Start-Service W32Time; w32tm /resync /force'
+    $timeSvc = Get-Service -Name W32Time -ErrorAction SilentlyContinue
+    if (-not $timeSvc) {
+        return @{ Succeeded = $false; Message = 'Windows Time service (W32Time) is not present; this host cannot discipline its own clock.' }
+    }
+
+    $steps = @()
+    try {
+        if ($timeSvc.StartType -ne 'Automatic') {
+            if ($PSCmdlet.ShouldProcess("Windows Time service (W32Time, currently $($timeSvc.StartType))", 'Set startup type to Automatic')) {
+                Set-Service -Name W32Time -StartupType Automatic -ErrorAction Stop
+                $steps += 'startup type -> Automatic'
+            }
+        }
+        if ($timeSvc.Status -ne 'Running') {
+            if ($PSCmdlet.ShouldProcess('Windows Time service (W32Time)', 'Start')) {
+                Start-Service -Name W32Time -ErrorAction Stop
+                $steps += 'service started'
+            }
+        }
+    } catch {
+        return @{ Succeeded = $false; Message = "W32Time could not be configured ($($_.Exception.Message)). $manual" }
+    }
+
+    if (-not $PSCmdlet.ShouldProcess('Host clock', 'Resynchronize against the configured time source')) {
+        return @{ Succeeded = $false; Message = 'Skipped (WhatIf).' }
+    }
+    $resyncOut = & w32tm /resync /force 2>&1
+    if ($LASTEXITCODE -ne 0) {
+        return @{ Succeeded = $false; Message = "w32tm /resync failed: $(($resyncOut | Out-String).Trim()) -- inspect the source with 'w32tm /query /status'. $manual" }
+    }
+    $steps += 'resynchronized'
+    return @{ Succeeded = $true; Message = "W32Time: $($steps -join ', ')." }
+}
+
 function Assert-WindowsHostConditionSet {
     <#
     .SYNOPSIS
-    Single gate for Windows prerequisites: Administrator elevation and
-    Hyper-V service. Returns $true on non-Windows or when all pass;
-    $false with diagnostics on failure.
+    Single gate for Windows prerequisites: Administrator elevation,
+    Hyper-V service, screen/lock timeouts, and host clock. Returns $true
+    on non-Windows or when all pass; $false with diagnostics on failure.
     #>
     param([string]$HostType)
     if ($HostType -ne "host.windows.hyper-v") { return $true }
@@ -1462,6 +1537,9 @@ function Assert-WindowsHostConditionSet {
         Write-Debug "Lock screen timeout check failed: $_"
     }
 
+    # 5. Host clock -- every guest inherits it at power-on
+    if (-not (Assert-HostClock -HostType $HostType)) { return $false }
+
     return $true
 }
 
@@ -1499,4 +1577,4 @@ function Test-WindowsHostMinimum {
     return $ok
 }
 
-Export-ModuleMember -Function Set-WindowsHostConditionSet, Assert-WindowsHostConditionSet, Test-WindowsHostMinimum, Install-YurunaVirtualDisplay, Remove-YurunaVirtualDisplay, Set-YurunaDisplayCloneAndResolution, Set-YurunaDisplayScale100, Test-YurunaVirtualDisplayEnabled
+Export-ModuleMember -Function Set-WindowsHostConditionSet, Assert-WindowsHostConditionSet, Test-WindowsHostMinimum, Sync-WindowsHostClock, Install-YurunaVirtualDisplay, Remove-YurunaVirtualDisplay, Set-YurunaDisplayCloneAndResolution, Set-YurunaDisplayScale100, Test-YurunaVirtualDisplayEnabled

@@ -43,7 +43,7 @@ GitHub credentials this run doesn't have.
 
 ### Release pinning + signed integrity
 
-`VERSION` (bare CalVer, e.g. `2026.07.24`) is the source of truth for releases.
+`VERSION` (bare CalVer, e.g. `2026.07.26`) is the source of truth for releases.
 At release time `tools/Update-YurunaReleasePins.ps1` regenerates
 `install/install.sha256`, signs it (`install/install.sha256.sig`, RSA-4096),
 runs the ASCII/no-BOM gate as a hard precondition, and bumps the one tag still
@@ -406,8 +406,8 @@ resolves in this same session, and re-executes the script under pwsh.
 The child inherits the elevated token, so no second UAC prompt. The
 PS7-bootstrap block must stay PS 5.1-compatible (no `?.` / `??` /
 ternary / chain ops) — the whole file is parsed up front, and even one
-PS 7-only token would fail the file to load on 5.1 before this check
-can run.
+PS 7-only token would keep the file from loading on 5.1 before this
+check can run.
 
 Return (not exit) is used at every relaunch site. `exit` at the script's
 top level terminates the hosting PowerShell process, which would close
@@ -809,6 +809,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.24
+Last review: 2026.07.26
 
 Back to [Yuruna](../README.md)

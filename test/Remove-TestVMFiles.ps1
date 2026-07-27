@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.24
+.VERSION 2026.07.26
 .GUID 42c3d4e5-f6a7-4b89-0c12-de3f4a5b6c7d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -18,16 +18,27 @@
 
 <#
 .SYNOPSIS
-    Stop and remove test VMs (by name prefix) and their leftover files.
+    Stop and remove VMs (by name prefix) and their leftover files.
 .DESCRIPTION
     Operator entry point, also invoked by the cycle-start sweep in
-    Invoke-TestInnerRunner. Resolves the VM-name prefix from -Prefix, then
-    test.config.yml's vmStart.testVmNamePrefix, then the "test-" fallback,
-    and removes the matching VMs and their orphaned files.
+    Invoke-TestInnerRunner. Resolves the VM-name prefixes from -Prefix, then
+    test.config.yml, and removes the matching VMs and their orphaned files.
+
+    Host-neutral throughout: enumeration goes through the contract's
+    Get-VMName and each VM is stopped and removed with Stop-VMForce /
+    Remove-VM, so a project that names its VMs outside the test-VM prefix
+    is swept the same way on every hypervisor.
 .PARAMETER Prefix
-    VM-name prefix selecting which VMs to remove. When omitted, the prefix
-    is read from test.config.yml (vmStart.testVmNamePrefix) so a manual
-    invocation matches what the runner used; falls back to "test-".
+    One or more VM-name prefixes selecting which VMs to remove. A VM is
+    removed when its name starts with any of them. When omitted, the
+    prefixes come from test.config.yml (vmStart.cleanupVmNamePrefixes,
+    else vmStart.testVmNamePrefix) so a manual invocation matches what the
+    runner used; falls back to "test-".
+
+    Prefixes are matched literally, never as wildcards. Passing an empty
+    string is refused rather than treated as "everything": a sweep that
+    matched every VM would take the caching proxy and any unrelated VM on
+    the host with it.
 .PARAMETER Quiet
     Suppress per-step "Stopping ... Removed ..." chatter and the
     host-recommendation block so an automated caller gets a single visible
@@ -40,7 +51,7 @@
 #>
 
 param(
-    [string]$Prefix,
+    [string[]]$Prefix,
     [switch]$Quiet
 )
 
@@ -59,27 +70,35 @@ function Write-Status {
 }
 
 # Resolve $Prefix: explicit -Prefix wins, then test.config.yml's
-# vmStart.testVmNamePrefix, then the "test-" fallback. Reading the
-# config matters when the operator runs this script directly after a stopped
-# runner -- the runner passes -Prefix from $Config.vmStart.testVmNamePrefix,
-# so a manual invocation that fell back to "test-" without reading the
-# config would miss VMs whenever the operator had customized the prefix
-# in test.config.yml.
+# vmStart.cleanupVmNamePrefixes, then vmStart.testVmNamePrefix, then the
+# "test-" fallback. Reading the config matters when the operator runs this
+# script directly after a stopped runner -- the runner passes -Prefix from
+# the same config, so a manual invocation that fell back to "test-" would
+# miss VMs whenever the operator had customized the prefixes.
 if (-not $ExplicitPrefix) {
     $configPath = Join-Path $TestRoot 'test.config.yml'
     if (Test-Path $configPath) {
         try {
             Import-Module powershell-yaml -Global -Verbose:$false -ErrorAction Stop
+            Import-Module (Join-Path $ModulesDir 'Test.Config.psm1') -Force -Global -ErrorAction Stop
             $cfg = Get-Content -Raw $configPath | ConvertFrom-Yaml -Ordered
-            if ($cfg -is [System.Collections.IDictionary] -and $cfg.vmStart -is [System.Collections.IDictionary] -and $cfg.vmStart.Contains('testVmNamePrefix') -and $cfg.vmStart.testVmNamePrefix) {
-                $Prefix = [string]$cfg.vmStart.testVmNamePrefix
-            }
+            $Prefix = Resolve-CleanupVmNamePrefix -VmStart $cfg.vmStart
         } catch {
-            Write-Verbose "Could not read vmStart.testVmNamePrefix from $configPath`: $_"
+            Write-Verbose "Could not read the cleanup prefixes from $configPath`: $_"
         }
     }
 }
-if (-not $Prefix) { $Prefix = 'test-' }
+if (-not $Prefix) { $Prefix = @('test-') }
+
+# Normalize and refuse an empty prefix. An empty string matches every VM,
+# which would sweep the caching proxy and any unrelated VM sharing the
+# host -- a far larger blast radius than any caller intends, and one that
+# only shows up once it has already deleted something.
+$Prefix = @($Prefix | ForEach-Object { "$_".Trim() } | Where-Object { $_ })
+if ($Prefix.Count -eq 0) {
+    Write-Error "No usable VM-name prefix: -Prefix resolved to nothing. Pass an explicit prefix (an empty prefix would match every VM on the host)."
+    exit 1
+}
 
 # --- REGION: Import Test.HostContract (needed for Get-HostType on every platform)
 # -Global is load-bearing: when this script is invoked via the call operator
@@ -104,296 +123,99 @@ Write-Status "Host type: $HostType"
 Write-Status ""
 
 # Fast pre-flight: refuse to call host VM cmdlets without the absolute
-# minimum (Administrator on Hyper-V, virsh/utmctl reachable on
-# KVM/UTM). Without this gate, Hyper-V\Get-VM dies inside the switch
-# below with a raw "You do not have the required permission..." that
-# names the computer but not the fix.
+# minimum (Administrator on Hyper-V, virsh/utmctl reachable on KVM/UTM).
+# Without this gate the enumeration below fails with the hypervisor's own
+# raw message -- "You do not have the required permission..." names the
+# computer but not the fix.
 if (-not (Test-HostRequirement -HostType $HostType -Quiet:$Quiet)) { exit 1 }
 
-# Wire the host driver so the contract (Stop-VMForce, Remove-VM, ...) is
-# available on every host. The HostType switch below stays because the
-# enumeration step (find every test-* VM on the host) is host-specific
-# and the contract does not yet include a "list-VMs-by-prefix" call --
-# add Get-VMNames -Prefix to host/<x>/modules/Yuruna.Host.psm1 to drop
-# the switch entirely. The contract's Get-VMState / Stop-VMForce /
-# Remove-VM are used inside each branch so per-VM cleanup is uniform.
+# Wire the host driver so the contract (Get-VMName, Stop-VMForce,
+# Remove-VM, ...) is available. Enumeration was the only host-specific
+# part of a prefix sweep; with Get-VMName in the contract this script
+# names no hypervisor at all, so a fix to the removal logic lands on all
+# three hosts at once instead of needing three parallel edits.
 [void](Initialize-YurunaHost -RepoRoot $RepoRoot -HostType $HostType)
 
-# --- REGION: Stop all test-* VMs
-Write-Status "Stopping VMs with prefix '$Prefix'..."
+# --- REGION: Stop and remove every matching VM
+$prefixLabel = ($Prefix -join "', '")
+Write-Status "Stopping VMs with prefix '$prefixLabel'..."
 Write-Status ""
 
 # Track every VM we attempted, with a final disposition. Per-VM ops MUST
 # NOT abort the whole loop: on a long-running host, a single stuck VM
 # (locked .vhdx, wedged vmms, UTM helper holding a file handle) used to
-# throw under $ErrorActionPreference='Stop' and skip every later test-*
-# VM, so survivors accumulated cycle after cycle. Each VM is now wrapped
-# in try/catch with its own continue-on-failure path; survivors are
-# reported at the end and the orphan-file cleanup still runs so we
-# reclaim disk even when one VM resists deletion.
+# throw under $ErrorActionPreference='Stop' and skip every later matching
+# VM, so survivors accumulated cycle after cycle. Each VM is wrapped in
+# try/catch with its own continue-on-failure path; survivors are reported
+# at the end and the orphan-file cleanup still runs so we reclaim disk
+# even when one VM resists deletion.
 $survivors = [System.Collections.Generic.List[string]]::new()
 $removedCount = 0
 
-switch ($HostType) {
-    "host.windows.hyper-v" {
-        # Module-qualified Hyper-V\Get-VM avoids our Yuruna.Host's shadowed
-        # Get-VM (which doesn't exist anyway -- we expose Get-VMState instead).
-        $testVMs = @(Hyper-V\Get-VM | Where-Object { $_.Name -like "${Prefix}*" })
-        if ($testVMs.Count -eq 0) {
-            Write-Status "  No Hyper-V VMs found matching '${Prefix}*'."
-        }
-        foreach ($vm in $testVMs) {
-            $vmName = $vm.Name
-            Write-Status "  Stopping $vmName [$($vm.State)]..."
-            try {
-                if ((Get-VMState -VMName $vmName) -ne 'stopped') {
-                    # Stop-VMForce (Yuruna.Host) escalates to killing vmwp.exe
-                    # when graceful Stop-VM cannot bring the VM to 'Off' within
-                    # the timeout -- avoids a stuck 'Stopping' VM blocking the
-                    # whole cleanup loop. -Confirm:$false: automated harness
-                    # must not prompt.
-                    $stopped = Stop-VMForce -VMName $vmName -StopTimeoutSeconds 20 -Confirm:$false
-                    if ($stopped) {
-                        Write-Status "    Stopped."
-                    } else {
-                        Write-Warning "    Stop-VMForce returned `$false for $vmName; Remove-VM may fail."
-                    }
-                } else {
-                    Write-Status "    Already stopped."
-                }
-                # Remove-VM (Yuruna.Host) wraps the host's destroy-and-cleanup
-                # path; on Hyper-V it removes the VHDX directory after the
-                # vmms unregister.
-                $removedOk = Remove-VM -VMName $vmName -Confirm:$false
-                if (-not $removedOk -or (Get-VMState -VMName $vmName) -ne 'absent') {
-                    $finalState = Get-VMState -VMName $vmName
-                    Write-Warning "    Remove-VM did not fully remove '$vmName' (state: $finalState)."
-                    $survivors.Add("$vmName [$finalState]")
-                } else {
-                    Write-Status "    Removed from Hyper-V."
-                    $removedCount++
-                }
-            } catch {
-                Write-Warning "    Failed to remove '$vmName': $_"
-                $finalState = Get-VMState -VMName $vmName
-                $survivors.Add("$vmName$(if ($finalState -and $finalState -ne 'absent') { " [$finalState]" })")
+# Get-VMName throws when the host cannot be queried at all (utmctl denied
+# Apple Events, libvirtd down, Hyper-V unelevated). That must stay fatal:
+# treating "cannot ask" as "nothing matched" would report a clean host and
+# let the orphan-file sweep below delete files still claimed by a live VM.
+try {
+    $targets = @(Get-VMName -Prefix $Prefix)
+} catch {
+    Write-Error "Could not enumerate VMs on '$HostType': $($_.Exception.Message)"
+    exit 1
+}
+
+if ($targets.Count -eq 0) {
+    Write-Status "  No VMs found matching '$prefixLabel'."
+}
+foreach ($vmName in $targets) {
+    $state = Get-VMState -VMName $vmName
+    Write-Status "  Stopping $vmName [$state]..."
+    try {
+        if ($state -notin @('stopped', 'absent')) {
+            # Stop-VMForce escalates past a graceful stop (kill vmwp.exe /
+            # virsh destroy + SIGKILL / utmctl stop --kill) so one wedged
+            # guest cannot block the rest of the sweep.
+            if (Stop-VMForce -VMName $vmName -StopTimeoutSeconds 20 -Confirm:$false) {
+                Write-Status "    Stopped."
+            } else {
+                Write-Warning "    Stop-VMForce returned `$false for $vmName; Remove-VM may fail."
             }
+        } else {
+            Write-Status "    Already stopped."
         }
-    }
-    "host.ubuntu.kvm" {
-        # `virsh list --all --name` enumerates every defined libvirt domain
-        # (running, stopped, paused) one name per line. The `--connect` URI
-        # matches what Yuruna.Host (host/ubuntu.kvm) talks to.
-        $virshOutput = & virsh --connect qemu:///system list --all --name 2>&1
-        if ($LASTEXITCODE -ne 0) {
-            Write-Error "Failed to query libvirt VMs. Is libvirtd running? Output: $virshOutput"
-            exit 1
+        # Remove-VM wraps each host's destroy-and-cleanup path: Hyper-V
+        # unregisters then drops the VHDX dir, libvirt undefines with
+        # --nvram --remove-all-storage, UTM deletes and removes the bundle.
+        $removedOk = Remove-VM -VMName $vmName -Confirm:$false
+        $finalState = Get-VMState -VMName $vmName
+        if (-not $removedOk -or $finalState -ne 'absent') {
+            Write-Warning "    Remove-VM did not fully remove '$vmName' (state: $finalState)."
+            $survivors.Add("$vmName [$finalState]")
+        } else {
+            Write-Status "    Removed."
+            $removedCount++
         }
-        $testVMs = @(
-            $virshOutput |
-                ForEach-Object { "$_".Trim() } |
-                Where-Object { $_ -and ($_ -like "${Prefix}*") }
-        )
-        if ($testVMs.Count -eq 0) {
-            Write-Status "  No libvirt VMs found matching '${Prefix}*'."
-        }
-        foreach ($vmName in $testVMs) {
-            $state = Get-VMState -VMName $vmName
-            Write-Status "  Stopping $vmName [$state]..."
-            try {
-                if ($state -notin @('stopped','absent')) {
-                    # Stop-VMForce (Yuruna.Host) issues `virsh destroy` and
-                    # falls back to SIGKILL on the qemu pid if destroy hangs.
-                    $stopped = Stop-VMForce -VMName $vmName -StopTimeoutSeconds 20 -Confirm:$false
-                    if ($stopped) {
-                        Write-Status "    Stopped."
-                    } else {
-                        Write-Warning "    Stop-VMForce returned `$false for $vmName; Remove-VM may fail."
-                    }
-                } else {
-                    Write-Status "    Already stopped."
-                }
-                # Remove-VM on KVM does undefine --nvram --remove-all-storage
-                # and removes ~/yuruna/vms/<vmname>/.
-                $removedOk = Remove-VM -VMName $vmName -Confirm:$false
-                if (-not $removedOk -or (Get-VMState -VMName $vmName) -ne 'absent') {
-                    $finalState = Get-VMState -VMName $vmName
-                    Write-Warning "    Remove-VM did not fully remove '$vmName' (state: $finalState)."
-                    $survivors.Add("$vmName [$finalState]")
-                } else {
-                    Write-Status "    Removed from libvirt."
-                    $removedCount++
-                }
-            } catch {
-                Write-Warning "    Failed to remove '$vmName': $_"
-                $finalState = Get-VMState -VMName $vmName
-                $survivors.Add("$vmName$(if ($finalState -and $finalState -ne 'absent') { " [$finalState]" })")
-            }
-        }
-    }
-    "host.macos.utm" {
-        $utmOutput = & utmctl list 2>&1
-        if ($LASTEXITCODE -ne 0) {
-            Write-Error "Failed to query UTM VMs. Is UTM running? Output: $utmOutput"
-            exit 1
-        }
-        # utmctl exits 0 even when it can't reach UTM (Apple Events
-        # permission denied -- typical from SSH or a non-Automation-
-        # entitled host process). It just prints the error to stderr
-        # and emits an empty list. Without this guard, every test-* VM
-        # would look "absent" and the orphan-file sweep would delete
-        # the bundles even though UTM still has them registered.
-        $utmText = ($utmOutput | ForEach-Object { "$_" }) -join "`n"
-        if ($utmText -match 'OSStatus error -1743|utmctl does not work from SSH') {
-            Write-Error "utmctl could not reach UTM (Apple Events permission denied). Run this script from a Terminal session with Automation -> System Events access for pwsh, after UTM.app is launched and a user is logged in graphically. Output:`n$utmText"
-            exit 1
-        }
-        $found = $false
-        foreach ($line in $utmOutput) {
-            $line = "$line".Trim()
-            if (-not $line -or $line -match '^-+$') { continue }
-            # utmctl list is fixed-column-width, NOT 2+-space-delimited.
-            # Layout (UTM 4.x): UUID col is 37 chars (36-char UUID + 1
-            # space padding), Status col is 9 chars (longest enum
-            # 'starting'/'stopping' is 8 chars). So between UUID and
-            # Status there is exactly ONE space -- splitting on \s{2,}
-            # used to merge them into a 44-char parts[0] that never
-            # matched the 36-char UUID regex, so the prefix match
-            # silently scored zero hits on every line and every test-*
-            # VM was skipped while staying registered + on disk.
-            # Status enum from UTM.sdef: stopped, starting, started,
-            # pausing, paused, resuming, stopping -- all <= 8 chars,
-            # so the (\S+)\s+ grab is safe.
-            if ($line -match '^([0-9A-Fa-f-]{36})\s+(\S+)\s+(\S.*)$') {
-                $vmUuid = $matches[1]
-                $vmName = $matches[3].Trim()
-                if ($vmName -like "${Prefix}*") {
-                    $found = $true
-                    Write-Status "  Stopping $vmName..."
-                    try {
-                        & utmctl stop "$vmName" 2>&1 | Out-Null
-                        # Wait (wall-clock bounded) for the VM to fully stop before
-                        # deleting. An iteration counter drifts well past the stated
-                        # 30 s because each utmctl status call adds its own latency; a
-                        # UtcNow deadline holds the real budget regardless of per-call
-                        # cost (feedback_iter_counter_wallclock_trap).
-                        $stopDeadlineUtc  = [DateTime]::UtcNow.AddSeconds(30)
-                        $confirmedStopped = $false
-                        while ([DateTime]::UtcNow -lt $stopDeadlineUtc) {
-                            Start-Sleep -Seconds 2
-                            $status = & utmctl status "$vmName" 2>&1
-                            if ($status -match "stopped|shutdown") { $confirmedStopped = $true; break }
-                        }
-                        if (-not $confirmedStopped) {
-                            # Never observed a stopped/shutdown status: delete anyway
-                            # (utmctl delete handles a stopping VM and the failure is
-                            # tracked below), but surface it -- a VM that will not stop
-                            # can leave a wedged bundle the delete cannot fully reclaim.
-                            Write-Warning "    '$vmName' did not confirm stopped within 30s; attempting delete anyway."
-                        }
-                        # Delete by UUID (more reliable than by name)
-                        $deleted = $false
-                        & utmctl delete "$vmUuid" 2>&1 | Out-Null
-                        if ($LASTEXITCODE -eq 0) { $deleted = $true }
-                        if (-not $deleted) {
-                            Write-Warning "    utmctl delete by UUID failed for '$vmName'. Retrying by name..."
-                            Start-Sleep -Seconds 3
-                            & utmctl delete "$vmName" 2>&1 | Out-Null
-                            if ($LASTEXITCODE -eq 0) { $deleted = $true }
-                        }
-                        # Verify removal from UTM registry
-                        if ($deleted) {
-                            $null = & utmctl status "$vmUuid" 2>&1
-                            if ($LASTEXITCODE -eq 0) {
-                                Write-Warning "    VM '$vmName' still present in UTM after delete."
-                                $deleted = $false
-                            }
-                        }
-                        if ($deleted) {
-                            Write-Status "    Removed from UTM."
-                            $removedCount++
-                        } else {
-                            Write-Warning "    Could not remove '$vmName' from UTM registry. Files will not be cleaned to avoid stale entries."
-                            $survivors.Add($vmName)
-                        }
-                    } catch {
-                        Write-Warning "    Failed to remove '$vmName': $_"
-                        $survivors.Add($vmName)
-                    }
-                }
-            }
-        }
-        if (-not $found) {
-            Write-Status "  No UTM VMs found matching '${Prefix}*'."
-        }
-    }
-    default {
-        Write-Error "Unsupported host type: $HostType"
-        exit 1
+    } catch {
+        Write-Warning "    Failed to remove '$vmName': $_"
+        $finalState = Get-VMState -VMName $vmName
+        $survivors.Add("$vmName$(if ($finalState -and $finalState -ne 'absent') { " [$finalState]" })")
     }
 }
 
 Write-Status ""
 
-# Re-scan to catch survivors that the per-VM block missed (e.g. a VM
-# that flipped to OffCritical while the loop was iterating). Belt-and-
-# suspenders against the very symptom this script exists to fix:
-# test-* VMs surviving across cycles on a long-running host.
-switch ($HostType) {
-    "host.windows.hyper-v" {
-        $remaining = @(Hyper-V\Get-VM -ErrorAction SilentlyContinue | Where-Object { $_.Name -like "${Prefix}*" })
-        if ($remaining.Count -gt 0) {
-            Write-Warning "  $($remaining.Count) Hyper-V VM(s) still match '${Prefix}*' after cleanup:"
-            foreach ($vm in $remaining) {
-                Write-Warning "    $($vm.Name) [$($vm.State)]"
-            }
-        }
+# Re-scan to catch survivors the per-VM block missed (e.g. a VM that
+# flipped to a transitional state while the loop was iterating).
+# Belt-and-suspenders against the very symptom this script exists to fix:
+# VMs surviving across cycles on a long-running host. A rescan that cannot
+# reach the host is reported, not silently read as "no survivors".
+try {
+    $remaining = @(Get-VMName -Prefix $Prefix)
+    if ($remaining.Count -gt 0) {
+        Write-Warning "  $($remaining.Count) VM(s) still match '$prefixLabel' after cleanup:"
+        foreach ($n in $remaining) { Write-Warning "    $n [$(Get-VMState -VMName $n)]" }
     }
-    "host.ubuntu.kvm" {
-        $reList = & virsh --connect qemu:///system list --all --name 2>&1
-        if ($LASTEXITCODE -eq 0) {
-            $remaining = @(
-                $reList |
-                    ForEach-Object { "$_".Trim() } |
-                    Where-Object { $_ -and ($_ -like "${Prefix}*") }
-            )
-            if ($remaining.Count -gt 0) {
-                Write-Warning "  $($remaining.Count) libvirt VM(s) still match '${Prefix}*' after cleanup:"
-                foreach ($n in $remaining) {
-                    $st = Get-VMState -VMName $n
-                    Write-Warning "    $n [$st]"
-                }
-            }
-        }
-    }
-    "host.macos.utm" {
-        $reList = & utmctl list 2>&1
-        if ($LASTEXITCODE -eq 0) {
-            $reText = ($reList | ForEach-Object { "$_" }) -join "`n"
-            # Same Apple-Events-denial trap as the main parse block --
-            # if the rescan can't talk to UTM, skip it rather than
-            # mis-reporting "0 survivors" and continuing into the
-            # orphan-file sweep.
-            if ($reText -match 'OSStatus error -1743|utmctl does not work from SSH') {
-                Write-Warning "  Rescan skipped: utmctl could not reach UTM (Apple Events permission denied)."
-            } else {
-                $remaining = @()
-                foreach ($line in $reList) {
-                    $line = "$line".Trim()
-                    if (-not $line -or $line -match '^-+$') { continue }
-                    # See main block: UUID-anchored regex, not \s{2,} split.
-                    if ($line -match '^([0-9A-Fa-f-]{36})\s+(\S+)\s+(\S.*)$') {
-                        $reName = $matches[3].Trim()
-                        if ($reName -like "${Prefix}*") { $remaining += $reName }
-                    }
-                }
-                if ($remaining.Count -gt 0) {
-                    Write-Warning "  $($remaining.Count) UTM VM(s) still match '${Prefix}*' after cleanup:"
-                    foreach ($n in $remaining) { Write-Warning "    $n" }
-                }
-            }
-        }
-    }
+} catch {
+    Write-Warning "  Rescan skipped: could not enumerate VMs ($($_.Exception.Message))"
 }
 
 Write-Status ""

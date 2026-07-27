@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.24
+.VERSION 2026.07.26
 .GUID 42f1c7d5-6b28-4a19-8c40-7d2e5a9b1c63
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -156,6 +156,38 @@ Describe 'Select-DhcpLeaseIpAddress' {
         $picked = Select-DhcpLeaseIpAddress -LeaseText $LeaseFixture `
             -Name @('ch01host1', 'test-amazon-linux-2023-01') -OnLinkVerdict $verdict
         Assert-Equal -Expected '192.168.64.2' -Actual $picked -Because 'The most recently renewed on-link block under the pinned hostname must win.'
+    }
+
+    It 'prefers the pinned hostname even when a stale VM-name block is on-link' {
+        # The subnet guard cannot save this case: a predecessor that ran under
+        # the VM name left a block on the SAME live subnet the guest now uses,
+        # and macOS never prunes it. Only name priority separates the two, and
+        # this is the half of the discovery that the off-link fixture above
+        # cannot exercise. The stale VM-name block is deliberately given the
+        # HIGHER lease= expiry so the tie-break cannot rescue a reversed order:
+        # if name order were dropped, the dead predecessor would win outright.
+        $bothOnLink = @'
+{
+	name=test-amazon-linux-2023-01
+	ip_address=192.168.64.99
+	hw_address=1,a2:68:9d:cf:35:90
+	lease=0x6a5effff
+}
+{
+	name=ch01host1
+	ip_address=192.168.64.2
+	hw_address=1,a2:68:9d:cf:35:91
+	lease=0x6a5e7261
+}
+'@
+        $subnets = Get-HostIpv4Subnet -IfconfigText $IfconfigFixture
+        $verdict = { param($ip) Get-Ipv4OnLinkVerdict -IpAddress $ip -Subnet $subnets }.GetNewClosure()
+        Assert-Equal -Expected '192.168.64.2' -Actual (Select-DhcpLeaseIpAddress -LeaseText $bothOnLink `
+            -Name @('ch01host1', 'test-amazon-linux-2023-01') -OnLinkVerdict $verdict) `
+            -Because 'The pinned hostname is tried first, so its block wins even though the VM-name block is on-link and renewed later.'
+        Assert-Equal -Expected '192.168.64.99' -Actual (Select-DhcpLeaseIpAddress -LeaseText $bothOnLink `
+            -Name @('test-amazon-linux-2023-01', 'ch01host1') -OnLinkVerdict $verdict) `
+            -Because 'Reversing the name order returns the stale VM-name block, proving order is the load-bearing discriminator this guards.'
     }
 
     It 'rejects off-subnet blocks even when the VM name is the only key tried' {

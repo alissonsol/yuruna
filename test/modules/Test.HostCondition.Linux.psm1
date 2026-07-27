@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.24
+.VERSION 2026.07.26
 .GUID 42c5d6e7-f8a9-4b01-9234-5e6f7a8b9c0d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -94,9 +94,87 @@ function Set-LinuxHostConditionSet {
     # ShouldProcess call mirroring Set-MacHostConditionSet's per-
     # mutation pattern.
     $null = $HostType
-    if ($PSCmdlet.ShouldProcess('host.ubuntu.kvm', 'Apply Linux host condition set (no runtime mutations today)')) {
-        Write-Verbose "Set-LinuxHostConditionSet: no runtime mutations required (host/ubuntu.kvm/Enable-TestAutomation.ps1 owns install-time setup)."
+    if ($PSCmdlet.ShouldProcess('host.ubuntu.kvm', 'Apply Linux host condition set')) {
+        Write-Verbose "Set-LinuxHostConditionSet: no runtime mutations required beyond the clock (host/ubuntu.kvm/Enable-TestAutomation.ps1 owns install-time setup)."
     }
+
+    # Host clock -> under NTP discipline. Guests inherit it at power-on;
+    # see Sync-LinuxHostClock for what a drifting one does to them. This is
+    # the one runtime mutation that has to happen on every host, because
+    # the fault it prevents is invisible until it has cost a whole cycle.
+    $clock = Sync-LinuxHostClock
+    if ($clock.Succeeded) {
+        Write-Information "Host clock: $($clock.Message)"
+    } else {
+        Write-Warning "Host clock not disciplined: $($clock.Message)"
+    }
+}
+
+function Sync-LinuxHostClock {
+    <#
+    .SYNOPSIS
+        Put the host clock back under NTP discipline via timedatectl.
+        Returns @{ Succeeded; Message }.
+    .DESCRIPTION
+        libvirt seeds each guest's clock from this host at power-on, so a
+        drifting host hands the same error to every VM it starts and the
+        guest's own NTP client then steps the clock mid-boot -- which is
+        what leaves a Kubernetes guest with pods Running but never Ready
+        and its NodePorts refusing.
+
+        `timedatectl set-ntp true` is the durable half. Restarting the
+        active sync daemon afterwards is the immediate half: enabling NTP
+        does not itself step a clock that is already hours out, and
+        systemd-timesyncd only steps on start.
+
+        Reports rather than throws, and never prompts (`sudo -n`): an
+        unattended runner blocked on a hidden password prompt is a hang,
+        not a failed clock sync.
+    .OUTPUTS
+        [hashtable] Succeeded (bool), Message (string).
+    #>
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([hashtable])]
+    param()
+
+    if (-not $IsLinux) {
+        return @{ Succeeded = $false; Message = 'Sync-LinuxHostClock is only supported on Linux.' }
+    }
+    if (-not (Get-Command timedatectl -ErrorAction SilentlyContinue)) {
+        return @{ Succeeded = $false; Message = 'timedatectl not found; this host has no systemd time control to drive.' }
+    }
+    $manual = 'Fix by hand: sudo timedatectl set-ntp true'
+    if (-not $PSCmdlet.ShouldProcess('Host clock', 'Enable NTP and resynchronize')) {
+        return @{ Succeeded = $false; Message = 'Skipped (WhatIf).' }
+    }
+
+    $ntpOut = & sudo -n timedatectl set-ntp true 2>&1
+    if ($LASTEXITCODE -ne 0) {
+        return @{ Succeeded = $false; Message = "timedatectl set-ntp true failed: $(($ntpOut | Out-String).Trim()). $manual" }
+    }
+    $steps = @('NTP enabled')
+
+    # Whichever daemon this host actually runs -- chrony steps on demand,
+    # timesyncd only on start. A host with neither still counts as synced:
+    # set-ntp succeeded, so something is disciplining the clock.
+    # Coerce before .Trim(): a missing unit makes (& ...) return $null, and
+    # $null.Trim() throws (same guard as Assert-LinuxHostConditionSet).
+    $chronyRaw   = & systemctl is-active chrony 2>$null
+    $chronydRaw  = & systemctl is-active chronyd 2>$null
+    $timesyncRaw = & systemctl is-active systemd-timesyncd 2>$null
+    $chronyState   = if ($chronyRaw)   { "$chronyRaw".Trim() }   else { '' }
+    $chronydState  = if ($chronydRaw)  { "$chronydRaw".Trim() }  else { '' }
+    $timesyncState = if ($timesyncRaw) { "$timesyncRaw".Trim() } else { '' }
+    if ($chronyState -eq 'active' -or $chronydState -eq 'active') {
+        $stepOut = & sudo -n chronyc makestep 2>&1
+        if ($LASTEXITCODE -eq 0) { $steps += 'chrony stepped' }
+        else { Write-Verbose "chronyc makestep: $(($stepOut | Out-String).Trim())" }
+    } elseif ($timesyncState -eq 'active') {
+        $restartOut = & sudo -n systemctl restart systemd-timesyncd 2>&1
+        if ($LASTEXITCODE -eq 0) { $steps += 'timesyncd restarted' }
+        else { Write-Verbose "systemctl restart systemd-timesyncd: $(($restartOut | Out-String).Trim())" }
+    }
+    return @{ Succeeded = $true; Message = "Host clock: $($steps -join ', ')." }
 }
 
 function Assert-LinuxHostConditionSet {
@@ -117,6 +195,10 @@ function Assert-LinuxHostConditionSet {
     [OutputType([bool])]
     param([string]$HostType)
     if ($HostType -ne 'host.ubuntu.kvm') { return $true }
+    # Guests inherit this clock at power-on; see Assert-HostClock. Checked
+    # before the virtualization round-trip because a skewed clock fails the
+    # cycle no matter how healthy libvirt is.
+    if (-not (Assert-HostClock -HostType $HostType)) { return $false }
     # The runner calls Initialize-YurunaHost before invoking this
     # function; that imports host/ubuntu.kvm/modules/Yuruna.Host.psm1
     # for host.ubuntu.kvm, so Assert-Virtualization is in scope here.
@@ -194,7 +276,10 @@ function Test-LinuxHostMinimum {
     param()
     $ok = $true
     if (-not (Get-Command virsh -ErrorAction SilentlyContinue)) {
-        Write-Warning "virsh not found on PATH. Install libvirt + QEMU: sudo apt install libvirt-clients libvirt-daemon-system qemu-kvm"
+        # Package names match install/ubuntu.kvm.sh. 'qemu-kvm' is only a
+        # transitional shim on current Ubuntu -- naming the real qemu-system-*
+        # package keeps this hint working as the shim is retired.
+        Write-Warning "virsh not found on PATH -- the libvirt/QEMU packages are not installed. Run install/ubuntu.kvm.sh, or: sudo apt-get install -y libvirt-clients libvirt-daemon-system virtinst qemu-system-x86"
         $ok = $false
     }
     if (-not (Test-Path '/dev/kvm')) {
@@ -204,4 +289,4 @@ function Test-LinuxHostMinimum {
     return $ok
 }
 
-Export-ModuleMember -Function Get-LibvirtGroupState, Set-LinuxHostConditionSet, Assert-LinuxHostConditionSet, Test-LinuxHostMinimum
+Export-ModuleMember -Function Get-LibvirtGroupState, Set-LinuxHostConditionSet, Assert-LinuxHostConditionSet, Test-LinuxHostMinimum, Sync-LinuxHostClock

@@ -29,11 +29,11 @@ etc.). Action reference and per-host
 
 - **Runner definition** — `project/test/test.runner.yml`:
   top-level workload sequence names to drive each cycle.
-- **Per-sequence baseline** — every sequence's `baseline` field
+- **Per-sequence resource** — every sequence's `resource` field
   declares which guest OSes it supports and which prerequisite
   sequences must complete first, keyed by OS:
   ```json
-  "baseline": { "ubuntu.server.24": ["start.guest.ubuntu.server.24"] }
+  "resource": { "ubuntu.server.24": ["start.guest.ubuntu.server.24"] }
   ```
   Walking these recursively produces the dependency-ordered chain.
 - **Sequence files** —
@@ -105,9 +105,9 @@ move it into the correct module or update this table.
 ### Adding a new test
 
 1. Drop a `<phase>.<guest-key>[.<suffix>].yml` sequence under either
-   `test/sequences/<mode>/` (framework-generic) or
-   `project/<...>/test/<mode>/` (project-specific).
-2. Set `baseline` to the guest OS keys and prerequisite sequence
+   `test/sequences/` (framework-generic) or
+   `project/<...>/test/` (project-specific).
+2. Set `resource` to the guest OS keys and prerequisite sequence
    names. An empty array terminates the chain (used by `start.guest.*`).
 3. Reference the new sequence (or anything that depends on it) from
    the `project/test/test.runner.yml` `sequences` list.
@@ -118,6 +118,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.24
+Last review: 2026.07.26
 
 Back to [Yuruna](../../README.md)

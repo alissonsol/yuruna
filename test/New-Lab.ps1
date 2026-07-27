@@ -1,0 +1,198 @@
+<#PSScriptInfo
+.VERSION 2026.07.26
+.GUID 42f4c810-93a7-4b62-a15e-7d0c2be64f18
+.AUTHOR Alisson Sol et al.
+.COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
+.TAGS yuruna lab pool stash vault intent
+.LICENSEURI https://yuruna.link/license
+.PROJECTURI https://yuruna.com
+.ICONURI
+.EXTERNALMODULEDEPENDENCIES
+.REQUIREDSCRIPTS
+.EXTERNALSCRIPTDEPENDENCIES
+.RELEASENOTES
+.PRIVATEDATA
+#>
+
+#requires -version 7
+
+<#
+.SYNOPSIS
+    Create a lab: its storage folders, its credential vault, and its pool-intent
+    repository.
+
+.DESCRIPTION
+    A lab is a physically local set of hosts, which are then grouped into pools and
+    assigned test sets. Bringing one up by hand -- create two folders, share them,
+    set ACLs, put passwords in a vault -- leaves nothing to check the result. This
+    creates all three consistently and is safe to re-run.
+
+    What it creates under -Root:
+      <Root>/yuruna.pool          cycle-output replication + the intent repository
+      <Root>/yuruna.stash         the stash service's own durable store
+      <Root>/yuruna.pool/<name>.intent.git
+                                  bare pool-intent repository, seeded schema-valid.
+                                  Pool Control serves this over git:// and that URL
+                                  becomes the lab's intentGitUrl.
+
+    The vault it writes is plain YAML protected by filesystem permissions. That is
+    deliberate and is the reason this script exists rather than reusing
+    Export-Clixml: a lab vault has to be COPYABLE to the other hosts in the lab, and
+    DPAPI-bound files do not decrypt on the machine they are copied to. See
+    test/schemas/lab.vault.schema.yml.
+
+    Sharing the folders over SMB is left to the operator: it is per-platform, needs
+    elevation, and the account it grants is a decision this script should not make.
+    The guide covers it.
+
+.PARAMETER Name
+    Lab name. Same charset as a pool id, so the two cannot disagree.
+.PARAMETER Root
+    Folder the lab's storage is created under.
+.PARAMETER User
+    Credential names to generate and store in the lab vault. Defaults to the two NAS
+    accounts every lab needs.
+.PARAMETER PasswordLength
+    Generated password length.
+.PARAMETER Force
+    Overwrite an existing lab vault for this name.
+
+.EXAMPLE
+    pwsh test/New-Lab.ps1 -Name lab-a -Root D:\work
+.EXAMPLE
+    pwsh test/New-Lab.ps1 -Name lab-a -Root /srv -User yuruna-pool,yuruna-stash,pool-auth-token
+#>
+
+param(
+    [Parameter(Mandatory, Position = 0)]
+    [ValidatePattern('^[a-z0-9][a-z0-9-]{0,62}$')]
+    [string]$Name,
+
+    [Parameter(Mandatory, Position = 1)]
+    [ValidateNotNullOrEmpty()]
+    [string]$Root,
+
+    [string[]]$User = @('yuruna-pool', 'yuruna-stash'),
+
+    [ValidateRange(8, 128)]
+    [int]$PasswordLength = 20,
+
+    [switch]$Force
+)
+
+$ErrorActionPreference = 'Stop'
+
+Import-Module (Join-Path $PSScriptRoot 'modules/Test.Prelude.psm1') -Global -Force
+$paths = Initialize-YurunaEntryPoint -ScriptRoot $PSScriptRoot
+Import-Module (Join-Path $paths.ModulesDir 'Test.PoolAdmin.psm1') -Global -Force
+Import-Module (Join-Path $paths.ModulesDir 'Test.StateFile.psm1') -Global -Force
+
+# New-RandomPassword lives in the authentication extension; its leading-character
+# guard is the reason to reuse it rather than roll a generator here. A password
+# starting with a YAML indicator forces the serializer to quote the scalar, and the
+# cloud-init seed substitutes the value UNQUOTED, which mangles the guest's
+# chpasswd and can abort the cloud-config stage so the VM never gets an IP.
+$authExtension = Join-Path $paths.RepoRoot 'test/extension/authentication/default.psm1'
+if (-not (Test-Path -LiteralPath $authExtension)) {
+    throw "Authentication extension not found at $authExtension."
+}
+Import-Module $authExtension -Global -Force -DisableNameChecking
+
+function Set-DirectoryPrivate {
+    <#
+    .SYNOPSIS
+        Restrict a directory to the current user, before any secret is written into it.
+    #>
+    [CmdletBinding(SupportsShouldProcess)]
+    param([Parameter(Mandatory)][string]$Path)
+    if (-not $PSCmdlet.ShouldProcess($Path, 'Restrict to the current user')) { return }
+    try {
+        if ($IsWindows) {
+            & icacls $Path /inheritance:r /grant:r "${env:USERNAME}:(OI)(CI)F" 2>&1 | Out-Null
+        } else {
+            & chmod 700 $Path 2>&1 | Out-Null
+        }
+    } catch {
+        Write-Warning "Could not restrict permissions on '$Path': $($_.Exception.Message). The lab vault is plain text -- fix this before copying it anywhere."
+    }
+}
+
+Write-Output ""
+Write-Output "============================================="
+Write-Output "  Creating lab '$Name'"
+Write-Output "  Root: $Root"
+Write-Output "============================================="
+
+# --- REGION: storage folders
+$poolPath  = Join-Path $Root 'yuruna.pool'
+$stashPath = Join-Path $Root 'yuruna.stash'
+foreach ($p in @($Root, $poolPath, $stashPath)) {
+    if (-not (Test-Path -LiteralPath $p)) {
+        $null = New-Item -ItemType Directory -Path $p -Force
+        Write-Output "[1/3] created $p"
+    } else {
+        Write-Output "[1/3] $p already exists"
+    }
+}
+
+# --- REGION: pool-intent repository
+$intentPath = Join-Path $poolPath "$Name.intent.git"
+$store = New-YurunaPoolIntentStore -Path $intentPath -Confirm:$false
+if ($store.Created) {
+    Write-Output "[2/3] pool-intent store seeded at $intentPath"
+} else {
+    Write-Output "[2/3] pool-intent store already present at $intentPath ($($store.Reason))"
+}
+
+# --- REGION: lab vault
+# Under test/status/extension/authentication/ so it inherits the two protections
+# the per-host vault already has: the `test/status/*/` gitignore rule, and the
+# status server's `extension/*` deny-list entry that keeps it off HTTP. A file of
+# the same shape placed anywhere else under test/status/ WOULD be served.
+$vaultDir  = Join-Path $paths.RepoRoot 'test/status/extension/authentication'
+if (-not (Test-Path -LiteralPath $vaultDir)) { $null = New-Item -ItemType Directory -Path $vaultDir -Force }
+Set-DirectoryPrivate -Path $vaultDir -Confirm:$false
+$labVault = Join-Path $vaultDir "lab.$Name.vault.yml"
+
+if ((Test-Path -LiteralPath $labVault) -and -not $Force) {
+    Write-Output "[3/3] lab vault already exists at $labVault (use -Force to regenerate)"
+} else {
+    $nowUtc = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
+    $lines = [System.Collections.Generic.List[string]]::new()
+    $lines.Add('schemaVersion: 1')
+    $lines.Add('lab:')
+    $lines.Add("  name: $Name")
+    $lines.Add("  createdUtc: '$nowUtc'")
+    $lines.Add("  poolPath: '$poolPath'")
+    $lines.Add("  stashPath: '$stashPath'")
+    $lines.Add("  intentGitPath: '$intentPath'")
+    $lines.Add('users:')
+    foreach ($u in $User) {
+        if ($u -notmatch '^[A-Za-z0-9._-]+$') {
+            throw "Credential name '$u' is not usable as a vault key (allowed: letters, digits, dot, underscore, hyphen)."
+        }
+        $pw = New-RandomPassword -Length $PasswordLength
+        $lines.Add("  ${u}:")
+        # Unquoted on purpose: New-RandomPassword never emits a leading YAML
+        # indicator, and the value is substituted unquoted downstream.
+        $lines.Add("    password: $pw")
+        $lines.Add("    previousPassword: ''")
+        $lines.Add("    updatedUtc: '$nowUtc'")
+    }
+    Write-YurunaStateFile -Path $labVault -Content (($lines -join "`n") + "`n") -Confirm:$false
+    Write-Output "[3/3] lab vault written to $labVault ($($User.Count) credential(s))"
+}
+
+Write-Output ""
+Write-Output "Lab '$Name' ready."
+Write-Output "  pool folder : $poolPath"
+Write-Output "  stash folder: $stashPath"
+Write-Output "  intent repo : $intentPath"
+Write-Output "  lab vault   : $labVault"
+Write-Output ""
+Write-Output "Next:"
+Write-Output "  1. Share $poolPath and $stashPath over SMB and grant the lab's NAS accounts."
+Write-Output "  2. Set networkStorage.* in test/test.config.yml on each host."
+Write-Output "  3. Stand up Pool Control; it serves the intent repo and that URL becomes pool.intentGitUrl."
+Write-Output "  See https://yuruna.link/operator and https://yuruna.link/pool-admin."
+exit 0

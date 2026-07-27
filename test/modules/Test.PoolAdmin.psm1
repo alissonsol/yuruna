@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.24
+.VERSION 2026.07.26
 .GUID 42c2d3e4-f5a6-4b78-9c01-2d3e4f5a6b7c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -361,7 +361,104 @@ function Get-YurunaPoolFromDoc {
     return $null
 }
 
+<#
+.SYNOPSIS
+Normalizes an operator-typed hostId to its canonical form (42-prefixed 32-hex, no
+separators). Returns $null when the value is not a host uuid in any accepted form.
+.DESCRIPTION
+The stored and on-wire form is always the bare 32 hex chars, but the Grafana pool
+dashboard renders the Host ID column GUID-formatted (a value mapping splits it
+8-4-4-4-12 and joins with dashes) because that is far easier to read across a table
+of a dozen near-identical 42-prefixed ids. An operator copying a hostId off that
+panel therefore pastes a hyphenated string that no store ever contains, so accept it
+here and hand callers the canonical form. Braces and surrounding whitespace are
+tolerated for the same reason -- they come free with a copy from other tooling. Case
+is preserved as lowercase: hex comparisons against pools.yml members[] and the NAS
+record filenames are ordinal, and every producer writes lowercase.
+.OUTPUTS
+System.String -- the canonical hostId, or $null if $Value is not one.
+#>
+function ConvertTo-YurunaHostId {
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([string]$Value)
+    if ([string]::IsNullOrWhiteSpace($Value)) { return $null }
+    $v = $Value.Trim().Trim('{', '}').Replace('-', '')
+    if ($v -notmatch '^42[0-9a-fA-F]{30}$') { return $null }
+    return $v.ToLowerInvariant()
+}
+
+<#
+.SYNOPSIS
+    Create a bare pool-intent repository, seeded with an empty schema-valid pools.yml.
+.DESCRIPTION
+    Until now the only implementations of this lived in shell, inside the
+    caching-proxy and pool-control cloud-init, so nothing on the host side could
+    create a store. Three details are load-bearing and are the reason this is a
+    shared function rather than a fresh `git init` at each call site:
+
+      * `core.fileMode false` -- a NAS mount maps modes from the mount options, so
+        git would otherwise see a permission change on every file it writes back.
+      * `receive.updateServerInfo true` -- keeps the dumb-HTTP indexes current after
+        each push. The usual post-update hook never becomes executable on a CIFS
+        mount, so info/refs would go stale the moment intent was written and readers
+        would keep being served the old refs.
+      * `schemaVersion: 2` -- a store seeded at 1 READS fine, because nothing
+        validates on read, and then fails every write at schema validation. The
+        store looks healthy right up until someone creates a pool.
+
+    Idempotent: an existing repository is left untouched.
+.PARAMETER Path
+    Filesystem path of the bare repository to create.
+.PARAMETER Force
+    Recreate even if the path already looks like a repository.
+#>
+function New-YurunaPoolIntentStore {
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([pscustomobject])]
+    param(
+        [Parameter(Mandatory)][string]$Path,
+        [switch]$Force
+    )
+    $already = Test-Path -LiteralPath (Join-Path $Path 'refs')
+    if ($already -and -not $Force) {
+        return [pscustomobject]@{ Path = $Path; Created = $false; Reason = 'already a repository' }
+    }
+    if (-not $PSCmdlet.ShouldProcess($Path, 'Create bare pool-intent repository')) {
+        return [pscustomobject]@{ Path = $Path; Created = $false; Reason = 'WhatIf' }
+    }
+
+    $parent = Split-Path -Parent $Path
+    if ($parent -and -not (Test-Path -LiteralPath $parent)) {
+        $null = New-Item -ItemType Directory -Path $parent -Force
+    }
+    & git init --bare --initial-branch=main -- $Path 2>&1 | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw "git init --bare failed for '$Path' (exit $LASTEXITCODE)." }
+    & git -C $Path config core.fileMode false 2>&1 | Out-Null
+    & git -C $Path config receive.updateServerInfo true 2>&1 | Out-Null
+
+    $seed = Join-Path ([IO.Path]::GetTempPath()) ('yuruna-intent-seed-' + [Guid]::NewGuid().ToString('N'))
+    $null = New-Item -ItemType Directory -Path $seed -Force
+    try {
+        & git -C $seed init -q --initial-branch=main 2>&1 | Out-Null
+        & git -C $seed config core.fileMode false 2>&1 | Out-Null
+        # LF, no BOM: the file is read by git and by ConvertFrom-Yaml on three platforms.
+        [IO.File]::WriteAllText((Join-Path $seed 'pools.yml'), "schemaVersion: 2`npools: []`n",
+            (New-Object System.Text.UTF8Encoding($false)))
+        & git -C $seed add -A 2>&1 | Out-Null
+        # Identity supplied inline so this works on a host with no git user configured.
+        & git -C $seed -c user.name=yuruna -c user.email=pool@yuruna.local commit -q -m 'seed pool intent' 2>&1 | Out-Null
+        & git -C $seed push -q -- $Path HEAD:main 2>&1 | Out-Null
+        if ($LASTEXITCODE -ne 0) { throw "seeding push to '$Path' failed (exit $LASTEXITCODE)." }
+        & git -C $Path update-server-info 2>&1 | Out-Null
+    } finally {
+        Remove-Item -LiteralPath $seed -Recurse -Force -ErrorAction SilentlyContinue
+    }
+    return [pscustomobject]@{ Path = $Path; Created = $true; Reason = 'seeded' }
+}
+
 Export-ModuleMember -Function `
     Resolve-YurunaPoolSchemaPath, Test-YurunaPoolDocValid, Test-YurunaPoolIntentFile, `
     Open-YurunaPoolIntent, Read-YurunaPoolsDoc, Save-YurunaPoolDoc, Publish-YurunaPoolIntent, `
-    Get-YurunaPoolFromDoc, Resolve-YurunaPoolAdminTarget
+    Get-YurunaPoolFromDoc, Resolve-YurunaPoolAdminTarget, ConvertTo-YurunaHostId, `
+    New-YurunaPoolIntentStore

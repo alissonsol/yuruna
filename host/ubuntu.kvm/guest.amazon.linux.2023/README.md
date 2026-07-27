@@ -25,7 +25,7 @@ and defines the VM via `virt-install --import` against `qemu:///system`.
 | Name | `amazon-linux01` |
 | RAM  | 4 GiB |
 | vCPU | min(host threads − 1, max(2, host threads ÷ 2)) |
-| Disk | 16 G qcow2 backed by base |
+| Disk | max(base virtual size, 16 GiB) qcow2 backed by base |
 | User | `yauser1` (test sequence target, see [test/sequences/start.guest.amazon.linux.2023.yml](../../../test/sequences/start.guest.amazon.linux.2023.yml)) and `ec2-user` (cloud-image default; SSH key-auth) |
 | Net  | libvirt `default` (NAT 192.168.122.0/24) |
 
@@ -46,6 +46,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.24
+Last review: 2026.07.26
 
 Back to [Yuruna](../../../README.md)

@@ -34,12 +34,15 @@ the aggregator's push-ingest and the cross-host credential fetch. It is **not a 
 secret**, and the token itself never travels in a URL.
 
 When you open a host from the *Yuruna hosts* dashboard, the link goes through the pool
-aggregator on the caching proxy, which mints a proof valid for **5 minutes** and hands it
+aggregator on the caching proxy, which mints a proof valid for **15 minutes** and hands it
 to the host page in the URL **fragment** (`#yctl=…`). A fragment is never sent to a server
 and never lands in an access log; only the page's own JavaScript reads it. The page keeps
 it in `sessionStorage` **for that tab** and presents it as the `X-Yuruna-Control` header on
 every control POST. The host recomputes the HMAC with its own copy of the token and accepts
-a proof whose expiry is no more than **15 minutes** out.
+a proof whose expiry is no more than **20 minutes** out — deliberately longer than the mint,
+so a host whose clock trails the proxy still accepts a freshly minted proof. The proof is
+captured once on arrival and never refreshed, so the config page shows a countdown and warns
+before it lapses rather than letting a long edit fail at Save.
 
 A host with **no** `pool-auth-token` configured is not broken — it simply accepts control
 from loopback only.
@@ -98,25 +101,47 @@ host's URL by hand does not.
 
 > `follow guidance at https://yuruna.link/control-proof`
 
-In the config editor this reads `Save failed: follow guidance at https://yuruna.link/control-proof`;
-that short link lands on this section. The underlying condition is always the same: the caller
-was neither on loopback nor carrying a valid control proof. Work through these in order:
+In the config editor this reads `Save failed: …`; the short link lands on this section. The
+underlying condition is always the same: the caller was neither on loopback nor carrying a
+valid control proof.
 
-1. **You typed the host URL instead of following the dashboard link.** The proof lives in
-   that tab's `sessionStorage`; re-enter through the dashboard host link. This also covers a
-   **proof that expired** — a minted proof lasts about 5 minutes; reload through the link.
-2. **The host's token does not match the proxy's.** Re-run `Set-PoolAuthToken.ps1` with the
+**Read the `reason` first — it names the precondition that actually failed**, so you can skip
+straight to the matching item below. The 403 body carries it alongside the message, and the
+status pages render it in place of a bare `HTTP 403`:
+
+| `reason` | Meaning |
+|---|---|
+| `host-token-missing` | This host holds no `pool-auth-token`, so no proof can ever be accepted (item 3). |
+| `proof-missing` | The request carried no proof at all — usually item 1 or 2. |
+| `proof-expired` | A well-formed proof whose expiry has passed (item 1). |
+| `proof-invalid` | A proof that does not verify against this host's token (item 4). |
+| `verifier-unavailable` | The status server could not load its verifier; check its log. |
+
+1. **Your browser is not actually on loopback.** Only a genuine loopback address is exempt.
+   Browsing `http://<this-host's-own-LAN-IP>:<port>` **from the host itself is _not_ loopback** —
+   the request arrives from the LAN address, so it needs a proof exactly like a remote caller.
+   This is the usual reason a control action "fails locally too". Use
+   `http://localhost:<port>` for the no-proof path.
+2. **You typed the host URL instead of following the dashboard link.** The proof lives in that
+   tab's `sessionStorage`, and it is per-origin: arriving on one of the host's addresses and
+   then switching to another loses it. Re-enter through the dashboard host link. A minted proof
+   lasts about 15 minutes; the config page shows a countdown and warns before it lapses.
+3. **The host has no `pool-auth-token` vault entry** (or an empty vault key) — non-loopback
+   control is refused by design until you set one. `Sync-HostConfiguration` stores it for you
+   when a host joins the pool with `-SharedToken`; `-NoPersistSharedToken` opts out.
+4. **The host's token does not match the proxy's.** Re-run `Set-PoolAuthToken.ps1` with the
    value from `/etc/yuruna/pool-auth.token` (both commands are in
    [Enabling remote control on a host](#enabling-remote-control-on-a-host) above).
-3. **The caching-proxy / dashboard VM is stale.** An old aggregator can mint a proof this
-   host cannot verify, or hand off the link without the `#yctl=…` fragment at all. If the
-   token matches and the link still won't drive the host, update the caching-proxy VM
-   ([caching-proxy.md](caching-proxy.md#migrating-to-a-replacement-cache-vm)).
-4. **The host has no `pool-auth-token` vault entry** (or an empty vault key) — non-loopback
-   control is refused by design until you set one. Or just drive it from the host itself:
-   `http://localhost:<port>` has full control with no token and no proof.
-5. **The host clock is skewed** by more than the proof window, so every proof looks expired.
-   Fix time sync on the host.
+5. **The proxy is minting nothing.** If the caching proxy was built on a host that had no
+   `pool-auth-token`, it baked an **empty** token: it then mints no proof at all and every
+   host 403s. Confirm from the host — `curl -sI '<aggregator>/go/host?host=<hostId>'` shows a
+   `Location:` with **no `#yctl=` fragment**, and `curl -sk -X POST '<aggregator>/ingest'`
+   answers `503 ingest disabled`. Fix by setting the token and rebuilding the proxy VM, or by
+   writing the same value into `/etc/yuruna/pool-auth.token` there. A stale aggregator build
+   shows the same symptom ([caching.md](caching.md#migrating-to-a-replacement-cache-vm)).
+6. **The host clock is skewed** far enough that a fresh proof already looks expired. The
+   acceptance window is held above the mint to absorb ordinary drift, so this means a large
+   offset; fix time sync on the host.
 
 A different message — `forbidden: missing X-Yuruna request header` — is the cross-site
 request guard, not the proof: it means a non-browser client (`curl`) called a control route
@@ -166,7 +191,7 @@ route reached them.
 - [pool-admin.md](pool-admin.md) — running a pool and the *Yuruna hosts* dashboard.
 - [pool-storage.md](pool-storage.md) — the `pool-auth-token`-gated credential fetch used
   when syncing a new host's config.
-- [caching-proxy.md](caching-proxy.md) — the caching-proxy VM that hosts Grafana and the
+- [caching.md](caching.md#caching-proxy--test-harness-operator-reference) — the caching-proxy VM that hosts Grafana and the
   pool aggregator.
 - [test-config.md](test-config.md) — the host-side config keys, including the vault.
 
@@ -176,6 +201,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.24
+Last review: 2026.07.26
 
 Back to [Yuruna](../README.md)

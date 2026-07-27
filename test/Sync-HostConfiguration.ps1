@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.24
+.VERSION 2026.07.26
 .GUID 42795a67-cd5f-42ad-bd44-8d466ffec8fb
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -46,10 +46,15 @@
     reference host. The per-host script falls back to this host's own vault copy,
     then to a prompt.
 .PARAMETER PersistSharedToken
-    Also store -SharedToken in THIS host's vault as the pool-auth-token (via
+    Store -SharedToken in THIS host's vault as the pool-auth-token (via
     Set-PoolAuthToken.ps1) before syncing config, and bounce the status server
-    so it takes effect immediately. Requires -SharedToken. Use this to bring a
-    host into the pool's token-gated control + config-sync in one command.
+    so it takes effect immediately. This is the DEFAULT whenever -SharedToken is
+    supplied and the host is joining the pool, so a joined host is reachable from
+    the dashboard instead of accepting control only from loopback; the switch
+    remains for explicitness.
+.PARAMETER NoPersistSharedToken
+    Use -SharedToken only for this run and do NOT store it. The host keeps
+    loopback-only control. For a host that should not be remotely drivable.
 .PARAMETER NonInteractive
     Never prompt; skip anything needing operator input, with a warning.
 .PARAMETER SkipValidation
@@ -83,6 +88,7 @@ param(
     [Parameter()][int]$StatusPort,
     [Parameter()][string]$SharedToken,
     [switch]$PersistSharedToken,
+    [switch]$NoPersistSharedToken,
     [switch]$NonInteractive,
     [switch]$SkipValidation,
     [switch]$NoPool,
@@ -110,7 +116,15 @@ if ($PSBoundParameters.ContainsKey('Verbose')) { $extra += '-Verbose' }
 # pwsh so that script's own `exit` and -Global module imports stay out of this
 # runspace; it is excluded from the forwarded arguments (the per-host script
 # has no such parameter).
-if ($PersistSharedToken) {
+# Persisting is the DEFAULT once a token is supplied and the host is joining the
+# pool: a host that syncs a pool config but stores no token accepts control only
+# from loopback, so the dashboard's own deep link into it fails with a 403 that
+# looks like a bug rather than an unfinished setup. -NoPersistSharedToken keeps
+# the token transient for a host that should stay locally-driven, and -NoPool
+# already means "not joining", so it does not persist either.
+$persistToken = -not $NoPersistSharedToken -and -not $NoPool -and
+                ($PersistSharedToken -or -not [string]::IsNullOrEmpty($SharedToken))
+if ($persistToken) {
     if ([string]::IsNullOrEmpty($SharedToken)) {
         throw "-PersistSharedToken requires -SharedToken (the shared pool-auth-token to store in this host's vault)."
     }
@@ -130,7 +144,7 @@ if ($PersistSharedToken) {
 $forwarded = @(ConvertTo-HostScriptArgument `
     -BoundParameters $PSBoundParameters `
     -RemainingArguments $RemainingArguments `
-    -Exclude 'RemainingArguments', 'PersistSharedToken' `
+    -Exclude 'RemainingArguments', 'PersistSharedToken', 'NoPersistSharedToken' `
     -ExtraArgument $extra)
 
 Invoke-YurunaHostScript -ScriptName 'Sync-HostConfiguration.ps1' -ArgumentList $forwarded

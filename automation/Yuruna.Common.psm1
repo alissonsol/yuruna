@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.24
+.VERSION 2026.07.26
 .GUID 4288bcbc-ede3-4dda-bb77-b9782c7615ad
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -518,7 +518,7 @@ function ConvertTo-Ipv4UInt32 {
 .OUTPUTS
     [System.Nullable[uint32]] the numeric address, or $null.
 .EXAMPLE
-    ConvertTo-Ipv4UInt32 '192.168.64.2'   # 3232251394
+    ConvertTo-Ipv4UInt32 '192.168.64.2'   # 3232251906
 #>
     [CmdletBinding()]
     [OutputType([uint32])]
@@ -689,9 +689,10 @@ function Select-DhcpLeaseIpAddress {
        skipped outright rather than allowed to displace one that can.
 
     Candidates are additionally filtered by -OnLinkVerdict. Only an explicit
-    'offlink' rejects; 'unknown' is accepted, so a host whose interfaces
-    cannot be enumerated keeps the pre-existing behavior instead of
-    discarding every candidate.
+    'offlink' rejects; 'unknown' is accepted, because an empty interface
+    enumeration proves nothing and must not collapse into rejecting every
+    candidate -- when the host subnets cannot be enumerated, selection falls
+    back to the lease-expiry tie-break alone.
 .PARAMETER LeaseText
     Full text of the lease file.
 .PARAMETER Name
@@ -820,6 +821,8 @@ function ConvertTo-MemoryStartupBytes {
 #>
     [OutputType([int64])]
     [CmdletBinding()]
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseSingularNouns', '',
+        Justification = 'The noun mirrors the memoryStartupBytes sequence variable it parses and the Hyper-V MemoryStartupBytes property it feeds; a singular rename would break that one-to-one mapping with the field name authors write.')]
     param([string]$Value)
     if ([string]::IsNullOrWhiteSpace($Value)) { return [int64]0 }
     $t = $Value.Trim()
@@ -845,4 +848,50 @@ function ConvertTo-MemoryStartupBytes {
     return $bytes
 }
 
-Export-ModuleMember -Function New-YurunaTimestampedBackup, Get-HostProxyBackupPath, ConvertTo-ProxyHostPort, Get-PortMapStatePath, Test-IsAdministrator, Get-CachingProxyPort, Test-Ipv4Address, Test-Ipv6Address, Format-IpUrlHost, Test-IpAddress, ConvertTo-Sha512CryptHash, ConvertTo-YurunaMacAddress, ConvertTo-Ipv4UInt32, Get-HostIpv4Subnet, Get-Ipv4OnLinkVerdict, Select-DhcpLeaseIpAddress, Get-UtmGuestSeedHostname, ConvertTo-MemoryStartupBytes
+function Select-NameByPrefix {
+<#
+.SYNOPSIS
+    Filter VM names to those starting with any of $Prefix.
+.DESCRIPTION
+    Shared by every host driver's Get-VMName so "matches the prefix"
+    means the same thing on UTM, Hyper-V and libvirt. Matching is
+    literal and case-insensitive: VM names are compared the way the
+    hypervisors themselves treat them, and a prefix is a plain string,
+    never a wildcard pattern -- an operator prefix containing [ or *
+    would otherwise silently behave as a character class and sweep VMs
+    it was never meant to name.
+
+    An empty or absent prefix set selects everything. That makes
+    Get-VMName with no -Prefix a full inventory call, and it keeps a
+    caller that resolved its prefix list to nothing from silently
+    matching nothing when it meant "no filter".
+.PARAMETER Name
+    Candidate names.
+.PARAMETER Prefix
+    Zero or more literal name prefixes.
+.OUTPUTS
+    [string[]] the matching names, in input order.
+#>
+    [CmdletBinding()]
+    [OutputType([string[]])]
+    param(
+        [string[]]$Name,
+        [string[]]$Prefix
+    )
+    $candidates = @($Name | Where-Object { $_ })
+    if ($candidates.Count -eq 0) { return [string[]]@() }
+    $wanted = @($Prefix | Where-Object { $_ })
+    if ($wanted.Count -eq 0) { return [string[]]$candidates }
+    $matched = [System.Collections.Generic.List[string]]::new()
+    foreach ($candidate in $candidates) {
+        foreach ($p in $wanted) {
+            if ($candidate.StartsWith($p, [StringComparison]::OrdinalIgnoreCase)) {
+                [void]$matched.Add($candidate)
+                break
+            }
+        }
+    }
+    return $matched.ToArray()
+}
+
+Export-ModuleMember -Function New-YurunaTimestampedBackup, Get-HostProxyBackupPath, ConvertTo-ProxyHostPort, Get-PortMapStatePath, Test-IsAdministrator, Get-CachingProxyPort, Test-Ipv4Address, Test-Ipv6Address, Format-IpUrlHost, Test-IpAddress, ConvertTo-Sha512CryptHash, ConvertTo-YurunaMacAddress, ConvertTo-Ipv4UInt32, Get-HostIpv4Subnet, Get-Ipv4OnLinkVerdict, Select-DhcpLeaseIpAddress, Get-UtmGuestSeedHostname, ConvertTo-MemoryStartupBytes, Select-NameByPrefix

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.24
+.VERSION 2026.07.26
 .GUID 42c4b1e7-5a8d-4f23-9b1c-7e3f8a2d4c61
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -59,6 +59,15 @@ $script:YurunaHostContract = @(
     # VM lifecycle
     'New-VM', 'Start-VM', 'Stop-VM', 'Stop-VMForce', 'Remove-VM',
     'Rename-VM', 'Get-VMState',
+    # VM inventory. Get-VMName is what lets a caller clean up by name
+    # prefix without branching on hypervisor: enumeration is the only
+    # part of a prefix sweep that was ever host-specific, so exposing it
+    # here keeps every sweep -- cycle-start, teardown, project teardown --
+    # on one code path. It MUST distinguish "no VMs" from "could not ask
+    # the host": a driver that returns an empty list when its CLI is
+    # unreachable would let a sweep report a clean host and let the
+    # orphan-file pass delete bundles that are still registered.
+    'Get-VMName',
     # Disk snapshots
     'Save-VMDiskSnapshot', 'Restore-VMDiskSnapshot', 'Test-VMDiskSnapshot',
     # VM console

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.24
+.VERSION 2026.07.26
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456706
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -133,21 +133,6 @@ $env:YURUNA_CONFIG_PATH = $ConfigPath
 Initialize-YurunaEntryPointModuleSet -For Inner -ModulesDir $ModulesDir
 $null = Initialize-YurunaRuntimeDir
 $null = Initialize-YurunaLogDir
-
-# Publish repositories.GH_TOKEN into $env:GH_TOKEN before this cycle's
-# Invoke-GitPull / Update-ProjectClone, which read the token from the
-# environment only. Outer already bridged it and the inner inherits that
-# environment, so this is usually a no-op re-affirmation. It earns its keep
-# twice: on the standalone-direct invocation noted above, and because outer
-# spawns a FRESH pwsh per cycle -- so an operator who fixes an expired token
-# mid-run has it picked up at the next cycle instead of only after an outer
-# restart (outer bridges once, at startup).
-#
-# Must stay AFTER Initialize-YurunaRuntimeDir: reading the config
-# auto-publishes a parsed snapshot, which lands in the shared temp dir (not
-# the runtime dir) while YURUNA_RUNTIME_DIR is null -- leaking GH_TOKEN to a
-# mode-664 /tmp file on the standalone path, where nothing pre-set it.
-$null = Import-YurunaGitHubToken -ConfigPath $ConfigPath
 # Stable per-host pool identity on the process global (before any NDJSON event)
 # so cycle events + status.json carry hostId for cross-host joins. Script-top
 # assignment, mirroring $global:__YurunaRunId.
@@ -370,6 +355,12 @@ if (-not (Assert-HostConditionSet -HostType $HostType)) { exit $ExitFailure }
 # is running. The caching-proxy VM is exempt inside Assert-NoConcurrentUtmVm
 # (it is a dependency the guests consume, reachable on the shared bridge),
 # so a running cache no longer blocks the cycle.
+# Stop first, refuse second. A leftover guest from a cycle that died before
+# its teardown is the common case here, and refusing over it strands the
+# host: the sweep that would remove it only runs once a cycle starts. Issue
+# the stop the operator would otherwise type by hand, then let the guard
+# refuse only over what would not stop.
+[void](Stop-ConcurrentVM)
 if ($HostType -eq 'host.macos.utm') {
     if (-not (Assert-NoConcurrentUtmVm)) { exit $ExitFailure }
 }
@@ -469,7 +460,7 @@ if ($cachingProxyUrl) {
     $vmIp = if ($cachingProxyUrl -match '^http://([0-9.]+):') { $matches[1] } else { $null }
     $isExternal = [bool]$Env:YURUNA_CACHING_PROXY_IP
     if ($isExternal -and $vmIp) {
-        # External handling below Remove-PortMaps this host's forwarders,
+        # External handling below removes this host's forwarders,
         # so it may only run when the endpoint is POSITIVELY not this
         # host. 'local': the "external" endpoint is this host's own
         # forwarder set fronting its NAT'd cache VM -- removing it severs

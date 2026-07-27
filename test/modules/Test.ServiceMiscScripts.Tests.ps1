@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.24
+.VERSION 2026.07.26
 .GUID 42d7e8f9-a0b1-4c23-8d45-6e7f8a9b0c1d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -28,10 +28,13 @@
     rather than raw source text, so a code comment cannot satisfy a guard.
 
     Pinned invariants:
-      * Remove-TestVMFiles.ps1's UTM stop-wait loops on a [DateTime]::UtcNow
-        deadline with no iteration accumulator (no += / ++ in the loop body, and
-        no variable named $waited), and surfaces an unconfirmed stop before the
-        delete.
+      * The UTM stop-wait loops on a [DateTime]::UtcNow deadline with no
+        iteration accumulator (no += / ++ in the loop body, and no variable
+        named $waited), and surfaces an unconfirmed stop before the delete.
+        The wait lives in Wait-UtmVMPoweredOff, which the host driver's
+        Remove-VM runs before deleting a bundle; the guard is scoped to that
+        one function so unrelated loops elsewhere in the driver -- some of
+        which legitimately count iterations -- cannot satisfy or trip it.
       * Test-WinRtOcr.ps1 names its temp OCR script with a per-run GUID, so
         concurrent runs cannot collide on a fixed shared name.
 
@@ -48,6 +51,7 @@ $testDir = Split-Path -Parent $here   # .../test
 
 $removeVmFiles = Join-Path $testDir 'Remove-TestVMFiles.ps1'
 $winRtOcr      = Join-Path $testDir 'Test-WinRtOcr.ps1'
+$utmDriver     = Join-Path (Split-Path -Parent $testDir) 'host/macos.utm/modules/Yuruna.Host.psm1'
 
 function Assert-True { param($Condition, [string]$Because = '') if (-not $Condition) { throw "Expected true. $Because" } }
 
@@ -117,15 +121,35 @@ function Test-WhileBodyAccumulator {
     return $false
 }
 
-Describe 'Remove-TestVMFiles.ps1 bounds the UTM stop-wait by wall-clock' {
+Describe 'The UTM stop-wait is bounded by wall-clock' {
     It 'waits on a UtcNow deadline with no iteration accumulator, and warns when never confirmed stopped' {
-        $ast = Get-ScriptAst $removeVmFiles
+        $driverAst = Get-ScriptAst $utmDriver
+        $wait = @($driverAst.FindAll({ param($n)
+            $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
+            $n.Name -eq 'Wait-UtmVMPoweredOff'
+        }, $true))
+        Assert-True ($wait.Count -eq 1) 'Wait-UtmVMPoweredOff is defined once in the UTM driver'
+        $ast = $wait[0]
         $whileConds = Get-WhileConditionText -Ast $ast
         Assert-True (@($whileConds | Where-Object { $_ -match 'UtcNow' }).Count -ge 1) 'a while loop gates on [DateTime]::UtcNow'
         Assert-True (-not (Test-WhileBodyAccumulator -Ast $ast)) 'no while-loop body accumulates an iteration counter (+= / ++), which would short-circuit the deadline'
         Assert-True (-not (Test-UsesVariable -Ast $ast -Name 'waited')) 'the specific $waited counter is gone'
-        $warn = @(Get-StringLiteralExtent -Ast $ast | Where-Object { $_ -match 'did not confirm stopped' })
+        $warn = @(Get-StringLiteralExtent -Ast $driverAst | Where-Object { $_ -match 'did not confirm powered-off|did not confirm stopped' })
         Assert-True ($warn.Count -ge 1) 'an unconfirmed-stop warning is emitted before delete'
+    }
+
+    It 'routes the prefix sweep through the host contract rather than utmctl' {
+        # The sweep must not re-grow its own hypervisor branch: the stop-wait
+        # guarantee above is only reached when removal goes through the
+        # driver's Remove-VM.
+        $ast = Get-ScriptAst $removeVmFiles
+        $commands = @($ast.FindAll({ param($n)
+            $n -is [System.Management.Automation.Language.CommandAst] }, $true) |
+            ForEach-Object { $_.GetCommandName() } | Where-Object { $_ })
+        Assert-True ($commands -notcontains 'utmctl') 'the sweep calls no utmctl directly'
+        Assert-True ($commands -notcontains 'virsh') 'the sweep calls no virsh directly'
+        Assert-True ($commands -contains 'Get-VMName') 'the sweep enumerates through the contract'
+        Assert-True ($commands -contains 'Remove-VM') 'the sweep removes through the contract'
     }
 }
 

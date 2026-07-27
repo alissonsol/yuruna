@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.24
+.VERSION 2026.07.26
 .GUID 42b8d1f3-6a4c-4e29-9b57-0d3e2f6a8c15
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -20,8 +20,8 @@
 .SYNOPSIS
     Functional Pester coverage for test/Remove-PoolHost.ps1: it deletes a stale
     host's NAS records (identity + replicated cycles) resolved from
-    test.config.yml, refuses a recently-seen record without -Force, and rejects a
-    malformed hostId.
+    test.config.yml, refuses a recently-seen record without -Force, resolves the
+    GUID-dashed hostId form the dashboard displays, and rejects a malformed hostId.
 .DESCRIPTION
     Each case builds a throwaway pool share + a -ConfigPath fixture pointing at
     it, runs the script in a child pwsh, and asserts exit code + on-disk state.
@@ -68,6 +68,20 @@ Describe 'Remove-PoolHost' {
             Assert-Equal -Expected 0 -Actual $LASTEXITCODE -Because 'stale removal exits 0'
             Assert-True (-not (Test-Path -LiteralPath $f.InfoFile)) 'the identity record is deleted'
             Assert-True (-not (Test-Path -LiteralPath $f.CycleDir)) 'the replicated cycle folder is deleted'
+        } finally { Remove-Item -Recurse -Force -LiteralPath $f.Tmp -ErrorAction SilentlyContinue }
+    }
+
+    It 'accepts the hostId as the dashboard renders it (GUID-dashed)' {
+        $f = New-RphFixture
+        try {
+            # Same 8-4-4-4-12 split the pool dashboard's Host ID value mapping applies,
+            # so this is literally what an operator copies off the panel.
+            $dashed = $f.Id -replace '^(.{8})(.{4})(.{4})(.{4})(.{12})$', '$1-$2-$3-$4-$5'
+            Assert-True ($dashed -ne $f.Id) 'the fixture id really is reformatted'
+            & pwsh -NoProfile -File $rph -HostId $dashed -ConfigPath $f.CfgPath *> $null
+            Assert-Equal -Expected 0 -Actual $LASTEXITCODE -Because 'a dashed hostId is accepted'
+            Assert-True (-not (Test-Path -LiteralPath $f.InfoFile)) 'it resolves to the same identity record'
+            Assert-True (-not (Test-Path -LiteralPath $f.CycleDir)) 'and the same cycle folder'
         } finally { Remove-Item -Recurse -Force -LiteralPath $f.Tmp -ErrorAction SilentlyContinue }
     }
 

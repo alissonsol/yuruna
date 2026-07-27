@@ -54,14 +54,28 @@ const (
 	pushTimeout        = 10 * time.Second
 	maxProbe           = 8          // bounded concurrent probes per tick
 	logTailBytes       = 512 * 1024 // bytes scanned from EOF for recent client IPs
-	seenTTL            = 25 * time.Hour
-	eventsFile         = "cycle.events.ndjson" // per-cycle NDJSON event log on each host
-	maxEventFetch      = 4 << 20               // bytes read from a host's events file per poll
-	maxEventPush       = 1000                  // NDJSON lines shipped per host per poll (catch-up is bounded)
-	defaultIncidentN   = 3                     // failed cycles within the window to open an incident
-	defaultIncidentWin = 2 * time.Hour         // trailing window for the N-failures-in-M-minutes rule
-	defaultCrossN      = 3                     // distinct hosts failing within crossWin to open a pool-wide incident
-	defaultCrossWin    = 15 * time.Minute      // window for cross-host "failing together" correlation
+	// How long the per-cycle dedup set (seen/seenAt/counted, keyed hostId|cycleId)
+	// is kept past the host row it belongs to. A host that is reaped and then
+	// re-appears -- a reboot, a flapping probe -- would otherwise re-report a
+	// terminal cycle it was already counted for. Derived from the configured host
+	// TTL rather than set independently: two free-standing knobs can be ordered
+	// the wrong way round, and dedup state expiring FIRST is what allows the
+	// double count. This does not bound the cumulative pass/fail counters; those
+	// are cleared only by forgetHost.
+	seenTTLGrace = 1 * time.Hour
+	// Floor for the deep-link lookback below. The host TTL doubles as the Loki
+	// window that resolves a dashboard link for a host no longer in the live
+	// view; letting a short TTL shorten that too would 404 links the dashboard
+	// still shows in its own default range, including the /go/host redirect
+	// that mints a control proof.
+	minDeepLinkLookback = 24 * time.Hour
+	eventsFile          = "cycle.events.ndjson" // per-cycle NDJSON event log on each host
+	maxEventFetch       = 4 << 20               // bytes read from a host's events file per poll
+	maxEventPush        = 1000                  // NDJSON lines shipped per host per poll (catch-up is bounded)
+	defaultIncidentN    = 3                     // failed cycles within the window to open an incident
+	defaultIncidentWin  = 2 * time.Hour         // trailing window for the N-failures-in-M-minutes rule
+	defaultCrossN       = 3                     // distinct hosts failing within crossWin to open a pool-wide incident
+	defaultCrossWin     = 15 * time.Minute      // window for cross-host "failing together" correlation
 	// Extension-presence announce (POST /announce): a service VM (e.g. the
 	// stash server) self-reports the extension it runs, independent of the
 	// owning host's status server. The TTL tolerates two missed beacons of the
@@ -421,6 +435,7 @@ type poolState struct {
 	poolGate     map[string]*poolGateState // pool -> advisory degraded/alert latch
 	announce     map[string]*announceView  // hostId|area -> self-announced extension presence
 	announceTTL  time.Duration             // reap an announce entry not refreshed within this window (0 disables /announce)
+	hostTTL      time.Duration             // drop a hostId from the view this long after last contact
 	last         time.Time
 	// Push-ingest: the shared bearer token gating POST /ingest (empty ->
 	// ingest disabled, never an unauthenticated write route), plus the Loki push URL
@@ -444,8 +459,27 @@ func newPoolState(pool string, statusPort int) *poolState {
 		failWindow: map[string][]failRec{}, incident: map[string]*incidentState{},
 		gating: map[string]gatingPolicy{}, poolGate: map[string]*poolGateState{},
 		announce: map[string]*announceView{}, announceTTL: defaultAnnounceTTL,
+		hostTTL:  defaultHostTTL,
 		eventCur: map[string]*eventCursor{},
 	}
+}
+
+// seenTTL is deliberately derived, never configured: the per-cycle dedup set
+// must outlive the host row it belongs to, or a reaped-then-returning host
+// re-counts a terminal cycle. Two independent knobs could be set the other way
+// round.
+func (s *poolState) seenTTL() time.Duration {
+	return s.hostTTL + seenTTLGrace
+}
+
+// deepLinkLookback is how far back a dashboard link may resolve a host that has
+// left the live view. It follows the host TTL upward but never below the floor,
+// so shortening the TTL cannot silently break links the dashboard still shows.
+func (s *poolState) deepLinkLookback() time.Duration {
+	if s.hostTTL > minDeepLinkLookback {
+		return s.hostTTL
+	}
+	return minDeepLinkLookback
 }
 
 // poolFor returns the host's advertised poolId (derived by the runner from
@@ -728,14 +762,14 @@ func (s *poolState) pollOnce(client *http.Client, squidLog, lokiURL string, now 
 			if msg, ok := ipErr[hv.CurrentIP]; ok {
 				hv.LastError = msg
 			}
-			if now.UnixMilli()-hv.LastSeenUnixMs > defaultHostTTL.Milliseconds() {
+			if now.UnixMilli()-hv.LastSeenUnixMs > s.hostTTL.Milliseconds() {
 				delete(s.hosts, hid)
 				deleted = append(deleted, hid)
 			}
 		}
 	}
 	for k, t := range s.seenAt {
-		if now.Sub(t) > seenTTL {
+		if now.Sub(t) > s.seenTTL() {
 			delete(s.seenAt, k)
 			delete(s.seen, k)
 			delete(s.counted, k)
@@ -842,7 +876,7 @@ func fetchStatus(client *http.Client, base string) (*hostStatus, error) {
 // served by the status server at /yuruna-repo/VERSION -- the SAME source the
 // host's own status pages read for their header (their getHostInfo() fetches
 // yuruna-repo/VERSION via JS, so the version is not embedded in the HTML). A tiny
-// plain-text file (one CalVer line, e.g. "2026.07.24"), so it is lighter than any
+// plain-text file (one CalVer line, e.g. "2026.07.26"), so it is lighter than any
 // status HTML page and fetchable server-side without a JS engine. Returns
 // ("", err) on any failure; the caller keeps the prior version on a transient
 // miss (the version is stable across polls). The value is capped + first-line
@@ -2202,7 +2236,7 @@ func (s *poolState) forgetHost(hid string) bool {
 }
 
 // handleForgetHost (POST /api/v1/forget-host?hostId=<42-hex>) manually evicts a
-// host from the aggregator's view NOW, instead of waiting out defaultHostTTL --
+// host from the aggregator's view NOW, instead of waiting out the host TTL --
 // e.g. a disposable nested-host cycle or a decommissioned box whose row lingers as
 // "unreachable". Bearer-gated with the SAME token as /ingest (a mutating control
 // op) and self-disabling (503) when no token is configured. NOTE: a host that is
@@ -2365,7 +2399,7 @@ func (s *poolState) lastKnownBaseURL(pool, hostID string) string {
 	queryURL := queryRangeURL(s.lokiURL)
 	params := url.Values{}
 	params.Set("query", fmt.Sprintf(`{pool=%q, hostId=%q, src="cycle"} | json`, pool, hostID))
-	params.Set("start", strconv.FormatInt(now.Add(-defaultHostTTL).UnixNano(), 10))
+	params.Set("start", strconv.FormatInt(now.Add(-s.deepLinkLookback()).UnixNano(), 10))
 	params.Set("end", strconv.FormatInt(now.UnixNano(), 10))
 	params.Set("limit", "1")
 	params.Set("direction", "backward")
@@ -2472,7 +2506,11 @@ func (s *poolState) handleGoHost(w http.ResponseWriter, r *http.Request) {
 	// the (to-be-authenticated) Grafana dashboard, without the host trusting the whole LAN.
 	// No token configured -> no fragment -> the host accepts only loopback control.
 	dest := strings.TrimRight(base, "/")
-	if proof := mintControlProof(s.authToken, 5*time.Minute); proof != "" {
+	// 15 min, not 5: the proof is minted once on arrival and never refreshed, so a
+	// config edit that takes longer than the window fails at Save with the typing
+	// already done. The verifier's acceptance cap is held strictly above this so a
+	// host whose clock trails the proxy still accepts a freshly minted proof.
+	if proof := mintControlProof(s.authToken, 15*time.Minute); proof != "" {
 		dest += "#yctl=" + proof
 	}
 	http.Redirect(w, r, dest, http.StatusFound)
@@ -2664,7 +2702,10 @@ func (s *poolState) handleMetrics(w http.ResponseWriter, _ *http.Request) {
 	}
 	// Union of every hostId across the live view + the cycle counters, so each
 	// per-host series set is complete (a host with no terminal cycles yet still
-	// gets pass/fail=0, and an evicted host's counters linger until seenTTL).
+	// gets pass/fail=0). A reaped host keeps reporting its totals: pass/fail are
+	// cumulative and are NOT time-expired -- only forgetHost clears them, so they
+	// otherwise survive until the process restarts. The TTL'd state is the
+	// per-cycle dedup set below, not these counters.
 	hostIDs := map[string]bool{}
 	for h := range s.hosts {
 		hostIDs[h] = true
@@ -3213,6 +3254,7 @@ func main() {
 	crossN := flag.Int("cross-host-fails", defaultCrossN, "distinct hosts that must fail within -cross-host-window to open a pool-wide incident")
 	crossWin := flag.Duration("cross-host-window", defaultCrossWin, "window for cross-host (pool-wide) incident correlation")
 	announceTTL := flag.Duration("announce-ttl", defaultAnnounceTTL, "reap a self-announced extension (POST /announce) not refreshed within this window; 0 disables the announce route")
+	hostTTL := flag.Duration("host-ttl", defaultHostTTL, "drop a host from the pool view this long after last contact; its per-cycle dedup state is kept an hour longer so a re-appearing host cannot double-count, and dashboard deep links resolve over at least 24h regardless. Cumulative pass/fail counters are not expired by this -- use POST /api/v1/forget-host")
 	tlsCert := flag.String("tls-cert", "", "TLS certificate file (PEM); when both -tls-cert and -tls-key name readable files the listener is HTTPS, else plain HTTP")
 	tlsKey := flag.String("tls-key", "", "TLS private-key file (PEM); see -tls-cert")
 	authTokenFile := flag.String("auth-token-file", "", "file holding the shared bearer token that gates POST /ingest; empty/absent/empty-file -> /ingest disabled (never an unauthenticated write route)")
@@ -3229,6 +3271,13 @@ func main() {
 	state.crossN = *crossN
 	state.crossWin = *crossWin
 	state.announceTTL = *announceTTL
+	// A non-positive TTL would reap every host on the first tick, emptying the
+	// dashboard; fall back to the default rather than start in that state.
+	if *hostTTL > 0 {
+		state.hostTTL = *hostTTL
+	} else {
+		log.Printf("host-ttl %v is not positive; keeping the default %v", *hostTTL, defaultHostTTL)
+	}
 	client := newInternalHTTPClient(probeTimeout)
 	state.lokiURL = *lokiURL
 	state.httpClient = client
@@ -3293,7 +3342,7 @@ func main() {
 	mux.HandleFunc("/ingest", state.handleIngest)
 	// /api/v1/forget-host: operator-driven manual eviction of a hostId from the view
 	// (POST, bearer-gated like /ingest, 503 when no token) -- drops it from /metrics
-	// + the dashboard NOW instead of after defaultHostTTL. Called by
+	// + the dashboard NOW instead of after the host TTL. Called by
 	// test/Remove-PoolHost.ps1.
 	mux.HandleFunc("/api/v1/forget-host", state.handleForgetHost)
 	// /announce: extension-presence beacon target (stash server et al). Open by

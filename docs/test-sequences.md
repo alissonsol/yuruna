@@ -1,12 +1,13 @@
 # Sequence actions and host contracts
 
 Authoritative reference for the actions you can use in sequence files
-under [`test/sequences/{gui,ssh}/`](../test/sequences/) and `project/<...>/test/{gui,ssh}/`,
+under [`test/sequences/`](../test/sequences/) and `project/<...>/test/`,
 plus the per-host [Yuruna.Host](../host) contract functions that
 back the ones with non-trivial cross-host divergence.
 
-- Source of truth for action names is the `switch` block in
-  [`test/modules/Invoke-Sequence.psm1`](../test/modules/Invoke-Sequence.psm1).
+- Source of truth for action names is the `Register-SequenceAction`
+  registry in
+  [`test/modules/Test.SequenceHandler.psm1`](../test/modules/Test.SequenceHandler.psm1).
 - Schema for the YAML shape is
   [`test/schemas/actions.schema.yml`](../test/schemas/actions.schema.yml).
 - Short one-paragraph catalog (consumed by tooling) is
@@ -747,6 +748,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.24
+Last review: 2026.07.26
 
 Back to [Yuruna](../README.md)

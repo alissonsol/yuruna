@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.24
+.VERSION 2026.07.26
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456721
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -405,4 +405,55 @@ function Get-TestConfigValue {
     return $node
 }
 
-Export-ModuleMember -Function Read-TestConfig, Clear-TestConfigCache, Get-TestConfigValue, Get-TestConfigSnapshotPath, Publish-TestConfigSnapshot, Read-TestConfigOrSnapshot, Get-TestConfigFreshnessTriple
+function Resolve-CleanupVmNamePrefix {
+    <#
+    .SYNOPSIS
+        Return every VM-name prefix the framework may stop and remove.
+    .DESCRIPTION
+        Single source of truth for "which VMs are disposable", consumed by
+        the cycle-start sweep, the teardown sweep and Remove-TestVMFiles.
+
+        The test-VM prefix (vmStart.testVmNamePrefix, default "test-") is
+        ALWAYS included, whatever else is configured. A project adds its own
+        names through vmStart.cleanupVmNamePrefixes; if that list replaced
+        the test prefix instead of extending it, an operator who set it
+        would stop sweeping the framework's own guests and they would
+        accumulate every cycle -- the exact regression the sweep exists to
+        prevent.
+
+        cleanupVmNamePrefixes accepts a list or a bare string, because a
+        single-entry YAML list is easy to write as a scalar and silently
+        matching nothing would be worse than accepting both.
+    .PARAMETER VmStart
+        The config's vmStart block. $null or a non-mapping yields the
+        default prefix set.
+    .OUTPUTS
+        [string[]] de-duplicated prefixes, test-VM prefix first.
+    #>
+    [CmdletBinding()]
+    [OutputType([string[]])]
+    param([AllowNull()]$VmStart)
+
+    $testPrefix = 'test-'
+    $extra = @()
+    if ($VmStart -is [System.Collections.IDictionary]) {
+        if ($VmStart.Contains('testVmNamePrefix') -and $VmStart['testVmNamePrefix']) {
+            $testPrefix = [string]$VmStart['testVmNamePrefix']
+        }
+        if ($VmStart.Contains('cleanupVmNamePrefixes') -and $VmStart['cleanupVmNamePrefixes']) {
+            $extra = @($VmStart['cleanupVmNamePrefixes'])
+        }
+    }
+    $ordered = [System.Collections.Generic.List[string]]::new()
+    foreach ($p in (@($testPrefix) + $extra)) {
+        $value = "$p".Trim()
+        # Skip blanks: an empty prefix matches every VM on the host, so a
+        # stray "- " in the YAML list must not widen the sweep to include
+        # the caching proxy and every unrelated guest.
+        if (-not $value) { continue }
+        if ($ordered -notcontains $value) { [void]$ordered.Add($value) }
+    }
+    return $ordered.ToArray()
+}
+
+Export-ModuleMember -Function Read-TestConfig, Clear-TestConfigCache, Get-TestConfigValue, Get-TestConfigSnapshotPath, Publish-TestConfigSnapshot, Read-TestConfigOrSnapshot, Get-TestConfigFreshnessTriple, Resolve-CleanupVmNamePrefix

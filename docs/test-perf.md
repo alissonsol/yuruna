@@ -56,7 +56,7 @@ appends one row in O(1) regardless of history depth.
 | Entity        | Identity                                                    | Stability                                       |
 |---------------|-------------------------------------------------------------|-------------------------------------------------|
 | Sequence      | `sequenceName` (file stem) + `sequenceGuid` (`42`-prefixed) | Name is today's join key. GUID anchors history through renames. |
-| Sequence body | `sequenceContentHash` (sha256 of the YAML body)             | Discriminates `gui/` vs `ssh/` variants of the same logical sequence (they intentionally share `sequenceGuid`). |
+| Sequence body | `sequenceContentHash` (sha256 of the YAML body)             | Identifies the exact YAML body, so analytics can tell edits of a sequence apart between `sequenceRevision` bumps. |
 | Sequence shape| `sequenceRevision` (author-bumped int)                      | Bump when steps are added / removed / reordered. |
 | Step          | `sequenceGuid` + `stepName` + `stepOccurrence`              | No per-step GUID by design. Step rename = accept the discontinuity. |
 | Step position | `stepOrdinal` (as-of-execution snapshot)                    | Stored snapshot in time. Joins should go by `stepName`, not ordinal. |
@@ -98,20 +98,18 @@ sequenceGuid: 4224b44c-5e04-47e8-a61b-865d2a191b84
 sequenceRevision: 1
 
 description: "..."
-baseline:
+resource:
   ...
 ```
 
-### gui/ and ssh/ variants share a GUID
+### GUI and SSH variants carry their own GUIDs
 
-The `gui/` and `ssh/` variants of the same logical sequence (e.g.
-`start.guest.ubuntu.server.24`) are different YAML files driving the
-same logical workflow with different keystroke mechanisms. They are
-declared with the **same `sequenceGuid`** so analytics can:
-
-- Join them by default — "how long does it take to start Ubuntu 24?".
-- Split them when needed — `GROUP BY sequenceContentHash` to compare
-  the keystroke-driven path vs the SSH-driven path.
+The GUI (`<name>.yml`) and SSH (`<name>.ssh.yml`) variants of the same
+logical workflow are separate sequences: each declares its **own
+`sequenceGuid`**, so each variant's history stands alone through
+renames. To compare the keystroke-driven path against the SSH-driven
+path, join on the shared `sequenceName` stem (strip the `.ssh` suffix)
+at query time.
 
 If you split a logical sequence into two genuinely different ones,
 mint a fresh GUID for the new file.
@@ -378,6 +376,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.24
+Last review: 2026.07.26
 
 Back to [Yuruna](../README.md)

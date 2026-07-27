@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.24
+.VERSION 2026.07.26
 .GUID 42d15e27-b2c3-4d4e-9f50-6b7c8d9e0f1a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -893,7 +893,11 @@ function Resolve-CycleVmNamingStrategy {
         [AllowNull()][string]$HostId
     )
     return @{
-        Prefix     = $Config.vmStart.testVmNamePrefix ?? "test-"
+        # Every disposable prefix, not just the test-VM one: a project VM
+        # promoted out of the test namespace (its name becomes a snapshot
+        # id) still has to be swept, or it survives teardown and blocks the
+        # next cycle's start.
+        Prefix     = Resolve-CleanupVmNamePrefix -VmStart $Config.vmStart
         PoolHostId = if ($IsPoolCycle) { [string]$HostId } else { '' }
     }
 }
@@ -982,12 +986,12 @@ function Remove-CycleStartOrphanVM {
         Justification = 'Delegates to Remove-TestVMFiles.ps1 -- the same best-effort sweep the cycle body already ran; the child script owns its own confirmation surface.')]
     param(
         [Parameter(Mandatory)][string]$TestRoot,
-        [Parameter(Mandatory)][string]$Prefix
+        [Parameter(Mandatory)][string[]]$Prefix
     )
     # try/catch + EAP scoping mirrors the teardown invocation at end of cycle:
     # cleanup is best-effort, the cycle's pass/fail drives the exit code.
     Write-Output ""
-    Write-Output "--- Cycle-start VM sweep (Prefix: '$Prefix') ---"
+    Write-Output "--- Cycle-start VM sweep (Prefix: '$($Prefix -join "', '")') ---"
     # -Quiet suppresses the per-VM Stopping/Removed chatter + the Remove-
     # OrphanedVMFiles dump. Only a single line --
     #   "Running orphaned VM file cleanup: <path>"
@@ -1021,7 +1025,7 @@ function Remove-CycleTeardownOrphanVM {
     param(
         [Parameter(Mandatory)][int]$CycleCount,
         [Parameter(Mandatory)][string]$TestRoot,
-        [Parameter(Mandatory)][string]$Prefix
+        [Parameter(Mandatory)][string[]]$Prefix
     )
     # Cycle work is done -- everything from here is teardown the operator
     # should be able to watch from the same window. The explicit boundary
@@ -1802,6 +1806,18 @@ do {
     # --- REGION: Re-import modules so a mid-run `git pull` propagates code changes
     Update-CycleModuleImport -RepoRoot $RepoRoot -HostType $HostType -ModulesDir $ModulesDir
 
+    # The -Force re-import above replaces Test.Status's module instance, which
+    # discards the in-memory status document built at cycle start (status.json on
+    # disk is untouched). Rebuild it from that file so the rest of the cycle has a
+    # live document to mutate. A per-guest cycle would recreate it a few regions
+    # down at Initialize-StatusDocument, but a cycle whose top-level is an
+    # orchestration sequence skips that block entirely and would otherwise run
+    # every status write against no document until the orchestrator installs its
+    # own -- dropping infra-failure records and failing outright on the Get-Image
+    # timestamp. Cheap and idempotent: the same preserve-and-rewrite pass as the
+    # cycle-start call, reading back what it just wrote.
+    Reset-StatusDocumentForCycleStart -StatusFilePath $StatusFile -Confirm:$false
+
     # --- REGION: Re-read config (may have changed via git pull); sync against template
     $Config = Update-CycleConfigFromTemplate -ConfigPath $ConfigPath -TemplatePath $TemplatePath -PreviousConfig $Config
 
@@ -1841,7 +1857,7 @@ do {
         $script:CyclePlan = Resolve-CyclePlan -RepoRoot $RepoRoot -SequencesDir $SequencesDir -HostType $HostType
     } catch {
         # PlannerFatal (currently: duplicate project sequence files with the
-        # same name under different test/<mode>/ folders) means the plan is
+        # same name under different test/ folders) means the plan is
         # ambiguous -- silently falling back to guestSequence would let the
         # cycle run against an arbitrary winner. Print the error prominently
         # and short-circuit GuestList to empty so the foreach loop below
@@ -2113,7 +2129,11 @@ do {
             }
             Write-Output "  $GuestKey image: OK"
         }
-        if ($OverallPassed) {
+        # Stamp only when there was something to fetch. A cycle with no guests in
+        # its plan (an orchestration top-level owns the whole cycle and carries an
+        # empty guest list) downloads nothing, so stamping here would open a fresh
+        # refresh window for images this host never actually refreshed.
+        if ($OverallPassed -and $GuestList.Count -gt 0) {
             Set-LastGetImageTime
             Write-Output "Get-Image complete. Timestamp updated."
         }

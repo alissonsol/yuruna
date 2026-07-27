@@ -11,7 +11,7 @@ description: >
 type: object
 # A guest sequence declares a `keystrokeMechanism`, a `resource:` prerequisite
 # chain, and ordered `component:` + `workload:` action lists. The legacy
-# `baseline:` key and flat top-level `steps:` list were removed (F1/F2); either
+# `baseline:` key and flat top-level `steps:` list were removed; either
 # one is rejected at load with a migration error.
 required: [description, keystrokeMechanism, resource]
 additionalProperties: false

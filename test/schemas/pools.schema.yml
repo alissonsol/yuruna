@@ -24,7 +24,7 @@ properties:
     type: integer
     const: 2
     description: >
-      Schema contract version. v2 (F3): a pool carries a stable `poolGuid` and a
+      Schema contract version. v2: a pool carries a stable `poolGuid` and a
       single `testSet` (a named framework/project repo pair), replacing the v1
       `testSets[]` array of sequence-manifest references.
 
@@ -75,7 +75,7 @@ $defs:
       testSet:
         type: object
         description: >
-          The single test-set assigned to this pool (F3): a named framework +
+          The single test-set assigned to this pool: a named framework +
           project repo pair. A pooled runner overrides its own
           repositories.frameworkUrl / repositories.projectUrl with these for the
           cycle (its GH_TOKEN stays host-local, never in pool intent) and then

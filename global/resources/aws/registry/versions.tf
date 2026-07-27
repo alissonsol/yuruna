@@ -3,7 +3,8 @@
 # https://registry.terraform.io/providers/hashicorp/aws/latest
 
 terraform {
-  required_version = ">= 1.12.4"
+  # Floor mirrors YURUNA_OPENTOFU_VERSION (automation/yuruna-versions.sh); bump both together.
+  required_version = ">= 1.12.5"
 
   required_providers {
     aws = {

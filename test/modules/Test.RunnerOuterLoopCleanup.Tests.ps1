@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.24
+.VERSION 2026.07.26
 .GUID 42c5d6e7-f809-4a12-9b34-5c6d7e8f9012
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -76,12 +76,18 @@ function Test-CommandInFinally {
 
 # True when an if-statement whose condition references $VarName contains a
 # `continue` in its body -- pins the post-finally `if ($innerSpawnFailed){ continue }`.
+# The cycle body is its own function now (it runs in a per-cycle process), so the
+# "skip the rest of this cycle" exit is a return rather than a loop continue.
+# Accept either, so the invariant is asserted rather than the shape that expressed it.
 function Test-ContinueGuardedByVar {
     param($Ast, [string]$VarName)
     $wanted = $VarName
     @($Ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.IfStatementAst] }, $true) | Where-Object {
         ($_.Clauses[0].Item1.Extent.Text -match $wanted) -and
-        @($_.Clauses[0].Item2.FindAll({ param($x) $x -is [System.Management.Automation.Language.ContinueStatementAst] }, $true)).Count -ge 1
+        @($_.Clauses[0].Item2.FindAll({ param($x)
+            $x -is [System.Management.Automation.Language.ContinueStatementAst] -or
+            $x -is [System.Management.Automation.Language.ReturnStatementAst]
+        }, $true)).Count -ge 1
     }).Count -ge 1
 }
 

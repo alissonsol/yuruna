@@ -8,7 +8,7 @@ architecture and [Yuruna Test ...](../test/README.md) for operator usage.
 | Script | Purpose |
 |--------|---------|
 | `Invoke-TestRunner.ps1`                            | Continuous test loop (the daily driver) |
-| `New-LocalTestUser.ps1`                            | Create a local OS user (cross-platform: Windows / macOS / Linux) and register it in the default authentication `users.yml` |
+| `New-LocalTestUser.ps1`                            | Create a local OS user (cross-platform: Windows / macOS / Ubuntu), optionally with a password and machine-administrator rights, and register it in the default authentication `users.yml` |
 | `Remove-TestVMFiles.ps1`                           | Purge test VMs and per-VM artifacts |
 | `Repair-CachingProxyForwarder.ps1`                 | macOS/UTM: verify the caching-proxy VM is reachable on the LAN and refresh the `yuruna-caching-proxy` state file |
 | `Start-CachingProxyVM.ps1` / `Stop-CachingProxyVM.ps1` | Expose the Squid VM to remote clients |
@@ -31,7 +31,7 @@ Each iteration of `Invoke-TestRunner.ps1`:
      per-guest failure; other guests still run unless `testCycle.shouldStopOnFailure`.
    - Clean the previous test VM.
    - `New-VM.ps1` → `Start-VM` → poll until running → screenshot
-     checkpoints → JSON sequences dispatched via the cycle planner.
+     checkpoints → YAML sequences dispatched via the cycle planner.
 4. On first failure: leave the VM, send a Resend notification, exit.
 
 ## Modes
@@ -108,8 +108,9 @@ contracts whose behavior diverges in operationally significant ways
 
 Per-cycle dispatch is YAML-driven: each cycle reads
 `project/test/test.runner.yml` to get the top-level workload sequence
-names, walks each sequence's `baseline` field (object keyed by guest
-OS) to derive a dependency-ordered chain, and dispatches each chain
+names, walks each sequence's `resource` field (object keyed by guest
+OS; the legacy `baseline` spelling is rejected with a migration error)
+to derive a dependency-ordered chain, and dispatches each chain
 entry through [`modules/Invoke-Sequence.psm1`](../test/modules/Invoke-Sequence.psm1).
 Sequences whose name starts with `start.` run during the runner's
 Start-GuestOS step; everything else runs during Start-GuestWorkload. No
@@ -122,12 +123,13 @@ per-OS `.ps1` glue is required. Full architecture:
 test/
 ├── sequences/
 │   ├── actions.yml             Action catalog (YAML, machine-readable)
-│   ├── gui/                    GUI-mode sequences
-│   └── ssh/                    SSH-mode sequences (falls back to gui/)
+│   ├── _snippets.yml           Shared step snippets
+│   └── <name>[.ssh].yml        Flat sequence files (SSH variant = .ssh.yml suffix)
 ├── schemas/                    JSON Schema files (YAML-encoded) for extension/* configs + vault
 ├── extension/                  Pluggable extension areas (Test.Extension loader; committed code only)
 │   ├── authentication/         default.psm1, authentication.config.yml
-│   └── notification/           default.psm1, notification.config.yml, transports.yml.template
+│   ├── notification/           default.psm1, notification.config.yml, transports.yml.template
+│   └── …                       5 areas total — see [extensions-api.md](extensions-api.md)
 ├── screenshots/<guestKey>/     [Optional — operator-populated; absent by default]
 │   ├── schedule.json           Capture checkpoints + thresholds (create if using screenshot validation)
 │   └── reference/*.png         Trained reference screenshots (commit manually per checkpoint)
@@ -218,7 +220,7 @@ into [Test.RunnerOuterLoop](runner-outer-loop.md) and
 independently of the entry-point script.
 
 Cloud-init seed rendering goes through the
-[cloud-init template pipeline](cloud-init-template.md) — shared base
+[cloud-init template pipeline](vmconfig.md#how-user-data-is-rendered) — shared base
 + per-host overlay + placeholder safety net.
 
 ## Sequence engine layering
@@ -442,6 +444,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.24
+Last review: 2026.07.26
 
 Back to [Yuruna](../README.md)

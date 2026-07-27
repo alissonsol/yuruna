@@ -206,7 +206,6 @@ hitting upstream mirrors on every rebuild. Amazon Linux 2023 guests do
 `-CachingProxyUrl` parameter because templating a dnf proxy into
 cloud-init proved unreliable. See the per-guest README files for
 feature availability, and
-[`docs/caching-proxy.md`](caching-proxy.md) and
 [`docs/caching.md`](caching.md).
 
 ## Shared host-driver modules
@@ -312,6 +311,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.24
+Last review: 2026.07.26
 
 Back to [Yuruna](../README.md)

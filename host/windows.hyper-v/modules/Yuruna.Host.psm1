@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.24
+.VERSION 2026.07.26
 .GUID 42a2b3c4-d5e6-4f78-9012-3a4b5c6d7e90
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -254,6 +254,81 @@ function Test-WindowsUplinkNotBridgeable {
 
 <#
 .SYNOPSIS
+    Poll until the host holds an IPv4 a guest bridged onto $SwitchName
+    can reach it at, or the timeout expires.
+
+.DESCRIPTION
+    Binding a physical NIC to an External vSwitch tears the host's own
+    IP stack off that NIC and re-attaches it to `vEthernet (<switch>)`,
+    which then has to re-DHCP. For several seconds in the middle the
+    host holds NO default IPv4 route and no LAN address on either
+    adapter. A single-shot lookup inside that window reads as "this
+    host is not on a LAN", and whatever the caller substitutes for the
+    missing answer gets baked into a guest seed that cannot be changed
+    afterwards -- so wait the window out instead of answering from it.
+
+    Two sources, in order of precision:
+      1. the IPv4 on `vEthernet (<switch>)` -- by construction an
+         address on the very segment a bridged guest lands on;
+      2. the IPv4 on the default-route interface -- the right answer
+         when the switch was created without -AllowManagementOS, so the
+         host keeps its address on the physical NIC.
+    APIPA (169.254/16) and loopback are rejected: an adapter sitting at
+    APIPA has not been answered by DHCP yet, so it is still mid-bind.
+
+.PARAMETER SwitchName
+    External vSwitch the guest will attach to. Used to look up
+    `vEthernet (<SwitchName>)`; when empty only the default route is
+    consulted.
+
+.PARAMETER TimeoutSeconds
+    How long to keep polling before giving up.
+
+.PARAMETER PollSeconds
+    Delay between attempts.
+
+.OUTPUTS
+    [string] IPv4 address, or $null if the host never regained one.
+#>
+function Wait-ExternalSwitchHostIpv4 {
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        [string]$SwitchName,
+        [int]$TimeoutSeconds = 60,
+        [int]$PollSeconds = 2
+    )
+
+    $isUsable = { param($Address) $Address -and ($Address -notmatch '^(127\.|169\.254\.)') }
+
+    $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
+    while ($true) {
+        if ($SwitchName) {
+            $switchIp = Get-NetIPAddress -AddressFamily IPv4 -InterfaceAlias "vEthernet ($SwitchName)" -ErrorAction SilentlyContinue |
+                Where-Object { & $isUsable $_.IPAddress } |
+                Select-Object -First 1
+            if ($switchIp) { return [string]$switchIp.IPAddress }
+        }
+
+        $route = Get-NetRoute -AddressFamily IPv4 -DestinationPrefix '0.0.0.0/0' -ErrorAction SilentlyContinue |
+            Where-Object { $_.NextHop -ne '0.0.0.0' -and $_.NextHop -ne '::' } |
+            Sort-Object RouteMetric, InterfaceMetric |
+            Select-Object -First 1
+        if ($route) {
+            $routeIp = Get-NetIPAddress -AddressFamily IPv4 -InterfaceIndex $route.InterfaceIndex -ErrorAction SilentlyContinue |
+                Where-Object { & $isUsable $_.IPAddress } |
+                Select-Object -First 1
+            if ($routeIp) { return [string]$routeIp.IPAddress }
+        }
+
+        if ((Get-Date) -ge $deadline) { return $null }
+        Write-Verbose "No usable host IPv4 yet (vSwitch bind still settling) -- retrying in ${PollSeconds}s."
+        Start-Sleep -Seconds $PollSeconds
+    }
+}
+
+<#
+.SYNOPSIS
     Idempotently create (or return) the Yuruna External vSwitch bridged
     to the host's primary physical NIC.
 .DESCRIPTION
@@ -298,7 +373,7 @@ function Get-OrCreateYurunaExternalSwitch {
 
     # IMPORTANT: this function's only pipeline output is a single string
     # (switch name) or $null. All diagnostics MUST go through
-    # Write-Information / Write-Warning / Write-Error so callers can
+    # Write-Verbose / Write-Information / Write-Warning / Write-Error so callers can
     # safely assign with `$x = Get-OrCreateYurunaExternalSwitch`. A
     # stray Write-Output here turned $x into a string[] and broke
     # downstream `-SwitchName` parameter binding (System.Object[] ->
@@ -315,8 +390,12 @@ function Get-OrCreateYurunaExternalSwitch {
     # Cache export to the LAN then rides host port-forwarders
     # (Test-CacheVmOnYurunaExternalSwitch -> $false -> netsh portproxy),
     # exactly as macOS does over Wi-Fi.
+    # Verbose, not Warning: on a Wi-Fi/USB-uplink host this is the permanent
+    # steady state, not an anomaly, and the divert is re-evaluated once per VM
+    # creation -- warning about it repeats the same line every guest of every
+    # cycle without ever asking the operator to do anything.
     if (Test-WindowsUplinkNotBridgeable) {
-        Write-Warning "Host default-route uplink is not bridgeable (Wi-Fi 802.11, or a USB Ethernet adapter) -- Hyper-V can't carry a bridged guest MAC over it, so guests fail DHCP and boot with eth0 DOWN. Using the Default Switch (NAT); LAN export rides host port-forwarders."
+        Write-Verbose "Host default-route uplink is not bridgeable (Wi-Fi 802.11, or a USB Ethernet adapter) -- Hyper-V can't carry a bridged guest MAC over it, so guests fail DHCP and boot with eth0 DOWN. Using the Default Switch (NAT); LAN export rides host port-forwarders."
         return $null
     }
 
@@ -383,6 +462,18 @@ function Get-OrCreateYurunaExternalSwitch {
     } catch {
         Write-Warning "New-VMSwitch failed: $($_.Exception.Message)"
         return $null
+    }
+
+    # The bind just moved the host's IP stack onto `vEthernet ($SwitchName)`,
+    # which has to re-DHCP before the host is addressable again. Callers
+    # resolve the guest-reachable host IPv4 immediately after this returns
+    # and bake it into a seed image, so hold the switch "ready" signal until
+    # the host actually has an address to hand out. A warning (not a
+    # failure) because the switch itself is usable: the guest can still
+    # boot and reach its off-LAN sources, it just loses the host route.
+    $settleSeconds = 60
+    if (-not (Wait-ExternalSwitchHostIpv4 -SwitchName $SwitchName -TimeoutSeconds $settleSeconds)) {
+        Write-Warning "Host regained no usable IPv4 on 'vEthernet ($SwitchName)' or its default route within ${settleSeconds}s of the bridge. A guest seed built now carries no reachable host address."
     }
 
     Write-Information "External vSwitch '$SwitchName' ready."
@@ -555,12 +646,24 @@ function Get-WorkingCachingProxyUrl {
     legacy callers continue to receive the Default Switch IP for
     backward compatibility.
 
+    An External switch that yields no host IPv4 returns $null rather
+    than the Default Switch address: the two are on segments that do not
+    route to each other, so the substitute is not a degraded answer but
+    a wrong one, and it is wrong in a way the guest can only discover
+    after it has booted with it burned into its seed. $null lets the
+    caller fall back to its off-LAN source instead.
+
 .PARAMETER SwitchName
     Hyper-V vSwitch name the guest will be attached to. 'Default Switch'
     returns the Default-Switch host IP; any other name is looked up via
-    Get-VMSwitch and the host's default-route IPv4 is returned for
-    External-type switches. Falls back to Default-Switch behavior for
-    unknown switches so a typo can't strand a guest with $null.
+    Get-VMSwitch and the host IPv4 on that switch's segment is returned
+    for External-type switches. Falls back to Default-Switch behavior
+    for unknown switches so a typo can't strand a guest with $null.
+
+.PARAMETER SettleTimeoutSeconds
+    How long an External-switch lookup keeps polling for a host IPv4
+    before reporting none. Covers the address-less window while a
+    freshly bridged NIC re-DHCPs.
 
 .OUTPUTS
     [string] IPv4 address, or $null if no candidate adapter is found.
@@ -569,26 +672,9 @@ function Get-GuestReachableHostIp {
     [CmdletBinding()]
     [OutputType([string])]
     param(
-        [string]$SwitchName
+        [string]$SwitchName,
+        [int]$SettleTimeoutSeconds = 30
     )
-
-    # Helper: host's LAN IPv4 (the IP on the NIC carrying the default
-    # IPv4 route). When -AllowManagementOS is enabled on an External
-    # vSwitch, that IP rides on `vEthernet (<switchName>)`; without it,
-    # it stays on the underlying physical NIC. Either way, default-route
-    # adapter is the one a guest on the same LAN reaches the host at.
-    $getLanIp = {
-        $route = Get-NetRoute -AddressFamily IPv4 -DestinationPrefix '0.0.0.0/0' -ErrorAction SilentlyContinue |
-            Where-Object { $_.NextHop -ne '0.0.0.0' -and $_.NextHop -ne '::' } |
-            Sort-Object RouteMetric, InterfaceMetric |
-            Select-Object -First 1
-        if (-not $route) { return $null }
-        $ip = Get-NetIPAddress -AddressFamily IPv4 -InterfaceIndex $route.InterfaceIndex -ErrorAction SilentlyContinue |
-            Where-Object { $_.IPAddress -notmatch '^(127\.|169\.254\.)' } |
-            Select-Object -First 1
-        if ($ip) { return [string]$ip.IPAddress }
-        return $null
-    }
 
     # Default Switch path (also the legacy no-arg path).
     $isDefault = (-not $SwitchName) -or ($SwitchName -eq 'Default Switch')
@@ -598,12 +684,16 @@ function Get-GuestReachableHostIp {
         # an empty value into the seed.iso.
         $switch = Get-VMSwitch -Name $SwitchName -ErrorAction SilentlyContinue
         if ($switch -and $switch.SwitchType -eq 'External') {
-            $lanIp = & $getLanIp
+            # Polls, because a switch bridged moments ago leaves the host
+            # briefly address-less while `vEthernet (<switch>)` re-DHCPs.
+            $lanIp = Wait-ExternalSwitchHostIpv4 -SwitchName $SwitchName -TimeoutSeconds $SettleTimeoutSeconds
             if ($lanIp) { return $lanIp }
-            # External switch with no usable host IP (rare: host is
-            # disconnected from LAN). Fall through to Default-Switch
-            # so the guest at least has SOMETHING -- it'll fail probes
-            # but won't crash on missing hostname.
+            # Host really is off the LAN. The Default Switch's 172.x.x.x
+            # sits on an internal NAT segment this guest holds no route
+            # to, so offering it would hand back an address that cannot
+            # work rather than admitting there is none.
+            Write-Warning "No host IPv4 reachable from a guest on External vSwitch '$SwitchName' ('vEthernet ($SwitchName)' and the default route both empty after ${SettleTimeoutSeconds}s). Reporting none instead of an unroutable Default Switch address."
+            return $null
         }
     }
 
@@ -2221,22 +2311,18 @@ public class HyperVCapture {
             if ($result.ReturnValue -eq 0 -and $result.ImageData -and $result.ImageData.Length -gt 0) {
                 # Detect the "headless host" symptom: WMI returns a valid
                 # thumbnail but every pixel is black because the host's
-                # DWM isn't actively painting the synthetic GPU. Warn
+                # DWM isn't actively painting the synthetic GPU. Reported
                 # ONCE per process so a long Invoke-TestRunner cycle
                 # doesn't flood the log with the same message every step.
-                # Emitted at Write-Warning (not Write-Verbose) so the
-                # operator sees the troubleshooting pointer at the
-                # default log level -- Test-Sequence in particular runs
-                # interactively, where a silently-black framebuffer reads
-                # like a Test-Sequence regression rather than a host
-                # problem; surfacing the warning makes the host-side root
-                # cause (no monitor / RDP session / dummy plug)
-                # self-evident.
+                # Verbose, not Warning: the PrintWindow/vmconnect fallback
+                # below recovers a usable framebuffer, so a headless host
+                # keeps passing -- raise the log level to see the
+                # troubleshooting pointer when OCR does start timing out.
                 if (-not $script:__YurunaHyperVBlankWarned -and
                     [HyperVCapture]::IsImageMostlyBlack(
                         [byte[]]$result.ImageData, [int]$reqW, [int]$reqH, 0.99)) {
-                    Write-Warning "Hyper-V WMI thumbnail came back all-black for '$VMName' -- DWM is not painting the synthetic GPU (likely no monitor / RDP session on this host)."
-                    Write-Warning "See https://yuruna.link/monitorless"
+                    Write-Verbose "Hyper-V WMI thumbnail came back all-black for '$VMName' -- DWM is not painting the synthetic GPU (likely no monitor / RDP session on this host)."
+                    Write-Verbose "See https://yuruna.link/monitorless"
                     $script:__YurunaHyperVBlankWarned = $true
                 }
                 $ok = [HyperVCapture]::SaveRawImageAsPng(
@@ -2621,6 +2707,40 @@ function Restore-VMDiskSnapshot {
 
 <#
 .SYNOPSIS
+    Return the names of every Hyper-V VM, optionally filtered to those
+    starting with one of $Prefix.
+.DESCRIPTION
+    Host-neutral inventory call (see the contract's VM inventory block).
+    Every registered VM is returned regardless of run state, so a caller
+    sweeping by prefix removes stopped leftovers as well as running ones.
+
+    THROWS when Hyper-V itself cannot be queried rather than returning an
+    empty list: without elevation (or with vmms down) Get-VM fails, and a
+    caller that read that as "nothing registered" would report a clean
+    host and let the orphan-file pass delete VHDX directories that are
+    still in use.
+.PARAMETER Prefix
+    Zero or more name prefixes. A VM is returned when its name starts
+    with any of them. Omit to return every VM.
+.OUTPUTS
+    [string[]] matching VM names; empty when none match.
+#>
+function Get-VMName {
+    [CmdletBinding()]
+    [OutputType([string[]])]
+    param([string[]]$Prefix)
+    try {
+        # Module-qualified: the unqualified Get-VM resolves to this
+        # driver's contract surface, which exposes Get-VMState instead.
+        $all = @(Hyper-V\Get-VM -ErrorAction Stop | ForEach-Object { $_.Name })
+    } catch {
+        throw "Get-VMName: could not enumerate Hyper-V VMs (is this session elevated and the Hyper-V service running?): $($_.Exception.Message)"
+    }
+    return Select-NameByPrefix -Name $all -Prefix $Prefix
+}
+
+<#
+.SYNOPSIS
     Returns 'absent', 'stopped', 'running', or 'unknown' for the given VM.
 #>
 function Get-VMState {
@@ -2843,7 +2963,7 @@ function Get-VMScreenshot {
     if ($Source -eq 'window') {
         return Get-HyperVWindowScreenshot -VMName $VMName -OutputPath $OutFile
     }
-    # 'frame' source: WMI Msvm_VideoHead / vmconnect bitmap path.
+    # 'frame' source: WMI GetVirtualSystemThumbnailImage, with vmconnect PrintWindow fallback (Get-HyperVScreenshot).
     return Get-HyperVScreenshot -VMName $VMName -OutputPath $OutFile
 }
 
@@ -3395,7 +3515,7 @@ function Remove-OrphanedVMFileAccess {
 # --- REGION: Exports
 
 Export-ModuleMember -Function `
-    New-VM, Start-VM, Stop-VM, Stop-VMForce, Remove-VM, Rename-VM, Get-VMState, `
+    New-VM, Start-VM, Stop-VM, Stop-VMForce, Remove-VM, Rename-VM, Get-VMState, Get-VMName, `
     Save-VMDiskSnapshot, Restore-VMDiskSnapshot, Test-VMDiskSnapshot, `
     Test-VMConsoleOpen, Restart-VMConsole, `
     Get-Image, Get-ImagePath, `
@@ -3428,7 +3548,7 @@ Export-ModuleMember -Function `
 # host/Yuruna.Host.Contract.psm1 for the verb list and rationale.
 Import-Module (Join-Path -Path $PSScriptRoot -ChildPath '..' -AdditionalChildPath '..', 'Yuruna.Host.Contract.psm1') -Force -DisableNameChecking
 $null = Assert-YurunaHostContractCoverage -HostType 'windows.hyper-v' -ExportedFunction @(
-    'New-VM','Start-VM','Stop-VM','Stop-VMForce','Remove-VM','Rename-VM','Get-VMState',
+    'New-VM','Start-VM','Stop-VM','Stop-VMForce','Remove-VM','Rename-VM','Get-VMState','Get-VMName',
     'Save-VMDiskSnapshot','Restore-VMDiskSnapshot','Test-VMDiskSnapshot',
     'Test-VMConsoleOpen','Restart-VMConsole',
     'Get-Image','Get-ImagePath',

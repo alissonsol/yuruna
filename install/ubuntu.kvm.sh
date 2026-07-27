@@ -1,7 +1,7 @@
 #!/bin/bash
 # Yuruna Ubuntu KVM/libvirt bootstrap installer.
 # LICENSEURI https://yuruna.link/license
-# Version: 2026.07.24  Copyright (c) 2019-2026 by Alisson Sol et al.
+# Version: 2026.07.26  Copyright (c) 2019-2026 by Alisson Sol et al.
 # --- REGION: https://yuruna.link/install/explained
 # One-liner: bash <(curl -fsSL https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/install/ubuntu.kvm.sh)
 # Supported target: Ubuntu 26.04 (Resolute) or newer on x86_64 (aarch64 supported but UNTESTED -- see preflight).
@@ -417,6 +417,20 @@ fi
 
 log "Installing / upgrading required apt packages"
 sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends "${APT_PACKAGES[@]}"
+
+# --- REGION: virt-manager (operator's libvirt GUI)
+# Its own apt call WITH Recommends, unlike the set above: the widgets
+# virt-manager renders a domain's screen with live in GObject-introspection
+# typelibs it only Recommends, so under --no-install-recommends it installs,
+# lists every domain, and then cannot open any of them. Naming those typelibs
+# here instead would pin package names that move between releases.
+# Non-fatal: the harness drives guest consoles through virt-viewer, so a host
+# whose apt cannot supply virt-manager is still a working test host -- this is
+# the operator's window into a guest a headless step is stuck on, and
+# Enable-TestAutomation.ps1 reports it as an optional gap on the next run.
+log "Installing virt-manager (with recommends, so its console works)"
+sudo DEBIAN_FRONTEND=noninteractive apt-get install -y virt-manager \
+  || warn "virt-manager install failed; guest consoles remain available through virt-viewer."
 
 # --- REGION: osinfo-db refresh
 osinfo_has_variant() {

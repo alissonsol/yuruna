@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.24
+.VERSION 2026.07.26
 .GUID 42e9f0a1-b2c3-4d45-e678-9f0a1b2c3d45
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -201,7 +201,7 @@ Write-Output "See configuration at: $(Resolve-ExtensionAreaDir -Area 'authentica
 # External -> host's LAN IP via the bridged NIC.
 $switchName = Get-OrCreateYurunaExternalSwitch
 if (-not $switchName) {
-    Write-Warning "External vSwitch unavailable -- falling back to 'Default Switch'."
+    Write-Verbose "External vSwitch unavailable -- falling back to 'Default Switch'."
     $switchName = 'Default Switch'
 }
 

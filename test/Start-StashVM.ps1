@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.24
+.VERSION 2026.07.26
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456760
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -20,7 +20,7 @@
 .SYNOPSIS
     Brings up the Yuruna Stash Service VM (host.windows.hyper-v,
     host.ubuntu.kvm, host.macos.utm). See
-    https://yuruna.link/stash-service for the full specification.
+    https://yuruna.link/stash-guide for the stash user guide.
 
 .PARAMETER VMName   Name for the stash VM. Default: yuruna-stash-service.
 #>
@@ -264,7 +264,7 @@ Write-Output ""
 Write-Output "Cloud-init mounts the stash share, fetches the framework, and runs the"
 Write-Output "bring-up script that builds + launches the stash daemon under systemd."
 Write-Output "Allow a few minutes after first boot; watch the VM's cloud-init-output.log."
-Write-Output "(See https://yuruna.link/stash-service.)"
+Write-Output "(See https://yuruna.link/stash-guide.)"
 Write-Output ""
 Write-Output "Stop with: ./Stop-StashVM.ps1"
 exit 0

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.24
+.VERSION 2026.07.26
 .GUID 42d9e0f1-a2b3-4c45-d678-9e0f1a2b3c47
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -327,7 +327,7 @@ $AptProxyBlock = @"
 # by topology: Default Switch = 172.x.x.x gateway; External = LAN IP).
 $switchName = Get-OrCreateYurunaExternalSwitch
 if (-not $switchName) {
-    Write-Warning "External vSwitch unavailable -- falling back to 'Default Switch'."
+    Write-Verbose "External vSwitch unavailable -- falling back to 'Default Switch'."
     $switchName = 'Default Switch'
 }
 

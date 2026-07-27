@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.24
+.VERSION 2026.07.26
 .GUID 42c0d1e2-f3a4-4b67-c890-1d2e3f4a5b68
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -258,7 +258,7 @@ Write-Verbose "== VM bundle created: $UtmDir =="
 Write-Verbose ""
 Write-Verbose "Network mode : $NetworkMode$(if ($NetworkMode -eq 'Bridged') { " ($BridgeInterface)" })"
 Write-Verbose ""
-Write-Verbose "Double-click '$VMName.utm' on your Desktop to import it into UTM and start the installation."
+Write-Verbose "Double-click '$VMName.utm' in ~/yuruna/guest.nosync/ to import it into UTM and start the installation."
 Write-Verbose "When the VM first starts, press any key when you see 'Press any key to boot from CD or DVD'."
 Write-Verbose "The Windows installer will then run automatically. Default credentials: ywuser1 / password"
 Write-Verbose ""

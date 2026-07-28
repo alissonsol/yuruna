@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.26
+.VERSION 2026.07.28
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456740
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -823,14 +823,14 @@ try {
                 # A mutating control route additionally requires that the caller
                 # is either on the loopback interface (the on-host operator, who
                 # is implicitly trusted) or presents a valid, short-lived control
-                # proof. The proof is an HMAC over the shared pool-auth-token,
+                # proof. The proof is an HMAC over the shared lab-auth-token,
                 # minted by the pool aggregator when the operator follows a
                 # Grafana deep-link and delivered to the page in a URL fragment
                 # (never sent to a server or written to an access log). A LAN peer
                 # or a guest VM reaches this listener over the network -- it can
                 # neither originate from loopback nor forge the HMAC without the
                 # shared token -- so control is fail-closed for them. With no
-                # pool-auth-token configured on this host the token reads empty
+                # lab-auth-token configured on this host the token reads empty
                 # and every non-loopback caller is rejected, i.e. control
                 # collapses to loopback-only. Guards against the unauthenticated-
                 # remote-control regression class.
@@ -849,9 +849,18 @@ try {
                             if (Get-Command Import-Extension -ErrorAction SilentlyContinue) {
                                 try { `$null = Import-Extension -Area 'authentication' -RequireSingle } catch { `$null = `$_ }
                             }
-                            `$ctlTm = if (Get-Command Get-EffectiveUser -ErrorAction SilentlyContinue) { Get-EffectiveUser -LogicalUser 'pool-auth-token' } else { `$null }
-                            if (`$ctlTm -and `$ctlTm.vaultKey -and (Get-Command Test-VaultEntry -ErrorAction SilentlyContinue) -and (Test-VaultEntry -VaultKey `$ctlTm.vaultKey)) {
-                                `$ctlToken = Get-Password -Username 'pool-auth-token'
+                            # 'lab-auth-token' first, then the legacy
+                            # 'pool-auth-token' name -- a host whose vault was
+                            # provisioned under the old logical user keeps
+                            # verifying proofs without re-enrollment (same
+                            # fallback order as Get-LabAuthTokenValue, inlined
+                            # because the module may not be loaded on this path).
+                            foreach (`$ctlName in @('lab-auth-token', 'pool-auth-token')) {
+                                if (`$ctlToken) { break }
+                                `$ctlTm = if (Get-Command Get-EffectiveUser -ErrorAction SilentlyContinue) { Get-EffectiveUser -LogicalUser `$ctlName } else { `$null }
+                                if (`$ctlTm -and `$ctlTm.vaultKey -and (Get-Command Test-VaultEntry -ErrorAction SilentlyContinue) -and (Test-VaultEntry -VaultKey `$ctlTm.vaultKey)) {
+                                    `$ctlToken = Get-Password -Username `$ctlName
+                                }
                             }
                         } catch { `$ctlToken = '' }
                         # Which precondition failed is invisible from the status line alone:
@@ -1609,8 +1618,8 @@ try {
                         `$content = & pwsh -NoProfile -ExecutionPolicy Bypass -WorkingDirectory `$repoRoot -File `$diagScript 2>&1 | Out-String
                         Set-Content -LiteralPath `$tmpFile -Value `$content -Encoding utf8 -ErrorAction SilentlyContinue
                     } catch {
-                        `$content = "Error running Get-SystemDiagnostic.ps1: `$($_.Exception.Message)"
-                        Write-ServerErr "host-diagnostic failed: `$($_.Exception.Message)"
+                        `$content = "Error running Get-SystemDiagnostic.ps1: `$(`$_.Exception.Message)"
+                        Write-ServerErr "host-diagnostic failed: `$(`$_.Exception.Message)"
                     }
                 }
                 `$body = [System.Text.Encoding]::UTF8.GetBytes(`$content)
@@ -1682,7 +1691,7 @@ try {
             # GET ?user=<logicalUser>&nonce=<b64>&proof=<b64>. Serves ONE
             # vault password -- and only for a user this host's own
             # networkStorage config references -- to a peer that proves it
-            # holds the operator-set shared pool-auth-token (HMAC proof; the
+            # holds the shared lab-auth-token (HMAC proof; the
             # token itself never crosses the wire). The response password is
             # AES-GCM encrypted with a key derived from token + user + the
             # client's nonce (Protect-ConfigSyncCredential), so the secret
@@ -1704,7 +1713,7 @@ try {
                     `$res.Headers.Add('Allow', 'GET')
                 } elseif (-not `$qUser -or -not `$qNonce -or -not `$qProof) {
                     `$vcStatus = 400; `$vcError = 'user, nonce and proof query parameters are required'
-                } elseif (-not (Import-RouteModule -ModuleRelativePath 'test/modules/Test.HostConfigSync.psm1' -RequiredCommand 'Test-ConfigSyncProof', 'Protect-ConfigSyncCredential') -or
+                } elseif (-not (Import-RouteModule -ModuleRelativePath 'test/modules/Test.HostConfigSync.psm1' -RequiredCommand 'Test-ConfigSyncProof', 'Protect-ConfigSyncCredential', 'Get-LabAuthTokenValue') -or
                           -not (Import-RouteModule -ModuleRelativePath 'test/modules/Test.Config.psm1'        -RequiredCommand 'Read-TestConfig')) {
                     `$vcStatus = 500; `$vcError = 'Test.HostConfigSync / Test.Config could not be loaded in the server runspace (see runtime/server.err)'
                 }
@@ -1736,11 +1745,12 @@ try {
                         if (-not `$allowed.Contains([string]`$qUser)) {
                             `$vcStatus = 404; `$vcError = 'user not referenced by this host''s networkStorage config'
                         } else {
-                            `$tm = Get-EffectiveUser -LogicalUser 'pool-auth-token'
-                            if (-not `$tm.vaultKey -or -not (Test-VaultEntry -VaultKey `$tm.vaultKey)) {
-                                `$vcStatus = 503; `$vcError = 'shared pool-auth-token not configured on this host'
+                            # Legacy-name fallback included: a host still holding
+                            # its token under 'pool-auth-token' keeps serving peers.
+                            `$vcToken = Get-LabAuthTokenValue
+                            if (-not `$vcToken) {
+                                `$vcStatus = 503; `$vcError = 'shared lab-auth-token not configured on this host'
                             } else {
-                                `$vcToken = Get-Password -Username 'pool-auth-token'
                                 if (-not (Test-ConfigSyncProof -Token `$vcToken -User `$qUser -Nonce `$qNonce -Proof `$qProof)) {
                                     `$vcStatus = 403; `$vcError = 'proof mismatch (wrong or stale shared token)'
                                 } else {
@@ -2371,6 +2381,52 @@ try {
                 `$body = [System.Text.Encoding]::UTF8.GetBytes('{"ok":true,"path":"' + `$relEsc + '"}')
                 `$res.ContentLength64 = `$body.Length
                 `$res.OutputStream.Write(`$body, 0, `$body.Length)
+                `$res.OutputStream.Close()
+                continue
+            }
+
+            # Short, shareable per-cycle link: /cycle/<number> -> that cycle's
+            # HTML transcript. The transcript's real path carries the cycle's
+            # timestamp and host id, which makes it far too long to paste into
+            # a message; the number is the only part of it an operator reads off
+            # a console line or a dashboard row. Redirecting rather than serving
+            # in place keeps the relative links INSIDE the transcript (per-guest
+            # folders, failure-screen dirs) resolving against the cycle folder.
+            if (`$path -match '^cycle/(\d{1,6})/?`$') {
+                # Digits only, re-formatted through an int: the captured segment
+                # cannot carry a traversal sequence into the filter below.
+                `$wantedCycle = '{0:D6}' -f [int]`$matches[1]
+                `$cycleHit = @(Get-ChildItem -LiteralPath `$logDir -Directory -Filter "`$wantedCycle.*" -ErrorAction SilentlyContinue |
+                    Sort-Object Name | Select-Object -Last 1)
+                if (`$cycleHit.Count -eq 0) {
+                    # Rotation moves older cycles down into dated history.<date>/
+                    # buckets, so the top level only holds the recent ones. Looking
+                    # there second keeps the common case a single directory read.
+                    `$cycleHit = @(Get-ChildItem -LiteralPath `$logDir -Directory -Filter 'history.*' -ErrorAction SilentlyContinue |
+                        ForEach-Object { Get-ChildItem -LiteralPath `$_.FullName -Directory -Filter "`$wantedCycle.*" -ErrorAction SilentlyContinue } |
+                        Sort-Object Name | Select-Object -Last 1)
+                }
+                if (`$cycleHit.Count -gt 0) {
+                    # The folder keeps whatever lifecycle suffix it has on disk
+                    # (.incomplete mid-cycle, .aborted.<UTC> after a crash); the
+                    # transcript inside is always named with the bare identity.
+                    `$cycleRoot = (Get-Item -LiteralPath `$logDir).FullName.TrimEnd('/','\')
+                    `$cycleRel  = `$cycleHit[0].FullName.Substring(`$cycleRoot.Length).TrimStart('/','\').Replace('\','/')
+                    `$cycleBase = `$cycleHit[0].Name -replace '\.incomplete`$', '' -replace '\.aborted\.[^/\\]+`$', ''
+                    # 302 + no-store, never 301: the target moves as the folder is
+                    # renamed through its lifecycle, so a cached redirect would pin
+                    # a reader to a path that no longer exists.
+                    `$res.StatusCode = 302
+                    `$res.Headers.Add('Cache-Control', 'no-store, no-cache, must-revalidate')
+                    `$res.Headers.Add('Location', "/log/`$cycleRel/`$cycleBase.html")
+                    `$res.OutputStream.Close()
+                    continue
+                }
+                `$res.StatusCode = 404
+                `$res.ContentType = 'text/plain; charset=utf-8'
+                `$body = [System.Text.Encoding]::UTF8.GetBytes("No cycle `$wantedCycle in the retained log history.")
+                `$res.ContentLength64 = `$body.Length
+                if (`$req.HttpMethod -ne 'HEAD') { `$res.OutputStream.Write(`$body, 0, `$body.Length) }
                 `$res.OutputStream.Close()
                 continue
             }

@@ -202,7 +202,7 @@ context imports a shared module.
 Sites that depend on this ordering: `test/Start-CachingProxyVM.ps1`,
 `test/Stop-CachingProxyVM.ps1`, `test/Repair-CachingProxyForwarder.ps1`,
 `test/Test-CachingProxy.ps1`, `test/Start-StatusService.ps1`,
-`test/Remove-TestVMFiles.ps1`, `test/Set-PoolAuthToken.ps1`.
+`test/Remove-TestVMFiles.ps1`, `test/Set-LabToken.ps1`.
 
 Symptoms when the re-import is missing are silent rather than loud,
 because the surrounding `try` usually swallows the resolution error:
@@ -298,6 +298,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.26
+Last review: 2026.07.28
 
 Back to [Yuruna](../README.md)

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.26
+.VERSION 2026.07.28
 .GUID 424f2c91-6d3b-4e75-9012-3c7a1e5b8d6f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -47,20 +47,26 @@ if ([string]::IsNullOrWhiteSpace($runtimeDir) -or [string]::IsNullOrWhiteSpace($
 if (-not (Test-Path -LiteralPath $runtimeDir)) { New-Item -ItemType Directory -Force -Path $runtimeDir | Out-Null }
 
 # --- REGION: Push opt-in gate (shared bearer token)
-# Resolve ONLY when the operator declared a vaultKey for 'pool-auth-token' AND
-# populated it (Test-VaultEntry); an empty vaultKey means push is DISABLED, and
-# calling Get-Password then would auto-generate a junk per-host token.
+# Resolve ONLY when a vaultKey is declared for the logical user AND populated
+# (Test-VaultEntry); an empty vaultKey means push is DISABLED, and calling
+# Get-Password then would auto-generate a junk per-host token. 'lab-auth-token'
+# first, then the legacy 'pool-auth-token' name, so a host enrolled under the
+# old logical user keeps pushing (same fallback order as Get-LabAuthTokenValue,
+# inlined because Test.HostConfigSync is not among this forwarder's imports).
 $token = ''
 try {
     if ((Get-Command Get-EffectiveUser -ErrorAction SilentlyContinue) -and (Get-Command Test-VaultEntry -ErrorAction SilentlyContinue)) {
-        $eff = Get-EffectiveUser -LogicalUser 'pool-auth-token'
-        if ($eff.vaultKey -and (Test-VaultEntry -VaultKey $eff.vaultKey)) {
-            $token = [string](Get-Password -Username 'pool-auth-token')
+        foreach ($logical in @('lab-auth-token', 'pool-auth-token')) {
+            $eff = Get-EffectiveUser -LogicalUser $logical
+            if ($eff.vaultKey -and (Test-VaultEntry -VaultKey $eff.vaultKey)) {
+                $token = [string](Get-Password -Username $logical)
+                break
+            }
         }
     }
 } catch { $null = $_ }
 if ([string]::IsNullOrWhiteSpace($token)) {
-    Write-Verbose "pool push: no pool-auth-token configured; push disabled."
+    Write-Verbose "pool push: no lab-auth-token configured; push disabled."
     return
 }
 

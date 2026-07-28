@@ -34,7 +34,7 @@ pair enumerable at startup, so the
 [capability gate](capability-matrix.md) refuses cycles that reference
 an unwired backend rather than failing mid-step. The same pattern
 recurs across the workspace: [SequenceAction](handler-schema.md)
-(verb registry), [Component registry login](component-registry.md)
+(verb registry), [Component registry login](authentication.md#component-registry-login)
 and [Host-condition registry](host-condition-registry.md) (provider
 matrices), [Remediation dispatcher](remediation.md) (failure-class
 handlers). Four of the five share the
@@ -192,6 +192,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.26
+Last review: 2026.07.28
 
 Back to [Yuruna](../README.md)

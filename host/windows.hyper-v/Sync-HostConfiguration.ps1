@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.26
+.VERSION 2026.07.28
 .GUID 42e8a1b2-c3d4-4e5f-9012-cd0123456821
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -38,7 +38,7 @@
       * a networkStorage user with no local vault entry has its password
         fetched from the reference host's token-gated
         /control/vault-credential endpoint (encrypted with a key derived
-        from the shared pool-auth-token; prompt as fallback) and stored
+        from the shared lab-auth-token; prompt as fallback) and stored
         via Set-Password.
 
     Finishes by running test/Test-Config.ps1 so mount + credential
@@ -53,7 +53,7 @@
     The reference host's status-server port. Default 8080.
 
 .PARAMETER SharedToken
-    The shared pool-auth-token used to fetch missing vault credentials.
+    The shared lab-auth-token used to fetch missing vault credentials.
     Defaults to this host's own vault copy when configured; an interactive
     session prompts as the last resort.
 

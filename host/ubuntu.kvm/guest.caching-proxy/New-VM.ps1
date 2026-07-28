@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.26
+.VERSION 2026.07.28
 .GUID 42f4e5f6-a7b8-4c9d-0123-4e5f6a7b8c9d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -279,32 +279,58 @@ if (($ypoolNasNetPath -match "'") -or ($ypoolNasUser -match "'")) {
 # is NOT baked -- the Host Config Service serves it at runtime (/v1/nas/pool).
 $ypoolNasReplicate = if ($ypoolNasCfg -and $ypoolNasUser -and $ypoolNasNetPath) { 'true' } else { 'false' }
 
-# --- REGION: Pool push-ingest shared bearer
+# --- REGION: Lab shared bearer (control proofs + push-ingest + lab-token exchange)
 # --- REGION: https://yuruna.link/caching-proxy#cache-vm-nas-and-config-service
-# Empty vaultKey means push is DISABLED: do NOT call Get-Password then (it
-# would auto-generate a junk per-host token); bake EMPTY instead.
-$poolAuthToken = ''
+# Empty vaultKey means the token is unset: do NOT call Get-Password then (it
+# would auto-generate a junk per-host token). 'lab-auth-token' first, then the
+# legacy 'pool-auth-token' name, so a host enrolled under the old logical user
+# rebuilds its proxy with the token the pool already shares.
+$labAuthToken = ''
+# A read that THREW is not the same as a vault with no entry: the vault lock
+# can time out, and a mint on that path would replace a token the rest of the
+# lab still shares. Track the difference so only a completed read that found
+# nothing reaches the mint below.
+$labTokenReadFailed = $false
 try {
-    $paEff = Get-EffectiveUser -LogicalUser 'pool-auth-token'
-    if ($paEff.vaultKey -and (Test-VaultEntry -VaultKey $paEff.vaultKey)) {
-        $poolAuthToken = [string](Get-Password -Username 'pool-auth-token')
+    foreach ($labLogical in @('lab-auth-token', 'pool-auth-token')) {
+        $paEff = Get-EffectiveUser -LogicalUser $labLogical
+        if ($paEff.vaultKey -and (Test-VaultEntry -VaultKey $paEff.vaultKey)) {
+            $labAuthToken = [string](Get-Password -Username $labLogical)
+            break
+        }
     }
-} catch { Write-Verbose "pool auth token: $($_.Exception.Message)" }
+} catch {
+    $labTokenReadFailed = $true
+    Write-Warning ("lab-auth-token: reading this host's vault failed ($($_.Exception.Message)). Building with an EMPTY token and leaving the vault untouched: " +
+        "the proxy will mint no control proofs, push-ingest stays disabled, and the dashboard shows no Lab token. Resolve the vault error and rebuild.")
+}
 # Refuse a token carrying a newline or quote: it would corrupt the baked token file or
 # the runner's bearer header.
-if ($poolAuthToken -match '[\r\n''"]') {
-    Write-Warning "pool.auth.token contains a newline or quote character; refusing to bake (push disabled)."
-    $poolAuthToken = ''
+if ($labAuthToken -match '[\r\n''"]') {
+    Write-Warning ("lab-auth-token in this host's vault contains a newline or quote character, which would corrupt the baked token file; building with an EMPTY token. " +
+        "Re-enroll this host (pwsh test/Set-LabToken.ps1) or store a clean value, then rebuild.")
+    $labAuthToken = ''
+    $labTokenReadFailed = $true
 }
-# An empty token here is silent but total: the aggregator then mints no control
-# proof at all (/go/host redirects with no fragment) and /ingest answers 503, so
-# every host's remote-config page rejects the operator with a 403 that reads like
-# a host misconfiguration. Say so at build time, while it is still cheap to fix.
-if ([string]::IsNullOrEmpty($poolAuthToken)) {
-    Write-Warning ("No pool-auth-token in this host's vault, so the caching proxy is being built with an " +
-        "EMPTY token: it will mint no control proofs and push-ingest stays disabled, and remote control " +
-        "of pool hosts will fail with a 403 until that is fixed. Set one first with: " +
-        "pwsh test/Set-PoolAuthToken.ps1 -Token <shared-token>")
+# No stored token -> mint one and store it NOW, so the proxy is never built
+# with an empty token (which would mint no control proofs, keep /ingest 503,
+# show no Lab token on the dashboard, and turn every joining host's remote
+# control into a 403). The building host becomes the lab's first enrolled
+# member; every other host receives the same value through the dashboard's
+# Lab token (pwsh test/Set-LabToken.ps1).
+if ([string]::IsNullOrEmpty($labAuthToken) -and -not $labTokenReadFailed) {
+    $labAuthToken = [Convert]::ToHexString([System.Security.Cryptography.RandomNumberGenerator]::GetBytes(24)).ToLowerInvariant()
+    Import-Module (Join-Path $repoRoot 'test/modules/Test.HostConfigSync.psm1') -Global -Force -DisableNameChecking
+    $labProvision = Set-LabAuthToken -Token $labAuthToken
+    if ($labProvision.ok) {
+        Write-Output "lab-auth-token: none was stored on this host; minted one and stored it (vaultKey '$($labProvision.vaultKey)')."
+    } else {
+        Write-Warning ("Could not store a freshly minted lab-auth-token in this host's vault " +
+            "(keyChanged=$($labProvision.keyChanged), verified=$($labProvision.verified)); building with an EMPTY " +
+            "token: the proxy will mint no control proofs, push-ingest stays disabled, and the dashboard shows " +
+            "no Lab token until one is provisioned and the proxy rebuilt.")
+        $labAuthToken = ''
+    }
 }
 
 # --- REGION: Host Config Service mTLS materials
@@ -345,7 +371,7 @@ $userData = New-CloudInitUserData `
         YPOOL_NAS_NETWORK_PATH_PLACEHOLDER  = $ypoolNasNetPath
         YPOOL_NAS_NETWORK_USER_PLACEHOLDER  = $ypoolNasUser
         YPOOL_NAS_HOST_ID_PLACEHOLDER       = $ypoolNasHostId
-        POOL_AUTH_TOKEN_PLACEHOLDER    = $poolAuthToken
+        LAB_AUTH_TOKEN_PLACEHOLDER     = $labAuthToken
         YURUNA_CONFIG_PORT_PLACEHOLDER               = $configPort
         YURUNA_CONFIG_CLIENT_CERT_BASE64_PLACEHOLDER = $configClientCertB64
         YURUNA_CONFIG_CLIENT_KEY_BASE64_PLACEHOLDER  = $configClientKeyB64

@@ -56,6 +56,45 @@ go.sum       text eol=lf
 # checked-out on Windows.
 *.ps1        text eol=lf
 *.psm1       text eol=lf
+*.psd1       text eol=lf
+
+# OpenTofu/Terraform sources. A heredoc (`<<EOT`) preserves every byte
+# between its markers, so on a CRLF checkout the CR rides into whatever the
+# literal produces -- cloud-init user-data, a remote-exec provisioner body, a
+# config file the Linux node then parses -- and surfaces there as
+# `$'\r': command not found` rather than anywhere near the .tf file.
+*.tf         text eol=lf
+*.tfvars     text eol=lf
+*.hcl        text eol=lf
+
+# XML seeds. autounattend.xml is copied verbatim into the Windows guest's
+# seed ISO; the public key is read back through RSA FromXmlString. Both parse
+# either EOL, so pin the one that keeps a macOS and a Windows checkout
+# byte-identical. Must stay ABOVE the *.ps1xml rule below -- attributes are
+# last-match-wins, and .ps1xml is also an .xml.
+*.xml        text eol=lf
+
+# The release manifest is signed BYTE-FOR-BYTE: install.sha256.sig is a
+# detached signature over install.sha256's exact bytes, and a fresh host
+# verifies the file it just downloaded. A single CRLF copy committed here
+# changes those bytes and every verification fails with "SIGNATURE INVALID
+# -- do not run", with nothing to point at the line endings. The keys are
+# parsed by openssl (macOS/Linux) and by .NET on Windows.
+*.sha256     text eol=lf
+*.pem        text eol=lf
+*.asc        text eol=lf
+
+# Read verbatim and used as a git ref -- the release tag to check out. A
+# trailing CR makes the ref simply not exist.
+VERSION      text eol=lf
+
+# Installed into .git/hooks and run by git on whatever platform the developer
+# is on. `#!/bin/sh` with a CR is `$'\r': command not found` on the first line.
+tools/githooks/*  text eol=lf
+
+# Marker files that keep an otherwise-empty directory in the tree.
+global/components/placeholder  text eol=lf
+global/workloads/placeholder   text eol=lf
 
 # Windows-only text formats -- must be CRLF.
 *.bat        text eol=crlf
@@ -70,6 +109,9 @@ go.sum       text eol=lf
 *.html       text eol=lf
 *.css        text eol=lf
 *.js         text eol=lf
+.gitignore       text eol=lf
+.gitattributes   text eol=lf
+.gitconfig.yuruna text eol=lf
 
 # Binaries -- never normalize. Without these, git ships VHDX/ISO bytes
 # through CRLF rewriting if it ever misclassifies them as text.

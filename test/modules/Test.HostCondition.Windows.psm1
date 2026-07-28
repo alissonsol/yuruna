@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.26
+.VERSION 2026.07.28
 .GUID 42e5b4c3-d2a1-4f9a-6789-0b1c2d3e4f51
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -1415,8 +1415,8 @@ function Sync-WindowsHostClock {
     drift by hours.
 
     Reports rather than throws. Every step here needs Administrator, and
-    a caller at a cycle boundary has to be free to carry on with a
-    warning when it does not have it.
+    a caller has to be free to carry on with a warning when it does not
+    have it -- there is no way to acquire it in-process.
 
     .OUTPUTS
     [hashtable] Succeeded (bool), Message (string).
@@ -1467,8 +1467,9 @@ function Assert-WindowsHostConditionSet {
     <#
     .SYNOPSIS
     Single gate for Windows prerequisites: Administrator elevation,
-    Hyper-V service, screen/lock timeouts, and host clock. Returns $true
-    on non-Windows or when all pass; $false with diagnostics on failure.
+    Hyper-V service, screen/lock timeouts. Returns $true on non-Windows
+    or when all pass; $false with diagnostics on failure. Also reports
+    the host clock -- warn-only, never a reason to refuse.
     #>
     param([string]$HostType)
     if ($HostType -ne "host.windows.hyper-v") { return $true }
@@ -1537,8 +1538,11 @@ function Assert-WindowsHostConditionSet {
         Write-Debug "Lock screen timeout check failed: $_"
     }
 
-    # 5. Host clock -- every guest inherits it at power-on
-    if (-not (Assert-HostClock -HostType $HostType)) { return $false }
+    # 5. Host clock -- every guest inherits it at power-on. Warn-only and
+    #    once per cycle: the repair needs an elevation this process cannot
+    #    ask for, so a drifted host runs and says so rather than refusing
+    #    every cycle until an operator notices.
+    Write-HostClockDriftWarning -HostType $HostType
 
     return $true
 }

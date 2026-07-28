@@ -1048,14 +1048,16 @@ into the seed, resolved on the host at VM-creation time:
   password reaches a running VM without a rebuild; the service's own
   vault gate returns 503 (no replication, self-healing) until the
   operator sets the password.
-- **Pool push-ingest shared bearer** — the operator-supplied token gating
-  the aggregator's `POST /ingest`, mirroring the ypool-nas loud-fail
-  gate. It is read ONLY when the operator declared a vaultKey for
-  `pool-auth-token` AND populated it (`Test-VaultEntry`); an empty
-  vaultKey means push is DISABLED, and calling `Get-Password` then would
-  auto-generate a per-host random token and break the shared-token
-  model. Baked EMPTY when disabled/unset — the aggregator refuses
-  `/ingest`.
+- **Pool push-ingest shared bearer** — the shared `lab-auth-token`
+  gating the aggregator's `POST /ingest`, baked to
+  `/etc/yuruna/lab-auth.token`. It is read from the vault's
+  `lab-auth-token` entry (a legacy `pool-auth-token` entry is also
+  accepted, so hosts holding one keep working); when the building host's
+  vault has neither, `New-VM` mints and stores a random `lab-auth-token`
+  first, so a proxy is never built with an empty token. An empty-token
+  proxy (no control proofs minted, `/ingest` refused with 503, "Lab
+  token" tile "off") remains diagnosable but is a failure state, not a
+  normal early state.
 - **Host Config Service mTLS materials** — a per-VM client leaf minted by
   THIS host's Config CA, baked with the CA cert + service port so the
   cache VM can fetch ystash-nas (and ypool-nas) credentials at boot AND
@@ -1518,6 +1520,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.26
+Last review: 2026.07.28
 
 Back to [Yuruna](../README.md)

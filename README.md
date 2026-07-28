@@ -14,37 +14,48 @@ It is recommended that you read the online drafts of chapters [0](https://yuruna
 
 See the **Administrator Risk Warning** in the [Yuruna License](LICENSE.md).
 
-1. **Install Yuruna on a host.** Paste the one-liner for your OS from
-   [install scripts](install/README.md#remote-one-liners). It installs
-   dependencies and clones the framework to `~/git/yuruna`
-   (`%USERPROFILE%\git\yuruna` on Windows).
+**A.1 — Install Yuruna on the host.** Paste the one-liner for your OS
+from the [install scripts](install/README.md#remote-one-liners). It
+installs dependencies, clones the framework to `~/git/yuruna`
+(`%USERPROFILE%\git\yuruna` on Windows), and creates
+`test/test.config.yml` from its template. Reboot if the installer says
+RESTART REQUIRED, then run the commands below from the `yuruna` folder.
 
-2. **In a PowerShell window (`pwsh`), from the `yuruna` folder, configure and run:**
+**A.2 — Enable test automation.** Sleep, screen savers, and screen lock
+interrupt tests; this explicit opt-in turns them off. Elevated
+(Administrator PowerShell on Windows, `sudo` on macOS/Ubuntu):
 
-   ```
-   Copy-Item test/test.config.yml.template test/test.config.yml
-   ```
+```
+pwsh test/Enable-TestAutomation.ps1
+```
 
-   Edit `test/test.config.yml` and test the configuration.
+On Windows, sign out and back in if it reports display-scaling changes.
 
-   ```
-   test/Test-Config.ps1
-   ```
-   Fix any error before proceeding.
+**A.3 — Configure and run.** Edit `test/test.config.yml`, then validate
+it:
 
-   ```
-   pwsh test/Invoke-TestRunner.ps1
-   ```
+```
+pwsh test/Test-Config.ps1
+```
 
-   The runner clones the sample project repo (`yuruna-project`, configured
-   via `repositories.projectUrl` in the file you just copied) into
-   `project/` on every cycle and discovers the
-   [website example](https://github.com/alissonsol/yuruna-project/tree/main/example/website)
-   sequences automatically.
+Fix any FAIL, then start the runner:
 
-3. **Watch progress at** `http://localhost:8080/status/`.
+```
+pwsh test/Invoke-TestRunner.ps1
+```
 
-Tests may break if a screensaver activates, the machine sleeps, or similar conditions interrupt them. For each host type, there is a script `Enable-TestAutomation.ps1` in the corresponding folder, which sets configurations to avoid most interruptions.
+Every cycle re-clones the sample project repo (`yuruna-project`, set by
+`repositories.projectUrl` in the config) into `project/` and discovers
+the
+[website example](https://github.com/alissonsol/yuruna-project/tree/main/example/website)
+sequences automatically.
+
+**A.4 — Watch progress at** `http://localhost:8080/status/`.
+
+For a durable setup — dedicated test user, storage, caching proxy,
+stash service — continue with the [operator guide](docs/operator.md);
+to run several machines as one lab, the
+[lab operator guide](docs/lab-operator.md).
 
 ## Host / guest support
 
@@ -90,4 +101,4 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.26
+Last review: 2026.07.28

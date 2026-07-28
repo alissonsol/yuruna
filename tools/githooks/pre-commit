@@ -31,4 +31,17 @@ if ! pwsh -NoProfile -ExecutionPolicy Bypass -File "$gate" -Quiet; then
     echo "  Fix the flagged file(s), or bypass with 'git commit --no-verify' (discouraged)." >&2
     exit 1
 fi
+
+# Second pass: no file anywhere may carry a BOM. A BOM is invisible in every
+# editor, survives copy/paste between projects, and rides into byte-for-byte
+# consumers -- the signed install.sha256, heredoc bodies, the guest scripts the
+# status server serves verbatim. Non-ASCII bytes are fine outside the bootstrap
+# set, so this pass checks only for the BOM. -Staged keeps it to what is about
+# to be committed; the whole tree is ~1000 files and this runs on every commit.
+if ! pwsh -NoProfile -ExecutionPolicy Bypass -File "$gate" -BomOnly -Staged -Quiet; then
+    echo "" >&2
+    echo "pre-commit: a staged file carries a byte-order mark (see above)." >&2
+    echo "  Rewrite it as BOM-less UTF-8, or bypass with 'git commit --no-verify'." >&2
+    exit 1
+fi
 exit 0

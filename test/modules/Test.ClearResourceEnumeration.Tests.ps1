@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.07.26
-.GUID 739213c2-9ab2-4808-aab7-b4a55980ecd0
+.VERSION 2026.07.28
+.GUID 42334b95-2008-4677-826c-ab608200e5bf
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS yuruna test automation teardown pester

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.26
+.VERSION 2026.07.28
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456709
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -328,6 +328,10 @@ if (-not (Test-Path $hostModPath)) {
 # than trusting the attempt). A headless run -- the pre-cycle config gate --
 # returns $false immediately and keeps the printed instructions, because the
 # unattended path must never block on a prompt.
+#
+# This is the one place a clock repair is attempted with an operator present,
+# so it is also the only place that may ask for a credential. A running cycle
+# never syncs -- it measures and warns (Write-HostClockDriftWarning).
 function Invoke-HostClockSyncOffer {
     [OutputType([bool])]
     param([Parameter(Mandatory)][string]$HostType)
@@ -337,6 +341,17 @@ function Invoke-HostClockSyncOffer {
     if (-not $canPrompt) { return $false }
     $ans = Read-Host "Host clock: resynchronize it against NTP now (needs Administrator / sudo)? [y/N]"
     if ($ans -notmatch '^\s*(y|yes)\s*$') { return $false }
+    # Prime the sudo credential cache first. Every platform's sync calls
+    # `sudo -n` so it can never hang a caller on a hidden prompt -- which on
+    # macOS/Linux would make the answer just given fail with "a password is
+    # required". Priming asks once, visibly, and the cached timestamp carries
+    # the calls that follow. No-op on Windows and when already root.
+    if (Get-Command Initialize-SudoCache -ErrorAction SilentlyContinue) {
+        if (-not (Initialize-SudoCache -Reasons @('resynchronize the host clock against NTP'))) {
+            Write-Info "  Clock sync skipped: no sudo credential."
+            return $false
+        }
+    }
     $result = Sync-HostClock -HostType $HostType -Confirm:$false
     if ($result.Succeeded) {
         Write-Info "  $($result.Message)"

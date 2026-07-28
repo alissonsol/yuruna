@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.26
+.VERSION 2026.07.28
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456810
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -598,7 +598,7 @@ function Test-VaultEntry {
     Import-Extension skips re-import once a module is loaded.
 
     A non-empty vaultKey is the switch that moves an operator-supplied
-    credential (e.g. pool-auth-token) off the auto-generate-junk path onto
+    credential (e.g. lab-auth-token) off the auto-generate-junk path onto
     the operator-owned path Get-Password/Test-VaultEntry require.
 #>
 function Set-UserVaultKey {

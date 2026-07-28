@@ -75,9 +75,10 @@ func TestExtensionMetricFromActiveExtensions(t *testing.T) {
 	rec := httptest.NewRecorder()
 	s.handleMetrics(rec, httptest.NewRequest("GET", "/metrics", nil))
 	body := rec.Body.String()
-	// baseUrl + target ride as labels so the Grafana table can deep-link each cell
-	// directly (string columns carry no field labels); the dashboard hides these
-	// columns and links Host ID -> baseUrl and Extension -> target.
+	// baseUrl + target ride as labels (string columns carry no field labels); the
+	// dashboard hides both columns and deep-links Extension -> target. baseUrl is
+	// exported but NOT linked: an extension host that runs no cycles has no status
+	// page, so a Host ID link would land on /go/host's "host not known to the pool".
 	want := "yuruna_pool_host_extension{pool=\"default\",hostId=\"" + hid + "\",area=\"stash-service\",baseUrl=\"http://10.0.0.1:8080\",target=\"http://10.0.0.5\"} 1"
 	if !strings.Contains(body, want) {
 		t.Errorf("/metrics missing the extension row.\nwant: %s", want)

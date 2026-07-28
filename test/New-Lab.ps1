@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.26
+.VERSION 2026.07.28
 .GUID 42f4c810-93a7-4b62-a15e-7d0c2be64f18
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -60,7 +60,7 @@
 .EXAMPLE
     pwsh test/New-Lab.ps1 -Name lab-a -Root D:\work
 .EXAMPLE
-    pwsh test/New-Lab.ps1 -Name lab-a -Root /srv -User yuruna-pool,yuruna-stash,pool-auth-token
+    pwsh test/New-Lab.ps1 -Name lab-a -Root /srv -User yuruna-pool,yuruna-stash,lab-auth-token
 #>
 
 param(
@@ -179,7 +179,9 @@ if ((Test-Path -LiteralPath $labVault) -and -not $Force) {
         $lines.Add("    previousPassword: ''")
         $lines.Add("    updatedUtc: '$nowUtc'")
     }
-    Write-YurunaStateFile -Path $labVault -Content (($lines -join "`n") + "`n") -Confirm:$false
+    # $null =: the writer returns [bool], which uncaptured would print a bare
+    # value into the step lines this script prints.
+    $null = Write-YurunaStateFile -Path $labVault -Content (($lines -join "`n") + "`n") -Confirm:$false
     Write-Output "[3/3] lab vault written to $labVault ($($User.Count) credential(s))"
 }
 

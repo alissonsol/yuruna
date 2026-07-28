@@ -333,7 +333,7 @@ write_files:
           metrics_path: /squid-meta
           static_configs:
             - targets: ['localhost:80']
-        # pool-aggregator: multi-host pool collector on :9400 (HTTPS via proxy-CA leaf when present, else HTTP). Loopback scrape uses insecure_skip_verify -- peer authentication is moot on 127.0.0.1 and it works whether the leaf SAN lists localhost or only IPs.
+        # pool-aggregator: multi-host pool collector on :9400 (TLS via proxy-CA leaf when present -- served alongside plain HTTP on the same port for the browser deep-links -- else plain HTTP only). Loopback scrape uses insecure_skip_verify -- peer authentication is moot on 127.0.0.1 and it works whether the leaf SAN lists localhost or only IPs.
         - job_name: pool-aggregator
           scheme: https
           tls_config:
@@ -978,7 +978,7 @@ write_files:
         "title": "Yuruna hosts",
         "tags": ["yuruna", "pool"],
         "schemaVersion": 39,
-        "version": 5,
+        "version": 7,
         "editable": true,
         "refresh": "30s",
         "timezone": "utc",
@@ -1007,7 +1007,7 @@ write_files:
             "type": "stat",
             "title": "Hosts reachable",
             "description": "Pool hosts that answered their own status server (/runtime/status.json) on the most recent poll. Driven by yuruna_pool_hosts_reachable from the pool-aggregator.",
-            "gridPos": { "h": 4, "w": 4, "x": 0, "y": 0 },
+            "gridPos": { "h": 4, "w": 5, "x": 0, "y": 0 },
             "datasource": { "type": "prometheus", "uid": "yuruna-prometheus" },
             "targets": [
               { "refId": "A", "expr": "sum(yuruna_pool_hosts_reachable) or vector(0)", "instant": true, "datasource": { "type": "prometheus", "uid": "yuruna-prometheus" } }
@@ -1020,7 +1020,7 @@ write_files:
             "type": "stat",
             "title": "Hosts total",
             "description": "Distinct pool hosts seen within the aggregator's host TTL (24h by default, -host-ttl), keyed on the stable hostId (reachable or not). Driven by yuruna_pool_hosts_total from the pool-aggregator.",
-            "gridPos": { "h": 4, "w": 3, "x": 4, "y": 0 },
+            "gridPos": { "h": 4, "w": 5, "x": 5, "y": 0 },
             "datasource": { "type": "prometheus", "uid": "yuruna-prometheus" },
             "targets": [
               { "refId": "A", "expr": "sum(yuruna_pool_hosts_total) or vector(0)", "instant": true, "datasource": { "type": "prometheus", "uid": "yuruna-prometheus" } }
@@ -1033,7 +1033,7 @@ write_files:
             "type": "stat",
             "title": "Failing now",
             "description": "Hosts whose current cycle status is 'fail' right now (yuruna_pool_host_status == 3). Green when zero; red when one or more hosts are failing.",
-            "gridPos": { "h": 4, "w": 3, "x": 7, "y": 0 },
+            "gridPos": { "h": 4, "w": 5, "x": 10, "y": 0 },
             "datasource": { "type": "prometheus", "uid": "yuruna-prometheus" },
             "targets": [
               { "refId": "A", "expr": "count(yuruna_pool_host_status{pool=~\"$pool\"} == 3) or vector(0)", "instant": true, "datasource": { "type": "prometheus", "uid": "yuruna-prometheus" } }
@@ -1042,37 +1042,11 @@ write_files:
             "fieldConfig": { "defaults": { "thresholds": { "mode": "absolute", "steps": [ { "color": "green", "value": null }, { "color": "red", "value": 1 } ] } }, "overrides": [] }
           },
           {
-            "id": 12,
-            "type": "stat",
-            "title": "Hosts in incident",
-            "description": "Hosts with an OPEN per-host incident -- >= N failed cycles within the trailing M-minute window (default 3 in 2h): one host stuck in a fail-burst. Resolves once the window clears of fails. Driven by yuruna_pool_incidents_active. Green when zero; red when any.",
-            "gridPos": { "h": 4, "w": 4, "x": 10, "y": 0 },
-            "datasource": { "type": "prometheus", "uid": "yuruna-prometheus" },
-            "targets": [
-              { "refId": "A", "expr": "sum(yuruna_pool_incidents_active) or vector(0)", "instant": true, "datasource": { "type": "prometheus", "uid": "yuruna-prometheus" } }
-            ],
-            "options": { "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "colorMode": "background", "graphMode": "none", "textMode": "value" },
-            "fieldConfig": { "defaults": { "thresholds": { "mode": "absolute", "steps": [ { "color": "green", "value": null }, { "color": "red", "value": 1 } ] } }, "overrides": [] }
-          },
-          {
-            "id": 14,
-            "type": "stat",
-            "title": "Pool-wide incident",
-            "description": "A CROSS-HOST (systemic) incident: >= K distinct hosts failed within a short window (default 3 hosts in 15m), pointing at a shared cause (the proxy, the network, a bad commit) rather than one flaky host. Driven by yuruna_pool_wide_incident. Green = healthy; red = pool-wide incident active. See the Incidents drill-down panel for the affected hosts.",
-            "gridPos": { "h": 4, "w": 4, "x": 14, "y": 0 },
-            "datasource": { "type": "prometheus", "uid": "yuruna-prometheus" },
-            "targets": [
-              { "refId": "A", "expr": "sum(yuruna_pool_wide_incident) or vector(0)", "instant": true, "datasource": { "type": "prometheus", "uid": "yuruna-prometheus" } }
-            ],
-            "options": { "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "colorMode": "background", "graphMode": "none", "textMode": "value" },
-            "fieldConfig": { "defaults": { "mappings": [ { "type": "value", "options": { "0": { "text": "none", "color": "green", "index": 0 } } } ], "thresholds": { "mode": "absolute", "steps": [ { "color": "green", "value": null }, { "color": "red", "value": 1 } ] } }, "overrides": [] }
-          },
-          {
             "id": 4,
             "type": "stat",
             "title": "Failed cycles",
             "description": "Cycles that finished 'fail' across the whole pool within the dashboard's selected time range (top-right) -- the sum of the table's Fail column. Counted from the Loki transition log (exact; reaches back to Loki retention, unlike a Prometheus counter window). Green when zero; red when any.",
-            "gridPos": { "h": 4, "w": 3, "x": 18, "y": 0 },
+            "gridPos": { "h": 4, "w": 5, "x": 15, "y": 0 },
             "datasource": { "type": "loki", "uid": "yuruna-loki" },
             "targets": [
               { "refId": "A", "expr": "sum(count_over_time({pool=~\"$pool\"} | json | overallStatus=\"fail\" [$__range]))", "instant": true, "datasource": { "type": "loki", "uid": "yuruna-loki" } }
@@ -1085,7 +1059,7 @@ write_files:
             "type": "stat",
             "title": "Collector",
             "description": "Health of the pool-aggregator itself -- the service on this proxy that polls every host and feeds this whole dashboard. Shows ONE value: 'up' (green) = it is running and reporting; 'down' (red) = it is not reporting, so every other panel here may be stale. Driven by yuruna_pool_collector_up.",
-            "gridPos": { "h": 4, "w": 3, "x": 21, "y": 0 },
+            "gridPos": { "h": 4, "w": 4, "x": 20, "y": 0 },
             "datasource": { "type": "prometheus", "uid": "yuruna-prometheus" },
             "targets": [
               { "refId": "A", "expr": "sum(yuruna_pool_collector_up) or vector(0)", "instant": true, "datasource": { "type": "prometheus", "uid": "yuruna-prometheus" } }
@@ -1097,8 +1071,8 @@ write_files:
             "id": 17,
             "type": "table",
             "title": "Extension hosts",
-            "description": "Hosts running an extension function, learned from each host's registration record (activeExtensions) -- the same opaque Host ID namespace as the Pool hosts table, so a host that both runs cycles and hosts a stash server shows the same Host ID in both. No ystash-nas mount or Config Service: a host self-reports the service it runs and the aggregator already polls its registration. Driven by yuruna_pool_host_extension. Host ID links to that host's status page; Extension names the function (e.g. Stash service) and links to that service's UI -- the stash VM -- via the aggregator's /go/stash redirect (resolved to the host-advertised address server-side). Panel height tracks the extension-host count (yuruna-fit-pool-dashboard.timer) -- gridPos.h below is only the pre-collector default.",
-            "gridPos": { "h": 4, "w": 24, "x": 0, "y": 22 },
+            "description": "Hosts running an extension function, learned from each host's registration record (activeExtensions) -- the same opaque Host ID namespace as the Pool hosts table, so a host that both runs cycles and hosts a stash server shows the same Host ID in both. No ystash-nas mount or Config Service: a host self-reports the service it runs and the aggregator already polls its registration. Driven by yuruna_pool_host_extension. Host ID is plain text here, deliberately: a host can run an extension service without running cycles, and such a host has no status page for the /go/host redirect to resolve -- it would answer 'host not known to the pool'. Open a host from the Pool hosts table instead: its rows are exactly the hosts that have a status page, and that Host ID link carries the short-lived control token. Extension names the function (e.g. Stash service) and links to that service's UI -- the stash VM -- via the aggregator's /go/stash redirect (resolved to the host-advertised address server-side). Panel height tracks the extension-host count (yuruna-fit-pool-dashboard.timer) -- gridPos.h below is only the pre-collector default.",
+            "gridPos": { "h": 4, "w": 20, "x": 0, "y": 22 },
             "datasource": { "type": "prometheus", "uid": "yuruna-prometheus" },
             "targets": [
               { "refId": "A", "expr": "yuruna_pool_host_extension{pool=~\"$pool\"}", "instant": true, "format": "table", "datasource": { "type": "prometheus", "uid": "yuruna-prometheus" } }
@@ -1121,8 +1095,7 @@ write_files:
                   "properties": [
                     { "id": "custom.width", "value": 330 },
                     { "id": "custom.align", "value": "right" },
-                    { "id": "mappings", "value": [ { "type": "regex", "options": { "pattern": "^(.{8})(.{4})(.{4})(.{4})(.{12})$", "result": { "text": "$1-$2-$3-$4-$5" } } } ] },
-                    { "id": "links", "value": [ { "title": "Open host status page", "url": "${__data.fields.baseUrl}", "targetBlank": true } ] }
+                    { "id": "mappings", "value": [ { "type": "regex", "options": { "pattern": "^(.{8})(.{4})(.{4})(.{4})(.{12})$", "result": { "text": "$1-$2-$3-$4-$5" } } } ] }
                   ]
                 },
                 {
@@ -1140,10 +1113,23 @@ write_files:
             "options": { "showHeader": true, "cellHeight": "sm", "footer": { "show": false }, "sortBy": [ { "displayName": "Host ID", "desc": false } ] }
           },
           {
+            "id": 18,
+            "type": "stat",
+            "title": "Lab token",
+            "description": "Lab connection token: the 6-character code a joining host redeems for the shared lab-auth-token (pwsh test/Set-LabToken.ps1 -LabToken <code>). Rotates every minute (aggregator -lab-token-rotate); a displayed code stays redeemable for about three, so read it right before enrolling. Driven by yuruna_pool_lab_token (the code rides as the 'token' label). 'off' means the exchange is disabled: the aggregator holds no lab-auth-token, or rotation is off.",
+            "gridPos": { "h": 4, "w": 4, "x": 20, "y": 22 },
+            "datasource": { "type": "prometheus", "uid": "yuruna-prometheus" },
+            "targets": [
+              { "refId": "A", "expr": "yuruna_pool_lab_token{pool=~\"$pool\"}", "instant": true, "legendFormat": "{{token}}", "datasource": { "type": "prometheus", "uid": "yuruna-prometheus" } }
+            ],
+            "options": { "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "colorMode": "value", "graphMode": "none", "textMode": "name" },
+            "fieldConfig": { "defaults": { "color": { "mode": "fixed", "fixedColor": "blue" }, "noValue": "off" }, "overrides": [] }
+          },
+          {
             "id": 6,
             "type": "table",
             "title": "Pool hosts",
-            "description": "One row per discovered host, identified by its opaque Host ID (the stable per-host UUID, shown GUID-formatted) -- no hostname is disclosed, so this summary stays safe to expose unauthenticated. Status folds in reachability. Pass/Fail count terminal cycles within the dashboard's selected time range (top-right) -- e.g. Last 3h shows only cycles finished in the last 3h -- counted from the Loki transition log (exact; reaches back to Loki retention), with a per-host zero baseline so they always show (0 included). Host ID links to that host's own status page; Last cycle links to the cycle folder. Artifacts never leave the generating host. Panel height tracks the host count (yuruna-fit-pool-dashboard.timer) so the table never scrolls -- gridPos.h below is only the pre-collector default.",
+            "description": "One row per discovered host, identified by its opaque Host ID (the stable per-host UUID, shown GUID-formatted) -- no hostname is disclosed, so this summary stays safe to expose unauthenticated. Status folds in reachability. Pass/Fail count terminal cycles within the dashboard's selected time range (top-right) -- e.g. Last 3h shows only cycles finished in the last 3h -- counted from the Loki transition log (exact; reaches back to Loki retention), with a per-host zero baseline so they always show (0 included). Host ID links to that host's own status page through the aggregator's /go/host redirect, which resolves the host's CURRENT IP server-side and hands the browser the short-lived control token the host's Pause/Continue buttons require; Last cycle links to the cycle folder. Artifacts never leave the generating host. Panel height tracks the host count (yuruna-fit-pool-dashboard.timer) so the table never scrolls -- gridPos.h below is only the pre-collector default.",
             "gridPos": { "h": 9, "w": 24, "x": 0, "y": 13 },
             "datasource": { "type": "datasource", "uid": "-- Mixed --" },
             "targets": [
@@ -1217,7 +1203,7 @@ write_files:
                     { "id": "custom.width", "value": 330 },
                     { "id": "custom.align", "value": "right" },
                     { "id": "mappings", "value": [ { "type": "regex", "options": { "pattern": "^(.{8})(.{4})(.{4})(.{4})(.{12})$", "result": { "text": "$1-$2-$3-$4-$5" } } } ] },
-                    { "id": "links", "value": [ { "title": "Open host status page", "url": "${__data.fields.baseUrl}", "targetBlank": true } ] }
+                    { "id": "links", "value": [ { "title": "Open host status page", "url": "${aggregator}/go/host?host=${__data.fields[\"Host ID\"]}&pool=${pool}", "targetBlank": true } ] }
                   ]
                 },
                 {
@@ -1332,7 +1318,7 @@ write_files:
                 "id": 13,
                 "type": "logs",
                 "title": "Incidents (open / resolved)",
-                "description": "Incident lifecycle: a host opens an incident at >= N failed cycles within the trailing M-minute window (default 3 in 2h) and resolves once that window clears. Each line carries incidentId, host, failCount and (on resolve) peakFails + durationSec, plus the incident's failure class ON the object: per-host dominantClass + classHistogram, and the pinned same-class on pool-wide incidents (a cross-host incident now requires the SAME class). Driven by the pool-aggregator's incident correlation; src=incident in Loki.",
+                "description": "Incident lifecycle: a host opens an incident at >= N failed cycles within the trailing M-minute window (default 3 in 2h) and resolves once that window clears. Each line carries incidentId, host, failCount and (on resolve) peakFails + durationSec, plus the incident's failure class ON the object: per-host dominantClass + classHistogram, and the pinned same-class on pool-wide incidents (a cross-host incident requires the SAME class). Driven by the pool-aggregator's incident correlation; src=incident in Loki.",
                 "gridPos": { "h": 8, "w": 24, "x": 0, "y": 24 },
                 "datasource": { "type": "loki", "uid": "yuruna-loki" },
                 "targets": [
@@ -1395,7 +1381,7 @@ write_files:
                 "id": 16,
                 "type": "table",
                 "title": "Incidents by failure class (window)",
-                "description": "Per-host incidents over the dashboard time range, grouped by the dominant failure class now carried ON the incident object (dominantClass on the src=incident open line). Distinct from 'Failures by class & severity' above, which counts step_failure events regardless of whether they formed an incident -- this counts the incidents themselves. Sorted by count.",
+                "description": "Per-host incidents over the dashboard time range, grouped by the dominant failure class carried ON the incident object (dominantClass on the src=incident open line). Distinct from 'Failures by class & severity' above, which counts step_failure events regardless of whether they formed an incident -- this counts the incidents themselves. Sorted by count.",
                 "gridPos": { "h": 8, "w": 24, "x": 0, "y": 68 },
                 "datasource": { "type": "loki", "uid": "yuruna-loki" },
                 "targets": [
@@ -1467,6 +1453,7 @@ write_files:
       PANEL_TIMELINE = 7    # state-timeline: one row per host
       PANEL_POOL = 6        # table: one row per host
       PANEL_EXTENSION = 17  # table: one row per extension host
+      PANEL_LAB_TOKEN = 18  # stat: shares the extension table's grid row
 
       CELL_PX = 30          # dashboard grid cell
       MARGIN_PX = 8         # vertical margin between cells
@@ -1576,6 +1563,16 @@ write_files:
                   panels[panel_id]["gridPos"]["y"] = y
                   changed = True
               y += panels[panel_id]["gridPos"]["h"]
+          # The Lab token tile shares the extension table's grid row: it must
+          # track that panel's y and h, or a grown table would push it into --
+          # or leave it overlapping -- the drill-down row stacked below.
+          lab = panels.get(PANEL_LAB_TOKEN)
+          if lab is not None:
+              ext_pos = panels[PANEL_EXTENSION]["gridPos"]
+              for axis in ("y", "h"):
+                  if lab["gridPos"].get(axis) != ext_pos[axis]:
+                      lab["gridPos"][axis] = ext_pos[axis]
+                      changed = True
           for panel in dashboard["panels"]:
               if panel.get("type") == "row":
                   if panel.get("gridPos", {}).get("y") != y:
@@ -2071,12 +2068,12 @@ write_files:
   # /etc/yuruna/ypool-nas.cifs.cred is deliberately NOT baked: yuruna-config-fetch.sh
   # writes it (0600) at runtime from the Host Config Service (/v1/nas/pool), so
   # rotation needs no rebuild and the plaintext pool password never ships in the seed.iso.
-  # --- REGION: https://yuruna.link/vmconfig/caching-proxy#pool-auth-token
-  - path: /etc/yuruna/pool-auth.token
+  # --- REGION: https://yuruna.link/vmconfig/caching-proxy#lab-auth-token
+  - path: /etc/yuruna/lab-auth.token
     permissions: '0640'
     owner: root:proxy
     content: |
-      POOL_AUTH_TOKEN_PLACEHOLDER
+      LAB_AUTH_TOKEN_PLACEHOLDER
   - path: /usr/local/bin/ypool-nas-replicate.sh
     permissions: '0755'
     owner: root:root
@@ -2214,13 +2211,18 @@ runcmd:
   # --- REGION: https://yuruna.link/vmconfig/caching-proxy#resolve-pool-dashboard-aggregator-url
   - |
     set -e
+    # Always plain http, even when the aggregator has its TLS leaf: the
+    # dashboard links only reach the aggregator's /go/* redirects, which land
+    # the operator's browser on plain-http host status pages. An https hop here
+    # would put a proxy-CA interstitial (operator browsers do not trust the
+    # proxy CA) in front of every host click while protecting nothing the next
+    # hop does not already carry in clear. The aggregator answers both
+    # protocols on :9400, so token-bearing clients keep their TLS.
     POOL_DASH=/var/lib/grafana/dashboards/pool.json
     if [ -f "$POOL_DASH" ]; then
       AGG_IP="$(hostname -I 2>/dev/null | awk '{print $1}')"
       [ -n "$AGG_IP" ] || AGG_IP=127.0.0.1
-      AGG_SCHEME=http
-      [ -f /etc/squid/ssl_cert/pool-aggregator.crt ] && AGG_SCHEME=https
-      sed -i "s#AGGREGATOR_BASE_PLACEHOLDER#${AGG_SCHEME}://${AGG_IP}:9400#g" "$POOL_DASH"
+      sed -i "s#AGGREGATOR_BASE_PLACEHOLDER#http://${AGG_IP}:9400#g" "$POOL_DASH"
     fi
   # --- REGION: https://yuruna.link/vmconfig/caching-proxy#squid-ssl_db-initialization
   - |

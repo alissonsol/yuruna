@@ -4,6 +4,27 @@ Yuruna uses [Calendar Versioning](https://calver.org/): `YYYY.MM.DD`.
 Tags are cut from the `main` branch; entries below summarize each
 tagged release.
 
+## 2026.07.28
+
+- **Every dashboard host link now grants the control token, and refusals say
+  why.** Table Host ID links now route through `/go/host`, over plain http
+  (the aggregator answers TLS and HTTP on `:9400`), and the "Control refused"
+  notice names the failing precondition. Deploying needs a caching-proxy
+  rebuild. See [control-routes.md](docs/control-routes.md).
+- **Enrolling a host in the lab is one command and a glance at the dashboard.**
+  Read the rotating code off the **Lab token** tile;
+  `pwsh test/Set-LabToken.ps1 -LabToken <code>` redeems it for the shared
+  `lab-auth-token` and stores it in the host vault, replacing
+  `Set-PoolAuthToken.ps1`. Needs a caching-proxy rebuild. See
+  [control-routes.md](docs/control-routes.md).
+
+## 2026.07.26
+
+- **The host clock is reported by a cycle, repaired by an operator.** Cycles
+  no longer sync it or refuse a drifted host — the repair needs sudo nobody
+  can type unattended. A cycle warns once; `Test-Config.ps1` offers the fix.
+  See [host-condition-registry.md](docs/host-condition-registry.md#the-host-clock).
+
 ## 2026.07.26
 
 - **Pool control runs as its own service.** `Start-PoolControlVM.ps1` and
@@ -230,6 +251,6 @@ LICENSEURI <https://yuruna.link/license>
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.26
+Last review: 2026.07.28
 
 Back to [Yuruna](README.md)

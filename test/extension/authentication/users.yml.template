@@ -85,14 +85,20 @@ users:
     vaultKey:           ""
     localOsPasswordRef: ""
 
-  # Pool push-ingest shared bearer token. NOT a login user: this logical
-  # entry exists so the pool-aggregator's POST /ingest write route can be gated by an
-  # operator-supplied token. Leave vaultKey EMPTY (default) to keep push DISABLED -- the
-  # aggregator then refuses /ingest entirely. To ENABLE push: set vaultKey to a key
-  # (e.g. "pool.auth.token"), then run `Set-Password -Username pool-auth-token` once
-  # with the shared token. The vault never auto-generates for a populated vaultKey, so
-  # the token stays operator-owned; set the SAME token on every pool host AND the proxy.
-  pool-auth-token:
+  # Lab shared bearer token. NOT a login user: this logical entry holds the
+  # shared secret that gates the pool-aggregator's POST /ingest write route
+  # and keys the control proofs for the status-server /control/* routes.
+  # Leave vaultKey EMPTY (default) to keep the host un-enrolled -- push stays
+  # disabled and control stays loopback-only. The convenient way to populate
+  # it is `pwsh test/Set-LabToken.ps1 -LabToken <code>` with the code from
+  # the dashboard's "Lab token" tile (it sets vaultKey and stores the token
+  # in one step); building the caching proxy mints and stores one
+  # automatically when none exists. The vault never auto-generates for a
+  # populated vaultKey, so the token stays lab-owned; every pool host and the
+  # proxy must hold the SAME value. (Hosts provisioned under the earlier
+  # 'pool-auth-token' logical name keep working: every reader falls back to
+  # that entry when this one is empty.)
+  lab-auth-token:
     localOsUser: ""
     corporate:   { domain: "", sam: "", upn: "" }
     vaultKey:           ""

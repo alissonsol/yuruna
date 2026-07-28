@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.26
+.VERSION 2026.07.28
 .GUID 421f2910-f0a6-4fea-886f-31a3a2399f09
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -99,7 +99,7 @@ function Get-CredentialProvider {
 # ecr, gar, dockerhub) precede the catch-all docker-generic, and patterns
 # anchor the hostname so a path-suffixed target ('foo.azurecr.io/img') still
 # matches. The Authenticator vs LoginCommand contract and the credential
-# env vars: docs/component-registry.md#built-in-providers
+# env vars: https://yuruna.link/component-registry
 
 # --- REGION: Azure Container Registry
 Register-CredentialProvider -Type 'azurecr' `

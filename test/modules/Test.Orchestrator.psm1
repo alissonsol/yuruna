@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.26
+.VERSION 2026.07.28
 .GUID 42c7a1b9-3d4e-4f80-9a21-5b6c7d8e9f01
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -76,9 +76,11 @@ function Invoke-OrchestratorHostAction {
         host.elevated / host.arguments. Returns the exit code (0 = pass).
     .NOTES
         DESIGN -- console vs. HTML transcript for host-action stages.
-        The host script's own stdout streams to the console (via Out-Host
-        below) and is mirrored into THIS cycle's HTML transcript by the
-        Yuruna.Log tee. But a host script is free to fan its real work out
+        The host script's own stdout and stderr are routed through the
+        information stream below, which the Yuruna.Log proxy tees into THIS
+        cycle's HTML transcript. The proxy only wraps the Write-* cmdlets, so
+        output handed straight to the console host would reach the terminal
+        and no artifact. But a host script is free to fan its real work out
         into child processes with their OWN redirected output -- e.g. the
         AmisAd set-resource.yml runs Set-Resource.ps1, whose Invoke-Stage
         launches each guest build as a hidden child `pwsh` (Start-Process
@@ -133,11 +135,16 @@ function Invoke-OrchestratorHostAction {
             return 1
         }
         Write-OrchestratorLine "Host action: $scriptPath $($hostArgs -join ' ')$(if ($elevated) { ' (elevated)' })"
-        # Out-Host: stream the child script's output to the console/transcript
-        # rather than the success stream -- this function's return value (the
-        # exit code) is captured by the caller, so un-piped stdout would be
-        # swallowed into that value instead of shown.
-        & $pwshExe -NoProfile -ExecutionPolicy Bypass -File $scriptPath @hostArgs | Out-Host
+        # Pipe to Write-OrchestratorLine, not the success stream: this
+        # function returns the exit code, so un-piped stdout would be swallowed
+        # into that value instead of shown. The information stream (rather than
+        # the console host) is what reaches the cycle artifacts, since the log
+        # proxy tees the Write-* cmdlets and nothing else -- a host action whose
+        # output bypassed it would fail with its reason on the terminal only,
+        # and "FAIL" alone in the transcript and the event log. 2>&1 folds in
+        # the child's stderr, which is where a failing host script explains
+        # itself.
+        & $pwshExe -NoProfile -ExecutionPolicy Bypass -File $scriptPath @hostArgs 2>&1 | Write-OrchestratorLine
         $exitCode = $LASTEXITCODE
         if ($exitCode -ne 0) { break }
     }

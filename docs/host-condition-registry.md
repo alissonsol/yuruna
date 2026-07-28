@@ -40,8 +40,9 @@ registry needs one `Register-HostConditionProvider` call.
 | `Clear-HostConditionProvider` | Tests only |
 | `Assert-HostConditionSet -HostType` | Outer runner per-cycle gate |
 | `Get-HostClockSkew` / `Get-HostClockSkewLimit` | Host-clock measurement (direct NTP over UDP) |
-| `Assert-HostClock -HostType` | Every platform's `Assert`; `Test-Config` reporting |
-| `Sync-HostClock -HostType` | Outer runner cycle boundary; `Test-Config` fix offer |
+| `Write-HostClockDriftWarning -HostType` | Every platform's `Assert` — measures once per process and warns |
+| `Reset-HostClockReport` | Tests only (re-arms the once-per-process latch) |
+| `Sync-HostClock -HostType` | `Test-Config` fix offer; `Enable-TestAutomation.ps1` — never a running cycle |
 | `Test-ElevationRequired -HostType` | Cleanup helpers ([`Test.HostDetection`](../test/modules/Test.HostDetection.psm1)) |
 | `Test-HostRequirement -HostType [-Quiet]` | One-off operator helpers ([`Test.HostDetection`](../test/modules/Test.HostDetection.psm1)) |
 
@@ -58,7 +59,7 @@ Each registration carries an eight-field ordered dict:
     RequiresElevation = $true   # consumed by Test-ElevationRequired
     Display           = { param() ... }   # optional: per-cycle display-surface ensure (e.g. attach a virtual monitor on headless Hyper-V); $null when unneeded. Invoked by Initialize-HostDisplay.
     DisplayTeardown   = { param() ... }   # optional inverse: tear the surface down; $null when unneeded. Invoked by Remove-HostDisplay.
-    ClockSync         = { param() ... @{ Succeeded; Message } }   # optional: put this host's clock back under NTP discipline. Invoked by Sync-HostClock.
+    ClockSync         = { param() ... @{ Succeeded; Message } }   # optional: put this host's clock back under NTP discipline. Invoked by Sync-HostClock from the operator-facing paths only -- it needs privileges an unattended cycle cannot obtain.
 }
 ```
 
@@ -72,9 +73,12 @@ maintenance.
 
 | HostType | RequiresElevation | What `Assert` gates on | `ClockSync` |
 |---|---|---|---|
-| `host.windows.hyper-v` | `$true` | Administrator elevation, vmms service, display timeout, lock screen, host clock | W32Time → Automatic + started + `w32tm /resync /force` |
-| `host.macos.utm` | `$false` | Accessibility + Screen Recording TCC grants, display sleep, screen lock, host clock | `systemsetup -setusingnetworktime on` + `sntp -sS` |
-| `host.ubuntu.kvm` | `$false` | Host clock, `/dev/kvm` present, libvirtd active, virsh round-trip, current shell's group set includes `libvirt` | `timedatectl set-ntp true` + step the active daemon |
+| `host.windows.hyper-v` | `$true` | Administrator elevation, vmms service, display timeout, lock screen | W32Time → Automatic + started + `w32tm /resync /force` |
+| `host.macos.utm` | `$false` | Accessibility + Screen Recording TCC grants, display sleep, screen lock | `systemsetup -setusingnetworktime on` + `sntp -sS` |
+| `host.ubuntu.kvm` | `$false` | `/dev/kvm` present, libvirtd active, virsh round-trip, current shell's group set includes `libvirt` | `timedatectl set-ntp true` + step the active daemon |
+
+Every `Assert` also reports the host clock, but never gates on it —
+see below.
 
 The Linux `Assert` diagnostic distinguishes "kvm missing" from
 "libvirtd down" from "stale group set" from "not in libvirt group at
@@ -94,13 +98,17 @@ status timestamps sit in the future, so `kubectl` prints their age as
 while a `curl` straight at the pod IP answers `200`. Nothing in that
 picture points back at a clock.
 
-So the clock is handled at three levels:
+A cycle reports the clock; only an operator repairs it. Every
+platform's fix is a privileged call — Administrator, or a sudo
+credential nobody is present to type — so an unattended loop can
+neither perform it nor stop to ask, and a host that refused its own
+cycles over a clock would run none at all until someone noticed.
 
 | Level | What happens |
 |---|---|
-| `Assert-HostClock`, in every platform's `Assert` | Refuses the cycle past `Get-HostClockSkewLimit` (120s) with the symptom spelled out. An **unmeasurable** clock passes — an isolated lab has no route to a time server and must still run. |
-| `Sync-HostClock`, at the outer runner's cycle boundary | Best-effort repair, warn-only. This is the one safe moment to correct a drifted host: no guest is running, so the step cannot do to our own VMs what it would do mid-cycle. |
-| `Set-*HostConditionSet` / `Enable-TestAutomation.ps1` | The durable fix: enable the platform's time service so it stays disciplined. `Test-Config.ps1` reports the skew and offers the same repair interactively. |
+| `Write-HostClockDriftWarning`, in every platform's `Assert` | Measures **once per process** (a fresh process runs each cycle, so once per cycle) and warns past `Get-HostClockSkewLimit` (120s) with the symptom spelled out. The cycle continues. An **unmeasurable** clock says nothing — an isolated lab has no route to a time server and is a normal deployment. |
+| `Test-Config.ps1` | Reports the skew, then offers the repair — only to a console that can answer. Accepting primes the sudo credential cache (`Initialize-SudoCache`) before `Sync-HostClock`, because every platform's sync is `sudo -n` and would otherwise fail on the answer just given. |
+| `Set-*HostConditionSet` / `Enable-TestAutomation.ps1` | The durable fix: enable the platform's time service so it stays disciplined. |
 
 `Get-HostClockSkew` speaks NTP directly over UDP rather than shelling
 out to the platform's time client: on a drifting host that client is
@@ -133,8 +141,8 @@ use.
    `Register-IfAvailable` line listing the new HostType + function
    names + `RequiresElevation`. Add `-ClockSyncFn` pointing at a
    `Sync-<Platform>HostClock` that returns `@{ Succeeded; Message }`
-   — without it the platform is gated on its clock but cannot repair
-   it, and every drifted run stops at the gate.
+   — without it the platform reports a drifted clock but offers the
+   operator no way to fix it.
 4. Add the matching `HostType` token to
    [`Test.HostDetection`](../test/modules/Test.HostDetection.psm1)'s
    `Get-HostType` discovery so the new platform is detectable.
@@ -147,7 +155,7 @@ use.
 
 ## Related
 
-- [Component registry login](component-registry.md) — same eviction-safe global-anchor pattern, hand-rolled in `automation/Yuruna.CredentialProvider.psm1` rather than on `New-YurunaRegistry`.
+- [Component registry login](authentication.md#component-registry-login) — same eviction-safe global-anchor pattern, hand-rolled in `automation/Yuruna.CredentialProvider.psm1` rather than on `New-YurunaRegistry`.
 - [Host I/O registry](host-io.md) — the older two-level registry that established the pattern.
 - [macOS host](host-macos.md), [Hyper-V host](host-hyperv.md) — per-platform deep dives.
 
@@ -157,6 +165,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.26
+Last review: 2026.07.28
 
 Back to [Yuruna](../README.md)

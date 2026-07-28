@@ -232,15 +232,15 @@ their age as `<invalid>`). Services lose every endpoint and each NodePort
 refuses, while `curl http://<podIP>:8080/health` from the node answers
 `200`. A test that waits on a NodePort simply times out.
 
-This is not Hyper-V-specific — all three hosts gate and repair the clock
+This is not Hyper-V-specific — all three hosts report and repair the clock
 the same way, described in
 [host-condition-registry.md](host-condition-registry.md#the-host-clock).
 On Windows: `Assert-WindowsHostConditionSet` measures against a public NTP
 server (`Get-HostClockSkew`, direct UDP — the Windows Time service is
-exactly what is broken on a drifting host) and refuses the cycle past 120s
-of skew; the outer runner calls `Sync-HostClock` at each cycle boundary and
-warns without stopping when it cannot fix it; `Test-Config.ps1` reports the
-skew and offers the repair.
+exactly what is broken on a drifting host) and warns once per cycle past
+120s of skew. The cycle runs on. Repairing needs an Administrator shell no
+unattended loop has, so the fix lives where someone can authorize it:
+`Test-Config.ps1` reports the skew and offers it.
 
 `Sync-WindowsHostClock` — reached from `Set-WindowsHostConditionSet`, so
 `Enable-TestAutomation.ps1` applies it — fixes the underlying state: W32Time
@@ -262,6 +262,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.26
+Last review: 2026.07.28
 
 Back to [Yuruna](../README.md)

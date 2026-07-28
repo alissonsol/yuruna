@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.26
+.VERSION 2026.07.28
 .GUID 42c1f70a-8d35-4e63-9a27-5b48c1e07d92
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -247,6 +247,18 @@ Describe 'A failed VM start is never reported as success' {
         $liveAt = $text.IndexOf('Warm-up complete. Live:')
         Assert-True ($deadAt -ge 0) 'dead edges are collected'
         Assert-True ($deadAt -lt $liveAt) 'and checked before anything claims the topology is live'
+    }
+
+    It 'a host action failing puts its reason in the cycle artifacts, not only the console' {
+        # The log proxy tees the Write-* cmdlets and nothing else, so output
+        # handed to the console host reaches the terminal and no artifact. A
+        # host action that fails that way leaves "FAIL" with an empty reason in
+        # the transcript and the event log -- the operator has nothing to read.
+        $text = Get-Content -Raw (Join-Path $VncRepoRoot 'test/modules/Test.Orchestrator.psm1')
+        $body = [regex]::Match($text, '(?ms)^function Invoke-OrchestratorHostAction\b.*?\n\}').Value
+        Assert-True ($body -match '-File \$scriptPath @hostArgs') 'the host script is still dispatched'
+        Assert-True ($body -notmatch '@hostArgs\s*\|\s*Out-Host') 'the child output does not go straight to the console host'
+        Assert-True ($body -match '@hostArgs 2>&1 \| Write-OrchestratorLine') 'stdout and stderr both go through the tee'
     }
 
     It 'loadDiskSnapshot fails when Start-VM reports no usable status record' {

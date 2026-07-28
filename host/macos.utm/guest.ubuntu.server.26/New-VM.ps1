@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.26
+.VERSION 2026.07.28
 .GUID 42f2a3b4-c5d6-4e78-9012-3f4a5b6c7d81
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -182,7 +182,6 @@ if (-not (Remove-UtmBundleWithRetry -Path $UtmDir)) {
 }
 New-Item -ItemType Directory -Force -Path $DataDir | Out-Null
 
-# Copy base image ISO into the bundle (named after hostname)
 $DestIso = "$DataDir/$VMName.iso"
 Copy-Item -Path $baseImageFile -Destination $DestIso
 Write-Verbose "Copied installer ISO as: $VMName.iso"

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.26
+.VERSION 2026.07.28
 .GUID 42795a67-cd5f-42ad-bd44-8d466ffec8fb
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -42,16 +42,19 @@
     The reference host's status-server port. The per-host script's default
     applies when this is omitted.
 .PARAMETER SharedToken
-    Shared pool-auth-token, used to fetch a missing vault credential from the
+    Shared lab-auth-token, used to fetch a missing vault credential from the
     reference host. The per-host script falls back to this host's own vault copy,
-    then to a prompt.
+    then to a prompt. The convenient way to obtain the token on a new host is
+    test/Set-LabToken.ps1 with the dashboard's Lab token; this parameter takes
+    the RAW shared token, the host-to-host path for when the aggregator is not
+    reachable.
 .PARAMETER PersistSharedToken
-    Store -SharedToken in THIS host's vault as the pool-auth-token (via
-    Set-PoolAuthToken.ps1) before syncing config, and bounce the status server
-    so it takes effect immediately. This is the DEFAULT whenever -SharedToken is
-    supplied and the host is joining the pool, so a joined host is reachable from
-    the dashboard instead of accepting control only from loopback; the switch
-    remains for explicitness.
+    Store -SharedToken in THIS host's vault as the lab-auth-token (via the
+    Set-LabAuthToken provisioning) before syncing config, and bounce the status
+    server so it takes effect immediately. This is the DEFAULT whenever
+    -SharedToken is supplied and the host is joining the pool, so a joined host
+    is reachable from the dashboard instead of accepting control only from
+    loopback; the switch remains for explicitness.
 .PARAMETER NoPersistSharedToken
     Use -SharedToken only for this run and do NOT store it. The host keeps
     loopback-only control. For a host that should not be remotely drivable.
@@ -76,6 +79,13 @@
 [Diagnostics.CodeAnalysis.SuppressMessageAttribute(
     'PSAvoidUsingPlainTextForPassword', 'SharedToken',
     Justification = 'Forwarded as the plaintext vault stores it, to a per-host script that takes it the same way; only its HMAC proof crosses the wire.')]
+# SupportsShouldProcess is load-bearing, not decoration: this script performs a
+# state change of its own (storing the shared token in the vault and bouncing
+# the status server) before delegating. Without it, -WhatIf binds to
+# -RemainingArguments as a plain string instead of a common parameter, so the
+# rehearsal reaches only the per-host script -- and the vault write it was meant
+# to rehearse happens for real.
+[CmdletBinding(SupportsShouldProcess)]
 param(
     [Parameter(Mandatory, Position = 0)]
     [ValidateNotNullOrEmpty()]
@@ -105,17 +115,22 @@ Import-Module -Name (Join-Path (Split-Path -Parent $PSScriptRoot) 'automation/Yu
 # each decision (kept local path, added alias, stored credential) under
 # -Verbose, so pass the switch on when it was asked for; it binds to this
 # redirector as a common parameter and would otherwise stop here.
+# -WhatIf rides along for the same reason and needs the same explicit relay:
+# ConvertTo-HostScriptArgument deliberately drops the optional common
+# parameters, so a bound -WhatIf would otherwise stop at this shell while the
+# per-host script -- which supports it -- ran for real.
 $extra = @()
 if ($PSBoundParameters.ContainsKey('Verbose')) { $extra += '-Verbose' }
+if ($PSBoundParameters.ContainsKey('WhatIf'))  { $extra += '-WhatIf' }
 
-# -PersistSharedToken is host-neutral: storing the shared pool-auth-token in
+# -PersistSharedToken is host-neutral: storing the shared lab-auth-token in
 # this host's vault is the identical vault operation on every platform (unlike
 # the config conversion the per-host script owns), so it runs here in the
 # redirector -- before the per-host config-sync, which can then also read the
-# token from the local vault. Delegated to Set-PoolAuthToken.ps1 in a child
-# pwsh so that script's own `exit` and -Global module imports stay out of this
-# runspace; it is excluded from the forwarded arguments (the per-host script
-# has no such parameter).
+# token from the local vault. Handled by the module's Set-LabAuthToken
+# in-process (test/Set-LabToken.ps1 takes only the dashboard's 6-char code,
+# never the raw token); the persist switches are excluded from the forwarded
+# arguments (the per-host script has no such parameter).
 # Persisting is the DEFAULT once a token is supplied and the host is joining the
 # pool: a host that syncs a pool config but stores no token accepts control only
 # from loopback, so the dashboard's own deep link into it fails with a 403 that
@@ -126,18 +141,15 @@ $persistToken = -not $NoPersistSharedToken -and -not $NoPool -and
                 ($PersistSharedToken -or -not [string]::IsNullOrEmpty($SharedToken))
 if ($persistToken) {
     if ([string]::IsNullOrEmpty($SharedToken)) {
-        throw "-PersistSharedToken requires -SharedToken (the shared pool-auth-token to store in this host's vault)."
+        throw "-PersistSharedToken requires -SharedToken (the shared lab-auth-token to store in this host's vault)."
     }
-    $persistScript = Join-Path $PSScriptRoot 'Set-PoolAuthToken.ps1'
-    $pwshExe = [System.Environment]::ProcessPath
-    if (-not ($pwshExe -and (Test-Path -LiteralPath $pwshExe))) {
-        throw 'Could not resolve the pwsh executable to run Set-PoolAuthToken.ps1.'
-    }
-    $persistArgs = @('-NoProfile', '-File', $persistScript, '-Token', $SharedToken, '-BounceStatusService')
-    if ($PSBoundParameters.ContainsKey('WhatIf')) { $persistArgs += '-WhatIf' }
-    & $pwshExe @persistArgs
-    if ($LASTEXITCODE -ne 0) {
-        throw "pool-auth-token provisioning failed (exit $LASTEXITCODE)."
+    Import-Module (Join-Path $PSScriptRoot 'extension/authentication/default.psm1') -Global -Force -DisableNameChecking
+    Import-Module (Join-Path $PSScriptRoot 'modules/Test.HostConfigSync.psm1') -Global -Force -DisableNameChecking
+    $tokenArgs = @{ Token = $SharedToken; BounceStatusService = $true }
+    if ($PSBoundParameters.ContainsKey('WhatIf')) { $tokenArgs['WhatIf'] = $PSBoundParameters['WhatIf'] }
+    $provision = Set-LabAuthToken @tokenArgs
+    if (-not $WhatIfPreference -and -not $provision.ok) {
+        throw "lab-auth-token provisioning failed (keyChanged=$($provision.keyChanged), verified=$($provision.verified))."
     }
 }
 

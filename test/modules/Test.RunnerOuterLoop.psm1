@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.26
+.VERSION 2026.07.28
 .GUID 42e5f6a7-b8c9-4d12-9345-6e7f8a9b0c1d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -336,6 +336,137 @@ function Get-OuterProjectUrl {
     return $null
 }
 
+function Get-OuterStatusBaseUrl {
+    <#
+    .SYNOPSIS
+        Scheme + host + port of this host's status server, as another machine
+        on the LAN would address it. Empty string when no routable address
+        exists.
+    .DESCRIPTION
+        Deliberately never yields localhost: the value is pasted into a link
+        an operator hands to someone else, and a loopback URL resolves on the
+        reader's own machine instead of failing visibly.
+
+        The address is taken from the interface that carries a default route.
+        Selecting by gateway rather than by enumeration order is what keeps a
+        hypervisor's host-only bridge out of the link -- it has an address and
+        is 'Up', but nothing off this box can reach it. The per-host drivers
+        answer the same question via route(8)/ip(8), but they only resolve
+        after Initialize-YurunaHost, which the outer runner does not call.
+
+        runtime/ipaddresses.txt is not used: it is rewritten only when the
+        status service starts, so it goes stale the moment the host changes
+        network -- exactly when a wrong link is most costly.
+    .PARAMETER ConfigPath
+        test.config.yml, read for the statusService gate + port.
+    .PARAMETER ArgList
+        The inner-spawn argv, checked for a forwarded -NoStatusService.
+    .OUTPUTS
+        [string] e.g. 'http://192.168.7.101:8080', or '' when there is no
+        server to link to.
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        [Parameter(Mandatory)][string]$ConfigPath,
+        [Parameter()][AllowNull()][string[]]$ArgList = @()
+    )
+
+    # An operator-published base wins: a reverse proxy or tunnelled hostname
+    # is not discoverable from inside this process, and its presence means a
+    # dashboard is served regardless of what this host runs locally.
+    if ($env:YURUNA_STATUS_PUBLIC_URL) { return ([string]$env:YURUNA_STATUS_PUBLIC_URL).TrimEnd('/') }
+
+    # Config is the only record of the port: nothing on disk stores the port
+    # the listener actually bound to. The same call answers whether a server
+    # was meant to start at all -- linking to one that was never started is
+    # worse than printing no link.
+    $port = 8080
+    try {
+        $decision = Resolve-StatusServiceStart -Config (Read-TestConfig -Path $ConfigPath) `
+            -NoStatusService:(Test-OuterNoStatusServiceForwarded -ArgList $ArgList)
+        if (-not $decision.ShouldStart) { return '' }
+        if ($decision.Port) { $port = [int]$decision.Port }
+    } catch {
+        # An unreadable config says nothing about whether a server is up, so
+        # fall through to the default port rather than suppressing the link.
+        Write-Verbose "Get-OuterStatusBaseUrl: $($_.Exception.Message)"
+    }
+
+    $address = ''
+    try {
+        $address = [string](
+            [System.Net.NetworkInformation.NetworkInterface]::GetAllNetworkInterfaces() |
+                Where-Object { $_.OperationalStatus -eq 'Up' } |
+                Where-Object { @($_.GetIPProperties().GatewayAddresses).Count -gt 0 } |
+                ForEach-Object { $_.GetIPProperties().UnicastAddresses } |
+                ForEach-Object { $_.Address } |
+                Where-Object { $_.AddressFamily -eq [System.Net.Sockets.AddressFamily]::InterNetwork } |
+                Where-Object { -not [System.Net.IPAddress]::IsLoopback($_) } |
+                Select-Object -First 1
+        )
+    } catch {
+        Write-Verbose "Get-OuterStatusBaseUrl: $($_.Exception.Message)"
+    }
+    if (-not $address) { return '' }
+    return "http://${address}:$port"
+}
+
+function Get-OuterCycleSummaryLine {
+    <#
+    .SYNOPSIS
+        One console line naming the cycle that just ended, its verdict, and a
+        short link to its HTML transcript. Empty string when the cycle left no
+        number to name.
+    .DESCRIPTION
+        The verdict comes from the inner's exit code rather than the status
+        document's own overallStatus, so the printed word always agrees with
+        what the loop does next (retry vs pause). The cycle number comes from
+        the status document, which the inner writes before it exits.
+
+        The link is the status server's /cycle/<number> alias, not the
+        transcript's real path: that path carries the cycle's timestamp and
+        host id, which makes it too long to paste into a message, and the
+        number is the only part of it a reader can recognise. The server
+        resolves the number to the on-disk folder, whatever lifecycle suffix
+        it currently carries.
+    .PARAMETER ConfigPath
+        test.config.yml, forwarded to Get-OuterStatusBaseUrl.
+    .PARAMETER ExitCode
+        The inner runner's exit code for the finished cycle.
+    .PARAMETER ArgList
+        The inner-spawn argv, forwarded to Get-OuterStatusBaseUrl.
+    .OUTPUTS
+        [string] e.g. 'Cycle 004062 - FAIL: http://192.168.7.101:8080/cycle/004062'.
+        Drops the link when there is no reachable server to link to.
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        [Parameter(Mandatory)][string]$ConfigPath,
+        [Parameter(Mandatory)][int]$ExitCode,
+        [Parameter()][AllowNull()][string[]]$ArgList = @()
+    )
+    if (-not $env:YURUNA_RUNTIME_DIR) { return '' }
+    $statusPath = Join-Path $env:YURUNA_RUNTIME_DIR 'status.json'
+    if (-not (Test-Path -LiteralPath $statusPath)) { return '' }
+    $doc = $null
+    try {
+        $doc = Get-Content -Raw -LiteralPath $statusPath -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
+    } catch {
+        Write-Verbose "Get-OuterCycleSummaryLine: $($_.Exception.Message)"
+        return ''
+    }
+    $cycleNumber = if ($doc -and $doc.cycle) { [int]$doc.cycle } else { 0 }
+    if ($cycleNumber -le 0) { return '' }
+
+    $verdict = if ($ExitCode -eq 0) { 'PASS' } else { 'FAIL' }
+    $number  = '{0:D6}' -f $cycleNumber
+    $baseUrl = Get-OuterStatusBaseUrl -ConfigPath $ConfigPath -ArgList $ArgList
+    if (-not $baseUrl) { return "Cycle $number - $verdict" }
+    return "Cycle $number - ${verdict}: $baseUrl/cycle/$number"
+}
+
 function Test-OuterNoStatusServiceForwarded {
     <#
     .SYNOPSIS
@@ -454,10 +585,42 @@ function Clear-TerminalNotifierJob {
 
 # === Main loop ============================================================
 
+# Every Invoke-RunnerOuterCycle return lands here as well as on the pipeline, so
+# Invoke-TestCycleRunner.ps1 can read the outcome WITHOUT capturing the success
+# stream. It must not capture: doing so makes PowerShell hand the inner pwsh an
+# anonymous pipe for stdout instead of letting it inherit the console, and the
+# call operator then returns on that pipe reaching EOF rather than on the inner
+# exiting. The status server the inner spawns is the process that keeps it open --
+# Start-Process -RedirectStandard* sets bInheritHandles=TRUE, so it receives a
+# duplicate of the write end and holds it for its whole unbounded life. The host
+# then completes exactly one cycle and never starts another: the inner logs
+# "about to exit with code 0" and "outer runner back in control" never follows.
+# Windows only; the POSIX detach in Start-StatusService.ps1 replaces the
+# descriptors outright, so nothing crosses the exec there.
+$script:LastOuterCycleResult = $null
+
+function Get-LastOuterCycleResult {
+    <#
+    .SYNOPSIS
+        The result of the most recent Invoke-RunnerOuterCycle in this process,
+        or $null if none has run.
+    .DESCRIPTION
+        The out-of-band half of the contract described above. Each cycle runs in
+        a fresh process that re-imports this module, so there is no stale value to
+        read across cycles.
+    .OUTPUTS
+        pscustomobject with Outcome and ExitCode, or $null.
+    #>
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param()
+    return $script:LastOuterCycleResult
+}
+
 function Invoke-RunnerOuterCycle {
     <#
     .SYNOPSIS
-        Run ONE cycle: repo pull, pool-intent gate, clock sync, pre-spawn cleanup,
+        Run ONE cycle: repo pull, pool-intent gate, pre-spawn cleanup,
         watchdog, the inner spawn, and the cycle-end hooks.
     .DESCRIPTION
         Split out of Invoke-RunnerOuterLoop so it can be executed in a FRESH process
@@ -517,7 +680,7 @@ function Invoke-RunnerOuterCycle {
                 # The retry pause is the CALLER's, deliberately: sleeping here would
                 # block inside the per-cycle child, where the outer's Ctrl+C flag is
                 # not observable and the wait could not be cut short.
-                return [pscustomobject]@{ Outcome = 'pull-error'; ExitCode = 0 }
+                return ($script:LastOuterCycleResult = [pscustomobject]@{ Outcome = 'pull-error'; ExitCode = 0 })
             }
         }
 
@@ -529,9 +692,10 @@ function Invoke-RunnerOuterCycle {
         #     credential-prompt-proof inside Sync-YurunaPoolIntent, so this can't
         #     hang the (bare-pwsh-INTERACTIVE) outer loop; any error is non-fatal.
         # Per-pool config.testCycle override (default-off, empty for a no-pool host),
-        # captured at the cycle boundary so the watchdog (step-timeout) + the failure-
-        # pause (auto-remediation) below can let a pool ENGAGE remediation / tighten
-        # the step timeout fleet-wide without editing each host's test.config.yml.
+        # captured at the cycle boundary so the watchdog (step-timeout) below can let
+        # a pool tighten the step timeout fleet-wide without editing each host's
+        # test.config.yml. This value is per-PROCESS: the failure pause lives in
+        # Invoke-RunnerOuterLoop, in the parent, and cannot read it.
         $poolTC = @{}
         if (Get-Command Sync-YurunaPoolIntent -ErrorAction SilentlyContinue) {
             $poolState = 'run'
@@ -554,7 +718,7 @@ function Invoke-RunnerOuterCycle {
                 # Reported rather than set here: the flag lives in the caller's
                 # process, so flipping this copy would not reach the loop that owns
                 # the shutdown decision.
-                return [pscustomobject]@{ Outcome = 'drain'; ExitCode = 0 }
+                return ($script:LastOuterCycleResult = [pscustomobject]@{ Outcome = 'drain'; ExitCode = 0 })
             }
             if ($poolState -eq 'paused') {
                 # Healthy hold (distinct from the failure-pause below): the outer
@@ -569,38 +733,18 @@ function Invoke-RunnerOuterCycle {
                 # Caller owns the hold, for the same reason as the pull retry: a
                 # sleep here is not interruptible from the shell the operator
                 # actually pressed Ctrl+C in.
-                return [pscustomobject]@{ Outcome = 'paused'; ExitCode = 0 }
+                return ($script:LastOuterCycleResult = [pscustomobject]@{ Outcome = 'paused'; ExitCode = 0 })
             }
         }
 
-        # 1c. Host clock (best-effort, warn-only). Guests take their clock
-        #     from the host's virtual RTC at power-on; a host that has
-        #     drifted starts every VM equally wrong and the guest's own NTP
-        #     client steps it to real time seconds into the boot, landing
-        #     mid-startup. A Kubernetes guest survives that step looking
-        #     healthy from every angle except the one that matters: pods
-        #     Running but never Ready, Services with no endpoints, every
-        #     NodePort refusing.
-        #
-        #     Here, at the cycle boundary, is the ONLY safe place to correct
-        #     it: no guest is running, so stepping the host clock cannot do
-        #     to our own VMs what it would do mid-cycle. Never fatal -- the
-        #     sync needs privileges this process may not hold, and a host
-        #     that cannot fix its clock is still refused by
-        #     Assert-HostConditionSet inside the inner, with the diagnostic.
-        if (Get-Command Sync-HostClock -ErrorAction SilentlyContinue) {
-            try {
-                $clockSync = Sync-HostClock -HostType (Get-HostType) -Confirm:$false
-                if ($clockSync.Attempted -and -not $clockSync.Succeeded) {
-                    Write-Warning "[outer cycle $cycle] host clock sync failed (continuing): $($clockSync.Message)"
-                    Write-OuterLog "[outer cycle $cycle] host clock sync failed: $($clockSync.Message)"
-                } elseif ($clockSync.Succeeded) {
-                    Write-OuterLog "[outer cycle $cycle] host clock: $($clockSync.Message)"
-                }
-            } catch {
-                Write-Warning "[outer cycle $cycle] host clock sync threw (continuing): $($_.Exception.Message)"
-            }
-        }
+        # No clock repair here. Guests take their clock from the host's
+        # virtual RTC at power-on, so a drifted host is worth knowing about
+        # -- but every platform's fix is a privileged call (Administrator,
+        # or a sudo credential nobody is present to type), and an unattended
+        # loop that stops to ask is a hang. Assert-HostConditionSet inside
+        # the inner measures the skew once per cycle and warns; the repair
+        # is offered where a console can answer for it (test/Test-Config.ps1,
+        # host/*/Enable-TestAutomation.ps1).
 
         # 2. Spawn the inner. YURUNA_RUNNER_RELAUNCH=1 (set just before the
         #    spawn, cleared in the finally that follows it) tells the inner
@@ -751,7 +895,7 @@ function Invoke-RunnerOuterCycle {
             Remove-Item -LiteralPath $wdLapseFile -Force -ErrorAction SilentlyContinue
         }
         if ($innerSpawnFailed) {
-            return [pscustomobject]@{ Outcome = 'spawn-failed'; ExitCode = 0 }
+            return ($script:LastOuterCycleResult = [pscustomobject]@{ Outcome = 'spawn-failed'; ExitCode = 0 })
         }
         # Outer regained control. Emit BOTH to console and to runtime/
         # outer.log so a conhost wedge (documented above) can't hide
@@ -834,8 +978,8 @@ function Invoke-RunnerOuterCycle {
         # without waiting for the next 30s pull. Runs in its OWN detached process (same
         # idiom as the drain) so a slow/absent aggregator can NEVER delay the next cycle
         # (preserving read-side decoupling); pull backfills anything push drops. The
-        # forwarder self-gates: it is a fast no-op unless the pool-auth-token is configured
-        # (the operator's push opt-in) AND a caching-proxy is reachable. Spawn failure is
+        # forwarder self-gates: it is a fast no-op unless the lab-auth-token is configured
+        # (enrollment is the push opt-in) AND a caching-proxy is reachable. Spawn failure is
         # non-fatal.
         try {
             $pushScript = Join-Path $PSScriptRoot 'Invoke-PoolPushForwarder.ps1'
@@ -990,7 +1134,7 @@ function Invoke-RunnerOuterCycle {
             }
         }
 
-    return [pscustomobject]@{ Outcome = 'completed'; ExitCode = $exitCode }
+    return ($script:LastOuterCycleResult = [pscustomobject]@{ Outcome = 'completed'; ExitCode = $exitCode })
 }
 
 function Wait-OuterInterruptible {
@@ -1083,7 +1227,16 @@ function Invoke-OuterCycleDispatch {
     $outcomeFile = Join-Path $env:YURUNA_RUNTIME_DIR 'runner.cycle.outcome.json'
     Remove-Item -LiteralPath $outcomeFile -Force -ErrorAction SilentlyContinue
 
-    $argList = @('-NoLogo', '-NoProfile', '-File', $cycleScript, '-Cycle', "$Cycle")
+    # Wrap the script path in literal double quotes before it reaches
+    # -ArgumentList. Start-Process joins the array elements with spaces WITHOUT
+    # quoting, so a path like "C:\Users\Yuruna Test\..." gets re-split by
+    # CreateProcess and the child pwsh sees -File C:\Users\Yuruna and exits 64
+    # with: The argument 'C:\Users\Yuruna' is not recognized as the name of a
+    # script file. The outer reads that as a failed cycle, so a host whose path
+    # contains a space never completes one. Same pre-quoting as the detached
+    # drain / push spawns above and Start-StatusService.ps1.
+    $cycleScriptQuoted = '"' + $cycleScript + '"'
+    $argList = @('-NoLogo', '-NoProfile', '-File', $cycleScriptQuoted, '-Cycle', "$Cycle")
     $proc = $null
     try {
         $proc = Start-Process -FilePath $State.PwshExe -ArgumentList $argList -NoNewWindow -PassThru -ErrorAction Stop
@@ -1192,6 +1345,19 @@ function Invoke-RunnerOuterLoop {
             }
             Wait-OuterInterruptible -Seconds $holdSec -ShutdownState $State.ShutdownState
             continue
+        }
+        # One console line per finished cycle. Between the startup banner and
+        # the next failure pause the runner is otherwise silent for the whole
+        # cycle, leaving an operator watching the terminal with nothing to
+        # correlate against the dashboard. Printed before the pass/fail branch
+        # so both verdicts get one; 'shutdown' is excluded because its cycle
+        # was killed rather than finished and has no verdict to report.
+        if ($outcome -eq 'completed') {
+            $summaryLine = Get-OuterCycleSummaryLine -ConfigPath $State.ConfigPath -ExitCode $exitCode -ArgList $State.ArgList
+            if ($summaryLine) {
+                Write-Output $summaryLine
+                Write-OuterLog $summaryLine
+            }
         }
         if ($exitCode -eq 0) {
             # 3a. Success -- next iteration pulls and respawns
@@ -1362,7 +1528,14 @@ function Invoke-RunnerOuterLoop {
                 # the normal wait-for-human pause after a couple of fast retries.
                 # Everything else (pause_and_inspect / operator_intervention_
                 # required / restart_from_snapshot classes) keeps the full pause.
-                $autoRem = Get-OuterAutoRemediation -ConfigPath $State.ConfigPath -PoolTestCycleOverride $poolTC
+                # Local test.config.yml only. The per-pool testCycle override is
+                # resolved in Invoke-RunnerOuterCycle, which runs in a SEPARATE
+                # process on the shipped path, so no variable of its can be read
+                # here -- naming one binds $null over the parameter default and
+                # the lookup inside throws on every poll tick. Carrying the
+                # override across that boundary needs the outcome file, not a
+                # variable.
+                $autoRem = Get-OuterAutoRemediation -ConfigPath $State.ConfigPath
                 if ($autoRem.Enabled -and $remediationAutoSkips -lt $autoRem.MaxAttempts) {
                     $failClass = Get-OuterLastFailureClass
                     if ($failClass -in @('wait_timeout','instrumentation_failure','network_timeout','host_io_blocked')) {
@@ -1405,7 +1578,8 @@ Export-ModuleMember -Function `
     Get-OuterCommitSha, Test-OuterNewCommitsAvailable, Invoke-OuterGitPull, Invoke-OuterNetworkGit, `
     Get-OuterRemoteSha, Get-OuterConfigMtime, Get-OuterStepTimeoutMinute, Get-OuterProjectUrl, `
     Get-OuterPoolTestCycleOverride, Get-OuterAutoRemediation, Test-OuterNoStatusServiceForwarded, `
+    Get-OuterStatusBaseUrl, Get-OuterCycleSummaryLine, `
     Sync-ForwardEnv, Write-OuterLog, `
     Clear-TerminalNotifierJob, `
     Wait-OuterInterruptible, Stop-ProcessTree, Invoke-OuterCycleDispatch, `
-    Invoke-RunnerOuterCycle, Invoke-RunnerOuterLoop
+    Invoke-RunnerOuterCycle, Get-LastOuterCycleResult, Invoke-RunnerOuterLoop

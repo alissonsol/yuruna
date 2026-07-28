@@ -19,7 +19,7 @@ func TestMintControlProofGolden(t *testing.T) {
 	}
 }
 
-// TestMintControlProofEmptyToken: no configured pool-auth-token -> no proof, so /go/host
+// TestMintControlProofEmptyToken: no configured lab-auth-token -> no proof, so /go/host
 // adds no fragment and the host falls back to loopback-only control.
 func TestMintControlProofEmptyToken(t *testing.T) {
 	if got := mintControlProof("", 0); got != "" {

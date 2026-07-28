@@ -29,7 +29,7 @@ renders for anyone on the LAN, `status.json` is still served, and the config-syn
 
 ## Where the proof comes from
 
-The proof is an HMAC over the shared **`pool-auth-token`** — the token that already gates
+The proof is an HMAC over the shared **`lab-auth-token`** — the token that already gates
 the aggregator's push-ingest and the cross-host credential fetch. It is **not a new
 secret**, and the token itself never travels in a URL.
 
@@ -44,50 +44,85 @@ so a host whose clock trails the proxy still accepts a freshly minted proof. The
 captured once on arrival and never refreshed, so the config page shows a countdown and warns
 before it lapses rather than letting a long edit fail at Save.
 
-A host with **no** `pool-auth-token` configured is not broken — it simply accepts control
+A host with **no** `lab-auth-token` configured is not broken — it simply accepts control
 from loopback only.
 
 ## Enabling remote control on a host
 
 Every host **and** the caching proxy must hold the **same** token value: a proof minted by
-the proxy can only be verified by a host that shares its token.
+the proxy can only be verified by a host that shares its token. The token originates on
+the caching proxy — building the proxy VM mints one automatically when the building host
+has none — and every other host obtains it by **enrolling with the Lab token**; nobody
+ever reads or types the secret itself.
 
-**1. Read the shared token from the caching proxy.**
+**1. Read the Lab token off the dashboard.** Open the *Yuruna hosts* dashboard (Grafana on
+the caching proxy) and find the **Lab token** tile next to the *Extension hosts* table: a
+6-character code, the **lab connection token**. It rotates every minute (aggregator
+`-lab-token-rotate`), and a displayed code stays redeemable for about three, so read it
+right before the next step. A tile showing `off` means the aggregator holds no token —
+see item 5 in the 403 table below.
 
-```
-ssh caching-proxy-admin@<proxy> 'sudo cat /etc/yuruna/pool-auth.token'
-```
-
-This will ask you for the caching proxy VM password, which is recorded on the proxy VM's host under `test/status/runtime/yuruna-caching-proxy.yml` (and printed in `New-VM.ps1`'s ready banner). This completes the "secure path" to set the authorization token: the operator has access to the host for the caching process.
-
-**2. Store that value on the host.**
-
-```
-pwsh test/Set-PoolAuthToken.ps1 -Token '<shared-token>' -BounceStatusService
-```
-
-The script is idempotent. It declares the `users.yml` vault key, stores the token, and
-verifies the round-trip through the same lookup the control gate performs — so a key that
-is stored under one name and read under another (a silent `403`) cannot happen.
-`-BounceStatusService` restarts the status server so the token takes effect immediately
-instead of at the next cycle; `-WhatIf` previews without touching the vault.
-
-It reports each step as it runs — vault key, store, verify, then the restart — and streams
-the status server's own start-up output through while it waits. The vault writes are
-sub-second; the restart is the slow part (it re-asserts the caching-proxy port map and
-waits for the port to answer), so expect that step to take tens of seconds. It is bounded:
-if the restart has not finished in 180 s the script says so and leaves it running, and the
-token is already stored either way — it simply takes effect at the next cycle instead.
-
-Bringing a **new** host into the pool? One command does the token and the config sync:
+**2. Enroll the host.**
 
 ```
-pwsh test/Sync-HostConfiguration.ps1 -ReferenceHost <host> -SharedToken '<shared-token>' -PersistSharedToken
+pwsh test/Set-LabToken.ps1 -LabToken <code> -BounceStatusService
 ```
+
+The script redeems the code at the aggregator's `POST /api/v1/lab-token` and stores the
+shared `lab-auth-token` in this host's vault. The reply is **sealed under the code you
+typed**, so only this host can open it: an enrolling host cannot yet verify the proxy's
+TLS certificate (it is signed by the proxy's own CA), and the seal is what stops anything
+else on the network from answering the exchange and planting a token of its choosing. The
+exchange is audited — the aggregator logs every attempt with the caller's address, to its
+journal and to Loki — and per-address throttled. Whoever can **view** the dashboard can
+enroll a host: that is the lab's trust model, and the dashboard and the code rotate
+together.
+
+The caching proxy is found from this host's configuration (`vmStart.cachingProxyIP`, the
+persisted proxy state, or `$env:YURUNA_CACHING_PROXY_IP`). Each is probed on the
+aggregator port `:9400` and the first that answers is used, so an address left behind by a
+proxy that has since moved — the persisted state keeps its last value on a host that
+stopped running a proxy of its own — is passed over instead of consuming the enrollment on
+a timeout. When none answers, probing continues for up to two minutes, so a momentary
+outage does not cost you a code; a claim that loses its probe is replaced with the address
+that won, so the next run does not pay for it again. A host where nothing answers at all
+is asked for the address (or takes `-CachingProxy <address>`). When this host already has
+a `test/test.config.yml`, that answer is written to `vmStart.cachingProxyIP` and binds the
+host to this lab's proxy from then on. On a machine so new it has no config file yet, the
+address is used for this enrollment only — the `Sync-HostConfiguration.ps1` run below
+brings over a config whose `vmStart.cachingProxyIP` does the binding.
+
+The script is idempotent — a lost token, a rebuilt proxy, or a doubtful host state is
+fixed by reading the current code and running it again. It declares the `users.yml` vault
+key, stores the token, and verifies the round-trip through the same lookup the control
+gate performs — so a key that is stored under one name and read under another (a silent
+`403`) cannot happen. `-BounceStatusService` restarts the status server so the token takes
+effect immediately instead of at the next cycle; `-WhatIf` previews without touching the
+vault. The vault writes are sub-second; the restart is the slow part (it re-asserts the
+caching-proxy port map and waits for the port to answer), so expect that step to take tens
+of seconds. It is bounded: if the restart has not finished in 180 s the script says so and
+leaves it running, and the token is already stored either way — it simply takes effect at
+the next cycle instead.
+
+Bringing a **new** host into the pool? Enroll it first, then sync its config — the sync
+reads the just-stored token from this host's own vault to fetch credentials:
+
+```
+pwsh test/Set-LabToken.ps1 -LabToken <code> -CachingProxy <proxy> -BounceStatusService
+pwsh test/Sync-HostConfiguration.ps1 -ReferenceHost <host>
+```
+
+(`Sync-HostConfiguration.ps1 -SharedToken '<raw-token>' -PersistSharedToken` remains the
+host-to-host path for a lab whose aggregator is unreachable: it takes the raw shared token
+from an operator who already holds it and stores it the same way.)
 
 **3. Drive the host from the dashboard.** Open the *Yuruna hosts* dashboard on the caching
-proxy and follow the host's link. Arriving that way is what carries the proof; typing the
-host's URL by hand does not.
+proxy and follow the host's link — the Host ID in the *Pool hosts* table, or the timeline's
+"open host status page" — every one routes through the
+aggregator's `/go/host` redirect. Arriving that way is what carries the proof; typing the
+host's URL by hand does not. The *Extension hosts* table's Host ID is plain text on
+purpose: its rows include hosts that run only an extension service, which have no status
+page to open — use their *Pool hosts* row when they have one.
 
 ## What still works with no setup at all
 
@@ -111,7 +146,7 @@ status pages render it in place of a bare `HTTP 403`:
 
 | `reason` | Meaning |
 |---|---|
-| `host-token-missing` | This host holds no `pool-auth-token`, so no proof can ever be accepted (item 3). |
+| `host-token-missing` | This host holds no `lab-auth-token`, so no proof can ever be accepted (item 3). |
 | `proof-missing` | The request carried no proof at all — usually item 1 or 2. |
 | `proof-expired` | A well-formed proof whose expiry has passed (item 1). |
 | `proof-invalid` | A proof that does not verify against this host's token (item 4). |
@@ -126,19 +161,22 @@ status pages render it in place of a bare `HTTP 403`:
    tab's `sessionStorage`, and it is per-origin: arriving on one of the host's addresses and
    then switching to another loses it. Re-enter through the dashboard host link. A minted proof
    lasts about 15 minutes; the config page shows a countdown and warns before it lapses.
-3. **The host has no `pool-auth-token` vault entry** (or an empty vault key) — non-loopback
-   control is refused by design until you set one. `Sync-HostConfiguration` stores it for you
-   when a host joins the pool with `-SharedToken`; `-NoPersistSharedToken` opts out.
-4. **The host's token does not match the proxy's.** Re-run `Set-PoolAuthToken.ps1` with the
-   value from `/etc/yuruna/pool-auth.token` (both commands are in
-   [Enabling remote control on a host](#enabling-remote-control-on-a-host) above).
-5. **The proxy is minting nothing.** If the caching proxy was built on a host that had no
-   `pool-auth-token`, it baked an **empty** token: it then mints no proof at all and every
-   host 403s. Confirm from the host — `curl -sI '<aggregator>/go/host?host=<hostId>'` shows a
-   `Location:` with **no `#yctl=` fragment**, and `curl -sk -X POST '<aggregator>/ingest'`
-   answers `503 ingest disabled`. Fix by setting the token and rebuilding the proxy VM, or by
-   writing the same value into `/etc/yuruna/pool-auth.token` there. A stale aggregator build
-   shows the same symptom ([caching.md](caching.md#migrating-to-a-replacement-cache-vm)).
+3. **The host has no `lab-auth-token` vault entry** (or an empty vault key) — non-loopback
+   control is refused by design until the host is enrolled. Read the current Lab token off
+   the dashboard and run `pwsh test/Set-LabToken.ps1 -LabToken <code> -BounceStatusService`
+   ([Enabling remote control on a host](#enabling-remote-control-on-a-host) above).
+4. **The host's token does not match the proxy's** — typically a host enrolled against a
+   proxy that has since been rebuilt with a new token. Re-enroll: read the current Lab token
+   off the dashboard and re-run `Set-LabToken.ps1`.
+5. **The proxy is minting nothing.** The *Lab token* tile shows `off`, and the aggregator
+   holds an empty token — a proxy built before the build step auto-minted one, or a build
+   whose vault store failed (its warning names this). Confirm from the host —
+   `curl -sI '<aggregator>/go/host?host=<hostId>'` shows a `Location:` with **no `#yctl=`
+   fragment**, and `curl -sk -X POST '<aggregator>/ingest'` answers `503 ingest disabled`.
+   Fix by rebuilding the proxy VM (the build now mints and stores a token when none exists),
+   or by writing the host's stored value into `/etc/yuruna/lab-auth.token` there. A stale
+   aggregator build shows the same symptom
+   ([caching.md](caching.md#migrating-to-a-replacement-cache-vm)).
 6. **The host clock is skewed** far enough that a fresh proof already looks expired. The
    acceptance window is held above the mint to absorb ordinary drift, so this means a large
    offset; fix time sync on the host.
@@ -186,10 +224,32 @@ secrets under `status/` (`vault.yml`, `transports.yml`, `events.log`, the SSH
 private key, the caching-proxy state file) are blocked regardless of which
 route reached them.
 
+## Short per-cycle links: `/cycle/<number>`
+
+`GET /cycle/004062` redirects (302) to that cycle's HTML transcript. It exists
+because the transcript's real path repeats the cycle folder name twice and that
+name carries a timestamp and host id — too long to paste into a message, and
+nothing a reader can recognise. The cycle number is the part an operator reads
+off the runner console or a dashboard row, so it is the part the link uses.
+
+The number is resolved against the log dir at request time: the recent cycles at
+the top level first, then the dated `history.<date>/` rotation buckets. That
+resolution is what lets one stable link survive the folder's lifecycle renames
+(`<base>.incomplete` while running, `<base>` on clean close,
+`<base>.aborted.<UTC>` after a crash-recovery sweep) and rotation moving the
+folder later. The redirect is deliberately 302 with `no-store` rather than 301:
+the target moves, so a cached redirect would pin a reader to a path that no
+longer exists. An unknown or rotated-out number answers 404 with a plain-text
+reason; only a 1-6 digit segment matches the route at all, so nothing else
+reaches the directory lookup.
+
+The outer runner prints one of these per finished cycle, e.g.
+`Cycle 004062 - FAIL: http://192.168.7.101:8080/cycle/004062`.
+
 ## See also
 
 - [pool-admin.md](pool-admin.md) — running a pool and the *Yuruna hosts* dashboard.
-- [pool-storage.md](pool-storage.md) — the `pool-auth-token`-gated credential fetch used
+- [pool-storage.md](pool-storage.md) — the `lab-auth-token`-gated credential fetch used
   when syncing a new host's config.
 - [caching.md](caching.md#caching-proxy--test-harness-operator-reference) — the caching-proxy VM that hosts Grafana and the
   pool aggregator.
@@ -201,6 +261,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.26
+Last review: 2026.07.28
 
 Back to [Yuruna](../README.md)

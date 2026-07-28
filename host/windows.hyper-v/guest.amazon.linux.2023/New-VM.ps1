@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.26
+.VERSION 2026.07.28
 .GUID 42e9f0a1-b2c3-4d45-e678-9f0a1b2c3d45
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -129,7 +129,6 @@ Write-BaseImageProvenance -BaseImagePath $baseImageFile
 
 # --- REGION: Create copies and files for VM
 
-# Copy base image as the VM disk
 $vmDir = Join-Path $downloadDir $VMName
 if (-not (Test-Path -Path $vmDir)) {
 	New-Item -ItemType Directory -Path $vmDir -Force | Out-Null

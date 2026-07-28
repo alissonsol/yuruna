@@ -363,7 +363,7 @@ Yuruna hosts dashboard. INLINED (like squid.json) so it deploys from the local u
 
 ### Yuruna hosts dashboard panel autofit
 
-Panel heights are fixed in dashboard JSON; a fixed height per row doesn't scale across pool sizes. The autofit script recomputes heights based on host count. `yuruna-fit-pool-dashboard.py` reads the host count the collector is reporting (Prometheus + Loki on loopback), recomputes each panel's height from the dashboard grid geometry (a panel of `h` units is `38h - 8` px tall, less the chrome, the table header row, and -- on the timeline -- the x-axis and legend), re-stacks the panels below it, and rewrites `/var/lib/grafana/dashboards/pool.json` atomically. Heights round UP: a panel a few px too tall shows blank space, one a few px too short shows a scrollbar, and only the scrollbar is a defect. The `gridPos.h` values inlined above are only the pre-collector default. A collector that is down reports no hosts, which is indistinguishable from an empty pool, so a zero count leaves the file untouched rather than collapsing every panel to its header. Row counts track the dashboard's DEFAULT 24h window; a wider range picked in the time picker can still surface an older host and scroll.
+Panel heights are fixed in dashboard JSON; a fixed height per row doesn't scale across pool sizes. The autofit script recomputes heights based on host count. `yuruna-fit-pool-dashboard.py` reads the host count the collector is reporting (Prometheus + Loki on loopback), recomputes each panel's height from the dashboard grid geometry (a panel of `h` units is `38h - 8` px tall, less the chrome, the table header row, and -- on the timeline -- the x-axis and legend), re-stacks the panels below it, and rewrites `/var/lib/grafana/dashboards/pool.json` atomically. The "Lab token" stat tile (panel id 18) sits beside the Extension hosts table on the same grid row, so the script also pins that tile's row position and height to the table's -- a resized table would otherwise leave the tile floating or overlapping. Heights round UP: a panel a few px too tall shows blank space, one a few px too short shows a scrollbar, and only the scrollbar is a defect. The `gridPos.h` values inlined above are only the pre-collector default. A collector that is down reports no hosts, which is indistinguishable from an empty pool, so a zero count leaves the file untouched rather than collapsing every panel to its header. Row counts track the dashboard's DEFAULT 24h window; a wider range picked in the time picker can still surface an older host and scroll.
 
 ### Squid dashboard inlined
 
@@ -381,9 +381,9 @@ networkStorage pool (ypool-nas) service replication: config + SMB credential + t
 
 cifs credentials (0600 root). The networkUser account -- the single NAS account, ACL-scoped storage-only by the operator (write access to the share, nothing else).
 
-### Pool auth token
+### Lab auth token
 
-the shared bearer that gates the aggregator's POST /ingest push surface. Baked by New-VM from the operator-set vault entry (pool.auth.token), or EMPTY when unconfigured -> the aggregator disables /ingest (never an unauthenticated write route). The aggregator trims surrounding whitespace. Mode 0640 root:proxy so the proxy-run aggregator can read it but it is not world-readable.
+the shared lab-auth-token that gates remote control, the aggregator's POST /ingest push surface, and cross-host credential fetch. Baked into `/etc/yuruna/lab-auth.token` (the `LAB_AUTH_TOKEN_PLACEHOLDER` substitution) by New-VM from the building host's vault -- logical user `lab-auth-token`, with the legacy `pool-auth-token` vault entry accepted as a fallback so a host enrolled under that logical name keeps working. When the vault holds neither, New-VM mints a random lab-auth-token and stores it before baking, so a proxy is never built with an empty token; an empty-token proxy (mints no control proofs, /ingest answers 503, dashboard Lab token tile shows "off") is a diagnosable failure state, not a normal early state. The aggregator trims surrounding whitespace. Mode 0640 root:proxy so the proxy-run aggregator can read it but it is not world-readable.
 
 ### Stop squid before CA bootstrap
 
@@ -475,6 +475,8 @@ caching-proxy-parser fails closed (the binary may not be present if the build ab
 
 pool-aggregator: read-only pool view. Soft-fail like the parser -- the binary may be absent if the build above failed; prometheus already has the pool-aggregator scrape job (it just reads 'down' until the daemon is up).
 
+The unit's `ExecStart` carries `-auth-token-file /etc/yuruna/lab-auth.token -host-ttl 24h -lab-token-rotate 60s`. The token file is the shared lab-auth-token (see "Lab auth token" above). `-lab-token-rotate` drives the lab-token exchange: the aggregator mints a 6-character lab connection token (lowercase a-z0-9), rotates it on that interval, surfaces it on the dashboard's "Lab token" tile (via the `yuruna_pool_lab_token` info gauge), and serves the open endpoint `POST /api/v1/lab-token` on :9400 (body `{"labToken":"<code>"}` -> 200 with the shared lab-auth-token; 400 malformed, 403 unknown/expired code, 429 per-IP throttle, 503 exchange disabled). A displayed code stays redeemable for about three rotations; `0` disables the tile and the exchange. Exchanges are counted in `yuruna_pool_lab_token_exchanges_total` and every attempt is audited (aggregator log + Loki, label src="lab-token"). A host enrolls with `pwsh test/Set-LabToken.ps1 -LabToken <code>`.
+
 How long a host stays in that view after its last contact is `-host-ttl` in the unit's `ExecStart` (default `24h`): change it and run `systemctl daemon-reload && systemctl restart pool-aggregator` -- no rebuild. The `daemon-reload` is load-bearing; without it systemd restarts from its cached copy of the unit and the old value silently stays in force (the same trap [caching.md](caching.md) documents for the squid units). A non-positive value falls back to 24h. The flag only exists in binaries built from the commit that introduced it, so on a proxy provisioned before that, re-provision first -- an unknown flag makes the binary exit immediately and `Restart=on-failure` turns it into a crash loop.
 
 Restarting is not free, and for this particular knob it partly works against you. On startup the aggregator re-seeds host stubs from the Loki presence feed over `-rehydrate-window` (default `168h`, **not** the host TTL) and stamps each stub as last-seen *now*, so a machine that has been gone for days comes back as a `Reachable=false` row and then survives a full host TTL of failed probes. The restart you perform to shorten the TTL is what re-creates the rows you were trying to remove. A restart also resets the degraded/alert hysteresis latch. So `-host-ttl` sets the steady-state window; to evict a specific decommissioned host deterministically use `Remove-PoolHost.ps1` / `POST /api/v1/forget-host`, which also clears its cumulative counters.
@@ -541,6 +543,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.26
+Last review: 2026.07.28
 
 Back to [Yuruna](../README.md)

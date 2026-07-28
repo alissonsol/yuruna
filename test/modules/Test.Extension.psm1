@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.26
+.VERSION 2026.07.28
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456811
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -325,4 +325,158 @@ function Import-ConfiguredExtension {
     return $rows
 }
 
-Export-ModuleMember -Function Resolve-ExtensionAreaDir, Read-ExtensionConfig, Get-ActiveExtensionName, Import-Extension, Resolve-ExtensionMethod, Assert-ExtensionContractCoverage, Get-ExtensionAreaName, Import-ConfiguredExtension
+<#
+.SYNOPSIS
+    Every address this host can currently reach the extension area $HostType
+    at, nearest first. The list may be empty and is never $null.
+.DESCRIPTION
+    The one call client code makes to answer "where is the stash service /
+    pool control?" without naming an address itself.
+
+    A host that NEEDS one of these services usually does not run it: the
+    service lives on another host, often another subnet, at an address DHCP is
+    free to change. Nothing in this host's config knows where it is, so the
+    alternative is a hard-coded literal that is correct only until the service
+    moves -- and then a cycle spends its whole timeout budget on a machine that
+    no longer exists.
+
+    Sources, in the order they are returned:
+
+      1. An operator pin in $env:YURUNA_EXTENSION_HOST_<AREA> (the area
+         upper-cased with every non-alphanumeric replaced by '_', e.g.
+         YURUNA_EXTENSION_HOST_STASH_SERVICE). An operator who states an
+         address means it, so it is tried before anything discovered.
+      2. The live host-contract lookup (Get-VMIp) for the VM that serves the
+         area on THIS host -- nearer than any remote answer, and current
+         across rebuilds in a way a literal never is.
+      3. The pool's own record (the pool-aggregator's /api/v1/extension-hosts),
+         which is where a service running on ANOTHER host is found. Since the
+         aggregator lives in the caching-proxy VM, knowing the proxy address --
+         which every host needs anyway, to reach the cache at all -- is enough
+         to locate every other service the pool offers. A host with no caching
+         proxy has no aggregator to ask and no pool: the lookup simply
+         contributes nothing.
+
+    A LIST rather than one answer, because the caller is the only one that can
+    say which address is usable: it holds the probe (the stash pre-flight
+    demands /healthz), it may prefer a particular subnet, and it usually has a
+    site-specific last resort of its own to append. Every entry here is a HINT,
+    never a promise -- prove one before committing a cycle to it.
+
+    Addresses carrying whitespace or a quote are dropped: these end up composed
+    into URLs, scp targets and single-quoted guest env lines, where such a value
+    corrupts the command rather than failing it.
+
+    Never throws. Each source is independent -- a pool that does not answer, a
+    host contract without Get-VMIp, an extension area nobody serves -- and any
+    of them coming up empty just shortens the list.
+
+    PowerShell unrolls a single-element array to a scalar on the way out, and
+    an empty one to nothing at all, so callers that count or index MUST wrap
+    the call -- the same rule Get-ActiveExtensionName carries:
+
+        $addresses = @(Get-ExtensionHostAddress -HostType 'stash-service')
+.PARAMETER HostType
+    The KIND of service wanted, named by its extension area slug:
+    'stash-service', 'pool-control'. Not the hypervisor host type
+    Get-HostType returns ('host.windows.hyper-v') -- unrelated vocabulary.
+.PARAMETER VMName
+    VM to ask the host contract about. Defaults to "yuruna-<HostType>", the
+    name the framework's own Start-*VM scripts create. Pass '' to skip the
+    local lookup entirely (a caller that already did it).
+.PARAMETER AggregatorBaseUrl
+    Pool-aggregator base URL. Defaults to the one derived from this host's
+    caching proxy; pass it to query a specific collector.
+.PARAMETER TimeoutSeconds
+    Per-request timeout for the pool lookup. Short by default: this sits in
+    front of a cycle, and a pool that does not answer promptly must not delay
+    one.
+.OUTPUTS
+    [string[]] addresses, nearest first, de-duplicated. Possibly empty.
+#>
+function Get-ExtensionHostAddress {
+    [CmdletBinding()]
+    [OutputType([string[]], [object[]])]
+    param(
+        [Parameter(Mandatory)][Alias('Area')][string]$HostType,
+        [AllowEmptyString()][string]$VMName,
+        [string]$AggregatorBaseUrl,
+        [int]$TimeoutSeconds = 5
+    )
+
+    $candidates = [System.Collections.Generic.List[hashtable]]::new()
+
+    # 1. Operator pin.
+    $envName = 'YURUNA_EXTENSION_HOST_' + ($HostType.ToUpperInvariant() -replace '[^A-Z0-9]', '_')
+    $pinned  = [System.Environment]::GetEnvironmentVariable($envName)
+    if (-not [string]::IsNullOrWhiteSpace($pinned)) {
+        [void]$candidates.Add(@{ Address = $pinned; Source = "`$env:$envName" })
+    }
+
+    # 2. A VM on this host serving the area. Get-VMIp arrives with the host
+    #    driver (Initialize-YurunaHost); a client that never loaded one simply
+    #    has no local source, which is not an error.
+    $localVm = if ($PSBoundParameters.ContainsKey('VMName')) { $VMName } else { "yuruna-$HostType" }
+    if (-not [string]::IsNullOrWhiteSpace($localVm)) {
+        if (Get-Command Get-VMIp -ErrorAction SilentlyContinue) {
+            try {
+                $vmIp = [string](Get-VMIp -VMName $localVm)
+                if (-not [string]::IsNullOrWhiteSpace($vmIp)) {
+                    [void]$candidates.Add(@{ Address = $vmIp; Source = "VM '$localVm' on this host" })
+                }
+            } catch {
+                Write-Verbose "Get-ExtensionHostAddress: Get-VMIp '$localVm' failed: $($_.Exception.Message)"
+            }
+        } else {
+            Write-Verbose "Get-ExtensionHostAddress: no Get-VMIp in scope; skipping the local lookup for '$localVm'."
+        }
+    }
+
+    # 3. The pool's record. Import-Extension is the framework path -- it honours
+    #    <area>.config.yml, so a site that swapped the reader gets its own --
+    #    but it parses YAML, which a client script running outside a cycle may
+    #    not have the parser loaded for; hence the module file as fallback
+    #    rather than as the first choice.
+    if (-not (Get-Command Get-PoolExtensionHost -ErrorAction SilentlyContinue)) {
+        try { $null = Import-Extension -Area 'pool-aggregator' }
+        catch {
+            Write-Verbose "Get-ExtensionHostAddress: Import-Extension pool-aggregator failed: $($_.Exception.Message)"
+            $readerPath = Join-Path $script:ExtensionDir 'pool-aggregator' -AdditionalChildPath 'default.psm1'
+            if (Test-Path -LiteralPath $readerPath) {
+                try { Import-Module -Name $readerPath -Global -Force -DisableNameChecking -Verbose:$false }
+                catch { Write-Verbose "Get-ExtensionHostAddress: loading $readerPath failed: $($_.Exception.Message)" }
+            }
+        }
+    }
+    if (Get-Command Get-PoolExtensionHost -ErrorAction SilentlyContinue) {
+        $lookup = @{ Area = $HostType; TimeoutSeconds = $TimeoutSeconds }
+        if (-not [string]::IsNullOrWhiteSpace($AggregatorBaseUrl)) { $lookup['BaseUrl'] = $AggregatorBaseUrl }
+        try {
+            $fromPool = [string](Get-PoolExtensionHost @lookup)
+            if (-not [string]::IsNullOrWhiteSpace($fromPool)) {
+                [void]$candidates.Add(@{ Address = $fromPool; Source = 'the pool' })
+            }
+        } catch {
+            Write-Verbose "Get-ExtensionHostAddress: the pool lookup for '$HostType' failed: $($_.Exception.Message)"
+        }
+    } else {
+        Write-Verbose "Get-ExtensionHostAddress: no pool-aggregator reader available; the pool contributes nothing."
+    }
+
+    $addresses = [System.Collections.Generic.List[string]]::new()
+    $seen = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+    foreach ($candidate in $candidates) {
+        $address = ([string]$candidate.Address).Trim()
+        if (-not $address) { continue }
+        if ($address -match "['`"\s]") {
+            Write-Verbose "Get-ExtensionHostAddress: dropping '$address' ($($candidate.Source)) -- an address carrying quotes or whitespace cannot be composed into a URL or an scp target."
+            continue
+        }
+        if (-not $seen.Add($address)) { continue }
+        Write-Verbose "Get-ExtensionHostAddress: '$HostType' -> $address (from $($candidate.Source))."
+        [void]$addresses.Add($address)
+    }
+    return [string[]]$addresses.ToArray()
+}
+
+Export-ModuleMember -Function Resolve-ExtensionAreaDir, Read-ExtensionConfig, Get-ActiveExtensionName, Import-Extension, Resolve-ExtensionMethod, Assert-ExtensionContractCoverage, Get-ExtensionAreaName, Import-ConfiguredExtension, Get-ExtensionHostAddress

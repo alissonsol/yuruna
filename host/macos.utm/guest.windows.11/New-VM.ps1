@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.26
+.VERSION 2026.07.28
 .GUID 42c0d1e2-f3a4-4b67-c890-1d2e3f4a5b68
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -150,7 +150,6 @@ if (-not (Test-Path $spiceImageFile)) {
 if (Test-Path -LiteralPath $UtmDir) { Remove-Item -LiteralPath $UtmDir -Recurse -Force }
 New-Item -ItemType Directory -Force -Path $DataDir | Out-Null
 
-# Copy base image ISO into the bundle (named after VM name)
 $DestIso = "$DataDir/$VMName.iso"
 Copy-Item -Path $baseImageFile -Destination $DestIso
 Write-Verbose "Copied installer ISO as: $VMName.iso"

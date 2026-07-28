@@ -1,0 +1,230 @@
+<#PSScriptInfo
+.VERSION 2026.07.28
+.GUID 42b7c3f8-9a1d-4e62-8c05-6d4f2a1b9e37
+.AUTHOR Alisson Sol et al.
+.COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
+.TAGS yuruna pool lab auth admin
+.LICENSEURI https://yuruna.link/license
+.PROJECTURI https://yuruna.com
+.ICONURI
+.EXTERNALMODULEDEPENDENCIES powershell-yaml
+.REQUIREDSCRIPTS
+.EXTERNALSCRIPTDEPENDENCIES
+.RELEASENOTES
+.PRIVATEDATA
+#>
+
+#requires -version 7
+
+<#
+.SYNOPSIS
+    Enroll THIS host in the lab: redeem the dashboard's Lab token for the
+    shared lab-auth-token and store it in the host vault (idempotent).
+.DESCRIPTION
+    The Yuruna hosts dashboard (Grafana on the caching proxy) shows a "Lab
+    token" tile with a 6-character code that rotates about once a minute.
+    This script redeems that code at the pool aggregator's
+    POST /api/v1/lab-token, receives the shared lab-auth-token, and stores it
+    in this host's vault -- enabling the status-server control routes (the
+    Grafana deep-link control proofs) and cross-host config-sync. The secret
+    itself never has to be read off the proxy or typed by the operator.
+
+    The reply is sealed under the code that was typed, so only this host can
+    open it: a host being enrolled cannot yet verify the aggregator's TLS
+    leaf (the proxy's own CA signs it), and the seal is what keeps anything
+    else on the network from answering the exchange and planting a token.
+
+    The caching proxy is found from this host's configuration (the persisted
+    caching-proxy state, $env:YURUNA_CACHING_PROXY_IP, or
+    vmStart.cachingProxyIP in test.config.yml). Each is probed on the
+    aggregator port and the first that answers is used, so an address left
+    behind by a proxy that has since moved is passed over instead of
+    swallowing the enrollment; when none answers, the probing continues for
+    up to two minutes before giving up, so a momentary outage does not cost
+    the operator a code. When no address answers at all, pass -CachingProxy
+    or answer the prompt. That address is written to
+    vmStart.cachingProxyIP when test.config.yml exists, binding the host to
+    this lab's proxy for later runs; on a machine with no config file yet it
+    serves this enrollment only, and Sync-HostConfiguration.ps1 brings over
+    the config that binds it.
+
+    Safe to re-run at any time: a lost or rotated token, a rebuilt proxy, or
+    a doubtful host state is fixed by reading the current code off the
+    dashboard and running this again.
+.PARAMETER LabToken
+    The 6-character code currently shown on the dashboard's "Lab token" tile
+    (lowercase letters and digits; case and surrounding spaces are
+    forgiven). It rotates every minute and stays redeemable for about three,
+    so read it right before running.
+.PARAMETER CachingProxy
+    Address (IP or name) of the caching proxy whose dashboard shows the Lab
+    token. Only needed when this host's configuration does not already name
+    one; when given (or prompted), it is persisted to vmStart.cachingProxyIP
+    if this host has a test.config.yml to persist it into.
+.PARAMETER BounceStatusService
+    Restart the status server after storing, so the change is live now
+    rather than at the next cycle.
+.PARAMETER NonInteractive
+    Never prompt; fail instead when the caching-proxy address cannot be
+    resolved.
+.EXAMPLE
+    pwsh test/Set-LabToken.ps1 -LabToken k3v9qa -BounceStatusService
+.EXAMPLE
+    pwsh test/Set-LabToken.ps1 -LabToken k3v9qa -CachingProxy 192.168.7.229
+#>
+
+[CmdletBinding(SupportsShouldProcess)]
+param(
+    [Parameter(Mandatory, Position = 0)][string]$LabToken,
+    [Parameter()][string]$CachingProxy,
+    [switch]$BounceStatusService,
+    [switch]$NonInteractive
+)
+
+$ErrorActionPreference = 'Stop'
+$InformationPreference = 'Continue'
+
+$elapsed = [System.Diagnostics.Stopwatch]::StartNew()
+
+$code = $LabToken.Trim().ToLowerInvariant()
+if ($code -notmatch '^[a-z0-9]{6}$') {
+    Write-Error "'$LabToken' is not a Lab token: expected the 6-character code (lowercase letters/digits) from the Yuruna hosts dashboard's 'Lab token' tile."
+    exit 1
+}
+
+# The authentication extension supplies Set-Password / Set-UserVaultKey /
+# Test-VaultEntry; Test.HostConfigSync supplies the exchange client and the
+# Set-LabAuthToken orchestrator; Test.CachingProxy resolves the aggregator
+# address. -Global -Force mirrors Import-Extension so a nested import does
+# not evict the module from the global scope.
+Write-Information 'Importing the authentication extension and the config-sync module ...' -InformationAction Continue
+Import-Module (Join-Path $PSScriptRoot 'extension/authentication/default.psm1') -Global -Force -DisableNameChecking
+Import-Module (Join-Path $PSScriptRoot 'modules/Test.HostConfigSync.psm1') -Global -Force -DisableNameChecking
+Import-Module (Join-Path $PSScriptRoot 'modules/Test.CachingProxy.psm1') -Global -Force -DisableNameChecking
+
+# --- REGION: Resolve the aggregator base URL
+# An explicit -CachingProxy wins; else the host's own configuration (the
+# probe-and-discard resolution Get-PoolAggregatorSeedUrl owns, which believes
+# a stored address only once it answers); else ask. $addressSource records
+# where the address came from so only an operator-supplied one is persisted
+# below.
+#
+# The wait budget is what separates this caller from a seed render: an
+# operator is holding a code that stays redeemable for about three minutes,
+# so riding out a momentary outage costs a wait they would spend anyway,
+# while resolving '' costs them the enrollment and a trip back to the
+# dashboard for a fresh code.
+$addressSource = ''
+$proxyAddress  = ''
+$baseUrl       = ''
+if (-not [string]::IsNullOrWhiteSpace($CachingProxy)) {
+    $proxyAddress  = $CachingProxy.Trim()
+    $addressSource = 'parameter'
+} else {
+    # -WhatIf is forwarded by hand because it does not cross into a module's
+    # session state on its own, and resolving repairs a stored address that
+    # loses its probe -- a write, and so not something a preview may do.
+    $baseUrl = Get-PoolAggregatorSeedUrl -MaxWaitSeconds 120 -WhatIf:$WhatIfPreference
+    if ($baseUrl) { $addressSource = 'config' }
+}
+if (-not $proxyAddress -and -not $baseUrl) {
+    if ($NonInteractive -or $WhatIfPreference) {
+        Write-Error 'No caching proxy this host names answered on :9400 (and prompting is disabled); pass -CachingProxy <address>.'
+        exit 1
+    }
+    $proxyAddress = (Read-Host 'Caching proxy address (the machine whose dashboard shows the Lab token)').Trim()
+    if (-not $proxyAddress) {
+        Write-Error 'No caching-proxy address given; cannot reach the lab.'
+        exit 1
+    }
+    $addressSource = 'prompt'
+}
+if ($proxyAddress -and $proxyAddress -match "['\s]") {
+    Write-Error "Caching-proxy address '$proxyAddress' contains a quote or whitespace; give a bare IP or host name."
+    exit 1
+}
+
+# https first (a provisioned proxy mints the aggregator's TLS leaf in
+# cloud-init), plain http as the transport-failure fallback -- the same
+# candidate order the stash beacon uses against an older plain-HTTP proxy.
+$candidates = if ($baseUrl) {
+    @($baseUrl, ($baseUrl -replace '^https:', 'http:'))
+} else {
+    $urlHost = if ($proxyAddress.Contains(':') -and -not $proxyAddress.StartsWith('[')) { "[$proxyAddress]" } else { $proxyAddress }
+    @("https://${urlHost}:9400", "http://${urlHost}:9400")
+}
+
+if ($WhatIfPreference) {
+    Write-Information "What if: would redeem Lab token '$code' at $($candidates[0])/api/v1/lab-token and store the returned lab-auth-token in this host's vault." -InformationAction Continue
+    exit 0
+}
+
+# --- REGION: Redeem the code for the shared token
+$verdict = $null
+foreach ($base in $candidates) {
+    Write-Information "Redeeming the Lab token at $base/api/v1/lab-token ..." -InformationAction Continue
+    $verdict = Request-LabTokenExchange -AggregatorBaseUrl $base -LabToken $code
+    # Only a transport failure falls through to the next scheme; an answered
+    # refusal (403/429/503) is the aggregator's verdict and retrying the same
+    # code over plain HTTP would just burn another audited attempt.
+    if ($verdict.Ok -or $verdict.Status -ne 0) { break }
+}
+if (-not $verdict -or -not $verdict.Ok) {
+    Write-Error $verdict.Error
+    exit 1
+}
+Write-Information 'Lab token accepted; storing the shared lab-auth-token in this host''s vault.' -InformationAction Continue
+
+# --- REGION: Store + verify (the vault provisioning Set-LabAuthToken owns)
+$persistArgs = @{ Token = $verdict.Token; BounceStatusService = [bool]$BounceStatusService }
+if ($PSBoundParameters.ContainsKey('Confirm')) { $persistArgs['Confirm'] = $PSBoundParameters['Confirm'] }
+$provision = Set-LabAuthToken @persistArgs
+
+# --- REGION: Bind this host to the lab proxy
+# Persist an operator-supplied address into vmStart.cachingProxyIP -- the key
+# every aggregator-address consumer resolves last -- so the enrollment is the
+# one-time step and later runs (and the runner itself) find the proxy on
+# their own. A config-sourced address is already persistent; nothing to do.
+if ($provision.ok -and $proxyAddress -and ($addressSource -in @('parameter', 'prompt'))) {
+    $configPath = Join-Path $PSScriptRoot 'test.config.yml'
+    try {
+        Import-Module powershell-yaml -ErrorAction Stop
+        Import-Module (Join-Path $PSScriptRoot 'modules/Test.StateFile.psm1')  -Global -Force -DisableNameChecking
+        Import-Module (Join-Path $PSScriptRoot 'modules/Test.ConfigSync.psm1') -Force -DisableNameChecking
+        if (Test-Path -LiteralPath $configPath) {
+            $cfg = Get-Content -Raw -LiteralPath $configPath | ConvertFrom-Yaml -Ordered
+            if ($null -eq $cfg) { $cfg = [ordered]@{} }
+            if (-not ($cfg['vmStart'] -is [System.Collections.IDictionary])) { $cfg['vmStart'] = [ordered]@{} }
+            $current = "$($cfg['vmStart']['cachingProxyIP'])".Trim()
+            if ($current -eq $proxyAddress) {
+                Write-Information "vmStart.cachingProxyIP already names $proxyAddress; binding unchanged." -InformationAction Continue
+            } else {
+                $cfg['vmStart']['cachingProxyIP'] = $proxyAddress
+                $yaml = (ConvertTo-SortedConfig $cfg) | ConvertTo-Yaml
+                $null = Write-YurunaStateFile -Path $configPath -Content $yaml -Confirm:$false
+                Write-Information "Bound this host to the lab proxy: vmStart.cachingProxyIP = $proxyAddress." -InformationAction Continue
+            }
+        } else {
+            Write-Warning "test.config.yml not found; the proxy address was not persisted. Run Sync-HostConfiguration.ps1 (or create the config) and re-run with -CachingProxy $proxyAddress to bind."
+        }
+    } catch {
+        Write-Warning "Could not persist vmStart.cachingProxyIP ($($_.Exception.Message)); the token is stored, but later runs must pass -CachingProxy again."
+    }
+}
+
+$took = "{0:N1}s" -f $elapsed.Elapsed.TotalSeconds
+if ($provision.ok) {
+    $msg = "Done in ${took}: lab-auth-token stored and verified (vaultKey '$($provision.vaultKey)')."
+    if ($provision.bounced) {
+        $msg += ' Status server restarted, so the token is live now.'
+    } elseif ($BounceStatusService) {
+        $msg += ' Status-server bounce did not complete; the token takes effect at the next cycle.'
+    } else {
+        $msg += ' Re-run with -BounceStatusService (or wait for the next cycle) to make the running status server pick it up.'
+    }
+    Write-Information $msg -InformationAction Continue
+    exit 0
+}
+
+Write-Error "lab-auth-token provisioning did not verify after ${took} (keyChanged=$($provision.keyChanged), verified=$($provision.verified)). The token is not usable for control proofs on this host."
+exit 1

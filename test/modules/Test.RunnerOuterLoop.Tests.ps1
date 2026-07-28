@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.26
+.VERSION 2026.07.28
 .GUID 428c1a6d-4b29-4e07-9d51-7a2c8e0b5f31
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -28,6 +28,9 @@ Import-Module (Join-Path $here 'Test.Config.psm1')          -Force -DisableNameC
 Import-Module (Join-Path $here 'Test.RunnerOuterLoop.psm1') -Force -DisableNameChecking -ErrorAction SilentlyContinue
 Import-Module (Join-Path $here 'Test.InnerSpawn.psm1')      -Force -DisableNameChecking -ErrorAction SilentlyContinue
 Import-Module (Join-Path $here 'Test.PoolSync.psm1')        -Force -DisableNameChecking -ErrorAction SilentlyContinue
+# Loaded because the outer entry point loads it too: Get-OuterStatusBaseUrl
+# resolves the status-service gate + port through it.
+Import-Module (Join-Path $here 'Test.Prelude.psm1')         -Force -DisableNameChecking -ErrorAction SilentlyContinue
 try { Import-Module powershell-yaml -Force -ErrorAction Stop } catch { Write-Warning 'powershell-yaml unavailable.' }
 
 function Assert-Equal { param($Expected, $Actual, [string]$Because = '') if ($Expected -ne $Actual) { throw "Expected [$Expected] got [$Actual]. $Because" } }
@@ -145,6 +148,190 @@ Describe 'Get-OuterAutoRemediation (pool override WINS over config > default)' {
     It 'lets a pool override DISABLE remediation over a config that is on' {
         $r = Get-OuterAutoRemediation -ConfigPath $script:CfgRemediationOn -PoolTestCycleOverride @{ autoRemediationEnabled = $false }
         Assert-False $r.Enabled 'override disables'
+    }
+}
+
+Describe 'Get-OuterCycleSummaryLine (per-cycle console line + shareable transcript link)' {
+    BeforeAll {
+        $script:SummaryDir = Join-Path ([System.IO.Path]::GetTempPath()) ("ol-sum-" + [guid]::NewGuid().ToString('N'))
+        New-Item -ItemType Directory -Path $script:SummaryDir -Force | Out-Null
+        $script:SavedSummaryRuntime = $env:YURUNA_RUNTIME_DIR
+        $script:SavedPublicUrl      = $env:YURUNA_STATUS_PUBLIC_URL
+        $env:YURUNA_RUNTIME_DIR = $script:SummaryDir
+        # Pinning the published base keeps the assertions off this machine's
+        # live interface list; the address-discovery branch is covered below.
+        $env:YURUNA_STATUS_PUBLIC_URL = 'http://10.1.2.3:8080/'
+        $script:SummaryCfg = New-TempConfig "statusService:`n  port: 8080`n"
+    }
+    AfterAll {
+        if ($null -eq $script:SavedSummaryRuntime) { Remove-Item Env:\YURUNA_RUNTIME_DIR -ErrorAction SilentlyContinue }
+        else { $env:YURUNA_RUNTIME_DIR = $script:SavedSummaryRuntime }
+        if ($null -eq $script:SavedPublicUrl) { Remove-Item Env:\YURUNA_STATUS_PUBLIC_URL -ErrorAction SilentlyContinue }
+        else { $env:YURUNA_STATUS_PUBLIC_URL = $script:SavedPublicUrl }
+        Remove-Item -LiteralPath $script:SummaryCfg -Force -ErrorAction SilentlyContinue
+        Remove-Item -LiteralPath $script:SummaryDir -Recurse -Force -ErrorAction SilentlyContinue
+    }
+
+    It 'names the cycle, the verdict, and the short /cycle/<number> link' {
+        Set-Content -LiteralPath (Join-Path $script:SummaryDir 'status.json') -Encoding utf8 `
+            -Value '{"cycle":4062,"cycleFolderUrl":"log/004062.2026-07-27.16-55-00.4287d16ff2c346a98ea90fd3a0c307da/"}'
+        Assert-Equal -Expected 'Cycle 004062 - FAIL: http://10.1.2.3:8080/cycle/004062' `
+            -Actual (Get-OuterCycleSummaryLine -ConfigPath $script:SummaryCfg -ExitCode 1) `
+            -Because 'a non-zero inner exit reads FAIL'
+        Assert-Equal -Expected 'Cycle 004062 - PASS: http://10.1.2.3:8080/cycle/004062' `
+            -Actual (Get-OuterCycleSummaryLine -ConfigPath $script:SummaryCfg -ExitCode 0) `
+            -Because 'exit 0 reads PASS'
+    }
+    It 'links by number alone, so a folder left mid-lifecycle still resolves' {
+        # A killed cycle keeps its .incomplete folder name; the number in the
+        # link is suffix-free, so the server resolves whatever is on disk.
+        Set-Content -LiteralPath (Join-Path $script:SummaryDir 'status.json') -Encoding utf8 `
+            -Value '{"cycle":4052,"cycleFolderUrl":"log/004052.2026-07-27.00-13-06.4287d16ff2c346a98ea90fd3a0c307da.incomplete/"}'
+        Assert-Equal -Expected 'Cycle 004052 - FAIL: http://10.1.2.3:8080/cycle/004052' `
+            -Actual (Get-OuterCycleSummaryLine -ConfigPath $script:SummaryCfg -ExitCode 1) `
+            -Because 'the lifecycle suffix never reaches the link'
+    }
+    It 'still names the cycle when there is no server to link to' {
+        $saved = $env:YURUNA_STATUS_PUBLIC_URL
+        $cfgOff = New-TempConfig "statusService:`n  isEnabled: false`n"
+        try {
+            Remove-Item Env:\YURUNA_STATUS_PUBLIC_URL -ErrorAction SilentlyContinue
+            Set-Content -LiteralPath (Join-Path $script:SummaryDir 'status.json') -Value '{"cycle":7}' -Encoding utf8
+            Assert-Equal -Expected 'Cycle 000007 - PASS' `
+                -Actual (Get-OuterCycleSummaryLine -ConfigPath $cfgOff -ExitCode 0) `
+                -Because 'the verdict is still worth printing without a link'
+        } finally {
+            if ($null -ne $saved) { $env:YURUNA_STATUS_PUBLIC_URL = $saved }
+            Remove-Item -LiteralPath $cfgOff -Force -ErrorAction SilentlyContinue
+        }
+    }
+    It 'returns an empty string when the cycle left no status document' {
+        Remove-Item -LiteralPath (Join-Path $script:SummaryDir 'status.json') -Force -ErrorAction SilentlyContinue
+        Assert-Equal -Expected '' -Actual (Get-OuterCycleSummaryLine -ConfigPath $script:SummaryCfg -ExitCode 1) `
+            -Because 'nothing to name means no line, not a broken one'
+    }
+    It 'returns an empty string when the status document is unparseable' {
+        Set-Content -LiteralPath (Join-Path $script:SummaryDir 'status.json') -Value '{not json' -Encoding utf8
+        Assert-Equal -Expected '' -Actual (Get-OuterCycleSummaryLine -ConfigPath $script:SummaryCfg -ExitCode 1) `
+            -Because 'a half-written status document must not take the loop down'
+    }
+    It 'returns an empty string when the status document carries no cycle number' {
+        Set-Content -LiteralPath (Join-Path $script:SummaryDir 'status.json') -Value '{"cycle":0}' -Encoding utf8
+        Assert-Equal -Expected '' -Actual (Get-OuterCycleSummaryLine -ConfigPath $script:SummaryCfg -ExitCode 1) `
+            -Because 'a one-shot run has no cycle to name'
+    }
+}
+
+Describe 'Get-OuterStatusBaseUrl (never localhost)' {
+    It 'honours an operator-published base URL and drops its trailing slash' {
+        $saved = $env:YURUNA_STATUS_PUBLIC_URL
+        try {
+            $env:YURUNA_STATUS_PUBLIC_URL = 'https://dash.example/yuruna/'
+            Assert-Equal -Expected 'https://dash.example/yuruna' `
+                -Actual (Get-OuterStatusBaseUrl -ConfigPath 'nonexistent.yml') `
+                -Because 'a reverse proxy is not discoverable from this process'
+        } finally {
+            if ($null -eq $saved) { Remove-Item Env:\YURUNA_STATUS_PUBLIC_URL -ErrorAction SilentlyContinue }
+            else { $env:YURUNA_STATUS_PUBLIC_URL = $saved }
+        }
+    }
+    It 'yields no base URL when the status service is gated off' {
+        $saved = $env:YURUNA_STATUS_PUBLIC_URL
+        $cfgOn = New-TempConfig "statusService:`n  isEnabled: true`n  port: 8080`n"
+        $cfgOff = New-TempConfig "statusService:`n  isEnabled: false`n"
+        try {
+            Remove-Item Env:\YURUNA_STATUS_PUBLIC_URL -ErrorAction SilentlyContinue
+            Assert-Equal -Expected '' -Actual (Get-OuterStatusBaseUrl -ConfigPath $cfgOff) `
+                -Because 'statusService.isEnabled false means there is nothing to link to'
+            $al = New-InnerRunnerArgList -ScriptPath $InnerScriptPath -Parameters ([ordered]@{ NoStatusService = ([switch]$true) })
+            Assert-Equal -Expected '' -Actual (Get-OuterStatusBaseUrl -ConfigPath $cfgOn -ArgList $al) `
+                -Because 'a forwarded -NoStatusService means no server was started'
+        } finally {
+            if ($null -ne $saved) { $env:YURUNA_STATUS_PUBLIC_URL = $saved }
+            Remove-Item -LiteralPath $cfgOn, $cfgOff -Force -ErrorAction SilentlyContinue
+        }
+    }
+    It 'discovers a routable address rather than loopback' {
+        $saved = $env:YURUNA_STATUS_PUBLIC_URL
+        try {
+            Remove-Item Env:\YURUNA_STATUS_PUBLIC_URL -ErrorAction SilentlyContinue
+            $url = Get-OuterStatusBaseUrl -ConfigPath 'nonexistent.yml'
+            # A host with no default route legitimately yields '' -- what must
+            # never happen is a link that resolves to the reader's own machine.
+            Assert-False ($url -match 'localhost|127\.0\.0\.1') 'a shared link must not point at the reader'
+            if ($url) { Assert-True ($url -match '^http://\d+\.\d+\.\d+\.\d+:\d+$') "shape was '$url'" }
+        } finally {
+            if ($null -ne $saved) { $env:YURUNA_STATUS_PUBLIC_URL = $saved }
+        }
+    }
+}
+
+Describe 'Invoke-RunnerOuterLoop failure pause (auto-remediation trigger is reachable)' {
+    # The pause runs in the parent process; the per-cycle body runs in its own. Naming
+    # one of the body's variables in the pause binds $null over a parameter default,
+    # which throws inside the callee and leaves the gate below reading a null result --
+    # the trigger then never fires and the only symptom is an error every poll tick.
+    BeforeAll {
+        $script:CfgAutoRem   = New-TempConfig "testCycle:`n  autoRemediationEnabled: true`n"
+        $script:PauseTempDir = Join-Path ([System.IO.Path]::GetTempPath()) ("ol-rt-" + [guid]::NewGuid().ToString('N'))
+        New-Item -ItemType Directory -Path $script:PauseTempDir -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $script:PauseTempDir 'last_failure.json') `
+            -Value '{"failureClass":"wait_timeout"}' -Encoding utf8
+        # Both are joined unguarded on the pause path: the restart-flag probe reads
+        # the runtime dir, Get-OuterLastFailureClass reads the log dir. Sandboxed so
+        # the suite never touches the operator's live runtime.
+        $script:SavedRuntimeDir = $env:YURUNA_RUNTIME_DIR
+        $script:SavedLogDir     = $env:YURUNA_LOG_DIR
+        $env:YURUNA_RUNTIME_DIR = $script:PauseTempDir
+        $env:YURUNA_LOG_DIR     = $script:PauseTempDir
+    }
+    AfterAll {
+        if ($null -eq $script:SavedRuntimeDir) { Remove-Item Env:\YURUNA_RUNTIME_DIR -ErrorAction SilentlyContinue }
+        else { $env:YURUNA_RUNTIME_DIR = $script:SavedRuntimeDir }
+        if ($null -eq $script:SavedLogDir) { Remove-Item Env:\YURUNA_LOG_DIR -ErrorAction SilentlyContinue }
+        else { $env:YURUNA_LOG_DIR = $script:SavedLogDir }
+        Remove-Item -LiteralPath $script:CfgAutoRem -Force -ErrorAction SilentlyContinue
+        Remove-Item -LiteralPath $script:PauseTempDir -Recurse -Force -ErrorAction SilentlyContinue
+    }
+
+    It 'ends the pause early on a transient failure class when the config ENGAGES remediation' {
+        Mock -ModuleName Test.RunnerOuterLoop Write-OuterLog                { }
+        Mock -ModuleName Test.RunnerOuterLoop Get-OuterCommitSha            { 'sha0' }
+        Mock -ModuleName Test.RunnerOuterLoop Get-OuterProjectUrl           { '' }
+        Mock -ModuleName Test.RunnerOuterLoop Get-OuterConfigMtime          { $null }
+        Mock -ModuleName Test.RunnerOuterLoop Test-OuterNewCommitsAvailable { $false }
+        # First cycle fails, which drives the pause; the second ends the loop. The
+        # marker rides on ShutdownState because that is the one hashtable shared by
+        # reference between this test and the loop.
+        Mock -ModuleName Test.RunnerOuterLoop Invoke-OuterCycleDispatch {
+            if ($State.ShutdownState.ContainsKey('Paused')) {
+                $State.ShutdownState['Requested'] = $true
+                return [pscustomobject]@{ Outcome = 'completed'; ExitCode = 0 }
+            }
+            $State.ShutdownState['Paused'] = $true
+            return [pscustomobject]@{ Outcome = 'completed'; ExitCode = 1 }
+        }
+
+        $spoken = @(Invoke-RunnerOuterLoop -State @{
+            CycleScript               = ''
+            RepoRoot                  = $here
+            ConfigPath                = $script:CfgAutoRem
+            InnerScript               = 'x'
+            PwshExe                   = 'pwsh'
+            ArgList                   = @()
+            ForwardEnvSnapshot        = @{}
+            ShutdownState             = @{ Requested = $false }
+            NoGitPull                 = $true
+            FailurePauseMaxSeconds    = 1
+            FailureCommitPollSeconds  = 1
+            OuterPullErrorSleepSec    = 1
+            InnerSpawnErrorSleepSec   = 1
+            StepTimeoutMinutesDefault = 1
+            WatchdogPollSeconds       = 1
+        } 3>$null) -join "`n"
+
+        Assert-True ($spoken -match "auto-remediation: transient 'wait_timeout'") `
+            'the gate read a real result, so the transient class ended the pause early'
     }
 }
 

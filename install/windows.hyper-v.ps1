@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.26
+.VERSION 2026.07.28
 .GUID 42c2a1aa-2e97-414a-9393-0d097d2e2a2c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -66,6 +66,21 @@ $script:YurunaBranchExplicit = $PSBoundParameters.ContainsKey('YurunaBranch')
 function Write-Step { param([string]$m) Write-Output "==> $m" }
 function Write-Warn { param([string]$m) Write-Warning $m }
 function Write-Die  { param([string]$m) Write-Error $m }
+
+# Resolve -YurunaDir to a full path before anything reads it. Every later use is
+# a rename source/target, a `git -C` argument, or a value forwarded verbatim to
+# a relaunched child -- and the checkout preflight moves this process's working
+# directory out of the tree, after which a relative path would resolve against a
+# different folder than the operator typed it in.
+try {
+    if (-not [System.IO.Path]::IsPathRooted($YurunaDir)) {
+        $YurunaDir = Join-Path (Get-Location).ProviderPath $YurunaDir
+    }
+    $YurunaDir = [System.IO.Path]::GetFullPath($YurunaDir)
+    if ($YurunaDir.Length -gt 3) { $YurunaDir = $YurunaDir.TrimEnd('\') }
+} catch {
+    Write-Warn "Could not resolve -YurunaDir '$YurunaDir' to a full path: $($_.Exception.Message)"
+}
 
 # --- REGION: Install log
 # The elevated relaunch runs in a SEPARATE console window that vanishes the
@@ -568,6 +583,14 @@ function Stop-YurunaProcess {
         return
     }
 
+    # Only PIDs we actually stopped are worth waiting on below. A candidate that
+    # was already gone, or that identity validation rejected, never exits on our
+    # account: port 8080 in particular is commonly held by http.sys on behalf of
+    # a driver-hosted listener, which reports the System process (pid 4) as its
+    # owner -- waiting for that one to exit is a guaranteed 20-second stall
+    # ending in a warning that names a process nobody can or should stop.
+    $stoppedPids = New-Object System.Collections.Generic.List[int]
+
     foreach ($targetPid in $targetPids) {
         $proc  = Get-Process -Id $targetPid -ErrorAction SilentlyContinue
         if (-not $proc) { continue }   # already gone (e.g. killed as a child of an earlier target's tree)
@@ -594,16 +617,18 @@ function Stop-YurunaProcess {
             Write-Verbose "taskkill /PID $targetPid failed ($($_.Exception.Message)); falling back to Stop-Process."
             Stop-Process -Id $targetPid -Force -ErrorAction SilentlyContinue
         }
+        $stoppedPids.Add($targetPid)
     }
 
-    # Wait for every target to actually exit before returning -- the caller
-    # renames the checkout aside next (Assert-YurunaCheckoutMovable + the
+    # Wait for every process we stopped to actually exit before returning -- the
+    # caller renames the checkout aside next (Assert-YurunaCheckoutMovable + the
     # update/re-clone), which fails while any of these still holds a handle
     # inside the tree.
+    if ($stoppedPids.Count -eq 0) { return }
     $deadline = (Get-Date).AddSeconds(20)
     $alive = @()
     do {
-        $alive = @($targetPids | Where-Object { Get-Process -Id $_ -ErrorAction SilentlyContinue })
+        $alive = @($stoppedPids | Where-Object { Get-Process -Id $_ -ErrorAction SilentlyContinue })
         if ($alive.Count -eq 0) { break }
         Start-Sleep -Milliseconds 500
     } while ((Get-Date) -lt $deadline)
@@ -612,53 +637,206 @@ function Stop-YurunaProcess {
     }
 }
 
+# --- REGION: Directory rename that stays a rename
+# Move-Item degrades a failed directory rename into a recursive copy-then-delete
+# -- that is how it supports moves across volumes. Applied to a checkout that is
+# held open, it copies part of the tree (.git included) to the destination name,
+# deletes those originals, then fails on the first file it cannot touch: a
+# destroyed working tree, reported as "the item is in use". Every directory move
+# in this installer therefore goes through [System.IO.Directory]::Move, which is
+# a rename and nothing else -- it either succeeds or throws with both paths
+# exactly as they were. Sibling destinations only, so the same-volume
+# restriction never applies.
+function Move-YurunaDirectory {
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([bool])]
+    param(
+        [Parameter(Mandatory)][string]$From,
+        [Parameter(Mandatory)][string]$To
+    )
+    if (-not $PSCmdlet.ShouldProcess($From, "Rename to '$To'")) { return $false }
+    try {
+        [System.IO.Directory]::Move($From, $To)
+    } catch {
+        # Unwrap the MethodInvocationException so callers report the underlying
+        # "Access to the path ... is denied" rather than a nested calling-Move
+        # sentence the operator has to read past.
+        $inner = $_.Exception
+        if ($inner.InnerException) { $inner = $inner.InnerException }
+        throw $inner
+    }
+    return $true
+}
+
 # --- REGION: Preflight: the checkout is not held open
 # The update path (below) may have to move the existing checkout aside to
-# re-clone, and Move-Item of a directory is a rename that fails when the
-# folder is held open -- most often a shell sitting inside it (its current
-# location pins the tree), or an editor / Explorer window with it open. That
-# failure is otherwise only reached AFTER the winget installs, the Hyper-V
-# enable, and the test/status backup, so the operator waits minutes for a
-# surprising "item is in use" abort. Probe it up front with the SAME operation
-# the fallback uses -- a sibling rename -- after first dropping our own lock by
-# stepping out of the tree. A pass renames straight back (no disruption); a
-# failure moves nothing and is the early, actionable abort.
+# re-clone, and moving a directory is a rename that fails when the folder is
+# held open -- most often a shell sitting inside it (its working directory pins
+# the tree), or an editor / Explorer window with it open. That failure is
+# otherwise only reached AFTER the winget installs, the Hyper-V enable, and the
+# test/status backup, so the operator waits minutes for a surprising "item is in
+# use" abort. Probe it up front with the SAME operation the fallback uses -- a
+# sibling rename -- after first dropping our own lock by stepping out of the
+# tree. A pass renames straight back, so nothing is disrupted.
+#
+# A failure WARNS and lets the install continue: the rename is needed only by
+# the non-ff re-clone path below, which reports its own failure, so a plain
+# `git pull` update still completes on a checkout something else holds open.
+# The probe exists to tell the operator early, not to veto the run.
+function Test-YurunaPathInside {
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param([string]$Path, [Parameter(Mandatory)][string]$Root)
+    if (-not $Path) { return $false }
+    return ($Path -eq $Root -or $Path.StartsWith($Root + '\', [System.StringComparison]::OrdinalIgnoreCase))
+}
+
+# Merge a probe directory back over the checkout. Reached when BOTH names exist,
+# which is the shape a copy-then-delete move leaves behind: part of the tree
+# under the probe name, the rest under the real one, and the repo unusable until
+# they are one directory again. The two sides are disjoint except for files
+# whose copy succeeded and whose delete did not, and those are byte-identical,
+# so overwriting is safe. The probe is removed only when every entry made
+# it back.
+function Restore-YurunaCheckoutFromProbe {
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([bool])]
+    param(
+        [Parameter(Mandatory)][string]$Probe,
+        [Parameter(Mandatory)][string]$Checkout
+    )
+    if (-not $PSCmdlet.ShouldProcess($Probe, "Merge back into '$Checkout'")) { return $false }
+    $prefix = $Probe.TrimEnd('\').Length
+    $failed = 0
+    $copied = 0
+    foreach ($item in @(Get-ChildItem -LiteralPath $Probe -Recurse -Force -ErrorAction SilentlyContinue)) {
+        $rel  = $item.FullName.Substring($prefix).TrimStart('\')
+        $dest = Join-Path $Checkout $rel
+        try {
+            if ($item.PSIsContainer) {
+                if (-not (Test-Path -LiteralPath $dest)) {
+                    New-Item -ItemType Directory -Path $dest -Force -ErrorAction Stop | Out-Null
+                }
+            } else {
+                $destDir = Split-Path -Parent $dest
+                if ($destDir -and -not (Test-Path -LiteralPath $destDir)) {
+                    New-Item -ItemType Directory -Path $destDir -Force -ErrorAction Stop | Out-Null
+                }
+                Copy-Item -LiteralPath $item.FullName -Destination $dest -Force -ErrorAction Stop
+                $copied++
+            }
+        } catch {
+            $failed++
+            Write-Warn "  could not restore '$rel': $($_.Exception.Message)"
+        }
+    }
+    if ($failed -gt 0) {
+        Write-Warn "  restored $copied file(s), $failed failed -- leaving '$Probe' in place."
+        return $false
+    }
+    Write-Step "  restored $copied file(s) into $Checkout"
+    Remove-Item -LiteralPath $Probe -Recurse -Force -ErrorAction SilentlyContinue
+    return $true
+}
+
 function Assert-YurunaCheckoutMovable {
     [CmdletBinding()]
     param([Parameter(Mandatory)][string]$Dir)
-    # A first-time clone creates the dir, so there is nothing to move.
-    if (-not (Test-Path -LiteralPath (Join-Path $Dir '.git'))) { return }
 
     $full  = [System.IO.Path]::GetFullPath($Dir).TrimEnd('\')
     $probe = "$full.locktest"
 
-    # Drop a self-inflicted lock: a working directory inside the tree pins it,
-    # failing both the probe and the later move-aside. Step out to the parent.
-    $cwd = [System.IO.Path]::GetFullPath((Get-Location).ProviderPath).TrimEnd('\')
-    if ($cwd -eq $full -or $cwd.StartsWith($full + '\', [System.StringComparison]::OrdinalIgnoreCase)) {
-        Set-Location -LiteralPath (Split-Path -Parent $full)
+    # Drop a self-inflicted lock. A process holds an open handle on its own
+    # working directory, and that handle pins every parent of it against rename.
+    # Set-Location moves only the PowerShell location -- the OS-level working
+    # directory the process was launched with stays put -- so both have to be
+    # stepped out of the tree explicitly. Since the documented way to run this
+    # file is from inside the checkout (install\windows.hyper-v.ps1), skipping
+    # the second one makes the installer the process that blocks its own update.
+    $parent = Split-Path -Parent $full
+    $psCwd  = [System.IO.Path]::GetFullPath((Get-Location).ProviderPath).TrimEnd('\')
+    $osCwd  = ''
+    try { $osCwd = [System.IO.Path]::GetFullPath([System.Environment]::CurrentDirectory).TrimEnd('\') }
+    catch { $osCwd = '' }
+    $stepped = $false
+    if (Test-YurunaPathInside -Path $psCwd -Root $full) {
+        Set-Location -LiteralPath $parent
+        $stepped = $true
+    }
+    if (Test-YurunaPathInside -Path $osCwd -Root $full) {
+        try {
+            [System.IO.Directory]::SetCurrentDirectory($parent)
+            $stepped = $true
+        } catch {
+            Write-Warn "Could not move this process's working directory out of '$Dir' ($($_.Exception.Message)); it will keep the checkout pinned against a rename."
+        }
+    }
+    if ($stepped) {
         Write-Warn "Stepped out of '$Dir' -- the installer was launched from inside the checkout, which would block updating it."
     }
 
-    # Recover from a probe a prior run left half-applied (renamed away, never
-    # renamed back), then refuse to clobber any unexpected leftover.
+    # Recover from a probe an interrupted run left behind, in either shape it
+    # can take: the whole checkout sitting under the probe name (rename away
+    # succeeded, rename back never ran), or the tree split across both names.
+    # This runs BEFORE the nothing-to-move check below, because either shape can
+    # leave .git itself on the probe side -- and a checkout without .git reads
+    # as "never cloned", so the update path would try to clone into a directory
+    # that is not empty and fail there instead.
     if ((Test-Path -LiteralPath $probe) -and -not (Test-Path -LiteralPath $full)) {
-        Move-Item -LiteralPath $probe -Destination $full -ErrorAction SilentlyContinue
+        Write-Warn "Found the checkout under the probe name '$probe' -- renaming it back to '$Dir'."
+        try {
+            $null = Move-YurunaDirectory -From $probe -To $full
+        } catch {
+            Write-Die "'$Dir' is missing and could not be renamed back from '$probe': $($_.Exception.Message). Rename it back manually, then re-run."
+        }
     }
     if (Test-Path -LiteralPath $probe) {
-        Write-Die "A previous lock-probe left '$probe' behind. Inspect it, then remove it or rename it back to '$Dir' before re-running."
+        Write-Warn "Part of the checkout is under '$probe' -- merging it back into '$Dir'."
+        if (-not (Restore-YurunaCheckoutFromProbe -Probe $probe -Checkout $full)) {
+            Write-Die "Could not merge '$probe' back into '$Dir'. Copy its contents over '$Dir' manually (they belong to that checkout), remove it, then re-run."
+        }
     }
 
+    # A first-time clone creates the dir, so there is nothing to move.
+    if (-not (Test-Path -LiteralPath (Join-Path $full '.git'))) { return }
+
+    $probeMoved = $false
     try {
-        Move-Item -LiteralPath $full -Destination $probe -ErrorAction Stop
+        $probeMoved = Move-YurunaDirectory -From $full -To $probe
     } catch {
-        Write-Die "The Yuruna checkout '$Dir' is in use and cannot be updated: $($_.Exception.Message). Close any shell sitting inside it (cd elsewhere), and any editor (VS Code) or Explorer window holding it open, then re-run. (Checked up front so the package installs and Hyper-V setup are not run first.)"
+        Write-Warn ''
+        Write-Warn '============================================================'
+        Write-Warn "  The Yuruna checkout cannot be renamed right now:"
+        Write-Warn "    $Dir"
+        Write-Warn "    $($_.Exception.Message)"
+        Write-Warn ''
+        Write-Warn '  Nothing was moved -- the checkout is untouched. Updating it'
+        Write-Warn '  with git does not need the rename, so the install continues;'
+        Write-Warn '  only a re-clone (needed when the pull cannot fast-forward)'
+        Write-Warn '  would fail here.'
+        Write-Warn ''
+        Write-Warn '  To clear it: close any shell sitting inside the checkout'
+        Write-Warn '  (cd elsewhere) and any editor (VS Code) or Explorer window'
+        Write-Warn '  holding it open.'
+        Write-Warn '============================================================'
+        Write-Warn ''
+        return
     }
-    try {
-        Move-Item -LiteralPath $probe -Destination $full -ErrorAction Stop
-    } catch {
-        Write-Die "Verified '$Dir' is movable but could not restore it from the probe name '$probe': $($_.Exception.Message). Rename '$probe' back to '$Dir' manually, then re-run."
+    if (-not $probeMoved) { return }
+
+    # The tree is under the probe name now, so getting it back matters more than
+    # anything the probe was testing. Retry: a scanner or indexer that grabbed
+    # the directory in the last few milliseconds clears on its own.
+    $restoreError = 'the rename did not run'
+    for ($attempt = 1; $attempt -le 5; $attempt++) {
+        try {
+            if (Move-YurunaDirectory -From $probe -To $full) { return }
+        } catch {
+            $restoreError = $_.Exception.Message
+            Start-Sleep -Milliseconds 400
+        }
     }
+    Write-Die "Verified '$Dir' is movable but could not restore it from the probe name '$probe': $restoreError. Rename '$probe' back to '$Dir' manually, then re-run."
 }
 
 # --- REGION: yuruna-caching-proxy detection
@@ -986,16 +1164,16 @@ if (Test-Path (Join-Path $YurunaDir '.git')) {
             # Seconds-precision stamp so re-running the installer within
             # the same minute (transient git failure -> immediate retry)
             # doesn't collide on the destination directory and abort the
-            # Move-Item below.
+            # rename below.
             $stamp = Get-Date -Format 'yyyy-MM-dd.HH-mm-ss'
             $YurunaBackupDir = "$YurunaDir.backup.$stamp"
             Write-Warn "git pull --ff-only failed (exit $pullExit) -- moving the existing checkout aside and re-cloning."
             Write-Warn "  from: $YurunaDir"
             Write-Warn "  to:   $YurunaBackupDir"
             try {
-                Move-Item -LiteralPath $YurunaDir -Destination $YurunaBackupDir -ErrorAction Stop
+                $null = Move-YurunaDirectory -From $YurunaDir -To $YurunaBackupDir
             } catch {
-                Write-Die "Could not move '$YurunaDir' to '$YurunaBackupDir': $($_.Exception.Message). Close any shells / editors / Explorer windows holding the path open, then re-run this installer."
+                Write-Die "Could not move '$YurunaDir' to '$YurunaBackupDir': $($_.Exception.Message). The checkout was left untouched. Close any shells / editors / Explorer windows holding the path open, then re-run this installer."
             }
             $script:YurunaBackupCreated = $YurunaBackupDir
 

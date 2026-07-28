@@ -22,8 +22,8 @@ cross-cutting model every other doc builds on, or with
   caching-proxy / stash VMs.
 - **[lab-operator.md](lab-operator.md)** — bring-up runbook for a lab:
   shared NAS storage, caching proxy, stash and pool-control services,
-  each additional machine, and a two-pool split running a different
-  test set on each.
+  each additional machine enrolled via the dashboard's lab token, and a
+  two-pool split running a different test set on each.
 - **[definition.md](definition.md)** — the glossary. Generic and
   Yuruna-specific terms in one place, so the framework, guest scripts, and docs
   stay consistent.
@@ -36,10 +36,10 @@ cross-cutting model every other doc builds on, or with
   containerized app to localhost, Azure, or AWS with one workflow, and clean up
   the cloud resources afterwards.
 - **[authentication.md](authentication.md)** — how to authenticate to Docker
-  Desktop, AWS, Azure, and Google Cloud, plus the test-harness vault threat
-  model.
-- **[component-registry.md](component-registry.md)** — how the component-push
-  pipeline logs into the target container registry before pushing images.
+  Desktop, AWS, Azure, and Google Cloud, how the [component-push pipeline logs
+  into the target container
+  registry](authentication.md#component-registry-login) before pushing images,
+  plus the test-harness vault threat model.
 - **[cleanup is in kubernetes.md](kubernetes.md#cleaning-up-cloud-resources)** —
   destroying cloud resources automatically or by hand, per cloud.
 
@@ -211,6 +211,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.26
+Last review: 2026.07.28
 
 Back to [Yuruna](../README.md)

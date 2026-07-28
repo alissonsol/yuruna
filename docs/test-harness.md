@@ -69,7 +69,7 @@ contract](#yurunahost-contract) below.
 | `Test.ConfigValidator` | `Test-AgainstSchema`, `Test-IsSet`, `Test-RepoFreshness` — pieces of `Test-Config.ps1` reusable by future check scripts |
 | `Test.PortOwner`       | `Get-PortListenerPid` (Windows HTTP.sys + Unix lsof) + `Resolve-PortOrphan` for the status-service port |
 | `Test.Status`          | `status.json` lifecycle |
-| `Test.Extension`       | Loader for the pluggable extension areas under `test/extension/<area>/` (authentication, notification) — see [Extensions API](extensions-api.md) |
+| `Test.Extension`       | Loader for the pluggable extension areas under `test/extension/<area>/` (authentication, notification), plus `Get-ExtensionHostAddress` — where a service area (stash, pool control) is reachable for this host — see [Extensions API](extensions-api.md) |
 | `Test.Notify`          | Thin dispatcher to the active notification extension(s) (`Send-Notification -EventCode -EventMessage -EventNote`); default extension delivers email via Resend |
 | `Test.Log` / `Test.YurunaDir` | Transcript and state directories |
 | `Test.Start-GuestOS`        | Start-GuestOS tile: start.guest.* sequence orchestration |
@@ -202,7 +202,7 @@ eviction-safe global-anchor pattern but is hand-rolled in
 - [Host I/O registry](host-io.md) — `Register-HostIOProvider`
 - Sequence actions — `Register-SequenceAction` (see
   [`Test.SequenceAction.psm1`](../test/modules/Test.SequenceAction.psm1))
-- [Component registry login](component-registry.md) — `Register-CredentialProvider`
+- [Component registry login](authentication.md#component-registry-login) — `Register-CredentialProvider`
 - [Host-condition registry](host-condition-registry.md) — `Register-HostConditionProvider`
 
 Plus the [remediation dispatcher](remediation.md) (`Register-RecoveryHandler`,
@@ -444,6 +444,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.26
+Last review: 2026.07.28
 
 Back to [Yuruna](../README.md)

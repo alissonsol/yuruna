@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.26
+.VERSION 2026.07.28
 .GUID 42d4a3b2-c1f0-4e89-5678-9a0b1c2d3e40
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -1114,10 +1114,11 @@ function Sync-MacHostClock {
     reboots); `sntp -sS` is the immediate half, because turning the daemon
     on does not itself step a clock that is already hours out.
 
-    Both need root. Reports rather than throws: a caller at a cycle
-    boundary has to be free to carry on with a warning when sudo is not
-    available, and this must never sit waiting on a password prompt --
-    hence sudo -n throughout.
+    Both need root. Reports rather than throws: a caller has to be free to
+    carry on with a warning when sudo is not available, and this must never
+    sit waiting on a password prompt -- hence sudo -n throughout. An
+    interactive caller that wants the sync to succeed primes the credential
+    cache first (Initialize-SudoCache), which asks once and visibly.
 
     .OUTPUTS
     [hashtable] Succeeded (bool), Message (string).
@@ -1157,10 +1158,10 @@ function Assert-MacHostConditionSet {
     <#
     .SYNOPSIS
     Single gate for macOS prerequisites: Accessibility + Screen Recording
-    permissions, screen lock / display sleep settings, and host clock.
-    Returns $true on non-macOS or when all conditions pass; $false with
-    diagnostics on failure. Invoke once at startup and again before each
-    test cycle.
+    permissions, screen lock / display sleep settings. Returns $true on
+    non-macOS or when all conditions pass; $false with diagnostics on
+    failure. Also reports the host clock -- warn-only, never a reason to
+    refuse. Invoke once at startup and again before each test cycle.
     #>
     param([string]$HostType)
     if ($HostType -ne "host.macos.utm") { return $true }
@@ -1168,8 +1169,11 @@ function Assert-MacHostConditionSet {
     if (-not (Assert-Accessibility    -HostType $HostType)) { return $false }
     if (-not (Assert-ScreenRecording  -HostType $HostType)) { return $false }
     if (-not (Assert-ScreenLock       -HostType $HostType)) { return $false }
-    # Guests inherit this clock at power-on; see Assert-HostClock.
-    if (-not (Assert-HostClock        -HostType $HostType)) { return $false }
+    # Guests inherit this clock at power-on; see Write-HostClockDriftWarning.
+    # Warn-only and once per cycle: the repair needs a sudo credential this
+    # process cannot ask for, so a drifted host runs and says so rather than
+    # refusing every cycle until an operator notices.
+    Write-HostClockDriftWarning -HostType $HostType
 
     return $true
 }

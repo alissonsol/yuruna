@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.07.26
+# Version: 2026.07.28
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 set -euo pipefail
@@ -288,7 +288,6 @@ done
 sudo modprobe overlay
 sudo modprobe br_netfilter
 
-# Persist modules across reboots
 cat <<'EOF' | sudo tee /etc/modules-load.d/k8s.conf
 overlay
 br_netfilter
@@ -358,7 +357,6 @@ if ! kubectl --kubeconfig="${REAL_HOME}/.kube/config" apply -f "$FLANNEL_MANIFES
     exit 1
 fi
 
-# Wait for Flannel DaemonSet pods to be ready before proceeding
 echo ""
 echo "==== Flannel DaemonSet Status ===="
 echo "Waiting for Flannel pods to be ready..."

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.26
+.VERSION 2026.07.28
 .GUID 42d0c9e8-f7a6-4c54-5432-bad0c9e8f7a6
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -44,6 +44,13 @@
 .PARAMETER Quiet
     Suppress per-file PASS lines; only failures and the final summary
     print. Errors still surface.
+.PARAMETER BomOnly
+    Check for a BOM but allow non-ASCII bytes. For the far larger set of
+    files that must merely stay BOM-free: a BOM is never wanted anywhere
+    (it is invisible in every editor, rides into hashes and heredocs, and
+    breaks byte-for-byte consumers), while non-ASCII content is legitimate
+    outside the bootstrap set -- guest scripts print box-drawing characters,
+    docs quote real names.
 
 .EXAMPLE
     pwsh test/Test-AsciiNoBom.ps1
@@ -52,12 +59,26 @@
 .EXAMPLE
     pwsh test/Test-AsciiNoBom.ps1 -Path 'install/*.ps1' -Quiet
     # Glob over every installer script; quiet on PASS.
+
+.PARAMETER Staged
+    Check the files staged for commit instead of -Path. The lookup lives
+    here rather than in the caller because `pwsh -File` binds each argument
+    after the script as a separate positional value -- a list of paths
+    passed as `-Path a b c` fails to bind, so a shell hook cannot hand one
+    over. Added, copied and modified files only; a deletion has nothing to
+    read.
+
+.EXAMPLE
+    pwsh test/Test-AsciiNoBom.ps1 -BomOnly -Staged -Quiet
+    # BOM sweep over what is about to be committed; non-ASCII is allowed.
 #>
 
 [CmdletBinding()]
 param(
     [string[]]$Path,
-    [switch]$Quiet
+    [switch]$Quiet,
+    [switch]$BomOnly,
+    [switch]$Staged
 )
 
 $TestRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
@@ -66,6 +87,22 @@ $RepoRoot = Split-Path -Parent $TestRoot
 Import-Module (Join-Path $TestRoot 'modules/Test.Prelude.psm1') -Global -Force
 $ExitOk      = Get-EntryPointExitCode -Outcome Ok
 $ExitFailure = Get-EntryPointExitCode -Outcome Failure
+
+if ($Staged) {
+    # Advisory: a repo-less or git-less environment must not block a commit,
+    # so an unusable git degrades to "nothing to check" rather than a failure.
+    $names = @(& git -C $RepoRoot diff --cached --name-only --diff-filter=ACM 2>$null)
+    if ($LASTEXITCODE -ne 0) {
+        Write-Warning "Test-AsciiNoBom: could not list staged files (git exit $LASTEXITCODE); nothing checked."
+        exit $ExitOk
+    }
+    $Path = @($names | Where-Object { $_ } | ForEach-Object { Join-Path $RepoRoot $_ } |
+        Where-Object { Test-Path -LiteralPath $_ -PathType Leaf })
+    if ($Path.Count -eq 0) {
+        if (-not $Quiet) { Write-Output 'Test-AsciiNoBom: no staged files to check.' }
+        exit $ExitOk
+    }
+}
 
 if (-not $Path -or $Path.Count -eq 0) {
     # Default set: every script fetched and executed byte-for-byte on a
@@ -129,6 +166,10 @@ foreach ($file in $resolved) {
     }
     # Check 3: every byte must be 7-bit ASCII (0x00..0x7F). Locate the
     # first offender so a human can jump straight to the byte.
+    if ($BomOnly) {
+        if (-not $Quiet) { Write-Output "PASS  $file  ($($bytes.Length) bytes, no BOM)" }
+        continue
+    }
     $offender = -1
     for ($i = 0; $i -lt $bytes.Length; $i++) {
         if ($bytes[$i] -gt 0x7F) { $offender = $i; break }
@@ -146,8 +187,9 @@ foreach ($file in $resolved) {
 }
 
 Write-Output ''
+$mode = if ($BomOnly) { 'BOM-only' } else { 'ASCII+BOM' }
 if ($failures.Count -eq 0) {
-    Write-Output "Test-AsciiNoBom: $($resolved.Count) file(s) checked, all clean."
+    Write-Output "Test-AsciiNoBom [$mode]: $($resolved.Count) file(s) checked, all clean."
     exit $ExitOk
 }
 Write-Warning "Test-AsciiNoBom: $($failures.Count) of $($resolved.Count) file(s) FAILED:"

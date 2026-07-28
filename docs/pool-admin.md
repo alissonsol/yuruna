@@ -3,8 +3,8 @@
 > **Who this is for.** A **pool administrator / operator** running several Yuruna test
 > hosts who wants them to share work and report together. It is *not* a guide to writing
 > test sequences or harness code. It assumes the test **sequences already exist** (the ones
-> a single host runs from `test.runner.yml`); your job here is to group some of them and
-> point a set of hosts at them.
+> a single host runs from `test.runner.yml`); your job here is to point a set of
+> hosts at the project that runs them.
 
 ## What a pool is
 
@@ -16,17 +16,18 @@ hosts directly: each runner **pulls** the intent every cycle and acts on it.
 Intent has three parts:
 
 - **members** — which hosts belong to the pool (by their stable host id).
-- **test-sets** — which groups of existing test sequences the pool runs.
+- **test-set** — which framework/project repo pair the pool runs; the assigned
+  project's own `test.runner.yml` is the work.
 - **desiredState** — whether the pool is running, paused, or draining.
 
 ```
   you ──run──▶ admin CLI ──writes──▶ pools.yml  (intent git repo on the caching-proxy)
                                           │
-  every host ──pulls read-only each cycle─┘──▶ runs the assigned test-sets, reports under <poolId>
+  every host ──pulls read-only each cycle─┘──▶ runs the assigned test-set, reports under <poolId>
 ```
 
-The intent repo holds **only non-secret** files (`pools.yml`, the test-set manifests,
-`guests.compatibility.yml`). No credential is ever routed through it.
+The intent repo holds **only non-secret** files (`pools.yml`, the `test-sets.yml`
+library, `guests.compatibility.yml`). No credential is ever routed through it.
 
 ## Before you start
 
@@ -62,7 +63,7 @@ pwsh test/New-Pool.ps1 -PoolId lab -DisplayName 'Lab pool' -IntentGitUrl <writab
 - `-PoolId` is a short, lowercase, DNS-safe name (`a-z 0-9 -`). It becomes the **permanent
   label** for this pool's telemetry on the dashboard, so pick it deliberately — renaming it
   later forks the history.
-- The pool starts empty (`desiredState: run`, no members, no test-sets).
+- The pool starts empty (`desiredState: run`, no members, no test-set).
 
 ## Step 2 — Add the hosts
 
@@ -79,54 +80,44 @@ pwsh test/Add-HostToPool.ps1 -PoolId lab -HostId 42abcdef0123456789abcdef0123456
   a no-op.
 - To remove a host later, see **Step 6** below (drain it first if it is running).
 
-## Step 3 — Group your test sequences into a test-set
+## Step 3 — Define the test-set (a framework/project repo pair)
 
-A **test-set** is a named list of test **sequences you already run**, plus a few options.
-Create `test-sets/<name>.yml` in your **project** repo (next to the sequences), e.g.
-`test-sets/smoke.yml`:
+A **test-set** is a named framework/project repo **pair**:
+`{name, frameworkUrl, projectUrl}`. Assigning one to a pool makes every member
+override its own `repositories.frameworkUrl` / `repositories.projectUrl` with the
+pair for the cycle and run the assigned project's own `test.runner.yml` plan — the
+sequences a pool runs are whatever that project declares. `GH_TOKEN` is never
+stored in pool intent; it stays host-local.
 
-```yaml
-schemaVersion: 1
-name: smoke
-sequences:                      # the SAME sequence names your test.runner.yml already runs
-  - amazon.linux.2023.install
-  - ubuntu.server.24.install
-perGuestOverrides:              # optional: per-guest tweaks just for this set
-  guest.ubuntu.server.24:
-    keystrokeMechanism: GUI     # GUI | SSH
-    variables:
-      username: yuser1
-provisioning:
-  betweenSets: none             # only 'none' is active today
+Register the pair in the intent store's test-set library (`test-sets.yml`, the
+store behind the Pool control "Test sets" page):
+
+```powershell
+pwsh test/Set-PoolTestSetDefinition.ps1 -Name smoke -FrameworkUrl <framework-url> -ProjectUrl <project-url> -IntentGitUrl <writable-url>
 ```
 
-- The **filename stem must equal `name`** (`smoke.yml` → `name: smoke`).
-- `sequences[]` are **existing top-level sequence names** — the exact strings your
-  `test.runner.yml` lists (no folder, no extension). You are not writing sequences here,
-  only naming which ones this pool should run.
-- Each host automatically runs only the guests it can (folder present + capability supported
-  + hypervisor-compatible) and skips the rest, trusting another pool member to cover them —
-  there is no central dispatcher.
+- The library keeps the UI and CLI views consistent; for CLI-only use it is
+  optional — Step 4's `Set-PoolTestSet.ps1` takes the URLs directly.
 - Full field reference: [`test/schemas/pool-test-sets.schema.yml`](../test/schemas/pool-test-sets.schema.yml).
 
 ## Step 4 — Assign the test-set to the pool
 
 ```powershell
-pwsh test/Set-PoolTestSet.ps1 -PoolId lab -Name smoke -Order 0 -CycleStrategy all -IntentGitUrl <writable-url>
+pwsh test/Set-PoolTestSet.ps1 -PoolId lab -Name smoke -FrameworkUrl <framework-url> -ProjectUrl <project-url> -IntentGitUrl <writable-url>
 ```
 
-- `-Name` is the test-set's name (its manifest filename stem). This records a **reference**
-  in `pools.yml`; it does **not** verify that `test-sets/smoke.yml` exists — Step 5 catches a typo.
-- `-Order` (default 0) sets the order when a pool has several test-sets (lowest runs first).
-- `-CycleStrategy` is `all` today (every member runs the set's runnable guests). `round-robin`
-  and `single` are accepted but currently behave like `all` — see [Limitations](#current-limitations).
-- Assign more than one test-set by running this again with another `-Name`/`-Order`.
+- A pool holds **exactly one** `testSet`; assigning replaces the previous one (a
+  legacy `testSets[]` array is dropped on write).
+- The URLs are recorded inline in `pools.yml`, so the assignment is
+  self-contained — no file in the project repo is involved.
+- Nothing probes the URLs at assignment time: a typo first surfaces when a
+  member's next cycle tries to clone — see [Limitations](#current-limitations).
 
 ## Step 5 — Verify
 
 ```powershell
-pwsh test/Test-PoolIntent.ps1             # validates pools.yml + every test-sets/*.yml; flags a test-set name with no manifest
-pwsh test/Get-PoolStatus.ps1 -PoolId lab  # shows members, desiredState, and the assigned test-sets (what you authored)
+pwsh test/Test-PoolIntent.ps1             # schema-validates pools.yml (+ guests.compatibility.yml); host-in-one-pool invariant
+pwsh test/Get-PoolStatus.ps1 -PoolId lab  # shows members, desiredState, and the assigned test-set
 ```
 
 There is nothing to "deploy": each runner picks up the new intent on its **next cycle** (it
@@ -171,7 +162,7 @@ the id from EVERY pool's `members[]` (needs `pool.intentGitUrl`; without it the 
 records are still removed and membership is skipped with a warning); and (3) asks
 the aggregator to **forget** the host (`POST /api/v1/forget-host`) so it leaves the
 dashboard NOW instead of after the host TTL. Step 3 is opt-in + best-effort: it
-fires only when a `pool-auth-token` and a caching-proxy are configured (the same
+fires only when a `lab-auth-token` and a caching-proxy are configured (the same
 CA-pinned bearer transport as pool push), and a missing token / unreachable
 aggregator is a silent skip — the panel still self-clears on the TTL. A host that
 is still live is re-discovered on the aggregator's next poll, so stop/drain it
@@ -186,10 +177,11 @@ ago, unless `-Force`. Run it on a host with the pool share mounted.
 | `Add-HostToPool.ps1` | add a host | `-PoolId` (req), `-HostId` (req) |
 | `Remove-HostFromPool.ps1` | remove a host from ONE pool's members | `-PoolId` (req), `-HostId` (req) |
 | `Remove-PoolHost.ps1` | **purge** a stale host: delete its NAS records + strip ALL memberships | `-HostId` (req), `-Force`, `-ConfigPath` |
-| `Set-PoolTestSet.ps1` | assign a test-set | `-PoolId` (req), `-Name` (req), `-Order`, `-CycleStrategy` |
+| `Set-PoolTestSet.ps1` | assign the pool's one test-set (replaces) | `-PoolId` (req), `-Name` (req), `-FrameworkUrl` (req), `-ProjectUrl` (req) |
+| `Set-PoolTestSetDefinition.ps1` | upsert/delete a library test-set | `-Name` (req), `-FrameworkUrl`, `-ProjectUrl`, `-Delete` |
 | `Set-PoolDesiredState.ps1` | run / pause / drain | `-PoolId` (req), `-State` (req) |
-| `Get-PoolStatus.ps1` | read members + test-sets (intent) | `-PoolId` |
-| `Test-PoolIntent.ps1` | validate every intent file | — |
+| `Get-PoolStatus.ps1` | read members + the assigned test-set (intent) | `-PoolId` |
+| `Test-PoolIntent.ps1` | validate the intent files | — |
 
 All mutating commands support `-WhatIf` (preview) and `-Confirm`, validate against the
 schemas **before** writing, and `git commit` + `push` for you. `-IntentGitUrl` defaults to
@@ -280,17 +272,16 @@ pwsh test/Start-PoolControlVM.ps1 -HostSideProof [-Port 8090] [-AggregatorUrl <u
 Needs `go` + `pwsh` on PATH and the framework checkout (the CLIs live at
 `<repo>/test/*.ps1`).
 
-## Current limitations
+## Design choices
 
-- **`cycleStrategy`** — only `all` is active. `round-robin` and `single` are accepted and
-  validated but currently run as `all` (with a warning).
-- **`provisioning.betweenSets`** — only `none` is active. `snapshot-revert` and `reprovision`
-  run as `none` (with a warning).
-- **Assignment is by name** — `Set-PoolTestSet` records the name without checking the manifest
-  exists, so always run `Test-PoolIntent.ps1` after editing intent.
-- **Two repos.** The test-set *manifests* (`test-sets/*.yml`) live in your **project** repo
-  next to the sequences; the *assignment* (the `testSets[]` reference) lives in the **intent**
-  repo on the proxy. Keep both in step.
+- **One test-set per pool** — a pool runs exactly one framework/project pair at a
+  time; assigning another replaces it. Split hosts into two pools to run two
+  bodies of tests side by side.
+- **Assignment is not probed** — `Set-PoolTestSet` records the repo URLs without
+  cloning them, and `Test-PoolIntent.ps1` checks shape, not reachability; a bad
+  URL first surfaces when a member's next cycle tries to clone.
+- **Members do not split the work** — every member runs the assigned project's
+  full `test.runner.yml` plan; there is no per-guest scheduling across members.
 
 ## Advanced: two more optional `pools.yml` blocks
 
@@ -305,15 +296,15 @@ These have no dedicated command yet — author them directly in `pools.yml` (val
 
 ## Default-off + safety
 
-The pool layer is entirely opt-in: a host with no `pool` block, a pool with no members or no
-test-sets, or a host that can run none of a set's guests, runs its local `test.runner.yml`
-exactly as a standalone host. An unreachable intent store falls back to the last good copy,
+The pool layer is entirely opt-in: a host with no `pool` block, or a pool with no
+members or no assigned test-set, runs its local `test.runner.yml` exactly as a
+standalone host. An unreachable intent store falls back to the last good copy,
 then to standalone — a pool never stops a host from testing.
 
 ## See also
 
 - [control-routes.md](control-routes.md) — what a host accepts from the dashboard's action
-  buttons, and the one-time `pool-auth-token` setup that enables them from another machine.
+  buttons, and the one-time `lab-auth-token` setup that enables them from another machine.
 - [pool-storage.md](pool-storage.md) — optional NAS replication of pool observability data
   (a separate, NAS-only feature).
 - [test/extension/pool-aggregator/README.md](../test/extension/pool-aggregator/README.md) —
@@ -326,6 +317,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.26
+Last review: 2026.07.28
 
 Back to [Yuruna](../README.md)

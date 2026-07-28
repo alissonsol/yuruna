@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.26
+.VERSION 2026.07.28
 .GUID 42c5d6e7-f8a9-4b01-9234-5e6f7a8b9c0d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -100,8 +100,10 @@ function Set-LinuxHostConditionSet {
 
     # Host clock -> under NTP discipline. Guests inherit it at power-on;
     # see Sync-LinuxHostClock for what a drifting one does to them. This is
-    # the one runtime mutation that has to happen on every host, because
-    # the fault it prevents is invisible until it has cost a whole cycle.
+    # the mutation that has to happen on every host, and it happens here
+    # because here an operator is present to authorize it: a cycle can only
+    # report the drift, and the fault it causes is invisible until it has
+    # cost a whole cycle.
     $clock = Sync-LinuxHostClock
     if ($clock.Succeeded) {
         Write-Information "Host clock: $($clock.Message)"
@@ -127,9 +129,11 @@ function Sync-LinuxHostClock {
         does not itself step a clock that is already hours out, and
         systemd-timesyncd only steps on start.
 
-        Reports rather than throws, and never prompts (`sudo -n`): an
-        unattended runner blocked on a hidden password prompt is a hang,
-        not a failed clock sync.
+        Reports rather than throws, and never prompts (`sudo -n`): a
+        scripted host-prep run blocked on a hidden password prompt is a
+        hang, not a failed clock sync. An interactive caller that wants
+        the sync to succeed primes the credential cache first
+        (Initialize-SudoCache), which asks once and visibly.
     .OUTPUTS
         [hashtable] Succeeded (bool), Message (string).
     #>
@@ -195,10 +199,11 @@ function Assert-LinuxHostConditionSet {
     [OutputType([bool])]
     param([string]$HostType)
     if ($HostType -ne 'host.ubuntu.kvm') { return $true }
-    # Guests inherit this clock at power-on; see Assert-HostClock. Checked
-    # before the virtualization round-trip because a skewed clock fails the
-    # cycle no matter how healthy libvirt is.
-    if (-not (Assert-HostClock -HostType $HostType)) { return $false }
+    # Guests inherit this clock at power-on; see Write-HostClockDriftWarning.
+    # Warn-only and once per cycle: the repair needs a sudo credential this
+    # process cannot ask for, so a drifted host runs and says so rather than
+    # refusing every cycle until an operator notices.
+    Write-HostClockDriftWarning -HostType $HostType
     # The runner calls Initialize-YurunaHost before invoking this
     # function; that imports host/ubuntu.kvm/modules/Yuruna.Host.psm1
     # for host.ubuntu.kvm, so Assert-Virtualization is in scope here.

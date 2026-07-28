@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.26
+.VERSION 2026.07.28
 .GUID 42b8c9d0-e1f2-4a34-9567-8f9a0b1c2d31
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -90,9 +90,10 @@ function Register-HostConditionProvider {
         [scriptblock]$DisplayTeardown = $null,
         # Optional "put this host's clock back under NTP discipline".
         # Signature: `param()`, returns @{ Succeeded; Message }. Invoked by
-        # Sync-HostClock at a cycle boundary and by the operator-facing
-        # Enable-TestAutomation path. $null for a host with no way to
-        # discipline its own clock.
+        # Sync-HostClock from the operator-facing paths only (Test-Config's
+        # offer, Enable-TestAutomation) -- it needs privileges an unattended
+        # cycle cannot obtain. $null for a host with no way to discipline
+        # its own clock.
         [scriptblock]$ClockSync = $null
     )
     & $script:HostConditionRegistry.Register $HostType ([ordered]@{
@@ -196,7 +197,7 @@ function Get-HostClockSkew {
     return $null
 }
 
-# How far a host clock may sit from real time before a cycle is refused.
+# How far a host clock may sit from real time before it is worth reporting.
 # An NTP-disciplined host holds milliseconds, so this is not a precision
 # budget -- it is the line between "disciplined" and "nothing is correcting
 # this clock", well clear of the seconds-scale wander of a host that syncs
@@ -206,10 +207,10 @@ $script:YurunaMaxHostClockSkewSeconds = 120
 function Get-HostClockSkewLimit {
     <#
     .SYNOPSIS
-        The skew, in seconds, past which a host clock fails the gate.
+        The skew, in seconds, past which a host clock is reported as drifted.
     .DESCRIPTION
-        Exposed so a reporting caller (Test-Config) states the same number
-        the gate enforces instead of carrying its own copy of it.
+        Exposed so a second reporting caller (Test-Config) states the same
+        number instead of carrying its own copy of it.
     .OUTPUTS
         [int]
     #>
@@ -219,12 +220,18 @@ function Get-HostClockSkewLimit {
     return $script:YurunaMaxHostClockSkewSeconds
 }
 
-function Assert-HostClock {
+# One clock measurement per process. A fresh process runs each cycle
+# (the per-cycle child, then the inner it spawns), so once-per-process is
+# once-per-cycle -- and the platform Assert that calls this runs more than
+# once inside a single inner run. Without the memo the operator reads the
+# same paragraph twice a cycle and pays a second NTP round trip for it.
+$script:HostClockReported = $false
+
+function Write-HostClockDriftWarning {
     <#
     .SYNOPSIS
-        Gate: $true when the host clock is close enough to real time (or
-        cannot be measured), $false with an actionable diagnostic when it
-        has drifted past $MaxSkewSeconds.
+        Measure this host's clock once per process and warn -- once -- when
+        it has drifted past $MaxSkewSeconds. Returns nothing.
 
     .DESCRIPTION
         Shared by every platform's Assert-*HostConditionSet: the fault is
@@ -232,28 +239,37 @@ function Assert-HostClock {
         get stepped to real time mid-boot), so the threshold and the
         wording are held in one place rather than drifting between three.
 
-        An unmeasurable clock passes. A lab with no route to a time server
-        is a normal deployment, and refusing to run there would trade a
-        rare fault for a certain one.
+        Warn-only, deliberately. Correcting a clock needs privileges an
+        unattended runner does not hold and cannot ask for -- so a drifted
+        host that refused its own cycles would sit refusing them until an
+        operator noticed, trading a degraded cycle for no cycle at all. The
+        repair is offered where someone is present to authorize it:
+        test/Test-Config.ps1 and the per-host Enable-TestAutomation.ps1.
+
+        An unmeasurable clock says nothing. A lab with no route to a time
+        server is a normal deployment, not a fault to report every cycle.
 
     .OUTPUTS
-        [bool]
+        None.
     #>
     [CmdletBinding()]
-    [OutputType([bool])]
+    [OutputType([void])]
     param(
         [string]$HostType,
         [int]$MaxSkewSeconds = $script:YurunaMaxHostClockSkewSeconds
     )
 
+    if ($script:HostClockReported) { return }
+    $script:HostClockReported = $true
+
     $skew = Get-HostClockSkew
     if ($null -eq $skew) {
         Write-Verbose "Host clock: no time server answered; skew left unchecked."
-        return $true
+        return
     }
     if ([math]::Abs($skew) -le $MaxSkewSeconds) {
         Write-Verbose "Host clock: $([math]::Round($skew, 1))s from real time (limit ${MaxSkewSeconds}s)."
-        return $true
+        return
     }
 
     $offBy     = [math]::Round([math]::Abs($skew), 1)
@@ -267,10 +283,26 @@ function Assert-HostClock {
     Write-Warning " with its pods Running but never Ready and every NodePort"
     Write-Warning " refusing, hours before anything blames a clock."
     Write-Warning ""
-    Write-Warning " Quick fix -- run from the repo root (elevated / with sudo):"
+    Write-Warning " This cycle continues. Fix the clock from a console that can"
+    Write-Warning " answer for Administrator / sudo -- run from the repo root:"
+    Write-Warning "   pwsh test/Test-Config.ps1"
     Write-Warning "   pwsh host/$hostFolder/Enable-TestAutomation.ps1"
     Write-Warning "==================================================================="
-    return $false
+}
+
+function Reset-HostClockReport {
+    <#
+    .SYNOPSIS
+        Re-arm the once-per-process clock report.
+    .DESCRIPTION
+        Tests-only: production processes are per-cycle, so the memo is
+        never re-armed in a live run.
+    #>
+    [CmdletBinding(SupportsShouldProcess)]
+    param()
+    if ($PSCmdlet.ShouldProcess('host clock report', 'Re-arm')) {
+        $script:HostClockReported = $false
+    }
 }
 
 function Sync-HostClock {
@@ -281,16 +313,20 @@ function Sync-HostClock {
 
     .DESCRIPTION
         Best-effort by contract. A host clock is fixed with privileged
-        calls that can fail for reasons the caller cannot resolve mid-run
-        (no elevation, a managed time service, an air-gapped network), and
-        no caller should abandon a cycle over the attempt -- so this never
-        throws and reports what happened instead. The gate in each
-        platform's Assert-*HostConditionSet is what refuses a cycle when
-        the clock is genuinely too far out.
+        calls that can fail for reasons the caller cannot resolve (no
+        elevation, a managed time service, an air-gapped network), so this
+        never throws and reports what happened instead.
 
-        Safe only at a cycle boundary. Correcting a drifted host steps its
-        clock, and a step during a running cycle is the very fault this
-        exists to prevent -- guests take their time from the host.
+        Operator-facing only: the privileged calls underneath need an
+        Administrator shell or a sudo credential the caller must be able to
+        obtain, which an unattended runner cannot. Callers are
+        test/Test-Config.ps1 (which asks first, and primes the sudo cache
+        so the answer is honored) and the per-host Enable-TestAutomation.ps1.
+        A running cycle only warns -- see Write-HostClockDriftWarning.
+
+        No guest may be running. Correcting a drifted host steps its clock,
+        and a step while guests are up is the very fault this exists to
+        prevent -- guests take their time from the host.
 
     .OUTPUTS
         [hashtable] Attempted (bool), Succeeded (bool), Message (string).
@@ -534,7 +570,7 @@ function Remove-HostDisplay {
 Export-ModuleMember -Function `
     Register-HostConditionProvider, Get-HostConditionProvider, Get-HostConditionProviderMatrix, Clear-HostConditionProvider, `
     Assert-HostConditionSet, Initialize-HostDisplay, Remove-HostDisplay, `
-    Get-HostClockSkew, Get-HostClockSkewLimit, Assert-HostClock, Sync-HostClock, `
+    Get-HostClockSkew, Get-HostClockSkewLimit, Write-HostClockDriftWarning, Reset-HostClockReport, Sync-HostClock, `
     Assert-ScreenLock, Initialize-SudoCache, `
     Set-MacHostConditionSet, Assert-Accessibility, Assert-ScreenRecording, Assert-MacHostConditionSet, Test-MacHostMinimum, Sync-MacHostClock, `
     Set-WindowsHostConditionSet, Assert-WindowsHostConditionSet, Test-WindowsHostMinimum, Sync-WindowsHostClock, `

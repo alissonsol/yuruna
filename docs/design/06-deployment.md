@@ -129,7 +129,7 @@ host (:8090, deliberately clear of :8080) and needs a local `go` toolchain.
 
 `%% planned` **Each dashed edge has its own gate — there is no single pool
 switch.** `pool.enabled` (default `false`) gates only the pool-intent pull.
-The `/ingest` push is gated on a stored `pool-auth-token` plus a reachable
+The `/ingest` push is gated on a stored `lab-auth-token` plus a reachable
 proxy; the NAS `replicate` edge on `pool.networkReplicate` (default `false`);
 the stash tier on the three `networkStorage.stash*` keys (empty by default).
 Neither `Start-PoolControlVM.ps1` nor `Start-CachingProxyVM.ps1` consults
@@ -143,4 +143,4 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.26
+Last review: 2026.07.28

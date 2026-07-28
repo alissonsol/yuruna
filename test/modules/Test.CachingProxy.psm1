@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.26
+.VERSION 2026.07.28
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456821
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -526,38 +526,178 @@ function Get-PoolAggregatorSeedUrl {
     into a guest seed, e.g. the stash VM's presence-beacon destination.
 .DESCRIPTION
     The aggregator runs inside the caching-proxy VM, so its address is the
-    proxy's IP from the persisted caching-proxy state (the same resolution the
-    host-side pool notifier uses), with the YURUNA_CACHING_PROXY_IP environment
-    override as fallback. https because a provisioned proxy mints the
-    aggregator's TLS leaf in cloud-init; a consumer facing an older plain-HTTP
-    proxy downgrades per attempt (the beacon's https-then-http candidate
-    order), so the baked scheme never strands it.
+    caching proxy's -- and one host can carry three separate claims about
+    where that proxy is:
 
-    Returns '' when no proxy IP is known -- the caller bakes an empty value and
+      1. the persisted caching-proxy state (`ipAddress`), written only when
+         THIS host provisions, adopts, or stops a proxy VM of its own,
+      2. $env:YURUNA_CACHING_PROXY_IP, the session-scope override,
+      3. vmStart.cachingProxyIP, the persistent operator key naming a proxy
+         this host USES but did not provision -- the only claim a host whose
+         services all live elsewhere ever has.
+
+    Every claim is PROBED on the aggregator port and the first that answers
+    wins, which makes that order a preference among reachable addresses
+    rather than blind trust in the highest-ranked one. A claim outlives the
+    thing it describes: the state key keeps its last value on a host that
+    stopped running a proxy of its own, and an env var exported for a proxy
+    that has since moved keeps naming the old address. Believing either
+    unprobed strands every consumer on a URL nothing has served for months
+    while a live proxy sits in the claim right behind it -- and a guest seeded
+    from that answer carries the dead address for the life of the VM. This is
+    the probe-and-discard policy Resolve-CachingProxyEndpoint applies to the
+    cycle's own resolution, so the two agree about which addresses are real.
+
+    The probe targets the aggregator port rather than squid's: this
+    function's entire output is an aggregator URL, so the port that proves
+    the answer is the port the answer names.
+
+    A stored claim that loses to a live one is repaired in place, so a stale
+    address costs one probe rather than every future call. A claim this host
+    never stored is left unstored -- that key means "the proxy VM I run", and
+    a host that merely uses someone else's must not begin claiming it.
+
+    https because a provisioned proxy mints the aggregator's TLS leaf in
+    cloud-init; a consumer facing an older plain-HTTP proxy downgrades per
+    attempt (the beacon's https-then-http candidate order), so the baked
+    scheme never strands it.
+
+    Returns '' when no claim answers -- the caller bakes an empty value and
     the consuming service leaves its aggregator-dependent features off. The
-    value lands inside a single-quoted env line in the seed, so any resolved
-    value carrying a quote or whitespace is refused (returns '') rather than
-    corrupting the seed file.
+    value lands inside a single-quoted env line in the seed, so a claim
+    carrying a quote or whitespace is skipped (the next claim still gets its
+    turn) rather than corrupting the seed file.
+.PARAMETER MaxWaitSeconds
+    How long to keep re-probing when NO claim answers the first sweep, so a
+    momentary outage resolves to the right address instead of to ''. 0 (the
+    default) is a single bounded sweep: seed rendering and the pre-cycle
+    extension lookup both sit in front of a cycle and must not delay one.
+    Callers with an operator waiting on the answer -- where resolving ''
+    means a failed enrollment rather than a feature left off -- pass a real
+    budget.
 .OUTPUTS
     [string] aggregator base URL, or ''.
 #>
-    [CmdletBinding()]
+    [CmdletBinding(SupportsShouldProcess)]
     [OutputType([string])]
-    param()
-    $ip = ''
+    param(
+        [int]$MaxWaitSeconds = 0
+    )
+    # The aggregator's LAN port: the one the host forwards among the proxy's
+    # service ports, and the one guest seeds beacon to.
+    $aggregatorPort = 9400
+
+    $stateIp = ''
     try {
         $state = Read-CachingProxyState
-        if ($state -and $state.ipAddress) { $ip = [string]$state.ipAddress }
+        if ($state -and $state.ipAddress) { $stateIp = [string]$state.ipAddress }
     } catch { $null = $_ }
-    if ([string]::IsNullOrWhiteSpace($ip) -and $env:YURUNA_CACHING_PROXY_IP) {
-        $ip = $env:YURUNA_CACHING_PROXY_IP.Trim()
+
+    $configIp = ''
+    try {
+        $configPath = $env:YURUNA_CONFIG_PATH
+        if ([string]::IsNullOrWhiteSpace($configPath)) {
+            $configPath = Join-Path (Split-Path -Parent $PSScriptRoot) 'test.config.yml'
+        }
+        if (Test-Path -LiteralPath $configPath) {
+            if (-not (Get-Command Read-TestConfig -ErrorAction SilentlyContinue)) {
+                Import-Module (Join-Path $PSScriptRoot 'Test.Config.psm1') -Global -Force -DisableNameChecking -Verbose:$false
+            }
+            $cfg = Read-TestConfig -Path $configPath
+            if ($cfg.vmStart -is [System.Collections.IDictionary] -and $cfg.vmStart.Contains('cachingProxyIP')) {
+                $configIp = "$($cfg.vmStart.cachingProxyIP)".Trim()
+            }
+        }
+    } catch { Write-Verbose "Get-PoolAggregatorSeedUrl: reading vmStart.cachingProxyIP failed: $($_.Exception.Message)" }
+
+    # Deduped: the same address commonly appears in two claims at once, and
+    # every distinct one costs a round trip to disprove.
+    $claims = [System.Collections.Generic.List[hashtable]]::new()
+    $seen   = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+    foreach ($claim in @(
+        @{ Address = $stateIp;                          Source = 'caching-proxy state'          }
+        @{ Address = "$($env:YURUNA_CACHING_PROXY_IP)"; Source = '$env:YURUNA_CACHING_PROXY_IP' }
+        @{ Address = $configIp;                         Source = 'vmStart.cachingProxyIP'       }
+    )) {
+        $address = "$($claim.Address)".Trim()
+        if ([string]::IsNullOrWhiteSpace($address)) { continue }
+        if ($address -match "['\s]") { continue }
+        if (-not $seen.Add($address)) { continue }
+        $claims.Add(@{ Address = $address; Source = $claim.Source })
     }
-    if ([string]::IsNullOrWhiteSpace($ip)) { return '' }
-    if ($ip -match "['\s]") { return '' }
+    if ($claims.Count -eq 0) { return '' }
+
+    # Repeat calls inside one process -- a render that emits several guests, a
+    # cycle looking up more than one extension area -- must not re-pay the
+    # sweep. Only a resolved address is remembered: a caller that asks again
+    # with a wait budget is asking to keep trying, and a remembered '' would
+    # rob it of exactly that.
+    $claimKey = (($claims | ForEach-Object { $_.Address }) -join '|')
+    if ($script:PoolAggregatorUrlMemo -and
+        $script:PoolAggregatorUrlMemo.Key -eq $claimKey -and
+        $script:PoolAggregatorUrlMemo.ExpiresUtc -gt [datetime]::UtcNow) {
+        return $script:PoolAggregatorUrlMemo.Url
+    }
+
+    # Wall-clock deadline, not a round count: a probe's own duration swings
+    # with the failure shape (a refused connect returns at once, a black-holed
+    # address burns the full timeout), so counting rounds would make the same
+    # budget mean a different wait on every network.
+    $deadlineUtc = [datetime]::UtcNow.AddSeconds([Math]::Max(0, $MaxWaitSeconds))
+    $winner      = $null
+    $backoffMs   = 2000
+    $announced   = $false
+    while ($true) {
+        foreach ($candidate in $claims) {
+            # Two attempts: the first warms ARP and wakes a power-saved radio,
+            # so a live proxy still answers when the first one times out.
+            if (Test-TcpPortReachable -TargetHost $candidate.Address -Port $aggregatorPort -Attempts 2 -TimeoutMs 600 -BackoffMs 150) {
+                $winner = $candidate
+                break
+            }
+            Write-Verbose "Get-PoolAggregatorSeedUrl: $($candidate.Address):$aggregatorPort (source: $($candidate.Source)) did not answer."
+        }
+        if ($winner) { break }
+        $remainingMs = [int][Math]::Floor(($deadlineUtc - [datetime]::UtcNow).TotalMilliseconds)
+        if ($remainingMs -le 0) { break }
+        if (-not $announced) {
+            Write-Information "No caching proxy answered on :$aggregatorPort ($($claimKey -replace '\|', ', ')); retrying for up to $MaxWaitSeconds s in case the outage is momentary ..." -InformationAction Continue
+            $announced = $true
+        }
+        Start-Sleep -Milliseconds ([Math]::Min($backoffMs, $remainingMs))
+        # Widen the gap so a long outage is not hammered, capped so a proxy
+        # that does come back is noticed within seconds of doing so.
+        $backoffMs = [Math]::Min(15000, $backoffMs * 2)
+    }
+    if (-not $winner) { return '' }
+
+    # Repair a stored address that lost to a live one, so the next call pays
+    # no probe to disprove it again. Only an address this host already
+    # recorded is rewritten: an empty key means "I run no proxy of my own",
+    # and filling it with a proxy someone else runs would assert an ownership
+    # this host does not have.
+    #
+    # ShouldProcess, not $WhatIfPreference: preference variables resolve in the
+    # module's OWN session state, where $WhatIfPreference reads $false however
+    # the caller was invoked, and an unbound -WhatIf is not forwarded across
+    # that boundary either. A caller that must not write has to pass -WhatIf by
+    # hand, and this gate is what gives that pass an effect.
+    if ($stateIp -and $stateIp -ne $winner.Address -and
+        $PSCmdlet.ShouldProcess("caching-proxy state ipAddress ($stateIp)", "replace with the address that answered ($($winner.Address))")) {
+        try {
+            [void](Save-CachingProxyState -IpAddress $winner.Address -Confirm:$false)
+            Write-Verbose "Get-PoolAggregatorSeedUrl: caching-proxy state ipAddress $stateIp -> $($winner.Address) (the stored address did not answer)."
+        } catch {
+            Write-Verbose "Get-PoolAggregatorSeedUrl: could not update the caching-proxy state ($($_.Exception.Message)); the resolved address is unaffected."
+        }
+    }
+
     # Format-IpUrlHost (Test.VMUtility) brackets an IPv6 literal; callers that
     # haven't loaded that module still get a correct IPv4 URL from the raw IP.
-    $urlHost = if (Get-Command Format-IpUrlHost -ErrorAction SilentlyContinue) { Format-IpUrlHost $ip } else { $ip }
-    return "https://${urlHost}:9400"
+    $urlHost = if (Get-Command Format-IpUrlHost -ErrorAction SilentlyContinue) { Format-IpUrlHost $winner.Address } else { $winner.Address }
+    $url = "https://${urlHost}:${aggregatorPort}"
+    $script:PoolAggregatorUrlMemo = @{ Key = $claimKey; Url = $url; ExpiresUtc = [datetime]::UtcNow.AddSeconds(60) }
+    return $url
 }
 
 function Get-PoolIntentSeedUrl {

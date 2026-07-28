@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.26
+.VERSION 2026.07.28
 .GUID 4258d7b3-f0cd-4067-93af-fd6942a23808
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -18,9 +18,9 @@
 
 <#
 .SYNOPSIS
-    Guard: a host whose clock is not disciplined must be refused a cycle on
-    every host type, the skew it is judged on must be measured correctly,
-    and the runner must try to fix it where fixing is safe.
+    Guard: a host whose clock is not disciplined must say so on every host
+    type, the skew it is judged on must be measured correctly, and the
+    repair must stay where a console can authorize it.
 .DESCRIPTION
     Every hypervisor here seeds a guest's clock from the host at power-on.
     A host that has drifted therefore starts every VM equally wrong, and
@@ -32,13 +32,20 @@
     the pod IP answers 200. The cost of missing it is a whole cycle spent
     before anything suspects the clock.
 
+    A cycle only reports it. Every platform's repair is a privileged call
+    -- Administrator, or a sudo credential nobody is present to type -- so
+    an unattended loop can neither perform it nor stop to ask, and a host
+    that refused its own cycles over a clock would run none at all until
+    someone noticed. The repair therefore lives in the operator-facing
+    paths, which may ask; the cycle measures once and warns.
+
     The arithmetic is tested for real against a local NTP responder --
     NTP's 1900 epoch and big-endian timestamps are exactly the kind of
     thing that inverts silently and reports a healthy zero. The wiring
-    (three gates, three sync paths, the runner's cycle-boundary attempt)
-    is tested at the source level: exercising it needs three hosts, root
-    on each, and a drifted clock, and what it protects against is a check
-    being dropped.
+    (three report paths, three sync paths, what the runner must NOT do) is
+    tested at the source level: exercising it needs three hosts, root on
+    each, and a drifted clock, and what it protects against is a check
+    being dropped or a privileged call creeping back into the loop.
     Run: Invoke-Pester -Path test/modules/Test.HostClockSkew.Tests.ps1
 #>
 
@@ -170,41 +177,69 @@ Describe 'host-clock-skew measurement' {
         Assert-True ($null -eq $skew) "expected null for an unanswered probe, got '$skew'"
     }
 
-    It 'publishes the same limit the gate enforces' {
+    It 'publishes the same limit the report enforces' {
         $limit = Get-HostClockSkewLimit
         Assert-True ($limit -gt 0) 'the limit must be a positive number of seconds'
-        $fn = Get-FunctionAst -Path $sharedFile -Name 'Assert-HostClock'
+        $fn = Get-FunctionAst -Path $sharedFile -Name 'Write-HostClockDriftWarning'
         Assert-True ($fn.Extent.Text -match 'YurunaMaxHostClockSkewSeconds') `
-            'the gate must default to the same constant the limit accessor returns'
+            'the report must default to the same constant the limit accessor returns'
     }
 }
 
-Describe 'host-clock-skew gate' {
+Describe 'host-clock-skew reporting on a cycle' {
 
-    It 'leaves an unmeasurable clock alone rather than failing the gate' {
-        # No time server is reachable on an air-gapped host; that must not
-        # be the thing that stops it from running.
-        $fn = Get-FunctionAst -Path $sharedFile -Name 'Assert-HostClock'
-        Assert-True ($fn.Extent.Text -match '\$null -eq \$skew') 'the gate must branch on an unmeasured clock'
+    It 'says nothing about an unmeasurable clock' {
+        # No time server is reachable on an air-gapped host; that is a normal
+        # deployment, not a fault to repeat every cycle.
+        $fn = Get-FunctionAst -Path $sharedFile -Name 'Write-HostClockDriftWarning'
+        Assert-True ($fn.Extent.Text -match '\$null -eq \$skew') 'the report must branch on an unmeasured clock'
+    }
+
+    It 'warns without refusing the cycle' {
+        # The repair needs a credential the runner cannot obtain, so refusing
+        # here would leave a drifted host running nothing at all.
+        $fn = Get-FunctionAst -Path $sharedFile -Name 'Write-HostClockDriftWarning'
         $returns = @($fn.FindAll({
             param($n) $n -is [System.Management.Automation.Language.ReturnStatementAst]
         }, $true))
-        Assert-True (@($returns | Where-Object { $_.Extent.Text -match 'return\s+\$false' }).Count -ge 1) `
-            'a skewed clock must fail the gate, not just warn'
+        Assert-True (@($returns | Where-Object { $_.Extent.Text -match 'return\s+\$(true|false)' }).Count -eq 0) `
+            'the report must not hand a caller a pass/fail verdict to gate on'
+        Assert-True ($fn.Extent.Text -match 'Write-Warning') 'a drifted clock must still be reported'
+    }
+
+    It 'measures at most once per cycle' {
+        # A fresh process runs each cycle, and the platform Assert that calls
+        # this runs more than once inside one of them. Without the memo the
+        # operator reads the same paragraph twice and pays a second NTP round
+        # trip for it.
+        $fn = Get-FunctionAst -Path $sharedFile -Name 'Write-HostClockDriftWarning'
+        Assert-True ($fn.Extent.Text -match '\$script:HostClockReported')  'the report must latch after its first run'
+        Assert-True ($fn.Extent.Text -match 'if\s*\(\$script:HostClockReported\)\s*\{\s*return') `
+            'the latch must short-circuit before the NTP probe, not after it'
+        $ast = Get-FileAst -Path $sharedFile
+        Assert-True ($ast.Extent.Text -match '\$script:HostClockReported\s*=\s*\$false') `
+            'the latch must be initialized at module scope'
     }
 
     foreach ($entry in $hostFiles.GetEnumerator()) {
         $ht   = $entry.Key
         $path = $entry.Value
-        It "refuses a cycle on a skewed clock: $ht" {
+        It "reports a skewed clock once per cycle: $ht" {
             $fn = Get-FunctionAst -Path $path -Name $assertFn[$ht]
             Assert-True ($null -ne $fn) "$($assertFn[$ht]) must exist"
             $calls = @($fn.FindAll({
                 param($n)
                 $n -is [System.Management.Automation.Language.CommandAst] -and
-                $n.GetCommandName() -eq 'Assert-HostClock'
+                $n.GetCommandName() -eq 'Write-HostClockDriftWarning'
             }, $true))
-            Assert-True ($calls.Count -ge 1) "$ht must consult the shared clock gate"
+            Assert-True ($calls.Count -ge 1) "$ht must consult the shared clock report"
+            # A bare statement, never a condition: the clock must not decide
+            # whether this host is allowed to run.
+            foreach ($call in $calls) {
+                Assert-True ($call.Parent -is [System.Management.Automation.Language.PipelineAst] -and
+                             $call.Parent.Parent -is [System.Management.Automation.Language.NamedBlockAst]) `
+                    "$ht must call the clock report as a statement, not gate on it: $($call.Extent.Text)"
+            }
         }
     }
 }
@@ -249,45 +284,25 @@ Describe 'host-clock-skew repair' {
         }
     }
 
-    It 'tries to sync the clock at the cycle boundary, and only warns when it cannot' {
-        # The per-cycle work moved into Invoke-RunnerOuterCycle so it can run in a
-        # fresh process each cycle; the clock sync went with it, still ahead of the
-        # spawn. Follow the code rather than pinning the function it used to live in.
+    It 'never syncs the clock from an unattended cycle' {
+        # Every platform's sync is a privileged call. On macOS/Linux it needs
+        # a sudo credential nobody is present to type, and `sudo -n` fails
+        # rather than hangs -- so per-cycle it could only ever log a failure,
+        # once per host, forever. The runner reports the skew instead and
+        # leaves the repair to a console that can answer for it.
         $fn = Get-FunctionAst -Path $outerLoopFile -Name 'Invoke-RunnerOuterCycle'
         Assert-True ($null -ne $fn) 'the per-cycle function must exist'
         $syncCalls = @($fn.FindAll({
             param($n)
             $n -is [System.Management.Automation.Language.CommandAst] -and
-            $n.GetCommandName() -eq 'Sync-HostClock'
+            $n.GetCommandName() -in @('Sync-HostClock', 'Sync-WindowsHostClock', 'Sync-MacHostClock', 'Sync-LinuxHostClock')
         }, $true))
-        Assert-True ($syncCalls.Count -ge 1) 'the outer loop must attempt a clock sync'
-
-        # Before the spawn: correcting a drifted host STEPS its clock, and a
-        # step while guests are running is the exact fault this prevents.
-        # Start-Watchdog is the first call of the spawn phase, so it marks
-        # the line the sync has to stay above.
-        $spawn = @($fn.FindAll({
-            param($n)
-            $n -is [System.Management.Automation.Language.CommandAst] -and
-            $n.GetCommandName() -eq 'Start-Watchdog'
-        }, $true))
-        Assert-True ($spawn.Count -ge 1) 'the spawn phase must still arm the watchdog (anchor for this ordering check)'
-        $spawnLine = ($spawn | Measure-Object -Property { $_.Extent.StartLineNumber } -Minimum).Minimum
-        Assert-True ($syncCalls[0].Extent.StartLineNumber -lt $spawnLine) `
-            'the clock sync must happen before the inner is spawned, never mid-cycle'
-
-        # Warn-only: no `return`/`continue`/`throw` may hang off the failure.
-        $enclosing = $syncCalls[0].Extent.StartLineNumber
-        $aborts = @($fn.FindAll({
-            param($n) $n -is [System.Management.Automation.Language.ThrowStatementAst]
-        }, $true) | Where-Object {
-            $_.Extent.StartLineNumber -ge $enclosing -and $_.Extent.StartLineNumber -le ($enclosing + 12)
-        })
-        Assert-True ($aborts.Count -eq 0) 'a failed clock sync must not abort the cycle'
+        Assert-True ($syncCalls.Count -eq 0) `
+            "the cycle must not attempt a clock sync: $(($syncCalls | ForEach-Object { $_.Extent.Text }) -join '; ')"
     }
 }
 
-Describe 'host-clock-skew reporting' {
+Describe 'host-clock-skew repair where a console can answer' {
 
     It 'reports the clock in Test-Config and offers the fix interactively' {
         $configPath = Join-Path (Split-Path -Parent $here) 'Test-Config.ps1'
@@ -300,5 +315,38 @@ Describe 'host-clock-skew reporting' {
         # a console that can answer.
         Assert-True ($offer.Extent.Text -match 'Read-Host')      'the fix must be offered, not applied silently'
         Assert-True ($offer.Extent.Text -match 'UserInteractive') 'the offer must be skipped on a headless run'
+        # The sync underneath is `sudo -n` throughout, so an accepted offer
+        # dies on "a password is required" unless the cache is primed first.
+        $prime = @($offer.FindAll({
+            param($n)
+            $n -is [System.Management.Automation.Language.CommandAst] -and
+            $n.GetCommandName() -eq 'Initialize-SudoCache'
+        }, $true))
+        $sync = @($offer.FindAll({
+            param($n)
+            $n -is [System.Management.Automation.Language.CommandAst] -and
+            $n.GetCommandName() -eq 'Sync-HostClock'
+        }, $true))
+        Assert-True ($prime.Count -ge 1) 'an accepted offer must be able to obtain sudo'
+        Assert-True ($sync.Count -ge 1)  'an accepted offer must actually sync'
+        Assert-True ($prime[0].Extent.StartLineNumber -lt $sync[0].Extent.StartLineNumber) `
+            'the sudo cache must be primed before the sync that spends it'
+    }
+
+    foreach ($entry in $hostFiles.GetEnumerator()) {
+        $ht   = $entry.Key
+        $path = $entry.Value
+        It "keeps the durable fix on the operator-facing host-prep path: $ht" {
+            $setFn = $assertFn[$ht] -replace '^Assert-', 'Set-'
+            $fn = Get-FunctionAst -Path $path -Name $setFn
+            Assert-True ($null -ne $fn) "$setFn must exist"
+            $calls = @($fn.FindAll({
+                param($n)
+                $n -is [System.Management.Automation.Language.CommandAst] -and
+                $n.GetCommandName() -eq $syncFn[$ht]
+            }, $true))
+            Assert-True ($calls.Count -ge 1) `
+                "$setFn (reached from Enable-TestAutomation.ps1) must still discipline the clock"
+        }
     }
 }

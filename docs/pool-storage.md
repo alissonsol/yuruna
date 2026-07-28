@@ -324,22 +324,22 @@ What it does, in order:
    it on the reference) rather than silently dropping to a prompt.
 3. **Vault credential.** Each networkStorage user's credential is reconciled
    against the reference's `GET /control/vault-credential`. That route is
-   gated by the operator-set shared `pool-auth-token` (the same one that
+   gated by the shared `lab-auth-token` (the same one that
    gates the aggregator's push ingest, and 503 until it is configured):
    the request proves token knowledge via an HMAC (the token never crosses
    the wire) and the response password is AES-GCM encrypted with a key
    derived from the token, so nothing crosses the plain-HTTP LAN in
    cleartext. Because that gate is mandatory, **credentials sync only once a
-   `pool-auth-token` is provisioned on BOTH hosts** — the reference (so it
+   `lab-auth-token` is provisioned on BOTH hosts** — the reference (so it
    will serve) and this host (so it can unlock). Before asking the operator
    for anything, the sync probes the reference: a reference with no token of
    its own says so in one actionable line (naming
-   `Set-PoolAuthToken.ps1`) instead of prompting for a token and then a
+   `Set-LabToken.ps1`) instead of prompting for a token and then a
    password it could never have used. With the token in place a re-run
    **refreshes a rotated password** — the fetched value is compared to the
    stored one and rewritten only when they differ. A user that already has a
    local entry and no token available is kept as-is (pass `-SharedToken`, or
-   store a `pool-auth-token`, to have re-runs check it against the
+   store a `lab-auth-token`, to have re-runs check it against the
    reference). Values are stored with `Set-Password`; an operator prompt is
    the last resort, only for a missing entry the reference cannot serve.
 4. **Mount prerequisite (Linux).** Offers to install the passwordless-sudo
@@ -462,6 +462,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.26
+Last review: 2026.07.28
 
 Back to [Yuruna](../README.md)

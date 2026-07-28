@@ -43,7 +43,7 @@ GitHub credentials this run doesn't have.
 
 ### Release pinning + signed integrity
 
-`VERSION` (bare CalVer, e.g. `2026.07.26`) is the source of truth for releases.
+`VERSION` (bare CalVer, e.g. `2026.07.28`) is the source of truth for releases.
 At release time `tools/Update-YurunaReleasePins.ps1` regenerates
 `install/install.sha256`, signs it (`install/install.sha256.sig`, RSA-4096),
 runs the ASCII/no-BOM gate as a hard precondition, and bumps the one tag still
@@ -151,6 +151,14 @@ caught even when one channel misses it:
    8080 default), so port 8080 is freed even if the status server was
    started some other way.
 
+The wait covers only the PIDs actually stopped, not every candidate.
+A candidate that was already gone, or that identity validation (below)
+rejected, never exits on the installer's account. Port 8080 is the
+common case: when it is held by `http.sys` on behalf of a
+driver-hosted listener, channel 3 reports the System process (pid 4) as
+its owner — waiting on that is a guaranteed 20-second stall ending in a
+warning naming a process nobody can or should stop.
+
 On Windows every target is terminated with its whole child tree via
 `taskkill /T /F`. `/F` is a hard TerminateProcess — NOT the soft
 console Ctrl+C that a bare `taskkill` (or a stray `^C`) sends, which
@@ -220,6 +228,56 @@ then quit UTM, and the orphan-bundle sweep deleted the cache.
 If the cache is running OR its state is uncertain, the macOS installer
 skips the UTM cask upgrade so a quit-UTM window does not let the
 orphaned-bundle sweep delete the multi-GB squid spool.
+
+### Checkout-movable probe (Windows)
+
+The non-ff rescue below has to rename the checkout aside, and on Windows
+a directory cannot be renamed while any process holds a handle inside
+it. That failure would otherwise surface only after the winget installs,
+the Hyper-V enable and the `test/status` backup, so the Windows
+installer probes it up front with the same operation the rescue uses: a
+rename to `<dir>.locktest` and straight back.
+
+Three properties keep the probe from costing more than it reports.
+
+**It never copies.** `Move-Item` degrades a failed directory rename into
+a recursive copy-then-delete — that is how it supports moves across
+volumes. Pointed at a checkout that is held open, it copies part of the
+tree (`.git` included) to the probe name, deletes the originals it
+copied, then fails on the first file it cannot touch: a destroyed
+working tree, reported as "the item is in use". Every directory move in
+the installer therefore goes through `Move-YurunaDirectory`, a thin
+wrapper over `[System.IO.Directory]::Move`, which is a rename and
+nothing else — it either succeeds or throws with both paths untouched.
+
+**It steps the PROCESS working directory out of the tree, not just the
+PowerShell location.** A process holds an open handle on its own current
+directory, and that handle pins every parent of it against rename.
+`Set-Location` moves only the PowerShell location; the OS-level working
+directory the process was launched with stays put, and the elevated
+relaunch inherits it. Since the documented way to run the installer is
+from inside the checkout (`install\windows.hyper-v.ps1`), moving only
+the PowerShell location leaves the installer as the one process
+blocking its own update — a self-inflicted failure on every run.
+`[System.IO.Directory]::SetCurrentDirectory` on the checkout's parent
+releases it.
+
+**A failed probe warns; it does not abort.** Only the re-clone rescue
+needs the rename. A checkout that something else holds open still
+updates normally through `git pull`, so the probe reports the condition
+and the install continues; the rescue path reports its own failure if it
+is ever reached.
+
+On entry the probe also repairs a `<dir>.locktest` an interrupted run
+left behind, in either shape it can take: the whole checkout under the
+probe name (renamed away, never renamed back) is renamed back, and a
+tree split across both names is merged back over the checkout and the
+probe removed. The two sides of a split are disjoint except for files
+whose copy succeeded and whose delete did not, and those are
+byte-identical. This repair runs BEFORE the "no `.git`, nothing to move"
+early return, because either shape can leave `.git` itself on the probe
+side — and a checkout without `.git` reads as never-cloned, which sends
+the update path into a `git clone` onto a non-empty directory.
 
 ### Pull from the local repo's remote, not the script's default
 
@@ -809,6 +867,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.26
+Last review: 2026.07.28
 
 Back to [Yuruna](../README.md)

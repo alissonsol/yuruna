@@ -1,7 +1,7 @@
 /*
   LICENSEURI https://yuruna.link/license
   Copyright (c) 2019-2026 by Alisson Sol et al.
-  Version: 2026.07.26
+  Version: 2026.07.28
 
   Shared helpers for the Yuruna status pages. Mounted on window.Yuruna.
   --- REGION: https://yuruna.link/definition#defining-the-status-page-browser-baseline
@@ -10,7 +10,7 @@
 (function() {
   'use strict';
 
-  var VERSION = '2026.07.26';
+  var VERSION = '2026.07.28';
 
   // --- REGION: control-route auth (proof from the Caching Proxy /go/host redirect)
   // A Grafana deep-link routes through the Caching Proxy's /go/host, which appends a
@@ -399,9 +399,10 @@
   function controlErrorText(status, body) {
     var reason = (body && typeof body.reason === 'string') ? body.reason : '';
     if (reason === 'host-token-missing') {
-      return 'This host has no pool-auth-token, so remote control is loopback-only. ' +
+      return 'This host has no lab-auth-token, so remote control is loopback-only. ' +
              'Open this page as http://localhost:' + window.location.port + '/ on the host, ' +
-             'or provision the token. See https://yuruna.link/control-proof';
+             'or enroll it: pwsh test/Set-LabToken.ps1 -LabToken <code from the dashboard’s Lab token tile>. ' +
+             'See https://yuruna.link/control-proof';
     }
     if (reason === 'proof-expired') {
       return 'The control proof expired. Re-open this host from the dashboard link to get a fresh one.';
@@ -412,7 +413,7 @@
     }
     if (reason === 'proof-invalid') {
       return 'The control proof was rejected. It may have been minted with a different ' +
-             'pool-auth-token than this host holds.';
+             'lab-auth-token than this host holds; re-enrolling with test/Set-LabToken.ps1 realigns them.';
     }
     if (reason === 'verifier-unavailable') {
       return 'The host could not load its control-proof verifier; check the status service log.';
@@ -544,21 +545,44 @@
     // silent no-op. The mutating /control/* routes are loopback-or-proof: an
     // on-host browser (http://localhost:<port>) is trusted; a browser on another
     // machine needs the short-lived token the pool dashboard grants. Tell the
-    // operator that instead of doing nothing. Static markup (no data interpolated).
+    // operator that instead of doing nothing, and lead with WHICH precondition
+    // failed: the host names it in the 403 body ("reason"), and "open this page
+    // via the dashboard again" vs "enroll the host first" are different fixes.
+    // Static markup: reasons resolve through the fixed map below, so no
+    // server-supplied text is ever interpolated.
     function hideControlNotice() {
       var n = document.getElementById('control-notice');
       if (n) { n.hidden = true; }
     }
-    function showControlNotice() {
+    var CONTROL_REFUSAL_DETAIL = {
+      'proof-missing':        'this page was opened without a control token, so none was sent',
+      'proof-expired':        'this page’s control token has expired (they last 15 minutes)',
+      'proof-invalid':        'this page’s control token does not verify here — this host’s stored lab token likely differs from the lab’s current one, so re-enroll',
+      'host-token-missing':   'this host holds no lab token yet',
+      'verifier-unavailable': 'this host’s status server could not load its token verifier (check test/status/runtime/server.err on the host)'
+    };
+    function showControlNotice(reason) {
       var n = document.getElementById('control-notice');
       if (!n) { return; }
+      var detail = CONTROL_REFUSAL_DETAIL[reason] || '';
       n.innerHTML =
-        'Control refused. This host accepts control only from a browser <b>on the host itself</b> ' +
+        'Control refused' + (detail ? ' — ' + detail : '') + '. This host accepts control only ' +
+        'from a browser <b>on the host itself</b> ' +
         '(<code>http://localhost:&lt;port&gt;</code>), or one opened through the <b>Yuruna hosts ' +
         'dashboard</b> link (which grants a short-lived token). To drive it from another machine, ' +
-        'open it via the dashboard, or set the shared pool token — see ' +
+        'open it via the dashboard; if this host was never enrolled, run ' +
+        '<code>pwsh test/Set-LabToken.ps1 -LabToken &lt;code&gt;</code> with the code from the ' +
+        'dashboard’s <b>Lab token</b> tile — see ' +
         '<a href="https://yuruna.link/control-routes" target="_blank" rel="noopener">control-route setup</a>.';
       n.hidden = false;
+    }
+    // Reads the machine-readable refusal reason out of a 403 response and
+    // raises the notice with it; body parse failures degrade to the generic
+    // notice rather than masking the refusal.
+    function showControlNoticeFromResponse(res) {
+      return res.json()
+        .then(function(body) { showControlNotice(body && body.reason); })
+        ['catch'](function() { showControlNotice(); });
     }
 
     function controlAction(kind, action) {
@@ -569,7 +593,8 @@
       // becomes a preflighted request the server refuses, blocking drive-by CSRF.
       fetch(endpoint, { method: 'POST', cache: 'no-store', headers: yurunaControlHeaders() })
         .then(function(res) {
-          if (res && res.status === 403) { showControlNotice(); } else { hideControlNotice(); }
+          if (res && res.status === 403) { return showControlNoticeFromResponse(res); }
+          hideControlNotice();
         })
         ['catch'](function(e) {
           safeWarn(endpoint + ' failed:', e);
@@ -727,7 +752,14 @@
     function continueFromBreak() {
       var btn = document.getElementById('break-continue-btn');
       if (btn) { btn.disabled = true; btn.textContent = 'Continuing...'; }
+      // Same loopback-or-proof gate as controlAction: a 403 resolves (never
+      // reaches .catch), so surface the refusal + reason instead of silently
+      // reloading with the button stuck on "Continuing...".
       fetch('control/break-continue', { method: 'POST', cache: 'no-store', headers: yurunaControlHeaders() })
+        .then(function(res) {
+          if (res && res.status === 403) { return showControlNoticeFromResponse(res); }
+          hideControlNotice();
+        })
         ['catch'](function(e) { safeWarn('control/break-continue failed:', e); })
         .then(function() { loadStatus(); });
     }

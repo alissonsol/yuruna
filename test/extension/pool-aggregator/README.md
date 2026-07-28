@@ -59,13 +59,17 @@ Every `-interval` (default 30s) it:
    cycles and hosts a stash server shows one Host ID in both. It needs **no ystash-nas
    mount and no Config Service** on the aggregator's host — a host self-reports the
    service it runs and the aggregator already polls its registration. Drives the
-   dashboard's **Extension hosts** table (`stash-service` → "Stash service"). `baseUrl`
-   (the host's status page) and `target` (the service UI the host advertised in the
-   registration record's **`extensionTargets`**, e.g. the stash VM's base URL it
-   resolved via `Get-VMIp`) ride as labels so the table deep-links each cell
-   **directly** — Host ID → `baseUrl`, Extension → `target` — the SAME hidden-URL-column
+   dashboard's **Extension hosts** table (`stash-service` → "Stash service"). `target`
+   (the service UI the host advertised in the registration record's
+   **`extensionTargets`**, e.g. the stash VM's base URL it resolved via `Get-VMIp`)
+   rides as a label so the table deep-links the Extension cell
+   **directly** — the SAME hidden-URL-column
    pattern the Pool hosts table uses for `baseUrl` (a Grafana table column carries no
-   field labels, so a `${__field.labels.hostId}` redirect would resolve empty). The
+   field labels, so a `${__field.labels.hostId}` redirect would resolve empty).
+   `baseUrl` (the host's status page, empty when the pool does not know the host)
+   rides too, but the Host ID cell is **not** linked: an extension host that runs no
+   cycles has no status page, so `/go/host` would answer *host not known to the
+   pool* — open such a host from the **Pool hosts** table instead. The
    `extensionTargets` map is also exposed in `/api/v1/pool-status` for the stash UI's
    `hostId → stashBaseUrl` lookup, and `/go/stash` resolves it for IP-free consumers.
 5c. **Accepts extension self-announces (`POST /announce`).** The registration path
@@ -82,6 +86,40 @@ Every `-interval` (default 30s) it:
    Announce-fed targets also back `/go/stash` and pool-status `stashBaseUrl` when the
    registration has nothing. Open-by-design write route (no bearer): telemetry-only,
    tightly validated, bounded, self-identity-bound; `-announce-ttl 0` disables it.
+5d. **Answers "where is area X served?" (`GET /api/v1/extension-hosts`).** The
+   registration + announce records above are also the pool's answer to a host that
+   NEEDS a service it does not run. Such a host cannot find the stash service (or
+   pool control) on its own: the service lives on another host, often another
+   subnet, at an address DHCP is free to change, and nothing in the consuming
+   host's config knows where it is — so the alternative is a hard-coded literal
+   that is correct only until the service moves, and then a cycle spends its whole
+   timeout budget on a machine that no longer exists. Since the aggregator runs
+   inside the caching-proxy VM, knowing the **proxy** address — which every host
+   already needs, to reach the cache at all — becomes enough to locate everything
+   else the pool offers. Conversely a host with no caching proxy has no aggregator
+   to ask, and no pool: there is nothing to look up, and the lookup says so.
+
+   `?area=<slug>` returns one area (`404` when the pool knows no live host for it,
+   so a caller can tell "not there" from "here it is"); no query returns every
+   area. Each entry carries `host` (the bare address callers compose probes and
+   scp targets from), `target` (the advertised base URL), `hostId`, `source`
+   (`registration` | `announce`) and `lastSeenUnixMs`. Registration wins over an
+   announce — the owning host re-resolves that target live each cycle, so it tracks
+   a DHCP change sooner than the next beacon — then freshest, then lowest hostId,
+   so the answer is deterministic and a consumer that re-asks is not walked between
+   equally valid hosts. A TTL-expired announce is skipped at read time rather than
+   trusted until the next poll reaps it. Read-only and unauthenticated, the same
+   posture as `/api/v1/pool-status`: it discloses service coordinates to a caller
+   already on the LAN those services listen on, and every consumer proves the
+   address independently (the stash pre-flight demands `/healthz`) before using it.
+   Host-side reader: `Get-PoolExtensionHost -Area stash-service` in
+   [`default.psm1`](default.psm1) — the pool half on its own. Client code calls
+   the framework entry point instead,
+   `Get-ExtensionHostAddress -HostType stash-service`
+   ([`Test.Extension.psm1`](../../modules/Test.Extension.psm1)), which returns
+   this answer in a list alongside the addresses the host can see without a pool.
+   See [Extensions API — finding a service this host does not
+   run](../../../docs/extensions-api.md#finding-a-service-this-host-does-not-run).
 6. **Survives its own restart:** on startup it rehydrates the cycle counters (and
    the seen/counted dedup state) from Loki — the durable transition record —
    over the trailing `-rehydrate-window`. The counter resumes at its prior value
@@ -118,10 +156,31 @@ Every `-interval` (default 30s) it:
    and `pool_incident_open` / `pool_incident_resolved` lines
    (`{pool,src=incident,scope=pool}`, with `affectedHosts` / `peakHosts` /
    `durationSec`); restored from the incident feed on restart like per-host.
+9. **Serves the lab connection token exchange.** Every `-lab-token-rotate`
+   (default 60s) it mints a 6-character **lab connection token** (lowercase
+   a-z0-9) and exposes it as `yuruna_pool_lab_token{pool,token}` — an info
+   gauge carrying the current code — which drives the dashboard's **Lab token**
+   stat tile. A host redeems the displayed code at `POST /api/v1/lab-token`
+   (via `test/Set-LabToken.ps1`) and receives the shared **lab-auth-token**,
+   the bearer that gates `/ingest` and the other token-gated pool routes; a
+   displayed code stays redeemable for about three rotations, so the tile never
+   shows a code that is already dead. The reply is **sealed under the redeemed
+   code** (AES-256-GCM, PBKDF2-HMAC-SHA256 key over code + fresh salt): that is
+   what authenticates this aggregator to a host that cannot verify its TLS leaf
+   — the leaf is signed by the proxy's own CA, which an enrolling host has no
+   reason to trust yet — and it keeps the shared token off the wire in the clear
+   on a proxy running plain HTTP. The exchange is per-address throttled (IPv6
+   grouped by /64) and every attempt is audited (aggregator log + Loki, label
+   `src="lab-token"`; the code itself is never logged) and counted in
+   `yuruna_pool_lab_token_exchanges_total{pool,outcome}`. `-lab-token-rotate 0`
+   disables the tile and the exchange; the tile shows `off` when the aggregator
+   holds no token.
 
 The pool view is rendered by **Grafana** (`grafana-pool-dashboard.json`, uid
-`yuruna-pool`) over Prometheus + Loki: summary tiles (incl. **Hosts in
-incident** and **Pool-wide incident**), a **per-host table** (type · framework
+`yuruna-pool`) over Prometheus + Loki: a five-tile summary row (**Hosts
+reachable** · **Hosts total** · **Failing now** · **Failed cycles** ·
+**Collector**), a **Lab token** stat beside the **Extension hosts** table
+(the 6-char lab connection token — point 9), a **per-host table** (type · framework
 version · last cycle · status · last seen · pass/fail, with deep-links to each
 host's own status page and cycle folder), a **host × time state-timeline**, and a collapsed **drill-down**
 row (incidents · **failures by class & severity** · recent step failures · full
@@ -143,7 +202,9 @@ unaffected (graceful degradation).
   Windows harness toolchain identically to the Linux target).
 - `go.mod` — module + Go version. Zero external dependencies.
 - `pool-aggregator.service` — systemd unit (`User=proxy`, hardened,
-  `ReadOnlyPaths=/var/log/squid` to read the access log; `:9400`).
+  `ReadOnlyPaths=/var/log/squid` to read the access log; `:9400`; `ExecStart`
+  carries `-auth-token-file /etc/yuruna/lab-auth.token -host-ttl 24h
+  -lab-token-rotate 60s`).
 - `pool-aggregator.config.yml` / `pool-aggregator.contract.yml` — the Yuruna
   extension area scaffolding (mirrors `caching-proxy-parser`).
 - `default.psm1` — `Get-PoolAggregatorManifest` (metadata; nothing runs on the
@@ -153,11 +214,21 @@ unaffected (graceful degradation).
   `write_files` in `host/vmconfig/caching-proxy.base.user-data` so the dashboard
   deploys even when the collector build fails or its source has not yet reached
   public `yuruna`. Edit this file, then sync the inline copy (keep the two in
-  step). The timeline's "open cycle results" and "open host status page" data links
-  target `${aggregator}`, a hidden constant variable holding this proxy's `/go/` base;
-  both copies carry the literal `AGGREGATOR_BASE_PLACEHOLDER`, which cloud-init
-  substitutes at boot with `http(s)://<proxy-ip>:9400` (scheme follows the
-  aggregator's TLS leaf).
+  step). The timeline's "open cycle results" and "open host status page" data
+  links, and the Pool hosts table's "open host status page" link, all target
+  `${aggregator}`, a hidden constant variable holding this
+  proxy's `/go/` base — routing every host click through `/go/host` is what
+  hands the browser the short-lived control token the host's Pause/Continue
+  buttons require. The **Extension hosts** table's Host ID is deliberately NOT
+  a link: a host may run an extension service without running cycles, and then
+  it has no status page for `/go/host` to resolve. Both copies carry the literal `AGGREGATOR_BASE_PLACEHOLDER`,
+  which cloud-init substitutes at boot with `http://<proxy-ip>:9400` — always
+  plain http: the `/go/*` hop only redirects the browser to plain-http host
+  status pages, so an https link would put a proxy-CA interstitial in front of
+  every host click while protecting nothing the next hop does not already carry
+  in clear. The aggregator answers both protocols on `:9400` (TLS stays for the
+  token-bearing clients: the ingest forwarder, `Set-LabToken.ps1`, the
+  Prometheus scrape).
 
   The `gridPos.h` of the three **per-host** panels (host × time timeline, Pool
   hosts, Extension hosts) is only a pre-collector default. Grafana has no
@@ -166,7 +237,9 @@ unaffected (graceful degradation).
   `yuruna-fit-pool-dashboard.timer`, every 5min) recomputes those heights from
   the live host count and rewrites the provisioned copy in place, so a table
   sized for today's pool neither scrolls when a host joins nor shows dead
-  whitespace when one leaves. Changing the panel **ids** (`7`, `6`, `17`) or
+  whitespace when one leaves. The script also keeps the **Lab token** stat
+  (id `18`, beside the 20-unit-wide Extension hosts table) in step with that
+  table's row and height. Changing the panel **ids** (`7`, `6`, `17`, `18`) or
   adding a fourth per-host panel means updating that script.
 
 ## Flags
@@ -177,7 +250,10 @@ unaffected (graceful degradation).
 `168h`; `0` disables — see above) · `-incident-fails` (default `3`) ·
 `-incident-window` (default `2h`) · `-cross-host-fails` (default `3`) ·
 `-cross-host-window` (default `15m`) · `-host-ttl` (default `24h`) · `-announce-ttl` (default `45m`; `0`
-disables `POST /announce`).
+disables `POST /announce`) · `-auth-token-file` (file holding the shared
+lab-auth-token that bearer-gates `/ingest` + `/api/v1/forget-host`; the unit
+points it at `/etc/yuruna/lab-auth.token`) · `-lab-token-rotate` (default
+`60s`; `0` disables the Lab token tile and the `/api/v1/lab-token` exchange).
 
 ## Endpoints (`:9400`)
 
@@ -190,10 +266,12 @@ the leaf is absent.
 | `/healthz` | GET | none | `ok` liveness |
 | `/metrics` | GET | none | Prometheus text (`yuruna_pool_*`) — scraped by the local Prometheus |
 | `/api/v1/pool-status` | GET | none | JSON snapshot of every discovered host's last poll |
+| `/api/v1/extension-hosts[?area=<slug>]` | GET | none | where the pool currently sees each extension area served. With `?area=` one entry (`area`, `host`, `target`, `hostId`, `source`, `lastSeenUnixMs`) and **404** when no live host serves it; without it every area at once. Registration beats announce, then freshest, then lowest hostId; a TTL-expired announce is skipped at read time. The lookup a host uses to find the stash / pool control knowing only the caching-proxy address |
 | `/go/cycle?host=<hostId>&t=<epochMs>` | GET | none | dashboard timeline click → 302 to that host's cycle-results folder. Resolves the host's **current** IP from the live view (so the link survives a host IP change) and the cycle covering `t` (current cycle in-memory, else the host's `/log/` listing, else the Loki transition feed); degrades to the host's status root when the folder can't be resolved |
 | `/go/host?host=<hostId>` | GET | none | dashboard timeline click → 302 to that host's status-page **root**. Same `host` uuid → **current** IP resolution as `/go/cycle` (survives a host IP change), but always lands on the status page rather than a cycle folder — the IP-free state-timeline rows can't carry the IP, so the link resolves it here |
 | `/go/stash?host=<hostId>&area=<area>` | GET | none | 302 to that host's extension-service UI (default `area=stash-service`, the stash VM), resolved from the URL the host **advertised** in `extensionTargets` (refreshed each cycle / on `Start-StashVM` via `Get-VMIp`). For IP-free, hostId-only consumers — the dashboard table itself links directly via the `target` label. Unknown host/target → 404 |
-| `/ingest` | POST | Bearer | runner-side push of NDJSON events (supplements pull); disabled (503) until a shared bearer token is configured |
+| `/api/v1/lab-token` | POST | none (per-IP throttled) | lab-token exchange: body `{"labToken":"<6 chars>"}` → `200 {"ok":true,"v":1,"salt":…,"nonce":…,"ciphertext":…,"tag":…}` — redeems the dashboard's **Lab token** code for the shared lab-auth-token, sealed under that code so only the redeemer can open it (called by `test/Set-LabToken.ps1`). `400` malformed, `403` unknown/expired code, `429` per-IP throttle, `503` disabled (`-lab-token-rotate 0`). Every attempt audited (aggregator log + Loki, `src="lab-token"`) |
+| `/ingest` | POST | Bearer | runner-side push of NDJSON events (supplements pull); the bearer is the shared lab-auth-token (`-auth-token-file`). `503` when the proxy holds no token — a failure state, since the proxy build mints one |
 | `/api/v1/forget-host?hostId=<42-hex>` | POST | Bearer | operator eviction: drop one hostId from the in-memory view NOW (all per-host maps → gone from the next `/metrics` scrape) instead of waiting out the configured host TTL (`-host-ttl`). Same token as `/ingest`; 503 when no token, 400 on a malformed id. JSON `{forgotten, hostId, wasPresent}`. A still-reachable host is re-discovered on the next poll — stop/drain it first. Called by `test/Remove-PoolHost.ps1` |
 | `/announce` | POST | none (self-identity-bound) | extension-presence beacon (stash server et al., point 5c): the advertised URL derives from / must match the sender's address, so an announcer can only advertise itself; telemetry-only, bounded, disabled (503) when `-announce-ttl` is `0` |
 
@@ -228,6 +306,8 @@ signed by the pool CA, published at `http://<proxy>/yuruna-pool-ca.crt` for pinn
 systemctl status pool-aggregator
 curl -sk https://localhost:9400/healthz            # -> ok
 curl -sk https://localhost:9400/api/v1/pool-status | jq   # discovered hosts (after some proxy traffic)
+curl -sk https://localhost:9400/api/v1/extension-hosts | jq              # every area the pool can locate
+curl -sk 'https://localhost:9400/api/v1/extension-hosts?area=stash-service' | jq   # one area; 404 when nobody serves it
 curl -sk https://localhost:9400/metrics            # -> yuruna_pool_* lines
 # Prometheus target pool-aggregator UP; Loki has {pool,hostId,cycleId} streams;
 # Grafana 'Yuruna hosts' dashboard renders the 24h cross-host view.
@@ -265,8 +345,11 @@ curl -sk https://localhost:9400/metrics            # -> yuruna_pool_* lines
   real port (planned).
 - TLS on `:9400` (proxy-CA leaf) + a bearer-gated `POST /ingest` push
   route that SUPPLEMENTS pull (closing the trailing-event gap; Loki dedups the overlap).
-  Push is default-off (disabled until a shared `pool-auth-token` is configured);
-  `/metrics`, `/healthz`, `/api/v1/pool-status` stay open + unauthenticated for the
+  The bearer is the shared `lab-auth-token`, minted and stored in the building
+  host's vault at proxy build when none exists — so push is enabled once the
+  proxy is built and hosts enroll (`test/Set-LabToken.ps1` redeems the
+  dashboard's Lab token code). `/metrics`, `/healthz`, `/api/v1/pool-status`
+  stay open + unauthenticated for the
   hostname-free dashboard + the local Prometheus scrape. Still trusted-LAN posture
   (the runner's `/metrics` read uses encryption-without-pinning; the token-bearing push
   pins the pool CA).
@@ -309,4 +392,4 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.26
+Last review: 2026.07.27

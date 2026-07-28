@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.26
+.VERSION 2026.07.28
 .GUID 42f6a2c8-1d3e-4b90-8a7f-2e3d4c5b6a7e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -281,7 +281,7 @@ Describe 'Yuruna control proof (status-server control-route auth)' {
 }
 
 # ---------------------------------------------------------------------------
-# pool-auth-token provisioning (Set-UserVaultKey + Set-PoolAuthToken). The auth
+# lab-auth-token provisioning (Set-UserVaultKey + Set-LabAuthToken). The auth
 # extension's vault + users.yml paths are redirected into a throwaway temp dir
 # so the tests never touch the real vault.
 #
@@ -293,7 +293,7 @@ Describe 'Yuruna control proof (status-server control-route auth)' {
 # their fixtures into the operator's live credential store. BeforeAll/AfterAll
 # are run-phase, so the redirect brackets the Its the way it reads.
 # ---------------------------------------------------------------------------
-Describe 'pool-auth-token provisioning' {
+Describe 'lab-auth-token provisioning' {
     BeforeAll {
         # $PSScriptRoot, not the file-scope $here: discovery-phase variables are
         # not reliably visible from a run-phase block.
@@ -302,8 +302,8 @@ Describe 'pool-auth-token provisioning' {
         $patTmpDir = Join-Path ([System.IO.Path]::GetTempPath()) ('yuruna-pat-' + [guid]::NewGuid().ToString('N'))
         New-Item -ItemType Directory -Path $patTmpDir -Force | Out-Null
         $env:YURUNA_TEST_PAT_DIR = $patTmpDir
-        $patReady = [bool](Get-Command Set-PoolAuthToken -ErrorAction SilentlyContinue) -and `
-                    [bool](Get-Command Set-UserVaultKey  -ErrorAction SilentlyContinue)
+        $patReady = [bool](Get-Command Set-LabAuthToken -ErrorAction SilentlyContinue) -and `
+                    [bool](Get-Command Set-UserVaultKey -ErrorAction SilentlyContinue)
         if ($patReady) {
             InModuleScope default {
                 $script:VaultDir    = $env:YURUNA_TEST_PAT_DIR
@@ -324,26 +324,34 @@ Describe 'pool-auth-token provisioning' {
         Remove-Item Env:\YURUNA_TEST_PAT_DIR -ErrorAction SilentlyContinue
     }
 
+    It 'Get-LabAuthTokenValue serves a legacy pool-auth-token entry when the new name is absent' {
+        Assert-True $patReady 'auth extension (Set-LabAuthToken / Set-UserVaultKey) must be importable'
+        $null = Set-UserVaultKey -LogicalUser 'pool-auth-token' -VaultKey 'pool-auth-token' -Confirm:$false
+        $null = Set-Password -Username 'pool-auth-token' -NewPassword 'legacy-tok'
+        $null = Reset-UsersConfigCache -Confirm:$false
+        Assert-Equal -Expected 'legacy-tok' -Actual (Get-LabAuthTokenValue) -Because 'a host provisioned under the legacy logical name keeps verifying'
+    }
     It 'stores + verifies the token with vaultKey == username (closes the mismatch class)' {
-        Assert-True $patReady 'auth extension (Set-PoolAuthToken / Set-UserVaultKey) must be importable'
+        Assert-True $patReady 'auth extension (Set-LabAuthToken / Set-UserVaultKey) must be importable'
         $tok = 'xp2e&Klq52-test'
-        $r = Set-PoolAuthToken -Token $tok -Confirm:$false
-        Assert-True  $r.ok 'Set-PoolAuthToken verifies the round-trip'
-        Assert-Equal 'pool-auth-token' $r.vaultKey
+        $r = Set-LabAuthToken -Token $tok -Confirm:$false
+        Assert-True  $r.ok 'Set-LabAuthToken verifies the round-trip'
+        Assert-Equal 'lab-auth-token' $r.vaultKey
         Assert-True  $r.verified
-        Assert-Equal $tok (Get-Password -Username 'pool-auth-token')
-        Assert-Equal 'pool-auth-token' (Get-EffectiveUser -LogicalUser 'pool-auth-token').vaultKey
-        Assert-True  (Test-VaultEntry -VaultKey 'pool-auth-token') 'vault entry present under the resolved key'
+        Assert-Equal $tok (Get-Password -Username 'lab-auth-token')
+        Assert-Equal 'lab-auth-token' (Get-EffectiveUser -LogicalUser 'lab-auth-token').vaultKey
+        Assert-True  (Test-VaultEntry -VaultKey 'lab-auth-token') 'vault entry present under the resolved key'
+        Assert-Equal -Expected $tok -Actual (Get-LabAuthTokenValue) -Because 'the new logical name wins over the legacy entry'
     }
     It 'is idempotent on the vaultKey and rotates the token value' {
-        $null = Set-PoolAuthToken -Token 'aaa' -Confirm:$false
-        $r2   = Set-PoolAuthToken -Token 'bbb' -Confirm:$false
+        $null = Set-LabAuthToken -Token 'aaa' -Confirm:$false
+        $r2   = Set-LabAuthToken -Token 'bbb' -Confirm:$false
         Assert-True (-not $r2.keyChanged) 'vaultKey already set -> keyChanged is false'
-        Assert-Equal -Expected 'bbb' -Actual (Get-Password -Username 'pool-auth-token') -Because 'token rotates to the new value'
+        Assert-Equal -Expected 'bbb' -Actual (Get-Password -Username 'lab-auth-token') -Because 'token rotates to the new value'
     }
     It 'honors -WhatIf (stores nothing)' {
-        $null = Set-PoolAuthToken -Token 'zzz-should-not-store' -WhatIf
-        Assert-Equal -Expected 'bbb' -Actual (Get-Password -Username 'pool-auth-token') -Because 'WhatIf left the prior value intact'
+        $null = Set-LabAuthToken -Token 'zzz-should-not-store' -WhatIf
+        Assert-Equal -Expected 'bbb' -Actual (Get-Password -Username 'lab-auth-token') -Because 'WhatIf left the prior value intact'
     }
     It 'Set-UserVaultKey is idempotent (identical re-set is a no-op)' {
         $first  = Set-UserVaultKey -LogicalUser 'demo-user' -VaultKey 'demo.key' -Confirm:$false
@@ -448,10 +456,10 @@ Describe 'Get-ConfigSyncCredentialReadiness (credential capability verdict)' {
     # 503 == the reference has no token of its OWN, so no operator-supplied token
     # can ever unlock it. The verdict must be not-ready AND name the fix.
     It 'reads a 503 as not-ready and names the provisioning fix' {
-        $r = Get-ConfigSyncCredentialReadiness -StatusCode 503 -ServerError 'shared pool-auth-token not configured on this host' -ReferenceHost 'refbox' -User 'yuruna-pool'
+        $r = Get-ConfigSyncCredentialReadiness -StatusCode 503 -ServerError 'shared lab-auth-token not configured on this host' -ReferenceHost 'refbox' -User 'yuruna-pool'
         Assert-True (-not $r.Ready) 'a reference with no token of its own can never serve a credential'
         Assert-Equal 503 $r.Status
-        Assert-True ($r.Error -match 'Set-PoolAuthToken') 'the not-ready message points at the provisioning command'
+        Assert-True ($r.Error -match 'Set-LabToken') 'the not-ready message points at the enrollment command'
         Assert-True ($r.Error -match 'refbox') 'the message names the reference host'
     }
 
@@ -466,6 +474,88 @@ Describe 'Get-ConfigSyncCredentialReadiness (credential capability verdict)' {
         $r = Get-ConfigSyncCredentialReadiness -StatusCode 404 -ServerError "user not referenced by this host's networkStorage config" -ReferenceHost 'ref' -User 'ghost'
         Assert-True (-not $r.Ready) 'a 404 means the reference will not serve this user'
         Assert-True ($r.Error -match 'ghost') 'the message names the user'
+    }
+}
+
+# ---------------------------------------------------------------------------
+# Lab-token exchange verdict (pure; Request-LabTokenExchange is a thin HTTP
+# wrapper around it). Every status the aggregator's /api/v1/lab-token can
+# answer maps to one operator-actionable sentence, so a failed enrollment
+# never dead-ends in a bare status code.
+# ---------------------------------------------------------------------------
+Describe 'Get-LabTokenExchangeVerdict (lab-token exchange verdict)' {
+    It 'accepts a 200 that carries the shared token' {
+        $r = Get-LabTokenExchangeVerdict -StatusCode 200 -Token 'the-shared-token' -AggregatorUrl 'https://proxy:9400/api/v1/lab-token'
+        Assert-True  $r.Ok 'a 200 with a token is the success case'
+        Assert-Equal 'the-shared-token' $r.Token
+    }
+    # An envelope that does not authenticate reaches the verdict as an empty
+    # token: a 200 alone must never enroll the host, or an on-path responder
+    # could plant a token by answering the exchange.
+    It 'refuses a 200 whose envelope did not unseal' {
+        $r = Get-LabTokenExchangeVerdict -StatusCode 200 -AggregatorUrl 'https://proxy:9400/api/v1/lab-token'
+        Assert-True (-not $r.Ok) 'an unopened 200 must not enroll the host'
+        Assert-True ($r.Error -match 'did not unseal') 'the message says the reply did not authenticate'
+    }
+    It 'reads a 403 as an expired/wrong code and points at the dashboard' {
+        $r = Get-LabTokenExchangeVerdict -StatusCode 403 -AggregatorUrl 'https://proxy:9400/api/v1/lab-token'
+        Assert-True (-not $r.Ok) 'a refused code does not enroll'
+        Assert-True ($r.Error -match 'rotates') 'the message explains the rotation'
+        Assert-True ($r.Error -match 'dashboard') 'the message points at the dashboard'
+    }
+    It 'reads a 429 as the per-address throttle' {
+        $r = Get-LabTokenExchangeVerdict -StatusCode 429 -AggregatorUrl 'https://proxy:9400/api/v1/lab-token'
+        Assert-True (-not $r.Ok) 'a throttled attempt does not enroll'
+        Assert-True ($r.Error -match 'Wait') 'the message says to wait'
+    }
+    It 'reads a 503 as exchange-disabled and names the rebuild path' {
+        $r = Get-LabTokenExchangeVerdict -StatusCode 503 -AggregatorUrl 'https://proxy:9400/api/v1/lab-token'
+        Assert-True (-not $r.Ok) 'a disabled exchange does not enroll'
+        Assert-True ($r.Error -match 'disabled') 'the message says the exchange is off'
+        Assert-True ($r.Error -match 'Rebuild') 'the message names the proxy rebuild fix'
+    }
+    It 'reads a transport failure (status 0) as not-answering' {
+        $r = Get-LabTokenExchangeVerdict -StatusCode 0 -ServerError 'No such host is known.' -AggregatorUrl 'https://gone:9400/api/v1/lab-token'
+        Assert-True (-not $r.Ok) 'an unreachable aggregator does not enroll'
+        Assert-True ($r.Error -match 'not answering') 'the message says the aggregator is not answering'
+    }
+}
+
+# ---------------------------------------------------------------------------
+# Lab-token envelope. The seal is what authenticates the exchange's ANSWER to a
+# host that cannot verify the aggregator's TLS leaf, so the vector below is
+# produced by the Go side (pool-aggregator sealLabToken) and MUST open here: if
+# it stops opening, the two implementations have drifted on the KDF, the
+# iteration count, the AEAD label, or the envelope framing, and enrollment
+# would fail closed against a correctly-behaving aggregator.
+# ---------------------------------------------------------------------------
+Describe 'Unprotect-LabTokenEnvelope (cross-language lab-token envelope)' {
+    # Golden envelope produced by the Go seal (pool-aggregator sealLabToken) for
+    # code 'k3v9qa' over token 'shared-lab-auth-token-value'.
+    It 'opens an envelope sealed by the Go aggregator' {
+        $sealed = @{ v = 1; salt = 'yT24bD+x3HZVDkOALTexCg=='; nonce = '/iAQHzfHH/htU/rS'
+                     ciphertext = 'vOQlHLZBdDmIlVDekcIwFZZ8WOC8QueH5g4k'; tag = 'FQ8hfyZ2CEB1/37eFFLmqQ==' }
+        Assert-Equal -Expected 'shared-lab-auth-token-value' `
+            -Actual (Unprotect-LabTokenEnvelope -LabToken 'k3v9qa' -Envelope $sealed) `
+            -Because 'the PowerShell open and the Go seal must agree byte-for-byte'
+    }
+    It 'returns empty for a different lab token (an on-path responder cannot plant one)' {
+        $sealed = @{ v = 1; salt = 'yT24bD+x3HZVDkOALTexCg=='; nonce = '/iAQHzfHH/htU/rS'
+                     ciphertext = 'vOQlHLZBdDmIlVDekcIwFZZ8WOC8QueH5g4k'; tag = 'FQ8hfyZ2CEB1/37eFFLmqQ==' }
+        Assert-Equal -Expected '' -Actual (Unprotect-LabTokenEnvelope -LabToken 'zzz999' -Envelope $sealed)
+    }
+    It 'returns empty when the ciphertext is tampered with' {
+        $bytes = [Convert]::FromBase64String('vOQlHLZBdDmIlVDekcIwFZZ8WOC8QueH5g4k')
+        $bytes[0] = $bytes[0] -bxor 1
+        $tampered = @{ v = 1; salt = 'yT24bD+x3HZVDkOALTexCg=='; nonce = '/iAQHzfHH/htU/rS'
+                       ciphertext = [Convert]::ToBase64String($bytes); tag = 'FQ8hfyZ2CEB1/37eFFLmqQ==' }
+        Assert-Equal -Expected '' -Actual (Unprotect-LabTokenEnvelope -LabToken 'k3v9qa' -Envelope $tampered)
+    }
+    It 'returns empty for a malformed envelope instead of throwing' {
+        Assert-Equal -Expected '' -Actual (Unprotect-LabTokenEnvelope -LabToken 'k3v9qa' -Envelope @{ v = 1 })
+        Assert-Equal -Expected '' -Actual (Unprotect-LabTokenEnvelope -LabToken 'k3v9qa' -Envelope @{
+            v = 1; salt = 'not-base64!!'; nonce = '/iAQHzfHH/htU/rS'
+            ciphertext = 'vOQlHLZBdDmIlVDekcIwFZZ8WOC8QueH5g4k'; tag = 'FQ8hfyZ2CEB1/37eFFLmqQ==' })
     }
 }
 

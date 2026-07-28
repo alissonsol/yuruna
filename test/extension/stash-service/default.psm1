@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.26
+.VERSION 2026.07.28
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456820
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -26,10 +26,11 @@
 #
 # Resolve-Host is the runtime stash-address discovery a sequence's `variables:`
 # block consumes via ${ext:stash-service.ResolveHost(<vm>)}, so the stash IP is
-# a discovered artifact instead of a hard-coded literal -- the same live
-# Get-VMIp lookup the caching-proxy/edge discovery uses, with the address a
-# cycle published in <runtime>/stash-host.txt as the fallback for a lab whose
-# stash is a fixed-address service instead of a VM on this host.
+# a discovered artifact instead of a hard-coded literal: the same live Get-VMIp
+# lookup the caching-proxy/edge discovery uses, then the address a cycle
+# published in <runtime>/stash-host.txt, then whatever the framework's
+# Get-ExtensionHostAddress can find for the area -- the last of which is what
+# answers for a lab whose stash runs on another host entirely.
 #
 # Test-StashHost + Publish-StashHost are the writer half of that: a cycle's
 # warm-up resolves the stash ONCE, up front, confirms it answers /healthz, and
@@ -216,6 +217,51 @@ function Publish-StashHost {
     return $value
 }
 
+function Get-DiscoveredStashHost {
+    <#
+    .SYNOPSIS
+        The first stash address the framework can discover for this host, or ''
+        when nothing knows of a live stash service.
+    .DESCRIPTION
+        Thin, failure-tolerant wrapper over the framework's
+        Get-ExtensionHostAddress so the stash resolver has one call to make and
+        every "nothing to ask" shape -- no framework module, no caching proxy,
+        no aggregator, an aggregator that does not answer, an area nobody
+        serves -- collapses to the same empty string rather than an error the
+        caller must sort out.
+
+        The local VM source is switched off (-VMName ''): Resolve-Host already
+        asked the host contract, and a stash on this host is nearer than any
+        discovered answer. What is left is the operator pin and the pool's own
+        record -- exactly the sources that can answer for a stash living
+        somewhere else.
+    .OUTPUTS
+        [string] address, or ''.
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param()
+    if (-not (Get-Command Get-ExtensionHostAddress -ErrorAction SilentlyContinue)) {
+        # test/extension/stash-service/ -> test/modules/
+        $framework = Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) 'modules' |
+            Join-Path -ChildPath 'Test.Extension.psm1'
+        if (-not (Test-Path -LiteralPath $framework)) { return '' }
+        try { Import-Module $framework -Global -Force -DisableNameChecking -Verbose:$false }
+        catch {
+            Write-Verbose "stash-service: the extension framework module is not loadable: $($_.Exception.Message)"
+            return ''
+        }
+    }
+    try {
+        $addresses = @(Get-ExtensionHostAddress -HostType 'stash-service' -VMName '')
+        if ($addresses.Count -eq 0) { return '' }
+        return [string]$addresses[0]
+    } catch {
+        Write-Verbose "stash-service: the extension-host lookup failed: $($_.Exception.Message)"
+        return ''
+    }
+}
+
 function Resolve-Host {
     <#
     .SYNOPSIS
@@ -223,16 +269,25 @@ function Resolve-Host {
         sequence's `variables:` block to consume via
         ${ext:stash-service.ResolveHost(<vm>)}.
     .DESCRIPTION
-        Live host-contract lookup (Get-VMIp) first -- the same mechanism the
-        caching-proxy and edge VMs are discovered by -- so a stash VM on this
-        host is always found at its current address, never a hard-coded
-        literal. When no such VM answers, the address published for this cycle
-        (Get-PublishedStashHost) is used: that is the whole of the answer for a
-        lab whose stash is a fixed-address service, where Get-VMIp has no VM to
-        report on and would otherwise leave every sequence resolving nothing.
-        With neither, returns '' and warns; the consuming guest script keeps a
-        degraded-mode default (STASH_HOST="${STASH_HOST:-...}"), so an empty
-        expansion falls back rather than failing the step.
+        Three sources, nearest first:
+
+        1. Live host-contract lookup (Get-VMIp) -- the same mechanism the
+           caching-proxy and edge VMs are discovered by -- so a stash VM on this
+           host is always found at its current address, never a hard-coded
+           literal.
+        2. The address published for this cycle (Get-PublishedStashHost): the
+           one the pre-flight already proved answers /healthz, so a sequence
+           agrees with the cycle instead of re-deriving it.
+        3. Whatever the framework can discover for the area
+           (Get-ExtensionHostAddress 'stash-service'): an operator pin, and the
+           pool's record of where it sees the service announcing itself right
+           now. This is what answers for a stash that lives on ANOTHER host --
+           the common case, and the one the first two cannot reach. It costs one
+           LAN call and only runs when the cheaper sources came up empty.
+
+        With none of the three, returns '' and warns; the consuming guest script
+        keeps a degraded-mode default (STASH_HOST="${STASH_HOST:-...}"), so an
+        empty expansion falls back rather than failing the step.
     .PARAMETER VMName
         Stash VM name. Defaults to 'yuruna-stash-service' (the name
         Start-StashVM.ps1 creates).
@@ -256,8 +311,13 @@ function Resolve-Host {
         Write-Verbose "stash-service.ResolveHost: using the address published for this cycle ($published)."
         return $published
     }
-    Write-Warning "stash-service.ResolveHost: no IPv4 for '$VMName' (is it running?) and no address published for this cycle."
+    $discovered = Get-DiscoveredStashHost
+    if ($discovered) {
+        Write-Verbose "stash-service.ResolveHost: using the discovered address ($discovered)."
+        return $discovered
+    }
+    Write-Warning "stash-service.ResolveHost: no IPv4 for '$VMName' (is it running?), no address published for this cycle, and nothing -- operator pin or pool -- reports a live stash service."
     return ''
 }
 
-Export-ModuleMember -Function Get-StashServiceInfo, Resolve-Host, Test-StashHost, Publish-StashHost
+Export-ModuleMember -Function Get-StashServiceInfo, Resolve-Host, Test-StashHost, Publish-StashHost, Get-DiscoveredStashHost

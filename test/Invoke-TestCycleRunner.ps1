@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.26
+.VERSION 2026.07.28
 .GUID 42c7a1b4-6e28-4d35-9f70-2a41c6b8e903
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -119,7 +119,19 @@ foreach ($n in @('YURUNA_CACHING_PROXY_IP','YURUNA_RUNTIME_DIR','YURUNA_LOG_DIR'
     if ($null -ne $v -and $v -ne '') { $forwardEnvSnapshot[$n] = $v }
 }
 
-$result = Invoke-RunnerOuterCycle -Cycle $Cycle -State @{
+# Called BARE, and never captured: `$result = Invoke-RunnerOuterCycle ...` reads
+# the cycle off the success stream, and that one assignment is enough to make
+# PowerShell give the inner pwsh an anonymous pipe for stdout instead of letting it
+# inherit this process's console. The call operator inside then returns when that
+# pipe reaches EOF rather than when the inner exits -- and the status server the
+# inner spawns holds the write end open for its whole life (Start-Process
+# -RedirectStandard* sets bInheritHandles=TRUE, which hands it a duplicate of every
+# inheritable handle the inner has). The host completes one cycle and stops: the
+# inner logs "about to exit with code 0" and "outer runner back in control" never
+# follows. Windows-only, because the POSIX detach replaces the descriptors.
+# The result comes back through the module instead; letting the stream reach the
+# host also puts the cycle's own output back on the operator's console.
+Invoke-RunnerOuterCycle -Cycle $Cycle -State @{
     RepoRoot                  = $RepoRoot
     ConfigPath                = $ConfigPath
     InnerScript               = $InnerScript
@@ -136,6 +148,7 @@ $result = Invoke-RunnerOuterCycle -Cycle $Cycle -State @{
     WatchdogPollSeconds       = 30
     TestRoot                  = $TestRoot
 }
+$result = Get-LastOuterCycleResult
 
 $outcome  = if ($result -and $result.Outcome) { [string]$result.Outcome } else { 'completed' }
 $exitCode = if ($result -and $null -ne $result.ExitCode) { [int]$result.ExitCode } else { 0 }
@@ -145,7 +158,14 @@ $exitCode = if ($result -and $null -ne $result.ExitCode) { [int]$result.ExitCode
 $outcomeFile = Join-Path $env:YURUNA_RUNTIME_DIR 'runner.cycle.outcome.json'
 try {
     $json = '{"outcome":"' + $outcome + '","exitCode":' + $exitCode + '}'
-    Write-YurunaStateFile -Path $outcomeFile -Content $json -Confirm:$false
+    # The [bool] result is consumed rather than left on the success stream: this
+    # process runs with its parent's console attached, so anything it returns
+    # uncaptured prints a bare value between the caller's per-cycle lines. It
+    # reports a failed write by returning $false rather than throwing, so the
+    # catch below would not see one.
+    if (-not (Write-YurunaStateFile -Path $outcomeFile -Content $json -Confirm:$false)) {
+        Write-Warning "Could not write the cycle outcome file: $outcomeFile"
+    }
 } catch {
     Write-Warning "Could not write the cycle outcome file: $($_.Exception.Message)"
 }

@@ -14,7 +14,7 @@
       GRUB_CMDLINE_LINUX_DEFAULT="${GRUB_CMDLINE_LINUX_DEFAULT} consoleblank=0"
       GRUBCFG
 # === YURUNA_OVERLAY_GRUB_POST_CONSOLE_QUIET ===
-    # --- REGION: https://yuruna.link/vmconfig#console-fb-safe
+    # --- REGION: https://yuruna.link/vmconfig#console-bochs-drm-framebuffer-safety-kvm
     - |
       cat > /target/etc/default/grub.d/99-yuruna-fb-safe.cfg << 'GRUBCFG'
       GRUB_CMDLINE_LINUX_DEFAULT="${GRUB_CMDLINE_LINUX_DEFAULT} nomodeset console=tty0 console=ttyS0,115200"

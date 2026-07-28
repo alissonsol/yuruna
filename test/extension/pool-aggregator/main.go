@@ -16,12 +16,17 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/aes"
+	"crypto/cipher"
 	"crypto/hmac"
+	"crypto/pbkdf2"
+	"crypto/rand"
 	"crypto/sha256"
 	"crypto/subtle"
 	"crypto/tls"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -86,6 +91,11 @@ const (
 	// stashArea is the extension area of the stash service -- the default for
 	// /go/stash and the area whose target rides as pool-status stashBaseUrl.
 	stashArea = "stash-service"
+	// poolControlArea is the extension area of the pool-control service. Named
+	// alongside stashArea because both are answered by /api/v1/extension-hosts,
+	// the coordinate lookup a host uses to find a service it does not run
+	// itself.
+	poolControlArea = "pool-control"
 	// Pool gating defaults (mirror test/schemas/pools.schema.yml gating.*): the
 	// advisory degraded/alert policy a pool inherits when it authors a partial (or
 	// no) gating block. degradedAfter is the sustained-below-threshold window;
@@ -94,6 +104,40 @@ const (
 	defaultSuccessesBeforeRearm = 2
 	defaultHealthyThreshold     = 0.5
 	defaultDegradedAfter        = 30 * time.Minute
+	// Lab connection token: the 6-char enrollment code the dashboard's "Lab
+	// token" tile displays and POST /api/v1/lab-token exchanges for the shared
+	// lab-auth-token (so enrolling a host never needs SSH into the proxy).
+	defaultLabRotate = 60 * time.Second
+	labTokenLen      = 6
+	// The dashboard shows the code through a Prometheus scrape (15s) plus a
+	// panel refresh (30s), so the displayed value can trail a rotation by
+	// ~45s, and the operator still has to read it and type it on the joining
+	// host. Verifying against the current code plus its two predecessors keeps
+	// a just-read code redeemable for at least one full rotation period,
+	// while a leaked code still dies within ~3 rotations.
+	labKeepCodes    = 3
+	maxLabTokenBody = 1 << 10 // bytes read from one exchange POST
+	// Per-IP failed-exchange throttle. With 36^6 codes valid for <= 3
+	// rotations an online guess is already hopeless; the throttle keeps a
+	// misconfigured retry loop from spamming the audit trail and turns the
+	// brute-force math from infeasible into absurd.
+	labFailLimit  = 10
+	labFailWindow = 10 * time.Minute
+	// Cap on distinct throttle keys held in memory, so an anonymous caller
+	// spraying addresses cannot grow the map without bound. At the cap,
+	// expired entries are pruned and further unknown keys simply go
+	// unrecorded -- codes are still verified and refused, so overflow costs
+	// throttling for new addresses, never admission.
+	maxLabFailKeys = 4096
+	// The exchange seals the shared token under a key derived from the
+	// redeemed code, so only a caller holding the code can open it: an
+	// enrolling host has no way to authenticate the aggregator's TLS leaf
+	// (it is signed by the proxy's own CA, which that host does not trust
+	// yet), and the code is the one secret both ends already share. The
+	// iteration count is set for a 6-character secret, which is weak enough
+	// that a captured envelope must stay expensive to attack offline.
+	labEnvelopeLabel = "yuruna-lab-token|v1"
+	labEnvelopeIters = 600000
 )
 
 // squid yuruna logformat: field 1 = %ts.%03tu (epoch.ms), field 3 = %>a (client
@@ -444,6 +488,15 @@ type poolState struct {
 	authToken  string
 	lokiURL    string
 	httpClient *http.Client
+	// Lab connection token (dashboard enrollment code). labRotate is set once
+	// in main before the server starts (not mutated under mu, like authToken);
+	// 0 keeps the tile and POST /api/v1/lab-token disabled. labCodes /
+	// labFails / labExchange are mu-guarded -- the rotation goroutine and the
+	// HTTP handlers both touch them.
+	labRotate   time.Duration
+	labCodes    []string               // newest first: the current code, then up to labKeepCodes-1 predecessors
+	labFails    map[string][]time.Time // source IP -> recent failed exchange attempts (throttle input)
+	labExchange map[string]int64       // exchange outcome ("ok"/"refused"/"throttled") -> count
 	// eventCur is touched ONLY by the single poll goroutine (in tailEvents and
 	// the post-unlock prune below), never by the HTTP handlers, so it needs no
 	// lock -- unlike the fields above, which mu guards against handler reads.
@@ -460,6 +513,7 @@ func newPoolState(pool string, statusPort int) *poolState {
 		gating: map[string]gatingPolicy{}, poolGate: map[string]*poolGateState{},
 		announce: map[string]*announceView{}, announceTTL: defaultAnnounceTTL,
 		hostTTL:  defaultHostTTL,
+		labFails: map[string][]time.Time{}, labExchange: map[string]int64{},
 		eventCur: map[string]*eventCursor{},
 	}
 }
@@ -876,7 +930,7 @@ func fetchStatus(client *http.Client, base string) (*hostStatus, error) {
 // served by the status server at /yuruna-repo/VERSION -- the SAME source the
 // host's own status pages read for their header (their getHostInfo() fetches
 // yuruna-repo/VERSION via JS, so the version is not embedded in the HTML). A tiny
-// plain-text file (one CalVer line, e.g. "2026.07.26"), so it is lighter than any
+// plain-text file (one CalVer line, e.g. "2026.07.28"), so it is lighter than any
 // status HTML page and fetchable server-side without a JS engine. Returns
 // ("", err) on any failure; the caller keeps the prior version on a transient
 // miss (the version is stable across polls). The value is capped + first-line
@@ -2182,6 +2236,138 @@ func (s *poolState) handlePoolStatus(w http.ResponseWriter, _ *http.Request) {
 	_, _ = w.Write(body)
 }
 
+// extensionHostEntry is one resolved extension service in the
+// /api/v1/extension-hosts answer: where the pool currently believes an area is
+// served, and on whose word. Host is the bare address a consumer builds its own
+// URLs from ("192.168.7.227"); Target is the advertised base URL verbatim.
+type extensionHostEntry struct {
+	Area           string `json:"area"`
+	Host           string `json:"host"`
+	Target         string `json:"target"`
+	HostId         string `json:"hostId,omitempty"`
+	Source         string `json:"source"` // "registration" | "announce"
+	LastSeenUnixMs int64  `json:"lastSeenUnixMs,omitempty"`
+}
+
+// extensionSourceRank orders the two ways an area's address reaches the
+// aggregator. Registration first, matching /go/stash: the owning host resolves
+// the target live (Get-VMIp) every cycle and on bring-up, so it tracks a DHCP
+// change the moment the host notices, while an announce is only as fresh as the
+// service's last beacon.
+func extensionSourceRank(source string) int {
+	if source == "registration" {
+		return 0
+	}
+	return 1
+}
+
+// betterExtensionCandidate reports whether a should replace b as an area's
+// answer. Deterministic all the way down -- source, then recency, then hostId --
+// so two aggregator instances holding the same facts answer identically and a
+// consumer that re-asks gets a stable address rather than one that flaps between
+// equally valid hosts.
+func betterExtensionCandidate(a, b extensionHostEntry) bool {
+	if ra, rb := extensionSourceRank(a.Source), extensionSourceRank(b.Source); ra != rb {
+		return ra < rb
+	}
+	if a.LastSeenUnixMs != b.LastSeenUnixMs {
+		return a.LastSeenUnixMs > b.LastSeenUnixMs
+	}
+	return a.HostId < b.HostId
+}
+
+// resolveExtensionHostsLocked returns the pool's current best address per
+// extension area. Caller holds s.mu.
+//
+// This is the read side of the presence data the pool already collects. A host
+// that needs the stash service (or pool control) but does not run it has no way
+// to find it otherwise: the address is not in its config, the service may live
+// on another host entirely, and on another subnet -- so the alternative is a
+// hard-coded literal that goes stale the first time the service moves. Knowing
+// the caching-proxy address, which every host already needs, becomes enough to
+// find every other service the pool offers.
+//
+// A TTL-expired announce is skipped here rather than trusted until the next
+// poll reaps it: a consumer asking between polls must not be handed the address
+// of a service that stopped beaconing two TTLs ago.
+func (s *poolState) resolveExtensionHostsLocked(now time.Time) map[string]extensionHostEntry {
+	best := map[string]extensionHostEntry{}
+	consider := func(cand extensionHostEntry) {
+		if cand.Area == "" {
+			return
+		}
+		cand.Host = hostIPFromBaseURL(cand.Target)
+		if cand.Host == "" {
+			return
+		}
+		if cur, ok := best[cand.Area]; !ok || betterExtensionCandidate(cand, cur) {
+			best[cand.Area] = cand
+		}
+	}
+	for hostID, hv := range s.hosts {
+		if hv == nil {
+			continue
+		}
+		for area, target := range hv.ExtensionTargets {
+			consider(extensionHostEntry{Area: area, Target: target, HostId: hostID, Source: "registration"})
+		}
+	}
+	for _, av := range s.announce {
+		if av == nil {
+			continue
+		}
+		if s.announceTTL > 0 && now.UnixMilli()-av.LastSeenUnixMs > s.announceTTL.Milliseconds() {
+			continue
+		}
+		consider(extensionHostEntry{
+			Area: av.Area, Target: av.Target, HostId: av.HostId,
+			Source: "announce", LastSeenUnixMs: av.LastSeenUnixMs,
+		})
+	}
+	return best
+}
+
+// handleExtensionHosts answers "where is area X served in this pool?".
+//
+// With ?area=<slug> it returns that one area and 404s when the pool knows no
+// live host for it -- a consumer must be able to tell "not there" from "here it
+// is", because falling back to a guess is what the hard-coded literal already
+// did. Without ?area it returns every area the pool knows, so an operator can
+// see the whole coordinate set in one call.
+//
+// Unauthenticated and read-only, like /api/v1/pool-status: it discloses service
+// addresses to a caller that is already on the LAN those services listen on.
+func (s *poolState) handleExtensionHosts(w http.ResponseWriter, r *http.Request) {
+	area := strings.TrimSpace(r.URL.Query().Get("area"))
+	s.mu.Lock()
+	entries := s.resolveExtensionHostsLocked(time.Now())
+	pool := s.pool
+	s.mu.Unlock()
+
+	var payload any
+	if area != "" {
+		entry, ok := entries[area]
+		if !ok {
+			http.Error(w, "no live host for that extension area", http.StatusNotFound)
+			return
+		}
+		payload = entry
+	} else {
+		payload = struct {
+			Pool  string                        `json:"pool"`
+			Areas map[string]extensionHostEntry `json:"areas"`
+		}{Pool: pool, Areas: entries}
+	}
+	body, err := json.Marshal(payload)
+	if err != nil {
+		http.Error(w, "failed to encode extension hosts", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
+	_, _ = w.Write(body)
+}
+
 // validForgetHostID mirrors the runner-side 42-prefixed 32-hex host.uuid shape
 // (test/Remove-PoolHost.ps1, Remove-HostFromPool.ps1) so the forget endpoint
 // rejects a typo instead of scanning the maps for a key that cannot exist.
@@ -2459,10 +2645,10 @@ func (s *poolState) resolveHostBase(hostID, pool string) (base, resolvedPool str
 
 // controlProofFor is the deterministic core of the host-control proof: the exact wire
 // string "<expiry>.<base64 HMAC>" the host status server accepts on its mutating
-// /control/* routes, where HMAC = HMAC-SHA256(pool-auth-token, "yuruna-control|proof|
+// /control/* routes, where HMAC = HMAC-SHA256(lab-auth-token, "yuruna-control|proof|
 // <expiry>"). It is byte-for-byte identical to Test.HostConfigSync\Get-YurunaControlProof
 // (PowerShell) -- same HMAC-SHA256, same std base64, same data string -- so a proof minted
-// here on the Caching Proxy validates on any pool host (the pool-auth-token is pool-wide).
+// here on the Caching Proxy validates on any pool host (the lab-auth-token is pool-wide).
 // Verified by TestMintControlProofGolden against the shared golden vector.
 func controlProofFor(token string, expiry int64) string {
 	mac := hmac.New(sha256.New, []byte(token))
@@ -2471,7 +2657,7 @@ func controlProofFor(token string, expiry int64) string {
 }
 
 // mintControlProof mints a control proof valid for ttl from now, or "" when no
-// pool-auth-token is configured (the host then only accepts loopback control). The
+// lab-auth-token is configured (the host then only accepts loopback control). The
 // operator reaches the host through Grafana -> /go/host, so this rides the proof to the
 // browser in the redirect fragment; the host revalidates it (expiry window + HMAC).
 func mintControlProof(token string, ttl time.Duration) string {
@@ -2479,6 +2665,273 @@ func mintControlProof(token string, ttl time.Duration) string {
 		return ""
 	}
 	return controlProofFor(token, time.Now().Add(ttl).Unix())
+}
+
+var labTokenRE = regexp.MustCompile(`^[a-z0-9]{6}$`)
+
+// newLabCode mints one 6-char lowercase [a-z0-9] lab connection token. Unbiased:
+// candidate bytes >= 252 (the largest multiple of 36 below 256) are discarded
+// rather than folded, so no code is likelier than another.
+func newLabCode() (string, error) {
+	const charset = "abcdefghijklmnopqrstuvwxyz0123456789"
+	out := make([]byte, 0, labTokenLen)
+	buf := make([]byte, 1)
+	for len(out) < labTokenLen {
+		if _, err := rand.Read(buf); err != nil {
+			return "", err
+		}
+		if buf[0] >= byte(len(charset))*7 {
+			continue
+		}
+		out = append(out, charset[buf[0]%byte(len(charset))])
+	}
+	return string(out), nil
+}
+
+// rotateLabToken mints the next lab connection token (retaining labKeepCodes of
+// history for the exchange's grace window) and prunes expired throttle records.
+// A crypto/rand failure keeps the previous codes live and logs -- enrollment
+// degrades to "retry after the next rotation", never to a predictable code.
+func (s *poolState) rotateLabToken(now time.Time) {
+	code, err := newLabCode()
+	if err != nil {
+		log.Printf("lab-token rotation failed (%v); keeping previous codes", err)
+		return
+	}
+	cut := now.Add(-labFailWindow)
+	s.mu.Lock()
+	s.labCodes = append([]string{code}, s.labCodes...)
+	if len(s.labCodes) > labKeepCodes {
+		s.labCodes = s.labCodes[:labKeepCodes]
+	}
+	s.pruneLabFailsLocked(cut)
+	s.mu.Unlock()
+}
+
+// sealLabToken wraps the shared token for one redeemer: AES-256-GCM under a key
+// PBKDF2-derived from the redeemed code plus a fresh salt. The wire shape mirrors
+// Protect-ConfigSyncCredential (v/salt/nonce/ciphertext/tag, all base64), and
+// Test.HostConfigSync\Unprotect-LabTokenEnvelope is the twin that opens it.
+//
+// This is what authenticates the ANSWER. The enrolling host cannot verify the
+// aggregator's TLS leaf, so without binding, anything on the path could answer
+// the exchange and hand the host a token of its own choosing -- which the host
+// would then honor for control proofs, handing that attacker the host. Sealing
+// under the code means only the party that knows the displayed code can produce
+// a payload the host will accept.
+func sealLabToken(code, token string) (map[string]string, error) {
+	salt := make([]byte, 16)
+	if _, err := rand.Read(salt); err != nil {
+		return nil, err
+	}
+	key, err := pbkdf2.Key(sha256.New, code, salt, labEnvelopeIters, 32)
+	if err != nil {
+		return nil, err
+	}
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		return nil, err
+	}
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return nil, err
+	}
+	nonce := make([]byte, gcm.NonceSize())
+	if _, err := rand.Read(nonce); err != nil {
+		return nil, err
+	}
+	// Seal appends the tag to the ciphertext; split it out so the envelope
+	// carries the same named fields the PowerShell side already speaks.
+	sealed := gcm.Seal(nil, nonce, []byte(token), []byte(labEnvelopeLabel))
+	cut := len(sealed) - gcm.Overhead()
+	return map[string]string{
+		"salt":       base64.StdEncoding.EncodeToString(salt),
+		"nonce":      base64.StdEncoding.EncodeToString(nonce),
+		"ciphertext": base64.StdEncoding.EncodeToString(sealed[:cut]),
+		"tag":        base64.StdEncoding.EncodeToString(sealed[cut:]),
+	}, nil
+}
+
+// handleLabToken (POST /api/v1/lab-token) exchanges the dashboard-displayed lab
+// connection token for the shared lab-auth-token, so enrolling a host is "read
+// the 6-char code off the Yuruna hosts dashboard, run test/Set-LabToken.ps1"
+// instead of SSHing into the proxy for the secret. Posture: the route is open
+// -- the code IS the credential; whoever can view the dashboard may enroll a
+// host -- verified constant-time against the retained codes (current + recent
+// predecessors, so a code read from a panel about to refresh still redeems),
+// per-IP throttled, and every attempt is audited to the log + Loki with the
+// caller's address. The answer is sealed under the redeemed code (sealLabToken),
+// so the shared token is never in the clear on the wire and only the redeemer
+// can open it -- the listener is plain HTTP whenever the proxy has no TLS leaf.
+// Self-disables (503) when rotation is off or no lab-auth-token is configured,
+// mirroring /ingest.
+func (s *poolState) handleLabToken(w http.ResponseWriter, r *http.Request) {
+	if s.labRotate <= 0 || s.authToken == "" {
+		http.Error(w, "lab-token exchange disabled", http.StatusServiceUnavailable)
+		return
+	}
+	if r.Method != http.MethodPost {
+		w.Header().Set("Allow", http.MethodPost)
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	srcIP := requestSourceIP(r)
+	if srcIP == "" {
+		http.Error(w, "no source address", http.StatusForbidden)
+		return
+	}
+	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxLabTokenBody))
+	if err != nil {
+		http.Error(w, "payload too large or unreadable", http.StatusRequestEntityTooLarge)
+		return
+	}
+	var req struct {
+		LabToken string `json:"labToken"`
+	}
+	if err := json.Unmarshal(body, &req); err != nil {
+		http.Error(w, "malformed request", http.StatusBadRequest)
+		return
+	}
+	code := strings.ToLower(strings.TrimSpace(req.LabToken))
+	if !labTokenRE.MatchString(code) {
+		http.Error(w, "labToken must be 6 lowercase letters/digits", http.StatusBadRequest)
+		return
+	}
+	now := time.Now().UTC()
+	cut := now.Add(-labFailWindow)
+	// Throttle by the /64 for IPv6: a single delegated prefix hands one
+	// attacker more addresses than the map could ever hold, so per-address
+	// buckets there would throttle nothing while growing without bound.
+	throttleKey := labThrottleKey(srcIP)
+	s.mu.Lock()
+	recent := 0
+	for _, t := range s.labFails[throttleKey] {
+		if t.After(cut) {
+			recent++
+		}
+	}
+	throttled := recent >= labFailLimit
+	match := false
+	// audit is false for a repeat throttled attempt: once an address is
+	// locked out, auditing every retry would let an anonymous caller amplify
+	// one request into one log line and one Loki write apiece. The crossing
+	// into throttled IS recorded, so the operator still sees the burst.
+	audit := true
+	if !throttled {
+		// No early break: every retained code is compared so the timing does
+		// not reveal WHICH slot (if any) matched.
+		for _, c := range s.labCodes {
+			if subtle.ConstantTimeCompare([]byte(code), []byte(c)) == 1 {
+				match = true
+			}
+		}
+		if !match {
+			if len(s.labFails) >= maxLabFailKeys {
+				s.pruneLabFailsLocked(cut)
+			}
+			if _, known := s.labFails[throttleKey]; known || len(s.labFails) < maxLabFailKeys {
+				s.labFails[throttleKey] = append(s.labFails[throttleKey], now)
+			}
+		}
+	} else {
+		audit = recent == labFailLimit
+	}
+	outcome := "ok"
+	if throttled {
+		outcome = "throttled"
+	} else if !match {
+		outcome = "refused"
+	}
+	s.labExchange[outcome]++
+	poolLabel := s.pool
+	token := s.authToken
+	s.mu.Unlock()
+	// Audit after the unlock (a slow Loki must not stall the handler);
+	// refusals are audited too -- a burst of them is the operator's signal
+	// that someone is poking the enrollment surface. The code itself is
+	// never logged: a refused one is a guess worth nothing, and an accepted
+	// one would put a live credential in the log.
+	if audit {
+		log.Printf("lab-token exchange %s from %s", outcome, srcIP)
+		line, _ := json.Marshal(map[string]string{"sourceIp": srcIP, "outcome": outcome})
+		pushLokiStream(s.httpClient, s.lokiURL, "lab-token exchange",
+			map[string]string{"pool": poolLabel, "src": "lab-token"}, line, now)
+	}
+	switch {
+	case throttled:
+		w.Header().Set("Retry-After", strconv.Itoa(int(labFailWindow/time.Second)))
+		http.Error(w, "too many failed attempts; retry later", http.StatusTooManyRequests)
+	case !match:
+		http.Error(w, "unknown or expired lab token", http.StatusForbidden)
+	default:
+		envelope, err := sealLabToken(code, token)
+		if err != nil {
+			log.Printf("lab-token exchange: sealing failed (%v)", err)
+			http.Error(w, "failed to seal the token", http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		w.Header().Set("Cache-Control", "no-store")
+		resp, _ := json.Marshal(struct {
+			Ok bool `json:"ok"`
+			V  int  `json:"v"`
+			// Inline so the envelope fields sit at the top level, matching
+			// the config-sync credential envelope the client already parses.
+			Salt       string `json:"salt"`
+			Nonce      string `json:"nonce"`
+			Ciphertext string `json:"ciphertext"`
+			Tag        string `json:"tag"`
+		}{Ok: true, V: 1, Salt: envelope["salt"], Nonce: envelope["nonce"],
+			Ciphertext: envelope["ciphertext"], Tag: envelope["tag"]})
+		_, _ = w.Write(resp)
+	}
+}
+
+// labThrottleKey collapses an address to its throttle bucket: the /64 for IPv6
+// (the smallest routinely-delegated prefix), the address itself for IPv4 and
+// for anything unparseable.
+func labThrottleKey(ip string) string {
+	addr := net.ParseIP(ip)
+	if addr == nil || addr.To4() != nil {
+		return ip
+	}
+	return addr.Mask(net.CIDRMask(64, 128)).String() + "/64"
+}
+
+// pruneLabFailsLocked drops throttle records that have aged out. Called from
+// the rotation tick and, when the map hits its cap, from the handler.
+// MUST be called with s.mu held.
+func (s *poolState) pruneLabFailsLocked(cut time.Time) {
+	for ip, times := range s.labFails {
+		kept := times[:0]
+		for _, t := range times {
+			if t.After(cut) {
+				kept = append(kept, t)
+			}
+		}
+		if len(kept) == 0 {
+			delete(s.labFails, ip)
+		} else {
+			s.labFails[ip] = kept
+		}
+	}
+}
+
+// dashedHostIDRE matches the GUID-formatted rendering of a 32-hex hostId
+// (8-4-4-4-12). The dashboard tables display hostIds in that form, and a data
+// link built from the rendered cell value carries it verbatim; the pool keys
+// hosts on the undashed form everywhere else.
+var dashedHostIDRE = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
+
+// normalizeHostID folds the GUID-formatted spelling of a hostId back to the
+// undashed form the pool is keyed on, so the /go/* deep-links resolve whichever
+// spelling a dashboard panel interpolated. Anything not shaped like a dashed
+// 32-hex id passes through untouched (hostIds are opaque by contract).
+func normalizeHostID(hostID string) string {
+	if dashedHostIDRE.MatchString(hostID) {
+		return strings.ReplaceAll(hostID, "-", "")
+	}
+	return hostID
 }
 
 // handleGoHost bridges a dashboard click -> the host's OWN status-page root, resolving
@@ -2489,7 +2942,7 @@ func mintControlProof(token string, ttl time.Duration) string {
 // change), so the link can't carry the IP and must resolve it here. Host unknown -> 404.
 func (s *poolState) handleGoHost(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
-	hostID := strings.TrimSpace(q.Get("host"))
+	hostID := normalizeHostID(strings.TrimSpace(q.Get("host")))
 	if hostID == "" {
 		http.Error(w, "missing host", http.StatusBadRequest)
 		return
@@ -2526,7 +2979,7 @@ func (s *poolState) handleGoHost(w http.ResponseWriter, r *http.Request) {
 // the best-effort resolver contract.
 func (s *poolState) handleGoStash(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
-	hostID := strings.TrimSpace(q.Get("host"))
+	hostID := normalizeHostID(strings.TrimSpace(q.Get("host")))
 	if hostID == "" {
 		http.Error(w, "missing host", http.StatusBadRequest)
 		return
@@ -2569,7 +3022,7 @@ func (s *poolState) handleGoStash(w http.ResponseWriter, r *http.Request) {
 // host's status root (still the right host at its current IP); host unknown -> 404.
 func (s *poolState) handleGoCycle(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
-	hostID := strings.TrimSpace(q.Get("host"))
+	hostID := normalizeHostID(strings.TrimSpace(q.Get("host")))
 	if hostID == "" {
 		http.Error(w, "missing host", http.StatusBadRequest)
 		return
@@ -2790,9 +3243,11 @@ func (s *poolState) handleMetrics(w http.ResponseWriter, _ *http.Request) {
 	// polls registrations. area maps to a friendly label ("stash-service" ->
 	// "Stash service") in the dashboard. One row per (hostId, area).
 	//
-	// baseUrl (the host's status page) and target (the service UI the host advertised
-	// in extensionTargets, e.g. the stash VM) ride as labels so the dashboard can deep-
-	// link each cell DIRECTLY. A Grafana table built from an instant query turns labels
+	// target (the service UI the host advertised in extensionTargets, e.g. the stash VM)
+	// rides as a label so the dashboard can deep-link the Extension cell DIRECTLY; baseUrl
+	// (the host's status page, "" when the pool does not know the host) rides alongside it
+	// but is NOT linked -- see the announce block below.
+	// A Grafana table built from an instant query turns labels
 	// into string COLUMNS that carry no field labels, so a `${__field.labels.hostId}`
 	// redirect URL resolves to an empty host -- the working pattern (proven by
 	// yuruna_pool_host_info's baseUrl, which the Pool hosts table links identically) is a
@@ -2831,8 +3286,13 @@ func (s *poolState) handleMetrics(w http.ResponseWriter, _ *http.Request) {
 	// registration row wins: it is the owning host's own advertisement and
 	// carries the host's status baseUrl. An announce-only row still resolves
 	// baseUrl from the view when the host is at least known (a stub or an
-	// unreachable entry); "" otherwise, and the table's Host ID cell simply
-	// carries no link until the host returns.
+	// unreachable entry); "" otherwise -- a host can run an extension service
+	// WITHOUT running cycles, and such a host has no status page at all, so
+	// /go/host would answer "host not known to the pool". That is why the
+	// dashboard leaves this table's Host ID cell as plain text and the Pool
+	// hosts table (whose rows all have a status page) is where a host is
+	// opened, with the control token. baseUrl stays exported as the answer to
+	// "does this extension host have a status page".
 	annKeys := make([]string, 0, len(s.announce))
 	for k := range s.announce {
 		if !covered[k] {
@@ -2856,6 +3316,20 @@ func (s *poolState) handleMetrics(w http.ResponseWriter, _ *http.Request) {
 		b.WriteString("# HELP yuruna_pool_host_extension_last_seen_seconds Unix time this extension host was last confirmed (host probe or service announce).\n# TYPE yuruna_pool_host_extension_last_seen_seconds gauge\n")
 		for _, e := range extRows {
 			fmt.Fprintf(&b, "yuruna_pool_host_extension_last_seen_seconds{pool=%q,hostId=%q,area=%q} %d\n", s.poolFor(e.host), e.host, e.area, e.lastSeen)
+		}
+	}
+
+	// Lab connection token: the dashboard's "Lab token" tile reads the CURRENT
+	// code as a label (the info-metric pattern host_extension uses -- the only
+	// channel the provisioned Prometheus/Loki datasources offer for a string).
+	// Exported only while the exchange is live, so a disabled feature shows
+	// "No data" rather than a stale, unredeemable code. Label churn is one tiny
+	// series per rotation.
+	if s.labRotate > 0 && s.authToken != "" && len(s.labCodes) > 0 {
+		fmt.Fprintf(&b, "# HELP yuruna_pool_lab_token Current lab connection token for enrolling a host (value always 1).\n# TYPE yuruna_pool_lab_token gauge\nyuruna_pool_lab_token{pool=%q,token=%q} 1\n", s.pool, s.labCodes[0])
+		b.WriteString("# HELP yuruna_pool_lab_token_exchanges_total Lab-token exchange attempts by outcome.\n# TYPE yuruna_pool_lab_token_exchanges_total counter\n")
+		for _, oc := range []string{"ok", "refused", "throttled"} {
+			fmt.Fprintf(&b, "yuruna_pool_lab_token_exchanges_total{pool=%q,outcome=%q} %d\n", s.pool, oc, s.labExchange[oc])
 		}
 	}
 
@@ -3258,6 +3732,7 @@ func main() {
 	tlsCert := flag.String("tls-cert", "", "TLS certificate file (PEM); when both -tls-cert and -tls-key name readable files the listener is HTTPS, else plain HTTP")
 	tlsKey := flag.String("tls-key", "", "TLS private-key file (PEM); see -tls-cert")
 	authTokenFile := flag.String("auth-token-file", "", "file holding the shared bearer token that gates POST /ingest; empty/absent/empty-file -> /ingest disabled (never an unauthenticated write route)")
+	labRotate := flag.Duration("lab-token-rotate", defaultLabRotate, "rotate the dashboard lab connection token this often; 0 disables the Lab token tile and the POST /api/v1/lab-token exchange")
 	flag.Parse()
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -3289,6 +3764,27 @@ func main() {
 		} else {
 			log.Printf("auth-token-file %q unreadable (%v); /ingest disabled", *authTokenFile, rerr)
 		}
+	}
+	// Lab connection token rotation: seeded before the server starts so the
+	// first /metrics scrape already carries a redeemable code. Requires the
+	// shared token -- with none there is nothing the exchange could hand out.
+	if *labRotate > 0 && state.authToken != "" {
+		state.labRotate = *labRotate
+		state.rotateLabToken(time.Now().UTC())
+		go func() {
+			t := time.NewTicker(state.labRotate)
+			defer t.Stop()
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case <-t.C:
+					state.rotateLabToken(time.Now().UTC())
+				}
+			}
+		}()
+	} else if *labRotate > 0 {
+		log.Printf("lab-token exchange disabled: no auth token configured")
 	}
 
 	go func() {
@@ -3323,6 +3819,11 @@ func main() {
 	mux.HandleFunc("/healthz", state.handleHealth)
 	mux.HandleFunc("/metrics", state.handleMetrics)
 	mux.HandleFunc("/api/v1/pool-status", state.handlePoolStatus)
+	// /api/v1/extension-hosts: "where is area X served in this pool?" -- the
+	// coordinate lookup that lets a host find the stash / pool-control service
+	// knowing only the caching-proxy address it already has. Read-only and open,
+	// the same posture as /api/v1/pool-status.
+	mux.HandleFunc("/api/v1/extension-hosts", state.handleExtensionHosts)
 	// /go/cycle: dashboard timeline click -> 302 to the host's cycle-results folder,
 	// resolving the host's CURRENT IP live (so the link survives an IP change). Open
 	// (no auth): it only redirects to a host's already-open status server.
@@ -3349,6 +3850,12 @@ func main() {
 	// design with self-identity binding -- see handleAnnounce; self-gates on
 	// -announce-ttl (503 when 0).
 	mux.HandleFunc("/announce", state.handleAnnounce)
+	// /api/v1/lab-token: exchanges the dashboard-displayed 6-char lab
+	// connection token for the shared lab-auth-token (the Set-LabToken.ps1
+	// enrollment call). Open with knowledge-of-the-code as the credential,
+	// per-IP throttled + audited -- see handleLabToken; self-gates on
+	// -lab-token-rotate and on a configured token (503 otherwise).
+	mux.HandleFunc("/api/v1/lab-token", state.handleLabToken)
 
 	srv := &http.Server{Addr: *addr, Handler: mux, ReadTimeout: 5 * time.Second, WriteTimeout: 15 * time.Second, IdleTimeout: 30 * time.Second}
 	go func() {
@@ -3370,20 +3877,167 @@ func main() {
 	if state.authToken != "" {
 		authState = "ingest enabled (bearer)"
 	}
+	if state.labRotate > 0 {
+		authState += fmt.Sprintf(", lab-token exchange on (rotate %s)", state.labRotate)
+	} else {
+		authState += ", lab-token exchange off"
+	}
 	scheme := "http"
 	if useTLS {
-		scheme = "https"
+		scheme = "https+http"
 		srv.TLSConfig = &tls.Config{MinVersion: tls.VersionTLS12}
 	}
 	log.Printf("pool-aggregator listening on %s (%s), pool=%q, discover-from=%s, status-port=%d, loki=%s, interval=%s, %s",
 		*addr, scheme, *pool, *squidLog, *statusPort, *lokiURL, *interval, authState)
 	var serveErr error
 	if useTLS {
-		serveErr = srv.ListenAndServeTLS(*tlsCert, *tlsKey)
+		// With the leaf present, :9400 answers BOTH protocols on the one port
+		// (dualProtocolListener): TLS for the token-bearing clients (the ingest
+		// forwarder's Authorization bearer, Set-LabToken's exchange, the
+		// Prometheus scrape), plain HTTP for the browser-facing /go/* deep-links.
+		// The deep-link hop only redirects the operator's browser to a plain-http
+		// host status page, so TLS there would add a proxy-CA interstitial
+		// (operator browsers do not trust the proxy CA) while protecting nothing
+		// the very next hop does not already carry in clear -- the minted control
+		// proof travels on to the host in a cleartext header either way.
+		cert, err := tls.LoadX509KeyPair(*tlsCert, *tlsKey)
+		if err != nil {
+			log.Fatal(err)
+		}
+		srv.TLSConfig.Certificates = []tls.Certificate{cert}
+		inner, err := net.Listen("tcp", *addr)
+		if err != nil {
+			log.Fatal(err)
+		}
+		serveErr = srv.Serve(newDualProtocolListener(inner, srv.TLSConfig))
 	} else {
 		serveErr = srv.ListenAndServe()
 	}
 	if serveErr != nil && serveErr != http.ErrServerClosed {
 		log.Fatal(serveErr)
 	}
+}
+
+// --- dual-protocol listener: TLS + plain HTTP on one port ---
+
+// sniffTimeout bounds how long a fresh connection may sit silent before its
+// first byte. Without it an idle TCP connect would pin a sniff goroutine
+// forever: the http.Server's ReadTimeout only starts once the connection is
+// handed over, and the hand-over is what the sniff gates.
+const sniffTimeout = 10 * time.Second
+
+// dualProtocolListener accepts on one port and hands the http.Server either a
+// *tls.Conn or the raw connection, decided by the first byte (0x16 is the TLS
+// handshake record type; no HTTP method starts with it). http.Server.Serve
+// detects *tls.Conn, runs the handshake, and populates Request.TLS, so both
+// protocols share the one mux and port. The plain path (and the TLS path via
+// per-conn tls.Server, which negotiates no ALPN) speaks HTTP/1.1 only; every
+// consumer of this service does.
+type dualProtocolListener struct {
+	inner     net.Listener
+	tlsCfg    *tls.Config
+	conns     chan net.Conn
+	errs      chan error
+	done      chan struct{}
+	closeOnce sync.Once
+}
+
+func newDualProtocolListener(inner net.Listener, tlsCfg *tls.Config) *dualProtocolListener {
+	l := &dualProtocolListener{
+		inner:  inner,
+		tlsCfg: tlsCfg,
+		conns:  make(chan net.Conn),
+		// Buffered so acceptLoop can park a fatal error and exit even when no
+		// Accept is pending; Accept drains it later.
+		errs: make(chan error, 1),
+		done: make(chan struct{}),
+	}
+	go l.acceptLoop()
+	return l
+}
+
+// acceptLoop accepts raw connections and sniffs each in its own goroutine, so
+// one client that connects and then stalls before its first byte cannot block
+// the accept path for everyone else.
+func (l *dualProtocolListener) acceptLoop() {
+	for {
+		c, err := l.inner.Accept()
+		if err != nil {
+			select {
+			case l.errs <- err:
+			default: // an earlier error is already parked; drop this one
+			}
+			if errors.Is(err, net.ErrClosed) {
+				return
+			}
+			// Transient accept failure (e.g. EMFILE): keep accepting; the
+			// parked error still surfaces through Accept so http.Server can
+			// apply its own temporary-error backoff.
+			continue
+		}
+		go l.sniff(c)
+	}
+}
+
+func (l *dualProtocolListener) sniff(c net.Conn) {
+	if err := c.SetReadDeadline(time.Now().Add(sniffTimeout)); err != nil {
+		_ = c.Close()
+		return
+	}
+	var first [1]byte
+	if _, err := io.ReadFull(c, first[:]); err != nil {
+		_ = c.Close()
+		return
+	}
+	if err := c.SetReadDeadline(time.Time{}); err != nil {
+		_ = c.Close()
+		return
+	}
+	var out net.Conn = &replayConn{Conn: c, head: first[:]}
+	if first[0] == 0x16 {
+		out = tls.Server(out, l.tlsCfg)
+	}
+	select {
+	case l.conns <- out:
+	case <-l.done:
+		_ = c.Close()
+	}
+}
+
+func (l *dualProtocolListener) Accept() (net.Conn, error) {
+	select {
+	case c := <-l.conns:
+		return c, nil
+	case err := <-l.errs:
+		return nil, err
+	case <-l.done:
+		return nil, net.ErrClosed
+	}
+}
+
+func (l *dualProtocolListener) Close() error {
+	var err error
+	l.closeOnce.Do(func() {
+		close(l.done)
+		err = l.inner.Close()
+	})
+	return err
+}
+
+func (l *dualProtocolListener) Addr() net.Addr { return l.inner.Addr() }
+
+// replayConn replays the sniffed first byte ahead of the wrapped connection's
+// stream, so the protocol detection consumes nothing from the peer's view.
+type replayConn struct {
+	net.Conn
+	head []byte
+}
+
+func (c *replayConn) Read(p []byte) (int, error) {
+	if len(c.head) > 0 {
+		n := copy(p, c.head)
+		c.head = c.head[n:]
+		return n, nil
+	}
+	return c.Conn.Read(p)
 }

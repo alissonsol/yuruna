@@ -605,7 +605,7 @@ func TestGitCommitsTolerantDecode(t *testing.T) {
 // two deep-links resolve.
 func TestHostInfoCommitLabels(t *testing.T) {
 	s := newPoolState("default", 8080)
-	hv := &hostView{HostId: "4253419c", BaseURL: "http://192.168.7.13:8080", Reachable: true, Version: "2026.07.26", PoolId: "lab", PoolGuid: "42a1b2c3-d4e5-4f60-8a1b-2c3d4e5f6071"}
+	hv := &hostView{HostId: "4253419c", BaseURL: "http://192.168.7.13:8080", Reachable: true, Version: "2026.07.28", PoolId: "lab", PoolGuid: "42a1b2c3-d4e5-4f60-8a1b-2c3d4e5f6071"}
 	hv.Status = &hostStatus{HostId: "4253419c", Host: "host.windows.hyper-v", CycleId: "c1", OverallStatus: "pass"}
 	hv.Status.GitCommits = append(hv.Status.GitCommits,
 		struct {
@@ -1133,6 +1133,16 @@ func TestHandleGoHost(t *testing.T) {
 		w := get(s, "host="+hid)
 		if w.Code != http.StatusFound || w.Header().Get("Location") != "http://10.0.0.5:8080" {
 			t.Fatalf("(c) root: code=%d loc=%q", w.Code, w.Header().Get("Location"))
+		}
+	}
+	// (d) GUID-formatted id resolves to the same host: the dashboard tables render
+	// hostIds dashed, and a data link built from the rendered cell carries that form.
+	{
+		s := newPoolState("default", 8080)
+		s.hosts[hid] = &hostView{HostId: hid, BaseURL: "http://10.0.0.5:8080"}
+		w := get(s, "host=4253419c-1f0b-45a0-8260-f36a1521a857")
+		if w.Code != http.StatusFound || w.Header().Get("Location") != "http://10.0.0.5:8080" {
+			t.Fatalf("(d) dashed id: code=%d loc=%q", w.Code, w.Header().Get("Location"))
 		}
 	}
 }

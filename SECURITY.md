@@ -42,7 +42,7 @@ In scope:
   at VM-creation time.
 - Default configurations shipped with the
   [test harness](test/README.md) and
-  [caching proxy](docs/caching.md).
+  [caching-proxy service](docs/caching.md).
 
 Out of scope:
 
@@ -64,8 +64,8 @@ following as your responsibility, not the project's:
   `transports.yml` (notification), and the per-cycle authentication
   vault under `test/status/extension/authentication/`
   hold secrets and are git-ignored. Never commit them.
-- **Network exposure** — Kubernetes deployments, the status server,
-  and the caching proxy bind to the host. Restrict ingress before
+- **Network exposure** — Kubernetes deployments, the status service,
+  and the caching-proxy service bind to the host. Restrict ingress before
   running outside a trusted LAN.
 - **Cloud cost and blast radius** — see the cost warning in
   [Yuruna ...](README.md) and [Yuruna Resources Clean Up](docs/kubernetes.md#cleaning-up-cloud-resources).
@@ -92,6 +92,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.28
+Last review: 2026.07.29
 
 Back to [Yuruna](README.md)

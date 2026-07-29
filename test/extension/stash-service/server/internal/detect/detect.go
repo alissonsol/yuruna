@@ -31,7 +31,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"stash-server/internal/config"
+	"stash-service/internal/config"
 )
 
 // Result is the classification stored on the metadata record + sidecar.

@@ -92,8 +92,8 @@ The library exports five functions:
 1. Runs up to **5 attempts** (override via `YURUNA_RETRY_MAX_ATTEMPTS`).
 2. Sleeps with **exponential backoff + equal jitter**: a random point
    in `[delay/2, delay]` rather than exactly `delay` (base 10 s, 20 s,
-   40 s, 80 s, 160 s; override via `YURUNA_RETRY_DELAY`), so parallel
-   guests that failed in lock-step — a shared caching-proxy blip, a
+   40 s, 80 s, 160 s; override via `YURUNA_RETRY_DELAY_SECONDS`), so parallel
+   guests that failed in lock-step — a shared caching-proxy-service blip, a
    mirror 429 burst — don't all wake and retry on the same instant and
    re-form the thundering herd that caused the failure. The jitter
    never exceeds the base delay, so the ~5-min worst-case total is
@@ -172,12 +172,12 @@ Linux 2023, and macOS 26 all ship newer.
 ### Why the stall bound hoists timeout inside sudo and stays foreground
 
 `_yuruna_retry` supports a per-attempt wall-clock bound
-(`YURUNA_RETRY_STALL_TIMEOUT`, whole seconds; `0` = unbounded): an
+(`YURUNA_RETRY_STALL_TIMEOUT_SECONDS`, whole seconds; `0` = unbounded): an
 HTTP transfer that stalls after response headers — or trickles too
 slowly to trip the client's own connect/read-gap timeout — otherwise
 hangs the attempt forever, and the retry loop never gets to retry on
 a fresh connection (the stalled-transfer trap class: apt InRelease
-fetches wedging mid-body behind a caching proxy). A malformed value
+fetches wedging mid-body behind a caching-proxy service). A malformed value
 fails LOUD and unbounded, not silently unbounded: the operator
 believes a bound is active.
 
@@ -207,7 +207,7 @@ what the sudo-hoist already assumes.
 ### Why apt and dnf attempts run unbounded by default
 
 Package-manager attempts run UNBOUNDED by default (opt in via
-`YURUNA_APT_STALL_TIMEOUT` / `YURUNA_DNF_STALL_TIMEOUT`, seconds). A
+`YURUNA_APT_STALL_TIMEOUT_SECONDS` / `YURUNA_DNF_STALL_TIMEOUT_SECONDS`, seconds). A
 wall-clock bound here is attractive — a wedged mirror/proxy transfer
 otherwise consumes the whole step budget as one silent hang — but
 wrapping apt in `timeout(1)` is the wrapped-apt teardown-hang trap
@@ -221,7 +221,7 @@ root-caused (suspects: apt's dpkg-pty EOF drain or its hook-child
 wait under a `timeout(1)` parent), the safe default is the plain
 unwrapped invocation; the mirror-stall exposure is instead bounded at
 the transfer layer (curl/wget/git low-speed aborts, apt's own
-`Acquire::http::Timeout`, and the caching proxy's `read_timeout`).
+`Acquire::http::Timeout`, and the caching-proxy service's `read_timeout`).
 
 ---
 
@@ -351,9 +351,9 @@ full timeout for nothing, so the scripts branch on the active manager.
 Every branch is capped at 30 s so a broken stack cannot hang the cycle,
 and non-zero exits are swallowed so `set -e` does not abort.
 
-## Caching-proxy CA cert rc60 gate
+## Caching-proxy service CA cert rc60 gate
 
-The Ubuntu `New-VM.ps1` scripts fetch the caching-proxy CA certificate on
+The Ubuntu `New-VM.ps1` scripts fetch the caching-proxy-service CA certificate on
 the host and base64-embed it in the autoinstall seed
 (`CA_CERT_BASE64_PLACEHOLDER`). The installer's late-commands write the
 cert before any HTTPS apt fetch, so SSL-bump caching works from the first
@@ -364,7 +364,7 @@ the guest's HTTPS through the bump (`:3129`) and locks direct `:443`
 egress, so a CA-less guest fails every HTTPS request with curl rc=60
 ("self-signed certificate in certificate chain"). That is why the CA
 fetch is retried under the shared capped-backoff policy — one blip
-against a slow or flapping caching proxy must not strand the guest
+against a slow or flapping caching-proxy service must not strand the guest
 without the CA. See the memory capture
 `feedback_sslbump_rc60_untrusted_chain_and_ca_gate_trap` for the incident
 class.
@@ -373,9 +373,9 @@ A finite host-side retry budget can still be outlasted by a longer proxy
 flap, so the empty-CA case is recovered at two further layers without
 relaxing egress (`project_sslbump_ca_gating_durable_fix`):
 
-- **Host-side fallback.** `Get-CachingProxyCaCertBase64` (in
-  `Test.CachingProxy.psm1`, shared by all six ubuntu `New-VM.ps1`) persists
-  each successfully fetched CA into the `yuruna-caching-proxy.yml` state
+- **Host-side fallback.** `Get-CachingProxyServiceCaCertBase64` (in
+  `Test.CachingProxyService.psm1`, shared by all six ubuntu `New-VM.ps1`) persists
+  each successfully fetched CA into the `yuruna-caching-proxy-service.yml` state
   file, keyed by cache host, and reuses it when a later live fetch flaps —
   so a guest provisioned during a flap can still bake a valid CA from a
   prior good fetch of the same cache. When even that comes up empty (retry
@@ -404,11 +404,11 @@ On macOS UTM the fetch has an extra reason to run host-side: guests on VZ
 shared-NAT cannot reach the cache VM directly, but the host can. The UTM
 scripts must also resolve **which IP** serves the CA:
 
-- An **external cache** (`YURUNA_CACHING_PROXY_IP` set to a valid IP) wins:
-  `$CachingProxyUrl` already points at the remote IP (no VZ-gateway
+- An **external cache** (`YURUNA_CACHING_PROXY_SERVICE_IP` set to a valid IP) wins:
+  `$CachingProxyServiceUrl` already points at the remote IP (no VZ-gateway
   rewrite), and the remote cache image is identical to the local one — the
   same Apache on `:80` serves `/yuruna-squid-ca.crt`. The
-  `yuruna-caching-proxy.yml` state file is not updated for external caches,
+  `yuruna-caching-proxy-service.yml` state file is not updated for external caches,
   so the IP is read straight from the environment variable.
 - Otherwise the persisted state file's `ipAddress` is used when it parses
   as an IP.
@@ -420,7 +420,7 @@ scripts must also resolve **which IP** serves the CA:
 
 ### Defining utm cache vm bridged discovery
 
-The macOS UTM ubuntu `New-VM.ps1` scripts detect the caching proxy and
+The macOS UTM ubuntu `New-VM.ps1` scripts detect the caching-proxy service and
 inject its proxy URL into the autoinstall seed when available. The cache
 VM is bridged to the host's physical NIC
 (`VZBridgedNetworkDeviceAttachment` in `config.plist.template`), so it
@@ -428,16 +428,51 @@ carries its own LAN DHCP IP — e.g. `http://192.168.7.150:3128`. Install
 VMs on shared NAT reach that LAN IP through VMnet's outbound NAT (the
 same path they use to reach Ubuntu mirrors), so no host-side TCP
 forwarder layer is needed. Discovery delegates to
-`Test-CachingProxyAvailable`, which owns the (state-file fast path ->
+`Test-CachingProxyServiceAvailable`, which owns the (state-file fast path ->
 LAN /24 scan -> state refresh) logic.
 
 Severity policy:
 
-- `Test-CachingProxyAvailable` returns a URL -> inject it.
+- `Test-CachingProxyServiceAvailable` returns a URL -> inject it.
 - `utmctl` sees the cache VM started but no `:3128` answer on the LAN ->
   ERROR, exit 1 (the cache came up but is not on the LAN; a bridge
   interface or DHCP problem).
 - Cache VM not registered / not started -> WARNING, proceed direct.
+
+## Cache-VM seed host binding
+
+The caching-proxy-service `New-VM.ps1` scripts on all three drivers
+bake the Yuruna host's (status service) IP and port into the seed so
+the cache VM's cloud-init build block fetches collector/parser source
+from the LOCAL host working tree (`/yuruna-repo/`) instead of public
+github — a rebuild never waits on the private->public mirror.
+`$env:YURUNA_GUEST_REACHABLE_HOST_IP` overrides the resolved host IP
+on ubuntu.kvm and macos.utm (windows.hyper-v has no override); empty
+values make the build fall back to github.
+`Start-CachingProxyServiceVM.ps1` ensures the status service the baked
+address points at is running.
+
+The reachable host address and the network the cache VM attaches to
+are a topology-aware matched pair — the address only works from the
+network it was derived for — so each driver resolves the two together:
+
+- **ubuntu.kvm**: `Resolve-GuestHostBinding` resolves the libvirt
+  network and the host address at once — the same helper every install
+  guest uses, so the cache and the guests always land on the same
+  network. On the bridged `yuruna-external` network the cache VM gets
+  a LAN IP and reaches the host at its LAN address; on the NAT
+  `default` network it reaches the host at the libvirt gateway
+  (`192.168.122.1`).
+- **macos.utm**: the host address mirrors the NetworkMode decision made
+  in the same script: a wired (Ethernet) default route makes the cache
+  VM bridged (LAN IP), reaching the host at its LAN address
+  (`Get-BestHostIp`); a Wi-Fi default route makes it UTM Shared NAT,
+  reaching the host at the VZ gateway
+  (`Get-GuestReachableHostIp` = `192.168.64.1`).
+- **windows.hyper-v**: `Get-GuestReachableHostIp -SwitchName` derives
+  the host address from the vSwitch resolved earlier in the script
+  (Default Switch = the `172.x` NAT gateway; External vSwitch = the
+  host's LAN IP).
 
 ## Registry rate limits disguised as 400
 
@@ -458,7 +493,7 @@ to retry. Two shapes must both match:
 A rate limit is keyed to the egress IP's quota window and will not
 clear on a 10–30 s retry, so the scripts surface operator guidance
 (wait, authenticate the pull-through proxy, bake the image into the
-guest base, or check the caching proxy's zot endpoint) and exit
+guest base, or check the caching-proxy service's zot endpoint) and exit
 immediately instead of burning the remaining retry budget on a
 foregone conclusion.
 
@@ -469,7 +504,7 @@ third-party apt signing keys — Docker
 (`download.docker.com/linux/ubuntu/gpg`), Kubernetes
 (`pkgs.k8s.io/.../Release.key`), and Microsoft
 (`packages.microsoft.com/keys/microsoft.asc`) — over the guest's
-SSL-bump caching proxy, which is a **trust boundary**: a tampering proxy
+SSL-bump caching-proxy service, which is a **trust boundary**: a tampering proxy
 or CDN could otherwise land an attacker key in apt's trust store.
 `_yuruna_verify_key_fpr` verifies every downloaded key against a pinned
 allow-set of PRIMARY-key fingerprints before it is trusted:
@@ -508,6 +543,29 @@ verify the binary actually landed: a swallowed failure here otherwise
 surfaces far away as a `helm: not recognized` abort in the k8s.website
 workload.
 
+## Why Hyper-V never bridges Wi-Fi or USB uplinks
+
+`Get-OrCreateYurunaExternalSwitch`
+(`host/windows.hyper-v/modules/Yuruna.Host.psm1`) opens with a
+not-bridgeable-uplink divert that mirrors macos.utm's Shared-vs-Bridged
+choice keyed on `Test-MacUplinkNotBridgeable`. An External vSwitch
+bridges the guest MAC onto the uplink, and Wi-Fi (802.11) and USB
+Ethernet adapters both refuse to carry that MAC — so when
+`Test-WindowsUplinkNotBridgeable` reports such an uplink the function
+never bridges: it returns `$null` and the caller falls back to the
+built-in Default Switch (NAT + DHCP).
+
+The divert supersedes any already-present External switch: a stale one
+bound to a non-bridgeable uplink has a dead port (its vEthernet sits at
+APIPA) and would strand guests with eth0 DOWN. Cache export to the LAN
+then rides host port-forwarders (`Test-CacheVmOnYurunaExternalSwitch`
+-> `$false` -> `netsh portproxy`), exactly as macOS does over Wi-Fi.
+
+The divert logs Verbose, not Warning: on a Wi-Fi/USB-uplink host this
+is the permanent steady state, not an anomaly, and it is re-evaluated
+once per VM creation — a warning would repeat the same line for every
+guest of every cycle without ever asking the operator to do anything.
+
 ## KVM host bridge netplan: identity pins
 
 The generated netplan that moves the NIC onto the yuruna bridge
@@ -535,6 +593,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.28
+Last review: 2026.07.29
 
 Back to [Yuruna](../README.md)

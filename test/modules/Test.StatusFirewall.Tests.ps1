@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.28
+.VERSION 2026.07.29
 .GUID 42a9b8c7-d6e5-4f43-8210-9a8b7c6d5e40
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -37,7 +37,7 @@ function Assert-False { param($Condition, [string]$Because = '') if ($Condition)
 
 Describe 'Get-YurunaStatusFirewallRuleName' {
     It 'builds the canonical Windows rule DisplayName' {
-        Assert-Equal -Expected 'Yuruna: Allow inbound TCP :8080 (Status server)' -Actual (Get-YurunaStatusFirewallRuleName -Port 8080)
+        Assert-Equal -Expected 'Yuruna: Allow inbound TCP :8080 (Status service)' -Actual (Get-YurunaStatusFirewallRuleName -Port 8080)
     }
     It 'is port-specific so two ports never collide on one rule' {
         Assert-True ((Get-YurunaStatusFirewallRuleName -Port 8080) -ne (Get-YurunaStatusFirewallRuleName -Port 9090)) 'distinct ports -> distinct names'

@@ -85,14 +85,14 @@ runcmd:
   - mkdir -p /etc/yuruna
   - |
     cat > /etc/yuruna/host.env << 'EOF'
-    YURUNA_HOST_IP=YURUNA_HOST_IP_PLACEHOLDER
-    YURUNA_HOST_PORT=YURUNA_HOST_PORT_PLACEHOLDER
+    YURUNA_STATUS_SERVICE_IP=YURUNA_STATUS_SERVICE_IP_PLACEHOLDER
+    YURUNA_STATUS_SERVICE_PORT=YURUNA_STATUS_SERVICE_PORT_PLACEHOLDER
     YURUNA_GITHUB_REPO=YURUNA_GITHUB_REPO_PLACEHOLDER
     YURUNA_GITHUB_REF=YURUNA_GITHUB_REF_PLACEHOLDER
     YURUNA_FRAMEWORK_URL=YURUNA_FRAMEWORK_URL_PLACEHOLDER
     YURUNA_PROJECT_URL=YURUNA_PROJECT_URL_PLACEHOLDER
     EOF
-  - bash -c 'grep -q yuruna-host /etc/hosts || echo "YURUNA_HOST_IP_PLACEHOLDER yuruna-host" >> /etc/hosts'
+  - bash -c 'grep -q yuruna-host /etc/hosts || echo "YURUNA_STATUS_SERVICE_IP_PLACEHOLDER yuruna-host" >> /etc/hosts'
   # --- REGION: https://yuruna.link/definition#defining-the-two-source-scheme-for-framework-and-project-urls
   # Token for private framework/project URLs, delivered on the seed ISO (never the OCR'd console, never HTTP); written to /etc/profile.d (login shells) and ~/.bashrc (the runner's interactive shell), skipped when unset.
   - |
@@ -113,7 +113,7 @@ runcmd:
   # --- REGION: https://yuruna.link/vmconfig#wget-no_proxy
   - |
     cat >> /etc/wgetrc << 'EOF'
-    no_proxy = YURUNA_HOST_IP_PLACEHOLDER
+    no_proxy = YURUNA_STATUS_SERVICE_IP_PLACEHOLDER
     EOF
   # --- REGION: https://yuruna.link/vmconfig#timezone-via-ip-geolocation-and-ntp
   - timedatectl set-ntp true

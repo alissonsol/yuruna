@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.28
+.VERSION 2026.07.29
 .GUID 4279eb7c-6790-4ef6-934f-bbde817895d6
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -129,7 +129,7 @@ $failuresTranscript = @(
     '============================================================',
     '',
     '  [1/2] in section: networkStorage',
-    '        poolNetworkPath is not reachable',
+    '        poolStorageNetworkPath is not reachable',
     '',
     '  [2/2] in section: repositories',
     '        projectUrl is empty',
@@ -204,7 +204,7 @@ Describe 'Invoke-ConfigGate' {
 
             Assert-True ($o.Text -match 'Invoke-TestRunner\] Pre-cycle config gate FAILED') 'the banner names the entry point that owned the failure'
             Assert-True ($o.Text -match 'Test-Config\.ps1 exit 7')
-            Assert-True ($o.Text -match 'poolNetworkPath is not reachable') 'the FAILURES detail is repeated under the banner'
+            Assert-True ($o.Text -match 'poolStorageNetworkPath is not reachable') 'the FAILURES detail is repeated under the banner'
             Assert-True ($o.Text -match 'projectUrl is empty')
             Assert-True ($o.Text -match 'END OF FAILURES \(2\)') 'the excerpt runs through the closing footer'
             Assert-True ($o.Text -notmatch 'UNRELATED-CHATTER') 'only the FAILURES block is repeated, not the whole ~80-line child transcript'
@@ -216,7 +216,7 @@ Describe 'Invoke-ConfigGate' {
             $o    = Get-GateOutcome -TestRoot $gateRoot -ConfigPath $plan.ConfigPath
             Assert-Equal -Expected $false -Actual $o.Result.passed
             Assert-Equal -Expected 2      -Actual $o.Result.exitCode
-            Assert-True  ($o.Text -match 'poolNetworkPath is not reachable') `
+            Assert-True  ($o.Text -match 'poolStorageNetworkPath is not reachable') `
                 'the 2>&1 capture is what makes the extractor stream-agnostic'
             Assert-True  ($o.Text -notmatch 'did not emit a FAILURES block') 'the block was found, so the tail fallback must not fire'
         }

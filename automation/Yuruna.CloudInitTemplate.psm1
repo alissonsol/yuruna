@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.28
+.VERSION 2026.07.29
 .GUID 42c9d0e1-b3a4-4f56-9b67-78c2e3f4d5a6
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -297,7 +297,7 @@ function New-CloudInitUserData {
     .PARAMETER AllowedUnresolved
         Placeholder names the template intentionally leaves unresolved for
         a downstream consumer to fill in (e.g. AGGREGATOR_BASE_PLACEHOLDER,
-        which the caching-proxy guest resolves at boot via sed once its
+        which the caching-proxy-service guest resolves at boot via sed once its
         DHCP IP is known). Forwarded to Resolve-CloudInitPlaceholder so the
         unresolved-placeholder safety net ignores these tokens.
     .PARAMETER OutputPath
@@ -342,7 +342,7 @@ function New-CloudInitUserData {
     # every New-VM.ps1 needs the identical answer, and a per-caller copy is a
     # per-caller chance to name a different repository than the one the runner
     # types at fetch time. Templates that do not carry these placeholders (the
-    # caching-proxy and stash-service seeds) simply never consume them.
+    # caching-proxy-service and stash-service seeds) simply never consume them.
     $ghSource = Get-YurunaGitHubSource -RepoRoot $RepoRoot
     if (-not $fullReplacement.ContainsKey('YURUNA_GITHUB_REPO_PLACEHOLDER')) {
         $fullReplacement['YURUNA_GITHUB_REPO_PLACEHOLDER'] = $ghSource.Repo

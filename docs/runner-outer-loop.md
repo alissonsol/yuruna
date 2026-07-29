@@ -29,7 +29,7 @@ state-transition sequence without spawning a real inner pwsh.
 | `Invoke-OuterGitPull -RepoRoot` | `git pull --ff-only --quiet`. |
 | `Get-OuterRemoteSha -RemoteUrl` | `git ls-remote HEAD` (project repo, no local clone needed). |
 | `Get-OuterConfigMtime -ConfigPath` | `Get-Item.LastWriteTimeUtc` (or `$null`). |
-| `Get-OuterStepTimeoutMinute -ConfigPath -DefaultMinutes` | `testCycle.stepTimeoutMinutes` from config (hot-read each cycle). |
+| `Get-OuterStepTimeoutSeconds -ConfigPath -DefaultSeconds` | `testCycle.stepTimeoutSeconds` from config (hot-read each cycle). |
 | `Get-OuterProjectUrl -ConfigPath` | `repositories.projectUrl` from config. |
 | `Sync-ForwardEnv -ForwardEnvSnapshot` | Re-assert YURUNA_* env vars from a launch-time snapshot. |
 | `Write-OuterLog -Message` | Append-only timestamped line to `runtime/outer.log`. |
@@ -47,7 +47,7 @@ required keys, validated at entry:
 |---|---|---|
 | `RepoRoot` | `[string]` | Framework repo root for the `git pull` calls. |
 | `ConfigPath` | `[string]` | Resolved `test.config.yml` path. |
-| `InnerScript` | `[string]` | Absolute path to `Invoke-TestInnerRunner.ps1`. |
+| `InnerScript` | `[string]` | Absolute path to `Invoke-TestRunnerInnerLoop.ps1`. |
 | `PwshExe` | `[string]` | `pwsh` binary to invoke (operator's choice). |
 | `ArgList` | `[string[]]` | Argv built by `Test.InnerSpawn\New-InnerRunnerArgList`. |
 | `ForwardEnvSnapshot` | `[hashtable]` | Launch-time `YURUNA_*` env-var snapshot. |
@@ -55,9 +55,9 @@ required keys, validated at entry:
 | `NoGitPull` | `[bool]` | Skip the framework pull (operator's `-NoGitPull` switch). |
 | `FailurePauseMaxSeconds` | `[int]` | Failure-pause cap (default 60 min). |
 | `FailureCommitPollSeconds` | `[int]` | Trigger-poll cadence inside the pause (default 5 min). |
-| `OuterPullErrorSleepSec` | `[int]` | Short retry sleep when the outer's own `git pull` fails. |
-| `InnerSpawnErrorSleepSec` | `[int]` | Short retry sleep when `Start-Process` itself fails. |
-| `StepTimeoutMinutesDefault` | `[int]` | Watchdog default (overridden per-cycle by `testCycle.stepTimeoutMinutes`). |
+| `OuterPullErrorSleepSeconds` | `[int]` | Short retry sleep when the outer's own `git pull` fails. |
+| `InnerSpawnErrorSleepSeconds` | `[int]` | Short retry sleep when `Start-Process` itself fails. |
+| `StepTimeoutSecondsDefault` | `[int]` | Watchdog default (overridden per-cycle by `testCycle.stepTimeoutSeconds`). |
 | `WatchdogPollSeconds` | `[int]` | Watchdog poll cadence (default 30 s). |
 
 A missing key throws `Invoke-RunnerOuterLoop: -State is missing
@@ -176,8 +176,8 @@ event-schema validator: catch drift loudly, never lose telemetry.
 
 | File | Writer | Reader | Purpose |
 |---|---|---|---|
-| `runner.state.json` | `Set-RunnerState` (atomic) | Status server, next outer's `Initialize-RunnerState`, post-mortem | Last 20 transitions + the current state, runId, cycleId. |
-| NDJSON event stream | `Set-RunnerState` via [`Test.Log`](../test/modules/Test.Log.psm1) | Off-host log shipper | One event per transition: `runner_state_transition` with `(from, to, reason, runId, cycleId)`. |
+| `runner.state.json` | `Set-RunnerState` (atomic) | Status service, next outer's `Initialize-RunnerState`, post-mortem | Last 20 transitions + the current state, runId, cycleStartUtc. |
+| NDJSON event stream | `Set-RunnerState` via [`Test.Log`](../test/modules/Test.Log.psm1) | Off-host log shipper | One event per transition: `runner_state_transition` with `(from, to, reason, runId, cycleStartUtc)`. |
 
 ### Boot recovery
 
@@ -212,6 +212,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.28
+Last review: 2026.07.29
 
 Back to [Yuruna](../README.md)

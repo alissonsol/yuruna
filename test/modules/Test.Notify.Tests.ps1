@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.28
+.VERSION 2026.07.29
 .GUID 42759f4b-9143-4909-b379-0ff23a9fc154
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -42,12 +42,7 @@ Import-Module (Join-Path $here 'Test.Notify.psm1') -Force -DisableNameChecking
 function Assert-Equal { param($Expected, $Actual, [string]$Because = '') if ($Expected -ne $Actual) { throw "Expected [$Expected] got [$Actual]. $Because" } }
 function Assert-True { param($Condition, [string]$Because = '') if (-not $Condition) { throw "Expected true. $Because" } }
 
-# Helpers and path fixtures live at FILE scope, above the first Describe: a
-# Describe body runs during discovery and its variables and functions are
-# discarded before any It executes, and the run pass stops descending top-level
-# statements at the first Describe. Only PATHS are computed here -- creating the
-# directories is a side effect and the file body runs twice (discovery, then
-# run), so the New-Item calls stay in BeforeAll.
+# --- REGION: https://yuruna.link/memory#pester-file-scope-fixtures
 
 function Initialize-TestCycleFolder {
     <#
@@ -130,17 +125,17 @@ $ResolveDir = Join-Path $TempRoot ('yuruna-notify-resolve-' + [guid]::NewGuid().
 Describe 'Format-FailureMessage' {
     It 'builds a plain-text body from the scalar fields' {
         $body = Format-FailureMessage -HostType 'host.windows.hyper-v' -Hostname 'BOX-01' -GuestKey 'ubuntu-24' `
-            -StepName 'waitForText' -ErrorMessage 'timed out waiting for login:' -CycleId 'cycle-000042' -GitCommit 'abc1234'
+            -StepName 'waitForText' -ErrorMessage 'timed out waiting for login:' -CycleStartUtc 'cycle-000042' -GitCommit 'abc1234'
         Assert-True ($body -match '(?m)^Host:\s+host\.windows\.hyper-v$')
         Assert-True ($body -match '(?m)^Machine:\s+BOX-01$')
         Assert-True ($body -match '(?m)^Guest:\s+ubuntu-24$')
         Assert-True ($body -match '(?m)^Step:\s+waitForText$')
         Assert-True ($body -match '(?m)^Error:\s+timed out waiting for login:$')
-        Assert-True ($body -match '(?m)^Cycle ID:\s+cycle-000042$')
+        Assert-True ($body -match '(?m)^Cycle start:\s+cycle-000042$')
         Assert-True ($body -match '(?m)^Commit:\s+abc1234$')
     }
     It 'appends no machine-readable trailer for a legacy caller with no payload' {
-        $body = Format-FailureMessage -HostType 'ht' -Hostname 'h' -GuestKey 'g' -StepName 's' -ErrorMessage 'e' -CycleId 'c' -GitCommit 'gc'
+        $body = Format-FailureMessage -HostType 'ht' -Hostname 'h' -GuestKey 'g' -StepName 's' -ErrorMessage 'e' -CycleStartUtc 'c' -GitCommit 'gc'
         Assert-True ($body -notmatch 'yuruna-failure-json') 'the legacy body is untouched'
         Assert-True ($body -notmatch 'yuruna-failure-summary')
     }
@@ -152,28 +147,28 @@ Describe 'Format-FailureMessage' {
             actionVerb           = 'sshWaitReady'
             cycleFolderUrl       = 'http://box:8080/status/log/cycle-000042/'
             suggestedRecoveries  = @('restart guest', 'recreate guest')
-            repro                = @{ command = 'pwsh test/Test-Sequence.ps1 -Guest ubuntu-24' }
+            repro                = @{ command = 'pwsh test/Invoke-TestSequence.ps1 -Guest ubuntu-24' }
         }
-        $body = Format-FailureMessage -HostType 'ht' -Hostname 'h' -GuestKey 'g' -StepName 's' -ErrorMessage 'e' -CycleId 'c' -GitCommit 'gc' -EventData $data
+        $body = Format-FailureMessage -HostType 'ht' -Hostname 'h' -GuestKey 'g' -StepName 's' -ErrorMessage 'e' -CycleStartUtc 'c' -GitCommit 'gc' -EventData $data
         Assert-True ($body -match '(?m)^failureClass:\s+ssh_timeout$')
         Assert-True ($body -match '(?m)^classificationSource:\s+rules$')
         Assert-True ($body -match '(?m)^severity:\s+hard$')
         Assert-True ($body -match '(?m)^cycleFolderUrl:\s+http://box:8080/status/log/cycle-000042/$')
         Assert-True ($body -match '(?m)^suggestedRecoveries:\s+restart guest, recreate guest$') 'the recovery list is flattened for the human reader'
-        Assert-True ($body -match '(?m)^repro:\s+pwsh test/Test-Sequence\.ps1 -Guest ubuntu-24$') 'the nested repro.command is lifted out of the JSON'
+        Assert-True ($body -match '(?m)^repro:\s+pwsh test/Invoke-TestSequence\.ps1 -Guest ubuntu-24$') 'the nested repro.command is lifted out of the JSON'
         Assert-True ($body -match '--- yuruna-failure-json ---') 'the structured consumer still gets the whole payload'
         Assert-True ($body -match '--- end yuruna-failure-json ---')
         Assert-True ($body -match '"failureClass": "ssh_timeout"')
     }
     It 'lifts a flat reproCommand when the payload has no nested repro block' {
-        $body = Format-FailureMessage -HostType 'ht' -Hostname 'h' -GuestKey 'g' -StepName 's' -ErrorMessage 'e' -CycleId 'c' -GitCommit 'gc' `
+        $body = Format-FailureMessage -HostType 'ht' -Hostname 'h' -GuestKey 'g' -StepName 's' -ErrorMessage 'e' -CycleStartUtc 'c' -GitCommit 'gc' `
             -EventData @{ reproCommand = 'pwsh test/Test-Config.ps1' }
         Assert-True ($body -match '(?m)^repro:\s+pwsh test/Test-Config\.ps1$')
     }
     It 'leaves the summary fields blank rather than failing on a partial payload' {
         # A bootstrap failure ships before classification has run; the trailer
         # still has to render.
-        $body = Format-FailureMessage -HostType 'ht' -Hostname 'h' -GuestKey 'g' -StepName 's' -ErrorMessage 'e' -CycleId 'c' -GitCommit 'gc' `
+        $body = Format-FailureMessage -HostType 'ht' -Hostname 'h' -GuestKey 'g' -StepName 's' -ErrorMessage 'e' -CycleStartUtc 'c' -GitCommit 'gc' `
             -EventData @{ severity = 'hard' }
         Assert-True ($body -match '(?m)^severity:\s+hard$')
         Assert-True ($body -match '(?m)^failureClass:\s*$') 'a missing field renders empty, it does not throw'
@@ -199,7 +194,7 @@ Describe 'Get-FailureEventData' {
         # GitPull / ProjectClone fire before Start-LogFile, so there is no
         # last_failure.json to classify from -- a partial payload still ships.
         $p = Get-FailureEventData -HostType 'host.ubuntu.kvm' -Hostname 'BOX' -StepName 'GitPull' `
-            -ErrorMessage 'clone failed' -CycleId 'c1' -GitCommit 'abc' `
+            -ErrorMessage 'clone failed' -CycleStartUtc 'c1' -GitCommit 'abc' `
             -DefaultFailureClass 'git_failure' -DefaultSeverity 'hard'
         Assert-Equal -Expected 2 -Actual $p['schemaVersion']
         Assert-Equal -Expected 'git_failure' -Actual $p['failureClass']
@@ -228,10 +223,10 @@ Describe 'Get-FailureEventData' {
             hostType            = 'host-from-file'
         } | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $PayloadFailureFile -Encoding utf8NoBOM
 
-        $p = Get-FailureEventData -CycleFolder $PayloadDir -Hostname 'BOX' -CycleId 'cycle-000042' -GitCommit 'g1' -ProjectCommit 'p1'
+        $p = Get-FailureEventData -CycleFolder $PayloadDir -Hostname 'BOX' -CycleStartUtc 'cycle-000042' -GitCommit 'g1' -ProjectCommit 'p1'
         Assert-Equal -Expected 'ssh_timeout' -Actual $p['failureClass'] -Because 'the classified failure, not a synthesized one'
         Assert-Equal -Expected 'restart guest' -Actual @($p['suggestedRecoveries'])[0]
-        Assert-Equal -Expected 'cycle-000042' -Actual $p['cycleId']
+        Assert-Equal -Expected 'cycle-000042' -Actual $p['cycleStartUtc']
         Assert-Equal -Expected 'g1' -Actual $p['gitCommit']
         Assert-Equal -Expected 'p1' -Actual $p['projectCommit']
         Assert-Equal -Expected $PayloadDir -Actual $p['cycleFolder']
@@ -415,7 +410,7 @@ Describe 'Send-CycleFailureNotification' {
             }
         }
         Send-CycleFailureNotification -HostType 'host.windows.hyper-v' -SubjectSuffix 'ubuntu-24 / waitForText' `
-            -GuestKey 'ubuntu-24' -StepName 'waitForText' -ErrorMessage 'timed out' -CycleId 'cycle-000042' -GitCommit 'abc1234' `
+            -GuestKey 'ubuntu-24' -StepName 'waitForText' -ErrorMessage 'timed out' -CycleStartUtc 'cycle-000042' -GitCommit 'abc1234' `
             -DefaultFailureClass 'ocr_timeout' -DefaultSeverity 'hard'
 
         $cap = Get-NotifyCapture
@@ -435,7 +430,7 @@ Describe 'Send-CycleFailureNotification' {
         }
         $payload = @{ failureClass = 'ssh_timeout'; severity = 'hard'; remediationAttempted = 'restart-guest' }
         Send-CycleFailureNotification -HostType 'host.ubuntu.kvm' -SubjectSuffix 'g / s' -GuestKey 'g' -StepName 's' `
-            -ErrorMessage 'boom' -CycleId 'c' -GitCommit 'gc' -EventData $payload
+            -ErrorMessage 'boom' -CycleStartUtc 'c' -GitCommit 'gc' -EventData $payload
 
         $cap = Get-NotifyCapture
         Assert-True ([object]::ReferenceEquals($cap.EventData, $payload)) 'the remediated payload instance is the one that ships'
@@ -451,7 +446,7 @@ Describe 'Send-CycleFailureNotification' {
         }
         $payload = @{ failureClass = 'unknown'; action = 'FALLBACK-ACTION'; actionVerb = 'FALLBACK-VERB' }
         Send-CycleFailureNotification -HostType 'ht' -SubjectSuffix 'GitPull' -ErrorMessage '' -StepName '' `
-            -CycleId 'c' -GitCommit 'gc' -EventData $payload
+            -CycleStartUtc 'c' -GitCommit 'gc' -EventData $payload
 
         $body = (Get-NotifyCapture).EventNote
         Assert-True ($body -match '(?m)^Error:\s*$') 'an empty error stays empty in the body'

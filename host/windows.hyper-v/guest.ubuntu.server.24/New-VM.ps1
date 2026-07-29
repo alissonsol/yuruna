@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.28
+.VERSION 2026.07.29
 .GUID 42d9e0f1-a2b3-4c45-d678-9e0f1a2b3c47
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -31,11 +31,11 @@
 param(
     [string]$VMName = "ubuntu-server01",
     # Forwarded by the test harness (Invoke-TestRunner -> Invoke-NewVM)
-    # so every guest in a run agrees on one caching proxy URL. When
+    # so every guest in a run agrees on one caching-proxy service URL. When
     # bound (even to ""), local discovery is skipped and this value is
     # used verbatim: "" = no cache, go direct; URL = use this. When NOT
     # bound (standalone run), fall back to the discovery block below.
-    [string]$CachingProxyUrl,
+    [string]$CachingProxyServiceUrl,
     # OS user created by autoinstall and exercised by the test
     # sequences. The framework default 'yuuser24' is intentionally
     # unique/greppable (versus the cloud-image default 'ubuntu', which
@@ -224,40 +224,40 @@ Import-Module $TestSshModule -Force
 $SshAuthorizedKey = Get-YurunaSshPublicKey
 if (-not $SshAuthorizedKey) { Write-Error "Get-YurunaSshPublicKey returned empty. Module path: $TestSshModule"; exit 1 }
 
-# Detect the caching-proxy VM and inject its proxy URL if available.
+# Detect the caching-proxy-service VM and inject its proxy URL if available.
 # Severity policy:
 #   * No cache VM         -> WARNING, proceed (direct CDN)
 #   * Cache VM stopped    -> WARNING, proceed (direct CDN)
 #   * Cache running, :3128
 #     doesn't answer      -> ERROR, exit 1
-if ($PSBoundParameters.ContainsKey('CachingProxyUrl')) {
+if ($PSBoundParameters.ContainsKey('CachingProxyServiceUrl')) {
     # URL forwarded by the test runner. Skip discovery so this script
     # and the runner agree on one cache URL. On Hyper-V the race is
     # narrower than UTM (MAC-scoped neighbor lookup, not subnet scan),
     # but one source of truth still simplifies debugging.
-    if ($CachingProxyUrl) {
-        Write-Verbose "  caching proxy URL forwarded by caller: $CachingProxyUrl -- skipping local discovery."
+    if ($CachingProxyServiceUrl) {
+        Write-Verbose "  caching-proxy service URL forwarded by caller: $CachingProxyServiceUrl -- skipping local discovery."
     } else {
         Write-Verbose "  No proxy forwarded by caller -- guest will download directly."
     }
 } else {
-$CachingProxyUrl = ""
-$cacheVM = Get-VM -Name "yuruna-caching-proxy" -ErrorAction SilentlyContinue
+$CachingProxyServiceUrl = ""
+$cacheVM = Get-VM -Name "yuruna-caching-proxy-service" -ErrorAction SilentlyContinue
 if (-not $cacheVM) {
-    Write-Warning "  No yuruna-caching-proxy VM exists on this host. Guest will download packages directly from Ubuntu mirrors -- expect occasional 429 rate-limit failures on linux-firmware under load."
-    Write-Warning "  To enable caching, run: host\windows.hyper-v\guest.caching-proxy\New-VM.ps1"
+    Write-Warning "  No yuruna-caching-proxy-service VM exists on this host. Guest will download packages directly from Ubuntu mirrors -- expect occasional 429 rate-limit failures on linux-firmware under load."
+    Write-Warning "  To enable caching, run: host\windows.hyper-v\guest.caching-proxy-service\New-VM.ps1"
 } elseif ($cacheVM.State -ne 'Running') {
-    Write-Warning "  yuruna-caching-proxy VM exists but is '$($cacheVM.State)'. Guest will download directly (expect occasional 429s)."
-    Write-Warning "  To enable caching: Start-VM yuruna-caching-proxy ; then wait for cloud-init to finish."
+    Write-Warning "  yuruna-caching-proxy-service VM exists but is '$($cacheVM.State)'. Guest will download directly (expect occasional 429s)."
+    Write-Warning "  To enable caching: Start-VM yuruna-caching-proxy-service ; then wait for cloud-init to finish."
 } else {
     # KVP+ARP discovery + :3128 probe live in Yuruna.Host.psm1
-    # (Get-WorkingCachingProxyUrl). One module means this consumer, the
-    # producer, and Start-CachingProxyVM.ps1's summary all see the same
+    # (Get-WorkingCachingProxyServiceUrl). One module means this consumer, the
+    # producer, and Start-CachingProxyServiceVM.ps1's summary all see the same
     # answer (avoids the regression class where a KVP-only summary
     # reports "discovery failed" while the ARP path already found it).
-    $CachingProxyUrl = Get-WorkingCachingProxyUrl -VMName "yuruna-caching-proxy"
-    if ($CachingProxyUrl) {
-        Write-Output "  yuruna-caching-proxy VM detected at $CachingProxyUrl -- guest will use local proxy."
+    $CachingProxyServiceUrl = Get-WorkingCachingProxyServiceUrl -VMName "yuruna-caching-proxy-service"
+    if ($CachingProxyServiceUrl) {
+        Write-Output "  yuruna-caching-proxy-service VM detected at $CachingProxyServiceUrl -- guest will use local proxy."
     } else {
         $cacheIps = Get-CacheVmCandidateIp -VM $cacheVM
         $ipList = if ($cacheIps) { $cacheIps -join ', ' } else { '(none discovered)' }
@@ -266,25 +266,25 @@ if (-not $cacheVM) {
         $detail = @"
 
 =========================================================================
-ERROR: yuruna-caching-proxy VM is running but port 3128 is not reachable.
+ERROR: yuruna-caching-proxy-service VM is running but port 3128 is not reachable.
 =========================================================================
   Discovered IPs: $ipList
 
 Aborting so this guest install doesn't silently fall back to direct
 CDN access and hit the 429 rate limiter.
 
-Accessing the yuruna-caching-proxy VM for debugging:
-  * Console:  vmconnect localhost yuruna-caching-proxy
-              login:    caching-proxy-admin
+Accessing the yuruna-caching-proxy-service VM for debugging:
+  * Console:  vmconnect localhost yuruna-caching-proxy-service
+              login:    caching-proxy-service-admin
               password: read the 'password:' field from
-                test/status/runtime/yuruna-caching-proxy.yml
-  * SSH:      ssh caching-proxy-admin@<ip>
+                test/status/runtime/yuruna-caching-proxy-service.yml
+  * SSH:      ssh caching-proxy-service-admin@<ip>
 
 Rebuild the cache VM:
-  host\windows.hyper-v\guest.caching-proxy\New-VM.ps1
+  host\windows.hyper-v\guest.caching-proxy-service\New-VM.ps1
 
 To intentionally skip the cache:
-  Stop-VM yuruna-caching-proxy   (guest will then WARN and download direct).
+  Stop-VM yuruna-caching-proxy-service   (guest will then WARN and download direct).
 =========================================================================
 "@
         $Host.UI.WriteLine([ConsoleColor]::Red, $Host.UI.RawUI.BackgroundColor, $detail)
@@ -305,7 +305,7 @@ To intentionally skip the cache:
 # proxy the whole expansion is empty. The closing `"@` MUST stay on its
 # own line at column 0 -- required by PowerShell's here-string parser
 # (inlining `$(...)"@` raises "The string is missing the terminator").
-$AptProxyLine = if ($CachingProxyUrl) { "`n    proxy: $CachingProxyUrl" } else { "" }
+$AptProxyLine = if ($CachingProxyServiceUrl) { "`n    proxy: $CachingProxyServiceUrl" } else { "" }
 $AptProxyBlock = @"
   apt:
     geoip: false
@@ -331,7 +331,7 @@ if (-not $switchName) {
     $switchName = 'Default Switch'
 }
 
-# Yuruna host (status server) IP+port baked into the seed for the dev
+# Yuruna host (status service) IP+port baked into the seed for the dev
 # iteration loop. Guest scripts read /etc/yuruna/host.env (written by
 # the user-data late-commands) to resolve a local URL before falling
 # back to GitHub. Default Switch's host IP changes across host
@@ -347,18 +347,18 @@ if (Test-Path -LiteralPath $YurunaTestConfig) {
     if ($tc -and $tc.statusService -and $tc.statusService.port) { $YurunaHostPort = "$($tc.statusService.port)" }
 }
 
-# --- REGION: Fetch caching-proxy CA cert (base64-embedded in seed)
-# --- REGION: https://yuruna.link/network#caching-proxy-ca-cert-rc60-gate
+# --- REGION: Fetch caching-proxy-service CA cert (base64-embedded in seed)
+# --- REGION: https://yuruna.link/network#caching-proxy-service-ca-cert-rc60-gate
 # An empty $CaCertBase64 is NOT a harmless no-op (curl rc=60 SSL-bump gate).
 $CaCertBase64 = ""
-if ($CachingProxyUrl) {
-    Import-Module -Name (Join-Path $PSScriptRoot '../../../test/modules/Test.CachingProxy.psm1') -Force -DisableNameChecking
-    $uri = [System.Uri]$CachingProxyUrl
+if ($CachingProxyServiceUrl) {
+    Import-Module -Name (Join-Path $PSScriptRoot '../../../test/modules/Test.CachingProxyService.psm1') -Force -DisableNameChecking
+    $uri = [System.Uri]$CachingProxyServiceUrl
     $cacheHost = if ($uri.Host -match ':') { "[$($uri.Host)]" } else { $uri.Host }
-    $ca = Get-CachingProxyCaCertBase64 -CacheCaUrl "http://$cacheHost/yuruna-squid-ca.crt" -CacheHost $uri.Host
+    $ca = Get-CachingProxyServiceCaCertBase64 -CacheCaUrl "http://$cacheHost/yuruna-squid-ca.crt" -CacheHost $uri.Host
     $CaCertBase64 = $ca.CaCertBase64
     if ($ca.Exhausted) {
-        Write-Warning "  Guest boots CA-less; it will self-heal the CA from the host status server at update time. HTTP caching via :3128 unaffected."
+        Write-Warning "  Guest boots CA-less; it will self-heal the CA from the host status service at update time. HTTP caching via :3128 unaffected."
     }
 }
 
@@ -378,10 +378,10 @@ $null = New-CloudInitUserData `
         HASH_PLACEHOLDER               = $PasswordHash
         SSH_AUTHORIZED_KEY_PLACEHOLDER = $SshAuthorizedKey
         APT_PROXY_BLOCK_PLACEHOLDER    = $AptProxyBlock
-        CACHING_PROXY_URL_PLACEHOLDER  = $CachingProxyUrl
+        CACHING_PROXY_URL_PLACEHOLDER  = $CachingProxyServiceUrl
         CA_CERT_BASE64_PLACEHOLDER     = $CaCertBase64
-        YURUNA_HOST_IP_PLACEHOLDER     = $YurunaHostIp
-        YURUNA_HOST_PORT_PLACEHOLDER   = $YurunaHostPort
+        YURUNA_STATUS_SERVICE_IP_PLACEHOLDER     = $YurunaHostIp
+        YURUNA_STATUS_SERVICE_PORT_PLACEHOLDER   = $YurunaHostPort
     } -Confirm:$false
 
 $MetaData = (Get-Content -Raw $MetaDataTemplate) `

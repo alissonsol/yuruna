@@ -19,10 +19,10 @@ import (
 	"strings"
 	"time"
 
-	"stash-server/internal/config"
-	"stash-server/internal/detect"
-	"stash-server/internal/meta"
-	"stash-server/internal/sshsrv"
+	"stash-service/internal/config"
+	"stash-service/internal/detect"
+	"stash-service/internal/meta"
+	"stash-service/internal/sshsrv"
 )
 
 func (s *Server) routes() http.Handler {
@@ -62,7 +62,7 @@ func (s *Server) routes() http.Handler {
 }
 
 // handleShortRedirect maps a bare 4-char id to the stash's canonical
-// permalink and 302-redirects, so http://stash-server/h775 opens the stash.
+// permalink and 302-redirects, so http://stash-service/h775 opens the stash.
 func (s *Server) handleShortRedirect(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	if !validID(id) {

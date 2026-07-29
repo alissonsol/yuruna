@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.28
+.VERSION 2026.07.29
 .GUID 42f0a1b2-3c4d-4e5f-8a6b-7c8d9e0f1a2b
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -33,7 +33,7 @@
 
 $here    = Split-Path -Parent $PSCommandPath
 $resolve = Get-Content (Join-Path $here 'Test.SequenceResolve.psm1') -Raw
-$invoke  = Get-Content (Join-Path $here 'Invoke-Sequence.psm1') -Raw
+$invoke  = Get-Content (Join-Path $here 'Test.SequenceEngine.psm1') -Raw
 $planner = Get-Content (Join-Path $here 'Test.SequencePlanner.psm1') -Raw
 $all     = $resolve + "`n" + $invoke + "`n" + $planner
 $oneLiner = 'ForEach-Object { "    $_" }'

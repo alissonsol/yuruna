@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.28
+.VERSION 2026.07.29
 .GUID 42b9e3d1-7c04-4a52-9e18-3f6b28d5a4c7
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -46,7 +46,7 @@ function Assert-Equal {
 Describe 'Select-NameByPrefix' {
 
     It 'selects only the names carrying one of the prefixes' {
-        $names = @('test-ubuntu-01', 'amisad-build', 'amisad-core', 'yuruna-caching-proxy')
+        $names = @('test-ubuntu-01', 'amisad-build', 'amisad-core', 'yuruna-caching-proxy-service')
         $got = @(Select-NameByPrefix -Name $names -Prefix @('amisad-'))
         Assert-Equal 2 $got.Count -Because 'only the two amisad- guests match'
         Assert-Equal 'amisad-build,amisad-core' ($got -join ',')
@@ -231,7 +231,7 @@ Describe 'Concurrent-VM pre-flight' {
     }
 
     It 'runs before the refusal guard in both entry points' {
-        foreach ($caller in @('test/modules/Invoke-TestInnerRunner.ps1', 'test/Test-Sequence.ps1')) {
+        foreach ($caller in @('test/modules/Invoke-TestRunnerInnerLoop.ps1', 'test/Invoke-TestSequence.ps1')) {
             $text = Get-Content -Raw (Join-Path $SweepRepoRoot $caller)
             $stopAt  = $text.IndexOf('Stop-ConcurrentVM')
             $guardAt = $text.IndexOf('Assert-NoConcurrentUtmVm -')

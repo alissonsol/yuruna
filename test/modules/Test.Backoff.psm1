@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.28
+.VERSION 2026.07.29
 .GUID 42f3e8d7-c6b5-4a32-9087-1d2e3f4a5b67
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -22,7 +22,7 @@
 
 .DESCRIPTION
     Centralizes the poll-delay math used by Invoke-Sequence (step-pause,
-    break-wait), Invoke-TestInnerRunner (cycle-pause), and
+    break-wait), Invoke-TestRunnerInnerLoop (cycle-pause), and
     Test.SequenceHandler (break-wait inside the break handler). One
     definition here means a tuning change lands once for all three call
     sites instead of having to be kept in sync across copies.

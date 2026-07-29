@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.28
+.VERSION 2026.07.29
 .GUID 429b1c74-2a6d-4f38-91c0-7b3e8d2a4f16
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -18,7 +18,7 @@
 
 <#
 .SYNOPSIS
-    Runner-side push forwarder for the pool aggregator's POST /ingest: ships a
+    Runner-side push forwarder for the pool-aggregator service's POST /ingest: ships a
     cycle's NDJSON events to the aggregator so they reach Loki without waiting for the next
     pull (closes the between-poll trailing-event gap). SUPPLEMENTS pull; pull stays the
     discovery + backfill authority, and Loki dedups the overlap by the event's own
@@ -50,7 +50,7 @@ using System.Security.Cryptography.X509Certificates;
 public static class YurunaPoolPinnedTls {
     // Takes a pre-loaded CA cert (PowerShell loads it, avoiding the obsolete
     // X509Certificate2(string) constructor that newer .NET treats as a build error).
-    public static HttpClient Client(X509Certificate2 ca, int timeoutSec) {
+    public static HttpClient Client(X509Certificate2 ca, int timeoutSeconds) {
         var h = new HttpClientHandler();
         h.ServerCertificateCustomValidationCallback = (req, cert, chain, errors) => {
             if (cert == null) { return false; }
@@ -66,7 +66,7 @@ public static class YurunaPoolPinnedTls {
             return c.Build(cert);
         };
         var client = new HttpClient(h);
-        client.Timeout = TimeSpan.FromSeconds(timeoutSec);
+        client.Timeout = TimeSpan.FromSeconds(timeoutSeconds);
         return client;
     }
 }
@@ -121,14 +121,14 @@ function Get-PoolCaCertPath {
     param(
         [Parameter(Mandatory)][string]$ProxyIp,
         [Parameter(Mandatory)][string]$RuntimeDir,
-        [Parameter()][int]$TimeoutSec = 10,
+        [Parameter()][int]$TimeoutSeconds = 10,
         [Parameter()][switch]$Refresh
     )
     $path = Join-Path $RuntimeDir 'pool-ca.crt'
     if ((-not $Refresh) -and (Test-Path -LiteralPath $path) -and ((Get-Item -LiteralPath $path).Length -gt 0)) { return $path }
     if (-not $PSCmdlet.ShouldProcess($path, 'Fetch + cache pool CA')) { return $null }
     try {
-        $resp = Invoke-WebRequest -Uri "http://${ProxyIp}/yuruna-pool-ca.crt" -TimeoutSec $TimeoutSec -UseBasicParsing -ErrorAction Stop -Verbose:$false
+        $resp = Invoke-WebRequest -Uri "http://${ProxyIp}/yuruna-pool-ca.crt" -TimeoutSec $TimeoutSeconds -UseBasicParsing -ErrorAction Stop -Verbose:$false
         if ($resp.StatusCode -ne 200) { return $null }
         $content = [string]$resp.Content
         if ($content -notmatch 'BEGIN CERTIFICATE') { return $null }
@@ -176,7 +176,7 @@ function Send-PoolEventBatch {
         [Parameter(Mandatory)][string]$CaCertPath,
         [Parameter(Mandatory)][string]$Token,
         [Parameter(Mandatory)][AllowEmptyCollection()][AllowEmptyString()][string[]]$Lines,
-        [Parameter()][int]$TimeoutSec = 15
+        [Parameter()][int]$TimeoutSeconds = 15
     )
     if (-not $script:PoolPinnedTlsType) { Write-Verbose 'Send-PoolEventBatch: pinned-TLS helper unavailable.'; return 0 }
     if (@($Lines).Count -eq 0) { return 0 }
@@ -184,7 +184,7 @@ function Send-PoolEventBatch {
     $ca = $null
     try {
         $ca = New-PoolX509Certificate -Path $CaCertPath
-        $client = [YurunaPoolPinnedTls]::Client($ca, $TimeoutSec)
+        $client = [YurunaPoolPinnedTls]::Client($ca, $TimeoutSeconds)
         $body = ((@($Lines)) -join "`n")
         $content = [System.Net.Http.StringContent]::new($body, [System.Text.Encoding]::UTF8, 'application/x-ndjson')
         $req = [System.Net.Http.HttpRequestMessage]::new([System.Net.Http.HttpMethod]::Post, $IngestUrl)
@@ -219,30 +219,30 @@ function Invoke-PoolEventPush {
         [Parameter(Mandatory)][string]$RuntimeDir,
         [Parameter()][int]$Port = 9400,
         [Parameter()][int]$MaxLines = 1000,
-        [Parameter()][int]$TimeoutSec = 15
+        [Parameter()][int]$TimeoutSeconds = 15
     )
     $summary = @{ sent = 0; batches = 0; lastStatus = 0; reason = '' }
     try {
         $eventsFile = Join-Path $CycleFolder 'cycle.events.ndjson'
         if (-not (Test-Path -LiteralPath $eventsFile)) { $summary.reason = 'no events file'; return $summary }
-        $caPath = Get-PoolCaCertPath -ProxyIp $ProxyIp -RuntimeDir $RuntimeDir -TimeoutSec $TimeoutSec -Confirm:$false
+        $caPath = Get-PoolCaCertPath -ProxyIp $ProxyIp -RuntimeDir $RuntimeDir -TimeoutSeconds $TimeoutSeconds -Confirm:$false
         if (-not $caPath) { $summary.reason = 'pool CA unavailable (cannot pin -> not pushing the token)'; return $summary }
         $lines = @(Get-Content -LiteralPath $eventsFile -ErrorAction Stop)
         $batches = Get-PoolPushBatch -Lines $lines -MaxLines $MaxLines
         $ingestUrl = "https://${ProxyIp}:$Port/ingest"
         $refreshed = $false
         foreach ($batch in $batches) {
-            $code = Send-PoolEventBatch -IngestUrl $ingestUrl -CaCertPath $caPath -Token $Token -Lines $batch -TimeoutSec $TimeoutSec
+            $code = Send-PoolEventBatch -IngestUrl $ingestUrl -CaCertPath $caPath -Token $Token -Lines $batch -TimeoutSeconds $TimeoutSeconds
             if (($code -lt 200 -or $code -ge 300) -and -not $refreshed) {
                 # A cached CA that no longer matches the aggregator's leaf (the pool CA was
                 # rotated on a proxy rebuild) makes pinning fail. Re-fetch the published CA
                 # ONCE and retry this batch before giving up. (A first-fetch TOFU poisoning
                 # is the documented residual of trust-on-first-use over HTTP.)
                 $refreshed = $true
-                $fresh = Get-PoolCaCertPath -ProxyIp $ProxyIp -RuntimeDir $RuntimeDir -TimeoutSec $TimeoutSec -Refresh -Confirm:$false
+                $fresh = Get-PoolCaCertPath -ProxyIp $ProxyIp -RuntimeDir $RuntimeDir -TimeoutSeconds $TimeoutSeconds -Refresh -Confirm:$false
                 if ($fresh) {
                     $caPath = $fresh
-                    $code = Send-PoolEventBatch -IngestUrl $ingestUrl -CaCertPath $caPath -Token $Token -Lines $batch -TimeoutSec $TimeoutSec
+                    $code = Send-PoolEventBatch -IngestUrl $ingestUrl -CaCertPath $caPath -Token $Token -Lines $batch -TimeoutSeconds $TimeoutSeconds
                 }
             }
             $summary.batches++
@@ -271,14 +271,14 @@ function Send-PoolForgetRequest {
         [Parameter(Mandatory)][string]$Url,
         [Parameter(Mandatory)][string]$CaCertPath,
         [Parameter(Mandatory)][string]$Token,
-        [Parameter()][int]$TimeoutSec = 15
+        [Parameter()][int]$TimeoutSeconds = 15
     )
     if (-not $script:PoolPinnedTlsType) { Write-Verbose 'Send-PoolForgetRequest: pinned-TLS helper unavailable.'; return 0 }
     $client = $null
     $ca = $null
     try {
         $ca = New-PoolX509Certificate -Path $CaCertPath
-        $client = [YurunaPoolPinnedTls]::Client($ca, $TimeoutSec)
+        $client = [YurunaPoolPinnedTls]::Client($ca, $TimeoutSeconds)
         $req = [System.Net.Http.HttpRequestMessage]::new([System.Net.Http.HttpMethod]::Post, $Url)
         [void]$req.Headers.TryAddWithoutValidation('Authorization', "Bearer $Token")
         $resp = $client.SendAsync($req).GetAwaiter().GetResult()
@@ -311,17 +311,17 @@ function Invoke-PoolForgetHost {
         [Parameter(Mandatory)][string]$Token,
         [Parameter(Mandatory)][string]$RuntimeDir,
         [Parameter()][int]$Port = 9400,
-        [Parameter()][int]$TimeoutSec = 15
+        [Parameter()][int]$TimeoutSeconds = 15
     )
     $result = @{ ok = $false; status = 0; reason = '' }
     try {
-        $caPath = Get-PoolCaCertPath -ProxyIp $ProxyIp -RuntimeDir $RuntimeDir -TimeoutSec $TimeoutSec -Confirm:$false
+        $caPath = Get-PoolCaCertPath -ProxyIp $ProxyIp -RuntimeDir $RuntimeDir -TimeoutSeconds $TimeoutSeconds -Confirm:$false
         if (-not $caPath) { $result.reason = 'pool CA unavailable (cannot pin -> not sending the token)'; return $result }
         $url  = "https://${ProxyIp}:$Port/api/v1/forget-host?hostId=$HostId"
-        $code = Send-PoolForgetRequest -Url $url -CaCertPath $caPath -Token $Token -TimeoutSec $TimeoutSec
+        $code = Send-PoolForgetRequest -Url $url -CaCertPath $caPath -Token $Token -TimeoutSeconds $TimeoutSeconds
         if ($code -lt 200 -or $code -ge 300) {
-            $fresh = Get-PoolCaCertPath -ProxyIp $ProxyIp -RuntimeDir $RuntimeDir -TimeoutSec $TimeoutSec -Refresh -Confirm:$false
-            if ($fresh) { $code = Send-PoolForgetRequest -Url $url -CaCertPath $fresh -Token $Token -TimeoutSec $TimeoutSec }
+            $fresh = Get-PoolCaCertPath -ProxyIp $ProxyIp -RuntimeDir $RuntimeDir -TimeoutSeconds $TimeoutSeconds -Refresh -Confirm:$false
+            if ($fresh) { $code = Send-PoolForgetRequest -Url $url -CaCertPath $fresh -Token $Token -TimeoutSeconds $TimeoutSeconds }
         }
         $result.status = $code
         $result.ok     = ($code -ge 200 -and $code -lt 300)

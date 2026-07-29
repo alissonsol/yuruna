@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.28
+.VERSION 2026.07.29
 .GUID 42c3d4e5-f6a7-4b89-8012-3d4e5f6a7b8c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -20,7 +20,7 @@
 .SYNOPSIS
     Create/update or delete a named test-set in the pool-intent test-set library (test-sets.yml).
 .DESCRIPTION
-    Pool admin CLI (backs the Pool control "Test sets" page). A test-set is a
+    Pool admin CLI (backs the pool-control service "Test sets" page). A test-set is a
     framework/project repo PAIR: {name, frameworkUrl, projectUrl}. This upserts
     (or, with -Delete, removes) an entry in test-sets.yml, schema-validates, then
     commits + pushes. GH_TOKEN is NEVER stored here -- it stays host-local.

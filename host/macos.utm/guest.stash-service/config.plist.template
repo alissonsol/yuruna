@@ -7,7 +7,7 @@
      QEMU's built-in RFB server gives the test harness focus-independent
      screen capture (Get-VncScreenshot) AND keystroke injection
      (Send-TextVNC / Send-KeyVNC) over a localhost TCP port. Same
-     pattern as the caching-proxy UTM template. -->
+     pattern as the caching-proxy-service UTM template. -->
 <plist version="1.0">
 <dict>
 	<key>Backend</key>
@@ -49,7 +49,7 @@
 	<key>QEMU</key>
 	<dict>
 		<!-- -vnc 127.0.0.1:N exposes a localhost-only RFB server. The
-		     headless stash VM doesn't need a console, but the harness uses
+		     headless stash-service VM doesn't need a console, but the harness uses
 		     the same Send-TextVNC / Get-VncScreenshot code path here as for
 		     the Linux install VMs, so the RFB endpoint is always wired up.
 		     No xres/yres -global pair (no OCR calibration concern on a
@@ -143,7 +143,7 @@
 		<key>UsbSharing</key>
 		<false/>
 	</dict>
-	<!-- Bridged QEMU networking: the stash VM gets a real LAN IP via the
+	<!-- Bridged QEMU networking: the stash-service VM gets a real LAN IP via the
 	     LAN's DHCP, so peers reach it at <vm-lan-ip>:22 directly. -->
 	<key>Network</key>
 	<array>

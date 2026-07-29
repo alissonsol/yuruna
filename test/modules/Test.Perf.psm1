@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.28
+.VERSION 2026.07.29
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456783
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -47,6 +47,15 @@ Import-Module (Join-Path $PSScriptRoot 'Test.Hash.psm1') -Global -Force
     Defensive: any call before Start-PerfCycle is a silent no-op so a
     cycle that crashes before perf init never fails downstream because
     the row writer was missing context.
+
+    Cross-process: a cycle owner publishes the open cycle handle to
+    $env:YURUNA_PERF_CONTEXT, so a child pwsh spawned mid-cycle (a host
+    action re-entering Invoke-TestSequence.ps1, a nested run) appends to the
+    SAME cycle file instead of losing its rows. Adoption is automatic --
+    Set-PerfSequenceContext resumes from the handle when this runspace has
+    no cycle of its own -- so a new call site cannot forget to opt in.
+    Row appends are single-line [File]::AppendAllText, which is what makes
+    concurrent writers on one cycle file safe.
 #>
 
 # --- REGION: Module state
@@ -69,7 +78,133 @@ $script:Guest    = $null
 # get monotonic occurrence numbers.
 $script:Sequence = $null
 
+# Name of the environment handle carrying the open cycle across process
+# boundaries. Mirrors YURUNA_CYCLE_CONTEXT (Test.Status.psm1), which threads
+# the status-doc cycle to the same child processes.
+$script:PerfContextEnvVar = 'YURUNA_PERF_CONTEXT'
+
 # --- REGION: Helpers
+
+function Test-PerfLogEnabled {
+<#
+.SYNOPSIS
+    Per-host opt-out gate: testCycle.perfLog.enabled in test.config.yml.
+    Returns $true unless the key is present and false.
+.DESCRIPTION
+    The knob is per HOST (test.config.yml is host-local and git-ignored),
+    not per project, so a project's runner config cannot turn collection
+    off for the machine.
+
+    Every unreadable state -- no config file, unparseable YAML, missing
+    section, absent key -- reads as ENABLED. Collection is the default an
+    operator gets without configuring anything, and a host that wants it
+    off says so explicitly; the reverse would make a parse hiccup silently
+    stop collecting with no signal anywhere.
+#>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param()
+    $modulesDir = $PSScriptRoot
+    if (-not $modulesDir) { return $true }
+    $testRoot = Split-Path -Parent $modulesDir
+    if (-not $testRoot) { return $true }
+    $configFile = Join-Path $testRoot 'test.config.yml'
+    if (-not (Test-Path -LiteralPath $configFile)) { return $true }
+    $doc = $null
+    try {
+        # Read-TestConfig is the mtime+hash cached parse the runner already
+        # uses, so this costs nothing on the second reader in a process.
+        # ConvertFrom-Yaml is the fallback for a runspace that loaded this
+        # module without Test.Config (test eval, ad-hoc import).
+        if (Get-Command -Name Read-TestConfig -ErrorAction SilentlyContinue) {
+            $doc = Read-TestConfig -Path $configFile
+        } elseif (Get-Command -Name ConvertFrom-Yaml -ErrorAction SilentlyContinue) {
+            $doc = [System.IO.File]::ReadAllText($configFile) | ConvertFrom-Yaml -Ordered
+        }
+    } catch {
+        Write-Verbose "Test-PerfLogEnabled: config read failed, treating as enabled: $($_.Exception.Message)"
+        return $true
+    }
+    if ($doc -isnot [System.Collections.IDictionary]) { return $true }
+    $tc = $doc['testCycle']
+    if ($tc -isnot [System.Collections.IDictionary]) { return $true }
+    $pl = $tc['perfLog']
+    if ($pl -isnot [System.Collections.IDictionary]) { return $true }
+    if (-not $pl.Contains('enabled')) { return $true }
+    return [bool]$pl['enabled']
+}
+
+function Publish-PerfCycleContext {
+<#
+.SYNOPSIS
+    Publish the open cycle to $env:YURUNA_PERF_CONTEXT so child processes
+    spawned for the rest of this cycle append to the same cycle file.
+#>
+    [CmdletBinding(SupportsShouldProcess)]
+    param()
+    if (-not $script:Cycle) { return }
+    if (-not $PSCmdlet.ShouldProcess($script:PerfContextEnvVar, 'Publish perf cycle handle')) { return }
+    $ctx = [ordered]@{}
+    foreach ($k in $script:Cycle.Keys) { $ctx[$k] = $script:Cycle[$k] }
+    $ctx['ownerPid'] = $PID
+    try {
+        Set-Item -LiteralPath "Env:\$($script:PerfContextEnvVar)" -Value ($ctx | ConvertTo-Json -Compress -Depth 5)
+    } catch {
+        Write-Verbose "Publish-PerfCycleContext: failed (non-fatal): $($_.Exception.Message)"
+    }
+}
+
+function Clear-PerfCycleContext {
+<#
+.SYNOPSIS
+    Drop the published cycle handle so a later child process cannot adopt a
+    cycle that is no longer open.
+#>
+    [CmdletBinding(SupportsShouldProcess)]
+    param()
+    if (-not $PSCmdlet.ShouldProcess($script:PerfContextEnvVar, 'Clear perf cycle handle')) { return }
+    Remove-Item -LiteralPath "Env:\$($script:PerfContextEnvVar)" -ErrorAction SilentlyContinue
+}
+
+function Resume-PerfCycle {
+<#
+.SYNOPSIS
+    Adopt the cycle handle published by an ancestor process. Returns $true
+    when this runspace now has an open cycle.
+.DESCRIPTION
+    Lets a child pwsh contribute rows to the cycle that spawned it without
+    minting a second cycle file. A handle with no cycleFile is ignored --
+    an adopted cycle that cannot name its file would silently drop rows.
+    Never overwrites a cycle this runspace already owns.
+#>
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([bool])]
+    param()
+    if ($script:Cycle) { return $true }
+    $raw = [Environment]::GetEnvironmentVariable($script:PerfContextEnvVar)
+    if ([string]::IsNullOrWhiteSpace($raw)) { return $false }
+    if (-not $PSCmdlet.ShouldProcess($script:PerfContextEnvVar, 'Resume perf cycle from published handle')) { return $false }
+    try {
+        $ctx = $raw | ConvertFrom-Json -ErrorAction Stop
+    } catch {
+        Write-Verbose "Resume-PerfCycle: unparseable handle, ignoring: $($_.Exception.Message)"
+        return $false
+    }
+    $cycleFile = [string]$ctx.cycleFile
+    if ([string]::IsNullOrWhiteSpace($cycleFile)) { return $false }
+    $script:Cycle = @{
+        cycleStartUtc           = [string]$ctx.cycleStartUtc
+        cycleStartedAtUtc = [string]$ctx.cycleStartedAtUtc
+        hostUuid          = [string]$ctx.hostUuid
+        hostname          = [string]$ctx.hostname
+        hostPlatform      = [string]$ctx.hostPlatform
+        hostInfoHash      = [string]$ctx.hostInfoHash
+        harnessCommit     = [string]$ctx.harnessCommit
+        projectCommit     = [string]$ctx.projectCommit
+        cycleFile         = $cycleFile
+    }
+    return $true
+}
 
 function Get-PerfRootDir {
 <#
@@ -220,22 +355,22 @@ function Get-PerfContentHash {
 function Start-PerfCycle {
 <#
 .SYNOPSIS
-    Establishes cycle-level perf context: cycleId, both commits, host
+    Establishes cycle-level perf context: cycleStartUtc, both commits, host
     identity, hostInfo hash. Call once per cycle, after Initialize-
-    StatusDocument has minted $CycleId AND the cycle-start host
+    StatusDocument has minted $CycleStartUtc AND the cycle-start host
     diagnostic has been captured.
 .DESCRIPTION
-    On Windows ":" is illegal in filenames, so the ISO cycleId
+    On Windows ":" is illegal in filenames, so the ISO cycleStartUtc
     "2026-05-21T18:42:11Z" becomes "2026-05-21T18-42-11Z" in the
-    JSONL filename. The cycleId field inside each row is the
-    untouched ISO so downstream tooling joining on cycleId across
+    JSONL filename. The cycleStartUtc field inside each row is the
+    untouched ISO so downstream tooling joining on cycleStartUtc across
     sources doesn't have to know about the path-safety transform.
     HostDiagnosticPath is optional; missing file just leaves
     hostInfoHash null on this cycle's rows.
 #>
     [CmdletBinding(SupportsShouldProcess)]
     param(
-        [Parameter(Mandatory)][string]$CycleId,
+        [Parameter(Mandatory)][string]$CycleStartUtc,
         [Parameter(Mandatory)][string]$HostPlatform,
         [string]$Hostname = (hostname),
         [string]$HarnessCommit,
@@ -247,7 +382,16 @@ function Start-PerfCycle {
         Write-Verbose 'Start-PerfCycle: perf root unresolvable; perf log disabled this cycle.'
         return
     }
-    if (-not $PSCmdlet.ShouldProcess($root, "Initialize perf cycle $CycleId")) { return }
+    if (-not $PSCmdlet.ShouldProcess($root, "Initialize perf cycle $CycleStartUtc")) { return }
+
+    # Opting the host out must also retract any handle a previous cycle
+    # published, or children would keep adopting a cycle nobody is writing.
+    if (-not (Test-PerfLogEnabled)) {
+        Write-Verbose 'Start-PerfCycle: disabled by testCycle.perfLog.enabled; no rows will be written this cycle.'
+        $script:Cycle = $null; $script:Guest = $null; $script:Sequence = $null
+        Clear-PerfCycleContext -Confirm:$false
+        return
+    }
 
     $hostInfoHash = $null
     if ($HostDiagnosticPath -and (Test-Path -LiteralPath $HostDiagnosticPath)) {
@@ -259,14 +403,14 @@ function Start-PerfCycle {
         }
     }
 
-    $safeId    = $CycleId -replace ':', '-'
+    $safeId    = $CycleStartUtc -replace ':', '-'
     $tail      = ([Guid]::NewGuid().ToString('N')).Substring(0, 4)
     $cycleDir  = Join-Path $root 'cycles'
     $null      = New-Item -ItemType Directory -Path $cycleDir -Force -ErrorAction SilentlyContinue
     $cycleFile = Join-Path $cycleDir "${safeId}__${tail}.jsonl"
 
     $script:Cycle = @{
-        cycleId           = $CycleId
+        cycleStartUtc           = $CycleStartUtc
         cycleStartedAtUtc = [DateTime]::UtcNow.ToString('o')
         hostUuid          = Get-PerfHostUuid
         hostname          = $Hostname
@@ -278,6 +422,7 @@ function Start-PerfCycle {
     }
     $script:Guest    = $null
     $script:Sequence = $null
+    Publish-PerfCycleContext -Confirm:$false
 }
 
 function Set-PerfGuestContext {
@@ -347,6 +492,12 @@ function Set-PerfSequenceContext {
         [int]$SequenceRevision = 0,
         [string]$SequenceContent
     )
+    # Every sequence run passes through here, which makes this the one place
+    # that can attach a runspace to the ambient cycle. A child pwsh (host
+    # action re-entering Invoke-TestSequence.ps1, nested run) starts with no cycle
+    # of its own; adopting here means no caller has to know it is nested for
+    # its rows to land.
+    if (-not $script:Cycle) { $null = Resume-PerfCycle -Confirm:$false }
     if (-not $script:Cycle) { return }
     if (-not $PSCmdlet.ShouldProcess($SequenceName, 'Set perf sequence context')) { return }
 
@@ -420,7 +571,7 @@ function Write-PerfStepRow {
 
     $row = [ordered]@{
         schema              = $script:Schema
-        cycleId             = $script:Cycle.cycleId
+        cycleStartUtc             = $script:Cycle.cycleStartUtc
         cycleStartedAtUtc   = $script:Cycle.cycleStartedAtUtc
         hostUuid            = $script:Cycle.hostUuid
         hostname            = $script:Cycle.hostname
@@ -485,6 +636,8 @@ function Get-PerfSchemaVersion {
 
 Export-ModuleMember -Function `
     Start-PerfCycle, `
+    Test-PerfLogEnabled, `
+    Resume-PerfCycle, Publish-PerfCycleContext, Clear-PerfCycleContext, `
     Set-PerfGuestContext, Clear-PerfGuestContext, `
     Set-PerfSequenceContext, Clear-PerfSequenceContext, `
     Write-PerfStepRow, `

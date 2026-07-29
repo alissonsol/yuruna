@@ -4,6 +4,22 @@ Yuruna uses [Calendar Versioning](https://calver.org/): `YYYY.MM.DD`.
 Tags are cut from the `main` branch; entries below summarize each
 tagged release.
 
+## 2026.07.29
+
+- **The dashboard says which hosts you can drive, before you click.** A
+  **Control** column in *Pool hosts* reads `remote`, `onsite`, or `unknown`,
+  and is now the host link — one cell per row grants control. The verdict
+  comes from a new open read route, `GET /control/control-status`. Needs a
+  caching-proxy rebuild. See [control-routes.md](docs/control-routes.md).
+- **A lab with no NAS sets up its storage in one command.**
+  `pwsh test/New-LocalLabStorage.ps1` creates the folders, accounts, SMB
+  shares, vault entries, mounts, and `networkStorage.*` config — idempotent
+  and `-WhatIf`-able. A second lab on the same machine reuses it:
+  `New-Lab.ps1` infers `-Root` and keeps existing share credentials. See
+  [operator.md](docs/operator.md#b7-local-shares-for-pool-and-stash-storage).
+- **Renaming.** Renaming artifacts for better consistency. Services,
+  scripts, and documentation impacted.
+
 ## 2026.07.28
 
 - **Every dashboard host link now grants the control token, and refusals say
@@ -75,7 +91,7 @@ tagged release.
 - **The cache VM's IP can be pinned across rebuilds: `-MacAddress` on
   `Start-CachingProxy.ps1`.** Each rebuild booted with a random [MAC address](https://en.wikipedia.org/wiki/MAC_address), so [DHCP](https://en.wikipedia.org/wiki/Dynamic_Host_Configuration_Protocol) leased a new IP. The optional parameter pins the MAC on all three
   hypervisors; a one-time DHCP reservation keeps the cache IP stable. See
-  [caching.md](docs/caching.md#caching-proxy--test-harness-operator-reference).
+  [caching.md](docs/caching.md#caching-proxy-service--test-harness-operator-reference).
 - **`gh auth login` (or `GH_TOKEN`) now works for git, everywhere the runner
   talks to GitHub.** Plain `git` reads neither, so fresh hosts failed the
   first cycle's framework pull. Every network git call now chains the host's
@@ -127,7 +143,7 @@ tagged release.
   survives host reboots and aggregator restarts (announces are journaled to
   Loki and rehydrated on startup). The aggregator also serves pool-status
   `stashBaseUrl` (registration target with announce fallback), completing
-  the stash UI's remote-host resolution. See the [pool-aggregator README](test/extension/pool-aggregator/README.md).
+  the stash UI's remote-host resolution. See the [pool-aggregator README](test/extension/pool-aggregator-service/README.md).
 
 ## 2026.07.07
 
@@ -251,6 +267,6 @@ LICENSEURI <https://yuruna.link/license>
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.28
+Last review: 2026.07.29
 
 Back to [Yuruna](README.md)

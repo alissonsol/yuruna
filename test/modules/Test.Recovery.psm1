@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.28
+.VERSION 2026.07.29
 .GUID 42fa7b6c-d5e4-4a83-9170-2f3a4b5c6d94
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -112,7 +112,14 @@ function Find-OrphanIncompleteCycle {
                                              $_.Name -match $script:CycleFolderIncompletePattern })) {
         $marker = Join-Path $cycleFolder.FullName '.incomplete'
         if (Test-Path -LiteralPath $marker) {
-            $orphans += (Get-Item -LiteralPath $marker)
+            # -Force is load-bearing: the FileSystem provider treats a
+            # dot-prefixed name as HIDDEN on macOS/Linux, and the marker is
+            # `.incomplete`. Without it Test-Path still says the file is there
+            # but Get-Item fails with "Could not find item ...", so every
+            # crashed cycle is detected and then dropped -- the folder keeps
+            # its .incomplete suffix, is never archived, and the same error
+            # prints again on the next boot.
+            $orphans += (Get-Item -LiteralPath $marker -Force)
         } elseif ($cycleFolder.Name -match $script:CycleFolderIncompletePattern) {
             # Suffix says incomplete but no marker file. Rename failure
             # after Stop-LogFile removed the marker but before the
@@ -158,8 +165,11 @@ function Resolve-OrphanIncompleteCycle {
     $stamp = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH-mm-ssZ')
     $now   = (Get-Date).ToUniversalTime().ToString('o')
 
-    # Detect shape: file (marker) vs directory (folder-with-suffix).
-    $isDir = (Get-Item -LiteralPath $MarkerPath -ErrorAction SilentlyContinue) -is [System.IO.DirectoryInfo]
+    # Detect shape: file (marker) vs directory (folder-with-suffix). -Force
+    # for the same hidden-dotfile reason as the detector: a `.incomplete`
+    # marker is hidden to the provider, and a $null from a suppressed lookup
+    # would answer "not a directory" without ever having looked.
+    $isDir = (Get-Item -LiteralPath $MarkerPath -Force -ErrorAction SilentlyContinue) -is [System.IO.DirectoryInfo]
 
     if ($isDir) {
         # Case b: bare folder with .incomplete suffix, no marker file.
@@ -234,7 +244,7 @@ function Resolve-OrphanIncompleteCycle {
         cycleFolder        = Split-Path -Leaf $finalCycleDir
         archivedAs         = if ($archivedPath) { Split-Path -Leaf $archivedPath } else { $null }
         signal             = $markerObj['recoverySignal']
-        markerCycleId      = if ($markerObj.Contains('cycleId'))      { [string]$markerObj['cycleId'] }      else { $null }
+        markerCycleStartUtc      = if ($markerObj.Contains('cycleStartUtc'))      { [string]$markerObj['cycleStartUtc'] }      else { $null }
         markerStartedAtUtc = if ($markerObj.Contains('startedAtUtc')) { [string]$markerObj['startedAtUtc'] } else { $null }
         markerPid          = if ($markerObj.Contains('pid'))          { [int]$markerObj['pid'] }            else { 0 }
     }
@@ -434,7 +444,7 @@ function Clear-StaleControlState {
         Sweep the stale inter-cycle control-state flags a starting entry
         point must not inherit, for a given lifecycle scope.
     .DESCRIPTION
-        The status server writes control flags into $RuntimeDir to steer
+        The status service writes control flags into $RuntimeDir to steer
         a running cycle: control.cycle-restart (rewind to step 1),
         control.step-pause / control.cycle-pause / control.pause (hold),
         and break-active.json (a parked breakpoint). A session killed

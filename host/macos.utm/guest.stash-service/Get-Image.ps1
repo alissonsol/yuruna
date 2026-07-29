@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.28
+.VERSION 2026.07.29
 .GUID 42f2c3d4-e5f6-4a78-b901-c2d3e4f5a682
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -23,7 +23,7 @@ if (Test-Path $_logLevelMod) { Import-Module $_logLevelMod -Global -Force; Use-L
 # --- REGION: Configuration
 # Ubuntu 26.04 LTS (Resolute Raccoon), arm64 cloud image -- macOS UTM
 # runs on Apple Silicon. Per the stash-service spec (section 3.1: default
-# image ubuntu.server.26), matching the caching-proxy LTS so the stash VM
+# image ubuntu.server.26), matching the caching-proxy-service LTS so the stash-service VM
 # stays in the supported-LTS window and the distro Go toolchain satisfies
 # the daemon's go.mod directive.
 $sourceUrl = "https://cloud-images.ubuntu.com/resolute/current/resolute-server-cloudimg-arm64.img"

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.28
+.VERSION 2026.07.29
 .GUID 42b8c9d0-e1f2-4a34-b5c6-7d8e9f0a1b2c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -35,7 +35,7 @@ Import-Module (Join-Path $PSScriptRoot 'Test.Hash.psm1') -Global -Force
                                   Example: "tesseract,winrt"
 
     The combine mode for multi-engine results is controlled separately by the
-    caller (see Wait-ForText in Invoke-Sequence.psm1).
+    caller (see Wait-ForText in Test.SequenceEngine.psm1).
 #>
 
 # -- Provider registry -------------------------------------------------------
@@ -559,11 +559,11 @@ function Get-WinRtOcrWorkerScriptPath {
 # Invoke-WinRtOcr fall back to a one-shot spawn within seconds. Generous vs the
 # ms-scale normal OCR: a rare false-timeout only costs one slower one-shot call
 # plus a fresh worker, never a wrong OCR result. Override with a positive
-# YURUNA_OCR_WORKER_TIMEOUT_SEC.
-$script:WinRtOcrWorkerReadTimeoutSec = 30
-$envOcrTimeout = $env:YURUNA_OCR_WORKER_TIMEOUT_SEC -as [int]
+# YURUNA_OCR_WORKER_TIMEOUT_SECONDS.
+$script:WinRtOcrWorkerReadTimeoutSeconds = 30
+$envOcrTimeout = $env:YURUNA_OCR_WORKER_TIMEOUT_SECONDS -as [int]
 if ($envOcrTimeout -and $envOcrTimeout -gt 0) {
-    $script:WinRtOcrWorkerReadTimeoutSec = $envOcrTimeout
+    $script:WinRtOcrWorkerReadTimeoutSeconds = $envOcrTimeout
 }
 
 # Deadline-bounded StandardOutput.ReadLine for the persistent worker: ReadLine()
@@ -598,7 +598,7 @@ function Read-WinRtOcrWorkerLine {
         return $null
     }
     if (-not $completed) {
-        throw [System.TimeoutException]::new("WinRT OCR worker read exceeded its $($script:WinRtOcrWorkerReadTimeoutSec)s deadline.")
+        throw [System.TimeoutException]::new("WinRT OCR worker read exceeded its $($script:WinRtOcrWorkerReadTimeoutSeconds)s deadline.")
     }
     return $readTask.Result
 }
@@ -644,14 +644,14 @@ function Start-WinRtOcrWorker {
     # else printed before READY (provider noise, Add-Type warnings) is
     # logged Verbose so it surfaces with -Verbose without polluting
     # normal output.
-    $startDeadlineUtc = [DateTime]::UtcNow.AddSeconds($script:WinRtOcrWorkerReadTimeoutSec)
+    $startDeadlineUtc = [DateTime]::UtcNow.AddSeconds($script:WinRtOcrWorkerReadTimeoutSeconds)
     while ($true) {
         $line = $null
         try {
             $line = Read-WinRtOcrWorkerLine -Worker $p -DeadlineUtc $startDeadlineUtc
         } catch [System.TimeoutException] {
             try { $p.Kill() } catch { $null = $_ }
-            throw "WinRT OCR worker did not signal ready within $($script:WinRtOcrWorkerReadTimeoutSec)s (wedged during startup); killed."
+            throw "WinRT OCR worker did not signal ready within $($script:WinRtOcrWorkerReadTimeoutSeconds)s (wedged during startup); killed."
         }
         if ($null -eq $line) {
             $stderr = ''
@@ -707,7 +707,7 @@ function Invoke-WinRtOcrViaWorker {
     # never emits the end-of-response marker) must fast-fail here instead of
     # blocking the OCR call until the full Wait-ForText timeout. On expiry Kill the
     # worker and throw so Invoke-WinRtOcr's catch falls back to a one-shot spawn.
-    $deadlineUtc = [DateTime]::UtcNow.AddSeconds($script:WinRtOcrWorkerReadTimeoutSec)
+    $deadlineUtc = [DateTime]::UtcNow.AddSeconds($script:WinRtOcrWorkerReadTimeoutSeconds)
     $lines = [System.Collections.Generic.List[string]]::new()
     while ($true) {
         $line = $null
@@ -715,7 +715,7 @@ function Invoke-WinRtOcrViaWorker {
             $line = Read-WinRtOcrWorkerLine -Worker $w -DeadlineUtc $deadlineUtc
         } catch [System.TimeoutException] {
             Stop-WinRtOcrWorker -Confirm:$false
-            throw "WinRT OCR worker read timed out after $($script:WinRtOcrWorkerReadTimeoutSec)s (worker wedged); killed."
+            throw "WinRT OCR worker read timed out after $($script:WinRtOcrWorkerReadTimeoutSeconds)s (worker wedged); killed."
         }
         if ($null -eq $line) {
             Stop-WinRtOcrWorker -Confirm:$false

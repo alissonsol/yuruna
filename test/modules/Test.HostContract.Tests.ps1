@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.28
+.VERSION 2026.07.29
 .GUID 42b03f81-d5c7-4c8e-bea6-7a081b3285e2
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -22,7 +22,7 @@
     import out into the four Test.Host* siblings.
 .DESCRIPTION
     The facade's whole job is reachability: a caller that only knows the
-    facade (the runner, Test-Sequence.ps1, sequence extensions) must get the
+    facade (the runner, Invoke-TestSequence.ps1, sequence extensions) must get the
     entire Test.Host* surface from one Import-Module. So the tests assert
     behavior, not shape: all four siblings load, every function name the
     facade names in its Export-ModuleMember list actually resolves and comes

@@ -37,17 +37,32 @@ content already in `read.more.md`, only links to it.
 host/
 ├── macos.utm/         Host setup for macOS + UTM
 │   ├── guest.<name>/  Per-guest Get-Image.ps1 + New-VM.ps1
-│   └── guest.caching-proxy/  Optional caching proxy VM
+│   └── guest.caching-proxy-service/  Optional caching-proxy service VM
 ├── windows.hyper-v/   Host setup for Windows + Hyper-V
 │   ├── guest.<name>/
-│   └── guest.caching-proxy/
+│   └── guest.caching-proxy-service/
 └── ubuntu.kvm/        Host setup for Ubuntu + KVM/libvirt
     ├── guest.<name>/  Per-guest Get-Image.ps1 + New-VM.ps1
-    └── guest.caching-proxy/  Optional caching proxy VM
+    └── guest.caching-proxy-service/  Optional caching-proxy service VM
 ```
 
 The cross-host workload scripts that run **inside** a guest live under
 [../guest/](../guest/), separate from these per-host provisioners.
+
+## Test-VM names
+
+A test VM is named `<testVmNamePrefix><guestKey>[-<hostId8>]-<NN>` — with the
+default prefix and no pool, `guest.ubuntu.server.24` runs as
+`test-guest.ubuntu.server.24-01`. The guest key rides through **verbatim**, so
+the VM name names its guest folder with nothing to decode; the optional
+8-character host segment appears only on a pooled host, where several members
+share one store and unscoped names would collide.
+
+A host implementation must therefore accept dots in a VM/domain name (Hyper-V,
+KVM/libvirt and UTM all do) and must not re-derive the guest key by splitting
+on separators — the key contains them. `Get-TestVMName` composes the name and
+rejects anything outside `[A-Za-z0-9._-]`, which is what keeps an
+operator-supplied prefix out of the hypervisor command lines it flows into.
 
 ## Guest × host coverage
 
@@ -91,7 +106,7 @@ KVM's host-side guidance lives directly in
 
 ## Optional Squid cache VM
 
-Each host has a `guest.caching-proxy/` folder that creates a small
+Each host has a `guest.caching-proxy-service/` folder that creates a small
 Ubuntu Server VM running Squid. Run `Get-Image.ps1` then `New-VM.ps1`
 once;
 later guest installs pull cacheable content (kernels, firmware, `.deb`)
@@ -101,9 +116,9 @@ back-to-back cycles. The harness works without it.
 
 Full setup, monitoring (Grafana on :3000), HTTPS/SSL-bump, and offline
 replay live in [Caching](../docs/caching.md). Test-harness
-wrappers (`Start-CachingProxyVM.ps1`, `Test-CachingProxy.ps1`,
-`YURUNA_CACHING_PROXY_IP`):
-[Caching proxy — test-harness operator reference](../docs/caching.md#caching-proxy--test-harness-operator-reference).
+wrappers (`Start-CachingProxyServiceVM.ps1`, `Test-CachingProxyService.ps1`,
+`YURUNA_CACHING_PROXY_SERVICE_IP`):
+[Caching-proxy service — test-harness operator reference](../docs/caching.md#caching-proxy-service--test-harness-operator-reference).
 
 ## VM sizing and connectivity
 
@@ -134,7 +149,7 @@ patterns recur across guests:
 - **Time zone** — auto-detected at install; if wrong, fix in the
   guest's date/time settings.
 - **GUI locks or missing settings panel** — re-run the
-  `<name>.<name>.update.sh` workload until clean, then reboot.
+  `<name>.update.sh` workload until clean, then reboot.
 
 Host-side troubleshooting:
 [macOS UTM host — troubleshooting](../docs/host-macos.md),
@@ -148,6 +163,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.28
+Last review: 2026.07.29
 
 Back to [Yuruna](../README.md)

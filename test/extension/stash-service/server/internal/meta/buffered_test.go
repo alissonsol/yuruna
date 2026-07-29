@@ -32,7 +32,7 @@ func TestBufferedLifecycle(t *testing.T) {
 	}
 
 	// Complete the buffered one — the flag must survive.
-	if err := m.UpdateOnComplete("buf1", "/var/lib/stash-server/buffer/files/2026/06/14/buf1.txt", "note.txt", false, StatusComplete, 12, now.Add(time.Second)); err != nil {
+	if err := m.UpdateOnComplete("buf1", "/var/lib/stash-service/buffer/files/2026/06/14/buf1.txt", "note.txt", false, StatusComplete, 12, now.Add(time.Second)); err != nil {
 		t.Fatalf("UpdateOnComplete: %v", err)
 	}
 

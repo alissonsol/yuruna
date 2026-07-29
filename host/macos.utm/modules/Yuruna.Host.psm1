@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.28
+.VERSION 2026.07.29
 .GUID 42a2b3c4-d5e6-4f78-9012-3a4b5c6d7e91
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -40,7 +40,7 @@ $script:HostFolder     = Join-Path $script:RepoRoot 'host/macos.utm'
 # Test.Ssh\Invoke-GuestSsh) -- feedback_module_force_import_evicts_global.
 Import-Module (Join-Path $script:RepoRoot 'automation/Yuruna.Common.psm1') -Force -DisableNameChecking -Global
 Import-Module (Join-Path $script:TestModulesDir 'Test.Ssh.psm1')          -Force -DisableNameChecking -Global
-Import-Module (Join-Path $script:TestModulesDir 'Test.CachingProxy.psm1') -Force -DisableNameChecking -Global
+Import-Module (Join-Path $script:TestModulesDir 'Test.CachingProxyService.psm1') -Force -DisableNameChecking -Global
 # Shared squid download / TLS-bump stack -- single source of truth across host drivers.
 # The X509 chain-validation callback lives here verbatim; per-driver cache-host
 # discovery is injected via the -ResolveCacheHostIp scriptblock (see wrapper below).
@@ -103,9 +103,9 @@ function Remove-UtmBundleWithRetry {
                 Write-Warning "  Quitting UTM.app (pkill -f QEMUHelper ; killall UTM) usually clears it."
                 return $false
             }
-            $sleepSec = 2 * $attempt
-            Write-Warning "Remove-Item attempt $attempt/$MaxAttempts on '$Path' failed: $($_.Exception.Message). Retrying in ${sleepSec}s..."
-            Start-Sleep -Seconds $sleepSec
+            $sleepSeconds = 2 * $attempt
+            Write-Warning "Remove-Item attempt $attempt/$MaxAttempts on '$Path' failed: $($_.Exception.Message). Retrying in ${sleepSeconds}s..."
+            Start-Sleep -Seconds $sleepSeconds
         }
     }
     return $false
@@ -216,10 +216,10 @@ function Invoke-EntitledSwift {
 
 <#
 .SYNOPSIS
-    Launches (or stops) the caching-proxy TCP forwarder on the Mac host.
+    Launches (or stops) the caching-proxy-service TCP forwarder on the Mac host.
 
 .DESCRIPTION
-    Exposes the Shared-NAT caching-proxy VM to REMOTE LAN hosts: it binds
+    Exposes the Shared-NAT caching-proxy-service VM to REMOTE LAN hosts: it binds
     a cache port on the host's LAN IP and tunnels to $CacheIp on the
     192.168.64.0/24 vmnet subnet, so machines elsewhere on the LAN can use
     the cache. Same-Mac UTM guests do NOT need this -- on macOS 26 every
@@ -227,29 +227,29 @@ function Invoke-EntitledSwift {
     sibling VM's 192.168.64.x IP directly. (An older belief that shared-NAT
     blocks guest-to-guest ARP on 192.168.64.0/24 did not reproduce there.)
 
-    Start-CachingProxyForwarder spawns Start-CachingProxyForwarder.ps1
+    Start-CachingProxyServiceForwarder spawns Start-CachingProxyServiceForwarder.ps1
     as a detached `pwsh` subprocess that binds :3128 on the host and
     tunnels to $CacheIp:3128. Detached so the forwarder outlives
-    Start-CachingProxyVM.ps1 (it survives the launcher exiting -- it is
+    Start-CachingProxyServiceVM.ps1 (it survives the launcher exiting -- it is
     reparented to launchd -- but any Remove-PortMap still tears it down).
 
-    PID is written to $HOME/yuruna/image/caching-proxy/forwarder.<Port>.pid.
-    Stop-CachingProxyForwarder reads it and sends SIGTERM.
-    Get-CachingProxyForwarder reports liveness without signaling.
+    PID is written to $HOME/yuruna/image/caching-proxy-service/forwarder.<Port>.pid.
+    Stop-CachingProxyServiceForwarder reads it and sends SIGTERM.
+    Get-CachingProxyServiceForwarder reports liveness without signaling.
 
     Returns $true when the forwarder is verified listening (Start),
     terminated (Stop), or currently running (Get).
 
 .PARAMETER CacheIp
-    IP of the caching-proxy VM (Start-CachingProxyForwarder only). Typically
-    192.168.64.X discovered by Start-CachingProxyVM.ps1's subnet probe.
+    IP of the caching-proxy-service VM (Start-CachingProxyServiceForwarder only). Typically
+    192.168.64.X discovered by Start-CachingProxyServiceVM.ps1's subnet probe.
 #>
-function Start-CachingProxyForwarder {
+function Start-CachingProxyServiceForwarder {
     [CmdletBinding(SupportsShouldProcess)]
     [OutputType([bool])]
     param(
         [Parameter(Mandatory)][string]$CacheIp,
-        [int]$Port = $(Get-CachingProxyPort -Scheme http),
+        [int]$Port = $(Get-CachingProxyServicePort -Scheme http),
         [int]$VMPort = 0,
         [switch]$PrependProxyV1
     )
@@ -258,19 +258,19 @@ function Start-CachingProxyForwarder {
     # other future host:VM remap. Pidfile name uses HOST port (predictable;
     # what `lsof -i :<host>` would show).
     if ($VMPort -eq 0) { $VMPort = $Port }
-    # Forwarder script lives at host/macos.utm/Start-CachingProxyForwarder.ps1.
+    # Forwarder script lives at host/macos.utm/Start-CachingProxyServiceForwarder.ps1.
     # Use $script:HostFolder (set at module load) instead of $PSScriptRoot:
     # the module-scoped variable is anchored to the .psm1's directory, so
     # the lookup is independent of how the function is dispatched.
-    $forwarderScript = Join-Path $script:HostFolder "Start-CachingProxyForwarder.ps1"
+    $forwarderScript = Join-Path $script:HostFolder "Start-CachingProxyServiceForwarder.ps1"
     if (-not (Test-Path $forwarderScript)) {
-        Write-Warning "Start-CachingProxyForwarder.ps1 not found at: $forwarderScript"
+        Write-Warning "Start-CachingProxyServiceForwarder.ps1 not found at: $forwarderScript"
         return $false
     }
     if (-not $PSCmdlet.ShouldProcess("0.0.0.0:${Port} -> ${CacheIp}:${VMPort}", 'Launch detached host-side TCP forwarder')) {
         return $false
     }
-    $stateDir = Join-Path $HOME "yuruna/image/caching-proxy"
+    $stateDir = Join-Path $HOME "yuruna/image/caching-proxy-service"
     if (-not (Test-Path $stateDir)) {
         New-Item -ItemType Directory -Path $stateDir -Force | Out-Null
     }
@@ -282,12 +282,12 @@ function Start-CachingProxyForwarder {
 
     # Kill any stale pid for THIS port first; other ports' forwarders
     # stay up untouched.
-    [void](Stop-CachingProxyForwarder -Port $Port -Quiet)
+    [void](Stop-CachingProxyServiceForwarder -Port $Port -Quiet)
 
     $proxyTag = if ($PrependProxyV1) { ' [PROXY v1]' } else { '' }
     Write-Information "  Launching host-side forwarder: 0.0.0.0:${Port} -> ${CacheIp}:${VMPort}${proxyTag}" -InformationAction Continue
     # RedirectStandard* is required: without them pwsh inherits the
-    # parent TTY and dies when Start-CachingProxyVM.ps1 exits. The
+    # parent TTY and dies when Start-CachingProxyServiceVM.ps1 exits. The
     # forwarder's own log gets live traffic; stdout/stderr go to files.
     $procArgs = @(
         '-NoProfile','-NoLogo','-File', $forwarderScript,
@@ -307,11 +307,11 @@ function Start-CachingProxyForwarder {
     $needsSudo = ($Port -lt 1024) -and (-not $isRoot)
 
     # If the privileged forwarder is already running (root-owned, started by
-    # Start-CachingProxyVM.ps1 which called `sudo -v` first), leave it alone.
+    # Start-CachingProxyServiceVM.ps1 which called `sudo -v` first), leave it alone.
     # Killing a root process requires sudo credentials that the caller
     # (e.g. Invoke-TestRunner) may not have cached -- and the correct CacheIp
     # is already baked into the running process. Only restart if crashed.
-    if ($needsSudo -and (Get-CachingProxyForwarder -Port $Port)) {
+    if ($needsSudo -and (Get-CachingProxyServiceForwarder -Port $Port)) {
         Write-Information "  Port ${Port} forwarder already running (root-owned); skipping restart." -InformationAction Continue
         return $true
     }
@@ -359,10 +359,10 @@ function Start-CachingProxyForwarder {
     # A non-answering child may still be half-bound (listener up, connect
     # racing) or wedged. Tear it down so it is not orphaned holding the
     # port past our return. Prefer the pidfile-driven, identity-verified
-    # stop (matches Start-CachingProxyForwarder.ps1, honors root ownership);
+    # stop (matches Start-CachingProxyServiceForwarder.ps1, honors root ownership);
     # if the child never wrote its pidfile, signal the spawned pid directly.
     if (Test-Path $pidFile) {
-        [void](Stop-CachingProxyForwarder -Port $Port -Quiet)
+        [void](Stop-CachingProxyServiceForwarder -Port $Port -Quiet)
     } else {
         try { Stop-Process -Id $proc.Id -Force -ErrorAction Stop }
         catch { Write-Verbose "Could not stop orphaned forwarder pid $($proc.Id): $_" }
@@ -372,11 +372,11 @@ function Start-CachingProxyForwarder {
 
 <#
 .SYNOPSIS
-    Terminates the host-side caching-proxy TCP forwarder if it is running.
+    Terminates the host-side caching-proxy-service TCP forwarder if it is running.
 
 .DESCRIPTION
-    Reads $HOME/yuruna/image/caching-proxy/forwarder.<Port>.pid and verifies the
-    PID belongs to Start-CachingProxyForwarder.ps1 (via /bin/ps -o
+    Reads $HOME/yuruna/image/caching-proxy-service/forwarder.<Port>.pid and verifies the
+    PID belongs to Start-CachingProxyServiceForwarder.ps1 (via /bin/ps -o
     command=) before signaling -- a stale pidfile pointing at an
     unrelated process must NOT be killed. Sends SIGTERM and waits up to
     2s; escalates to SIGKILL if no response. The pidfile is removed on
@@ -384,7 +384,7 @@ function Start-CachingProxyForwarder {
     call is clean.
 
 .PARAMETER Quiet
-    Suppress the informational Write-Output lines. Start-CachingProxyForwarder
+    Suppress the informational Write-Output lines. Start-CachingProxyServiceForwarder
     passes this when preflight-stopping a stale forwarder so the happy
     path stays quiet.
 
@@ -393,14 +393,14 @@ function Start-CachingProxyForwarder {
     (process stopped or never running). No current failure modes
     surface as $false.
 #>
-function Stop-CachingProxyForwarder {
+function Stop-CachingProxyServiceForwarder {
     [CmdletBinding(SupportsShouldProcess)]
     [OutputType([bool])]
     param(
-        [int]$Port = $(Get-CachingProxyPort -Scheme http),
+        [int]$Port = $(Get-CachingProxyServicePort -Scheme http),
         [switch]$Quiet
     )
-    $pidFile = Join-Path $HOME "yuruna/image/caching-proxy/forwarder.$Port.pid"
+    $pidFile = Join-Path $HOME "yuruna/image/caching-proxy-service/forwarder.$Port.pid"
     if (-not (Test-Path $pidFile)) {
         if (-not $Quiet) { Write-Output "  No forwarder pidfile -- nothing to stop." }
         return $true
@@ -414,7 +414,7 @@ function Stop-CachingProxyForwarder {
     # Verify the process looks like our forwarder before killing.
     # `/bin/ps` path-qualified so PSScriptAnalyzer's PSAvoidUsingCmdletAliases
     # doesn't confuse it with the `ps` alias for Get-Process. -o command=
-    # prints full argv so we can match Start-CachingProxyForwarder.ps1 and
+    # prints full argv so we can match Start-CachingProxyServiceForwarder.ps1 and
     # avoid killing an unrelated pid that matches a stale pidfile.
     $cmd = (& '/bin/ps' -p $forwarderPid -o command= 2>$null) -join ""
     if ($LASTEXITCODE -ne 0 -or -not $cmd) {
@@ -422,12 +422,12 @@ function Stop-CachingProxyForwarder {
         Remove-Item -LiteralPath $pidFile -Force -ErrorAction SilentlyContinue
         return $true
     }
-    if ($cmd -notmatch 'Start-CachingProxyForwarder\.ps1') {
-        if (-not $Quiet) { Write-Warning "Pid $forwarderPid is not Start-CachingProxyForwarder.ps1 (is: $cmd) -- leaving alone, removing stale pidfile." }
+    if ($cmd -notmatch 'Start-CachingProxyServiceForwarder\.ps1') {
+        if (-not $Quiet) { Write-Warning "Pid $forwarderPid is not Start-CachingProxyServiceForwarder.ps1 (is: $cmd) -- leaving alone, removing stale pidfile." }
         Remove-Item -LiteralPath $pidFile -Force -ErrorAction SilentlyContinue
         return $true
     }
-    if (-not $PSCmdlet.ShouldProcess("pid $forwarderPid (Start-CachingProxyForwarder.ps1)", 'SIGTERM then SIGKILL if needed')) {
+    if (-not $PSCmdlet.ShouldProcess("pid $forwarderPid (Start-CachingProxyServiceForwarder.ps1)", 'SIGTERM then SIGKILL if needed')) {
         return $false
     }
     if (-not $Quiet) { Write-Output "  Stopping forwarder (pid $forwarderPid)..." }
@@ -466,24 +466,24 @@ function Stop-CachingProxyForwarder {
 
 <#
 .SYNOPSIS
-    Reports whether the host-side caching-proxy TCP forwarder is running.
+    Reports whether the host-side caching-proxy-service TCP forwarder is running.
 
 .DESCRIPTION
     Pure observer -- never signals, never removes files. Returns $true
-    iff $HOME/yuruna/image/caching-proxy/forwarder.<Port>.pid exists, parses as
+    iff $HOME/yuruna/image/caching-proxy-service/forwarder.<Port>.pid exists, parses as
     an int, and refers to a live process (via /bin/ps). Does NOT verify
-    the process is actually our forwarder; Stop-CachingProxyForwarder
+    the process is actually our forwarder; Stop-CachingProxyServiceForwarder
     handles that stricter identity check on the write path.
 
 .OUTPUTS
     [bool] $true if the pidfile points at a live process, $false
     otherwise (missing pidfile, malformed content, or dead pid).
 #>
-function Get-CachingProxyForwarder {
+function Get-CachingProxyServiceForwarder {
     [CmdletBinding()]
     [OutputType([bool])]
-    param([int]$Port = $(Get-CachingProxyPort -Scheme http))
-    $pidFile = Join-Path $HOME "yuruna/image/caching-proxy/forwarder.$Port.pid"
+    param([int]$Port = $(Get-CachingProxyServicePort -Scheme http))
+    $pidFile = Join-Path $HOME "yuruna/image/caching-proxy-service/forwarder.$Port.pid"
     if (-not (Test-Path $pidFile)) { return $false }
     $forwarderPid = (Get-Content $pidFile -Raw).Trim()
     if (-not ($forwarderPid -as [int])) { return $false }
@@ -493,26 +493,26 @@ function Get-CachingProxyForwarder {
 
 <#
 .SYNOPSIS
-    Stop every caching-proxy port forwarder the host currently has.
+    Stop every caching-proxy-service port forwarder the host currently has.
 
 .DESCRIPTION
-    Enumerates $HOME/yuruna/image/caching-proxy/forwarder.<Port>.pid entries
+    Enumerates $HOME/yuruna/image/caching-proxy-service/forwarder.<Port>.pid entries
     and sends SIGTERM to each (SIGKILL escalation per port via
-    Stop-CachingProxyForwarder). Missing directory / no pidfiles is a
+    Stop-CachingProxyServiceForwarder). Missing directory / no pidfiles is a
     no-op; safe to call even when nothing is running.
 
     The host-contract `Add-PortMap` / `Remove-PortMap` (declared in
     host/Yuruna.Host.Contract.psm1, implemented per platform) dispatch to
-    Start-CachingProxyForwarder + this function on macOS.
+    Start-CachingProxyServiceForwarder + this function on macOS.
 
 .OUTPUTS
     [int[]] -- ports whose forwarder was stopped (may be empty).
 #>
-function Stop-AllCachingProxyForwarder {
+function Stop-AllCachingProxyServiceForwarder {
     [CmdletBinding(SupportsShouldProcess)]
     [OutputType([int[]], [System.Object[]])]
     param([switch]$Quiet)
-    $stateDir = Join-Path $HOME "yuruna/image/caching-proxy"
+    $stateDir = Join-Path $HOME "yuruna/image/caching-proxy-service"
     if (-not (Test-Path $stateDir)) { return @() }
     $stopped = @()
     # Glob forwarder.<N>.pid; BaseName strips ".pid" so the regex only
@@ -522,7 +522,7 @@ function Stop-AllCachingProxyForwarder {
             if ($_.BaseName -match '^forwarder\.(\d+)$') {
                 $portInt = [int]$matches[1]
                 if ($PSCmdlet.ShouldProcess("port $portInt", 'Stop squid forwarder')) {
-                    [void](Stop-CachingProxyForwarder -Port $portInt -Quiet:$Quiet)
+                    [void](Stop-CachingProxyServiceForwarder -Port $portInt -Quiet:$Quiet)
                     $stopped += $portInt
                 }
             }
@@ -532,19 +532,19 @@ function Stop-AllCachingProxyForwarder {
 
 <#
 .SYNOPSIS
-    Returns the IP of a reachable caching-proxy (probed on :3128), or
+    Returns the IP of a reachable caching-proxy-service (probed on :3128), or
     $null when no cache is currently usable. Prefers the direct VM IP
     so SSL-bump (:3129) and the CA endpoint (:80) are also reachable;
     falls back to 127.0.0.1 (host forwarder) for HTTP-only.
 
 .DESCRIPTION
     Discovery order:
-      1. The cache VM IP recorded in the yuruna-caching-proxy state
-         file (<track>/yuruna-caching-proxy.yml, written by
-         Start-CachingProxyVM.ps1 with the VM's 192.168.64.X address).
+      1. The cache VM IP recorded in the yuruna-caching-proxy-service state
+         file (<track>/yuruna-caching-proxy-service.yml, written by
+         Start-CachingProxyServiceVM.ps1 with the VM's 192.168.64.X address).
          If reachable, return THIS IP; the caller can hit :80 / :3128
          / :3129 on it directly across Apple Virtualization shared NAT.
-      2. 127.0.0.1 -- the local Start-CachingProxyForwarder bridges
+      2. 127.0.0.1 -- the local Start-CachingProxyServiceForwarder bridges
          host:3128 -> VM:3128. Useful for HTTP origins; SSL-bump
          (:3129) won't work via the forwarder since only :3128 is
          bridged. Save-CachedHttpUri detects that case via separate
@@ -556,12 +556,12 @@ function Resolve-CacheHostIp {
     [CmdletBinding()]
     [OutputType([string])]
     param()
-    $httpPort = Get-CachingProxyPort -Scheme http
-    $ip = (Read-CachingProxyState).ipAddress
-    if ($ip -and (Test-IpAddress $ip) -and (Test-CachingProxyPort -IpAddress $ip -Port $httpPort -TimeoutMs 500)) {
+    $httpPort = Get-CachingProxyServicePort -Scheme http
+    $ip = (Read-CachingProxyServiceState).ipAddress
+    if ($ip -and (Test-IpAddress $ip) -and (Test-CachingProxyServicePort -IpAddress $ip -Port $httpPort -TimeoutMs 500)) {
         return $ip
     }
-    if (Test-CachingProxyPort -IpAddress '127.0.0.1' -Port $httpPort -TimeoutMs 500) {
+    if (Test-CachingProxyServicePort -IpAddress '127.0.0.1' -Port $httpPort -TimeoutMs 500) {
         return '127.0.0.1'
     }
     return $null
@@ -569,7 +569,7 @@ function Resolve-CacheHostIp {
 
 <#
 .SYNOPSIS
-    Download $Uri to $OutFile through the UTM caching proxy, falling back to
+    Download $Uri to $OutFile through the UTM caching-proxy service, falling back to
     a direct fetch when no cache is reachable.
 .DESCRIPTION
     Thin driver-local wrapper over the shared download stack. The closure binds
@@ -1014,7 +1014,7 @@ function Test-UtmctlResponsive {
     gateway, so the cloud-init host-proxy URL baked into seed.iso (from the
     first bridge's host IP) becomes unreachable and the cycle fails at its
     first fetch-and-execute step with "Connection timed out". This helper
-    is invoked at cycle start (Test-Sequence.ps1 and Invoke-TestInnerRunner.ps1)
+    is invoked at cycle start (Invoke-TestSequence.ps1 and Invoke-TestRunnerInnerLoop.ps1)
     to refuse the cycle before any test bundle is created, so the operator
     can stop the offender(s) and re-run.
 
@@ -1022,11 +1022,11 @@ function Test-UtmctlResponsive {
     (bridge100 / 192.168.64.1) and all guests route to each other directly
     -- so the split does not occur there. The guard stays for older hosts
     where it still can, but two VM names never trip the refusal:
-      * the caching-proxy VM ('yuruna-caching-proxy') -- infrastructure
+      * the caching-proxy-service VM ('yuruna-caching-proxy-service') -- infrastructure
         meant to run alongside cycles. Test guests consume its squid and,
         on the shared bridge, reach it directly at its 192.168.64.x IP, so
         a running cache is a dependency, not an offender.
-      * $ExceptVmName -- the dev-loop case where Test-Sequence is re-invoked
+      * $ExceptVmName -- the dev-loop case where Invoke-TestSequence is re-invoked
         against a VM the operator left running for inspection.
 
 .PARAMETER ExceptVmName
@@ -1049,9 +1049,9 @@ function Assert-NoConcurrentUtmVm {
         Write-Warning "Assert-NoConcurrentUtmVm: utmctl is not responding (UTM.app likely unresponsive under host memory pressure); cannot verify no other VM is running -- proceeding WITHOUT the single-VM guarantee for this cycle."
         return $true
     }
-    # The caching-proxy VM is infrastructure designed to coexist with test
+    # The caching-proxy-service VM is infrastructure designed to coexist with test
     # cycles; never let it count as a concurrent offender (see .DESCRIPTION).
-    $alwaysAllow = @('yuruna-caching-proxy')
+    $alwaysAllow = @('yuruna-caching-proxy-service')
     $running = @(Get-RunningVmName | Where-Object { $alwaysAllow -notcontains $_ })
     if ($ExceptVmName) {
         $running = @($running | Where-Object { $_ -ne $ExceptVmName })
@@ -1069,7 +1069,7 @@ function Assert-NoConcurrentUtmVm {
     Write-Warning " before re-running this cycle:"
     foreach ($vm in $running) { Write-Warning "   utmctl stop '$vm'" }
     Write-Warning ""
-    Write-Warning " (The 'yuruna-caching-proxy' cache VM is always allowed to coexist.)"
+    Write-Warning " (The 'yuruna-caching-proxy-service' cache VM is always allowed to coexist.)"
     if ($ExceptVmName) {
         Write-Warning " (Also excluding the cycle's target VM '$ExceptVmName'.)"
     }
@@ -1904,7 +1904,7 @@ function New-VM {
         [Parameter(Mandatory)][string]$GuestKey,
         [Parameter(Mandatory)][string]$RepoRoot,
         [Parameter(Mandatory)][string]$VMName,
-        [string]$CachingProxyUrl,
+        [string]$CachingProxyServiceUrl,
         # Planner-cascaded username override; forwarded only when the
         # per-guest script declares -Username (introspected below).
         [string]$Username,
@@ -1918,7 +1918,7 @@ function New-VM {
     )
     # Thin wrapper over the shared per-guest runner; the host subdir is the
     # only platform variable. Splatting $PSBoundParameters preserves the
-    # conditional -CachingProxyUrl/-Username/-Hostname/-MemoryStartupBytes/-Cores
+    # conditional -CachingProxyServiceUrl/-Username/-Hostname/-MemoryStartupBytes/-Cores
     # forwarding (the runner checks ContainsKey) and propagates -WhatIf/-Confirm.
     Invoke-PerGuestNewVm -HostSubdir 'host/macos.utm' @PSBoundParameters
 }
@@ -2310,7 +2310,7 @@ function Save-VMDiskSnapshot {
 .SYNOPSIS
     Returns $true when snapshot $Id is present on every qcow2 disk of
     the UTM bundle for $VMName. False on missing bundle, missing
-    qemu-img, or any disk lacking the snapshot. Used by Test-Sequence's
+    qemu-img, or any disk lacking the snapshot. Used by Invoke-TestSequence's
     requiresSnapshot warm-path probe before deciding whether to walk
     the baseline chain.
 #>
@@ -2537,20 +2537,20 @@ function Send-Text {
         $r = Invoke-GuestSsh -VMName $VMName -GuestKey $GuestKey -Command $Text
         return [bool]$r.success
     }
-    # GUI: Invoke-Sequence.psm1 has the cross-platform dispatcher and the
+    # GUI: Test.SequenceEngine.psm1 has the cross-platform dispatcher and the
     # macOS-specific Send-TextVNC / Send-TextUTM helpers. We import it on
     # demand here (it ships in test/modules/ and the runner already loads
     # it for sequence execution).
-    $invokeSequence = Join-Path $script:TestModulesDir 'Invoke-Sequence.psm1'
-    if (Test-Path $invokeSequence) {
+    $sequenceEngine = Join-Path $script:TestModulesDir 'Test.SequenceEngine.psm1'
+    if (Test-Path $sequenceEngine) {
         # -Global: a bare -Force import evicts the global Invoke-Sequence (and its
         # nested modules) the outer loop still calls (feedback_module_force_import_evicts_global);
         # refresh it in place instead.
-        Import-Module $invokeSequence -Force -DisableNameChecking -Global
+        Import-Module $sequenceEngine -Force -DisableNameChecking -Global
         # Module-qualified call avoids re-entering OUR Send-Text.
-        return [bool](Invoke-Sequence\Send-Text -HostType $script:HostTag -VMName $VMName -Text $Text -CharDelayMs $CharDelayMs)
+        return [bool](Test.SequenceEngine\Send-Text -HostType $script:HostTag -VMName $VMName -Text $Text -CharDelayMs $CharDelayMs)
     }
-    Write-Warning "Send-Text -Mechanism gui: Invoke-Sequence.psm1 not found at '$invokeSequence'."
+    Write-Warning "Send-Text -Mechanism gui: Test.SequenceEngine.psm1 not found at '$sequenceEngine'."
     return $false
 }
 
@@ -2578,17 +2578,17 @@ function Send-Key {
     # as CR is warn-and-skipped by every text backend while the call still
     # reports success -- a key that silently types nothing. Named keys and
     # modifier chords have to go through the key path.
-    $invokeSequence = Join-Path $script:TestModulesDir 'Invoke-Sequence.psm1'
-    if (Test-Path $invokeSequence) {
+    $sequenceEngine = Join-Path $script:TestModulesDir 'Test.SequenceEngine.psm1'
+    if (Test-Path $sequenceEngine) {
         # Import once and reuse: a -Force re-import evicts the global
         # Invoke-Sequence (and its nested modules + $script: state) that the
         # outer loop still calls (feedback_module_force_import_evicts_global,
         # feedback_module_script_state_reset_by_force_reimport), and paying
         # that on every keystroke is pure overhead.
-        if (-not (Get-Module -Name Invoke-Sequence)) { Import-Module $invokeSequence -DisableNameChecking -Global }
-        return [bool](Invoke-Sequence\Send-Key -HostType $script:HostTag -VMName $VMName -KeyName $Key)
+        if (-not (Get-Module -Name Test.SequenceEngine)) { Import-Module $sequenceEngine -DisableNameChecking -Global }
+        return [bool](Test.SequenceEngine\Send-Key -HostType $script:HostTag -VMName $VMName -KeyName $Key)
     }
-    Write-Warning "Send-Key -Mechanism gui: Invoke-Sequence.psm1 not found at '$invokeSequence'."
+    Write-Warning "Send-Key -Mechanism gui: Test.SequenceEngine.psm1 not found at '$sequenceEngine'."
     return $false
 }
 
@@ -2929,11 +2929,11 @@ function New-ExternalNetwork {
 
 <#
 .SYNOPSIS
-    Returns true if the caching-proxy VM is on an External-type network.
+    Returns true if the caching-proxy-service VM is on an External-type network.
 .DESCRIPTION
     On macOS the cache VM is built with UTM's QEMU bridged networking on
     an Ethernet default route (see
-    host/macos.utm/guest.caching-proxy/config.plist.template; Wi-Fi
+    host/macos.utm/guest.caching-proxy-service/config.plist.template; Wi-Fi
     hosts fall back to Shared NAT + host forwarders), so it
     rides the host's physical LAN with its own DHCP-assigned IP. That
     is the macOS analog of Hyper-V's Yuruna-External vSwitch path: the
@@ -2944,14 +2944,14 @@ function New-ExternalNetwork {
 function Test-CacheVMOnExternalNetwork {
     [CmdletBinding()]
     [OutputType([bool])]
-    param([string]$VMName = 'yuruna-caching-proxy')
+    param([string]$VMName = 'yuruna-caching-proxy-service')
     Write-Debug "Test-CacheVMOnExternalNetwork on host.macos.utm: returning `$true for '$VMName' (cache VM is QEMU-bridged to the host's physical NIC)."
     return $true
 }
 
 <#
 .SYNOPSIS
-    Install host to VM port forwarders for the caching proxy.
+    Install host to VM port forwarders for the caching-proxy service.
 #>
 function Add-PortMap {
     [CmdletBinding(SupportsShouldProcess)]
@@ -2984,7 +2984,7 @@ function Add-PortMap {
         $mappings += [PSCustomObject]@{ HostPort = [int]$k; VMPort = [int]$remapHostPorts[$k] }
     }
     # Apple VZ shared-NAT path: per-port pwsh TcpListener via Yuruna.Host.psm1's
-    # Start-CachingProxyForwarder. Each call is idempotent per port and
+    # Start-CachingProxyServiceForwarder. Each call is idempotent per port and
     # leaves OTHER ports' forwarders alone -- mid-cycle :3000 refresh
     # MUST NOT disturb the running :3128 forwarder.
     $launched = @()
@@ -2996,9 +2996,9 @@ function Add-PortMap {
         if (-not $PSCmdlet.ShouldProcess("0.0.0.0:$($m.HostPort) -> ${VMIp}:$($m.VMPort)${proxyTag}", 'Launch macOS squid forwarder')) { continue }
         $attempted++
         $started = if ($useProxy) {
-            Start-CachingProxyForwarder -CacheIp $VMIp -Port $m.HostPort -VMPort $m.VMPort -PrependProxyV1
+            Start-CachingProxyServiceForwarder -CacheIp $VMIp -Port $m.HostPort -VMPort $m.VMPort -PrependProxyV1
         } else {
-            Start-CachingProxyForwarder -CacheIp $VMIp -Port $m.HostPort -VMPort $m.VMPort
+            Start-CachingProxyServiceForwarder -CacheIp $VMIp -Port $m.HostPort -VMPort $m.VMPort
         }
         if ($started) { $launched += $m.HostPort } else { $failed += $m.HostPort }
     }
@@ -3013,14 +3013,14 @@ function Add-PortMap {
 
 <#
 .SYNOPSIS
-    Tear down all yuruna caching-proxy port forwarders.
+    Tear down all yuruna caching-proxy-service port forwarders.
 #>
 function Remove-PortMap {
     [CmdletBinding(SupportsShouldProcess)]
     [OutputType([bool])]
     param()
     if (-not $PSCmdlet.ShouldProcess('pwsh forwarders', 'Stop all yuruna port forwarders')) { return $false }
-    $stopped = @(Stop-AllCachingProxyForwarder)
+    $stopped = @(Stop-AllCachingProxyServiceForwarder)
     return ($stopped.Count -gt 0)
 }
 
@@ -3076,18 +3076,18 @@ function Get-GuestReachableHostIp {
     return '192.168.64.1'
 }
 
-# --- REGION: Caching proxy
+# --- REGION: Caching-proxy service
 
 <#
 .SYNOPSIS
     Returns the host's LAN /24 prefix (e.g. '192.168.7.') based on the
     default-route interface, or $null when the host has no default route.
 .DESCRIPTION
-    Used by Start-CachingProxyVM.ps1 Step 5 to locate the just-booted
-    bridged caching-proxy VM by walking the same /24 the host sits on,
+    Used by Start-CachingProxyServiceVM.ps1 Step 5 to locate the just-booted
+    bridged caching-proxy-service VM by walking the same /24 the host sits on,
     and reserved for a future LAN-wide cache-discovery feature. (It is
-    NOT consulted by Test-CachingProxyAvailable, which is restricted to
-    state-file + YURUNA_CACHING_PROXY_IP discovery.) Returns the first
+    NOT consulted by Test-CachingProxyServiceAvailable, which is restricted to
+    state-file + YURUNA_CACHING_PROXY_SERVICE_IP discovery.) Returns the first
     three octets with a trailing dot so the caller can append
     "$prefix$octet" without further string surgery. /24 is an assumption
     -- it matches the home/office DHCP setups the repo targets; a /23
@@ -3109,18 +3109,18 @@ function Get-HostLanPrefix {
 
 <#
 .SYNOPSIS
-    Probe and return the caching-proxy URL, or null if none is reachable.
+    Probe and return the caching-proxy-service URL, or null if none is reachable.
 .DESCRIPTION
     Discovery is intentionally narrow -- only caches this host owns,
     or a remote cache the operator explicitly named, are returned:
-      1. $Env:YURUNA_CACHING_PROXY_IP -- explicit remote cache override.
-      2. State file (Read-CachingProxyState).ipAddress -- the cache VM's
-         LAN IP written by Start-CachingProxyVM.ps1 Step 4 (our own VM).
+      1. $Env:YURUNA_CACHING_PROXY_SERVICE_IP -- explicit remote cache override.
+      2. State file (Read-CachingProxyServiceState).ipAddress -- the cache VM's
+         LAN IP written by Start-CachingProxyServiceVM.ps1 Step 4 (our own VM).
 
     No LAN scan, no ARP discovery. The previous /24 subnet scan would
-    happily lock onto a sibling host's yuruna-caching-proxy on the same
+    happily lock onto a sibling host's yuruna-caching-proxy-service on the same
     LAN and even persist its IP back into the state file, so Stop-
-    CachingProxy could not actually take the local host out of the
+    CachingProxyService could not actually take the local host out of the
     "cache available" state when a peer was still serving on :3128.
     LAN-wide cache discovery is a separate future feature.
 
@@ -3128,11 +3128,11 @@ function Get-HostLanPrefix {
     layer to fail in between, no VZ-gateway URL gymnastics. This is the
     macOS equivalent of the Hyper-V Yuruna-External vSwitch path: squid
     sees real client IPs at TCP level, remote operators set
-    YURUNA_CACHING_PROXY_IP=<cache-lan-ip> and reach the cache directly,
+    YURUNA_CACHING_PROXY_SERVICE_IP=<cache-lan-ip> and reach the cache directly,
     and other UTM guests on shared-NAT reach the LAN IP through the
     VMnet outbound NAT (same path they use to reach Ubuntu mirrors).
 #>
-function Test-CachingProxyAvailable {
+function Test-CachingProxyServiceAvailable {
     [CmdletBinding()]
     [OutputType([string])]
     param()
@@ -3140,7 +3140,7 @@ function Test-CachingProxyAvailable {
     # operator verify-command template embedded in the unreachable-cache
     # warning (nc on macOS). The kvm driver keeps its own probe (it omits
     # Format-IpUrlHost's IPv6 bracketing the guests rely on).
-    Invoke-CachingProxyAvailableProbe -VerifyHint 'nc -G 2 -z {0} {1}'
+    Invoke-CachingProxyServiceAvailableProbe -VerifyHint 'nc -G 2 -z {0} {1}'
 }
 
 <#
@@ -3149,16 +3149,16 @@ function Test-CachingProxyAvailable {
 .DESCRIPTION
     With Apple Virtualization bridged networking the cache VM gets its
     own DHCP-assigned LAN IP (no VZ-gateway indirection), so the URL
-    Test-CachingProxyAvailable returns already carries the real IP. This
-    helper exists for callers that want JUST the IP (status server's
+    Test-CachingProxyServiceAvailable returns already carries the real IP. This
+    helper exists for callers that want JUST the IP (status service's
     portproxy IP target on Windows; on macOS the result feeds into
-    summary lines and YURUNA_CACHING_PROXY_IP hints).
+    summary lines and YURUNA_CACHING_PROXY_SERVICE_IP hints).
 #>
-function Get-CachingProxyVMIp {
+function Get-CachingProxyServiceVmIp {
     [CmdletBinding()]
     [OutputType([string])]
     param()
-    $ip = (Read-CachingProxyState).ipAddress
+    $ip = (Read-CachingProxyServiceState).ipAddress
     if ($ip -and (Test-Ipv4Address $ip)) { return $ip }
     return $null
 }
@@ -3318,12 +3318,12 @@ Export-ModuleMember -Function `
     Wait-VMIp, Get-VMIp, Get-VMMac, Resolve-UtmGuestIpByMac, `
     Get-ExternalNetwork, New-ExternalNetwork, Test-CacheVMOnExternalNetwork, `
     Add-PortMap, Remove-PortMap, Get-BestHostIp, Get-GuestReachableHostIp, `
-    Test-CachingProxyAvailable, Get-CachingProxyVMIp, Get-HostLanPrefix, Test-MacUplinkNotBridgeable, `
+    Test-CachingProxyServiceAvailable, Get-CachingProxyServiceVmIp, Get-HostLanPrefix, Test-MacUplinkNotBridgeable, `
     Set-HostProxy, Clear-HostProxy, Remove-HostProxy, Get-HostProxyBackupPath, Assert-Virtualization, `
     `
     Remove-UtmBundleWithRetry, Invoke-EntitledSwift, `
-    Start-CachingProxyForwarder, Stop-CachingProxyForwarder, Get-CachingProxyForwarder, Stop-AllCachingProxyForwarder, `
-    Test-DownloadAlreadyCurrent, Test-CachingProxyPort, Resolve-CacheHostIp, `
+    Start-CachingProxyServiceForwarder, Stop-CachingProxyServiceForwarder, Get-CachingProxyServiceForwarder, Stop-AllCachingProxyServiceForwarder, `
+    Test-DownloadAlreadyCurrent, Test-CachingProxyServicePort, Resolve-CacheHostIp, `
     Save-CachedHttpUri, `
     Stop-UtmDialogWatchdog, Start-UtmDialogWatchdog, `
     Confirm-UtmVMCreated, Remove-UtmTestVM, Start-UtmVM, Stop-UtmVM, Confirm-UtmVMStarted, Wait-UtmVMPoweredOff, Restart-UtmConsole, `
@@ -3346,7 +3346,7 @@ $null = Assert-YurunaHostContractCoverage -HostType 'macos.utm' -ExportedFunctio
     'Wait-VMIp','Get-VMIp','Get-VMMac',
     'Get-ExternalNetwork','New-ExternalNetwork','Test-CacheVMOnExternalNetwork',
     'Add-PortMap','Remove-PortMap','Get-BestHostIp','Get-GuestReachableHostIp',
-    'Test-CachingProxyAvailable','Get-CachingProxyVMIp','Get-HostLanPrefix',
+    'Test-CachingProxyServiceAvailable','Get-CachingProxyServiceVmIp','Get-HostLanPrefix',
     'Set-HostProxy','Clear-HostProxy','Remove-HostProxy','Get-HostProxyBackupPath','Assert-Virtualization'
 )
 

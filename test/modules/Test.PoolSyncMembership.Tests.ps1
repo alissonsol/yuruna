@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.28
+.VERSION 2026.07.29
 .GUID 42b8c9d0-e1f2-4a34-9678-9b0c1d2e3f40
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -107,11 +107,11 @@ Describe 'Sync-YurunaPoolIntent bounds the pull by one deadline and surfaces fai
         (Get-AssignmentCount -Ast $ast -Lhs '$fetchBudget') | Should -BeGreaterOrEqual 1
         (Get-AssignmentCount -Ast $ast -Lhs '$resetBudget') | Should -BeGreaterOrEqual 1
     }
-    It 'reads PullTimeoutSec once (to seed the deadline), not once per git call' {
-        # A per-call PullTimeoutSec hands each of fetch and reset a fresh full budget, so
+    It 'reads PullTimeoutSeconds once (to seed the deadline), not once per git call' {
+        # A per-call PullTimeoutSeconds hands each of fetch and reset a fresh full budget, so
         # the pair can run to ~2x the intended wall-clock bound; reading it once forces
         # both to derive their timeout from one shared deadline.
-        (Get-MemberAccessCount -Ast (Get-ModuleAst) -Member 'PullTimeoutSec') | Should -Be 1
+        (Get-MemberAccessCount -Ast (Get-ModuleAst) -Member 'PullTimeoutSeconds') | Should -Be 1
     }
     It 'classifies the failing git rc for the warning (timeout vs a real error)' {
         (Get-AssignmentCount -Ast (Get-ModuleAst) -Lhs '$why') | Should -BeGreaterOrEqual 1
@@ -119,7 +119,7 @@ Describe 'Sync-YurunaPoolIntent bounds the pull by one deadline and surfaces fai
     It 'warns when the host is absent from a populated members[] (wired via Test-PoolIntentHasMember)' {
         (Get-CommandInvokeCount -Ast (Get-ModuleAst) -Name 'Test-PoolIntentHasMember') | Should -BeGreaterOrEqual 1
     }
-    It 'passes a shrinking budget to fetch then reset, both bounded by one PullTimeoutSec' {
+    It 'passes a shrinking budget to fetch then reset, both bounded by one PullTimeoutSeconds' {
         # Behavioral guard for the shared deadline: burn ~1.2s inside the fetch call so
         # the reset budget -- derived from the SAME deadline -- is strictly smaller than
         # the fetch budget. fetch is computed at deadline-set so it is the full 5s; reset

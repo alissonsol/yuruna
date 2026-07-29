@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.28
+.VERSION 2026.07.29
 .GUID 42b7d1e4-9c2a-4f68-8b30-5d1c7e9a0b46
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -18,7 +18,7 @@
 
 <#
 .SYNOPSIS
-    Guards the Ubuntu-KVM bridge-backend choice: the caching-proxy bridge must be
+    Guards the Ubuntu-KVM bridge-backend choice: the caching-proxy-service bridge must be
     built with netplan (systemd-networkd) when NetworkManager is RUNNING but does
     not MANAGE the default-route NIC -- the Ubuntu Server default. Keying the
     backend off "is the NM daemon running" instead silently drops the cache to
@@ -193,8 +193,8 @@ Describe 'Ubuntu-KVM bridge lifecycle: half-built-state source guards' {
         $src = Get-Content -Raw -LiteralPath $modulePath
         Assert-True ($src -match '\$active\s+= Invoke-Virsh -VirshArgs @\(''net-list'', ''--name''\)') 'a defined-but-stopped network must never be handed to virt-install'
     }
-    It 'caching-proxy New-VM refuses to create a VM on an uplink-less bridge -- but only for bridge-mode networks' {
-        $newVmPath = Join-Path $repo 'host/ubuntu.kvm/guest.caching-proxy/New-VM.ps1'
+    It 'caching-proxy-service New-VM refuses to create a VM on an uplink-less bridge -- but only for bridge-mode networks' {
+        $newVmPath = Join-Path $repo 'host/ubuntu.kvm/guest.caching-proxy-service/New-VM.ps1'
         $src = Get-Content -Raw -LiteralPath $newVmPath
         Assert-True ($src.Contains('/brif')) 'the 20-minute IP wait must be preempted by a bridge-uplink probe'
         Assert-True ($src -match "<forward\\s\+mode='bridge'") 'NAT/routed networks own a virbr bridge with no uplink by design; probing it would veto a working network'

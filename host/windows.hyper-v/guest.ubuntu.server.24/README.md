@@ -27,7 +27,7 @@ elevated PowerShell:
 ```
 
 Start from Hyper-V Manager. Autoinstall is fully unattended
-(`interactive-sections: []`). Keep the `guest.caching-proxy` VM running
+(`interactive-sections: []`). Keep the `guest.caching-proxy-service` VM running
 for dramatically faster rebuilds.
 
 Default user is `yuuser24` (override with `-Username`; the same name is
@@ -50,6 +50,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.28
+Last review: 2026.07.29
 
 Back to [Yuruna](../../../README.md)

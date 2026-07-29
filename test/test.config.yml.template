@@ -1,5 +1,5 @@
 configService:
-  isEnabled: true
+  enabled: true
   port: 8443
 guestSequence:
 - guest.amazon.linux.2023
@@ -7,12 +7,12 @@ guestSequence:
 - guest.ubuntu.server.26
 logLevel: Information
 networkStorage:
-  poolLocalPath: ""
-  poolNetworkPath: ""
-  poolNetworkUser: ""
-  stashLocalPath: ""
-  stashNetworkPath: ""
-  stashNetworkUser: ""
+  poolStorageLocalPath: ""
+  poolStorageNetworkPath: ""
+  poolStorageNetworkUser: ""
+  stashStorageLocalPath: ""
+  stashStorageNetworkPath: ""
+  stashStorageNetworkUser: ""
 notification:
   failuresBeforeAlert: 2
   successesBeforeRearm: 5
@@ -24,14 +24,18 @@ pool:
   pullTimeoutSeconds: 30
 repositories:
   frameworkUrl: https://github.com/alissonsol/yuruna
-  GH_TOKEN: ""
+  ghToken: ""
   projectUrl: https://github.com/alissonsol/yuruna-project
 statusService:
-  isEnabled: true
+  enabled: true
   port: 8080
 testCycle:
-  autoRemediationEnabled: false
-  autoRemediationMaxAttemptsPerCycle: 2
+  # Auto-remediation: after a cycle fails, run the recovery handler chosen from
+  # last_failure.json before the next spawn, up to maxAttemptsPerCycle tries per
+  # consecutive-failure streak. Default off -- a host opts in.
+  autoRemediation:
+    enabled: false
+    maxAttemptsPerCycle: 2
   cycleDelaySeconds: 300
   # Circuit breaker: skip a guest that keeps failing the same way, so it stops
   # burning a full provision+deploy every cycle. After failuresToQuarantine
@@ -43,9 +47,17 @@ testCycle:
     enabled: true
     failuresToQuarantine: 3
     skipCycles: 5
+  # Per-step performance log: one JSONL row per step under
+  # status/perf/cycles/, which is what the status page's Perf chart renders.
+  # Collection is automatic for every cycle; this knob only exists to turn it
+  # off for a host. It is deliberately host-level, not per project, so one
+  # project's runner config cannot stop a machine from collecting. An absent
+  # key reads as enabled.
+  perfLog:
+    enabled: true
   recentDisplayCount: 30
-  shouldStopOnFailure: false
-  stepTimeoutMinutes: 45
+  stopOnFailure: false
+  stepTimeoutSeconds: 2700
   # Warm-resume checkpointing: on an eligible transient workload failure
   # (network_timeout / wait_timeout / instrumentation_failure / host_io_blocked),
   # re-run the failed sequence from its last-good step on the same live VM
@@ -57,16 +69,16 @@ testCycle:
     enabled: true
     maxAttempts: 2
 vmCommunication:
-  characterDelayMs: 10
+  charDelayMs: 10
   pollSeconds: 5
   timeoutSeconds: 180
   vncPort: 5900
 vmImage:
   alwaysRedownload: false
-  refreshHours: 168
+  refreshSeconds: 604800
 vmStart:
   bootDelaySeconds: 15
-  cachingProxyIP: ""
+  cachingProxyIp: ""
   startTimeoutSeconds: 120
   testVmNamePrefix: test-
   # Extra VM-name prefixes the cycle sweep may stop and delete, for a

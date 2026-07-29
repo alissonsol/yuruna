@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.07.28
+# Version: 2026.07.29
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 #
@@ -12,8 +12,8 @@
 _yuruna_retry() {
     local label="$1"; shift
     local max_attempts="${YURUNA_RETRY_MAX_ATTEMPTS:-5}"
-    local delay="${YURUNA_RETRY_DELAY:-10}"
-    local stall="${YURUNA_RETRY_STALL_TIMEOUT:-0}"
+    local delay="${YURUNA_RETRY_DELAY_SECONDS:-10}"
+    local stall="${YURUNA_RETRY_STALL_TIMEOUT_SECONDS:-0}"
     local attempt=1 rc=0
     # Diagnostics go to stderr, never stdout: these wrappers are routinely
     # used in `curl_retry ... | bash` / `wget_try ... | bash` pipelines, where
@@ -21,13 +21,13 @@ _yuruna_retry() {
     # script text and corrupt the install. The fetch-and-execute log captures
     # 2>&1, so the operator still sees every attempt.
     #
-    # Per-attempt wall-clock bound (YURUNA_RETRY_STALL_TIMEOUT, whole
+    # Per-attempt wall-clock bound (YURUNA_RETRY_STALL_TIMEOUT_SECONDS, whole
     # seconds; 0 = unbounded) so a stalled or trickling transfer fails into
     # the retry ladder; a malformed value fails LOUD and unbounded.
     # --- REGION: https://yuruna.link/network#why-the-stall-bound-hoists-timeout-inside-sudo-and-stays-foreground
     case "$stall" in
         ''|*[!0-9]*)
-            echo "!! ${label}: YURUNA_RETRY_STALL_TIMEOUT='$stall' is not a whole number of seconds; running unbounded" >&2
+            echo "!! ${label}: YURUNA_RETRY_STALL_TIMEOUT_SECONDS='$stall' is not a whole number of seconds; running unbounded" >&2
             stall=0
             ;;
     esac
@@ -119,17 +119,17 @@ _yuruna_retry() {
 }
 
 # Package-manager attempts run UNBOUNDED by default (opt in via
-# YURUNA_APT_STALL_TIMEOUT / YURUNA_DNF_STALL_TIMEOUT, seconds): wrapping
+# YURUNA_APT_STALL_TIMEOUT_SECONDS / YURUNA_DNF_STALL_TIMEOUT_SECONDS, seconds): wrapping
 # apt in timeout(1) is the wrapped-apt teardown-hang trap class, so the
 # mirror-stall exposure is bounded at the transfer layer instead.
 # --- REGION: https://yuruna.link/network#why-apt-and-dnf-attempts-run-unbounded-by-default
 apt_retry() {
-    YURUNA_RETRY_STALL_TIMEOUT="${YURUNA_APT_STALL_TIMEOUT:-0}" \
+    YURUNA_RETRY_STALL_TIMEOUT_SECONDS="${YURUNA_APT_STALL_TIMEOUT_SECONDS:-0}" \
     YURUNA_RETRY_HEAL='sudo dpkg --configure -a' \
         _yuruna_retry apt_retry "$@"
 }
 dnf_retry() {
-    YURUNA_RETRY_STALL_TIMEOUT="${YURUNA_DNF_STALL_TIMEOUT:-0}" \
+    YURUNA_RETRY_STALL_TIMEOUT_SECONDS="${YURUNA_DNF_STALL_TIMEOUT_SECONDS:-0}" \
         _yuruna_retry dnf_retry "$@"
 }
 
@@ -141,7 +141,7 @@ dnf_retry() {
 # fetch. Re-probing (rather than adding `-w`/`-S` to the real fetch) keeps the
 # code off the stdout that feeds the `... | bash` install pipelines. Returns 0
 # (transient: 429 / 5xx / no-answer) or 1 (permanent: other 4xx). An empty or
-# unreplicable URL is treated as transient so the gate never hardens a healthy
+# unreachable URL is treated as transient so the gate never hardens a healthy
 # fetch into a failure.
 _yuruna_http_status_class() {
     local url="$1"
@@ -240,7 +240,7 @@ _yuruna_pwsh_attempt() {
     # fetches from PSGallery), same sudo-hoist rationale: timeout must
     # signal pwsh directly, not sudo. stdin passes through timeout
     # untouched, so the heredoc body still reaches pwsh.
-    local stall="${YURUNA_PWSH_STALL_TIMEOUT:-600}"
+    local stall="${YURUNA_PWSH_STALL_TIMEOUT_SECONDS:-600}"
     {
         printf '\n===== %s sudo pwsh attempt =====\n' \
             "$(date -u +%Y-%m-%dT%H:%M:%SZ)"

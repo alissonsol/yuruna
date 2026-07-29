@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.28
+.VERSION 2026.07.29
 .GUID 424f932a-5ed9-4dec-8a02-8f7c8aa9234b
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -108,7 +108,7 @@ Describe 'Get-FetchExecuteEnvPrefix (host-side digest injection)' {
     }
 
     # The typed command line is rendered on the VM console, which the host
-    # screenshots and OCRs into the run log the status server publishes. A token
+    # screenshots and OCRs into the run log the status service publishes. A token
     # typed here would be readable in failure_screenshot.png / failure_ocr.txt.
     It 'never types the GitHub token onto the console' {
         $p = Get-FetchExecuteEnvPrefix -CommandLine "fetch-and-execute.sh $sample" -RepoRoot $repoRoot -WarningAction SilentlyContinue

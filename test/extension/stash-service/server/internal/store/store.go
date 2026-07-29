@@ -1,7 +1,7 @@
 // LICENSEURI https://yuruna.link/license
 // Copyright (c) 2019-2026 by Alisson Sol et al.
 
-// Package store owns the filesystem side of the Stash Service: path
+// Package store owns the filesystem side of the stash service: path
 // resolution under the StashFolder (§6), per-day file directories,
 // extension extraction (§6.3), and the staging-to-final move/zip step
 // invoked by sshsrv after the SCP wire protocol completes.
@@ -18,8 +18,8 @@ import (
 	"strings"
 	"time"
 
-	"stash-server/internal/config"
-	"stash-server/internal/fsutil"
+	"stash-service/internal/config"
+	"stash-service/internal/fsutil"
 )
 
 // Store roots the share-side Stash filesystem layout (hostkey/ + files/)

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.28
+.VERSION 2026.07.29
 .GUID 42c4b1e7-5a8d-4f23-9b1c-7e3f8a2d4c61
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -84,8 +84,8 @@ $script:YurunaHostContract = @(
     # Host port mapping
     'Add-PortMap', 'Remove-PortMap',
     'Get-BestHostIp', 'Get-GuestReachableHostIp',
-    # Caching proxy probes
-    'Test-CachingProxyAvailable', 'Get-CachingProxyVMIp',
+    # Caching-proxy service probes
+    'Test-CachingProxyServiceAvailable', 'Get-CachingProxyServiceVmIp',
     # Host proxy management
     'Set-HostProxy', 'Clear-HostProxy', 'Remove-HostProxy',
     'Get-HostProxyBackupPath', 'Assert-Virtualization'

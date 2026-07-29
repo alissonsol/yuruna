@@ -130,15 +130,15 @@ erDiagram
     TEST_CONFIG {
         list guestSequence
         map repositories "frameworkUrl projectUrl GH_TOKEN"
-        map testCycle "stepTimeoutMinutes guestQuarantine warmResume"
+        map testCycle "stepTimeoutSeconds guestQuarantine warmResume"
         map notification "failuresBeforeAlert successesBeforeRearm"
-        map vmCommunication "vncPort characterDelayMs pollSeconds"
-        map statusService "isEnabled port"
-        map configService "isEnabled port"
+        map vmCommunication "vncPort charDelayMs pollSeconds"
+        map statusService "enabled port"
+        map configService "enabled port"
         map pool "enabled intentGitUrl networkReplicate"
         map networkStorage "pool and stash paths"
-        map vmImage "refreshHours alwaysRedownload"
-        map vmStart "cachingProxyIP testVmNamePrefix cleanupVmNamePrefixes"
+        map vmImage "refreshSeconds alwaysRedownload"
+        map vmStart "cachingProxyIp testVmNamePrefix cleanupVmNamePrefixes"
         string logLevel
     }
     GUEST {
@@ -195,6 +195,14 @@ so a `lab:` node cannot be added to it; `lab.vault.schema.yml` requires
 password/previousPassword/updatedUtc shape, which is why it is drawn against
 `VAULT_ENTRY`.
 
+The two are nonetheless expected to **agree on any credential they share**.
+`vault.yml` is authoritative — it is what the harness reads — so when a
+machine already holds a credential for one of the share accounts, `New-Lab`
+copies that value into the new `LAB_VAULT` instead of generating one. The
+accounts are machine-wide, so a second lab that minted its own password would
+produce a lab vault disagreeing with the OS account, the SMB server, and every
+machine the earlier vault was copied to.
+
 `STATUS_EVENT` is the `cycle.events.ndjson` envelope — required fields
 `timestamp` and `event` (`timestamp`, not `utc`), with the state fields
 validated against the six-value runner enum. The authentication extension
@@ -216,7 +224,7 @@ guest-compatibility map (`guestKey → hypervisors`) that decides which
 `guestSequence` entries a host actually runs. Registration is **not** in that
 repo: each host publishes its own record (`hostId`, `hostType`, `hypervisor`,
 `poolId`, `capabilities`, `capacity`, `supportedGuests`) as
-`runtime/host.registration.json` over its status server, which the aggregator
+`runtime/host.registration.json` over its status service, which the aggregator
 polls. The schemas for all of these are in `test/schemas/`; samples are in
 `test/pool/examples/`. Both views stay within the
 [≤7 rule](00-index.md#the-7-rule--grouping-decisions) — seven entities each.
@@ -227,4 +235,4 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.28
+Last review: 2026.07.29

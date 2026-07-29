@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.28
+.VERSION 2026.07.29
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456725
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -29,7 +29,7 @@ Import-Module (Join-Path $PSScriptRoot 'Test.SequenceAction.psm1')  -Global -For
 # registry. Get-CapabilityActionRequirement below is a thin facade
 # over Get-SequenceActionRequirementMap so existing callers don't
 # have to migrate immediately. The registry is populated at
-# Invoke-Sequence.psm1 load time, which imports Test.SequenceHandler.psm1;
+# Test.SequenceEngine.psm1 load time, which imports Test.SequenceHandler.psm1;
 # that module's Register-SequenceAction blocks fill the registry.
 
 function Get-CapabilityActionRequirement {
@@ -184,7 +184,7 @@ function Get-SequenceActionsUsed {
         Walk one or more sequence YAML files and return the set of action
         verbs that appear in any step (including nested `retry` blocks).
     .DESCRIPTION
-        Uses Read-SequenceFile from Invoke-Sequence.psm1 when available
+        Uses Read-SequenceFile from Test.SequenceEngine.psm1 when available
         (centralized parser + caching); falls back to a direct
         ConvertFrom-Yaml read so the function is usable from contexts
         that load this module without the engine.
@@ -320,7 +320,7 @@ function Get-CyclePlanSequencePath {
         Caller-facing helper for Test-CyclePlanCapabilityFromPlan.
     .DESCRIPTION
         Walks each plan entry's fullChain and calls Resolve-SequencePath
-        (from Invoke-Sequence.psm1) per name. Missing names are logged
+        (from Test.SequenceEngine.psm1) per name. Missing names are logged
         Verbose and skipped -- the planner already throws PlannerFatal for
         true misses, so missing here means a transient file-system race.
     .OUTPUTS
@@ -335,7 +335,7 @@ function Get-CyclePlanSequencePath {
         [Parameter(Mandatory)][string]$HostType
     )
     if (-not (Get-Command Resolve-SequencePath -ErrorAction SilentlyContinue)) {
-        throw "Get-CyclePlanSequencePath: Invoke-Sequence.psm1 must be imported (Resolve-SequencePath not found)."
+        throw "Get-CyclePlanSequencePath: Test.SequenceEngine.psm1 must be imported (Resolve-SequencePath not found)."
     }
     $seen  = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
     $paths = New-Object System.Collections.Generic.List[string]
@@ -353,7 +353,7 @@ function Test-CyclePlanCapabilityFromPlan {
     <#
     .SYNOPSIS
         Convenience wrapper: resolve plan -> paths, then run
-        Test-CyclePlanCapability. Used by Invoke-TestInnerRunner.
+        Test-CyclePlanCapability. Used by Invoke-TestRunnerInnerLoop.
     #>
     [CmdletBinding()]
     [OutputType([hashtable])]
@@ -379,8 +379,8 @@ function Write-HostRegistrationRecord {
     <#
     .SYNOPSIS
         Externalize this host's identity + capabilities as
-        runtime/host.registration.json (served by the status server at
-        /runtime/host.registration.json) for the multi-host pool aggregator /
+        runtime/host.registration.json (served by the status service at
+        /runtime/host.registration.json) for the multi-host pool-aggregator service /
         pool-planner. Best-effort; never throws -- telemetry must not fail a cycle.
     .DESCRIPTION
         Built from Get-HostCapabilityMatrix + the process host identity so a pool
@@ -441,7 +441,7 @@ function Write-HostRegistrationRecord {
                 if ($ps -and ($null -ne $ps.gating)) { $gating = $ps.gating }
             }
         } catch { $null = $_ }
-        # statusPort: the real status-server port so the aggregator can deep-link
+        # statusPort: the real status-service port so the aggregator can deep-link
         # without assuming 8080. Best-effort from statusService.port; null otherwise.
         $statusPort = $null
         try {
@@ -452,20 +452,20 @@ function Write-HostRegistrationRecord {
         } catch { $null = $_ }
         # activeExtensions: the extension areas this host is ACTIVELY running right
         # now (distinct from capabilities.extensions, which is what it COULD run --
-        # true for every host). The pool-aggregator reads this to populate the
+        # true for every host). The pool-aggregator-service reads this to populate the
         # dashboard's Extension hosts table WITHOUT mounting ystash-nas (no cross-host
-        # Config Service / NAS-credential dependency). Driven by per-service runtime
-        # markers a host writes when it brings a service up -- Start-StashVM.ps1
-        # writes runtime/stash-server.json; Stop-StashVM.ps1 removes it. File I/O
+        # config service / NAS-credential dependency). Driven by per-service runtime
+        # markers a host writes when it brings a service up -- Start-StashServiceVM.ps1
+        # writes runtime/stash-service.json; Stop-StashServiceVM.ps1 removes it. File I/O
         # only (no foreign-module calls), matching this function's resolution policy.
         # extensionTargets carries the per-area deep-link the host advertises for its
-        # service (the stash VM's UI base URL the host resolved via Get-VMIp into the
+        # service (the stash-service VM's UI base URL the host resolved via Get-VMIp into the
         # marker's stashBaseUrl), so the aggregator can /go/stash to it without an
         # address store of its own.
         $activeExtensions = @()
         $extensionTargets = [ordered]@{}
         try {
-            $stashMarker = Join-Path $runtimeDir 'stash-server.json'
+            $stashMarker = Join-Path $runtimeDir 'stash-service.json'
             if (Test-Path -LiteralPath $stashMarker) {
                 $sm = Get-Content -Raw -LiteralPath $stashMarker | ConvertFrom-Json -ErrorAction Stop
                 # Marker presence = active; an explicit active:false clears it.
@@ -476,23 +476,23 @@ function Write-HostRegistrationRecord {
                     }
                 }
             }
-        } catch { Write-Verbose "activeExtensions (stash-server.json): $($_.Exception.Message)" }
-        # pool-control: the Pool control service marker (runtime/pool-control.json,
-        # written by Start-PoolControlVM.ps1). Same contract as the stash marker
-        # -- presence = active, and poolControlBaseUrl is the deep-link the aggregator
+        } catch { Write-Verbose "activeExtensions (stash-service.json): $($_.Exception.Message)" }
+        # pool-control-service: the Pool control service marker (runtime/pool-control-service.json,
+        # written by Start-PoolControlServiceVM.ps1). Same contract as the stash marker
+        # -- presence = active, and poolControlServiceBaseUrl is the deep-link the aggregator
         # surfaces from the Extension hosts table.
         try {
-            $pcMarker = Join-Path $runtimeDir 'pool-control.json'
+            $pcMarker = Join-Path $runtimeDir 'pool-control-service.json'
             if (Test-Path -LiteralPath $pcMarker) {
                 $pc = Get-Content -Raw -LiteralPath $pcMarker | ConvertFrom-Json -ErrorAction Stop
                 if ($null -eq $pc.active -or [bool]$pc.active) {
-                    $activeExtensions += 'pool-control'
-                    if (-not [string]::IsNullOrWhiteSpace([string]$pc.poolControlBaseUrl)) {
-                        $extensionTargets['pool-control'] = [string]$pc.poolControlBaseUrl
+                    $activeExtensions += 'pool-control-service'
+                    if (-not [string]::IsNullOrWhiteSpace([string]$pc.poolControlServiceBaseUrl)) {
+                        $extensionTargets['pool-control-service'] = [string]$pc.poolControlServiceBaseUrl
                     }
                 }
             }
-        } catch { Write-Verbose "activeExtensions (pool-control.json): $($_.Exception.Message)" }
+        } catch { Write-Verbose "activeExtensions (pool-control-service.json): $($_.Exception.Message)" }
         $record = [ordered]@{
             schemaVersion    = 1
             hostId           = [string]$global:__YurunaHostId
@@ -510,7 +510,7 @@ function Write-HostRegistrationRecord {
             statusPort      = $statusPort
             writtenAtUtc    = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
             # Reserved for the Horizon B resilience gates (IP/capacity admission,
-            # caching-proxy circuit breaker, disk headroom -- docs/opportunities.md)
+            # caching-proxy-service circuit breaker, disk headroom -- docs/opportunities.md)
             # + the pool-planner's host selection; populated when those land.
             capacity        = $null
             ipPool          = $null

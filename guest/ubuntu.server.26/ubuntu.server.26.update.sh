@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.07.28
+# Version: 2026.07.29
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 set -euo pipefail
@@ -29,11 +29,11 @@ esac
 # wrapped-apt teardown-hang trap class (apt blocks at end-of-transaction
 # under a timeout(1) parent). Force unbounded regardless of the image's
 # lib vintage; remove once no image predates the lib's unbounded default.
-export YURUNA_APT_STALL_TIMEOUT=0
+export YURUNA_APT_STALL_TIMEOUT_SECONDS=0
 
-# --- REGION: https://yuruna.link/network#caching-proxy-ca-cert-rc60-gate
+# --- REGION: https://yuruna.link/network#caching-proxy-service-ca-cert-rc60-gate
 # CA self-heal: an untrusted SSL-bump (empty CA baked at seed time) would rc=60
-# the first HTTPS below; re-fetch the CA from the host status server. Non-fatal.
+# the first HTTPS below; re-fetch the CA from the host status service. Non-fatal.
 yuruna_ca_selfheal() {
   # Guard on the bump port with a boundary so a no-cache/direct guest (empty
   # https_proxy) or a proxy on some other port is a hard no-op.
@@ -43,15 +43,15 @@ yuruna_ca_selfheal() {
     return 0
   fi
   if [ -r /etc/yuruna/host.env ]; then . /etc/yuruna/host.env; fi
-  if [ -z "${YURUNA_HOST_IP:-}" ] || [ -z "${YURUNA_HOST_PORT:-}" ]; then
+  if [ -z "${YURUNA_STATUS_SERVICE_IP:-}" ] || [ -z "${YURUNA_STATUS_SERVICE_PORT:-}" ]; then
     echo "CA self-heal: bump HTTPS untrusted and no host.env coordinates; cannot recover CA." >&2
     return 0
   fi
-  echo "CA self-heal: bump HTTPS untrusted; fetching CA from host status server ..."
+  echo "CA self-heal: bump HTTPS untrusted; fetching CA from host status service ..."
   local ca_tmp
   ca_tmp=$(mktemp) || return 0
   if wget --no-proxy --timeout=10 --tries=2 -qO "$ca_tmp" \
-        "http://${YURUNA_HOST_IP}:${YURUNA_HOST_PORT}/ca.crt" \
+        "http://${YURUNA_STATUS_SERVICE_IP}:${YURUNA_STATUS_SERVICE_PORT}/ca.crt" \
      && [ -s "$ca_tmp" ] && grep -q 'BEGIN CERTIFICATE' "$ca_tmp"; then
     sudo install -m 0644 "$ca_tmp" /usr/local/share/ca-certificates/yuruna-squid-ca.crt || true
     sudo update-ca-certificates >/dev/null 2>&1 || true
@@ -61,7 +61,7 @@ yuruna_ca_selfheal() {
       echo "CA self-heal: CA installed but bump still untrusted (stale/wrong CA, or cache unreachable); HTTPS through the bump will still fail." >&2
     fi
   else
-    echo "CA self-heal: host status server served no usable CA (cache may still be unreachable); HTTPS through the bump will still fail." >&2
+    echo "CA self-heal: host status service served no usable CA (cache may still be unreachable); HTTPS through the bump will still fail." >&2
   fi
   rm -f "$ca_tmp"
   return 0
@@ -200,9 +200,9 @@ if [ -r /etc/yuruna/host.env ]; then
   # shellcheck disable=SC1091
   . /etc/yuruna/host.env
 fi
-if [ -n "${YURUNA_HOST_IP:-}" ] && [ -n "${YURUNA_HOST_PORT:-}" ] && [ ! -d "$REAL_HOME/yuruna" ]; then
-  LIVECHECK_URL="http://${YURUNA_HOST_IP}:${YURUNA_HOST_PORT}/livecheck"
-  TARBALL_URL="http://${YURUNA_HOST_IP}:${YURUNA_HOST_PORT}/yuruna-archive.tar.gz"
+if [ -n "${YURUNA_STATUS_SERVICE_IP:-}" ] && [ -n "${YURUNA_STATUS_SERVICE_PORT:-}" ] && [ ! -d "$REAL_HOME/yuruna" ]; then
+  LIVECHECK_URL="http://${YURUNA_STATUS_SERVICE_IP}:${YURUNA_STATUS_SERVICE_PORT}/livecheck"
+  TARBALL_URL="http://${YURUNA_STATUS_SERVICE_IP}:${YURUNA_STATUS_SERVICE_PORT}/yuruna-archive.tar.gz"
   if wget --no-proxy --timeout=2 -qO /dev/null "$LIVECHECK_URL" 2>/dev/null; then
     mkdir -p "$REAL_HOME/yuruna"
     if wget --no-proxy -qO- "$TARBALL_URL" | tar -xz -C "$REAL_HOME/yuruna"; then
@@ -213,7 +213,7 @@ if [ -n "${YURUNA_HOST_IP:-}" ] && [ -n "${YURUNA_HOST_PORT:-}" ] && [ ! -d "$RE
       echo "yuruna: early tarball fetch failed -- will retry after apt phase."
     fi
   else
-    echo "yuruna: host status server livecheck failed -- skipping early extract."
+    echo "yuruna: host status service livecheck failed -- skipping early extract."
   fi
 fi
 
@@ -266,8 +266,8 @@ if [ -r /etc/yuruna/host.env ]; then
   # shellcheck disable=SC1091
   . /etc/yuruna/host.env
 fi
-if [ -n "${YURUNA_HOST_IP:-}" ] && [ -n "${YURUNA_HOST_PORT:-}" ]; then
-  CFG_URL="http://${YURUNA_HOST_IP}:${YURUNA_HOST_PORT}/control/test-config"
+if [ -n "${YURUNA_STATUS_SERVICE_IP:-}" ] && [ -n "${YURUNA_STATUS_SERVICE_PORT:-}" ]; then
+  CFG_URL="http://${YURUNA_STATUS_SERVICE_IP}:${YURUNA_STATUS_SERVICE_PORT}/control/test-config"
   if cfg_body=$(wget --no-proxy --no-cache --timeout=5 -qO- "$CFG_URL" 2>/dev/null); then
     FRAMEWORK_URL=$(printf '%s' "$cfg_body" | python3 -c $'import json,sys\ntry: print((json.load(sys.stdin).get("repositories") or {}).get("frameworkUrl",""))\nexcept Exception: print("")' 2>/dev/null || true)
     PROJECT_URL=$(printf '%s' "$cfg_body" | python3 -c $'import json,sys\ntry: print((json.load(sys.stdin).get("repositories") or {}).get("projectUrl",""))\nexcept Exception: print("")' 2>/dev/null || true)
@@ -282,9 +282,9 @@ fi
 
 if [ ! -d "$REAL_HOME/yuruna" ]; then
   HOST_OK=false
-  if [ -n "${YURUNA_HOST_IP:-}" ] && [ -n "${YURUNA_HOST_PORT:-}" ]; then
-    LIVECHECK_URL="http://${YURUNA_HOST_IP}:${YURUNA_HOST_PORT}/livecheck"
-    TARBALL_URL="http://${YURUNA_HOST_IP}:${YURUNA_HOST_PORT}/yuruna-archive.tar.gz"
+  if [ -n "${YURUNA_STATUS_SERVICE_IP:-}" ] && [ -n "${YURUNA_STATUS_SERVICE_PORT:-}" ]; then
+    LIVECHECK_URL="http://${YURUNA_STATUS_SERVICE_IP}:${YURUNA_STATUS_SERVICE_PORT}/livecheck"
+    TARBALL_URL="http://${YURUNA_STATUS_SERVICE_IP}:${YURUNA_STATUS_SERVICE_PORT}/yuruna-archive.tar.gz"
     if wget --no-proxy --timeout=2 -qO /dev/null "$LIVECHECK_URL" 2>/dev/null; then
       echo "yuruna: fetching committed tarball from $TARBALL_URL"
       mkdir -p "$REAL_HOME/yuruna"
@@ -321,8 +321,8 @@ fi
 
 if [ ! -d "$REAL_HOME/yuruna/project" ]; then
   PROJECT_HOST_OK=false
-  if [ -n "${YURUNA_HOST_IP:-}" ] && [ -n "${YURUNA_HOST_PORT:-}" ]; then
-    PROJECT_TARBALL_URL="http://${YURUNA_HOST_IP}:${YURUNA_HOST_PORT}/yuruna-project-archive.tar.gz"
+  if [ -n "${YURUNA_STATUS_SERVICE_IP:-}" ] && [ -n "${YURUNA_STATUS_SERVICE_PORT:-}" ]; then
+    PROJECT_TARBALL_URL="http://${YURUNA_STATUS_SERVICE_IP}:${YURUNA_STATUS_SERVICE_PORT}/yuruna-project-archive.tar.gz"
     # On 404 ("project repo not present on host") wget exits non-zero
     # and writes nothing (-q); pipefail propagates that to the if-test
     # so the git-clone fallback runs. The trailing ls -A guards against

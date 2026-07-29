@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.28
+.VERSION 2026.07.29
 .GUID 42c3d4e5-f6a7-4b89-0c12-de3f4a5b6c7d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -21,7 +21,7 @@
     Stop and remove VMs (by name prefix) and their leftover files.
 .DESCRIPTION
     Operator entry point, also invoked by the cycle-start sweep in
-    Invoke-TestInnerRunner. Resolves the VM-name prefixes from -Prefix, then
+    Invoke-TestRunnerInnerLoop. Resolves the VM-name prefixes from -Prefix, then
     test.config.yml, and removes the matching VMs and their orphaned files.
 
     Host-neutral throughout: enumeration goes through the contract's
@@ -37,7 +37,7 @@
 
     Prefixes are matched literally, never as wildcards. Passing an empty
     string is refused rather than treated as "everything": a sweep that
-    matched every VM would take the caching proxy and any unrelated VM on
+    matched every VM would take the caching-proxy service and any unrelated VM on
     the host with it.
 .PARAMETER Quiet
     Suppress per-step "Stopping ... Removed ..." chatter and the
@@ -91,7 +91,7 @@ if (-not $ExplicitPrefix) {
 if (-not $Prefix) { $Prefix = @('test-') }
 
 # Normalize and refuse an empty prefix. An empty string matches every VM,
-# which would sweep the caching proxy and any unrelated VM sharing the
+# which would sweep the caching-proxy service and any unrelated VM sharing the
 # host -- a far larger blast radius than any caller intends, and one that
 # only shows up once it has already deleted something.
 $Prefix = @($Prefix | ForEach-Object { "$_".Trim() } | Where-Object { $_ })

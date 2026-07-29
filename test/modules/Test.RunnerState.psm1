@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.28
+.VERSION 2026.07.29
 .GUID 42bc8a7d-e6f5-4d23-9180-3a4b5c6d7e95
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -51,7 +51,7 @@
 
     Each transition writes runner.state.json atomically (via the
     state-file helper) and emits a `runner_state_transition` NDJSON
-    event that an off-host consumer joins on `(runId, cycleId)`.
+    event that an off-host consumer joins on `(runId, cycleStartUtc)`.
 
     Pairs with boot recovery: on outer startup, Initialize-Runner-
     State reads the prior state file. If it shows a different runId
@@ -283,7 +283,7 @@ function Set-RunnerState {
     [CmdletBinding(SupportsShouldProcess)]
     [OutputType([hashtable])]
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidGlobalVars', '',
-        Justification = 'Reads global:__YurunaRunId / __YurunaCycleId for the emitted event.')]
+        Justification = 'Reads global:__YurunaRunId / __YurunaCycleStartUtc for the emitted event.')]
     param(
         [Parameter(Mandatory)][string]$To,
         [string]$Reason = ''
@@ -322,20 +322,20 @@ function Set-RunnerState {
         history   = $history
     }
     # Preserve cycle-context fields a prior write left on the file
-    # (lastCycleId, lastCycleNumber) so a quick read of runner.state.json
+    # (lastCycleStartUtc, lastCycleNumber) so a quick read of runner.state.json
     # carries the most-recent cycle metadata without needing to join
     # to the manifest.
-    foreach ($carry in @('lastCycleId', 'lastCycleNumber')) {
+    foreach ($carry in @('lastCycleStartUtc', 'lastCycleNumber')) {
         if ($cur.Contains($carry)) { $newState[$carry] = $cur[$carry] }
     }
-    # Cycle-context update: cycle-start writes lastCycleId from the
-    # global __YurunaCycleId set by Start-LogFile. The state machine
+    # Cycle-context update: cycle-start writes lastCycleStartUtc from the
+    # global __YurunaCycleStartUtc set by Start-LogFile. The state machine
     # is upstream of Start-LogFile inside a cycle, so this is only
     # populated when the caller already set the global beforehand
-    # (Test-Sequence / Project paths that drive Start-LogFile
+    # (Invoke-TestSequence / Project paths that drive Start-LogFile
     # themselves).
-    if (($To -eq 'cycle-start') -and $global:__YurunaCycleId) {
-        $newState['lastCycleId'] = [string]$global:__YurunaCycleId
+    if (($To -eq 'cycle-start') -and $global:__YurunaCycleStartUtc) {
+        $newState['lastCycleStartUtc'] = [string]$global:__YurunaCycleStartUtc
     }
     $null = Write-YurunaStateFileJson -Path (Get-RunnerStatePath) -InputObject $newState -Confirm:$false
     if (Get-Command Send-CycleEventSafely -ErrorAction SilentlyContinue) {

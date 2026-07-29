@@ -3,7 +3,7 @@
 
 // Host resolution. A stash's hostId is an opaque
 // UUID; to build the remote-host deep-link (§8.3) the UI turns it into a
-// reachable stash-UI base URL by reusing the pool-aggregator's existing
+// reachable stash-UI base URL by reusing the pool-aggregator-service's existing
 // hostId→address mapping rather than storing addresses in stash metadata.
 //
 // This is BEST-EFFORT and never a hard dependency: an unset/unreachable
@@ -13,8 +13,8 @@
 // The resolver reads the aggregator's read-only /api/v1/pool-status snapshot
 // and looks for the host's stashBaseUrl (the §13 amendment): the aggregator
 // fills it from the host's registration-advertised extensionTargets, falling
-// back to the stash server's own presence announce, so resolution works even
-// while a host's status server is down. A host with neither yields "" and
+// back to the stash service's own presence announce, so resolution works even
+// while a host's status service is down. A host with neither yields "" and
 // the UI degrades gracefully.
 package httpsrv
 

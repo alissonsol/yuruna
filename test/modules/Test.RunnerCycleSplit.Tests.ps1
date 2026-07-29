@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.28
+.VERSION 2026.07.29
 .GUID 42b9d4e1-7c53-4a08-8bd6-0f92e5a37c14
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -156,13 +156,13 @@ Describe 'The inner spawn inherits the console rather than a pipe' {
     # function's success stream: let it reach the host and the inner inherits the
     # console; capture it anywhere up the chain and PowerShell has to create an
     # anonymous pipe and read it to EOF. EOF -- not the inner's exit -- is then what
-    # releases the cycle. The inner spawns the status server, which inherits a
+    # releases the cycle. The inner spawns the status service, which inherits a
     # duplicate of that write end and holds it for its whole unbounded life, so the
     # cycle never returns: the inner logs "about to exit with code 0" and
     # "[outer cycle N] outer runner back in control" never follows. One cycle
     # passes and the runner starts no more. Observed on a live Hyper-V host with
     # the cycle process blocked 44 minutes past a passing cycle, released within a
-    # second of killing the status server.
+    # second of killing the status service.
     #
     # Windows only: the POSIX branch of Start-StatusService.ps1 detaches through
     # `bash -c "... </dev/null >/dev/null 2>err &"`, whose redirections replace the
@@ -176,7 +176,7 @@ Describe 'The inner spawn inherits the console rather than a pipe' {
         function Invoke-HandleLeakFixture {
             <#
             .SYNOPSIS
-                Rebuild the cycle -> inner -> status-server topology in a temp dir
+                Rebuild the cycle -> inner -> status-service topology in a temp dir
                 and report whether the cycle process returned once the inner exited.
             .DESCRIPTION
                 parent.ps1 stands in for Invoke-TestCycleRunner.ps1: it calls a
@@ -194,7 +194,7 @@ Describe 'The inner spawn inherits the console rather than a pipe' {
             .OUTPUTS
                 [bool] -- $true when the parent exited inside the timeout.
             #>
-            param([switch]$Capture, [int]$TimeoutSec = 6, [int]$GrandchildSeconds = 25)
+            param([switch]$Capture, [int]$TimeoutSeconds = 6, [int]$GrandchildSeconds = 25)
 
             $pwshExe = [Environment]::ProcessPath
             $dir = Join-Path ([System.IO.Path]::GetTempPath()) ('yuruna leak ' + [guid]::NewGuid().ToString('N'))
@@ -233,7 +233,7 @@ if ($Capture) { $result = Invoke-Cycle; $null = $result } else { Invoke-Cycle }
                 $parent = Start-Process -FilePath $pwshExe -ArgumentList $argList -PassThru -WindowStyle Hidden `
                     -RedirectStandardOutput (Join-Path $dir 'parent.out') `
                     -RedirectStandardError  (Join-Path $dir 'parent.err')
-                return [bool]$parent.WaitForExit($TimeoutSec * 1000)
+                return [bool]$parent.WaitForExit($TimeoutSeconds * 1000)
             } finally {
                 # The grandchild outlives the timeout on purpose, so the wedge is
                 # unambiguous; reap it (and a parent still blocked on the pipe)
@@ -294,8 +294,8 @@ Describe 'The cycle result travels out of band' {
             RepoRoot = (Split-Path -Parent $PSScriptRoot); ConfigPath = 'x'; InnerScript = 'x'; PwshExe = 'pwsh'
             ArgList = @(); ForwardEnvSnapshot = @{}; ShutdownState = @{ Requested = $false }
             NoGitPull = $false; FailurePauseMaxSeconds = 1; FailureCommitPollSeconds = 1
-            OuterPullErrorSleepSec = 1; InnerSpawnErrorSleepSec = 1
-            StepTimeoutMinutesDefault = 1; WatchdogPollSeconds = 1
+            OuterPullErrorSleepSeconds = 1; InnerSpawnErrorSleepSeconds = 1
+            StepTimeoutSecondsDefault = 1; WatchdogPollSeconds = 1
         }
         # A failed pull is the cheapest real return path -- no spawn, no watchdog.
         Mock -CommandName Invoke-OuterGitPull -MockWith { $false } -ModuleName Test.RunnerOuterLoop
@@ -314,8 +314,8 @@ Describe 'Cycle dispatch' {
             RepoRoot = $testRoot; ConfigPath = 'x'; InnerScript = 'x'; PwshExe = 'pwsh'
             ArgList = @(); ForwardEnvSnapshot = @{}; ShutdownState = @{ Requested = $false }
             NoGitPull = $true; FailurePauseMaxSeconds = 1; FailureCommitPollSeconds = 1
-            OuterPullErrorSleepSec = 1; InnerSpawnErrorSleepSec = 1
-            StepTimeoutMinutesDefault = 1; WatchdogPollSeconds = 1
+            OuterPullErrorSleepSeconds = 1; InnerSpawnErrorSleepSeconds = 1
+            StepTimeoutSecondsDefault = 1; WatchdogPollSeconds = 1
         }
         Mock -CommandName Invoke-RunnerOuterCycle -MockWith {
             [pscustomobject]@{ Outcome = 'completed'; ExitCode = 7 }

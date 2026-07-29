@@ -27,8 +27,8 @@ except Debug.
 ## Three-state resolution
 
 1. **Command-line override** — `-logLevel Verbose` on
-   `Invoke-TestRunner.ps1` / `Invoke-TestInnerRunner.ps1` /
-   `Test-Sequence.ps1`.
+   `Invoke-TestRunner.ps1` / `Invoke-TestRunnerInnerLoop.ps1` /
+   `Invoke-TestSequence.ps1`.
 2. **`logLevel:` in `test.config.yml`** — hot-reloadable; the inner
    runner re-resolves on every `Sync-RuntimeConfig`, so an operator can
    edit the YAML mid-cycle and the next step picks up the new value.
@@ -51,7 +51,7 @@ the runner and restart without `-logLevel` to release the override.
 ## Propagation across pwsh boundaries
 
 Child pwsh processes (the outer → inner spawn, sequence engine sub-
-processes, `Test-Sequence` standalone) inherit `$env:YURUNA_LOG_LEVEL`
+processes, `Invoke-TestSequence` standalone) inherit `$env:YURUNA_LOG_LEVEL`
 but NOT PowerShell preference variables. The env var IS the propagation
 channel. The cascade module exports `Use-LogLevelFromEnv` — every child
 script that should honor the parent's level calls it at the top:
@@ -90,6 +90,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.28
+Last review: 2026.07.29
 
 Back to [Yuruna](../README.md)

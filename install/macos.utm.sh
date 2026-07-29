@@ -1,7 +1,7 @@
 #!/bin/bash
 # Yuruna macOS UTM bootstrap installer.
 # LICENSEURI https://yuruna.link/license
-# Version: 2026.07.28  Copyright (c) 2019-2026 by Alisson Sol et al.
+# Version: 2026.07.29  Copyright (c) 2019-2026 by Alisson Sol et al.
 # --- REGION: https://yuruna.link/install/explained
 # One-liner: /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/install/macos.utm.sh)"
 
@@ -35,12 +35,7 @@ warn() { printf '\033[1;33m!! \033[0m %s\n' "$*" >&2; }
 die()  { printf '\033[1;31mXX \033[0m %s\n' "$*" >&2; exit 1; }
 
 # --- REGION: Install log
-# Mirror stdout+stderr to a file as well as the terminal so a mid-install
-# failure can be inspected afterwards. A FIFO + backgrounded tee (rather than
-# `exec > >(tee ...)`) lets the EXIT path wait for tee to flush, so the file is
-# complete even on an abrupt exit -- a plain process-substitution tee is left
-# an orphan that may be killed before flushing its block-buffered file write.
-# Standard per-user log dir, ${TMPDIR:-/tmp} fallback.
+# --- REGION: https://yuruna.link/install/explained#install-log
 if [[ -z "${YURUNA_INSTALL_LOG:-}" ]]; then
   _yuruna_log_dir="$HOME/Library/Logs/Yuruna"
   mkdir -p "$_yuruna_log_dir" 2>/dev/null || _yuruna_log_dir="${TMPDIR:-/tmp}"
@@ -308,8 +303,8 @@ quit_mac_app() {
 }
 
 # --- REGION: https://yuruna.link/install/explained#stop-running-yuruna-processes-before-updating
-# Stop the runner/inner/status-server and WAIT before the checkout rename.
-# VMs (the yuruna-caching-proxy cache, a UTM domain) are never touched here;
+# Stop the runner/inner/status-service and WAIT before the checkout rename.
+# VMs (the yuruna-caching-proxy-service cache, a UTM domain) are never touched here;
 # UTM quit is gated separately on PRESERVE_SQUID_CACHE.
 stop_yuruna_processes() {
   local runtime_dir="${YURUNA_RUNTIME_DIR:-$YURUNA_DIR/test/status/runtime}"
@@ -329,8 +324,8 @@ stop_yuruna_processes() {
   # (2) Command-line pattern match.
   local -a patterns=(
     "Invoke-TestRunner.ps1"
-    "Invoke-TestInnerRunner.ps1"
-    "Test-Sequence.ps1"
+    "Invoke-TestRunnerInnerLoop.ps1"
+    "Invoke-TestSequence.ps1"
     "Start-StatusService.ps1"
     ".status-service.ps1"
   )
@@ -390,7 +385,7 @@ stop_yuruna_processes() {
   done
 
   if [[ ${#uniq_pids[@]} -eq 0 ]]; then
-    log "  no running Yuruna runner / status server found"
+    log "  no running Yuruna runner / status service found"
     return 0
   fi
 
@@ -427,10 +422,10 @@ stop_yuruna_processes() {
   warn "  some Yuruna service PIDs did not exit; re-run the installer if the repo update reports the checkout is busy."
 }
 
-# --- REGION: Preserve yuruna-caching-proxy if running
+# --- REGION: Preserve yuruna-caching-proxy-service if running
 SQUID_CACHE_DETECT_REASON=""
 is_squid_cache_running() {
-  local state_file="$YURUNA_DIR/test/status/runtime/yuruna-caching-proxy.yml"
+  local state_file="$YURUNA_DIR/test/status/runtime/yuruna-caching-proxy-service.yml"
   if [[ -f "$state_file" ]] && command -v nc >/dev/null 2>&1; then
     local cache_ip
     cache_ip=$(grep -E '^ipAddress:' "$state_file" 2>/dev/null | head -1 \
@@ -443,7 +438,7 @@ is_squid_cache_running() {
 
   command -v utmctl >/dev/null 2>&1 || { SQUID_CACHE_DETECT_REASON=""; return 1; }
   local status
-  status=$(utmctl status yuruna-caching-proxy 2>&1 || true)
+  status=$(utmctl status yuruna-caching-proxy-service 2>&1 || true)
   case "$status" in
     started|paused|suspended)
       SQUID_CACHE_DETECT_REASON="utmctl reports the cache VM '$status'"
@@ -462,15 +457,15 @@ is_squid_cache_running() {
 
 PRESERVE_SQUID_CACHE=0
 if is_squid_cache_running; then
-  warn "yuruna-caching-proxy cache VM is running (or its state is uncertain): $SQUID_CACHE_DETECT_REASON."
+  warn "yuruna-caching-proxy-service cache VM is running (or its state is uncertain): $SQUID_CACHE_DETECT_REASON."
   warn "  Skipping UTM quit + UTM cask upgrade for this run so the cache VM and its"
   warn "  multi-GB squid spool are NOT torn down (a quit-UTM window would let the"
   warn "  orphaned-bundle sweep delete it). To upgrade UTM later: stop the cache"
-  warn "  (pwsh test/Stop-CachingProxyVM.ps1) or quit UTM manually, then re-run this installer."
+  warn "  (pwsh test/Stop-CachingProxyServiceVM.ps1) or quit UTM manually, then re-run this installer."
   PRESERVE_SQUID_CACHE=1
 fi
 
-log "Stopping anything that would block a repo update (runner + status server; VMs preserved)"
+log "Stopping anything that would block a repo update (runner + status service; VMs preserved)"
 stop_yuruna_processes
 if [[ $PRESERVE_SQUID_CACHE -eq 0 ]]; then
   quit_mac_app "UTM"
@@ -514,7 +509,7 @@ brew_ensure_formula gh
 
 log "Installing / upgrading required casks"
 if [[ ${PRESERVE_SQUID_CACHE:-0} -eq 1 ]]; then
-  log "  skipping UTM cask upgrade -- caching-proxy running, UTM cannot be quit"
+  log "  skipping UTM cask upgrade -- caching-proxy-service running, UTM cannot be quit"
 else
   brew_ensure_cask utm "/Applications/UTM.app"
 fi
@@ -542,7 +537,7 @@ pwsh -NoProfile -Command '
             Install-Module -Name powershell-yaml -Scope CurrentUser -Force -AllowClobber -ErrorAction Stop
         } catch {
             Write-Warning "  Install-Module powershell-yaml failed: $($_.Exception.Message)"
-            Write-Warning "  Test-Project.ps1 will refuse to run until this is fixed."
+            Write-Warning "  Invoke-TestProject.ps1 will refuse to run until this is fixed."
             Write-Warning "  Try manually: pwsh -Command ''Install-Module powershell-yaml -Scope CurrentUser''"
             exit 1
         }

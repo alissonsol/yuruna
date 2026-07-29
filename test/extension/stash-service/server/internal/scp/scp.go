@@ -35,7 +35,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"stash-server/internal/config"
+	"stash-service/internal/config"
 )
 
 // Result is what the SCP receive returned to the caller (sshsrv).

@@ -1,9 +1,9 @@
 // LICENSEURI https://yuruna.link/license
 // Copyright (c) 2019-2026 by Alisson Sol et al.
 
-// Package beacon self-announces this stash server's presence to the
-// pool-aggregator (POST /announce), keeping the dashboard's Extension hosts
-// row alive independently of the owning HOST's status server: hello at
+// Package beacon self-announces this stash service's presence to the
+// pool-aggregator-service (POST /announce), keeping the dashboard's Extension hosts
+// row alive independently of the owning HOST's status service: hello at
 // startup, a re-announce every Interval (which also means an aggregator
 // restart re-learns the row within one period), and a best-effort goodbye
 // at shutdown.
@@ -36,7 +36,7 @@ const (
 	maxHelloRetry = time.Minute
 )
 
-// Beacon periodically announces one extension service to the pool-aggregator.
+// Beacon periodically announces one extension service to the pool-aggregator-service.
 type Beacon struct {
 	AggregatorURL string        // aggregator base, e.g. https://<proxy>:9400
 	HostID        string        // OWNING host's hostId (pool-table namespace)

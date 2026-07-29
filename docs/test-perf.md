@@ -148,7 +148,7 @@ branch on it).
 ```
 {
   "schema": 1,
-  "cycleId": "2026-05-21T18:42:11Z",
+  "cycleStartUtc": "2026-05-21T18:42:11Z",
   "cycleStartedAtUtc": "2026-05-21T18:42:11.003Z",
 
   "hostUuid": "428f1b6a2e7d4c80a14b9c2d3e4f0011",
@@ -189,8 +189,8 @@ Field reference:
 | Field | Type | Notes |
 |---|---|---|
 | `schema` | int | Wire-format version. Readers branch on this. |
-| `cycleId` | string | ISO-8601-Z UTC at cycle start. Same value as the `status.json` cycle id; joinable across logs. |
-| `cycleStartedAtUtc` | string | `Start-PerfCycle` invocation time. May differ from `cycleId` by ms. |
+| `cycleStartUtc` | string | ISO-8601-Z UTC at cycle start. Same value as the `status.json` cycle id; joinable across logs. |
+| `cycleStartedAtUtc` | string | `Start-PerfCycle` invocation time. May differ from `cycleStartUtc` by ms. |
 | `hostUuid` | string | `42`-prefixed 32-hex, persisted in `status/runtime/host.uuid`. Stable per machine. |
 | `hostname` | string | OS hostname. Can change; UUID is the durable id. |
 | `hostPlatform` | enum | `host.macos.utm`, `host.ubuntu.kvm`, `host.windows.hyper-v`. |
@@ -293,7 +293,7 @@ WITH baseline AS (
   FROM read_json_auto('perf/cycles/*.jsonl')
   WHERE outcome='pass' AND cycleStartedAtUtc > now() - INTERVAL 14 DAY
   GROUP BY 1,2,3,4,5)
-SELECT r.cycleId, r.sequenceName, r.stepName,
+SELECT r.cycleStartUtc, r.sequenceName, r.stepName,
        (r.durationMs - b.mu) / NULLIF(b.sigma,0) AS z
 FROM   read_json_auto('perf/cycles/2026-05-21*.jsonl') r
 JOIN   baseline b USING (sequenceName, stepName, hostPlatform, guestKey, sequenceRevision)
@@ -329,15 +329,15 @@ for tomorrow's yellow tier.
 
 The emitter is wired into the runner at three points:
 
-1. **`Invoke-TestInnerRunner.ps1`** calls `Start-PerfCycle` once per
+1. **`Invoke-TestRunnerInnerLoop.ps1`** calls `Start-PerfCycle` once per
    cycle, right after the cycle-start host diagnostic is captured —
    hash-stores the diagnostic, opens the cycle's JSONL file, stamps
    the two commit SHAs.
-2. **`Invoke-Sequence.psm1`** calls `Set-PerfSequenceContext` +
+2. **`Test.SequenceEngine.psm1`** calls `Set-PerfSequenceContext` +
    `Set-PerfGuestContext` once per sequence after `Read-SequenceFile`
    — snapshots the YAML body and pins guest identity for the rows
    that follow.
-3. **`Invoke-Sequence.psm1`**, inside `$invokeStepBlock`, calls
+3. **`Test.SequenceEngine.psm1`**, inside `$invokeStepBlock`, calls
    `Write-PerfStepRow` at the end of every non-retry step iteration
    — one atomic `AppendAllText` per step.
 
@@ -376,6 +376,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.28
+Last review: 2026.07.29
 
 Back to [Yuruna](../README.md)

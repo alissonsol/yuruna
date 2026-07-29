@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.28
+.VERSION 2026.07.29
 .GUID 42cd8b7a-e6f5-4a23-9081-3b4c5d6e7fa6
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -34,7 +34,7 @@
       1. saveDiskSnapshot writes a manifest at the moment the
          hypervisor confirms the save succeeded. Payload: vmName,
          snapshotId, takenAtUtc, hostName, platform (HostType),
-         pid, cycleId, runId.
+         pid, cycleStartUtc, runId.
       2. loadDiskSnapshot / recoverFromSnapshot read the manifest
          before invoking the hypervisor restore. If the manifest is
          missing, vmName / snapshotId don't match, or the platform
@@ -129,7 +129,7 @@ function Write-SnapshotManifest {
     [CmdletBinding(SupportsShouldProcess)]
     [OutputType([string])]
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidGlobalVars', '',
-        Justification = 'Reads global:__YurunaCycleId + __YurunaRunId for manifest provenance.')]
+        Justification = 'Reads global:__YurunaCycleStartUtc + __YurunaRunId for manifest provenance.')]
     param(
         [Parameter(Mandatory)][string]$VMName,
         [Parameter(Mandatory)][string]$SnapshotId,
@@ -145,7 +145,7 @@ function Write-SnapshotManifest {
         hostName     = [string]([System.Net.Dns]::GetHostName())
         takenAtUtc   = (Get-Date).ToUniversalTime().ToString('o')
         writerPid    = $PID
-        cycleId      = if ($global:__YurunaCycleId) { [string]$global:__YurunaCycleId } else { $null }
+        cycleStartUtc      = if ($global:__YurunaCycleStartUtc) { [string]$global:__YurunaCycleStartUtc } else { $null }
         runId        = if ($global:__YurunaRunId)   { [string]$global:__YurunaRunId }   else { $null }
         manifestVersion = 1
     }

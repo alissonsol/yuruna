@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.28
+.VERSION 2026.07.29
 .GUID 42f3718d-4e5f-4061-9b72-8d9e0f1a2b3c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -30,7 +30,7 @@
     threadpool thread that fires the timer.
 
     The outer watchdog reads runner.heartbeat's mtime: stale beyond
-    testCycle.stepTimeoutMinutes means the inner is wedged and gets killed.
+    testCycle.stepTimeoutSeconds means the inner is wedged and gets killed.
     runner.heartbeat proves the PROCESS is alive; the in-runspace
     runner.stepHeartbeat (touched per step by Invoke-Sequence) proves the
     RUNSPACE is alive -- the two are complementary and the watchdog uses the

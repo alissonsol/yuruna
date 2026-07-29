@@ -2,7 +2,7 @@
 // Copyright (c) 2019-2026 by Alisson Sol et al.
 
 // Package id implements the per-day 4-character unique-ID allocator
-// defined in §7 of the Stash Service spec.
+// defined in §7 of the stash service spec.
 //
 // Uniqueness scope: per UTC day, i.e. unique within one yyyy/mm/dd
 // folder. Cross-day collisions are intentional (§12) and require no
@@ -24,7 +24,7 @@ import (
 	"sync"
 	"time"
 
-	"stash-server/internal/config"
+	"stash-service/internal/config"
 )
 
 // Allocator is the §5.6 mutex-protected ID generator. Safe for use

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.28
+.VERSION 2026.07.29
 .GUID 42a7c3e5-1f2b-4d6e-8a90-3c5b7d9e1f04
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -24,11 +24,11 @@
     Pool garbage-collection CLI. Given a stable hostId, removes the host's entire
     footprint so it stops showing up in the "Yuruna hosts" / Extension-hosts set:
 
-      1. STORAGE. Deletes, under networkStorage.poolLocalPath (read from
+      1. STORAGE. Deletes, under networkStorage.poolStorageLocalPath (read from
          test.config.yml):
-           * <poolLocalPath>/hosts/info.<hostId>.yml  -- the identity record the
+           * <poolStorageLocalPath>/hosts/info.<hostId>.yml  -- the identity record the
              aggregator lists a host from.
-           * <poolLocalPath>/<hostId>/                -- the host's replicated
+           * <poolStorageLocalPath>/<hostId>/                -- the host's replicated
              cycle folders (reclaims NAS disk).
       2. MEMBERSHIP. Strips the hostId from EVERY pool's members[] in the intent
          store (pools.yml), then commits + pushes.
@@ -82,9 +82,9 @@ Initialize-YurunaEntryPointModuleSet -For PoolAdmin -ModulesDir $ModulesDir
 # Test.PoolStorage (Get-YurunaPoolStorageConfig), which it does not load.
 Import-Module (Join-Path $ModulesDir 'Test.PoolStorage.psm1') -Global -Force -DisableNameChecking
 # The live-dashboard eviction (forget-host) reuses the pool push transport
-# (CA-pinned HTTPS + bearer) and the caching-proxy address; loaded here, resolved
+# (CA-pinned HTTPS + bearer) and the caching-proxy-service address; loaded here, resolved
 # lazily + best-effort at the end (a missing token/proxy just skips it).
-foreach ($m in @('Test.PoolPush.psm1', 'Test.CachingProxy.psm1', 'Test.Extension.psm1')) {
+foreach ($m in @('Test.PoolPush.psm1', 'Test.CachingProxyService.psm1', 'Test.Extension.psm1')) {
     $mp = Join-Path $ModulesDir $m
     if (Test-Path -LiteralPath $mp) { Import-Module $mp -Global -Force -DisableNameChecking -ErrorAction SilentlyContinue }
 }
@@ -103,10 +103,10 @@ $HostId = $canonicalHostId
 $cfg = $null
 if (Test-Path -LiteralPath $ConfigPath) { $cfg = Read-TestConfig -Path $ConfigPath }
 # -IgnoreReplicate: a GC tool must locate the records even on a host that has
-# pool.networkReplicate off (it still needs the poolLocalPath to reach the share).
+# pool.networkReplicate off (it still needs the poolStorageLocalPath to reach the share).
 $storage = if ($cfg) { Get-YurunaPoolStorageConfig -Config $cfg -IgnoreReplicate } else { $null }
 if (-not $storage -or [string]::IsNullOrWhiteSpace($storage.LocalPath)) {
-    Write-Error "No pool storage in $ConfigPath -- networkStorage.poolNetworkPath / poolNetworkUser / poolLocalPath must all be set to locate the host's NAS records."
+    Write-Error "No pool storage in $ConfigPath -- networkStorage.poolStorageNetworkPath / poolStorageNetworkUser / poolStorageLocalPath must all be set to locate the host's NAS records."
     exit $ExitFailure
 }
 $localPath  = $storage.LocalPath
@@ -214,15 +214,15 @@ if ([string]::IsNullOrWhiteSpace($t.IntentGitUrl)) {
 }
 
 # --- REGION: Evict from the live dashboard view (aggregator forget-host, best-effort)
-# The "Yuruna hosts" panel is the pool-aggregator's in-memory view (Prometheus
+# The "Yuruna hosts" panel is the pool-aggregator-service's in-memory view (Prometheus
 # yuruna_pool_host_info), NOT the NAS records above -- a host it discovered by
 # POLLING status servers lingers there for the aggregator's host TTL (-host-ttl, default 24h) after last contact, so the
-# deletions so far do not clear it. When a lab-auth-token + caching-proxy are
+# deletions so far do not clear it. When a lab-auth-token + caching-proxy-service are
 # configured, ask the aggregator to forget the host NOW. Opt-in + best-effort: a
 # missing token, unknown proxy, or unreachable aggregator is a silent skip (pull +
 # TTL still converge) and never fails the purge or throws.
 try {
-    if ($PSCmdlet.ShouldProcess('pool-aggregator :9400', "Evict host $HostId from the live dashboard view (forget-host)")) {
+    if ($PSCmdlet.ShouldProcess('pool-aggregator-service :9400', "Evict host $HostId from the live dashboard view (forget-host)")) {
         if (Get-Command Import-Extension -ErrorAction SilentlyContinue) {
             try { $null = Import-Extension -Area 'authentication' -RequireSingle } catch { $null = $_ }
         }
@@ -241,18 +241,18 @@ try {
             } catch { $null = $_ }
         }
         $proxyIp = ''
-        if (Get-Command Read-CachingProxyState -ErrorAction SilentlyContinue) {
-            try { $st = Read-CachingProxyState; if ($st -and $st.ipAddress) { $proxyIp = [string]$st.ipAddress } } catch { $null = $_ }
+        if (Get-Command Read-CachingProxyServiceState -ErrorAction SilentlyContinue) {
+            try { $st = Read-CachingProxyServiceState; if ($st -and $st.ipAddress) { $proxyIp = [string]$st.ipAddress } } catch { $null = $_ }
         }
-        if ([string]::IsNullOrWhiteSpace($proxyIp) -and $env:YURUNA_CACHING_PROXY_IP) { $proxyIp = $env:YURUNA_CACHING_PROXY_IP.Trim() }
+        if ([string]::IsNullOrWhiteSpace($proxyIp) -and $env:YURUNA_CACHING_PROXY_SERVICE_IP) { $proxyIp = $env:YURUNA_CACHING_PROXY_SERVICE_IP.Trim() }
 
         if ([string]::IsNullOrWhiteSpace($token)) {
             Write-Verbose 'forget-host: no lab-auth-token configured; skipping live-view eviction (the panel clears on the aggregator host TTL).'
         } elseif ([string]::IsNullOrWhiteSpace($proxyIp)) {
-            Write-Verbose 'forget-host: no caching-proxy IP known; skipping live-view eviction.'
+            Write-Verbose 'forget-host: no caching-proxy-service IP known; skipping live-view eviction.'
         } elseif (Get-Command Invoke-PoolForgetHost -ErrorAction SilentlyContinue) {
             $f = Invoke-PoolForgetHost -ProxyIp $proxyIp -HostId $HostId -Token $token -RuntimeDir $runtimeDir
-            if ($f.ok) { [void]$removed.Add("dashboard view   pool-aggregator forgot $HostId") }
+            if ($f.ok) { [void]$removed.Add("dashboard view   pool-aggregator-service forgot $HostId") }
             else { Write-Warning "forget-host: aggregator did not evict $HostId ($($f.reason)). The panel clears on its own after the aggregator host TTL (-host-ttl, default 24h)." }
         }
     }

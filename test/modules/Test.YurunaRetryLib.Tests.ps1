@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.28
+.VERSION 2026.07.29
 .GUID 423e1a49-2b85-4d60-9f12-6a0d5c8e2b74
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -57,11 +57,11 @@ YURUNA_RETRY_CURL_URL=x _yuruna_classify_curl 22 >/dev/null 2>&1; r="$r$? "
 unset -f curl
 # gate integration: a permanent rc (3) stops the ladder after exactly 1 attempt
 _p() { return 3; }
-a=$(YURUNA_RETRY_CLASSIFY=_yuruna_classify_curl YURUNA_RETRY_MAX_ATTEMPTS=5 YURUNA_RETRY_DELAY=1 _yuruna_retry t _p 2>&1 | grep -c 'attempt .* failed')
+a=$(YURUNA_RETRY_CLASSIFY=_yuruna_classify_curl YURUNA_RETRY_MAX_ATTEMPTS=5 YURUNA_RETRY_DELAY_SECONDS=1 _yuruna_retry t _p 2>&1 | grep -c 'attempt .* failed')
 r="$r$a "
 # jitter: a retried failure sleeps a value in [5,10] for a base delay of 10
 _x() { return 9; }
-n=$(YURUNA_RETRY_MAX_ATTEMPTS=2 YURUNA_RETRY_DELAY=10 _yuruna_retry t _x 2>&1 | sed -n 's/.*sleeping \([0-9][0-9]*\)s before retry (backoff 10s.*/\1/p' | head -1)
+n=$(YURUNA_RETRY_MAX_ATTEMPTS=2 YURUNA_RETRY_DELAY_SECONDS=10 _yuruna_retry t _x 2>&1 | sed -n 's/.*sleeping \([0-9][0-9]*\)s before retry (backoff 10s.*/\1/p' | head -1)
 if [ -n "$n" ] && [ "$n" -ge 5 ] && [ "$n" -le 10 ]; then r="${r}J"; else r="${r}j($n)"; fi
 echo "$r"
 '@
@@ -87,7 +87,7 @@ YURUNA_RETRY_WGET_URL=x _yuruna_classify_wget 8 >/dev/null 2>&1; r="$r$? "  # 50
 unset -f curl
 # one structured marker per failed attempt, carrying stack/label/attempt/rc
 _r9() { return 9; }
-mk=$(YURUNA_RETRY_MAX_ATTEMPTS=2 YURUNA_RETRY_DELAY=1 _yuruna_retry curl_retry _r9 2>&1 | grep -c '^YURUNA_RETRY {"stack":"bash"')
+mk=$(YURUNA_RETRY_MAX_ATTEMPTS=2 YURUNA_RETRY_DELAY_SECONDS=1 _yuruna_retry curl_retry _r9 2>&1 | grep -c '^YURUNA_RETRY {"stack":"bash"')
 r="${r}${mk}"
 echo "$r"
 '@

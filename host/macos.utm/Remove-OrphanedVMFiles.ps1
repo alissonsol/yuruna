@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.28
+.VERSION 2026.07.29
 .GUID 42a8d3f2-e5b6-4c71-9a04-2f3d4e5a6b7c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -115,7 +115,7 @@ foreach ($line in $utmOutput) {
 
 # Read VM UUID from a bundle's config.plist. utmctl list may only return
 # running VMs; UUID-based `utmctl status` works for stopped VMs too --
-# without this, a stopped service VM (e.g. caching-proxy) is misclassified
+# without this, a stopped service VM (e.g. caching-proxy-service) is misclassified
 # as orphaned and deleted by the -Force cleanup path.
 #
 # `plutil -extract Information.UUID raw` (not `-convert json`):

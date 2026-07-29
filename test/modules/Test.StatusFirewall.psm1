@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.28
+.VERSION 2026.07.29
 .GUID 42d7e8f9-a0b1-4c23-8d45-6e7f80912a34
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -40,7 +40,7 @@ function Get-YurunaStatusFirewallRuleName {
     [CmdletBinding()]
     [OutputType([string])]
     param([Parameter(Mandatory)][int]$Port)
-    "Yuruna: Allow inbound TCP :$Port (Status server)"
+    "Yuruna: Allow inbound TCP :$Port (Status service)"
 }
 
 function Get-YurunaRulePortFilter {
@@ -92,7 +92,7 @@ function Set-YurunaStatusFirewallRule {
     .DESCRIPTION
         Idempotent, best-effort, and NEVER throws -- it returns a result object
         so a caller in a start path can log and carry on. Windows: create /
-        enable / rebuild the 'Yuruna: Allow inbound TCP :<port> (Status server)'
+        enable / rebuild the 'Yuruna: Allow inbound TCP :<port> (Status service)'
         Defender rule (inbound TCP Allow, profile Any); needs Administrator.
         Linux: 'ufw allow <port>/tcp' when ufw is present AND active; needs
         root / sudo. macOS: no-op (the port is not filtered by default).
@@ -222,7 +222,7 @@ function Set-YurunaStatusFirewallRule {
                 if ($al.ExitCode -eq 0) {
                     $result.Ensured = $true
                     $result.Changed = $true
-                    $result.Message = "Added ufw allow $Port/tcp so LAN clients can reach the status server."
+                    $result.Message = "Added ufw allow $Port/tcp so LAN clients can reach the status service."
                     Write-Information $result.Message
                 } else {
                     # ufw is active and the port is not allowed, and we could not add

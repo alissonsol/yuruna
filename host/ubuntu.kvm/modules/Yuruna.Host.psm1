@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.28
+.VERSION 2026.07.29
 .GUID 42a2b3c4-d5e6-4f78-9012-3a4b5c6d7e8f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -53,7 +53,7 @@ $script:PortMapDir     = Join-Path $HOME 'yuruna/portmap'
 # Test.Ssh\Invoke-GuestSsh) -- feedback_module_force_import_evicts_global.
 Import-Module (Join-Path $script:RepoRoot 'automation/Yuruna.Common.psm1') -Force -DisableNameChecking -Global
 Import-Module (Join-Path $script:TestModulesDir 'Test.Ssh.psm1')          -Force -DisableNameChecking -Global
-Import-Module (Join-Path $script:TestModulesDir 'Test.CachingProxy.psm1') -Force -DisableNameChecking -Global
+Import-Module (Join-Path $script:TestModulesDir 'Test.CachingProxyService.psm1') -Force -DisableNameChecking -Global
 # Shared squid download / TLS-bump stack -- single source of truth across host
 # drivers. The X509 chain-validation callback lives there verbatim; this driver's
 # cache-host discovery is injected via the -ResolveCacheHostIp scriptblock (see the
@@ -117,7 +117,7 @@ function New-VM {
         [Parameter(Mandatory)][string]$GuestKey,
         [Parameter(Mandatory)][string]$RepoRoot,
         [Parameter(Mandatory)][string]$VMName,
-        [string]$CachingProxyUrl,
+        [string]$CachingProxyServiceUrl,
         # Planner-cascaded username override; forwarded only when the
         # per-guest script declares -Username (introspected below).
         [string]$Username,
@@ -131,7 +131,7 @@ function New-VM {
     )
     # Thin wrapper over the shared per-guest runner; the host subdir is the
     # only platform variable. Splatting $PSBoundParameters preserves the
-    # conditional -CachingProxyUrl/-Username/-Hostname/-MemoryStartupBytes/-Cores
+    # conditional -CachingProxyServiceUrl/-Username/-Hostname/-MemoryStartupBytes/-Cores
     # forwarding (the runner checks ContainsKey) and propagates -WhatIf/-Confirm.
     Invoke-PerGuestNewVm -HostSubdir 'host/ubuntu.kvm' @PSBoundParameters
 }
@@ -495,7 +495,7 @@ function Save-VMDiskSnapshot {
 .SYNOPSIS
     Returns $true when snapshot $Id is present on $VMName, $false
     otherwise (including when the domain does not exist). Used by
-    Test-Sequence.ps1's requiresSnapshot warm-path probe before
+    Invoke-TestSequence.ps1's requiresSnapshot warm-path probe before
     deciding whether to walk the baseline chain.
 #>
 function Test-VMDiskSnapshot {
@@ -681,20 +681,20 @@ function Send-Text {
     # GUI: defer to Invoke-Sequence's host-aware dispatcher (same pattern
     # as the macOS impl). Sequence-driven runs go through there; manual
     # Send-Text calls should usually use -Mechanism ssh on Linux guests.
-    $invokeSequence = Join-Path $script:TestModulesDir 'Invoke-Sequence.psm1'
-    if (Test-Path $invokeSequence) {
+    $sequenceEngine = Join-Path $script:TestModulesDir 'Test.SequenceEngine.psm1'
+    if (Test-Path $sequenceEngine) {
         # Import only when the dispatcher isn't already resolvable, so the
         # steady-state path (module already loaded by the outer loop) is a
         # no-op. -Global on the cold path: a bare -Force import evicts the
         # global Invoke-Sequence (and its nested modules) the outer loop
         # still calls (feedback_module_force_import_evicts_global); refresh
         # it in place instead.
-        if (-not (Get-Command 'Invoke-Sequence\Send-Text' -ErrorAction SilentlyContinue)) {
-            Import-Module $invokeSequence -Force -DisableNameChecking -Global
+        if (-not (Get-Command 'Test.SequenceEngine\Send-Text' -ErrorAction SilentlyContinue)) {
+            Import-Module $sequenceEngine -Force -DisableNameChecking -Global
         }
-        return [bool](Invoke-Sequence\Send-Text -HostType $script:HostTag -VMName $VMName -Text $Text -CharDelayMs $CharDelayMs)
+        return [bool](Test.SequenceEngine\Send-Text -HostType $script:HostTag -VMName $VMName -Text $Text -CharDelayMs $CharDelayMs)
     }
-    Write-Warning "Send-Text -Mechanism gui: Invoke-Sequence.psm1 not found at '$invokeSequence'."
+    Write-Warning "Send-Text -Mechanism gui: Test.SequenceEngine.psm1 not found at '$sequenceEngine'."
     return $false
 }
 
@@ -720,18 +720,18 @@ function Send-Key {
     # together) degrades silently to one keypress -- Ctrl-U arriving as a bare
     # 'u' typed into the guest. The dispatcher's Send-KeyKvm backend owns both
     # the chord table and the splat.
-    $invokeSequence = Join-Path $script:TestModulesDir 'Invoke-Sequence.psm1'
-    if (Test-Path $invokeSequence) {
+    $sequenceEngine = Join-Path $script:TestModulesDir 'Test.SequenceEngine.psm1'
+    if (Test-Path $sequenceEngine) {
         # Import only when the dispatcher isn't already resolvable: a -Force
         # import evicts the global Invoke-Sequence (and its nested modules)
         # the outer loop still calls
         # (feedback_module_force_import_evicts_global).
-        if (-not (Get-Command 'Invoke-Sequence\Send-Key' -ErrorAction SilentlyContinue)) {
-            Import-Module $invokeSequence -Force -DisableNameChecking -Global
+        if (-not (Get-Command 'Test.SequenceEngine\Send-Key' -ErrorAction SilentlyContinue)) {
+            Import-Module $sequenceEngine -Force -DisableNameChecking -Global
         }
-        return [bool](Invoke-Sequence\Send-Key -HostType $script:HostTag -VMName $VMName -KeyName $Key)
+        return [bool](Test.SequenceEngine\Send-Key -HostType $script:HostTag -VMName $VMName -KeyName $Key)
     }
-    Write-Warning "Send-Key -Mechanism gui: Invoke-Sequence.psm1 not found at '$invokeSequence'."
+    Write-Warning "Send-Key -Mechanism gui: Test.SequenceEngine.psm1 not found at '$sequenceEngine'."
     return $false
 }
 
@@ -924,7 +924,7 @@ function Get-ExternalNetwork {
     foreach ($c in $candidates) {
         if ($active -contains $c) { return $c }
         if ($defined -contains $c) {
-            Write-Warning "libvirt network '$c' is defined but not active -- skipping it. Start it with 'virsh -c qemu:///system net-start $c', or re-run test/Start-CachingProxyVM.ps1 to rebuild/heal it."
+            Write-Warning "libvirt network '$c' is defined but not active -- skipping it. Start it with 'virsh -c qemu:///system net-start $c', or re-run test/Start-CachingProxyServiceVM.ps1 to rebuild/heal it."
         }
     }
     return 'default'
@@ -1244,7 +1244,7 @@ function Write-YurunaNmcliFailure {
         Write-Warning "  The cache VM will fall back to libvirt NAT 'default' (host-only)."
         Write-Warning "  To stop this recurring: re-run with YURUNA_EXTERNAL_BRIDGE_SKIP=1,"
         Write-Warning "  upgrade NetworkManager, or define 'yuruna-external' manually"
-        Write-Warning "  (see host/ubuntu.kvm/guest.caching-proxy/README.md)."
+        Write-Warning "  (see host/ubuntu.kvm/guest.caching-proxy-service/README.md)."
     } else {
         Write-Warning "nmcli: failed to $Operation. nmcli reported:"
         foreach ($l in @($NmcliOutput)) {
@@ -1253,21 +1253,7 @@ function Write-YurunaNmcliFailure {
     }
 }
 
-# Internal. Remove every stranded artifact a failed bridge bring-up can
-# leave behind, so the next build starts from a truly clean slate. A
-# half-built bridge strands THREE kinds of state, each from a different
-# backend, and any one of them makes the next attempt fail in a new way:
-#   * NM connection profiles ('$BridgeName' / '$BridgeName-slave-*'):
-#     re-adding on top of them errors out, and feeding NM conflicting
-#     profiles can trigger its nm-settings-utils.c assertion crash.
-#   * the netplan file (99-yuruna-external.yaml): systemd-networkd keeps
-#     claiming the bridge + NIC, and netplan's generated udev rule marks
-#     them NM_UNMANAGED -- which makes `nmcli connection up <bridge>`
-#     fail with "Failed to find a compatible device for this connection".
-#   * the kernel bridge device itself: deleting the NM profile or the
-#     netplan file does NOT remove an already-created device, and a
-#     same-named device NM does not manage also produces that same
-#     "no compatible device" nmcli failure.
+# --- REGION: https://yuruna.link/memory#why-the-bridge-residue-sweep-covers-three-backends
 # Callers invoke this ONLY when $Nic is not enslaved to $BridgeName, so
 # nothing removed here can be carrying the host's connectivity: an
 # uplink-less bridge forwards no traffic by construction.
@@ -1451,7 +1437,7 @@ function Repair-YurunaExternalBridgeSlave {
     #>
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute(
         'PSUseShouldProcessForStateChangingFunctions', '',
-        Justification = 'Private helper invoked from New-YurunaExternalNetwork only when its idempotency branch detects a half-built bridge. The user-facing caller (Start-CachingProxyVM.ps1) already opted in to network-changing behavior via New-YurunaExternalNetwork''s SupportsShouldProcess. Adding ShouldProcess here would double-prompt.')]
+        Justification = 'Private helper invoked from New-YurunaExternalNetwork only when its idempotency branch detects a half-built bridge. The user-facing caller (Start-CachingProxyServiceVM.ps1) already opted in to network-changing behavior via New-YurunaExternalNetwork''s SupportsShouldProcess. Adding ShouldProcess here would double-prompt.')]
     [CmdletBinding()]
     [OutputType([string])]
     param([Parameter(Mandatory)][string]$NetworkName)
@@ -1612,7 +1598,7 @@ function Get-YurunaExternalNetworkPlan {
         Mirrors steps 1-3 of New-YurunaExternalNetwork (idempotency
         check, default-route NIC resolution, already-bridged check)
         without performing step 4 (the actual bridge build). Lets
-        Start-CachingProxyVM.ps1 print the brief-network-outage warning at
+        Start-CachingProxyServiceVM.ps1 print the brief-network-outage warning at
         the very start of the run instead of mid-way, and proceed in one
         shot with no ShouldProcess prompt.
     .OUTPUTS
@@ -1670,7 +1656,7 @@ function Get-YurunaExternalNetworkPlan {
             $recipe = if ($plan.Nic) {
                 Get-YurunaBridgeRollbackRecipe -BridgeName $plan.BridgeName -Nic $plan.Nic -NicProfile (Get-YurunaNicActiveProfileName -Nic $plan.Nic)
             } else {
-                'Rollback recipe: see the Rollback section of host/ubuntu.kvm/guest.caching-proxy/README.md.'
+                'Rollback recipe: see the Rollback section of host/ubuntu.kvm/guest.caching-proxy-service/README.md.'
             }
             $plan.Explanation = @"
 libvirt network '$NetworkName' already exists but its backing bridge
@@ -1705,7 +1691,7 @@ $recipe
         if (-not (Test-YurunaBridgeHasUplink -BridgeName $nic)) {
             $plan.Action      = 'fallback-nat'
             $plan.CanBridge   = $false
-            $plan.Explanation = "Default-route interface '$nic' is a Linux bridge with NO physical uplink (stale route on a dead bridge). Roll it back per host/ubuntu.kvm/guest.caching-proxy/README.md, then re-run. Until then the cache VM will use NAT 'default' (host-only)."
+            $plan.Explanation = "Default-route interface '$nic' is a Linux bridge with NO physical uplink (stale route on a dead bridge). Roll it back per host/ubuntu.kvm/guest.caching-proxy-service/README.md, then re-run. Until then the cache VM will use NAT 'default' (host-only)."
             return $plan
         }
         $plan.Action      = 'reuse-bridge'
@@ -1752,7 +1738,7 @@ on this same host.
 For LAN exposure despite the NM bug, either:
   * upgrade NetworkManager (the assertion is an upstream NM defect), or
   * define the 'yuruna-external' bridge manually (netplan) -- see
-    host/ubuntu.kvm/guest.caching-proxy/README.md
+    host/ubuntu.kvm/guest.caching-proxy-service/README.md
 "@
         return $plan
     }
@@ -1908,7 +1894,7 @@ function New-YurunaExternalNetwork {
         # would attach guests to a bridge that can never DHCP them --
         # while its real uplink NIC cannot be derived from the route.
         if (-not (Test-YurunaBridgeHasUplink -BridgeName $nic)) {
-            Write-Warning "Default-route interface '$nic' is a Linux bridge with NO physical uplink (its route is stale). Cannot determine the real uplink NIC. Roll the bridge back per host/ubuntu.kvm/guest.caching-proxy/README.md, then re-run."
+            Write-Warning "Default-route interface '$nic' is a Linux bridge with NO physical uplink (its route is stale). Cannot determine the real uplink NIC. Roll the bridge back per host/ubuntu.kvm/guest.caching-proxy-service/README.md, then re-run."
             if ($netDefined) { Stop-YurunaUnusableExternalNetwork -NetworkName $NetworkName }
             return $null
         }
@@ -1943,11 +1929,11 @@ function New-YurunaExternalNetwork {
 
         # The full brief-network-outage warning + rollback recipe is
         # surfaced UP FRONT by the caller via Get-YurunaExternalNetworkPlan
-        # (Start-CachingProxyVM.ps1's plan phase), so it isn't repeated here.
+        # (Start-CachingProxyServiceVM.ps1's plan phase), so it isn't repeated here.
         # ShouldProcess is kept so a standalone or -Confirm caller still
-        # gets a gate; Start-CachingProxyVM passes -Confirm:$false because it
+        # gets a gate; Start-CachingProxyServiceVM passes -Confirm:$false because it
         # already explained the impact and planned the run.
-        Write-Information "Building Linux bridge '$BridgeName' on NIC '$nic' (brief network outage; rollback recipe: the Step 0 plan above, or the Rollback section of host/ubuntu.kvm/guest.caching-proxy/README.md)."
+        Write-Information "Building Linux bridge '$BridgeName' on NIC '$nic' (brief network outage; rollback recipe: the Step 0 plan above, or the Rollback section of host/ubuntu.kvm/guest.caching-proxy-service/README.md)."
 
         # Only plain wired Ethernet can be enslaved; bond/vlan/tunnel
         # devices (or a hostile interface name) would produce a broken
@@ -1970,7 +1956,7 @@ function New-YurunaExternalNetwork {
         # Refresh the sudo timestamp BEFORE the outage window opens: the
         # build and its rollbacks issue sudo calls while host networking
         # flaps, where an expired timestamp would hang an unattended run
-        # on an invisible password prompt. (Start-CachingProxyVM primes the
+        # on an invisible password prompt. (Start-CachingProxyServiceVM primes the
         # cache up-front; this covers standalone callers and long gaps.)
         & sudo -v 2>&1 | Out-Null
 
@@ -2418,13 +2404,13 @@ function New-YurunaBridgeViaNetplan {
 
 <#
 .SYNOPSIS
-    Returns true if the caching-proxy VM is on a bridged libvirt network
+    Returns true if the caching-proxy-service VM is on a bridged libvirt network
     (LAN-routable IP, no host portproxy needed).
 #>
 function Test-CacheVMOnExternalNetwork {
     [CmdletBinding()]
     [OutputType([bool])]
-    param([string]$VMName = 'yuruna-caching-proxy')
+    param([string]$VMName = 'yuruna-caching-proxy-service')
     # Matches the Hyper-V contract semantic: true iff the cache VM has
     # its own LAN-routable IP -- consumers on the LAN can hit it
     # directly with no host-side portproxy in the path. On KVM this is
@@ -2448,7 +2434,7 @@ function Test-CacheVMOnExternalNetwork {
 
 <#
 .SYNOPSIS
-    Expose the caching-proxy VM's ports on the host's LAN IP so LAN
+    Expose the caching-proxy-service VM's ports on the host's LAN IP so LAN
     clients reach the NAT-networked cache at http://<host-lan-ip>:<port>.
 .DESCRIPTION
     The cache VM sits on libvirt's NAT 'default' network, so its
@@ -2541,7 +2527,7 @@ function Add-PortMap {
         # listener down on every idle cycle.
         $socketBody = @"
 [Unit]
-Description=Yuruna caching-proxy forward :$hostPort -> ${VMIp}:$vmPort
+Description=Yuruna caching-proxy-service forward :$hostPort -> ${VMIp}:$vmPort
 
 [Socket]
 ListenStream=0.0.0.0:$hostPort
@@ -2551,7 +2537,7 @@ WantedBy=sockets.target
 "@
         $serviceBody = @"
 [Unit]
-Description=Yuruna caching-proxy socket-proxy :$hostPort -> ${VMIp}:$vmPort
+Description=Yuruna caching-proxy-service socket-proxy :$hostPort -> ${VMIp}:$vmPort
 Requires=$base.socket
 After=$base.socket
 
@@ -2590,7 +2576,7 @@ ExecStart=$proxyd ${VMIp}:$vmPort
 
 <#
 .SYNOPSIS
-    Tear down every yuruna caching-proxy forwarder: the systemd
+    Tear down every yuruna caching-proxy-service forwarder: the systemd
     socket-proxy units, plus any legacy pwsh Start-Process forwarders.
     Idempotent -- "nothing installed" is still success.
 #>
@@ -2678,8 +2664,8 @@ function Get-GuestReachableHostIp {
     reaches back on, as one matched pair.
 .DESCRIPTION
     Single source of truth for guest network binding. Every install guest
-    (and the caching-proxy) must land on the SAME network as the cache, and
-    must reach the host's status server at an address routable from that
+    (and the caching-proxy-service) must land on the SAME network as the cache, and
+    must reach the host's status service at an address routable from that
     network. Get the two from here so they can never drift apart.
 
     Returns a hashtable:
@@ -2713,26 +2699,26 @@ function Resolve-GuestHostBinding {
     return @{ NetworkName = $networkName; HostIp = $hostIp }
 }
 
-# --- REGION: Caching proxy
+# --- REGION: Caching-proxy service
 
 <#
 .SYNOPSIS
-    Probe and return the caching-proxy URL, or null if none is reachable.
+    Probe and return the caching-proxy-service URL, or null if none is reachable.
 .DESCRIPTION
     Discovery is intentionally narrow -- only caches this host owns,
     or a remote cache the operator explicitly named, are returned:
-      1. $Env:YURUNA_CACHING_PROXY_IP -- explicit remote cache override.
-      2. State file (Read-CachingProxyState).ipAddress -- the cache VM's
-         IP recorded by Start-CachingProxyVM.ps1 (our own VM).
+      1. $Env:YURUNA_CACHING_PROXY_SERVICE_IP -- explicit remote cache override.
+      2. State file (Read-CachingProxyServiceState).ipAddress -- the cache VM's
+         IP recorded by Start-CachingProxyServiceVM.ps1 (our own VM).
 
     No libvirt enumeration, no loopback-forwarder fallback. Get-Caching-
     ProxyVMIp still exposes the recorded IP for direct callers that need
     it, and falls back to a live libvirt query for the by-name VM, but
     that fallback is no longer part of the discovery contract surfaced
-    through Test-CachingProxyAvailable. LAN-wide cache discovery is a
+    through Test-CachingProxyServiceAvailable. LAN-wide cache discovery is a
     separate future feature.
 #>
-function Test-CachingProxyAvailable {
+function Test-CachingProxyServiceAvailable {
     [CmdletBinding()]
     [OutputType([string])]
     param()
@@ -2747,35 +2733,35 @@ function Test-CachingProxyAvailable {
     #                       being false-negatived, which would otherwise drop the
     #                       whole inner cycle's guests to direct-from-internet
     #                       downloads.
-    Invoke-CachingProxyAvailableProbe -VerifyHint 'nc -z {0} {1}' -NoBracketHost -ConnectAttempts 3
+    Invoke-CachingProxyServiceAvailableProbe -VerifyHint 'nc -z {0} {1}' -NoBracketHost -ConnectAttempts 3
 }
 
 <#
 .SYNOPSIS
     Return the cache VM's real IP for downstream port-forwarder setup.
 #>
-function Get-CachingProxyVMIp {
+function Get-CachingProxyServiceVmIp {
     [CmdletBinding()]
     [OutputType([string])]
     param()
-    # Prefer the recorded IP from Start-CachingProxyVM.ps1 (matches macOS / Windows).
-    $ip = (Read-CachingProxyState).ipAddress
+    # Prefer the recorded IP from Start-CachingProxyServiceVM.ps1 (matches macOS / Windows).
+    $ip = (Read-CachingProxyServiceState).ipAddress
     if ($ip -and (Test-IpAddress $ip)) { return $ip }
     # Live discovery via libvirt: ask the VM.
-    return (Get-VMIp -VMName 'yuruna-caching-proxy')
+    return (Get-VMIp -VMName 'yuruna-caching-proxy-service')
 }
 
 <#
 .SYNOPSIS
-    Returns the IP of a reachable caching-proxy VM (probed on the squid HTTP
+    Returns the IP of a reachable caching-proxy-service VM (probed on the squid HTTP
     port), or $null when no cache is currently usable. Injected as the
     -ResolveCacheHostIp closure into the shared Save-CachedHttpUri so KVM image
     downloads route through the squid cache.
 .DESCRIPTION
     Discovery order (same shape as the macOS / Hyper-V drivers):
-      1. $Env:YURUNA_CACHING_PROXY_IP -- explicit remote-cache override.
-      2. Get-CachingProxyVMIp -- the cache VM's recorded IP (state file written
-         by Start-CachingProxyVM.ps1), or a live libvirt domifaddr query for the
+      1. $Env:YURUNA_CACHING_PROXY_SERVICE_IP -- explicit remote-cache override.
+      2. Get-CachingProxyServiceVmIp -- the cache VM's recorded IP (state file written
+         by Start-CachingProxyServiceVM.ps1), or a live libvirt domifaddr query for the
          by-name VM.
     The chosen IP is returned only if it answers the squid HTTP port, so a stale
     state entry or a stopped cache VM falls through to $null and the caller
@@ -2790,16 +2776,16 @@ function Resolve-CacheHostIp {
     [CmdletBinding()]
     [OutputType([string])]
     param()
-    $httpPort = Get-CachingProxyPort -Scheme http
-    if ($Env:YURUNA_CACHING_PROXY_IP) {
-        $externIp = $Env:YURUNA_CACHING_PROXY_IP.Trim()
-        if ((Test-IpAddress $externIp) -and (Test-CachingProxyPort -IpAddress $externIp -Port $httpPort -TimeoutMs 500)) {
+    $httpPort = Get-CachingProxyServicePort -Scheme http
+    if ($Env:YURUNA_CACHING_PROXY_SERVICE_IP) {
+        $externIp = $Env:YURUNA_CACHING_PROXY_SERVICE_IP.Trim()
+        if ((Test-IpAddress $externIp) -and (Test-CachingProxyServicePort -IpAddress $externIp -Port $httpPort -TimeoutMs 500)) {
             return $externIp
         }
         return $null
     }
-    $ip = Get-CachingProxyVMIp
-    if ($ip -and (Test-IpAddress $ip) -and (Test-CachingProxyPort -IpAddress $ip -Port $httpPort -TimeoutMs 500)) {
+    $ip = Get-CachingProxyServiceVmIp
+    if ($ip -and (Test-IpAddress $ip) -and (Test-CachingProxyServicePort -IpAddress $ip -Port $httpPort -TimeoutMs 500)) {
         return $ip
     }
     return $null
@@ -2807,7 +2793,7 @@ function Resolve-CacheHostIp {
 
 <#
 .SYNOPSIS
-    Download $Uri to $OutFile through the KVM caching proxy, falling back to
+    Download $Uri to $OutFile through the KVM caching-proxy service, falling back to
     a direct fetch when no cache is reachable.
 .DESCRIPTION
     Thin driver-local wrapper over the shared download stack. The closure binds
@@ -3023,8 +3009,8 @@ Export-ModuleMember -Function `
     Wait-VMIp, Get-VMIp, Get-VMMac, `
     Get-ExternalNetwork, New-ExternalNetwork, New-YurunaExternalNetwork, Get-YurunaExternalNetworkPlan, Test-CacheVMOnExternalNetwork, `
     Add-PortMap, Remove-PortMap, Get-BestHostIp, Get-GuestReachableHostIp, Resolve-GuestHostBinding, `
-    Test-CachingProxyAvailable, Get-CachingProxyVMIp, `
-    Test-DownloadAlreadyCurrent, Test-CachingProxyPort, Resolve-CacheHostIp, Save-CachedHttpUri, `
+    Test-CachingProxyServiceAvailable, Get-CachingProxyServiceVmIp, `
+    Test-DownloadAlreadyCurrent, Test-CachingProxyServicePort, Resolve-CacheHostIp, Save-CachedHttpUri, `
     Set-HostProxy, Clear-HostProxy, Remove-HostProxy, Get-HostProxyBackupPath, Assert-Virtualization
 
 # Contract-coverage assertion: warns at load time if the export block
@@ -3040,7 +3026,7 @@ $null = Assert-YurunaHostContractCoverage -HostType 'ubuntu.kvm' -ExportedFuncti
     'Wait-VMIp','Get-VMIp','Get-VMMac',
     'Get-ExternalNetwork','New-ExternalNetwork','New-YurunaExternalNetwork','Get-YurunaExternalNetworkPlan','Test-CacheVMOnExternalNetwork',
     'Add-PortMap','Remove-PortMap','Get-BestHostIp','Get-GuestReachableHostIp',
-    'Test-CachingProxyAvailable','Get-CachingProxyVMIp',
+    'Test-CachingProxyServiceAvailable','Get-CachingProxyServiceVmIp',
     'Set-HostProxy','Clear-HostProxy','Remove-HostProxy','Get-HostProxyBackupPath','Assert-Virtualization'
 )
 

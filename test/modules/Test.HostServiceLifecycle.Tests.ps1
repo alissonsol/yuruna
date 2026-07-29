@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.28
+.VERSION 2026.07.29
 .GUID 42b6c7d8-e9f0-4a12-8b34-5c6d7e8f9a01
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -19,8 +19,8 @@
 <#
 .SYNOPSIS
     Structural (AST) guards on the host-service lifecycle entry-point scripts:
-    Stop-HostConfigService.ps1, Stop-StatusService.ps1, Start-HostConfigService.ps1,
-    and Start-StashVM.ps1.
+    Stop-ConfigService.ps1, Stop-StatusService.ps1, Start-ConfigService.ps1,
+    and Start-StashServiceVM.ps1.
 .DESCRIPTION
     These scripts run top-to-bottom with `exit`/`return` and heavy I/O
     (Import-Module, runtime-dir init, process control), so they are not
@@ -35,16 +35,16 @@
         pass the typed int (not the raw string) to -Id -- a raw non-numeric
         string reaches -Id and throws a ParameterBindingException that
         -ErrorAction SilentlyContinue does NOT suppress.
-      * Start-HostConfigService gates on an [int]::TryParse of the Linux detached
+      * Start-ConfigService gates on an [int]::TryParse of the Linux detached
         child's echoed PID and probes Get-Process -Id $bgPidInt right after
         launch, so a PID file is never written for a process that died
         immediately.
 
     These are structural guards: they verify the required nodes are present and
     correctly shaped/gated, not that the scripts execute correctly end to end.
-      * Start-StashVM captures the status-service start decision (rather than
+      * Start-StashServiceVM captures the status-service start decision (rather than
         discarding it) and TCP-probes the status port via BeginConnect, warning
-        when the host will not be reachable by the pool aggregator.
+        when the host will not be reachable by the pool-aggregator service.
 
     The throw-based Assert-* helpers live at script scope and are referenced from
     It blocks, so this runs under Pester 4.10.1 (Pester 5's scope split hides
@@ -54,10 +54,10 @@
 $here    = Split-Path -Parent $PSCommandPath
 $testDir = Split-Path -Parent $here   # .../test
 
-$stopHostConfig  = Join-Path $testDir 'Stop-HostConfigService.ps1'
+$stopHostConfig  = Join-Path $testDir 'Stop-ConfigService.ps1'
 $stopStatus      = Join-Path $testDir 'Stop-StatusService.ps1'
-$startHostConfig = Join-Path $testDir 'Start-HostConfigService.ps1'
-$startStash      = Join-Path $testDir 'Start-StashVM.ps1'
+$startHostConfig = Join-Path $testDir 'Start-ConfigService.ps1'
+$startStash      = Join-Path $testDir 'Start-StashServiceVM.ps1'
 
 function Assert-True { param($Condition, [string]$Because = '') if (-not $Condition) { throw "Expected true. $Because" } }
 
@@ -153,7 +153,7 @@ function Test-AssignsFromCommand {
 # any It executes, so a `$case.Path` read inside the body would arrive as $null and
 # assert against an empty path.
 $stopScriptCases = @(
-    @{ Name = 'Stop-HostConfigService.ps1'; Path = $stopHostConfig },
+    @{ Name = 'Stop-ConfigService.ps1'; Path = $stopHostConfig },
     @{ Name = 'Stop-StatusService.ps1';     Path = $stopStatus }
 )
 
@@ -174,7 +174,7 @@ Describe 'Stop-* scripts parse the PID defensively before process control' {
     }
 }
 
-Describe 'Start-HostConfigService.ps1 verifies the Linux child survived launch' {
+Describe 'Start-ConfigService.ps1 verifies the Linux child survived launch' {
     It 'gates on [int]::TryParse of the echoed PID and probes Get-Process -Id $bgPidInt' {
         $ast = Get-ScriptAst $startHostConfig
         Assert-True ((Get-InvokedMember -Ast $ast) -contains 'TryParse') '[int]::TryParse validates the echoed child PID'
@@ -185,14 +185,14 @@ Describe 'Start-HostConfigService.ps1 verifies the Linux child survived launch' 
     }
 }
 
-Describe 'Start-StashVM.ps1 surfaces status-server unreachability' {
+Describe 'Start-StashServiceVM.ps1 surfaces status-service unreachability' {
     It 'captures the start decision, TCP-probes the status port, and warns on unreachable' {
         $ast = Get-ScriptAst $startStash
         Assert-True (Test-AssignsFromCommand -Ast $ast -Command 'Start-YurunaStatusServiceIfEnabled') 'the start decision is captured in an assignment (not discarded)'
         Assert-True ((Get-InvokedMember -Ast $ast) -contains 'BeginConnect') 'the status port is TCP-probed via BeginConnect'
         # The warning must tie an unreachable status port to the degraded Extension-hosts
         # consequence. It states the accurate outcome -- the aggregator falls back to the
-        # stash VM's presence beacon (the host still appears, minus its status baseUrl link)
+        # stash-service VM's presence beacon (the host still appears, minus its status baseUrl link)
         # -- rather than a blanket "won't appear", so match on that durable phrasing.
         $warn = @(Get-StringLiteralExtent -Ast $ast | Where-Object { $_ -match 'Extension hosts row depends' })
         Assert-True ($warn.Count -ge 1) 'a warning literal ties an unreachable status port to the degraded Extension-hosts row'

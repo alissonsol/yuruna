@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.28
+.VERSION 2026.07.29
 .GUID 42ab19c1-07c0-4d84-be69-80c4f1c780a8
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -19,8 +19,8 @@
 # Cross-entry-point prelude. One function returns the canonical path
 # bundle every entry-point script needs ($TestRoot, $RepoRoot,
 # $ModulesDir, $SequencesDir, $StatusDir, $ConfigPath), so the four
-# entry points (Invoke-TestRunner, Invoke-TestInnerRunner,
-# Test-Sequence, Test-Project) can never drift.
+# entry points (Invoke-TestRunner, Invoke-TestRunnerInnerLoop,
+# Invoke-TestSequence, Invoke-TestProject) can never drift.
 #
 # Centralizes the path-bundle computation that every entry point
 # needs, so a new entry point ("Test-DockerCycle.ps1",
@@ -44,7 +44,7 @@ function Initialize-YurunaEntryPoint {
         Caller passes $PSScriptRoot verbatim.
     .PARAMETER InsideModulesDir
         Set when the caller lives under test/modules/ rather than test/
-        (today: Invoke-TestInnerRunner.ps1). Walks one more level up
+        (today: Invoke-TestRunnerInnerLoop.ps1). Walks one more level up
         to reach TestRoot.
     .PARAMETER ConfigPath
         Optional override; when null, defaults to <TestRoot>/test.config.yml.
@@ -108,8 +108,8 @@ function Initialize-YurunaEntryPointModuleSet {
         Import the canonical module set for an entry-point kind.
     .DESCRIPTION
         Each of the four entry points (Outer = Invoke-TestRunner.ps1,
-        Inner = Invoke-TestInnerRunner.ps1, Project = Test-Project.ps1,
-        Sequence = Test-Sequence.ps1) would otherwise hand-roll its own
+        Inner = Invoke-TestRunnerInnerLoop.ps1, Project = Invoke-TestProject.ps1,
+        Sequence = Invoke-TestSequence.ps1) would otherwise hand-roll its own
         Import-Module sequence (6-13 lines per script), which drifts
         whenever a new module lands. Centralizing the lists here makes
         adding a new shared module one edit, not four.
@@ -123,7 +123,7 @@ function Initialize-YurunaEntryPointModuleSet {
         cycle boundaries refreshes mid-run git-pull'd code changes.
     .PARAMETER For
         Which entry-point kind is calling. Outer/Inner/Project/Sequence/
-        StatusService/CachingProxy.
+        StatusService/CachingProxyService.
     .PARAMETER ModulesDir
         Absolute path to test/modules/. Caller passes
         $paths.ModulesDir from Initialize-YurunaEntryPoint.
@@ -132,7 +132,7 @@ function Initialize-YurunaEntryPointModuleSet {
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions',
         '', Justification = 'Module-import side effects only; the operator has no -WhatIf intent here.')]
     param(
-        [Parameter(Mandatory)][ValidateSet('Outer','Inner','Project','Sequence','StatusService','CachingProxy','PoolAdmin')][string]$For,
+        [Parameter(Mandatory)][ValidateSet('Outer','Inner','Project','Sequence','StatusService','CachingProxyService','PoolAdmin')][string]$For,
         [Parameter(Mandatory)][string]$ModulesDir
     )
     # Canonical per-kind module lists. Order matters where a downstream
@@ -192,7 +192,7 @@ function Initialize-YurunaEntryPointModuleSet {
             # Update-TestConfigFromTemplate call resolves it.
             'Test.ConfigSync.psm1',
             # Test.RunnerInnerLoop holds the inner runner's per-cycle helpers
-            # (Write-InnerLog, working-tree-drift guard, caching-proxy
+            # (Write-InnerLog, working-tree-drift guard, caching-proxy-service
             # reachability probe). Leaf at load time; its functions resolve
             # git / sockets / env at call time.
             'Test.RunnerInnerLoop.psm1',
@@ -225,7 +225,7 @@ function Initialize-YurunaEntryPointModuleSet {
             'Test.SequencePlanner.psm1',
             # Test.SequenceRunner: chain planning + execution (Resolve-TestSequencePlan,
             # Invoke-TestSequenceChain). Test.Orchestrator calls both, so it must load
-            # first. Standalone Test-Sequence.ps1 imports it explicitly; the Inner path
+            # first. Standalone Invoke-TestSequence.ps1 imports it explicitly; the Inner path
             # relies on this set, so omitting it made the orchestrator's guest run fail.
             'Test.SequenceRunner.psm1',
             # Test.Orchestrator: runs an orchestration top-level (InvokeTestSequence
@@ -233,7 +233,7 @@ function Initialize-YurunaEntryPointModuleSet {
             # orchestration entry to Invoke-OrchestrationSequence; leaf at load
             # time (its callees resolve at runtime), so it loads after the planner.
             'Test.Orchestrator.psm1',
-            'Test.CachingProxy.psm1', 'Test.CachingProxyLock.psm1', 'Test.Perf.psm1',
+            'Test.CachingProxyService.psm1', 'Test.CachingProxyServiceLock.psm1', 'Test.Perf.psm1',
             'Test.HostIO.psm1', 'Test.Capability.psm1',
             # Test.PoolPlanner: resolve a pool's test-sets into this
             # host's runnable cycle plan. After Test.SequencePlanner + Test.Capability
@@ -252,11 +252,11 @@ function Initialize-YurunaEntryPointModuleSet {
             'Test.Config.psm1', 'Test.YurunaDir.psm1',
             'Test.ConfigPreflight.psm1', 'Test.HostContract.psm1', 'Test.InnerSpawn.psm1',
             # Test.SingleInstance lets Assert-NoOtherRunner see runner.pid so
-            # a Test-Project run refuses to race a live Invoke-TestRunner
+            # a Invoke-TestProject run refuses to race a live Invoke-TestRunner
             # instead of silently overlapping it on the same runtime dir.
             'Test.SingleInstance.psm1',
-            # Test.Recovery is loaded so Test-Project can archive any stale
-            # break-active.json left over from a prior Test-Sequence /
+            # Test.Recovery is loaded so Invoke-TestProject can archive any stale
+            # break-active.json left over from a prior Invoke-TestSequence /
             # Invoke-TestRunner that crashed mid-break. Without this sweep,
             # the inner runner inherits the parked breakpoint state and the
             # status UI shows a "Continue" button for the previous cycle.
@@ -279,18 +279,25 @@ function Initialize-YurunaEntryPointModuleSet {
             'Test.Log.psm1', 'Test.Remediation.psm1',
             'Test.SnapshotManifest.psm1', 'Test.LogRotation.psm1',
             'Test.Backoff.psm1',
-            # Test.Status is loaded so Test-Sequence can register the run
+            # Test.Status is loaded so Invoke-TestSequence can register the run
             # as its own cycle in status.json (otherwise the dashboard's
-            # cycle history skips Test-Sequence runs and break-active.json
+            # cycle history skips Invoke-TestSequence runs and break-active.json
             # has no live cycle to anchor the Continue button to).
             'Test.Status.psm1',
             # Test.Recovery archives any stale break-active.json left
-            # behind by a prior Test-Sequence / Invoke-TestRunner that
+            # behind by a prior Invoke-TestSequence / Invoke-TestRunner that
             # crashed mid-break. Without this sweep, the new run inherits
             # the parked breakpoint state and the status UI keeps showing
             # the stale Continue button.
             'Test.Recovery.psm1',
-            'Invoke-Sequence.psm1', 'Test.SequencePlanner.psm1',
+            # Test.Perf must be loaded wherever Invoke-Sequence runs: its
+            # perf calls are Get-Command-guarded, so an absent module is not
+            # an error, it is a silently unmeasured run. That covers both
+            # shapes of a Invoke-TestSequence process -- a standalone run opening
+            # its own perf cycle, and a nested one (a host action re-entering
+            # us in a child pwsh) adopting the owner's published cycle handle.
+            'Test.Perf.psm1',
+            'Test.SequenceEngine.psm1', 'Test.SequencePlanner.psm1',
             'Test.YurunaDir.psm1', 'Test.OcrEngine.psm1',
             'Test.Tesseract.psm1', 'Test.ConfigPreflight.psm1',
             # Bounded recovery primitives reached by Wait-ForText's no-text
@@ -301,7 +308,7 @@ function Initialize-YurunaEntryPointModuleSet {
             # Modules the parent (non-detached-server) status-service
             # code needs: Test.YurunaDir for Initialize-YurunaRuntimeDir /
             # Initialize-YurunaLogDir, Test.VMUtility for IP / port helpers,
-            # Test.CachingProxy for state-file + probe helpers, Test.HostContract
+            # Test.CachingProxyService for state-file + probe helpers, Test.HostContract
             # for Get-HostType + Initialize-YurunaHost. Test.PortOwner is
             # consumed later in the file (Resolve-PortOrphan) so it is
             # included here too -- one bootstrap pass loads every module
@@ -309,23 +316,23 @@ function Initialize-YurunaEntryPointModuleSet {
             # imports its own modules from a here-string and is not
             # affected by this set.
             'Test.YurunaDir.psm1', 'Test.VMUtility.psm1',
-            'Test.CachingProxy.psm1', 'Test.PortOwner.psm1',
+            'Test.CachingProxyService.psm1', 'Test.PortOwner.psm1',
             'Test.HostContract.psm1'
         )
-        CachingProxy = @(
-            # Union of Start-/Stop-/Test-/Repair-CachingProxy.ps1 inline
+        CachingProxyService = @(
+            # Union of Start-/Stop-/Test-/Repair-CachingProxyService.ps1 inline
             # imports: Test.HostContract (for Initialize-YurunaHost, Get-HostType,
             # Invoke-LibvirtGroupReExecIfNeeded, Add-PortMap / Remove-PortMap,
             # Test-CacheVMOnExternalNetwork, Remove-HostProxy / Set-HostProxy,
-            # Initialize-SudoCache), Test.CachingProxy (Get-CachingProxyState-
-            # Path, Save-/Read-CachingProxyState, Test-CachingProxyAvailable,
-            # Invoke-CachingProxyProbe, Get-CachingProxyVMIp), Test.VMUtility
-            # (Test-IpAddress, Get-CachingProxyPort, Format-IpUrlHost) for
-            # the env-var / -CacheIp branches that bypass Test-CachingProxy-
+            # Initialize-SudoCache), Test.CachingProxyService (Get-CachingProxyServiceState-
+            # Path, Save-/Read-CachingProxyServiceState, Test-CachingProxyServiceAvailable,
+            # Invoke-CachingProxyServiceProbe, Get-CachingProxyServiceVmIp), Test.VMUtility
+            # (Test-IpAddress, Get-CachingProxyServicePort, Format-IpUrlHost) for
+            # the env-var / -CacheIp branches that bypass Test-CachingProxyService-
             # Available's transitive imports. Per-host Yuruna.Host.psm1 lives
             # under host/<short>/modules/ and is loaded by Initialize-Yuruna-
             # Host via the contract layer -- not part of this set.
-            'Test.VMUtility.psm1', 'Test.CachingProxy.psm1', 'Test.CachingProxyLock.psm1',
+            'Test.VMUtility.psm1', 'Test.CachingProxyService.psm1', 'Test.CachingProxyServiceLock.psm1',
             'Test.HostContract.psm1'
         )
         PoolAdmin = @(
@@ -370,7 +377,7 @@ function Wait-WithProgress {
         Exceptions inside $Test are swallowed (treated as "not done")
         so a transient probe failure doesn't abort the wait.
     .PARAMETER Activity
-        Bar title (e.g. "Status server", "inter-cycle delay").
+        Bar title (e.g. "Status service", "inter-cycle delay").
     .PARAMETER TotalSeconds
         Maximum time to wait. <= 0 returns $null immediately.
     .PARAMETER PollSeconds
@@ -410,13 +417,13 @@ function Wait-WithProgress {
                 try { $r = & $Test } catch { $r = $null }
                 if ($r) { $result = $r; break }
             }
-            $elapsedSec   = [int]((Get-Date) - $start).TotalSeconds
-            $remainingSec = [math]::Max(0, $TotalSeconds - $elapsedSec)
-            $pct          = [math]::Min(100, [math]::Max(0, [int](($elapsedSec * 100) / $TotalSeconds)))
+            $elapsedSeconds   = [int]((Get-Date) - $start).TotalSeconds
+            $remainingSeconds = [math]::Max(0, $TotalSeconds - $elapsedSeconds)
+            $pct          = [math]::Min(100, [math]::Max(0, [int](($elapsedSeconds * 100) / $TotalSeconds)))
             try {
                 Write-Progress -Id $Id -Activity $Activity `
-                    -Status ("{0}s remain (of {1}s)" -f $remainingSec, $TotalSeconds) `
-                    -PercentComplete $pct -SecondsRemaining $remainingSec
+                    -Status ("{0}s remain (of {1}s)" -f $remainingSeconds, $TotalSeconds) `
+                    -PercentComplete $pct -SecondsRemaining $remainingSeconds
             } catch { $null = $_ }
             Start-Sleep -Seconds $PollSeconds
         }
@@ -430,16 +437,16 @@ function Initialize-SequenceEngineRegistry {
     <#
     .SYNOPSIS
         Reset the per-shell sequence-action + host-I/O registries and
-        repopulate the action registry from Invoke-Sequence.psm1.
+        repopulate the action registry from Test.SequenceEngine.psm1.
     .DESCRIPTION
-        Test-Sequence is the only entry point that can be re-invoked
+        Invoke-TestSequence is the only entry point that can be re-invoked
         inside the same shell. The `$global:` registry anchors that
         protect built-in handlers from `-Force` re-imports also keep
         stale extension registrations alive across runs, so a renamed
         verb today could be silently shadowed by a "myCustomAction"
         registered yesterday in the same pwsh.
         Clear-SequenceAction + Clear-HostIOProvider wipe the registries;
-        re-importing Invoke-Sequence.psm1 re-runs its module-load body,
+        re-importing Test.SequenceEngine.psm1 re-runs its module-load body,
         which re-registers `retry` / `recoverFromSnapshot` AND triggers
         Test.SequenceHandler.psm1 to register every other built-in verb
         (waitForText, passwdPrompt, fetchAndExecute, ...). Without the
@@ -463,7 +470,7 @@ function Initialize-SequenceEngineRegistry {
     if (-not $PSCmdlet.ShouldProcess('SequenceAction + HostIO registries', 'Reset + repopulate')) { return }
     Clear-SequenceAction -Confirm:$false
     Clear-HostIOProvider -Confirm:$false
-    Import-Module -Name (Join-Path $ModulesDir 'Invoke-Sequence.psm1') `
+    Import-Module -Name (Join-Path $ModulesDir 'Test.SequenceEngine.psm1') `
         -Global -Force -DisableNameChecking -Verbose:$false
 }
 
@@ -476,7 +483,7 @@ function Assert-NoOtherRunner {
         Invoke-TestRunner ([test/Invoke-TestRunner.ps1](../Invoke-TestRunner.ps1))
         owns runner.pid for its whole lifetime and takes over an
         OtherRunner via Stop-StaleRunner. The dev / project entry
-        points (Test-Sequence, Test-Project) need the opposite
+        points (Invoke-TestSequence, Invoke-TestProject) need the opposite
         contract: refuse to start so they do not interfere with a
         cycle in progress.
         Surfaces a banner naming the live runner's PID and the
@@ -578,12 +585,12 @@ function Unregister-EntryPointCancelHandler {
 function Resolve-StatusServiceStart {
     <#
     .SYNOPSIS
-        Decide whether the built-in HTTP status server should start this run and
+        Decide whether the built-in HTTP status service should start this run and
         on which port, from test.config.yml's statusService node plus the
         caller's -NoStatusService switch.
     .DESCRIPTION
         Pure decision: the single source of the gating + port-resolution rules
-        the entry points share (the inner runner, Test-Sequence, Test-Project).
+        the entry points share (the inner runner, Invoke-TestSequence, Invoke-TestProject).
         Keeping it separate from the invocation makes the gate unit-testable.
     .OUTPUTS
         [hashtable] @{ ShouldStart = [bool]; Port = [int] }
@@ -595,7 +602,7 @@ function Resolve-StatusServiceStart {
         [switch]$NoStatusService
     )
     $svc     = if ($Config -is [System.Collections.IDictionary]) { $Config['statusService'] } else { $null }
-    $enabled = [bool]($svc -is [System.Collections.IDictionary] -and $svc['isEnabled'])
+    $enabled = [bool]($svc -is [System.Collections.IDictionary] -and $svc['enabled'])
     $port    = if ($svc -is [System.Collections.IDictionary] -and $svc['port']) { [int]$svc['port'] } else { 8080 }
     return @{ ShouldStart = ($enabled -and -not $NoStatusService); Port = $port }
 }
@@ -603,12 +610,12 @@ function Resolve-StatusServiceStart {
 function Start-YurunaStatusServiceIfEnabled {
     <#
     .SYNOPSIS
-        Start (or restart) the status server when statusService.isEnabled and
+        Start (or restart) the status service when statusService.enabled and
         -NoStatusService was not requested -- the one gate the entry-point trio shares
-        so they honor isEnabled, -NoStatusService, the port, and the restart policy
+        so they honor enabled, -NoStatusService, the port, and the restart policy
         identically.
     .DESCRIPTION
-        -Restart forces a kill+relaunch (Test-Sequence and the inner runner's
+        -Restart forces a kill+relaunch (Invoke-TestSequence and the inner runner's
         per-cycle refresh, which must pick up file/config changes). Omitting it
         lets Start-StatusService.ps1 compare the running server's persisted
         server.sha against the current framework HEAD and skip the relaunch when
@@ -637,8 +644,8 @@ function Start-YurunaStatusServiceIfEnabled {
             # (port owned by another user / another checkout) so the cycle can
             # refuse instead of running blind without its dashboard + breakpoint
             # controls. The banner is already printed there; exit terminates the
-            # calling entry point (Test-Sequence, the inner runner,
-            # Start-CachingProxyVM) the same way Assert-NoOtherRunner's refusal
+            # calling entry point (Invoke-TestSequence, the inner runner,
+            # Start-CachingProxyServiceVM) the same way Assert-NoOtherRunner's refusal
             # does -- no stack trace. Re-throw anything that is not this tag.
             if ($_.Exception.Data -and $_.Exception.Data['YurunaPortConflict']) {
                 exit (Get-EntryPointExitCode -Outcome Failure)
@@ -652,7 +659,7 @@ function Start-YurunaStatusServiceIfEnabled {
 function Resolve-ConfigServiceStart {
     <#
     .SYNOPSIS
-        Decide whether the Host Config Service (mTLS NAS-credential endpoint)
+        Decide whether the config service (mTLS NAS-credential endpoint)
         should run this host, and on which port, from test.config.yml's
         configService node.
     .DESCRIPTION
@@ -660,7 +667,7 @@ function Resolve-ConfigServiceStart {
         service defaults to ENABLED when the node/flag is absent so existing
         configs (and any host that has not adopted the configService node) still
         serve NAS credentials -- matching the in-code defaults in
-        Start-HostConfigService.ps1. Default port 8443.
+        Start-ConfigService.ps1. Default port 8443.
     .OUTPUTS
         [hashtable] @{ ShouldStart = [bool]; Port = [int] }
     #>
@@ -669,7 +676,7 @@ function Resolve-ConfigServiceStart {
     param([AllowNull()]$Config)
     $svc     = if ($Config -is [System.Collections.IDictionary]) { $Config['configService'] } else { $null }
     $enabled = $true
-    if ($svc -is [System.Collections.IDictionary] -and $svc.Contains('isEnabled')) { $enabled = [bool]$svc['isEnabled'] }
+    if ($svc -is [System.Collections.IDictionary] -and $svc.Contains('enabled')) { $enabled = [bool]$svc['enabled'] }
     $port    = if ($svc -is [System.Collections.IDictionary] -and $svc['port']) { [int]$svc['port'] } else { 8443 }
     return @{ ShouldStart = $enabled; Port = $port }
 }
@@ -677,15 +684,15 @@ function Resolve-ConfigServiceStart {
 function Start-YurunaConfigServiceIfEnabled {
     <#
     .SYNOPSIS
-        Ensure the Host Config Service is running when configService.isEnabled --
+        Ensure the config service is running when configService.enabled --
         the gate every entry point shares so the mTLS NAS-credential endpoint has
-        the SAME runner-managed lifecycle as the status server.
+        the SAME runner-managed lifecycle as the status service.
     .DESCRIPTION
-        Idempotent + best-effort. Start-HostConfigService.ps1 is a no-op when a
+        Idempotent + best-effort. Start-ConfigService.ps1 is a no-op when a
         healthy instance is already serving (so the runner can call this every
         cycle cheaply) and re-launches when none is, so the service self-heals
-        after a host reboot or crash -- the same way the status server is kept
-        alive, rather than relying on a one-shot Start-CachingProxyVM run. A failure
+        after a host reboot or crash -- the same way the status service is kept
+        alive, rather than relying on a one-shot Start-CachingProxyServiceVM run. A failure
         here NEVER aborts the caller: the harness keeps testing even when the
         NAS-credential channel (Extension hosts + ypool-nas rotation) is down; it
         is re-ensured on the next cycle. Pass -Restart to force a relaunch (new
@@ -695,7 +702,7 @@ function Start-YurunaConfigServiceIfEnabled {
     #>
     [CmdletBinding()]
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
-        Justification = 'Thin gate over Start-HostConfigService.ps1, which owns its own skip-if-healthy / replace semantics.')]
+        Justification = 'Thin gate over Start-ConfigService.ps1, which owns its own skip-if-healthy / replace semantics.')]
     [OutputType([hashtable])]
     param(
         [AllowNull()]$Config,
@@ -709,10 +716,10 @@ function Start-YurunaConfigServiceIfEnabled {
                 if ($Restart) { & $StartScript -Port $decision.Port -Restart }
                 else          { & $StartScript -Port $decision.Port }
             } catch {
-                Write-Warning "Host Config Service ensure failed: $($_.Exception.Message). NAS-credential serving (Extension hosts + ypool-nas rotation) is unavailable until the next cycle re-ensures it."
+                Write-Warning "config service ensure failed: $($_.Exception.Message). NAS-credential serving (Extension hosts + ypool-nas rotation) is unavailable until the next cycle re-ensures it."
             }
         } else {
-            Write-Verbose "Start-HostConfigService.ps1 not found at '$StartScript'; skipping config-service ensure."
+            Write-Verbose "Start-ConfigService.ps1 not found at '$StartScript'; skipping config-service ensure."
         }
     }
     return $decision

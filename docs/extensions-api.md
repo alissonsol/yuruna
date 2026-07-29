@@ -2,7 +2,7 @@
 
 The harness defers five classes of swappable behavior to **extension
 areas** under [`test/extension/`](../test/extension/) — authentication,
-notification transports, caching-proxy log parsing, host-side
+notification transports, caching-proxy-service log parsing, host-side
 artifact stashing, and multi-host pool aggregation. An area is a
 directory with one or more `.psm1` files plus a small YAML config
 naming the active set.
@@ -15,9 +15,9 @@ Loader: [`test/modules/Test.Extension.psm1`](../test/modules/Test.Extension.psm1
 |------------------------|----------------|------------------|
 | `authentication`       | `default`      | `${ext:authentication.GetPassword(<user>)}` / `NewRandomPassword()` / `SetPassword()` — vault read/write for sequences. The `default` extension stores per-cycle ephemeral test-VM passwords in plaintext YAML **by design**; see [Authentication — Test-harness vault threat model](authentication.md#test-harness-vault--threat-model) for the trust boundary. Wire a different extension (DPAPI / keyring / external secret manager) before driving any production system from a sequence. |
 | `notification`         | `default`      | `Send-Notification -EventCode -EventMessage`; iterates configured transports (Resend, SMTP, etc.). |
-| `caching-proxy-parser` | `default`      | Maps a Squid access-log line to a structured record for the test/perf log. Ships a Go sidecar (`main.go` + `caching-proxy-parser.service`) for inside-the-VM parsing; the PowerShell `default.psm1` is the host-side wrapper. |
-| `stash-service`        | `default`      | Receives `scp`/`sftp`-uploaded artifacts (diagnostic bundles, screenshots) into a stash-storage-backed stash. Ships a Go daemon under [`server/`](../test/extension/stash-service/server/) (legacy SCP **and** SFTP, files on the ystash-nas share + VM-local SQLite index/sidecars) brought up by `Start-StashVM` + cloud-init, plus the PowerShell wrapper `default.psm1`. |
-| `pool-aggregator`      | `default`      | Read-only multi-host **pool view** (`Get-PoolAggregatorManifest`) plus the pool half of the service lookup below (`Get-PoolExtensionHost`). Ships a stdlib-only Go daemon that runs on the caching-proxy machine (pool services host): it auto-discovers pool members from the squid access log, probes each one's status server, identifies on the stable `hostId`, and pushes cycle-status transitions to Loki. See [`pool-aggregator/README.md`](../test/extension/pool-aggregator/README.md). |
+| `caching-proxy-parser-service` | `default`      | Maps a Squid access-log line to a structured record for the test/perf log. Ships a Go sidecar (`main.go` + `caching-proxy-parser-service.service`) for inside-the-VM parsing; the PowerShell `default.psm1` is the host-side wrapper. |
+| `stash-service`        | `default`      | Receives `scp`/`sftp`-uploaded artifacts (diagnostic bundles, screenshots) into a stash-storage-backed stash. Ships a Go daemon under [`server/`](../test/extension/stash-service/server/) (legacy SCP **and** SFTP, files on the ystash-nas share + VM-local SQLite index/sidecars) brought up by `Start-StashServiceVM` + cloud-init, plus the PowerShell wrapper `default.psm1`. |
+| `pool-aggregator-service`      | `default`      | Read-only multi-host **pool view** (`Get-PoolAggregatorServiceManifest`) plus the pool half of the service lookup below (`Get-PoolExtensionHost`). Ships a stdlib-only Go daemon that runs on the caching-proxy-service machine (pool services host): it auto-discovers pool members from the squid access log, probes each one's status service, identifies on the stable `hostId`, and pushes cycle-status transitions to Loki. See [`pool-aggregator-service/README.md`](../test/extension/pool-aggregator-service/README.md). |
 
 ## Filesystem layout
 
@@ -33,10 +33,10 @@ test/extension/
 │   ├── notification.contract.yml       # methods this area exports
 │   ├── transports.yml.template         # transport-credentials seed (e.g. Resend API key)
 │   └── default.psm1                    # exports Send-Notification
-├── caching-proxy-parser/
-│   ├── caching-proxy-parser.config.yml # active: ['default']
-│   ├── caching-proxy-parser.contract.yml
-│   ├── caching-proxy-parser.service    # systemd unit for the in-VM Go sidecar
+├── caching-proxy-parser-service/
+│   ├── caching-proxy-parser-service.config.yml # active: ['default']
+│   ├── caching-proxy-parser-service.contract.yml
+│   ├── caching-proxy-parser-service.service    # systemd unit for the in-VM Go sidecar
 │   ├── go.mod, main.go                 # Go sidecar source (built into the proxy VM)
 │   ├── README.md
 │   └── default.psm1                    # host-side wrapper
@@ -44,10 +44,10 @@ test/extension/
 │   ├── stash-service.config.yml        # active: ['default']
 │   ├── server/                         # Go daemon (main.go + internal/{...})
 │   └── default.psm1                    # host-side wrapper
-└── pool-aggregator/
-    ├── pool-aggregator.config.yml      # active: ['default']
-    ├── pool-aggregator.contract.yml    # requiredFunction: Get-PoolAggregatorManifest
-    ├── pool-aggregator.service         # systemd unit for the proxy-host Go daemon
+└── pool-aggregator-service/
+    ├── pool-aggregator-service.config.yml      # active: ['default']
+    ├── pool-aggregator-service.contract.yml    # requiredFunction: Get-PoolAggregatorServiceManifest
+    ├── pool-aggregator-service.service         # systemd unit for the proxy-host Go daemon
     ├── go.mod, main.go, main_test.go   # stdlib-only Go daemon source
     ├── grafana-pool-dashboard.json     # companion Grafana dashboard
     ├── README.md
@@ -85,7 +85,7 @@ area's exports are unambiguous.
 ## Finding a service this host does not run
 
 Some areas are *services on the network* rather than code loaded into the
-cycle — the stash service, pool control. A host that needs one usually does
+cycle — the stash service, pool-control service. A host that needs one usually does
 not run it: the service lives on another host, often another subnet, at an
 address DHCP is free to change. Nothing in this host's config knows where
 it is, so the alternative is a hard-coded literal that is correct only
@@ -100,12 +100,12 @@ Import-Module test/modules/Test.Extension.psm1 -Force -DisableNameChecking
 # nothing at all — the same rule as Get-ActiveExtensionName.
 $addresses = @(Get-ExtensionHostAddress -HostType 'stash-service')
 foreach ($address in $addresses) {
-    if (Test-StashHost -Address $address) { $stash = $address; break }
+    if (Test-StashServiceHost -Address $address) { $stash = $address; break }
 }
 ```
 
 `-HostType` is the **extension area slug** naming the kind of service
-(`stash-service`, `pool-control`) — unrelated to the hypervisor host type
+(`stash-service`, `pool-control-service`) — unrelated to the hypervisor host type
 `Get-HostType` returns (`host.windows.hyper-v`).
 
 The answer is a **list, nearest first**, and may be empty:
@@ -114,12 +114,12 @@ The answer is a **list, nearest first**, and may be empty:
 |---|---|---|
 | 1 | `$env:YURUNA_EXTENSION_HOST_<AREA>` — area upper-cased, non-alphanumerics → `_` (e.g. `YURUNA_EXTENSION_HOST_STASH_SERVICE`) | an operator who states an address; it is meant, so nothing discovered outranks it |
 | 2 | Host contract `Get-VMIp` on `yuruna-<area>` (override with `-VMName`, `''` skips it) | a service VM running on **this** host, at its current address across rebuilds |
-| 3 | The pool — the aggregator's [`/api/v1/extension-hosts`](../test/extension/pool-aggregator/README.md#endpoints-9400), read through `Get-PoolExtensionHost` | a service running on **another** host, from its own registration/announce record |
+| 3 | The pool — the aggregator's [`/api/v1/extension-hosts`](../test/extension/pool-aggregator-service/README.md#endpoints-9400), read through `Get-PoolExtensionHost` | a service running on **another** host, from its own registration/announce record |
 
-Since the aggregator lives in the caching-proxy VM, knowing the proxy
+Since the aggregator lives in the caching-proxy-service VM, knowing the proxy
 address — which every host needs anyway, to reach the cache at all — is
 enough to locate every other service the pool offers. A host with no
-caching proxy has no aggregator to ask and no pool: that source simply
+caching-proxy service has no aggregator to ask and no pool: that source simply
 contributes nothing.
 
 A list rather than one answer, because only the caller can say which
@@ -192,13 +192,13 @@ ambiguity (`-RequireSingle`).
    [`test/schemas/`](../test/schemas/) folder already hosts
    `extension-config.schema.yml` for the common envelope).
 
-## POST /announce (pool-aggregator)
+## POST /announce (pool-aggregator-service)
 
-`handleAnnounce` in `test/extension/pool-aggregator/main.go` is the
-extension-presence write surface: a service VM (e.g. the stash server's
+`handleAnnounce` in `test/extension/pool-aggregator-service/main.go` is the
+extension-presence write surface: a service VM (e.g. the stash service's
 beacon) POSTs `{hostId, area, targetPort, active}` on boot, every beacon
 period, and with `active=false` at shutdown, so the dashboard's Extension
-hosts row survives the owning host's status server being down (the state
+hosts row survives the owning host's status service being down (the state
 a host reboot routinely leaves behind). The route is deliberately open
 (no bearer, unlike `/ingest`) because requiring the shared
 lab-auth-token would kill the beacon exactly where it is needed.
@@ -220,7 +220,7 @@ view after its last contact; the reap drops the row on the next poll. Two values
 follow it rather than being configured separately, so they cannot be ordered
 wrongly:
 
-- the **per-cycle dedup state** (which `hostId|cycleId` pairs have been counted)
+- the **per-cycle dedup state** (which `hostId|cycleStartUtc` pairs have been counted)
   is kept one hour past the row, so a host that is reaped and then re-appears
   cannot re-count a terminal cycle it was already counted for;
 - the Loki lookback resolving a departed host's address for dashboard deep links
@@ -236,18 +236,18 @@ TTL also does not by itself evict a host that keeps being re-seeded from the
 presence feed on restart — `Remove-PoolHost.ps1` / forget-host is the
 deterministic path.
 
-To change it, edit `pool-aggregator.service` and run
-`systemctl daemon-reload && systemctl restart pool-aggregator` — no rebuild.
+To change it, edit `pool-aggregator-service.service` and run
+`systemctl daemon-reload && systemctl restart pool-aggregator-service` — no rebuild.
 **`daemon-reload` is not optional:** a bare restart re-execs systemd's cached
 unit and the old value stays in force. A drop-in works too, but the unit is
 `Type=simple`, so the drop-in must reset `ExecStart` first (`ExecStart=` on its
 own line, then the full replacement) or systemd refuses to load the service. A
 non-positive value falls back to the 24h default. The flag exists only in
 binaries built from the commit that added it — on an older proxy, check
-`pool-aggregator -h | grep host-ttl` before adding it, or the service crash-loops
+`pool-aggregator-service -h | grep host-ttl` before adding it, or the service crash-loops
 on `flag provided but not defined`.
 
-## POST /api/v1/lab-token (pool-aggregator)
+## POST /api/v1/lab-token (pool-aggregator-service)
 
 The enrollment exchange: a host redeems the 6-character lab connection
 token shown on the dashboard's "Lab token" tile (body
@@ -273,7 +273,7 @@ wire in the clear when the proxy runs plain HTTP (no TLS leaf).
 (`Unprotect-LabTokenEnvelope` opens the envelope; a seal that does not
 authenticate is refused, never stored); `-lab-token-rotate 0` disables
 the exchange and the dashboard tile.
-See [`pool-aggregator/README.md`](../test/extension/pool-aggregator/README.md).
+See [`pool-aggregator-service/README.md`](../test/extension/pool-aggregator-service/README.md).
 
 ---
 

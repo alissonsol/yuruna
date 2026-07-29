@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.28
+.VERSION 2026.07.29
 .GUID 42e5b4c3-d2a1-4f9a-6789-0b1c2d3e4f51
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -159,7 +159,7 @@ function Install-YurunaVirtualDisplay {
     # Machine-wide cache: this is a host-level driver and the install needs
     # Administrator, so ProgramData is the natural home -- it survives across
     # users and repo re-clones, unlike a path under the working tree (which
-    # the status server also serves).
+    # the status service also serves).
     $cacheRoot = Join-Path $env:ProgramData 'Yuruna'
     $zipPath   = Join-Path $cacheRoot 'usbmmidd_v2.zip'
     $toolDir   = Join-Path $cacheRoot 'usbmmidd_v2'   # the zip's own top folder
@@ -1199,14 +1199,14 @@ function Set-WindowsHostConditionSet {
 
     # -- 3. Machine inactivity lock -> disabled ----------------------------
     $regPath = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System'
-    $lockTimeout = $null
+    $lockTimeoutSeconds = $null
     $regProps = Get-ItemProperty -Path $regPath -ErrorAction SilentlyContinue
     if ($regProps -and $regProps.PSObject.Properties.Name -contains 'InactivityTimeoutSecs') {
-        $lockTimeout = $regProps.InactivityTimeoutSecs
+        $lockTimeoutSeconds = $regProps.InactivityTimeoutSecs
     }
 
-    if ($lockTimeout -and $lockTimeout -gt 0) {
-        if ($PSCmdlet.ShouldProcess("Inactivity lock timeout (currently ${lockTimeout}s)", "Set to 0 (disabled)")) {
+    if ($lockTimeoutSeconds -and $lockTimeoutSeconds -gt 0) {
+        if ($PSCmdlet.ShouldProcess("Inactivity lock timeout (currently ${lockTimeoutSeconds}s)", "Set to 0 (disabled)")) {
             Write-Information "Disabling machine inactivity lock..."
             Set-ItemProperty -Path $regPath -Name 'InactivityTimeoutSecs' -Value 0
             $changed = $true
@@ -1519,14 +1519,14 @@ function Assert-WindowsHostConditionSet {
 
     # 4. Lock screen timeout -- warn if machine will lock
     try {
-        $lockTimeout = $null
+        $lockTimeoutSeconds = $null
         $regProps = Get-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System' -ErrorAction SilentlyContinue
         if ($regProps -and $regProps.PSObject.Properties.Name -contains 'InactivityTimeoutSecs') {
-            $lockTimeout = $regProps.InactivityTimeoutSecs
+            $lockTimeoutSeconds = $regProps.InactivityTimeoutSecs
         }
-        if ($lockTimeout -and $lockTimeout -gt 0) {
+        if ($lockTimeoutSeconds -and $lockTimeoutSeconds -gt 0) {
             Write-Warning "==================================================================="
-            Write-Warning " Machine inactivity lock is set to $lockTimeout second(s)."
+            Write-Warning " Machine inactivity lock is set to $lockTimeoutSeconds second(s)."
             Write-Warning " The lock screen will activate during long test runs."
             Write-Warning ""
             Write-Warning " Quick fix -- run from an elevated PowerShell at the repo root:"

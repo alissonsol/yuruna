@@ -1,7 +1,7 @@
 #!/bin/bash
 # Yuruna Ubuntu KVM/libvirt bootstrap installer.
 # LICENSEURI https://yuruna.link/license
-# Version: 2026.07.28  Copyright (c) 2019-2026 by Alisson Sol et al.
+# Version: 2026.07.29  Copyright (c) 2019-2026 by Alisson Sol et al.
 # --- REGION: https://yuruna.link/install/explained
 # One-liner: bash <(curl -fsSL https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/install/ubuntu.kvm.sh)
 # Supported target: Ubuntu 26.04 (Resolute) or newer on x86_64 (aarch64 supported but UNTESTED -- see preflight).
@@ -45,12 +45,7 @@ warn() { printf '\033[1;33m!! \033[0m %s\n' "$*" >&2; }
 die()  { printf '\033[1;31mXX \033[0m %s\n' "$*" >&2; exit 1; }
 
 # --- REGION: Install log
-# Mirror stdout+stderr to a file as well as the terminal so a mid-install
-# failure can be inspected afterwards. A FIFO + backgrounded tee (rather than
-# `exec > >(tee ...)`) lets the EXIT path wait for tee to flush, so the file is
-# complete even on an abrupt exit -- a plain process-substitution tee is left
-# an orphan that may be killed before flushing its block-buffered file write.
-# Standard per-user state dir, ${TMPDIR:-/tmp} fallback.
+# --- REGION: https://yuruna.link/install/explained#install-log
 if [[ -z "${YURUNA_INSTALL_LOG:-}" ]]; then
   _yuruna_log_dir="${XDG_STATE_HOME:-$HOME/.local/state}/yuruna/logs"
   mkdir -p "$_yuruna_log_dir" 2>/dev/null || _yuruna_log_dir="${TMPDIR:-/tmp}"
@@ -234,8 +229,8 @@ if [[ $HAVE_VMX -eq 0 ]]; then
 fi
 
 # --- REGION: https://yuruna.link/install/explained#stop-running-yuruna-processes-before-updating
-# Stop the runner/inner/status-server and WAIT before the checkout rename.
-# VMs (the yuruna-caching-proxy cache, a libvirt domain) are never touched
+# Stop the runner/inner/status-service and WAIT before the checkout rename.
+# VMs (the yuruna-caching-proxy-service cache, a libvirt domain) are never touched
 # here: this installer issues no domain stop/destroy.
 stop_yuruna_processes() {
   local runtime_dir="${YURUNA_RUNTIME_DIR:-$YURUNA_DIR/test/status/runtime}"
@@ -255,8 +250,8 @@ stop_yuruna_processes() {
   # (2) Command-line pattern match.
   local -a patterns=(
     "Invoke-TestRunner.ps1"
-    "Invoke-TestInnerRunner.ps1"
-    "Test-Sequence.ps1"
+    "Invoke-TestRunnerInnerLoop.ps1"
+    "Invoke-TestSequence.ps1"
     "Start-StatusService.ps1"
     ".status-service.ps1"
   )
@@ -316,7 +311,7 @@ stop_yuruna_processes() {
   done
 
   if [[ ${#uniq_pids[@]} -eq 0 ]]; then
-    log "  no running Yuruna runner / status server found"
+    log "  no running Yuruna runner / status service found"
     return 0
   fi
 
@@ -353,7 +348,7 @@ stop_yuruna_processes() {
   warn "  some Yuruna service PIDs did not exit; re-run the installer if the repo update reports the checkout is busy."
 }
 
-log "Stopping anything that would block a repo update (runner + status server; VMs preserved)"
+log "Stopping anything that would block a repo update (runner + status service; VMs preserved)"
 stop_yuruna_processes
 
 # --- REGION: Install platform packages
@@ -656,7 +651,7 @@ pwsh -NoProfile -Command '
             Install-Module -Name powershell-yaml -Scope CurrentUser -Force -AllowClobber -ErrorAction Stop
         } catch {
             Write-Warning "  Install-Module powershell-yaml failed: $($_.Exception.Message)"
-            Write-Warning "  Test-Project.ps1 will refuse to run until this is fixed."
+            Write-Warning "  Invoke-TestProject.ps1 will refuse to run until this is fixed."
             Write-Warning "  Try manually: pwsh -Command ''Install-Module powershell-yaml -Scope CurrentUser''"
             exit 1
         }

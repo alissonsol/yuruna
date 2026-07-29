@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.28
+.VERSION 2026.07.29
 .GUID 42a2b3c4-d5e6-4f78-9012-3a4b5c6d7e93
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -241,7 +241,7 @@ if (-not $libvirtReady) {
 # --- REGION: status-service LAN reachability (host firewall)
 # Start-StatusService binds http://*:<port>/ (every interface), but a host
 # firewall silently DROPs inbound TCP on non-loopback interfaces without an
-# allow rule -- so localhost answers while the pool aggregator (and an operator's
+# allow rule -- so localhost answers while the pool-aggregator service (and an operator's
 # browser) time out, and the host disappears from the pool dashboard. The
 # Windows path opens this in Set-WindowsHostConditionSet; do the ufw equivalent
 # here so an Ubuntu host is reachable too. This is the PERSISTENT fix: a host
@@ -259,7 +259,7 @@ if (Test-Path -LiteralPath $statusConfigPath) {
     } catch { Write-Verbose "status port read: $($_.Exception.Message)" }
 }
 Import-Module (Join-Path $RepoRoot 'test/modules/Test.StatusFirewall.psm1') -Force
-Invoke-Step -Description "Allow inbound TCP :$statusPort (status server) through the host firewall (ufw)" -Action {
+Invoke-Step -Description "Allow inbound TCP :$statusPort (status service) through the host firewall (ufw)" -Action {
     $fwResult = Set-YurunaStatusFirewallRule -Port $statusPort
     Write-Output "  status firewall: $($fwResult.Message)"
 }

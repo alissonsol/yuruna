@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.28
+.VERSION 2026.07.29
 .GUID 42e3a5b6-c7d8-4901-2345-6e7f80910213
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -229,8 +229,9 @@ function Publish-ResourceListHelper {
             }
 
             Write-Debug "OpenTofu init"
-            # Shared Yuruna.Retry backoff; TF_PLUGIN_CACHE_DIR (set above)
-            # keeps every later attempt off the network.
+            # Shared Yuruna.Retry backoff; TF_PLUGIN_CACHE_DIR (set by
+            # Publish-ResourceList before this helper runs) keeps every
+            # later attempt off the network.
             # docs/architecture.md#shared-transient-failure-retry-policy
             # --- REGION: https://yuruna.link/network#defining-yuruna-retry-lib
             $retryResult = Invoke-TofuInitWithRetry -ResourceName $resourceName -LogPath $tofuLogFile -RcFile $tofuRcFile

@@ -15,7 +15,7 @@ irm "https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/install
 
 Installs PowerShell 7, Git, Windows ADK Deployment Tools (for
 `oscdimg.exe`), QEMU tools (for `qemu-img` used by
-`guest.caching-proxy/Get-Image.ps1`), and Tesseract OCR via `winget`;
+`guest.caching-proxy-service/Get-Image.ps1`), and Tesseract OCR via `winget`;
 enables **Microsoft-Hyper-V-All** via `dism.exe`; clones the repo to
 `%USERPROFILE%\git\yuruna`; seeds `test\test.config.yml`. Idempotent;
 elevation requested once. Disabling display timeout and screen lock
@@ -40,7 +40,7 @@ Manual walk-through: [Windows Hyper-V Host Setup - Nerd-Level Details](read.more
 ## Optional: Squid cache VM
 
 See [Hosts — ...](../README.md#optional-squid-cache-vm) and
-[Caching](../../docs/caching.md). Once `caching-proxy` is
+[Caching](../../docs/caching.md). Once `caching-proxy-service` is
 running, the Ubuntu Server `New-VM.ps1` scripts auto-detect it and
 inject the proxy URL into the seed ISO.
 
@@ -59,6 +59,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.28
+Last review: 2026.07.29
 
 Back to [Yuruna](../../README.md)

@@ -57,29 +57,29 @@ default route — it gets its own DHCP-assigned IP on the host's LAN,
 identical in shape to the Hyper-V Yuruna-External vSwitch path, and
 squid sees real client IPs at TCP level with no host-side TCP
 forwarder layer. On a Wi-Fi-only default route `New-VM.ps1` builds it
-on UTM Shared NAT instead, and `Start-CachingProxyVM.ps1` forwards host
+on UTM Shared NAT instead, and `Start-CachingProxyServiceVM.ps1` forwards host
 ports to it.
 
 - **Local install VMs** on VZ shared-NAT reach the cache through VMnet's
   outbound NAT to the LAN IP. `guest.ubuntu.server.24/New-VM.ps1` delegates
-  to `Test-CachingProxyAvailable` and injects e.g.
+  to `Test-CachingProxyServiceAvailable` and injects e.g.
   `http://192.168.7.150:3128` into the autoinstall seed ISO.
-- **Remote LAN hosts** set `vmStart.cachingProxyIP: <cache-lan-ip>` in
+- **Remote LAN hosts** set `vmStart.cachingProxyIp: <cache-lan-ip>` in
   their `test/test.config.yml` (probed first at cycle start) — or
-  `YURUNA_CACHING_PROXY_IP=<cache-lan-ip>` before `Invoke-TestRunner.ps1`
+  `YURUNA_CACHING_PROXY_SERVICE_IP=<cache-lan-ip>` before `Invoke-TestRunner.ps1`
   on hosts whose config key is empty; a populated, reachable config
   value outranks the env var. The cache's LAN IP is printed in the
-  summary line of `test/Start-CachingProxyVM.ps1`.
+  summary line of `test/Start-CachingProxyServiceVM.ps1`.
 - **If the cache VM is `started` but no `:3128` answer is found on the
   host's LAN `/24`**, `New-VM.ps1` exits 1 rather than silently falling
   back — typically a Wi-Fi AP that filters the cache's locally-
   administered MAC. Switch to Ethernet or rebuild on a network that
   allows it.
 
-`test/Repair-CachingProxyForwarder.ps1` is a thin "verify reachable +
+`test/Repair-CachingProxyServiceForwarder.ps1` is a thin "verify reachable +
 refresh state file" tool; a bridged (Ethernet) cache needs no
 host-side forwarder layer — forwarders are only created for the Wi-Fi
-Shared-NAT build. `test/Stop-CachingProxyVM.ps1` tears any forwarders
+Shared-NAT build. `test/Stop-CachingProxyServiceVM.ps1` tears any forwarders
 down.
 
 ## Next: Create a Guest VM
@@ -98,6 +98,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.28
+Last review: 2026.07.29
 
 Back to [Yuruna](../../README.md)

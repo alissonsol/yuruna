@@ -85,7 +85,7 @@ flowchart TD
     host-contract[Yuruna.Host.Contract.psm1<br/>37 verbs: lifecycle, console, net]
     host-modules[modules/<br/>Provision, Download, Image, UbuntuImage, Cleanup]
     vmconfig[vmconfig/<br/>5 families: base + meta + overlay]
-    infra-guests[guest.caching-proxy<br/>guest.pool-control, guest.stash-service]
+    infra-guests[guest.caching-proxy-service<br/>guest.pool-control-service, guest.stash-service]
 
     host-contract --> windows-hyperv
     host-contract --> ubuntu-kvm
@@ -99,7 +99,7 @@ flowchart TD
 lifecycle and inventory, disk snapshots, console open/restart, image
 acquisition, input + capture (`Send-Text`, `Send-Key`, `Send-Click`,
 `Get-VMScreenshot`, `Get-VMConsoleHandle`), guest networking probes, external
-network and host port mapping, caching-proxy probes and host proxy
+network and host port mapping, caching-proxy-service probes and host proxy
 management. The coverage check is **warn-only**: each driver calls
 `Assert-YurunaHostContractCoverage` and discards the result, and the function
 only warns and returns `$false` — it never throws, so a missing verb produces
@@ -112,11 +112,11 @@ operator scripts (`Enable-TestAutomation.ps1`, `Sync-HostConfiguration.ps1`,
 `Yuruna.VMCleanup` module), and one `guest.<key>/` folder per supported guest
 holding `Get-Image.ps1` + `New-VM.ps1` + `README.md`. `macos.utm/` folders add
 a `config.plist.template` UTM bundle template, and `macos.utm/` alone carries
-`guest.macos.26`, `Start-CachingProxyForwarder.ps1` and `brew-doctor-fix.sh`.
+`guest.macos.26`, `Start-CachingProxyServiceForwarder.ps1` and `brew-doctor-fix.sh`.
 Seven guest folders per provider, eight for `macos.utm`.
 
 `host/vmconfig/` is flat: five guest families (`amazon.linux.2023`,
-`caching-proxy`, `pool-control`, `stash-service`, `ubuntu.server`) × five
+`caching-proxy-service`, `pool-control-service`, `stash-service`, `ubuntu.server`) × five
 files each — `<family>.base.user-data`, `<family>.meta-data`, and one overlay
 per hypervisor (`<family>.hyperv|kvm|utm.overlay.yml`). The base+overlay merge
 is what makes the seed host-neutral, and `ubuntu.server.24` and
@@ -150,7 +150,7 @@ they arrive differs per guest:
   `/usr/local/lib/yuruna/fetch-and-execute.sh guest/<name>/<name>.<workload>.sh` —
   the copy cloud-init bakes in from `automation/fetch-and-execute.sh`,
   alongside `yuruna-retry.sh` (sourced unconditionally by every fetcher-run
-  Linux workload script; the pool-control and stash-service bring-up scripts
+  Linux workload script; the pool-control-service and stash-service bring-up scripts
   source it behind an `if [ -r ... ]` guard because they run before
   `update.sh` has baked it in), `yuruna-network.sh` and `yuruna-versions.sh`.
 - **Windows 11** has no automated path: `test/sequences/workload.guest.windows.11.yml`
@@ -158,7 +158,7 @@ they arrive differs per guest:
   `guest/windows.11/README.md` is operator-run.
 - **macOS 26** has no automated path either — Setup Assistant is not
   automated, so `macos.26.update.sh` is operator-run.
-- The **pool-control** and **stash-service** guests bypass the fetcher: their
+- The **pool-control-service** and **stash-service** guests bypass the fetcher: their
   cloud-init pulls `yuruna-archive.tar.gz` (falling back to `git clone`) and
   runs `bash .../guest/ubuntu.server.26/ubuntu.server.26.<svc>.sh` directly.
 
@@ -167,7 +167,7 @@ they arrive differs per guest:
 ```mermaid
 flowchart TD
     runner[Invoke-TestRunner.ps1 +<br/>Invoke-TestCycleRunner.ps1]
-    inner[modules/Invoke-TestInnerRunner.ps1<br/>per-guest step plan]
+    inner[modules/Invoke-TestRunnerInnerLoop.ps1<br/>per-guest step plan]
     modules[modules/<br/>Runner, Sequence, Status, Pool, Ocr]
     plans[sequences/ + schemas/<br/>step plans + YAML validation]
     status[status/<br/>HTTP UI + runtime state]
@@ -190,12 +190,12 @@ in-process cycles only when that file is absent. The cycle runner runs
 **exactly one cycle per fresh process**, so an edit to cycle logic lands on
 the next cycle instead of needing a runner restart; it reports transient
 outcomes through `runner.cycle.outcome.json`. It in turn spawns
-`modules/Invoke-TestInnerRunner.ps1`, which drives the per-guest steps.
+`modules/Invoke-TestRunnerInnerLoop.ps1`, which drives the per-guest steps.
 
 `test/modules/` is the implementation layer — 81 `.psm1` modules and 127
 Pester files — including everything the runner boxes delegate to:
 `Test.RunnerOuterLoop`, `Test.RunnerInnerLoop`, `Test.RunnerWatchdog`,
-`Test.RunnerState`, `Invoke-Sequence`, `Test.OcrEngine` (built-in engines
+`Test.RunnerState`, `Test.SequenceEngine`, `Test.OcrEngine` (built-in engines
 `tesseract`, `winrt`, `macos-vision`), `Test.Status`, `Test.Extension`,
 `Test.PoolAdmin` / `Test.PoolStorage` / `Test.PoolSync`.
 
@@ -213,7 +213,7 @@ lab.vault (auth state). `test.config.yml` has no schema — `test/Test-Config.ps
 validates it directly.
 
 `test/extension/` has six areas. Five ship `<area>.contract.yml` +
-`<area>.config.yml` and load through `Test.Extension.psm1`; `pool-control/`
+`<area>.config.yml` and load through `Test.Extension.psm1`; `pool-control-service/`
 ships neither — its only child is `server/`, a standalone Go daemon.
 `test/pool/` holds `examples/` only (`pools.yml`,
 `guests.compatibility.yml`); the live intent store is a separate git repo at
@@ -221,7 +221,11 @@ ships neither — its only child is `server/`, a standalone Go daemon.
 `<runtime>/pool-intent-admin` — the 8 mutating ones commit and push, while
 `Get-PoolIntent`, `Get-PoolStatus` and `Test-PoolIntent` only read.
 `New-Lab.ps1` creates a lab's storage folders, intent repository and lab
-vault.
+vault; on a second lab it reuses the storage root and the share credentials
+the machine already holds, since the share accounts are machine-wide rather
+than per-lab. `New-LocalLabStorage.ps1` wraps it for a machine that serves its
+own storage, adding the OS accounts, the SMB server, the shares, the loopback
+aliases, the mounts, and the `networkStorage.*` config.
 
 ## Installers — `install/`, `tools/`
 
@@ -323,4 +327,4 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.28
+Last review: 2026.07.29

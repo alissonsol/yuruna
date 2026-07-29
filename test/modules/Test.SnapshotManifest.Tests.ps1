@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.28
+.VERSION 2026.07.29
 .GUID 42bf9cc9-1b2b-499b-90cc-a4c2c9b939aa
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -61,12 +61,12 @@ function Set-YurunaProvenanceGlobal {
         Write-SnapshotManifest stamps into the manifest.
     #>
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidGlobalVars', '',
-        Justification = 'Test fixture: the module reads global:__YurunaCycleId / __YurunaRunId by design.')]
+        Justification = 'Test fixture: the module reads global:__YurunaCycleStartUtc / __YurunaRunId by design.')]
     [CmdletBinding(SupportsShouldProcess)]
     [OutputType([void])]
-    param([AllowNull()][string]$CycleId, [AllowNull()][string]$RunId)
+    param([AllowNull()][string]$CycleStartUtc, [AllowNull()][string]$RunId)
     if (-not $PSCmdlet.ShouldProcess('Yuruna provenance globals', 'Set')) { return }
-    $global:__YurunaCycleId = $CycleId
+    $global:__YurunaCycleStartUtc = $CycleStartUtc
     $global:__YurunaRunId   = $RunId
 }
 
@@ -105,7 +105,7 @@ BeforeAll {
 
 AfterAll {
     $env:YURUNA_RUNTIME_DIR = $savedRuntimeDir
-    Set-YurunaProvenanceGlobal -CycleId $null -RunId $null -Confirm:$false
+    Set-YurunaProvenanceGlobal -CycleStartUtc $null -RunId $null -Confirm:$false
     if ($runtimeRoot -and (Test-Path -LiteralPath $runtimeRoot)) {
         Remove-Item -LiteralPath $runtimeRoot -Recurse -Force -ErrorAction SilentlyContinue
     }
@@ -144,10 +144,10 @@ Describe 'Get-SnapshotManifestDir / Get-SnapshotManifestPath' {
 }
 
 Describe 'Write-SnapshotManifest / Get-SnapshotManifest' {
-    AfterEach { Set-YurunaProvenanceGlobal -CycleId $null -RunId $null -Confirm:$false }
+    AfterEach { Set-YurunaProvenanceGlobal -CycleStartUtc $null -RunId $null -Confirm:$false }
 
     It 'round-trips the identity and provenance a restore has to check' {
-        Set-YurunaProvenanceGlobal -CycleId 'cycle-000123' -RunId 'run-abc' -Confirm:$false
+        Set-YurunaProvenanceGlobal -CycleStartUtc 'cycle-000123' -RunId 'run-abc' -Confirm:$false
         $path = Write-SnapshotManifest -VMName 'vm-roundtrip' -SnapshotId 'snap-1' -HostType 'host.windows.hyper-v' -Confirm:$false
         Assert-True ($null -ne $path) 'a successful write returns the manifest path'
         Assert-True (Test-Path -LiteralPath $path) 'the manifest file must exist on disk'
@@ -160,16 +160,16 @@ Describe 'Write-SnapshotManifest / Get-SnapshotManifest' {
         Assert-Equal -Expected ([System.Net.Dns]::GetHostName()) -Actual $m['hostName']
         Assert-Equal -Expected $PID                    -Actual $m['writerPid']
         Assert-Equal -Expected 1                       -Actual $m['manifestVersion']
-        Assert-Equal -Expected 'cycle-000123'          -Actual $m['cycleId'] -Because 'the taking cycle is the audit trail'
+        Assert-Equal -Expected 'cycle-000123'          -Actual $m['cycleStartUtc'] -Because 'the taking cycle is the audit trail'
         Assert-Equal -Expected 'run-abc'               -Actual $m['runId']
         Assert-True  ([datetime]::Parse([string]$m['takenAtUtc'], $null, [Globalization.DateTimeStyles]::RoundtripKind) -le (Get-Date).ToUniversalTime().AddMinutes(1)) `
             'takenAtUtc must be a parseable instant, not in the future'
     }
-    It 'records a null cycleId / runId when the cycle globals are not set' {
-        Set-YurunaProvenanceGlobal -CycleId $null -RunId $null -Confirm:$false
+    It 'records a null cycleStartUtc / runId when the cycle globals are not set' {
+        Set-YurunaProvenanceGlobal -CycleStartUtc $null -RunId $null -Confirm:$false
         $null = Write-SnapshotManifest -VMName 'vm-nocycle' -SnapshotId 'snap-1' -Confirm:$false
         $m = Get-SnapshotManifest -VMName 'vm-nocycle' -SnapshotId 'snap-1'
-        Assert-Equal -Expected $null -Actual $m['cycleId'] -Because 'a snapshot taken outside a cycle has no cycle id to claim'
+        Assert-Equal -Expected $null -Actual $m['cycleStartUtc'] -Because 'a snapshot taken outside a cycle has no cycle id to claim'
         Assert-Equal -Expected $null -Actual $m['runId']
         Assert-Equal -Expected ''    -Actual $m['hostType'] -Because 'HostType defaults to empty, not absent'
     }

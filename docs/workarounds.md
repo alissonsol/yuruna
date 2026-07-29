@@ -54,7 +54,8 @@ one machine can be picked up on another. Import the cluster context and
 
 **`Error: can't find external program "pwsh"`** — check for PowerShell 7.0+
 via `$PSVersionTable`. Setup: <https://aka.ms/powershell>. Versions used in
-testing are listed in [Yuruna Requirements](requirements.md).
+testing are listed in [Preflight
+dependencies](operator.md#b2-preflight-dependencies).
 
 ## Development notes
 
@@ -143,7 +144,7 @@ every per-guest caller.
 Spawning a child pwsh with any std stream redirected (including
 `& pwsh ... *> $null`)
 turns handle inheritance ON for that child. `Invoke-StatusServiceBounce` in
-[`test/modules/Test.HostConfigSync.psm1`](../test/modules/Test.HostConfigSync.psm1)
+[`test/modules/Test.ConfigServiceSync.psm1`](../test/modules/Test.ConfigServiceSync.psm1)
 runs `Start-StatusService.ps1 -Restart` in a child pwsh, and the status
 server it starts is a grandchild that outlives the bounce by design. With
 inheritance on, that server inherits the write end of the caller's stdout
@@ -161,7 +162,7 @@ own transcript with `Tee-Object` and the caller tails that file while it
 waits. `-NonInteractive` goes on the child so a prompt fails fast instead of
 blocking against a hidden window nobody can answer. Waiting must use
 `Process.WaitForExit(ms)` on the child alone — `Start-Process -Wait` waits on
-the whole descendant tree, which includes the status server, and reintroduces
+the whole descendant tree, which includes the status service, and reintroduces
 the unbounded wait from the other direction.
 
 Unix has no `ShellExecute`, but its detached server is `nohup`'d onto
@@ -182,16 +183,16 @@ The trap fires in both directions:
 - **Caller loses its view.** `Initialize-YurunaHost` (from
   `test/modules/Test.HostContract.psm1`) cascades into
   `host/<host type>/modules/Yuruna.Host.psm1`, which nested-imports
-  `test/modules/Test.CachingProxy.psm1` **without** `-Global`. Any script
-  that imported `Test.CachingProxy` for itself loses
-  `Read-CachingProxyState`, `Save-CachingProxyState`,
-  `Invoke-CachingProxyProbe`, and `Get-CachingProxyStatePath` the moment
+  `test/modules/Test.CachingProxyService.psm1` **without** `-Global`. Any script
+  that imported `Test.CachingProxyService` for itself loses
+  `Read-CachingProxyServiceState`, `Save-CachingProxyServiceState`,
+  `Invoke-CachingProxyServiceProbe`, and `Get-CachingProxyServiceStatePath` the moment
   `Initialize-YurunaHost` runs.
 - **Foreign modules lose theirs.** A script `&`-invoked from a module
   context (the inner cycle runner calling `Remove-TestVMFiles.ps1`, or the
   status service calling into the host contract) that does a `-Force`
   import *without* `-Global` pulls the module out of the global table for
-  every unrelated module, so a later contract call from `Invoke-Sequence`
+  every unrelated module, so a later contract call from `Test.SequenceEngine`
   fails to resolve. This is the *legacy-eviction regression class*.
 
 **The rule:** re-import with `-Global -Force` immediately **after** every
@@ -199,20 +200,20 @@ The trap fires in both directions:
 always pass `-Global` when a script that may be invoked from a module
 context imports a shared module.
 
-Sites that depend on this ordering: `test/Start-CachingProxyVM.ps1`,
-`test/Stop-CachingProxyVM.ps1`, `test/Repair-CachingProxyForwarder.ps1`,
-`test/Test-CachingProxy.ps1`, `test/Start-StatusService.ps1`,
+Sites that depend on this ordering: `test/Start-CachingProxyServiceVM.ps1`,
+`test/Stop-CachingProxyServiceVM.ps1`, `test/Repair-CachingProxyServiceForwarder.ps1`,
+`test/Test-CachingProxyService.ps1`, `test/Start-StatusService.ps1`,
 `test/Remove-TestVMFiles.ps1`, `test/Set-LabToken.ps1`.
 
 Symptoms when the re-import is missing are silent rather than loud,
 because the surrounding `try` usually swallows the resolution error:
 
-- `Start-StatusService.ps1` leaves `runtime/caching-proxy.txt` at whatever
+- `Start-StatusService.ps1` leaves `runtime/caching-proxy-service.txt` at whatever
   the previous run wrote, so the status-page banner reports "not detected"
   while the runner's own banner — running in `Yuruna.Host`'s session, where
-  `Read-CachingProxyState` *is* visible — correctly reports "detected".
-- `Start-CachingProxyVM.ps1` skips persisting the discovered cache IP, so
-  guest provisioners and the status server's fast path re-run full
+  `Read-CachingProxyServiceState` *is* visible — correctly reports "detected".
+- `Start-CachingProxyServiceVM.ps1` skips persisting the discovered cache IP, so
+  guest provisioners and the status service's fast path re-run full
   discovery on every cycle.
 
 Durable capture: `feedback_module_force_import_evicts_global`.
@@ -298,6 +299,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.28
+Last review: 2026.07.29
 
 Back to [Yuruna](../README.md)

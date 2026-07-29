@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.28
+.VERSION 2026.07.29
 .GUID 42f3d4e5-f6a7-4b89-c012-3d4e5f6a7b81
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -42,7 +42,7 @@ if (-not $IsLinux) {
 # --- REGION: Configuration
 # Ubuntu 26.04 LTS (Resolute Raccoon), per the stash-service spec
 # (section 3.1: default image ubuntu.server.26), matching the
-# caching-proxy LTS so the stash VM stays in the supported-LTS window
+# caching-proxy-service LTS so the stash-service VM stays in the supported-LTS window
 # and the distro Go toolchain satisfies the daemon's go.mod directive
 # without a toolchain fetch.
 $arch = (& uname -m).Trim()

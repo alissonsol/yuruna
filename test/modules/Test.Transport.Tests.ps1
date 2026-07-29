@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.28
+.VERSION 2026.07.29
 .GUID 42c1a7e9-5b62-4d38-9a04-7e2f1c6b8d90
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -150,5 +150,77 @@ Describe 'Control-chord support across the Send-Key backends' {
         Assert-True ($text -match 'CGEventSetFlags\(down, modFlag\)')  'the base press must carry the flag'
         Assert-True ($text -match '(?s)var modUp = \$\.CGEventCreateKeyboardEvent\(src, modKeyCode, false\);\s*\r?\n\s*\$\.CGEventPost\(0, modUp\);') `
             'the modifier release must be posted without a flag'
+    }
+}
+
+# --- Held-key release on an interrupted VNC send -----------------------------
+# Shadows the module-internal transport primitives inside Test.Transport's own
+# session state, so the press/release stream is observable with no socket. Kept
+# after the Describes above, none of which touch these three functions.
+$script:TransportModule = Get-Module Test.Transport
+& $script:TransportModule {
+    function script:Connect-VNC    { param($VMName, $Port) [pscustomobject]@{ Fake = $true } }
+    function script:Disconnect-VNC { $script:disconnected = $true }
+    function script:Send-VncKeyEvent {
+        param($Client, $KeySym, $Down)
+        $script:n++
+        if ($script:failAt -gt 0 -and $script:n -eq $script:failAt) {
+            throw [System.IO.IOException]::new('injected mid-send failure')
+        }
+        [void]$script:rec.Add([pscustomobject]@{ Sym = [int]$KeySym; Down = [bool]$Down })
+    }
+}
+function Reset-KeyRecording {
+    param([int]$FailAt = 0)
+    & $script:TransportModule { param($f)
+        $script:rec = [System.Collections.ArrayList]::new()
+        $script:n = 0; $script:failAt = $f; $script:disconnected = $false } $FailAt
+}
+# Any keysym with more presses than releases is a key still down in the guest,
+# which the guest kernel auto-repeats at the console default until the VM dies.
+function Get-HeldKeySyms {
+    $rec = & $script:TransportModule { , $script:rec.ToArray() }
+    $tally = @{}
+    foreach ($e in $rec) { $tally[$e.Sym] = ($tally[$e.Sym] ?? 0) + ($e.Down ? 1 : -1) }
+    return @($tally.GetEnumerator() | Where-Object { $_.Value -ne 0 } | ForEach-Object { $_.Key })
+}
+
+Describe 'VNC sends never leave a key held in the guest' {
+
+    It 'pairs every press with a release on a clean text send' {
+        Reset-KeyRecording
+        Assert-True ((Send-TextVNC -VMName 'vm' -Text 'aB c' -CharDelayMs 0) -eq $true) 'clean send must report success'
+        Assert-True ((Get-HeldKeySyms).Count -eq 0) "clean send left keys held: $(Get-HeldKeySyms)"
+    }
+
+    It 'releases the character key when the send dies between its press and release' {
+        # 'ab' unshifted emits down(a) up(a) down(b) up(b); failing the 4th
+        # write is the exact shape seen in production -- the press landed in
+        # the guest, the release never did, and 'b' auto-repeated forever.
+        Reset-KeyRecording -FailAt 4
+        Assert-True ((Send-TextVNC -VMName 'vm' -Text 'ab' -CharDelayMs 0 -WarningAction SilentlyContinue) -eq $false) `
+            'an interrupted send must report failure'
+        Assert-True ((Get-HeldKeySyms).Count -eq 0) "interrupted send left keys held: $(Get-HeldKeySyms)"
+    }
+
+    It 'releases Shift too when the send dies inside a shifted character' {
+        # 'A' emits down(Shift) down(a) up(a) up(Shift); fail the 3rd write.
+        Reset-KeyRecording -FailAt 3
+        Send-TextVNC -VMName 'vm' -Text 'A' -CharDelayMs 0 -WarningAction SilentlyContinue | Out-Null
+        Assert-True ((Get-HeldKeySyms).Count -eq 0) "shifted interrupt left keys held: $(Get-HeldKeySyms)"
+    }
+
+    It 'releases the key when a single Send-KeyVNC dies mid-pair' {
+        # This is the path that sends Enter after every typed command.
+        Reset-KeyRecording -FailAt 2
+        Send-KeyVNC -VMName 'vm' -KeyName 'Enter' -WarningAction SilentlyContinue | Out-Null
+        Assert-True ((Get-HeldKeySyms).Count -eq 0) "interrupted Enter left keys held: $(Get-HeldKeySyms)"
+    }
+
+    It 'releases both halves when a chord dies between the base press and release' {
+        # CtrlU emits down(Ctrl) down(u) up(u) up(Ctrl); fail the 3rd write.
+        Reset-KeyRecording -FailAt 3
+        Send-KeyVNC -VMName 'vm' -KeyName 'CtrlU' -WarningAction SilentlyContinue | Out-Null
+        Assert-True ((Get-HeldKeySyms).Count -eq 0) "interrupted chord left keys held: $(Get-HeldKeySyms)"
     }
 }

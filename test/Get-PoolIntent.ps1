@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.28
+.VERSION 2026.07.29
 .GUID 42d4e5f6-a7b8-4c90-8123-4e5f6a7b8c9d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -20,7 +20,7 @@
 .SYNOPSIS
     Emit the pool intent (pools + test-set library) as JSON. Read-only.
 .DESCRIPTION
-    Backs the Pool control UI's data reads. Clones/pulls the intent store and
+    Backs the pool-control service UI's data reads. Clones/pulls the intent store and
     writes a single JSON object to stdout: { ok, pools:[...], testSets:[...] }
     (the pools from pools.yml and the named-triple library from test-sets.yml).
     Never writes the store. On any error, emits { ok:false, error:"..." } and

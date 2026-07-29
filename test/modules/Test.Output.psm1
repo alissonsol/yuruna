@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.28
+.VERSION 2026.07.29
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456727
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -17,7 +17,7 @@
 #requires -version 7
 
 # Reusable PASS / FAIL / WARN reporter for check-style scripts. Lets
-# check scripts (Test-Config, Test-CachingProxy, future health-checks)
+# check scripts (Test-Config, Test-CachingProxyService, future health-checks)
 # share the same operator-facing format without copy-pasting the
 # counters and Write-Summary banner.
 #

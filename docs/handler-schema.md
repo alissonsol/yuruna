@@ -1,7 +1,7 @@
 # Sequence-Action Handler Schema
 
 > Contract for the verb-Handler registry that drives the YAML sequence
-> engine in [`Invoke-Sequence.psm1`](../test/modules/Invoke-Sequence.psm1).
+> engine in [`Test.SequenceEngine.psm1`](../test/modules/Test.SequenceEngine.psm1).
 
 ## Overview
 
@@ -50,7 +50,7 @@ dispatch.
 | `DefaultTimeoutSeconds`| `int`                         | Engine default for verbs that take a `timeoutSeconds:` field.              |
 | `DefaultPollSeconds`   | `int`                         | Engine default for verbs that poll.                                        |
 | `DefaultCharDelayMs`   | `int`                         | Engine default per-character delay for text-typing verbs.                  |
-| `RepoRoot`             | `string`                      | Served-repo root (the base the status server serves at `/yuruna-repo`); fetch verbs hash the script the guest is about to fetch. |
+| `RepoRoot`             | `string`                      | Served-repo root (the base the status service serves at `/yuruna-repo`); fetch verbs hash the script the guest is about to fetch. |
 | `WriteCurrentAction`   | `scriptblock`                 | Engine callback for updating the "current action" status feed.             |
 | `WaitWhilePaused`      | `scriptblock`                 | Engine callback that blocks until a pause flag clears.                     |
 | `InvokeStepBlock`      | `scriptblock`                 | Recursive dispatcher for verbs that nest steps (`retry`, ...).             |
@@ -123,13 +123,13 @@ Register-SequenceAction -Name 'pressKey' `
     -FailureLabel { param($c) "pressKey: $($c.Step.name)" } `
     -Handler {
         param([hashtable]$c)
-        return [bool](Invoke-Sequence\Send-Key `
+        return [bool](Test.SequenceEngine\Send-Key `
             -HostType $c.HostType -VMName $c.VMName `
             -KeyName $c.Step.name)
     }
 ```
 
-Note the `Invoke-Sequence\Send-Key` qualified call: `Send-Key` is also
+Note the `Test.SequenceEngine\Send-Key` qualified call: `Send-Key` is also
 a platform cmdlet name in some host modules, so qualified resolution
 is mandatory in Handlers that talk to host I/O. The same rule applies
 to `New-VM` / `Start-VM` / `Stop-VM` / `Remove-VM` and any other
@@ -155,7 +155,7 @@ cmdlet (notably Hyper-V on Windows).
 6. If the verb takes user-supplied YAML field names that overlap with
    a deprecated spelling, add the deprecated spelling to `Aliases`.
 
-No edit to `Invoke-Sequence.psm1` is required for the registry path —
+No edit to `Test.SequenceEngine.psm1` is required for the registry path —
 the engine discovers the registration via `$global:YurunaSequenceActions`.
 
 ---
@@ -164,6 +164,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.28
+Last review: 2026.07.29
 
 Back to [Yuruna](../README.md)

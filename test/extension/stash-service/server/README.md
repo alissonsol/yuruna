@@ -1,4 +1,4 @@
-# Stash Service — Go daemon (`stash-server`)
+# stash service — Go daemon (`stash-service`)
 
 A single static binary with TWO listeners:
 
@@ -17,7 +17,7 @@ A single static binary with TWO listeners:
 
 ```
 server/
-├── go.mod / go.sum                       # module stash-server (go.sum committed)
+├── go.mod / go.sum                       # module stash-service (go.sum committed)
 ├── main.go                               # flags, signals, listener loop, sidecar rebuild
 ├── internal/
 │   ├── config/config.go                  # spec §10 constants in one place
@@ -28,7 +28,7 @@ server/
 │   ├── sshsrv/{sshsrv,sftp,flush}.go     # crypto/ssh server, SFTP backend, NAS-offline flush (§4, §4.1, §8.4)
 │   ├── sshsrv/ingest.go                  # UI-facing ingest (paste/upload) + local delete (ui §5, §8)
 │   ├── detect/                           # content-type detection: pure-Go heuristic + magika build-tag adapter (ui §6.1)
-│   ├── beacon/                           # presence beacon: self-announce to the pool-aggregator (§4.7)
+│   ├── beacon/                           # presence beacon: self-announce to the pool-aggregator-service (§4.7)
 │   └── httpsrv/                          # UI/API HTTP server, pool-wide index, host resolution, embedded web/ (ui §2–§9)
 └── *_test.go                             # unit tests for the pure-logic bits
 ```
@@ -41,13 +41,13 @@ Pure Go (the SQLite driver is [`modernc.org/sqlite`](https://pkg.go.dev/modernc.
 not the CGo one), so the build needs only `golang-go`. `go.sum` is
 committed, so do NOT run `go mod tidy` (it needs the network to recompute
 the graph); `go build` verifies against `go.sum` and fetches modules
-through the caching proxy:
+through the caching-proxy service:
 
 ```bash
 sudo apt-get install -y golang-go libcap2-bin
 cd ~/yuruna/test/extension/stash-service/server
-go build -o stash-server .
-sudo install -m 0755 stash-server /usr/local/bin/stash-server
+go build -o stash-service .
+sudo install -m 0755 stash-service /usr/local/bin/stash-service
 ```
 
 ### Magika detection backend (optional build)
@@ -66,7 +66,7 @@ it requires, in the VM image build, all three of:
 ```bash
 # In the VM image build only, after vendoring ONNX Runtime + the model:
 go get github.com/google/magika/go/magika
-go build -tags magika -o stash-server .
+go build -tags magika -o stash-service .
 ```
 
 The assets dir and model name are read from the environment so the image
@@ -79,7 +79,7 @@ The bring-up script honors `STASH_BUILD_TAGS=magika` to opt in.
 
 The production bring-up (`guest/ubuntu.server.26/ubuntu.server.26.stash-service.sh`,
 run by the VM's cloud-init) does all of this plus the mount, systemd unit,
-and `/var/lib/stash-server` provisioning — this section is for ad-hoc dev.
+and `/var/lib/stash-service` provisioning — this section is for ad-hoc dev.
 
 ## Run (manual / dev)
 
@@ -88,16 +88,16 @@ and `/var/lib/stash-server` provisioning — this section is for ad-hoc dev.
 sudo systemctl disable --now ssh
 
 # 2. Allow non-root binding of port 22 (or run the daemon as root).
-sudo setcap 'cap_net_bind_service=+ep' /usr/local/bin/stash-server
+sudo setcap 'cap_net_bind_service=+ep' /usr/local/bin/stash-service
 
-# 3. Launch. --share-folder (the mounted stash share, <stashLocalPath>/stash/<hostId>)
+# 3. Launch. --share-folder (the mounted stash share, <stashStorageLocalPath>/stash/<hostId>)
 #    is required; the metadata index and offline buffer default to
-#    /var/lib/stash-server/{metadata,buffer} on the VM's local disk.
-/usr/local/bin/stash-server --share-folder /mnt/ystash-nas/stash/<hostId>
+#    /var/lib/stash-service/{metadata,buffer} on the VM's local disk.
+/usr/local/bin/stash-service --share-folder /mnt/ystash-nas/stash/<hostId>
 ```
 
-Logs go to stderr; journald captures them under the `stash-server.service`
-unit the bring-up installs (`journalctl -u stash-server`).
+Logs go to stderr; journald captures them under the `stash-service.service`
+unit the bring-up installs (`journalctl -u stash-service`).
 
 ## Exercise
 
@@ -125,7 +125,7 @@ YURUNA-STASH-ID: a1b2
 The artifact is at `<ShareFolder>/files/<yyyy>/<mm>/<dd>/a1b2[.ext]`
 (single) or `a1b2.yuruna.archive.zip` (archive), with an `a1b2.yuruna.meta.json`
 sidecar next to it. The matching SQLite row is in the VM-local metadata
-index (default `/var/lib/stash-server/metadata/stash.sqlite`).
+index (default `/var/lib/stash-service/metadata/stash.sqlite`).
 
 ## UI / API (`:80`)
 
@@ -143,7 +143,7 @@ view, delete). The JSON API it consumes:
 | POST | `/api/stashes` | create (multipart `files`/`text`/`title`/`author`, urlencoded, or JSON) |
 | DELETE | `/api/stashes/{hostId}/{…}` | delete — **source-IP-restricted** to the VM or the deploying host (`--host-ip`), then **local host only** (foreign hostId → 403) |
 | POST | `/api/refresh` | force a pool-index rescan |
-| GET | `/api/host?host=<id>` | best-effort hostId→stash-UI resolution (pool-aggregator) |
+| GET | `/api/host?host=<id>` | best-effort hostId→stash-UI resolution (pool-aggregator-service) |
 
 Flags (defaults): `--http-addr` (`0.0.0.0:80`, empty disables the UI),
 `--pool-window-days` (`30`), `--pool-refresh-secs` (`60`),
@@ -161,7 +161,7 @@ With `--aggregator-url` + `--host-id` set (the bring-up bakes both from the
 host seed), the daemon POSTs `<aggregator>/announce` at startup, every
 `--presence-interval`, and (best-effort, `active:false`) at shutdown. This
 keeps the pool dashboard's **Extension hosts** row alive **without the owning
-host's status server**: the registration path goes dark whenever that server
+host's status service**: the registration path goes dark whenever that server
 is down (routinely, after a host reboot), while this VM auto-restarts and
 keeps serving. The announce carries only the host's `hostId` + this UI's
 port; the aggregator derives the URL from the connection's source address,
@@ -222,9 +222,9 @@ typically taken by sshd, so a local daemon can't bind it; use
 
 ## Module path note
 
-`go.mod` declares `module stash-server` — short, local, never imported
+`go.mod` declares `module stash-service` — short, local, never imported
 from outside this directory. Internal packages live under
-`stash-server/internal/...`.
+`stash-service/internal/...`.
 
 ---
 
@@ -232,6 +232,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.28
+Last review: 2026.07.29
 
 Back to [Yuruna](../../../../README.md)

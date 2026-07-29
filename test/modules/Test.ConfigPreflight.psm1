@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.28
+.VERSION 2026.07.29
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456723
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -16,16 +16,7 @@
 
 #requires -version 7
 
-# Test.Config* role pyramid:
-#   * Test.Config            -- mtime-cached YAML reader (the data layer).
-#   * Test.ConfigValidator   -- schema + freshness primitives (the rules
-#                              layer). Reusable across callers.
-#   * Test.ConfigPreflight   -- pre-cycle gate that spawns Test-Config.ps1
-#                              and refuses the cycle on FAIL items
-#                              (this file; the policy layer).
-# "Preflight" names the *when* (before each cycle) instead of the
-# *mechanism* (a gate). The split by role keeps the validation
-# primitives reusable while the cycle-spawning policy lives here.
+# --- REGION: https://yuruna.link/test/harness#testconfig-role-pyramid
 
 # Pre-cycle config gate: spawn Test-Config.ps1 in a fresh pwsh so an
 # Out-Of-Order ::Stop / early exit inside Test-Config can't unwind the
@@ -35,7 +26,7 @@
 # flood the subscribers["config.smoke"] list.
 #
 # Centralizing the gate here keeps Invoke-TestRunner outer-startup,
-# Test-Sequence, and Test-Project agreeing on the same gate semantics --
+# Invoke-TestSequence, and Invoke-TestProject agreeing on the same gate semantics --
 # a new gate parameter reaches every caller from one place instead of
 # drifting between near-identical copy-pastes.
 
@@ -53,8 +44,8 @@ function Invoke-ConfigGate {
         passed -NoConfigGate or similar bypass).
     .PARAMETER CallerName
         Short label used in the banner so the operator sees which entry
-        point owned the gate failure ('Invoke-TestRunner', 'Test-Sequence',
-        'Test-Project').
+        point owned the gate failure ('Invoke-TestRunner', 'Invoke-TestSequence',
+        'Invoke-TestProject').
     .OUTPUTS
         @{ passed = [bool]; exitCode = [int]; skipped = [bool] }
     #>

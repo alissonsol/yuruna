@@ -54,13 +54,13 @@ validation, or small changes against real recurring pain.
 - **Live-validate the pool MVP end-to-end.** 🚧 The read-only pool view
   (pull-collector, Grafana dashboard, Loki/Prometheus wiring) is built and
   static-verified but has never run against live hosts. Bring up the host
-  status server, boot the caching-proxy VM, run a cycle or two so hosts
+  status service, boot the caching-proxy-service VM, run a cycle or two so hosts
   pull through the squid proxy, then confirm `:9400/healthz`, that
   `/api/v1/pool-status` lists discovered hosts, the Prometheus target is
   UP, Loki streams flow, the dashboard renders across ≥2 hosts, and killing
   the collector leaves every runner still testing. This is the only part of
   the pool MVP not statically checkable, and it validates the
-  `(hostId, runId, cycleId)` join keys on real data.
+  `(hostId, runId, cycleStartUtc)` join keys on real data.
 - **Archive `last_failure.json` per-cycle.** Copy it into each cycle folder
   so matched-pattern / label / OCR-tail detail survives history. Today only
   the flattened `step_failure` event persists, which is the one corpus
@@ -119,7 +119,7 @@ Solid value, moderate effort — the bulk of the everyday backlog.
 
 **Pool harness**
 - **Persistent volume for pool telemetry.** Retention tiering is done, but
-  `/var/lib/{loki,prometheus}` sit on the caching-proxy VM root, so a
+  `/var/lib/{loki,prometheus}` sit on the caching-proxy-service VM root, so a
   rebuild wipes all pool history — move it onto a persistent volume.
 - **Wire the parsed-but-stubbed cycle strategies and provisioning modes.**
   Only `cycleStrategy: all` + `provisioning.betweenSets: none` are
@@ -133,7 +133,7 @@ Solid value, moderate effort — the bulk of the everyday backlog.
 - **Solve SSH-key distribution to pool nodes.** Provisioning pool members
   needs key distribution. **Constraint:** any route must replicate the
   `/yuruna-repo` secret deny-list (vault.yml, transports.yml, ssh keys,
-  password files, caching-proxy config, `.git`, test.config.yml)
+  password files, caching-proxy-service config, `.git`, test.config.yml)
   byte-for-byte — one missed pattern leaks secrets pool-wide; do not change
   security posture without explicit authorization.
 
@@ -172,7 +172,7 @@ Solid value, moderate effort — the bulk of the everyday backlog.
 Low current value, very high effort, or deliberately deferred. Worth doing
 only when the enabling condition arrives.
 
-- **Horizon B resilience gates — IP/capacity admission, caching-proxy
+- **Horizon B resilience gates — IP/capacity admission, caching-proxy-service
   circuit breaker, disk-headroom.** ⏸ Each hooks into fields the host
   registration and pool planner already reserve, so they are data-population
   exercises, not re-architecture. Deferred because the failure classes they
@@ -233,7 +233,7 @@ kept here for context (details in the linked docs / code):
   Snapshot manifest sidecars and the log-rotation primitive shipped
   alongside.
 - **Verb-handler registry migration** — all 21 sequence verbs moved from
-  the inline switch in `Invoke-Sequence.psm1` to the
+  the inline switch in `Test.SequenceEngine.psm1` to the
   `Test.SequenceAction` / `Test.SequenceHandler` registry;
   `Invoke-Sequence` is now purely the executor.
 - **Cross-driver host-driver shared helpers** — platform-independent
@@ -268,6 +268,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.28
+Last review: 2026.07.29
 
 Back to [Yuruna](../README.md)

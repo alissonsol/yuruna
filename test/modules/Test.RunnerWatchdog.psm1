@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.28
+.VERSION 2026.07.29
 .GUID 42d4e5f6-a7b8-4c91-9234-5d6e7f8a9b0c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -71,7 +71,7 @@ function Start-Watchdog {
     .SYNOPSIS
         Arm a step-heartbeat watchdog Start-Job that kills the inner
         runner if runner.stepHeartbeat goes stale past the threshold.
-    .PARAMETER StepTimeoutMinutes
+    .PARAMETER StepTimeoutSeconds
         Upper bound on how long a single step (or any other slice of
         inner-runner work) may run without refreshing
         runner.stepHeartbeat. The watchdog logs to runtime/outer.log
@@ -91,25 +91,25 @@ function Start-Watchdog {
     # references back to the enclosing function's param block.
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', 'PollSeconds')]
     param(
-        [Parameter(Mandatory)][int]$StepTimeoutMinutes,
+        [Parameter(Mandatory)][int]$StepTimeoutSeconds,
         [Parameter(Mandatory)][string]$RuntimeDir,
         [Parameter(Mandatory)][int]$PollSeconds
     )
-    if (-not $PSCmdlet.ShouldProcess("watchdog job for $RuntimeDir (threshold ${StepTimeoutMinutes}m)", 'Start-Job')) { return $null }
-    $thresholdSec = $StepTimeoutMinutes * 60
+    if (-not $PSCmdlet.ShouldProcess("watchdog job for $RuntimeDir (threshold ${StepTimeoutSeconds}s)", 'Start-Job')) { return $null }
+    $thresholdSeconds = $StepTimeoutSeconds
     # The identity predicate is captured as source text and rebuilt inside the job
     # (a separate-process Start-Job cannot see this module's functions), so the
     # tests and the watchdog exercise one definition.
     $innerIdentityScript = Get-WatchdogInnerIdentityScript
-    # $using: pulls $RuntimeDir/$thresholdSec/$PollSeconds straight from the
+    # $using: pulls $RuntimeDir/$thresholdSeconds/$PollSeconds straight from the
     # enclosing scope at job-dispatch time. Cleaner than param() +
     # -ArgumentList, and dodges a PSSA false-positive where the rule
     # PSUseUsingScopeModifierInNewRunspaces misreads the scriptblock's
     # own param() declarations as undeclared references.
     return Start-Job -Name 'yurunaWatchdog' -ScriptBlock {
         $runtimeDir   = $using:RuntimeDir
-        $thresholdSec = $using:thresholdSec
-        $pollSec      = $using:PollSeconds
+        $thresholdSeconds = $using:thresholdSeconds
+        $pollSeconds      = $using:PollSeconds
         # Rebuild the shared identity predicate in this separate-process job.
         $sameInner    = [scriptblock]::Create($using:innerIdentityScript)
         $stepHbFile = Join-Path $runtimeDir 'runner.stepHeartbeat'
@@ -176,12 +176,12 @@ function Start-Watchdog {
             }
             return $true
         }
-        Add-Content -LiteralPath $outerLog -Value "$((Get-Date).ToString('o')) [watchdog] armed: innerPid=$innerPid startUtc=$innerStartUtc thresholdSec=$thresholdSec pollSec=$pollSec signal=runner.stepHeartbeat"
+        Add-Content -LiteralPath $outerLog -Value "$((Get-Date).ToString('o')) [watchdog] armed: innerPid=$innerPid startUtc=$innerStartUtc thresholdSeconds=$thresholdSeconds pollSeconds=$pollSeconds signal=runner.stepHeartbeat"
         # Arm timestamp: when no step heartbeat has been published yet, staleness is aged from
         # here so a hang BEFORE the first step write is still detected (not ignored forever).
         $armedAt = Get-Date
         while ($true) {
-            Start-Sleep -Seconds $pollSec
+            Start-Sleep -Seconds $pollSeconds
             if (& $sameInnerConfirmedGone $innerPid $innerStartUtc) {
                 # PID gone, or a different process now holds it (reused), confirmed
                 # across spaced probes: either way the armed inner is no longer
@@ -203,12 +203,12 @@ function Start-Watchdog {
                 # is a silent unguarded cycle. Treat as not-stale this poll.
                 continue
             }
-            if ($age -gt $thresholdSec) {
+            if ($age -gt $thresholdSeconds) {
                 # Re-verify identity immediately before the kill: between the disarm
                 # check above and here the inner could have exited and its PID been
                 # reused, and killing the wrong process is worse than a missed kill.
                 if (& $sameInner $innerPid $innerStartUtc) {
-                    Add-Content -LiteralPath $outerLog -Value "$((Get-Date).ToString('o')) [watchdog] step heartbeat stale $([int]$age)s > $thresholdSec s; killing inner PID $innerPid and its descendants"
+                    Add-Content -LiteralPath $outerLog -Value "$((Get-Date).ToString('o')) [watchdog] step heartbeat stale $([int]$age)s > ${thresholdSeconds}s; killing inner PID $innerPid and its descendants"
                     # Kill the whole tree, not just the inner pwsh: a wedged
                     # step usually has live children (console capture, OCR,
                     # ssh) that would otherwise orphan, keep handles open,

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.28
+.VERSION 2026.07.29
 .GUID 42e6b2d9-4a17-4c83-9f25-3b8c1d6e0a47
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -122,12 +122,12 @@ Describe 'status.json lastFailure surface' {
         Assert-Null $j.lastFailure 'fresh doc has null lastFailure'
 
         Set-LastFailureSummary -FailureClass 'ocr_timeout' -Severity 'hard' -StepNumber 3 -SequenceName 'wl.test' `
-            -ReproCommand 'pwsh test/Test-Sequence.ps1 -SequenceName "wl.test"' -RelPath 'last_failure.json' `
+            -ReproCommand 'pwsh test/Invoke-TestSequence.ps1 -SequenceName "wl.test"' -RelPath 'last_failure.json' `
             -GuestKey 'guest.x' -StepName 'Start-GuestWorkload' -ErrorMessage 'OCR timeout' -VmName 'vm1' -Confirm:$false
         $j2 = Get-Content -Raw $sf | ConvertFrom-Json
         Assert-Equal -Expected 'ocr_timeout' -Actual $j2.lastFailure.failureClass -Because 'cause recorded'
         Assert-Equal -Expected 3 -Actual $j2.lastFailure.stepNumber -Because 'step recorded'
-        Assert-True ([string]$j2.lastFailure.reproCommand -match 'Test-Sequence') 'repro recorded'
+        Assert-True ([string]$j2.lastFailure.reproCommand -match 'Invoke-TestSequence') 'repro recorded'
         Remove-Item -Recurse -Force $dir -ErrorAction SilentlyContinue
     }
 
@@ -194,9 +194,9 @@ Describe 'Test.Status nested-cycle support' {
         $seqs = @([ordered]@{ name = 'set-resource'; guests = @('set-resource') })
         Initialize-StatusDocument -StatusFilePath $sf -HostType 'h' -Hostname 'host' -GitCommit 'abc' -GuestList @('set-resource') -Sequences $seqs -StepNames @('Run')
         # Owner declares it may spawn children (flips the preserve gate).
-        Publish-CycleContext -CycleId 'c1' -StatusPath $sf -RootCycleFolder $dir -CycleNumber 7 -ParentId 'set-resource'
+        Publish-CycleContext -CycleStartUtc 'c1' -StatusPath $sf -RootCycleFolder $dir -CycleNumber 7 -ParentId 'set-resource'
         # A "child" attaches a node + marks it pass (a separate process would do this).
-        Register-NestedRunNode -StatusPath $sf -NodeId 'set-resource/build' -ParentId 'set-resource' -Name 'build' -Kind 'guest' -LogRel 'nested/set-resource_build/set-resource_build.html' -CycleId 'c1'
+        Register-NestedRunNode -StatusPath $sf -NodeId 'set-resource/build' -ParentId 'set-resource' -Name 'build' -Kind 'guest' -LogRel 'nested/set-resource_build/set-resource_build.html' -CycleStartUtc 'c1'
         Set-NestedRunStatus -StatusPath $sf -NodeId 'set-resource/build' -Status 'pass'
         # Owner flushes again -- must NOT erase the child's node.
         Set-GuestStatus -GuestKey 'set-resource' -Status 'pass' -Confirm:$false
@@ -214,7 +214,7 @@ Describe 'Test.Status nested-cycle support' {
         $env:YURUNA_RUNTIME_DIR = $dir
         $sf = Join-Path $dir 'status.json'
         Initialize-StatusDocument -StatusFilePath $sf -HostType 'h' -Hostname 'host' -GitCommit 'abc' -GuestList @('x') -StepNames @('Run')
-        Register-NestedRunNode -StatusPath $sf -NodeId 'p/child' -ParentId 'p' -Name 'child' -Steps @('Sequence') -CycleId 'c1'
+        Register-NestedRunNode -StatusPath $sf -NodeId 'p/child' -ParentId 'p' -Name 'child' -Steps @('Sequence') -CycleStartUtc 'c1'
         Set-NestedRunStep -StatusPath $sf -NodeId 'p/child' -StepName 'Sequence' -Status 'fail' -ErrorMessage 'boom'
         $j = Get-Content -Raw $sf | ConvertFrom-Json
         $step = $j.nested.'p/child'.steps | Where-Object { $_.name -eq 'Sequence' }
@@ -226,9 +226,9 @@ Describe 'Test.Status nested-cycle support' {
     It 'cycle-context handle round-trips and clears' {
         Remove-Item Env:\YURUNA_CYCLE_CONTEXT -ErrorAction SilentlyContinue
         Assert-Null (Get-CycleContext) 'no handle => standalone owner'
-        Publish-CycleContext -CycleId 'c9' -StatusPath 'x' -RootCycleFolder 'r' -CycleNumber 3 -ParentId 'set-resource'
+        Publish-CycleContext -CycleStartUtc 'c9' -StatusPath 'x' -RootCycleFolder 'r' -CycleNumber 3 -ParentId 'set-resource'
         $ctx = Get-CycleContext
-        Assert-Equal -Expected 'c9' -Actual $ctx.cycleId -Because 'cycleId round-trips'
+        Assert-Equal -Expected 'c9' -Actual $ctx.cycleStartUtc -Because 'cycleStartUtc round-trips'
         Assert-Equal -Expected 'set-resource' -Actual $ctx.parentId -Because 'parentId round-trips'
         Clear-CycleContext
         Assert-Null (Get-CycleContext) 'cleared handle => owner again'

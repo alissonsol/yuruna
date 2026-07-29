@@ -8,10 +8,10 @@ import (
 	"path/filepath"
 	"testing"
 
-	"stash-server/internal/config"
-	"stash-server/internal/id"
-	"stash-server/internal/meta"
-	"stash-server/internal/store"
+	"stash-service/internal/config"
+	"stash-service/internal/id"
+	"stash-service/internal/meta"
+	"stash-service/internal/store"
 )
 
 // Regression for the NAS-offline lockout: when the share is offline at

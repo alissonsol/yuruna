@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.28
+.VERSION 2026.07.29
 .GUID 42b8e6a4-3d17-4c92-8f05-6a1b9d2e7c40
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -21,12 +21,12 @@
 # imports: docs/guest-image-setup.md#per-guest-provisioning-yurunahostprovisionpsm1
 $script:RepoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 Import-Module (Join-Path $script:RepoRoot 'automation/Yuruna.Common.psm1')       -DisableNameChecking -ErrorAction SilentlyContinue
-Import-Module (Join-Path $script:RepoRoot 'test/modules/Test.CachingProxy.psm1') -DisableNameChecking -ErrorAction SilentlyContinue
+Import-Module (Join-Path $script:RepoRoot 'test/modules/Test.CachingProxyService.psm1') -DisableNameChecking -ErrorAction SilentlyContinue
 # Verify the by-name dependencies resolved at LOAD time, so a broken/moved module surfaces here
-# instead of on the one caching-proxy probe per cycle (where it looks like a cache outage).
-foreach ($dep in @('Get-CachingProxyPort', 'Test-IpAddress', 'Format-IpUrlHost', 'Read-CachingProxyState')) {
+# instead of on the one caching-proxy-service probe per cycle (where it looks like a cache outage).
+foreach ($dep in @('Get-CachingProxyServicePort', 'Test-IpAddress', 'Format-IpUrlHost', 'Read-CachingProxyServiceState')) {
     if (-not (Get-Command -Name $dep -ErrorAction SilentlyContinue)) {
-        Write-Warning "Yuruna.HostProvision: required command '$dep' is not available after importing Yuruna.Common / Test.CachingProxy -- the caching-proxy probe will fail. Verify those modules loaded correctly."
+        Write-Warning "Yuruna.HostProvision: required command '$dep' is not available after importing Yuruna.Common / Test.CachingProxyService -- the caching-proxy-service probe will fail. Verify those modules loaded correctly."
     }
 }
 
@@ -41,11 +41,11 @@ function Invoke-PerGuestNewVm {
         it is a plain -HostSubdir string param rather than an injected
         scriptblock; each driver's New-VM wrapper supplies its constant value.
 
-        -CachingProxyUrl, -Username, -Hostname, -MemoryStartupBytes and -Cores
+        -CachingProxyServiceUrl, -Username, -Hostname, -MemoryStartupBytes and -Cores
         are forwarded to the per-guest script only when (a) the caller bound them
         AND (b) the target script declares them -- this lets the contract grow
         new pass-through arguments without breaking guests (e.g. windows.11,
-        caching-proxy, macos.26) that do not consume them. A bound argument the
+        caching-proxy-service, macos.26) that do not consume them. A bound argument the
         script does not declare is surfaced on the Verbose stream so the operator
         notices a dropped planner cascade.
     .OUTPUTS
@@ -58,7 +58,7 @@ function Invoke-PerGuestNewVm {
         [Parameter(Mandatory)][string]$GuestKey,
         [Parameter(Mandatory)][string]$RepoRoot,
         [Parameter(Mandatory)][string]$VMName,
-        [string]$CachingProxyUrl,
+        [string]$CachingProxyServiceUrl,
         [string]$Username,
         [string]$Hostname,
         # Planner-cascaded VM sizing (variables.memoryStartupBytes /
@@ -82,7 +82,7 @@ function Invoke-PerGuestNewVm {
     try {
         $cmdInfo = Get-Command -Name $scriptPath -ErrorAction Stop
         if ($cmdInfo.Parameters) {
-            $scriptAcceptsProxy    = [bool]$cmdInfo.Parameters.ContainsKey('CachingProxyUrl')
+            $scriptAcceptsProxy    = [bool]$cmdInfo.Parameters.ContainsKey('CachingProxyServiceUrl')
             $scriptAcceptsUsername = [bool]$cmdInfo.Parameters.ContainsKey('Username')
             $scriptAcceptsHostname = [bool]$cmdInfo.Parameters.ContainsKey('Hostname')
             $scriptAcceptsMemory   = [bool]$cmdInfo.Parameters.ContainsKey('MemoryStartupBytes')
@@ -95,8 +95,8 @@ function Invoke-PerGuestNewVm {
         $scriptAcceptsMemory   = $false
         $scriptAcceptsCores    = $false
     }
-    if ($PSBoundParameters.ContainsKey('CachingProxyUrl') -and $scriptAcceptsProxy) {
-        $childArgs += @('-CachingProxyUrl', $CachingProxyUrl)
+    if ($PSBoundParameters.ContainsKey('CachingProxyServiceUrl') -and $scriptAcceptsProxy) {
+        $childArgs += @('-CachingProxyServiceUrl', $CachingProxyServiceUrl)
     }
     if ($PSBoundParameters.ContainsKey('Username') -and $Username -and $scriptAcceptsUsername) {
         $childArgs += @('-Username', $Username)
@@ -277,10 +277,10 @@ function Test-TcpConnectWithin {
     }
 }
 
-function Invoke-CachingProxyAvailableProbe {
+function Invoke-CachingProxyServiceAvailableProbe {
     <#
     .SYNOPSIS
-        Resolve the steady-state caching-proxy URL (YURUNA_CACHING_PROXY_IP
+        Resolve the steady-state caching-proxy-service URL (YURUNA_CACHING_PROXY_SERVICE_IP
         override, else the recorded local cache IP), or $null when no cache
         answers. Returns the proxy URL string.
     .DESCRIPTION
@@ -310,15 +310,15 @@ function Invoke-CachingProxyAvailableProbe {
         [int]$ConnectAttempts = 1,
         [int]$ConnectBackoffMs = 200
     )
-    $httpPort = Get-CachingProxyPort -Scheme http
-    # External cache override -- $Env:YURUNA_CACHING_PROXY_IP short-circuits
+    $httpPort = Get-CachingProxyServicePort -Scheme http
+    # External cache override -- $Env:YURUNA_CACHING_PROXY_SERVICE_IP short-circuits
     # local discovery and points at a remote squid. If the remote doesn't
     # answer, return $null (do NOT fall back to local) so misconfiguration
     # surfaces as "no cache" instead of silently flipping target.
-    if ($Env:YURUNA_CACHING_PROXY_IP) {
-        $externIp = $Env:YURUNA_CACHING_PROXY_IP.Trim()
+    if ($Env:YURUNA_CACHING_PROXY_SERVICE_IP) {
+        $externIp = $Env:YURUNA_CACHING_PROXY_SERVICE_IP.Trim()
         if (-not (Test-IpAddress $externIp)) {
-            Write-Warning "YURUNA_CACHING_PROXY_IP='$externIp' is not a valid IPv4 or IPv6 address -- ignoring."
+            Write-Warning "YURUNA_CACHING_PROXY_SERVICE_IP='$externIp' is not a valid IPv4 or IPv6 address -- ignoring."
             return $null
         }
         # 3s/attempt cap, not 1s: this is the EXTERNAL/remote proxy path. A
@@ -334,24 +334,24 @@ function Invoke-CachingProxyAvailableProbe {
                 return "http://$(if ($NoBracketHost) { $externIp } else { Format-IpUrlHost $externIp }):${httpPort}"
             }
         }
-        Write-Warning "YURUNA_CACHING_PROXY_IP=${externIp} set but ${externIp}:${httpPort} did not answer within 3s."
+        Write-Warning "YURUNA_CACHING_PROXY_SERVICE_IP=${externIp} set but ${externIp}:${httpPort} did not answer within 3s."
         return $null
     }
 
     # Local cache: probe only the IP we recorded ourselves at the last
-    # Start-CachingProxyVM.ps1. Empty state -> no cache (the explicit
-    # contract after Stop-CachingProxyVM.ps1). State-set-but-unreachable
+    # Start-CachingProxyServiceVM.ps1. Empty state -> no cache (the explicit
+    # contract after Stop-CachingProxyServiceVM.ps1). State-set-but-unreachable
     # is loud (Write-Warning) because the inner runner's bootstrap
     # detection runs ONCE per cycle -- a silently-failed probe means
     # the whole cycle's guests download direct from the internet, and
     # we want the operator to see "why" alongside the headline
-    # "Caching proxy: not detected" line in Invoke-TestRunner output.
-    $stateIp = (Read-CachingProxyState).ipAddress
+    # "Caching-proxy service: not detected" line in Invoke-TestRunner output.
+    $stateIp = (Read-CachingProxyServiceState).ipAddress
     if (-not $stateIp -or -not (Test-IpAddress $stateIp)) {
-        Write-Warning "Test-CachingProxyAvailable: state.ipAddress is empty -- no locally-owned cache. Set `$Env:YURUNA_CACHING_PROXY_IP to point at a remote cache, or run Start-CachingProxyVM.ps1."
+        Write-Warning "Test-CachingProxyServiceAvailable: state.ipAddress is empty -- no locally-owned cache. Set `$Env:YURUNA_CACHING_PROXY_SERVICE_IP to point at a remote cache, or run Start-CachingProxyServiceVM.ps1."
         return $null
     }
-    # 1500 ms matches test/Test-CachingProxy.ps1's CLI probe so a
+    # 1500 ms matches test/Test-CachingProxyService.ps1's CLI probe so a
     # cache that answers the standalone smoke test also answers here.
     # Tighter timeouts (~500 ms) leave a window where a momentarily
     # busy squid (cold start, big cidata fetch) misses the runner's
@@ -362,7 +362,7 @@ function Invoke-CachingProxyAvailableProbe {
             return "http://$(if ($NoBracketHost) { $stateIp } else { Format-IpUrlHost $stateIp }):${httpPort}"
         }
     }
-    Write-Warning "Test-CachingProxyAvailable: state.ipAddress=${stateIp} did not answer :${httpPort} within 1500 ms; treating cache as unavailable. Verify with '$($VerifyHint -f $stateIp, $httpPort)'; if it answers, the cache is running and the next runner cycle will pick it up. If not, re-run Start-CachingProxyVM.ps1 (the VM may have restarted with a new DHCP lease)."
+    Write-Warning "Test-CachingProxyServiceAvailable: state.ipAddress=${stateIp} did not answer :${httpPort} within 1500 ms; treating cache as unavailable. Verify with '$($VerifyHint -f $stateIp, $httpPort)'; if it answers, the cache is running and the next runner cycle will pick it up. If not, re-run Start-CachingProxyServiceVM.ps1 (the VM may have restarted with a new DHCP lease)."
     return $null
 }
 
@@ -371,8 +371,8 @@ function Invoke-CachingProxyAvailableProbe {
     True when the given IP literal is one of THIS host's own addresses
     (loopback, or assigned to any local network interface).
 .DESCRIPTION
-    Lets the caching-proxy port-map dispatchers recognize a
-    $Env:YURUNA_CACHING_PROXY_IP that names the local host itself. On the
+    Lets the caching-proxy-service port-map dispatchers recognize a
+    $Env:YURUNA_CACHING_PROXY_SERVICE_IP that names the local host itself. On the
     NAT-fallback topology the host's own LAN IP fronts the cache VM through
     host-managed forwarders, so treating that IP as an external cache --
     whose handling tears the local port map down as a stale leftover --
@@ -435,4 +435,4 @@ function Get-HostOwnIpVerdict {
     return 'nonlocal'
 }
 
-Export-ModuleMember -Function Invoke-PerGuestNewVm, Write-GetImageLine, Invoke-WaitVmIp, Invoke-GetImage, Invoke-CachingProxyAvailableProbe, Test-HostOwnIpAddress, Get-HostOwnIpVerdict
+Export-ModuleMember -Function Invoke-PerGuestNewVm, Write-GetImageLine, Invoke-WaitVmIp, Invoke-GetImage, Invoke-CachingProxyServiceAvailableProbe, Test-HostOwnIpAddress, Get-HostOwnIpVerdict

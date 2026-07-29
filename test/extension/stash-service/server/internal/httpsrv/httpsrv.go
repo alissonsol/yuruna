@@ -1,7 +1,7 @@
 // LICENSEURI https://yuruna.link/license
 // Copyright (c) 2019-2026 by Alisson Sol et al.
 
-// Package httpsrv serves the browser UI and JSON API for the Stash Service. It runs as a second listener inside the same Go
+// Package httpsrv serves the browser UI and JSON API for the stash service. It runs as a second listener inside the same Go
 // daemon as the SCP/SFTP sink (§2.1), sharing the ID allocator, storage
 // pipeline, and local index. It presents a POOL-WIDE view (§3): this host's
 // live local index merged with every other host's on-share sidecars. Writes
@@ -19,11 +19,11 @@ import (
 	"strings"
 	"time"
 
-	"stash-server/internal/config"
-	"stash-server/internal/detect"
-	"stash-server/internal/meta"
-	"stash-server/internal/sshsrv"
-	"stash-server/internal/store"
+	"stash-service/internal/config"
+	"stash-service/internal/detect"
+	"stash-service/internal/meta"
+	"stash-service/internal/sshsrv"
+	"stash-service/internal/store"
 )
 
 // Server is the UI/API HTTP server.
@@ -60,7 +60,7 @@ type Options struct {
 // New builds the UI server. stashRoot and localHostID are derived from the
 // daemon's share folder (<mount>/stash/<hostId>): the parent holds every
 // host's stash, the base is this host's id. aggregatorURL is the optional
-// pool-aggregator base for hostId→stash-URL resolution (§3.4); empty
+// pool-aggregator-service base for hostId→stash-URL resolution (§3.4); empty
 // disables it (best-effort, never a hard dependency).
 func New(sshServer *sshsrv.Server, opts Options) *Server {
 	shareFolder := sshServer.Store.Folder
@@ -144,7 +144,7 @@ type StashView struct {
 	Source           string     `json:"source"`
 	Permalink        string     `json:"permalink"`
 	// RemoteStashURL is the absolute deep-link to the OWNING host's stash UI
-	// for a remote stash (§8.3), resolved best-effort via the pool-aggregator
+	// for a remote stash (§8.3), resolved best-effort via the pool-aggregator-service
 	// (§3.4). Empty for local stashes or when resolution is unavailable. Set
 	// only on the single-stash detail response, not in list rows (which would
 	// fan out one aggregator call per row).

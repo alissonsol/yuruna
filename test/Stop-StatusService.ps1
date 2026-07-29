@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.28
+.VERSION 2026.07.29
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456741
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -60,7 +60,7 @@ if (-not $proc) {
     exit 0
 }
 # PID-reuse guard: the PID file persists across crashes and reboots and the OS
-# recycles PIDs, so confirm this PID is still the status server before force-
+# recycles PIDs, so confirm this PID is still the status service before force-
 # killing it. The server launched and then wrote this PID file, so a genuine
 # match started at/before the file's mtime; a process that reused the PID after
 # the server died started later. If the start time is unreadable we cannot
@@ -68,8 +68,8 @@ if (-not $proc) {
 # than risk force-killing an unrelated process.
 if (Test-PidFileIdentity -PidFile $PidFile -Process $proc) {
     Stop-Process -Id $id -Force
-    Write-Output "Status server stopped (PID $id)."
+    Write-Output "Status service stopped (PID $id)."
 } else {
-    Write-Warning "PID $id is not the status server (start time post-dates the PID file, wrong process, or unreadable) -- likely recycled after a crash/reboot. Removing the stale PID file without killing it."
+    Write-Warning "PID $id is not the status service (start time post-dates the PID file, wrong process, or unreadable) -- likely recycled after a crash/reboot. Removing the stale PID file without killing it."
 }
 Remove-Item $PidFile -Force -ErrorAction SilentlyContinue

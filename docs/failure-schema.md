@@ -38,8 +38,8 @@ A reproduction an operator or autonomous remediator can run without reconstructi
 
 | Field | Notes |
 |---|---|
-| `command` | `pwsh test/Test-Sequence.ps1 -SequenceName <name> [-GuestKey <k>] [-VMName <vm>] -logLevel Debug`. Re-runs the failing sequence (and its baseline chain) to reproduce deterministically. It deliberately **omits** `-StartStep`: `stepNumber` / `resumeFromStep` are **file-local** (1-based within this sequence file), but `Test-Sequence -StartStep` is **chain-global**, so a naive `-StartStep` would mis-target a leaf that still has an unbuilt baseline. |
-| `runnerScript` / `entrypoint` | `test/Test-Sequence.ps1` / `Test-Sequence`. |
+| `command` | `pwsh test/Invoke-TestSequence.ps1 -SequenceName <name> [-GuestKey <k>] [-VMName <vm>] -logLevel Debug`. Re-runs the failing sequence (and its baseline chain) to reproduce deterministically. It deliberately **omits** `-StartStep`: `stepNumber` / `resumeFromStep` are **file-local** (1-based within this sequence file), but `Invoke-TestSequence -StartStep` is **chain-global**, so a naive `-StartStep` would mis-target a leaf that still has an unbuilt baseline. |
+| `runnerScript` / `entrypoint` | `test/Invoke-TestSequence.ps1` / `Invoke-TestSequence`. |
 | `sequenceName` | Same as the top-level field. |
 | `resumeFromStep` | The file-local failing step. Safe to pass as `-StartStep` only when the sequence has no unbuilt baseline (the warm / `requiresSnapshot` path, or a baseline-less sequence). |
 
@@ -65,11 +65,11 @@ These appear on **both** step and crash records (a crash after step N began stil
 | `crash` | Crash records only: `{ error, origin, stack }`. |
 
 The write is atomic (temp-file + rename via `Write-YurunaStateFile`) so a
-remediator or the status server never observes a truncated record.
+remediator or the status service never observes a truncated record.
 
 ## `step_failure` NDJSON event
 
-Emitted alongside the file so a stream consumer (status server,
+Emitted alongside the file so a stream consumer (status service,
 remediation loop, CI hook) sees the failure without reading the static
 file. It carries the same values as the file, flattened (no nested
 `context`), plus `event` = `step_failure`, `ok` = `false`, and
@@ -92,7 +92,7 @@ exists to keep the authoritative one durable:
   on the stream, and
 - `last_remediation.json` is the dispatcher's **decision** — the single
   recommendation a consumer should act on — written as a self-contained file
-  so a consumer that polls the filesystem (dashboard, pool aggregator, a
+  so a consumer that polls the filesystem (dashboard, pool-aggregator service, a
   future autonomous loop) never has to tail the event stream or re-run the
   dispatcher to recover it.
 
@@ -207,7 +207,7 @@ Soundness rests on the runner running each workload sequence as a **single
 file** (`Invoke-SequenceByName` → `Invoke-Sequence`), so `resumeFromStep` (file-
 local) maps directly onto `Invoke-Sequence -StartStep` (file-local). This is
 exactly the "warm / no unbuilt baseline" case the [`repro`](#repro) note calls
-out — Test-Sequence's chain runner concatenates baselines and is *not* this
+out — Invoke-TestSequence's chain runner concatenates baselines and is *not* this
 case, which is why `repro.command` still omits `-StartStep`.
 
 ## `retry_attempt` / `retry_exhausted` events (retry telemetry)
@@ -264,6 +264,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.28
+Last review: 2026.07.29
 
 Back to [Yuruna](../README.md)

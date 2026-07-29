@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.28
+.VERSION 2026.07.29
 .GUID 42d9f5a7-c3e4-4b02-8f56-8a7b9c0d1e23
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -18,7 +18,7 @@
 
 <#
 .SYNOPSIS
-    Guards on Sync-PoolIntentAliasOnProxy, which repoints the caching proxy's
+    Guards on Sync-PoolIntentAliasOnProxy, which repoints the caching-proxy service's
     read-only /pool-intent.git route at the pool NAS store.
 .DESCRIPTION
     The function reconfigures a SHARED service every pooled runner pulls from,
@@ -42,19 +42,19 @@ function Assert-False { param($Condition, [string]$Because = '') if ($Condition)
 function Assert-Equal { param($Expected, $Actual, [string]$Because = '') if ($Expected -ne $Actual) { throw "Expected '$Expected' but got '$Actual'. $Because" } }
 
 Import-Module (Join-Path $here 'Test.Ssh.psm1')          -Global -Force -DisableNameChecking
-Import-Module (Join-Path $here 'Test.CachingProxy.psm1')         -Force -DisableNameChecking
+Import-Module (Join-Path $here 'Test.CachingProxyService.psm1')         -Force -DisableNameChecking
 
 Describe 'Sync-PoolIntentAliasOnProxy guards' {
-    BeforeEach { $env:YURUNA_CACHING_PROXY_IP = '' }
-    AfterEach  { $env:YURUNA_CACHING_PROXY_IP = '' }
+    BeforeEach { $env:YURUNA_CACHING_PROXY_SERVICE_IP = '' }
+    AfterEach  { $env:YURUNA_CACHING_PROXY_SERVICE_IP = '' }
 
     Context 'refuses to act without a target' {
         It 'skips when no proxy address can be resolved' {
-            Mock Read-CachingProxyState -ModuleName Test.CachingProxy { $null }
+            Mock Read-CachingProxyServiceState -ModuleName Test.CachingProxyService { $null }
             $r = Sync-PoolIntentAliasOnProxy -Confirm:$false
             Assert-False $r.Ok 'unresolvable proxy is not a success'
             Assert-False $r.Changed 'nothing was changed'
-            Assert-True ($r.Message -match 'no caching-proxy address') $r.Message
+            Assert-True ($r.Message -match 'no caching-proxy-service address') $r.Message
         }
     }
 
@@ -73,7 +73,7 @@ Describe 'Sync-PoolIntentAliasOnProxy guards' {
 
     Context 'maps the remote outcome faithfully' {
         It 'reports Changed when the proxy rewrote the alias' {
-            Mock Invoke-GuestSsh -ModuleName Test.CachingProxy {
+            Mock Invoke-GuestSsh -ModuleName Test.CachingProxyService {
                 @{ success = $true; exitCode = 0; output = 'CHANGED: /pool-intent.git -> /mnt/ypool-nas/pool-intent.git' }
             }
             $r = Sync-PoolIntentAliasOnProxy -ProxyAddress '192.0.2.10' -Confirm:$false
@@ -81,7 +81,7 @@ Describe 'Sync-PoolIntentAliasOnProxy guards' {
             Assert-True $r.Changed 'CHANGED must surface so the operator is told'
         }
         It 'reports success WITHOUT Changed when the alias was already correct' {
-            Mock Invoke-GuestSsh -ModuleName Test.CachingProxy {
+            Mock Invoke-GuestSsh -ModuleName Test.CachingProxyService {
                 @{ success = $true; exitCode = 0; output = 'OK: alias already serves /mnt/ypool-nas/pool-intent.git' }
             }
             $r = Sync-PoolIntentAliasOnProxy -ProxyAddress '192.0.2.10' -Confirm:$false
@@ -89,14 +89,14 @@ Describe 'Sync-PoolIntentAliasOnProxy guards' {
             Assert-False $r.Changed 'an idempotent re-run must not claim a change'
         }
         It 'reports success WITHOUT Changed when the store is absent (the 404-every-runner guard)' {
-            Mock Invoke-GuestSsh -ModuleName Test.CachingProxy {
+            Mock Invoke-GuestSsh -ModuleName Test.CachingProxyService {
                 @{ success = $true; exitCode = 0; output = 'SKIP: no bare repo at /mnt/ypool-nas/pool-intent.git' }
             }
             $r = Sync-PoolIntentAliasOnProxy -ProxyAddress '192.0.2.10' -Confirm:$false
             Assert-False $r.Changed 'apache must never be repointed at a missing store'
         }
         It 'reports failure when the remote step failed' {
-            Mock Invoke-GuestSsh -ModuleName Test.CachingProxy {
+            Mock Invoke-GuestSsh -ModuleName Test.CachingProxyService {
                 @{ success = $false; exitCode = 1; output = 'FAILED: apache rejected the new conf; restored the previous one' }
             }
             $r = Sync-PoolIntentAliasOnProxy -ProxyAddress '192.0.2.10' -Confirm:$false
@@ -104,7 +104,7 @@ Describe 'Sync-PoolIntentAliasOnProxy guards' {
             Assert-False $r.Changed
         }
         It 'never throws when ssh itself blows up' {
-            Mock Invoke-GuestSsh -ModuleName Test.CachingProxy { throw 'ssh exploded' }
+            Mock Invoke-GuestSsh -ModuleName Test.CachingProxyService { throw 'ssh exploded' }
             $r = Sync-PoolIntentAliasOnProxy -ProxyAddress '192.0.2.10' -Confirm:$false
             Assert-False $r.Ok 'a bring-up must not fail over this'
             Assert-True ($r.Message -match 'ssh exploded') $r.Message
@@ -113,7 +113,7 @@ Describe 'Sync-PoolIntentAliasOnProxy guards' {
 
     Context 'WhatIf' {
         It 'makes no remote call' {
-            Mock Invoke-GuestSsh -ModuleName Test.CachingProxy { throw 'must not be called under -WhatIf' }
+            Mock Invoke-GuestSsh -ModuleName Test.CachingProxyService { throw 'must not be called under -WhatIf' }
             $r = Sync-PoolIntentAliasOnProxy -ProxyAddress '192.0.2.10' -WhatIf
             Assert-True $r.Ok
             Assert-False $r.Changed

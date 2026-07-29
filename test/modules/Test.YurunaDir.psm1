@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.28
+.VERSION 2026.07.29
 .GUID 42a3d6f5-c0b1-4478-de26-5f7a0c4d3e62
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -67,7 +67,7 @@ function Initialize-YurunaRuntimeDir {
     .DESCRIPTION
         $env:YURUNA_RUNTIME_DIR holds the small operationally-interesting
         state files: status.json, *.pid files, control.*-pause flags,
-        ipaddresses.txt, caching-proxy.txt, server.err, host.uuid, and
+        ipaddresses.txt, caching-proxy-service.txt, server.err, host.uuid, and
         the detached status-service script. Keeping these separate from
         $env:YURUNA_LOG_DIR (which contains bulky HTML transcripts and OCR
         debug artifacts) makes investigations faster -- you don't sift
@@ -75,7 +75,7 @@ function Initialize-YurunaRuntimeDir {
 
         Default location is <testRoot>/status/runtime/ so the status HTTP
         server can serve the files at /runtime/<name>. Callers can override
-        by setting $env:YURUNA_RUNTIME_DIR before import; the status server
+        by setting $env:YURUNA_RUNTIME_DIR before import; the status service
         then maps /runtime/* onto the overridden path.
     .OUTPUTS
         System.String. The resolved $env:YURUNA_RUNTIME_DIR path.
@@ -103,7 +103,7 @@ function Get-YurunaHostId {
         filtering in unified pool logs.
     .DESCRIPTION
         The multi-host pool harness joins cross-host telemetry on
-        (hostId, runId, cycleId); hostname can collide and rename, so a persisted
+        (hostId, runId, cycleStartUtc); hostname can collide and rename, so a persisted
         UUID is the durable key. Shares the one host.uuid file -- same path, same
         42-prefixed format -- with Test.Perf's Get-PerfHostUuid; the file is the
         single source of truth, created once early in the single outer-runner

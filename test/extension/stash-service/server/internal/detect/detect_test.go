@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"stash-server/internal/config"
+	"stash-service/internal/config"
 )
 
 func TestClassifyByExtension(t *testing.T) {

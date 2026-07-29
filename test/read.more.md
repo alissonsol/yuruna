@@ -2,7 +2,7 @@
 
 The crisp version lives in [Yuruna Test ...](README.md); this file holds the
 full configuration table, sequence development, screenshot training,
-status server details, and SSH-server controls.
+status service details, and SSH-server controls.
 
 ## Configuration keys
 
@@ -14,21 +14,27 @@ under `vmStart`, `vmImage`, `vmCommunication`, `repositories`, and
 |-----|---------|-------------|
 | `guestSequence` | _required_ | Array of guest keys; each must correspond to `host/<short-host>/<guestKey>/` |
 | `testCycle.cycleDelaySeconds` | `300` | Pause between cycles |
-| `testCycle.shouldStopOnFailure` | `false` | `true` = stop on first failure and preserve VM; `false` = clean up and continue. Failure artifacts always copied to `status/log/` |
+| `testCycle.stopOnFailure` | `false` | `true` = stop on first failure and preserve VM; `false` = clean up and continue. Failure artifacts always copied to `status/log/` |
 | `testCycle.recentDisplayCount` | `30` | Runs kept in status history |
+| `testCycle.stepTimeoutSeconds` | `2700` | Watchdog bound: kill the inner runner when a single step's heartbeat is older than this |
+| `testCycle.autoRemediation.enabled` | `false` | Run a recovery handler after a failed cycle before the next spawn |
+| `testCycle.autoRemediation.maxAttemptsPerCycle` | `2` | Remediation attempts per consecutive-failure streak |
 | `vmStart.startTimeoutSeconds` | `120` | Wait for VM to reach running state |
 | `vmStart.bootDelaySeconds` | `15` | Extra wait after running, before tests |
 | `vmStart.testVmNamePrefix` | `"test-"` | Prefix for test VM names |
-| `vmImage.refreshHours` | `168` | Hours between automatic re-downloads |
+| `vmImage.refreshSeconds` | `604800` | Seconds between automatic re-downloads |
 | `vmImage.alwaysRedownload` | `false` | Force re-download even if image exists |
-| `vmCommunication.characterDelayMs` | `10` | ms between keystrokes in `inputText`/`inputTextAndEnter` (per-step `charDelayMs` in sequences overrides this default) |
+| `vmCommunication.charDelayMs` | `10` | ms between keystrokes in `inputText`/`inputTextAndEnter` (per-step `charDelayMs` in sequences overrides this default) |
 | `vmCommunication.pollSeconds` | `5` | Default poll interval (seconds) for wait-style actions (`waitForText`, `passwdPrompt`, `waitForAndEnter`, `sshWaitReady`, …). A step's own `pollSeconds` overrides this default |
 | `vmCommunication.timeoutSeconds` | `180` | Default timeout (seconds) for wait-style actions (`waitForText`, `passwdPrompt`, `fetchAndExecute`, `sshExec`, `sshWaitReady`, …). A step's own `timeoutSeconds` overrides this default |
 | `vmCommunication.vncPort` | `5900` | Fallback VNC port when no VM name is given. Per-VM ports (5910..5989) are derived from the VM name by `Get-VncDisplayForVm` (`host/macos.utm/modules/Yuruna.Host.psm1`); each QEMU-backed UTM guest gets a unique port so concurrent VMs can't poach each other's framebuffer |
 | `repositories.frameworkUrl` | `https://github.com/alissonsol/yurunadev` | URL of the framework repo. Used by status page for commit links AND polled by the outer runner during a failure-pause to break out early when a new commit lands upstream. |
 | `repositories.projectUrl` | `https://github.com/alissonsol/yurunadev-project` | URL of the project-under-test repo. Polled alongside `repositories.frameworkUrl` during a failure-pause, so a fix pushed to the project also breaks out of the 1-hour wait. Empty value disables the project clone (in-tree `project/` is used instead). |
-| `statusService.isEnabled` | `true` | Start built-in HTTP status server |
-| `statusService.port` | `8080` | Port for status server |
+| `repositories.ghToken` | `""` | Fine-grained read-only GitHub token for private framework/project repos |
+| `statusService.enabled` | `true` | Start built-in HTTP status service |
+| `statusService.port` | `8080` | Port for status service |
+| `configService.enabled` | `true` | Start the mTLS config service that serves NAS credentials to this host's VMs |
+| `configService.port` | `8443` | Port for the config service |
 
 ### Format enforcement and auto-reset
 
@@ -47,7 +53,7 @@ Copy any custom values from `test.config.yml.backup` into the new
 ### Guest ordering and skipping
 
 Omit a guest from `guestSequence` to skip it. Listing one with no folder
-marks a per-guest failure; others still run unless `testCycle.shouldStopOnFailure`.
+marks a per-guest failure; others still run unless `testCycle.stopOnFailure`.
 
 ### Notifications (Resend) — full setup
 
@@ -98,11 +104,11 @@ same stored value).
 - A named system mutex serializes read-modify-write so multiple guests
   provisioning in parallel cannot race.
 
-The caching-proxy `yuruna` user persists across cycles via
-`test/status/runtime/yuruna-caching-proxy.yml`
+The caching-proxy-service `yuruna` user persists across cycles via
+`test/status/runtime/yuruna-caching-proxy-service.yml`
 (host-agnostic, gitignored, managed by
-[`test/modules/Test.CachingProxy.psm1`](modules/Test.CachingProxy.psm1)),
-which the caching-proxy `New-VM.ps1` writes back to the vault on each
+[`test/modules/Test.CachingProxyService.psm1`](modules/Test.CachingProxyService.psm1)),
+which the caching-proxy-service `New-VM.ps1` writes back to the vault on each
 cycle start. The same file also carries the cache VM's IP, replacing
 the older per-platform `cache-ip.txt` breadcrumb near the VHD/raw
 image.
@@ -154,7 +160,7 @@ entire dependency chain. Example:
     `yuuser26`. Every `${username}` substitution in every sequence
     of the chain renders as `webuser`. The baseline `start.*.yml`
     keeps its `username: yuuser26` line as the stand-alone-invocation
-    default (used only by `Test-Sequence.ps1` runs outside a
+    default (used only by `Invoke-TestSequence.ps1` runs outside a
     workload context).
 
 The cascade applies to **any** key declared under `variables:` (not
@@ -215,15 +221,15 @@ Side-effecting commits (e.g. `authentication.SetPassword`) use the
 
 ## Developing test sequences
 
-[`Test-Sequence.ps1`](Test-Sequence.ps1) runs a single
+[`Invoke-TestSequence.ps1`](Invoke-TestSequence.ps1) runs a single
 sequence without downloading images or recreating a VM:
 
 ```
-pwsh test/Test-Sequence.ps1 -SequenceName "workload.guest.ubuntu.server.24"
-pwsh test/Test-Sequence.ps1 -SequenceName "workload.guest.ubuntu.server.24" -StartStep 5
-pwsh test/Test-Sequence.ps1 -SequenceName "workload.guest.ubuntu.server.24" -StartStep 3 -StopStep 7
-pwsh test/Test-Sequence.ps1 -SequenceName "workload.guest.ubuntu.server.24" -VMName "private-ubuntu"
-pwsh test/Test-Sequence.ps1 ..\project\example\text-to-sql\test\workload.guest.ubuntu.server.24.k8s.text-to-sql.baseline.yml
+pwsh test/Invoke-TestSequence.ps1 -SequenceName "workload.guest.ubuntu.server.24"
+pwsh test/Invoke-TestSequence.ps1 -SequenceName "workload.guest.ubuntu.server.24" -StartStep 5
+pwsh test/Invoke-TestSequence.ps1 -SequenceName "workload.guest.ubuntu.server.24" -StartStep 3 -StopStep 7
+pwsh test/Invoke-TestSequence.ps1 -SequenceName "workload.guest.ubuntu.server.24" -VMName "private-ubuntu"
+pwsh test/Invoke-TestSequence.ps1 ..\project\example\text-to-sql\test\workload.guest.ubuntu.server.24.k8s.text-to-sql.baseline.yml
 ```
 
 `-SequenceName` accepts either a **name** (no folder, no `.yml`; the
@@ -238,7 +244,7 @@ variant is a distinct `<name>.ssh` sequence -- there is no gui/ssh
 fallback. Missing sequence → listing from `test/sequences/` and the
 project test tree.
 When the path form points to a generic `.yml` and a
-`<name>.<hostShort>.yml` sibling exists, Test-Sequence warns -- the
+`<name>.<hostShort>.yml` sibling exists, Invoke-TestSequence warns -- the
 runner would have picked the variant on this host, so the path form is
 hiding a tier the runner sees.
 
@@ -248,7 +254,7 @@ auto-resolve to the existing `guest.ubuntu.server.24` folder. Pass
 `-GuestKey` to override the walk.
 
 To minimize surprises when a sequence is later wired into the runner,
-Test-Sequence mirrors the relevant runner-side resolutions:
+Invoke-TestSequence mirrors the relevant runner-side resolutions:
 
 * **Resource chain walk** -- the same `Resolve-CyclePlan` logic the runner
   uses. When a sequence's `resource:` field declares prereqs, every
@@ -269,14 +275,14 @@ Test-Sequence mirrors the relevant runner-side resolutions:
   full `effectiveVariables` map is passed as `-EffectiveVariables` to
   each `Invoke-Sequence` call so a workload-level `username: webuser`
   propagates into the baseline's `${username}` substitutions.
-* `Test-CachingProxyAvailable` is consulted and the resolved URL is
-  forwarded as `-CachingProxyUrl` to `New-VM`. Before that, the shared
-  `Resolve-CachingProxyEndpoint` probes `vmStart.cachingProxyIP` from
-  test.config.yml first and `$Env:YURUNA_CACHING_PROXY_IP` only on its
+* `Test-CachingProxyServiceAvailable` is consulted and the resolved URL is
+  forwarded as `-CachingProxyServiceUrl` to `New-VM`. Before that, the shared
+  `Resolve-CachingProxyServiceEndpoint` probes `vmStart.cachingProxyIp` from
+  test.config.yml first and `$Env:YURUNA_CACHING_PROXY_SERVICE_IP` only on its
   failure, publishing the winner into the env var (same precedence the
   runner uses).
 * `control.cycle-restart` is consumed at startup so leftover state from a
-  Ctrl-C'd runner can't make a clean Test-Sequence run look broken.
+  Ctrl-C'd runner can't make a clean Invoke-TestSequence run look broken.
 * `-ShowSensitive` is OFF by default (matches Invoke-TestRunner's masked
   output). Add the switch when local debugging actually needs cleartext.
 
@@ -310,7 +316,7 @@ the runner. The level maps to PowerShell's preference variables:
 `http://localhost:8080/status/` polls `status.json` every 30s and
 shows pass/fail, per-guest step status (New-VM, Start-VM,
 New-VM.Resource, Start-GuestOS, Screenshots, Start-GuestWorkload),
-history, and clickable Cycle IDs. Stop
+history, and clickable cycle-start timestamps. Stop
 the detached server with `pwsh test/Stop-StatusService.ps1`.
 
 ## Adding a test sequence
@@ -327,6 +333,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.28
+Last review: 2026.07.29
 
 Back to [Yuruna](../README.md)

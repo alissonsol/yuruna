@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.28
+.VERSION 2026.07.29
 .GUID 42c7a1b9-3d4e-4f80-9a21-5b6c7d8e9f01
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -16,14 +16,14 @@
 
 #requires -version 7
 
-# Orchestration-sequence execution for Test-Sequence.ps1: runs every
+# Orchestration-sequence execution for Invoke-TestSequence.ps1: runs every
 # `InvokeTestSequence` inner sequence IN-PROCESS under ONE status.json
 # cycle, one dashboard row per inner sequence. Replaces the retired
 # one-shot Test-SequenceSet driver. See docs/test-runner.md.
 #
 # NOTE (dedup follow-up): Invoke-OrchestratorGuestRun below mirrors the
-# per-guest prep + chain-run Test-Sequence.ps1 performs inline for a
-# standalone run (plan -> caching proxy -> ssh-user override -> VM
+# per-guest prep + chain-run Invoke-TestSequence.ps1 performs inline for a
+# standalone run (plan -> caching-proxy service -> ssh-user override -> VM
 # ensure/start -> Invoke-TestSequenceChain). It is kept separate here so
 # this change leaves the proven standalone path untouched; a later pass
 # can fold both onto one helper once a full-lab run re-verifies it.
@@ -90,7 +90,7 @@ function Invoke-OrchestratorHostAction {
         the per-stage step-by-step detail is NOT on the console. That detail
         still lands in two places: (a) the redirected <name>.out.log file,
         and (b) each child's OWN per-cycle HTML transcript -- every child
-        Test-Sequence.ps1 run calls Start-LogFile and gets its own
+        Invoke-TestSequence.ps1 run calls Start-LogFile and gets its own
         <cycle>.html under status/log/. This divergence is intentional
         (stages are quiet on the console, verbose in their own logs; the
         child's out/err tail is echoed to the console only on non-zero
@@ -158,8 +158,8 @@ function Invoke-OrchestratorGuestRun {
         the chain plan, ensure/start the VM, and run the whole chain via
         Invoke-TestSequenceChain. Returns @{ ok; vmName; guestKey; reason }.
     .DESCRIPTION
-        Mirrors Test-Sequence.ps1's standalone per-guest prep for a single
-        full run (StartStep 1 .. end). The caching-proxy URL is resolved
+        Mirrors Invoke-TestSequence.ps1's standalone per-guest prep for a single
+        full run (StartStep 1 .. end). The caching-proxy-service URL is resolved
         once by the caller and forwarded so every inner run shares it.
     #>
     [CmdletBinding()]
@@ -172,12 +172,12 @@ function Invoke-OrchestratorGuestRun {
         [Parameter(Mandatory)][string]$SequencesDir,
         [Parameter(Mandatory)][string]$HostType,
         [Parameter(Mandatory)]$Config,
-        [string]$CachingProxyUrl = '',
+        [string]$CachingProxyServiceUrl = '',
         [switch]$ShowSensitive
     )
     $fail = { param($msg) return @{ ok = $false; vmName = $null; guestKey = $null; reason = $msg } }
 
-    # --- GuestKey from the baseline map (first OS key), same as Test-Sequence.
+    # --- GuestKey from the baseline map (first OS key), same as Invoke-TestSequence.
     $osKeys = @()
     if ($Sequence.baseline -is [System.Collections.IDictionary] -and $Sequence.baseline.Keys.Count -gt 0) {
         $osKeys = @($Sequence.baseline.Keys)
@@ -218,7 +218,7 @@ function Invoke-OrchestratorGuestRun {
         Write-OrchestratorLine "VM '$vmName' already exists. Reusing."
     } else {
         Write-OrchestratorLine "VM '$vmName' not found. Creating..."
-        $newVmArgs = @{ GuestKey = $guestKey; RepoRoot = $RepoRoot; VMName = $vmName; CachingProxyUrl = $CachingProxyUrl }
+        $newVmArgs = @{ GuestKey = $guestKey; RepoRoot = $RepoRoot; VMName = $vmName; CachingProxyServiceUrl = $CachingProxyServiceUrl }
         if ($effectiveUser) { $newVmArgs.Username = $effectiveUser }
         if ($effectiveHost) { $newVmArgs.Hostname = $effectiveHost }
         $r = New-VM @newVmArgs -Confirm:$false
@@ -297,7 +297,7 @@ function Invoke-OrchestrationSequence {
     # ONE node for the whole orchestration and skips every owner-only status op
     # (Reset/Initialize/Set-Guest*/Complete-Run/Start-LogFile). Either way, the
     # step loop publishes a cycle-context handle before each step so a child
-    # PROCESS the step spawns (a host action re-entering Test-Sequence.ps1)
+    # PROCESS the step spawns (a host action re-entering Invoke-TestSequence.ps1)
     # attaches as a nested node under the right parent. See Test.Status.psm1
     # "Nested-cycle support".
     $ctx        = Get-CycleContext
@@ -354,20 +354,20 @@ function Invoke-OrchestrationSequence {
     Write-OrchestratorLine "  On error:      $(if ($continueOnError) { 'continue (report all)' } else { 'stop at first failure' })"
     Write-OrchestratorLine "============================================="
 
-    # --- Resolve the caching-proxy endpoint ONCE (shared by every guest run),
-    #     mirroring Test-Sequence's own resolve. Env candidate wins per its rules.
-    $envCacheIp    = if ($env:YURUNA_CACHING_PROXY_IP) { $env:YURUNA_CACHING_PROXY_IP.Trim() } else { '' }
+    # --- Resolve the caching-proxy-service endpoint ONCE (shared by every guest run),
+    #     mirroring Invoke-TestSequence's own resolve. Env candidate wins per its rules.
+    $envCacheIp    = if ($env:YURUNA_CACHING_PROXY_SERVICE_IP) { $env:YURUNA_CACHING_PROXY_SERVICE_IP.Trim() } else { '' }
     $configCacheIp = ''
-    if ($Config.vmStart -is [System.Collections.IDictionary] -and $Config.vmStart.Contains('cachingProxyIP')) {
-        $configCacheIp = "$($Config.vmStart.cachingProxyIP)".Trim()
+    if ($Config.vmStart -is [System.Collections.IDictionary] -and $Config.vmStart.Contains('cachingProxyIp')) {
+        $configCacheIp = "$($Config.vmStart.cachingProxyIp)".Trim()
     }
-    if (($envCacheIp -or $configCacheIp) -and (Get-Command Resolve-CachingProxyEndpoint -ErrorAction SilentlyContinue)) {
-        $endpoint = Resolve-CachingProxyEndpoint -EnvIp $envCacheIp -ConfigIp $configCacheIp
+    if (($envCacheIp -or $configCacheIp) -and (Get-Command Resolve-CachingProxyServiceEndpoint -ErrorAction SilentlyContinue)) {
+        $endpoint = Resolve-CachingProxyServiceEndpoint -EnvIp $envCacheIp -ConfigIp $configCacheIp
         foreach ($line in $endpoint.Lines) { Write-OrchestratorLine $line }
-        $env:YURUNA_CACHING_PROXY_IP = $endpoint.EffectiveIp
+        $env:YURUNA_CACHING_PROXY_SERVICE_IP = $endpoint.EffectiveIp
     }
-    $cachingProxyUrl = Test-CachingProxyAvailable
-    if ($cachingProxyUrl) { Write-OrchestratorLine "Caching proxy: $cachingProxyUrl (forwarded to inner runs)" }
+    $cachingProxyUrl = Test-CachingProxyServiceAvailable
+    if ($cachingProxyUrl) { Write-OrchestratorLine "Caching-proxy service: $cachingProxyUrl (forwarded to inner runs)" }
 
     # --- Register the cycle. OWNER: reset + initialize ONE status cycle where
     #     each inner sequence is its own top-level row (synthetic guest key =
@@ -376,10 +376,10 @@ function Invoke-OrchestrationSequence {
     #     that invoked us, and write our transcript under the owner's cycle
     #     folder -- never reset/own the doc.
     if ($orchNested) {
-        $nlog = Start-NestedLogFile -RootCycleFolder ([string]$ctx.rootCycleFolder) -NodeId $orchNodeId -CycleId ([string]$ctx.cycleId)
+        $nlog = Start-NestedLogFile -RootCycleFolder ([string]$ctx.rootCycleFolder) -NodeId $orchNodeId -CycleStartUtc ([string]$ctx.cycleStartUtc)
         Register-NestedRunNode -StatusPath $statusFile -NodeId $orchNodeId -ParentId ([string]$ctx.parentId) `
-            -Name $setName -Kind 'orchestration' -LogRel $nlog.LogRel -CycleId ([string]$ctx.cycleId)
-        $cycleId = [string]$ctx.cycleId
+            -Name $setName -Kind 'orchestration' -LogRel $nlog.LogRel -CycleStartUtc ([string]$ctx.cycleStartUtc)
+        $cycleStartUtc = [string]$ctx.cycleStartUtc
         Write-OrchestratorLine "Log file: $($nlog.LogFile)"
     } else {
         Reset-StatusDocumentForCycleStart -StatusFilePath $statusFile -Confirm:$false
@@ -396,15 +396,52 @@ function Invoke-OrchestrationSequence {
         $gitCommitsList = @()
         if ($frameworkCommit) { $gitCommitsList += [ordered]@{ sha = $frameworkCommit; repoUrl = $frameworkUrl } }
 
-        $cycleId = Initialize-StatusDocument `
+        $cycleStartUtc = Initialize-StatusDocument `
             -StatusFilePath $statusFile -HostType $HostType -Hostname (hostname) `
             -GitCommit $frameworkCommit -RepoUrl $frameworkUrl -GitCommits $gitCommitsList `
             -GuestList $guestKeys -Sequences $sequences -StepNames @('Run')
         foreach ($e in $entries) { Set-GuestTopLevel -GuestKey $e.name -TopLevel $e.name -Confirm:$false }
 
         $cycleNumber = Get-CycleNumber
-        $logFile = Start-LogFile -TestRoot $TestRoot -CycleId $cycleId -Hostname (hostname) -CycleNumber $cycleNumber
+        $logFile = Start-LogFile -TestRoot $TestRoot -CycleStartUtc $cycleStartUtc -Hostname (hostname) -CycleNumber $cycleNumber
         Write-OrchestratorLine "Log file: $logFile"
+
+        # Open the per-step perf log for the cycle this orchestration owns.
+        # An orchestration owns its whole cycle, so nothing upstream has opened
+        # one; without this every Write-PerfStepRow below no-ops on a null cycle
+        # context and the cycle contributes no rows at all. Soft-failing on the
+        # same terms as every other perf call -- a perf problem must not fail a
+        # cycle. Start-PerfCycle publishes the handle the inner sequences (and
+        # any child pwsh they spawn) adopt automatically.
+        if (Get-Command -Name Start-PerfCycle -ErrorAction SilentlyContinue) {
+            try {
+                # Project SHA resolved the same way the guest-cycle path does:
+                # only from a real <RepoRoot>/project/.git, and 'unknown' is
+                # dropped so rows carry a null rather than a fake commit.
+                $projectCommit = $null
+                $projectDir = Join-Path $RepoRoot 'project'
+                if ((Test-Path (Join-Path $projectDir '.git')) -and (Get-Command Get-CurrentGitCommit -ErrorAction SilentlyContinue)) {
+                    $maybe = Get-CurrentGitCommit -RepoRoot $projectDir
+                    if ($maybe -and $maybe -ne 'unknown') { $projectCommit = [string]$maybe }
+                }
+                # Built only when the cycle folder is actually known: Join-Path
+                # throws on an empty Path, and letting that reach the catch
+                # below would trade a missing hostInfoHash for a cycle with no
+                # perf rows at all. Absent file just leaves the hash null.
+                $perfArgs = @{
+                    CycleStartUtc       = $cycleStartUtc
+                    HostPlatform  = $HostType
+                    Hostname      = (hostname)
+                    HarnessCommit = $frameworkCommit
+                    ProjectCommit = $projectCommit
+                }
+                $cycFolder = [string]$global:__YurunaCycleFolder
+                if ($cycFolder) { $perfArgs.HostDiagnosticPath = Join-Path $cycFolder 'host.diagnostic.txt' }
+                Start-PerfCycle @perfArgs -Confirm:$false
+            } catch {
+                Write-OrchestratorLine "Start-PerfCycle failed (non-fatal): $($_.Exception.Message)"
+            }
+        }
     }
     # Root cycle folder + number children inherit for their nested transcripts +
     # tiles: the OWNER's own cycle folder, or the propagated root when nested.
@@ -433,14 +470,14 @@ function Invoke-OrchestrationSequence {
             }
 
             # Publish the cycle-context handle so any child PROCESS this step
-            # spawns (a host action re-entering Test-Sequence.ps1 -- e.g.
+            # spawns (a host action re-entering Invoke-TestSequence.ps1 -- e.g.
             # set-resource -> Set-Resource.ps1 -> per-stage guest builds)
             # attaches as a nested node under this step. Owner: parent = the
             # step's top-level row ($e.name). Nested: parent = this
             # orchestration's node. Cleared after the step so a later in-process
             # step doesn't inherit a stale parent.
             $stepParentId = if ($orchNested) { $orchNodeId } else { $e.name }
-            Publish-CycleContext -CycleId $cycleId -StatusPath $statusFile `
+            Publish-CycleContext -CycleStartUtc $cycleStartUtc -StatusPath $statusFile `
                 -RootCycleFolder $rootCycleFolder -CycleNumber $rootCycleNumber -ParentId $stepParentId
 
             $reason = ''
@@ -452,7 +489,7 @@ function Invoke-OrchestrationSequence {
                 } elseif ($e.kind -eq 'guest') {
                     $run = Invoke-OrchestratorGuestRun -Sequence $e.sequence -SequencePath $e.path -Name $e.name `
                         -RepoRoot $RepoRoot -SequencesDir $SequencesDir -HostType $HostType -Config $Config `
-                        -CachingProxyUrl $cachingProxyUrl -ShowSensitive:$ShowSensitive
+                        -CachingProxyServiceUrl $cachingProxyUrl -ShowSensitive:$ShowSensitive
                     $ok = [bool]$run.ok
                     if ($run.vmName -and -not $orchNested) { Set-GuestVMName -GuestKey $e.name -VMName $run.vmName -Confirm:$false }
                     if (-not $ok) { $reason = $run.reason }

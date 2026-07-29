@@ -279,13 +279,13 @@ Source:
 
 ### Why cache VHDX uses Resize-VHD instead of qemu-img resize?
 
-The Hyper-V caching-proxy image is resized to 512 GB for cache storage
+The Hyper-V caching-proxy-service image is resized to 512 GB for cache storage
 (384 GB `squid cache_dir` + ~128 GB OS/logs/headroom). VHDX is
 dynamic, so 512 GB is the APPARENT size only — actual disk consumption
 stays low until squid starts caching (or unattended-upgrades pulls a
 kernel). The `cache_dir` budget was bumped up from 128 GB so squid
 can hold the macOS install image (~18 GB) plus other multi-GB objects
-with breathing room — see `host/vmconfig/caching-proxy.base.user-data` and the
+with breathing room — see `host/vmconfig/caching-proxy-service.base.user-data` and the
 `maximum_object_size 65 GB` directive.
 
 Prefer Hyper-V's native `Resize-VHD`: `qemu-img` reports
@@ -293,7 +293,7 @@ Prefer Hyper-V's native `Resize-VHD`: `qemu-img` reports
 with `subformat=dynamic`. `Resize-VHD` handles VHDX correctly.
 
 Source:
-[`host/windows.hyper-v/guest.caching-proxy/Get-Image.ps1`](../host/windows.hyper-v/guest.caching-proxy/Get-Image.ps1).
+[`host/windows.hyper-v/guest.caching-proxy-service/Get-Image.ps1`](../host/windows.hyper-v/guest.caching-proxy-service/Get-Image.ps1).
 
 ---
 
@@ -306,7 +306,7 @@ parent's environment, so anything in `$env:` at spawn time reaches the
 inner automatically. That implicit inheritance breaks down quietly when
 a long-running outer is mutated mid-run (a module unset / overwrite, or
 a `Remove-Item Env:X` slipping through), and the operator only finds
-out cycles later when the inner says "no caching proxy". The snapshot
+out cycles later when the inner says "no caching-proxy service". The snapshot
 in `Invoke-TestRunner.ps1` makes the contract explicit:
 
 - Captured ONCE at outer startup (from whatever shell launched us).
@@ -321,16 +321,16 @@ can't re-set these vars AFTER inheritance and override the snapshot.
 Without that flag, a profile line like
 
 ```
-$env:YURUNA_CACHING_PROXY_IP = '192.168.7.223'
+$env:YURUNA_CACHING_PROXY_SERVICE_IP = '192.168.7.223'
 ```
 
 silently wins in the child even when the operator cleared the var in
 the outer shell — the inner inherited the cleared state but then ran
 profile and re-wrote it. That was the exact failure mode behind a
-cycle pointing at an external (stale) cache while `Test-CachingProxy`
+cycle pointing at an external (stale) cache while `Test-CachingProxyService`
 reported the local cache correctly. (With config-first resolution a
 profile-injected env value only decides a cycle when
-`vmStart.cachingProxyIP` is empty or fails its probe, but the
+`vmStart.cachingProxyIp` is empty or fails its probe, but the
 `-NoProfile` snapshot guard still protects every other forwarded
 knob.)
 
@@ -350,7 +350,7 @@ The outer test runner invokes the inner `pwsh` via the call operator
 inner emitted its final cycle-end line.
 
 Root cause: any long-running grandchild spawned by the inner that
-inherited the inner's console handles (status server is the worst
+inherited the inner's console handles (status service is the worst
 offender; `Start-StatusService.ps1` was patched in the same change to
 redirect its stdio explicitly) kept the outer's `WaitForExit()` from
 completing. The call operator hands inner invocation to PowerShell's
@@ -382,10 +382,10 @@ Source:
 
 ### Why the installer's baseline reset removes legacy test VMs?
 
-An install is a "return-to-baseline" operation. Status server +
+An install is a "return-to-baseline" operation. Status service +
 runner processes are killed earlier (`Stop-YurunaProcess`); their VMs
 are not. `Remove-TestVMFiles.ps1` enumerates Hyper-V VMs matching the
-`test-` prefix and stops + removes each. The `yuruna-caching-proxy`
+`test-` prefix and stops + removes each. The `yuruna-caching-proxy-service`
 VM does NOT match this prefix and is preserved.
 
 Skipped when Hyper-V was just enabled in this run — `vmms` only
@@ -425,7 +425,7 @@ Source:
 ### Why port-ownership diagnostics live in one module?
 
 `Test.PortOwner.psm1` is shared by Start-StatusService,
-Stop-StatusService, Test-CachingProxy, and future health checks so the
+Stop-StatusService, Test-CachingProxyService, and future health checks so the
 Windows HTTP.sys / `netsh` versus Unix `lsof` dispatch is written once.
 Every caller asks the same three questions in the same order, and the
 answers are not interchangeable:
@@ -451,7 +451,7 @@ alone cannot tell them apart.
 orphan pwsh holder this user owns; otherwise it classifies the port as
 `Conflict`, or as `PrivilegeRequired` when nothing holds it and the
 wildcard reservation was simply refused. Both outcomes refuse to start —
-the status server binds the same prefix and would fail identically — but
+the status service binds the same prefix and would fail identically — but
 only one of them has a holder that can be stopped. It returns a
 structured result and never exits or throws, so the caller
 (Start-StatusService) decides how to refuse and that refusal can
@@ -484,7 +484,7 @@ a cycle of wall-clock to lose.
 Second, resume runs only in the runner path, where each workload
 sequence runs as a single file (`Invoke-SequenceByName`). That makes
 `last_failure.json`'s file-local `repro.resumeFromStep` map directly onto
-`Invoke-Sequence`'s file-local `-StartStep`. `Test-Sequence`'s chain
+`Invoke-Sequence`'s file-local `-StartStep`. `Invoke-TestSequence`'s chain
 runner concatenates baselines, which would make the same mapping
 chain-global rather than file-local; the runner does not concatenate, so
 the mapping is exact. See [failure-schema.md](failure-schema.md).
@@ -499,6 +499,44 @@ the event record.
 
 Source:
 [`test/modules/Test.WarmResume.psm1`](../test/modules/Test.WarmResume.psm1).
+
+### Pester file-scope fixtures
+
+The Pester test files keep helper functions and path fixtures at FILE
+scope, above the first `Describe`. Two Pester behaviors force that
+placement: a `Describe` body runs during discovery and its variables
+and functions are discarded before any `It` executes, and the run pass
+stops descending top-level statements at the first `Describe` — so
+anything an `It` body needs must be defined at file scope, above the
+first `Describe`.
+
+Only the PATHS are computed at file scope. The directories, files, and
+child processes those paths name are side effects, and the file body
+runs twice (discovery, then run) — so the creation itself (the
+`New-Item` calls, spawned processes) stays inside `BeforeAll` / `It`
+bodies.
+
+Source:
+[`test/modules/Test.Notify.Tests.ps1`](../test/modules/Test.Notify.Tests.ps1),
+[`test/modules/Test.SingleInstance.Tests.ps1`](../test/modules/Test.SingleInstance.Tests.ps1).
+
+### Why the guest SSH-user overrides are anchored in the global scope?
+
+`$GuestSshUserOverrides` holds per-cycle overrides for `Get-GuestSshUser`, populated by the runner (`Invoke-TestRunnerInnerLoop` / `Invoke-TestSequence`) from the cycle plan's `effectiveUsername`. That is how a workload's `variables.username:` cascade reaches every SSH callsite routed through `Get-GuestSshUser`: `Wait-SshReady`, `Invoke-GuestSsh`, `Save-GuestDiagnostic`, the host driver `Send-Text` / `Send-Key` SSH-mode dispatchers, and the inner runner's fetchAndExecute SSH path. The alternative -- threading a `-Username` parameter through every public signature -- would touch every callsite and the host contract for the same outcome.
+
+The table is anchored in the GLOBAL scope because `Save-GuestDiagnostic` and several host drivers `-Force` re-import `Test.Ssh` defensively. A module-scoped `$script:GuestSshUserOverrides = @{}` would be re-initialized on every re-import, wiping the cascade value registered at plan-resolution time and falling SSH auth back to the per-guest default (e.g. `yauser1`) -- breaking exactly the workloads whose `variables.username:` was meant to propagate down the chain. This is the same eviction-safe pattern `Test.Output` and the `Test.Registry`-based registries already use. `Set-Variable` / `Get-Variable -Scope Global` is used instead of `$global:` so PSSA's `PSAvoidGlobalVars` stays quiet for the rest of that large module.
+
+Source: [`test/modules/Test.Ssh.psm1`](../test/modules/Test.Ssh.psm1).
+
+### Why the test.config.yml cache key includes a content hash?
+
+`Test.Config` is the single source of truth for reading `test.config.yml`. Centralizing the `Get-Content -Raw $cfg | ConvertFrom-Yaml -Ordered` flow keeps error handling uniform across callsites -- parse failures, `$null` on miss, and `-is [IDictionary]` validation all happen in one place, so a new rule (a schema check, say) reaches every caller automatically.
+
+The cache key is absolute path + `LastWriteTimeUtc` + a SHA-256 of the first 64 KB of file content. The content hash defends against the corner case where an editor restores a file to its original size AND mtime -- a `git checkout` of a same-size revision, a `touch -d` to an exact prior timestamp, or a CI step that copies a backup over. mtime alone would return stale cached YAML and downstream callers would silently see an old config for the rest of the process.
+
+64 KB is enough to cover the entire repo's YAML files (the current largest is under 8 KB); reading more than that on every cache check would negate the benefit of caching for big files. Callers that need a guaranteed fresh read -- the outer loop's failure-pause config-mtime trigger, for instance -- pass `-NoCache`.
+
+Source: [`test/modules/Test.Config.psm1`](../test/modules/Test.Config.psm1).
 
 ---
 
@@ -566,7 +604,7 @@ activated it, but never activated the matching `bridge-slave` —
 leaving the bridge interface up with only tap ports (`vnetN`) attached
 and no LAN uplink. In that state DHCP loops forever on the bridge,
 any guest on this libvirt network stays stranded with no IP, and
-`Start-CachingProxyVM.ps1` times out at `Get-VMIp`.
+`Start-CachingProxyServiceVM.ps1` times out at `Get-VMIp`.
 
 - **Detection:** the bridge's `/sys/class/net/<br>/brif` directory
   lists only `vnet*` / `tap*` ports.
@@ -581,6 +619,29 @@ isn't active. On failure logs a clear recovery hint but does not
 throw, since the caller (`New-YurunaExternalNetwork`) prefers to
 return the network name and let the operator see the downstream
 timeout with full context.
+
+Source:
+[`host/ubuntu.kvm/modules/Yuruna.Host.psm1`](../host/ubuntu.kvm/modules/Yuruna.Host.psm1).
+
+### Why the bridge residue sweep covers three backends
+
+`Clear-YurunaExternalBridgeResidue` is the internal helper that removes
+every stranded artifact a failed bridge bring-up can leave behind, so
+the next build starts from a truly clean slate. A half-built bridge
+strands THREE kinds of state, each from a different backend, and any
+one of them makes the next attempt fail in a new way:
+
+- **NM connection profiles** (`$BridgeName` / `$BridgeName-slave-*`):
+  re-adding on top of them errors out, and feeding NM conflicting
+  profiles can trigger its nm-settings-utils.c assertion crash.
+- **The netplan file** (`99-yuruna-external.yaml`): systemd-networkd
+  keeps claiming the bridge + NIC, and netplan's generated udev rule
+  marks them NM_UNMANAGED — which makes `nmcli connection up <bridge>`
+  fail with "Failed to find a compatible device for this connection".
+- **The kernel bridge device itself**: deleting the NM profile or the
+  netplan file does NOT remove an already-created device, and a
+  same-named device NM does not manage also produces that same
+  "no compatible device" nmcli failure.
 
 Source:
 [`host/ubuntu.kvm/modules/Yuruna.Host.psm1`](../host/ubuntu.kvm/modules/Yuruna.Host.psm1).
@@ -659,6 +720,17 @@ would bind as an empty path and fault.
 
 Source:
 [`automation/Set-HostAlias.ps1`](../automation/Set-HostAlias.ps1).
+
+### Why the networkStorage vault sync probes before prompting, and rewrites on drift?
+
+`Sync-ConfigSyncVaultCredential` converges every networkStorage user's vault entry onto the credential the REFERENCE host holds, fetched over the token-gated, encrypted endpoint, prompting the operator only for what the reference genuinely cannot supply. Two rules earn their keep:
+
+- **Ask the reference what it can do BEFORE asking the operator for anything.** The shared lab-auth-token unlocks the fetch, but a reference host that has no token of its own can never serve a credential no matter what the operator types. Prompting for the token, and then for every password once the operator skips it, demands by hand precisely the values this sync exists to copy. The capability probe needs no token and turns that into one sentence naming the fix.
+- **An existing vault entry is not a reason to stop.** Skipping every user who already had one made the sync a one-shot bootstrap: a NAS password rotated on the reference could never reach a host holding the old one, and the mount then failed with a credential the sync was staring right at. The fetched value is compared against the stored one and written only when they differ, so a re-run converges and a no-op run writes nothing.
+
+Requires the authentication extension; degrades to warnings when it cannot be loaded.
+
+Source: [`test/modules/Test.ConfigServiceSync.psm1`](../test/modules/Test.ConfigServiceSync.psm1).
 
 ---
 
@@ -937,8 +1009,8 @@ The same rationale applies to the other supported guests:
   winget / Windows Update stages (the analogous stall risks), while
   the git-clone fallback lives in the late "Materialize" section
   because it needs `git`, which winget may only install in the update
-  stage that follows. The host coordinates (`YURUNA_HOST_IP` /
-  `YURUNA_HOST_PORT`) come from `C:\ProgramData\yuruna\host.env` — the
+  stage that follows. The host coordinates (`YURUNA_STATUS_SERVICE_IP` /
+  `YURUNA_STATUS_SERVICE_PORT`) come from `C:\ProgramData\yuruna\host.env` — the
   Windows-side equivalent of the Linux `host.env` injection — written
   when the host driver supports it; when the file or the variables are
   absent the early-extract block soft-fails into a no-op.
@@ -1199,12 +1271,12 @@ require a service restart and races with workloads that may already be
 pulling.
 
 `registry-mirrors` routes every `docker.io` pull through the
-yuruna-caching-proxy's zot pull-through cache. The cache's
+yuruna-caching-proxy-service's zot pull-through cache. The cache's
 stale-on-error semantics mask upstream rate-limit blips (e.g. AWS ECR
 Public returning HTTP 400 for `library/registry:2` manifest HEADs — a
 class of incident that has taken out multiple test hosts
 simultaneously). `CACHE_HOST` is parsed from the guest's system-wide
-`$http_proxy`, falling back to the well-known `yuruna-caching-proxy`
+`$http_proxy`, falling back to the well-known `yuruna-caching-proxy-service`
 hostname.
 
 Source:
@@ -1267,6 +1339,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.28
+Last review: 2026.07.29
 
 Back to [Yuruna](../README.md)

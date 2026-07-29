@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.28
+.VERSION 2026.07.29
 .GUID 42d9e0f1-a2b3-4c45-d678-9e0f1a2b3c46
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -204,7 +204,7 @@ CreateIso -SourceDir $SeedDir -OutputFile $SeedIso -VolumeId "OEMDRV"
 
 # Pick a vSwitch -- prefer Yuruna-External (LAN-bridged) so the install
 # VM gets a real LAN IP via DHCP. Default Switch fallback for hosts
-# that can't create an External vSwitch. Same pattern as guest.caching-proxy.
+# that can't create an External vSwitch. Same pattern as guest.caching-proxy-service.
 $switchName = Get-OrCreateYurunaExternalSwitch
 if (-not $switchName) {
     Write-Verbose "External vSwitch unavailable -- falling back to 'Default Switch'."

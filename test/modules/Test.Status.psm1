@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.28
+.VERSION 2026.07.29
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456702
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -48,9 +48,9 @@ function Get-UtcTimestamp {
 .DESCRIPTION
     Preserves only the fields that genuinely span cycles -- history,
     lastGetImageAt, cycle counter, repoUrl, host, hostname. Everything else
-    (overallStatus, guests[], cycleId, startedAt, finishedAt, gitCommit,
+    (overallStatus, guests[], cycleStartUtc, startedAt, finishedAt, gitCommit,
     pause flags) is cycle-specific and would otherwise leak forward. Sets
-    overallStatus="running" and an interim cycleId/startedAt so the banner
+    overallStatus="running" and an interim cycleStartUtc/startedAt so the banner
     flips immediately; Initialize-StatusDocument overwrites both later with
     the real values once the cycle plan has resolved.
 #>
@@ -81,7 +81,7 @@ function Reset-StatusDocumentForCycleStart {
             # can diff it against the fresh doc instead of finding only
             # a silent counter reset. Stamp is millisecond-precision to
             # tolerate same-second rotations (write-write race against
-            # the status server). Emit an NDJSON event into the current
+            # the status service). Emit an NDJSON event into the current
             # cycle's ndjson so dashboards / autonomous remediators see
             # the gap explicitly instead of inferring it from a missing
             # history entry.
@@ -131,7 +131,7 @@ function Reset-StatusDocumentForCycleStart {
         host           = $hostType
         hostname       = $hostnameValue
         hostId         = $hostIdValue
-        cycleId        = $now
+        cycleStartUtc        = $now
         startedAt      = $now
         finishedAt     = $null
         overallStatus  = "running"
@@ -154,7 +154,7 @@ function Reset-StatusDocumentForCycleStart {
         # is empty).
         sequences      = @()
         # Nested-run subtree (nodeId -> node), authored ONLY by nested
-        # Test-Sequence child processes via the RMW helpers below. Reset to
+        # Invoke-TestSequence child processes via the RMW helpers below. Reset to
         # empty here (the cycle owner's authoritative wipe) BEFORE any child
         # can spawn; the owner's later flushes preserve whatever children add.
         nested         = [ordered]@{}
@@ -171,7 +171,7 @@ function Reset-StatusDocumentForCycleStart {
     Creates a new status document with the provided parameters. StepNames controls
     which steps are tracked per guest (allows the caller to add Start-GuestWorkload
     when extension scripts are present). Preserves history, cycle count, and
-    lastGetImageAt from the previous status file if present. Returns the cycleId
+    lastGetImageAt from the previous status file if present. Returns the cycleStartUtc
     string.
 
 .PARAMETER GitCommits
@@ -241,7 +241,7 @@ function Initialize-StatusDocument {
         }
     }
 
-    $cycleId = (Get-UtcTimestamp)
+    $cycleStartUtc = (Get-UtcTimestamp)
 
     $guests = foreach ($key in $GuestList) {
         $steps = foreach ($sn in $StepNames) {
@@ -297,8 +297,8 @@ function Initialize-StatusDocument {
         host           = $HostType
         hostname       = $Hostname
         hostId         = $hostIdValue
-        cycleId        = $cycleId
-        startedAt      = $cycleId
+        cycleStartUtc        = $cycleStartUtc
+        startedAt      = $cycleStartUtc
         finishedAt     = $null
         overallStatus  = "running"
         stepPaused     = $false
@@ -340,7 +340,7 @@ function Initialize-StatusDocument {
     }
 
     Write-StatusJson
-    return $cycleId
+    return $cycleStartUtc
 }
 
 <#
@@ -488,7 +488,9 @@ function Complete-Run {
     # complicate downstream trend analysis. All step timestamps the
     # runner writes are Z-suffixed UTC, so a plain DateTime.Parse
     # diff is timezone-safe.
-    function Get-StepDurationSec {
+    function Get-StepDurationSeconds {
+        [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseSingularNouns', '',
+            Justification = 'The plural is the unit, not a collection: a duration is named <name>Seconds so a bare number cannot be read in the wrong unit (docs/design/naming.md).')]
         param($StartedAt, $FinishedAt)
         if (-not $StartedAt -or -not $FinishedAt) { return 0 }
         try {
@@ -502,18 +504,18 @@ function Complete-Run {
 
     # [ordered]@{} preserves insertion order so guestSummary keys keep
     # guestSequence order in the JSON. Per-guest value shape (current
-    # object form vs legacy bare-string form), stepDurationsSec contract,
+    # object form vs legacy bare-string form), stepDurationsSeconds contract,
     # and dashboard fallback: https://yuruna.link/test/harness
     $guestSummary = [ordered]@{}
     foreach ($g in $script:Doc.guests) {
         $artifacts = if ($g.Contains('failureArtifacts')) { [string]$g.failureArtifacts } else { '' }
-        $stepDurationsSec = [ordered]@{}
+        $stepDurationsSeconds = [ordered]@{}
         foreach ($s in $g.steps) {
-            $stepDurationsSec[$s.name] = (Get-StepDurationSec $s.startedAt $s.finishedAt)
+            $stepDurationsSeconds[$s.name] = (Get-StepDurationSeconds $s.startedAt $s.finishedAt)
         }
         $guestEntry = [ordered]@{
             status           = $g.status
-            stepDurationsSec = $stepDurationsSec
+            stepDurationsSeconds = $stepDurationsSeconds
         }
         if ($artifacts) { $guestEntry.failureArtifacts = $artifacts }
         # Persist the failing step's message + the classified cause into the
@@ -539,12 +541,12 @@ function Complete-Run {
     # to its bare base), so strip the lifecycle suffix to record the
     # post-rename location -- the only location history rows are
     # expected to resolve to.
-    # totalDurationSec is the cycle's wall-clock seconds; the dashboard
+    # totalDurationSeconds is the cycle's wall-clock seconds; the dashboard
     # already derives this from startedAt/finishedAt on the fly, so the
     # field is additive -- its purpose is to let programmatic trend
     # analysis (jq / Python) read a number directly without re-parsing
     # ISO timestamps.
-    $totalDurationSec = (Get-StepDurationSec $script:Doc.startedAt $script:Doc.finishedAt)
+    $totalDurationSeconds = (Get-StepDurationSeconds $script:Doc.startedAt $script:Doc.finishedAt)
     $historyCycleFolderUrl = if ($script:Doc.cycleFolderUrl) {
         $script:Doc.cycleFolderUrl `
             -replace '\.incomplete(/?)$', '$1' `
@@ -585,10 +587,10 @@ function Complete-Run {
     )
 
     $entry = [ordered]@{
-        cycleId          = $script:Doc.cycleId
+        cycleStartUtc          = $script:Doc.cycleStartUtc
         startedAt        = $script:Doc.startedAt
         finishedAt       = $script:Doc.finishedAt
-        totalDurationSec = $totalDurationSec
+        totalDurationSeconds = $totalDurationSeconds
         overallStatus    = $OverallStatus
         gitCommits       = @($script:Doc.gitCommits)
         host             = $script:Doc.host
@@ -635,7 +637,7 @@ function Write-StatusJson {
     $cyclePauseFlag = Join-Path $runtimeDir 'control.cycle-pause'
     $script:Doc.stepPaused  = (Test-Path $stepPauseFlag)
     $script:Doc.cyclePaused = (Test-Path $cyclePauseFlag)
-    # Per-writer unique temp name: the runner and the status-server
+    # Per-writer unique temp name: the runner and the status-service
     # process both flush status.json, so a shared fixed "$File.tmp"
     # lets one process's Move-Item rename the other's half-written temp.
     # A PID+GUID suffix keeps each writer's temp private; the rename to
@@ -718,7 +720,7 @@ Returns the monotonic cycle counter (1, 2, 3, ...) for the current cycle.
 .DESCRIPTION
 Read-after-write of $script:Doc.cycle, which Initialize-StatusDocument
 incremented from the previous status.json. Used by Start-LogFile to
-build the zero-padded cycleId portion of the cycle-folder name
+build the zero-padded cycleStartUtc portion of the cycle-folder name
 ("000001.YYYY-MM-DD.HH-mm-ss.HOSTNAME"). Returns 0 when no document is
 loaded (emergency-cleanup callers that reach the log helpers before
 Initialize-StatusDocument has run); Start-LogFile treats 0 as the
@@ -763,7 +765,7 @@ live. Set on every guest -- success or failure -- so the dashboard
 tile always navigates to the same place.
 .DESCRIPTION
 The folder layout is one folder per guest per cycle (independent of
-pass/fail), so Invoke-TestInnerRunner calls this function eagerly as
+pass/fail), so Invoke-TestRunnerInnerLoop calls this function eagerly as
 soon as the per-guest folder is created -- not only on failure. The
 dashboard JS uses the empty-string check to decide whether to wrap the
 pill in an anchor, so an empty string clears the field for contexts
@@ -869,9 +871,9 @@ function Get-GuestProvenance {
 }
 
 # === Nested-cycle support =================================================
-# A Test-Sequence run either OWNS status.json (standalone, or the outermost
+# A Invoke-TestSequence run either OWNS status.json (standalone, or the outermost
 # orchestration) or runs NESTED inside another run's process tree -- a
-# host-action step that re-enters Test-Sequence.ps1 in a child pwsh (e.g.
+# host-action step that re-enters Invoke-TestSequence.ps1 in a child pwsh (e.g.
 # Set-Resource.ps1 fanning out per-stage guest builds). Exactly ONE process --
 # the outermost -- owns the top-level document (guests[]/sequences[]/history +
 # Reset/Initialize/Complete-Run). A nested run NEVER resets the doc: it attaches
@@ -893,7 +895,7 @@ function Get-CycleContext {
         Returns $null when no ancestor established a cycle -- the ABSENCE is
         the "I am the owner" signal, so entry points branch on $null.
     .OUTPUTS
-        [hashtable] { cycleId; ownerPid; statusPath; rootCycleFolder;
+        [hashtable] { cycleStartUtc; ownerPid; statusPath; rootCycleFolder;
                       cycleNumber; parentId } or $null. `parentId` is the FULL
         node id of the parent under which this run must attach (empty at the
         top). A nested run's own node id is "$parentId/$name", so the id encodes
@@ -922,7 +924,7 @@ function Publish-CycleContext {
     #>
     [CmdletBinding(SupportsShouldProcess)]
     param(
-        [Parameter(Mandatory)][string]$CycleId,
+        [Parameter(Mandatory)][string]$CycleStartUtc,
         [Parameter(Mandatory)][string]$StatusPath,
         [Parameter(Mandatory)][string]$RootCycleFolder,
         [Parameter(Mandatory)][string]$ParentId,
@@ -930,7 +932,7 @@ function Publish-CycleContext {
     )
     if (-not $PSCmdlet.ShouldProcess('YURUNA_CYCLE_CONTEXT', "Publish nested context under '$ParentId'")) { return }
     $ctx = [ordered]@{
-        cycleId         = $CycleId
+        cycleStartUtc         = $CycleStartUtc
         ownerPid        = $PID
         statusPath      = $StatusPath
         rootCycleFolder = $RootCycleFolder
@@ -1048,7 +1050,7 @@ function Register-NestedRunNode {
         [string]$Kind = 'sequence',
         [string[]]$Steps = @(),
         [string]$LogRel = '',
-        [string]$CycleId = ''
+        [string]$CycleStartUtc = ''
     )
     if (-not $PSCmdlet.ShouldProcess($NodeId, 'Register nested run node')) { return }
     $lock = Enter-StatusLock -Path $StatusPath
@@ -1067,7 +1069,7 @@ function Register-NestedRunNode {
             status       = 'running'
             steps        = $stepList
             logRel       = $LogRel
-            cycleId      = $CycleId
+            cycleStartUtc      = $CycleStartUtc
             startedAt    = (Get-UtcTimestamp)
             finishedAt   = $null
             errorMessage = $null

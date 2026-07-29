@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.28
+.VERSION 2026.07.29
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456715
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -36,7 +36,7 @@
 # Test.Start-GuestOS.psm1 for the convention's full statement.
 
 Import-Module (Join-Path $PSScriptRoot "Test.YurunaDir.psm1") -Force -ErrorAction SilentlyContinue -Verbose:$false
-$script:EngineModule = Join-Path $PSScriptRoot "Invoke-Sequence.psm1"
+$script:EngineModule = Join-Path $PSScriptRoot "Test.SequenceEngine.psm1"
 if (Test-Path $script:EngineModule) {
     # -Global is load-bearing: a -Force import without it evicts Invoke-Sequence
     # from the global session (the engine becomes private to this module's

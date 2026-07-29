@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.28
+.VERSION 2026.07.29
 .GUID 42c04f16-a1b2-4c3d-8e4f-5a6b7c8d9e0f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -351,7 +351,7 @@ function Update-TestConfigFromTemplate {
         Copy-Item -LiteralPath $ConfigPath -Destination $backupPath -Force
         $dropped = @(Get-DroppedConfigField -Current (Copy-HashtableWithoutSecretNode $current) -Merged $merged)
         if ($PSCmdlet.ShouldProcess($ConfigPath, "Migrate to new schema (carry matching values forward)")) {
-            # Atomic temp+rename: the status server serves this working tree, so a
+            # Atomic temp+rename: the status service serves this working tree, so a
             # non-atomic write would let a concurrent reader catch a torn file.
             if (-not (Write-YurunaStateFile -Path $ConfigPath -Content ($merged | ConvertTo-Yaml) -Confirm:$false)) {
                 Write-Warning "test.config.yml: atomic rewrite failed; the on-disk config was not updated this cycle."
@@ -380,7 +380,7 @@ The run is stopping so you can review. Restarting will then proceed normally.
     if (Test-ConfigDiffersOutsideSecretNode -A $merged -B $current) {
         if ($PSCmdlet.ShouldProcess($ConfigPath, "Rewrite with template overlay")) {
             Write-Information "test.config.yml: applying template overlay to pick up schema changes." -InformationAction Continue
-            # Atomic temp+rename: the status server serves this working tree, so a
+            # Atomic temp+rename: the status service serves this working tree, so a
             # non-atomic write would let a concurrent reader catch a torn file.
             if (-not (Write-YurunaStateFile -Path $ConfigPath -Content ($merged | ConvertTo-Yaml) -Confirm:$false)) {
                 Write-Warning "test.config.yml: atomic rewrite failed; the on-disk config was not updated this cycle."
@@ -389,6 +389,204 @@ The run is stopping so you can review. Restarting will then proceed normally.
     }
 
     return $merged
+}
+
+# --- REGION: https://yuruna.link/test-config#template-reconciliation
+# Rendering the live config from the TEMPLATE TEXT, not from ConvertTo-Yaml.
+# YAML was chosen for this file so each knob could carry its explanation, but a
+# ConvertFrom-Yaml/ConvertTo-Yaml round-trip drops every comment -- an operator's
+# test.config.yml ended up with none of the template's 29 comment lines. The
+# template is already the schema source of truth AND canonically ordered, so it
+# doubles as the rendering skeleton: walk its lines, keep comments/blank
+# lines/order verbatim, and substitute the operator's value wherever the file has
+# one. Keys the template no longer defines are written back as commented-out
+# `#   path: value` entries instead of vanishing, so a rename leaves its old value
+# in view for hand-migration (Test.ConfigNaming's scanner skips comment lines, so a
+# key parked there stops failing the retired-key check).
+
+<#
+.SYNOPSIS
+    Render one value as a YAML scalar, quoting only where YAML needs it.
+.DESCRIPTION
+    Matches the style the previous ConvertTo-Yaml writer produced, so switching
+    renderers is not a whole-file diff: bare where unambiguous, single-quoted
+    (with '' escaping) otherwise, "" for empty, lowercase true/false for booleans.
+    Strings that would otherwise READ BACK as a bool/number/null are quoted so a
+    round-trip cannot change a value's type.
+#>
+function Format-YamlScalarValue {
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([Parameter()][AllowNull()]$Value)
+
+    if ($null -eq $Value)  { return '""' }
+    if ($Value -is [bool]) { if ($Value) { return 'true' } else { return 'false' } }
+    if ($Value -is [int] -or $Value -is [long] -or $Value -is [double] -or $Value -is [decimal]) {
+        return [string]$Value
+    }
+    $s = [string]$Value
+    if ($s.Length -eq 0) { return '""' }
+    $needsQuote =
+        ($s -ne $s.Trim()) -or
+        ($s -match ':\s') -or $s.EndsWith(':') -or
+        ($s -match '\s#') -or
+        ($s -match '^[-?:,\[\]{}#&*!|>''"%@`]') -or
+        ($s -match '\\') -or
+        ($s -match '^(?i:true|false|yes|no|on|off|null|~)$') -or
+        ($s -match '^[+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?$')
+    if ($needsQuote) { return "'" + ($s -replace "'", "''") + "'" }
+    return $s
+}
+
+<#
+.SYNOPSIS
+    Resolve a dotted path in a config dictionary.
+.OUTPUTS
+    [hashtable] Found [bool], Value.
+#>
+function Get-ConfigValueAtPath {
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param(
+        [Parameter(Mandatory)]$Config,
+        [Parameter(Mandatory)][string]$Path
+    )
+    $node = $Config
+    foreach ($seg in ($Path -split '\.')) {
+        if ($node -is [System.Collections.IDictionary] -and $node.Contains($seg)) { $node = $node[$seg] }
+        else { return @{ Found = $false; Value = $null } }
+    }
+    return @{ Found = $true; Value = $node }
+}
+
+<#
+.SYNOPSIS
+    Read the `#   path: value` entries out of a rendered config's obsolete block.
+.DESCRIPTION
+    Lets a rewrite carry forward obsolete keys parked by an earlier run: they live
+    only in comments, so they are invisible to the YAML parse that produces the
+    merge and would otherwise be dropped by the next render.
+.OUTPUTS
+    [System.Collections.Specialized.OrderedDictionary] dotted path -> raw value text.
+#>
+function Get-ObsoleteConfigEntry {
+    [CmdletBinding()]
+    [OutputType([System.Collections.Specialized.OrderedDictionary])]
+    param([Parameter(Mandatory)][AllowEmptyString()][AllowNull()][string]$Text)
+
+    $entries = [ordered]@{}
+    if ([string]::IsNullOrEmpty($Text)) { return $entries }
+    foreach ($line in ($Text -split "`r?`n")) {
+        if ($line -match '^#\s{3}(?<path>[A-Za-z_][A-Za-z0-9_.-]*(?:\.[A-Za-z0-9_.-]+)*):\s(?<val>.*)$') {
+            if (-not $entries.Contains($Matches['path'])) { $entries[$Matches['path']] = $Matches['val'] }
+        }
+    }
+    return $entries
+}
+
+<#
+.SYNOPSIS
+    Render a config as YAML using the template text as the documented skeleton.
+.DESCRIPTION
+    Emits the template's comments, blank lines and key order verbatim, substituting
+    each value from $Config. Top-level nodes the template does not define (the
+    operator-managed 'secrets' node) are appended as real YAML so nothing is lost.
+    Obsolete entries are appended as a commented block.
+.PARAMETER TemplateText
+    Raw text of test.config.yml.template -- both the schema and the documentation.
+.PARAMETER Config
+    The reconciled config dictionary whose values are substituted in.
+.PARAMETER ObsoleteEntry
+    Dotted path -> already-formatted value text, written into the obsolete block.
+#>
+function ConvertTo-DocumentedConfigYaml {
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        [Parameter(Mandatory)][AllowEmptyString()][string]$TemplateText,
+        [Parameter(Mandatory)]$Config,
+        [Parameter()][AllowNull()]$ObsoleteEntry
+    )
+
+    $out   = [System.Collections.Generic.List[string]]::new()
+    $stack = [System.Collections.Generic.List[hashtable]]::new()
+    $lines = $TemplateText -split "`r?`n"
+
+    for ($i = 0; $i -lt $lines.Count; $i++) {
+        $line = $lines[$i]
+        # Template list items are replaced wholesale when their key is handled.
+        if ($line -match '^\s*-\s')      { continue }
+        if ($line -match '^\s*(#|$)')    { [void]$out.Add($line); continue }
+        if ($line -notmatch '^(?<indent>[ ]*)(?<key>[A-Za-z_][A-Za-z0-9_.-]*)[ ]*:(?<rest>.*)$') { [void]$out.Add($line); continue }
+
+        $indent = $Matches['indent']; $key = $Matches['key']; $rest = $Matches['rest'].Trim()
+        while ($stack.Count -gt 0 -and $stack[$stack.Count - 1].Indent -ge $indent.Length) {
+            $stack.RemoveAt($stack.Count - 1)
+        }
+        $path   = (@(@($stack | ForEach-Object { $_.Key }) + @($key)) -join '.')
+        $lookup = Get-ConfigValueAtPath -Config $Config -Path $path
+
+        # Nothing after the colon: the key opens either a nested map or a list.
+        if ($rest.Length -eq 0) {
+            $nextIdx = $i + 1
+            while ($nextIdx -lt $lines.Count -and $lines[$nextIdx] -match '^\s*(#|$)') { $nextIdx++ }
+            if ($nextIdx -lt $lines.Count -and $lines[$nextIdx] -match '^\s*-\s') {
+                [void]$out.Add("${indent}${key}:")
+                if ($lookup.Found) {
+                    foreach ($item in @($lookup.Value)) { [void]$out.Add("${indent}- $(Format-YamlScalarValue $item)") }
+                }
+                continue
+            }
+            [void]$out.Add($line)
+            [void]$stack.Add(@{ Indent = $indent.Length; Key = $key })
+            continue
+        }
+
+        # Leaf, including the inline empty-list form `key: []`.
+        if (-not $lookup.Found) { [void]$out.Add($line); continue }
+        $value = $lookup.Value
+        if ($value -is [System.Collections.IEnumerable] -and
+            $value -isnot [string] -and $value -isnot [System.Collections.IDictionary]) {
+            $items = @($value)
+            if ($items.Count -eq 0) { [void]$out.Add("${indent}${key}: []"); continue }
+            [void]$out.Add("${indent}${key}:")
+            foreach ($item in $items) { [void]$out.Add("${indent}- $(Format-YamlScalarValue $item)") }
+            continue
+        }
+        [void]$out.Add("${indent}${key}: $(Format-YamlScalarValue $value)")
+    }
+
+    while ($out.Count -gt 0 -and [string]::IsNullOrWhiteSpace($out[$out.Count - 1])) { $out.RemoveAt($out.Count - 1) }
+
+    # Top-level nodes the template does not define -- 'secrets' is operator-managed
+    # and out of band, so it is emitted as REAL yaml (never commented) or the
+    # rewrite would delete credentials.
+    $templateTop = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+    foreach ($line in $lines) {
+        if ($line -match '^(?<key>[A-Za-z_][A-Za-z0-9_.-]*)[ ]*:') { [void]$templateTop.Add($Matches['key']) }
+    }
+    if ($Config -is [System.Collections.IDictionary]) {
+        foreach ($k in @($Config.Keys)) {
+            if ($templateTop.Contains([string]$k)) { continue }
+            [void]$out.Add('')
+            [void]$out.Add("# Not defined by the template -- operator-managed, kept verbatim.")
+            $sub = [ordered]@{}; $sub[$k] = $Config[$k]
+            foreach ($l in (($sub | ConvertTo-Yaml) -split "`r?`n")) {
+                if (-not [string]::IsNullOrWhiteSpace($l)) { [void]$out.Add($l) }
+            }
+        }
+    }
+
+    if ($ObsoleteEntry -and $ObsoleteEntry.Count -gt 0) {
+        [void]$out.Add('')
+        [void]$out.Add('# --- Obsolete keys -------------------------------------------------------')
+        [void]$out.Add('# Not defined by test.config.yml.template, so the runner ignores them. Kept')
+        [void]$out.Add('# here (commented) so no value is lost: move anything still needed into the')
+        [void]$out.Add('# keys above, then delete these lines.')
+        foreach ($p in $ObsoleteEntry.Keys) { [void]$out.Add("#   ${p}: $($ObsoleteEntry[$p])") }
+    }
+
+    return (($out -join "`n") + "`n")
 }
 
 <#
@@ -430,7 +628,12 @@ function Sync-TestConfigToTemplate {
     param(
         [Parameter(Mandatory)] $Template,
         [Parameter(Mandatory)] $Current,
-        [Parameter(Mandatory)] [string]$ConfigPath
+        [Parameter(Mandatory)] [string]$ConfigPath,
+        # Optional: when supplied, the file is rendered from the template TEXT so
+        # it keeps the template's per-knob comments and parks obsolete keys as
+        # comments. Without it the writer falls back to the plain ConvertTo-Yaml
+        # form (no comments), which is what every pre-existing caller got.
+        [Parameter()] [string]$TemplatePath
     )
 
     # Strict merge: template shape wins (orphan keys dropped, missing fields filled,
@@ -451,20 +654,44 @@ function Sync-TestConfigToTemplate {
     foreach ($p in $newLeaves.Keys) { if (-not $curLeaves.Contains($p)) { [void]$added.Add($p) } }
     $removed   = @(Get-DroppedConfigField -Current (Copy-HashtableWithoutSecretNode $Current) -Merged $canonical)
 
-    # Rewrite only when the canonical form differs from disk outside 'secrets'.
+    # Obsolete keys are parked in the file as comments rather than only living in
+    # the .backup: entries an earlier run parked are carried forward (they are
+    # comments, so the YAML parse above cannot see them), then this run's newly
+    # dropped leaves are added with their values.
+    $existingText = if (Test-Path -LiteralPath $ConfigPath) { [string](Get-Content -Raw -LiteralPath $ConfigPath) } else { '' }
+    $obsolete = [ordered]@{}
+    foreach ($kv in (Get-ObsoleteConfigEntry -Text $existingText).GetEnumerator()) { $obsolete[$kv.Key] = $kv.Value }
+    foreach ($p in ($removed | Sort-Object)) { $obsolete[$p] = Format-YamlScalarValue $curLeaves[$p] }
+
+    # Render the documented form when a template path was supplied. Comparing the
+    # RENDERED TEXT to disk (not just the parsed objects) is what lets a file whose
+    # values already match pick up newly-added template comments or a new obsolete
+    # entry -- both invisible to an object-level diff. Rendering is deterministic,
+    # so a second run produces identical text and writes nothing.
+    $rendered = $null
+    if ($TemplatePath -and (Test-Path -LiteralPath $TemplatePath)) {
+        $rendered = ConvertTo-DocumentedConfigYaml `
+            -TemplateText ([string](Get-Content -Raw -LiteralPath $TemplatePath)) `
+            -Config $canonical -ObsoleteEntry $obsolete
+    }
+
+    # Rewrite when the canonical form differs from disk outside 'secrets', or when
+    # the documented rendering differs from what is on disk.
     $changed = Test-ConfigDiffersOutsideSecretNode -A $canonical -B $Current
+    if ($null -ne $rendered -and $rendered -ne $existingText) { $changed = $true }
     $wrote      = $false
     $backupPath = $null
-    if ($changed -and $PSCmdlet.ShouldProcess($ConfigPath, "Reconcile to template (add missing, drop orphans, sort)")) {
+    if ($changed -and $PSCmdlet.ShouldProcess($ConfigPath, "Reconcile to template (add missing, park obsolete, sort)")) {
         if ($removed.Count -gt 0) {
             $backupPath = "$ConfigPath.backup"
             Copy-Item -LiteralPath $ConfigPath -Destination $backupPath -Force
         }
-        # Atomic temp+rename: the status server serves this working tree, so a
+        # Atomic temp+rename: the status service serves this working tree, so a
         # non-atomic write would let a concurrent reader catch a torn file. Report Wrote
         # from the actual result so the operator summary never claims a reconcile that
         # did not land.
-        $wrote = [bool](Write-YurunaStateFile -Path $ConfigPath -Content ($canonical | ConvertTo-Yaml) -Confirm:$false)
+        $content = if ($null -ne $rendered) { $rendered } else { $canonical | ConvertTo-Yaml }
+        $wrote = [bool](Write-YurunaStateFile -Path $ConfigPath -Content $content -Confirm:$false)
         if (-not $wrote) {
             Write-Warning "test.config.yml: atomic rewrite failed; the on-disk config was not updated this cycle."
         }
@@ -474,6 +701,7 @@ function Sync-TestConfigToTemplate {
         Config     = $canonical
         Added      = [string[]]@($added   | Sort-Object)
         Removed    = [string[]]@($removed | Sort-Object)
+        Obsolete   = [string[]]@($obsolete.Keys | Sort-Object)
         Wrote      = $wrote
         BackupPath = $backupPath
     }
@@ -503,4 +731,6 @@ Export-ModuleMember -Function `
     ConvertTo-MergedHashtable, ConvertTo-SortedConfig, `
     Copy-HashtableWithoutSecretNode, `
     Test-ConfigMatchesTemplateShape, Get-ConfigLeafValue, Get-DroppedConfigField, `
+    Format-YamlScalarValue, Get-ConfigValueAtPath, Get-ObsoleteConfigEntry, `
+    ConvertTo-DocumentedConfigYaml, `
     Update-TestConfigFromTemplate, Sync-TestConfigToTemplate, Hide-SecretsInConfig

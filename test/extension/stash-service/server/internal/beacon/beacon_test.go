@@ -146,7 +146,7 @@ func TestPeriodicReannounce(t *testing.T) {
 
 // Until the FIRST announce lands, failures retry on the catch-up cadence
 // (min(1m, Interval)); afterwards the loop runs at Interval. Covers the
-// whole-lab-reboot ordering where the stash VM is up before the aggregator.
+// whole-lab-reboot ordering where the stash-service VM is up before the aggregator.
 func TestHelloRetriesUntilFirstSuccess(t *testing.T) {
 	rec := &recorder{failLeft: 2, notify: make(chan announceRec, 8)}
 	srv := httptest.NewServer(rec.handler())

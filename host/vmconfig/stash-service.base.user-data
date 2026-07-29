@@ -52,16 +52,16 @@ write_files:
     content: |
       username=YSTASH_NAS_NETWORK_USER_PLACEHOLDER
       password=YSTASH_NAS_PASSWORD_PLACEHOLDER
-  # Host status-server coordinates for the daemon source fetch; empty
+  # Host status-service coordinates for the daemon source fetch; empty
   # IP/PORT falls back to the public github mirror.
   - path: /etc/yuruna/host.env
     permissions: '0644'
     owner: root:root
     content: |
-      YURUNA_HOST_IP=YURUNA_HOST_IP_PLACEHOLDER
-      YURUNA_HOST_PORT=YURUNA_HOST_PORT_PLACEHOLDER
-  # Pool-aggregator base URL the stash daemon announces to (and resolves remote
-  # hosts through). Single-quoted like ystash-nas.env; empty (no caching proxy
+      YURUNA_STATUS_SERVICE_IP=YURUNA_STATUS_SERVICE_IP_PLACEHOLDER
+      YURUNA_STATUS_SERVICE_PORT=YURUNA_STATUS_SERVICE_PORT_PLACEHOLDER
+  # Pool-aggregator service base URL the stash daemon announces to (and resolves remote
+  # hosts through). Single-quoted like ystash-nas.env; empty (no caching-proxy service
   # known at bake time) leaves the daemon's aggregator-dependent features off.
   - path: /etc/yuruna/pool.env
     permissions: '0644'
@@ -69,14 +69,11 @@ write_files:
     content: |
       YURUNA_AGGREGATOR_URL='YURUNA_AGGREGATOR_URL_PLACEHOLDER'
 runcmd:
-  # 0) Host-side guest agent FIRST: on a bridged network the host observes no DHCP
-  #    lease, so it cannot report this VM's address until the agent answers -- and
-  #    every step below can run for minutes. Agent-first keeps discovery independent.
+  # --- REGION: https://yuruna.link/vmconfig#host-agent-runs-first
+  # 0) Host-side guest agent FIRST, so host discovery never waits on the steps below.
   # === YURUNA_OVERLAY_RUNCMD_HOST_AGENT ===
-  # 1) Mount the stash share (persistent via fstab so it survives reboot and
-  #    systemd exposes a mnt-ystash\x2dnas.mount unit the daemon orders After=).
-  #    mountpoint -q (NOT findmnt --target, which resolves a non-mount to
-  #    its enclosing mount and false-passes).
+  # --- REGION: https://yuruna.link/vmconfig#stash-nas-cifs-mount-options
+  # 1) Mount the stash share, persistent via fstab.
   - |
     set +e
     ENVF=/etc/yuruna/ystash-nas.env
@@ -87,17 +84,9 @@ runcmd:
     if [ -n "$NETPATH" ] && [ -n "$HOST_ID" ]; then
       mkdir -p "$MOUNT"
       SVC_UID=$(id -u stash-admin); SVC_GID=$(id -g stash-admin)
-      # Open modes (0777/0666), NOT restrictive: the server maps the cifs
-      # mount mode onto the created object's NTFS ACL, so dir_mode=0700 would
-      # lock every folder the VM creates to the single creator -- even though
-      # the parent stash share grants all users full control -- and other pool
-      # peers (and the host) then can't list the stash. Match the open parent.
-      # noperm: don't let the client block the daemon on a surprising owner
-      # mapping. NO iocharset=utf8: nls_utf8 is absent on the minimal cloud
-      # kernel and fails with mount error(79); stash on-disk names are ASCII.
+      # Open modes and the absent iocharset are load-bearing; see the topic above.
       OPTS="credentials=/etc/yuruna/ystash-nas.cifs.cred,vers=3.0,uid=$SVC_UID,gid=$SVC_GID,file_mode=0666,dir_mode=0777,noperm,nofail,_netdev"
-      # A Linux guest often can't resolve a bare NetBIOS name (e.g. wserver);
-      # ip= (resolved on the host at bake time) lets cifs connect without it.
+      # ip= lets cifs connect when the guest can't resolve a bare NetBIOS name.
       [ -n "$NETIP" ] && OPTS="$OPTS,ip=$NETIP"
       if ! grep -q " $MOUNT cifs " /etc/fstab 2>/dev/null; then
         printf '%s %s cifs %s 0 0\n' "$NETPATH" "$MOUNT" "$OPTS" >> /etc/fstab
@@ -115,14 +104,14 @@ runcmd:
     else
       echo "yuruna stash: stash storage not configured in the seed; the daemon will use local fallback storage." >&2
     fi
-  # 2) Fetch the framework from the host status server (resolution as in automation/
+  # 2) Fetch the framework from the host status service (resolution as in automation/
   #    fetch-and-execute.sh / update.sh; coordinates sed-read, NOT sourced), falling
   #    back to a github clone when the host is unreachable so a bring-up works off-LAN.
   - |
     set +e
     HF=/etc/yuruna/host.env
-    YR_HOST=$(sed -nE 's/^YURUNA_HOST_IP=(.*)$/\1/p' "$HF" 2>/dev/null | head -n1)
-    YR_PORT=$(sed -nE 's/^YURUNA_HOST_PORT=(.*)$/\1/p' "$HF" 2>/dev/null | head -n1)
+    YR_HOST=$(sed -nE 's/^YURUNA_STATUS_SERVICE_IP=(.*)$/\1/p' "$HF" 2>/dev/null | head -n1)
+    YR_PORT=$(sed -nE 's/^YURUNA_STATUS_SERVICE_PORT=(.*)$/\1/p' "$HF" 2>/dev/null | head -n1)
     DEST=/home/stash-admin/yuruna
     mkdir -p "$DEST"
     OK=0
@@ -132,7 +121,7 @@ runcmd:
       fi
     fi
     if [ "$OK" -eq 0 ]; then
-      echo "yuruna stash: host status server unreachable; cloning the public github mirror." >&2
+      echo "yuruna stash: host status service unreachable; cloning the public github mirror." >&2
       rm -rf "$DEST"
       git clone --depth 1 https://github.com/alissonsol/yuruna "$DEST" && OK=1
     fi

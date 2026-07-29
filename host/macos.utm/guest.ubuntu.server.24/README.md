@@ -30,7 +30,7 @@ pwsh ./New-VM.ps1 -VMName myhost
 ```
 
 Double-click `HOSTNAME.utm` in `~/yuruna/guest.nosync/` to import and
-start. Autoinstall is fully unattended. Keep the `guest.caching-proxy`
+start. Autoinstall is fully unattended. Keep the `guest.caching-proxy-service`
 VM running for dramatically faster rebuilds.
 
 Default user is `yuuser24` (override with `-Username`; the same name is
@@ -48,6 +48,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.28
+Last review: 2026.07.29
 
 Back to [Yuruna](../../../README.md)

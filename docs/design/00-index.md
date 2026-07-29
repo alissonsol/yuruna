@@ -19,6 +19,7 @@ they do not restate it.
 | 4 | [Lifecycle state](04-lifecycle-state.md) | stateDiagram-v2 ×2 | Outer 6-state machine + per-guest step lifecycle. |
 | 5 | [Data model](05-data-model.md) | erDiagram ×2 | Project deploy YAML + test-harness runtime data. |
 | 6 | [Deployment topology](06-deployment.md) | flowchart (subgraphs) | The 7 network nodes and their links. |
+| — | [Naming conventions](naming.md) | prose | The rules every component, config key, duration, boolean and page name follows, and the foreign contracts exempt from them. |
 
 ## How they relate
 
@@ -38,7 +39,7 @@ they do not restate it.
 | 3 | `automation/Set-*.ps1`, `automation/Yuruna.{Component,Workload,DeploymentKind}.psm1`, `automation/fetch-and-execute.sh`, `test/modules/{Test.RunnerOuterLoop,Test.RunnerInnerLoop,Invoke-Sequence,Test.SequenceHandler,Test.Notify}.psm1` |
 | 4 | `test/modules/{Test.RunnerState,Test.RunnerOuterLoop,Test.RunnerInnerLoop,Test.RunnerWatchdog}.psm1`, `test/Invoke-TestCycleRunner.ps1`; [runner-outer-loop.md](../runner-outer-loop.md#runner-state-machine) |
 | 5 | `yuruna-project/.../config/<cloud>/*.yml`, `automation/Yuruna.{Resource,Component,Workload,Validation,DeploymentKind,VariableExpansion}.psm1`, `automation/Import.Yaml.psm1`, `test/test.config.yml.template`, `test/schemas/`, `test/New-Lab.ps1` |
-| 6 | `test/Invoke-TestRunner.ps1`, `test/Start-{StatusService,HostConfigService}.ps1`, `test/Start-{CachingProxyVM,StashVM,PoolControlVM}.ps1`, `host/vmconfig/{caching-proxy,stash-service,pool-control}.base.user-data`, `test/extension/{pool-aggregator,pool-control,stash-service}`, `test/modules/{Test.PoolSync,Test.PoolStorage,Test.VMUtility}.psm1` |
+| 6 | `test/Invoke-TestRunner.ps1`, `test/Start-{StatusService,ConfigService}.ps1`, `test/Start-{CachingProxyServiceVM,StashServiceVM,PoolControlServiceVM}.ps1`, `host/vmconfig/{caching-proxy-service,stash-service,pool-control-service}.base.user-data`, `test/extension/{pool-aggregator-service,pool-control-service,stash-service}`, `test/modules/{Test.PoolSync,Test.PoolStorage,Test.VMUtility}.psm1` |
 
 ## The ≤7 rule — grouping decisions
 
@@ -55,7 +56,7 @@ Where reality exceeds seven, siblings are grouped under a named aggregate:
   `Check-DependencyVersion`, `context-copy`) and the five host-provisioning
   helpers that merely live there are listed in prose instead.
 - **Doc 2 / Host**: the five `host/modules/*.psm1` collapse to one **modules**
-  box; the three infra guests (`guest.caching-proxy`, `guest.pool-control`,
+  box; the three infra guests (`guest.caching-proxy-service`, `guest.pool-control-service`,
   `guest.stash-service`) share one box.
 - **Doc 2 / Test Harness**: the three runner processes collapse to two boxes
   (the outer loop and its per-cycle child share one), and `sequences/` +
@@ -66,9 +67,9 @@ Where reality exceeds seven, siblings are grouped under a named aggregate:
 - **Doc 5**: the data model is split into **two** erDiagrams (project deploy
   vs. harness runtime) so neither exceeds seven entities.
 - **Doc 6**: ~18 deployed processes are grouped into seven `subgraph` network
-  nodes; the caching-proxy VM box aggregates squid, zot, Apache, Grafana, the
-  log parser, the pool-aggregator and Loki, and the Pool Tier holds the
-  pool-control VM and the NAS.
+  nodes; the caching-proxy-service VM box aggregates squid, zot, Apache, Grafana, the
+  log parser, the pool-aggregator-service and Loki, and the Pool Tier holds the
+  pool-control-service VM and the NAS.
 
 Anything config-gated is drawn with dashed edges under a `%% planned` note.
 In doc 6 that is deliberately **per edge**: the pool, stash, ingest and
@@ -81,4 +82,4 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.28
+Last review: 2026.07.29

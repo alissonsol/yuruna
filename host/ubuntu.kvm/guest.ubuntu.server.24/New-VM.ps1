@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.28
+.VERSION 2026.07.29
 .GUID 42a2b3c4-d5e6-4f78-9012-3a4b5c6d7e95
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -51,7 +51,7 @@
 
 param(
     [string]$VMName = "ubuntu-server01",
-    [string]$CachingProxyUrl,
+    [string]$CachingProxyServiceUrl,
     # OS user created by autoinstall and exercised by the test
     # sequences. Default 'yuuser24' chosen for greppability (vs the
     # cloud-image default 'ubuntu', which collides with anything Ubuntu)
@@ -190,15 +190,15 @@ try {
 }
 
 # --- REGION: Yuruna host coordinates + guest network (topology-aware)
-# The guest must attach to the SAME libvirt network as the caching-proxy
+# The guest must attach to the SAME libvirt network as the caching-proxy-service
 # (Get-ExternalNetwork: bridged 'yuruna-external' when defined, else the
-# NAT 'default') and reach the host status server at an address routable
+# NAT 'default') and reach the host status service at an address routable
 # from that network. Resolve-GuestHostBinding returns the matched
-# pair, so the cache's address (passed in via -CachingProxyUrl) and the
+# pair, so the cache's address (passed in via -CachingProxyServiceUrl) and the
 # baked host coordinates can't point at a network the guest can't route
 # to: a guest on the NAT 'default' net cannot reach a bridged cache's LAN
 # IP, which makes apt's in-target kernel fetch fail "Network is
-# unreachable". Status server port is read from test.config.yml when
+# unreachable". Status service port is read from test.config.yml when
 # available, otherwise defaults to 8080.
 Import-Module (Join-Path (Split-Path -Parent $ScriptDir) 'modules/Yuruna.Host.psm1') -Force -DisableNameChecking
 $guestBinding = Resolve-GuestHostBinding
@@ -217,7 +217,7 @@ if (Test-Path -LiteralPath $cfg) {
 # Always emit `geoip: false` + a pinned `primary:` mirror (deterministic
 # election; `primary:` not `sources_list:`).
 # --- REGION: https://yuruna.link/vmconfig#apt-proxy-block
-$AptProxyLine = if ($CachingProxyUrl) { "`n    proxy: $CachingProxyUrl" } else { "" }
+$AptProxyLine = if ($CachingProxyServiceUrl) { "`n    proxy: $CachingProxyServiceUrl" } else { "" }
 $AptProxyBlock = @"
   apt:
     geoip: false
@@ -230,25 +230,25 @@ $AptProxyBlock = @"
       Acquire::https::Timeout "120";
 "@
 
-# --- REGION: Fetch caching-proxy CA cert (base64-embedded in seed)
-# --- REGION: https://yuruna.link/network#caching-proxy-ca-cert-rc60-gate
+# --- REGION: Fetch caching-proxy-service CA cert (base64-embedded in seed)
+# --- REGION: https://yuruna.link/network#caching-proxy-service-ca-cert-rc60-gate
 # An empty $CaCertBase64 is NOT a harmless no-op: the seed still routes the
 # guest's HTTPS through the bump (:3129) and locks direct :443 egress, so a
-# CA-less guest fails every HTTPS with curl rc=60. Get-CachingProxyCaCertBase64
+# CA-less guest fails every HTTPS with curl rc=60. Get-CachingProxyServiceCaCertBase64
 # retries the live fetch and falls back to the last-good persisted CA for this
 # cache host; if it still comes up empty the guest boots CA-less and recovers
-# at update time via the host status-server CA self-heal. See
+# at update time via the host status-service CA self-heal. See
 # feedback_sslbump_rc60_untrusted_chain_and_ca_gate_trap and
 # project_sslbump_ca_gating_durable_fix.
 $CaCertBase64 = ""
-if ($CachingProxyUrl) {
-    Import-Module -Name (Join-Path $PSScriptRoot '../../../test/modules/Test.CachingProxy.psm1') -Force -DisableNameChecking
-    $uri = [System.Uri]$CachingProxyUrl
+if ($CachingProxyServiceUrl) {
+    Import-Module -Name (Join-Path $PSScriptRoot '../../../test/modules/Test.CachingProxyService.psm1') -Force -DisableNameChecking
+    $uri = [System.Uri]$CachingProxyServiceUrl
     $cacheHost = if ($uri.Host -match ':') { "[$($uri.Host)]" } else { $uri.Host }
-    $ca = Get-CachingProxyCaCertBase64 -CacheCaUrl "http://$cacheHost/yuruna-squid-ca.crt" -CacheHost $uri.Host
+    $ca = Get-CachingProxyServiceCaCertBase64 -CacheCaUrl "http://$cacheHost/yuruna-squid-ca.crt" -CacheHost $uri.Host
     $CaCertBase64 = $ca.CaCertBase64
     if ($ca.Exhausted) {
-        Write-Warning "  Guest boots CA-less; it will self-heal the CA from the host status server at update time. HTTP caching via :3128 unaffected."
+        Write-Warning "  Guest boots CA-less; it will self-heal the CA from the host status service at update time. HTTP caching via :3128 unaffected."
     }
 }
 
@@ -285,10 +285,10 @@ $userData = New-CloudInitUserData `
         SSH_AUTHORIZED_KEY_PLACEHOLDER = $sshPub
         HASH_PLACEHOLDER               = $pwHash
         APT_PROXY_BLOCK_PLACEHOLDER    = $AptProxyBlock
-        CACHING_PROXY_URL_PLACEHOLDER  = ($CachingProxyUrl ?? '')
+        CACHING_PROXY_URL_PLACEHOLDER  = ($CachingProxyServiceUrl ?? '')
         CA_CERT_BASE64_PLACEHOLDER     = $CaCertBase64
-        YURUNA_HOST_IP_PLACEHOLDER     = $hostIp
-        YURUNA_HOST_PORT_PLACEHOLDER   = $hostPort
+        YURUNA_STATUS_SERVICE_IP_PLACEHOLDER     = $hostIp
+        YURUNA_STATUS_SERVICE_PORT_PLACEHOLDER   = $hostPort
     } -Confirm:$false
 $metaData = (Get-Content -Raw -LiteralPath $metaDataTemplate).
     Replace('INSTANCE_ID_PLACEHOLDER', $VMName).Replace('HOSTNAME_PLACEHOLDER', $GuestHostname)

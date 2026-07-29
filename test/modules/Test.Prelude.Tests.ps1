@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.28
+.VERSION 2026.07.29
 .GUID 42c6a4b0-7182-4394-8ea5-1a2b3c4d5e6f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -20,7 +20,7 @@
 .SYNOPSIS
     Pester coverage for Test.Prelude.psm1's shared status-service gate
     (Resolve-StatusServiceStart + Start-YurunaStatusServiceIfEnabled) -- the one
-    place the entry-point trio decides whether/how to start the status server.
+    place the entry-point trio decides whether/how to start the status service.
 .DESCRIPTION
     Throw-based assertions for OS-bundled Pester 3.4 / Pester 5+ compatibility.
     Start-YurunaStatusServiceIfEnabled is exercised against a stub start script
@@ -40,24 +40,24 @@ $EntryPointDir = Split-Path -Parent $here   # test/ (this test lives in test/mod
 
 Describe 'Resolve-StatusServiceStart' {
     It 'starts on enabled config and resolves the configured port' {
-        $cfg = @{ statusService = @{ isEnabled = $true; port = 9090 } }
+        $cfg = @{ statusService = @{ enabled = $true; port = 9090 } }
         $d = Resolve-StatusServiceStart -Config $cfg
         Assert-True $d.ShouldStart 'enabled -> ShouldStart'
         Assert-Equal -Expected 9090 -Actual $d.Port -Because 'configured port honored'
     }
     It 'defaults the port to 8080 when absent' {
-        $d = Resolve-StatusServiceStart -Config @{ statusService = @{ isEnabled = $true } }
+        $d = Resolve-StatusServiceStart -Config @{ statusService = @{ enabled = $true } }
         Assert-True $d.ShouldStart 'enabled -> ShouldStart'
         Assert-Equal -Expected 8080 -Actual $d.Port -Because 'default port'
     }
     It 'does not start when -NoStatusService is requested even if enabled' {
-        $cfg = @{ statusService = @{ isEnabled = $true; port = 9090 } }
+        $cfg = @{ statusService = @{ enabled = $true; port = 9090 } }
         $d = Resolve-StatusServiceStart -Config $cfg -NoStatusService
-        Assert-True (-not $d.ShouldStart) '-NoStatusService overrides isEnabled'
+        Assert-True (-not $d.ShouldStart) '-NoStatusService overrides enabled'
         Assert-Equal -Expected 9090 -Actual $d.Port -Because 'port still resolved (for diagnostics)'
     }
     It 'does not start when statusService is disabled, missing, or config is null' {
-        Assert-True (-not (Resolve-StatusServiceStart -Config @{ statusService = @{ isEnabled = $false } }).ShouldStart) 'disabled'
+        Assert-True (-not (Resolve-StatusServiceStart -Config @{ statusService = @{ enabled = $false } }).ShouldStart) 'disabled'
         Assert-True (-not (Resolve-StatusServiceStart -Config @{}).ShouldStart) 'no statusService node'
         Assert-True (-not (Resolve-StatusServiceStart -Config $null).ShouldStart) 'null config'
         Assert-Equal -Expected 8080 -Actual (Resolve-StatusServiceStart -Config $null).Port -Because 'null config -> default port'
@@ -67,7 +67,7 @@ Describe 'Resolve-StatusServiceStart' {
 Describe 'Resolve-ConfigServiceStart' {
     It 'defaults to ENABLED on port 8443 when the node/flag is absent' {
         # Backward-compatible: existing configs without configService still serve
-        # NAS creds (matches Start-HostConfigService.ps1's in-code defaults).
+        # NAS creds (matches Start-ConfigService.ps1's in-code defaults).
         $d = Resolve-ConfigServiceStart -Config @{}
         Assert-True $d.ShouldStart 'absent node -> enabled by default'
         Assert-Equal -Expected 8443 -Actual $d.Port -Because 'default config port'
@@ -75,19 +75,19 @@ Describe 'Resolve-ConfigServiceStart' {
         Assert-True $dn.ShouldStart 'null config -> enabled by default'
         Assert-Equal -Expected 8443 -Actual $dn.Port -Because 'null config -> default port'
     }
-    It 'honors isEnabled and the configured port' {
-        $d = Resolve-ConfigServiceStart -Config @{ configService = @{ isEnabled = $true; port = 9443 } }
+    It 'honors enabled and the configured port' {
+        $d = Resolve-ConfigServiceStart -Config @{ configService = @{ enabled = $true; port = 9443 } }
         Assert-True $d.ShouldStart 'enabled'
         Assert-Equal -Expected 9443 -Actual $d.Port -Because 'configured port honored'
     }
     It 'does not start when explicitly disabled' {
-        Assert-True (-not (Resolve-ConfigServiceStart -Config @{ configService = @{ isEnabled = $false } }).ShouldStart) 'isEnabled false -> off'
+        Assert-True (-not (Resolve-ConfigServiceStart -Config @{ configService = @{ enabled = $false } }).ShouldStart) 'enabled false -> off'
     }
 }
 
 Describe 'Start-YurunaStatusServiceIfEnabled' {
     # Stub start script records its args to a marker file, so the gate is
-    # verified end-to-end without launching a real status server.
+    # verified end-to-end without launching a real status service.
     #
     # The stub is written in BeforeAll and removed in AfterAll because only those run in
     # the run phase. Authored straight into the Describe body -- which is evaluated during
@@ -106,7 +106,7 @@ Describe 'Start-YurunaStatusServiceIfEnabled' {
 
     It 'invokes the start script with the resolved port when enabled' {
         Remove-Item -LiteralPath $script:StubMarker -Force -ErrorAction SilentlyContinue
-        $d = Start-YurunaStatusServiceIfEnabled -Config @{ statusService = @{ isEnabled = $true; port = 8123 } } -StartScript $script:StubScript
+        $d = Start-YurunaStatusServiceIfEnabled -Config @{ statusService = @{ enabled = $true; port = 8123 } } -StartScript $script:StubScript
         Assert-True $d.ShouldStart 'decision says start'
         Assert-True (Test-Path $script:StubMarker) 'start script was invoked'
         Assert-True ([bool]((Get-Content $script:StubMarker -Raw) -match 'port=8123')) 'port forwarded'
@@ -114,14 +114,14 @@ Describe 'Start-YurunaStatusServiceIfEnabled' {
     }
     It 'passes -Restart through when requested' {
         Remove-Item -LiteralPath $script:StubMarker -Force -ErrorAction SilentlyContinue
-        $null = Start-YurunaStatusServiceIfEnabled -Config @{ statusService = @{ isEnabled = $true } } -StartScript $script:StubScript -Restart
+        $null = Start-YurunaStatusServiceIfEnabled -Config @{ statusService = @{ enabled = $true } } -StartScript $script:StubScript -Restart
         Assert-True ([bool]((Get-Content $script:StubMarker -Raw) -match 'restart=True')) '-Restart forwarded'
     }
     It 'does NOT invoke the start script when disabled or -NoStatusService' {
         Remove-Item -LiteralPath $script:StubMarker -Force -ErrorAction SilentlyContinue
-        $null = Start-YurunaStatusServiceIfEnabled -Config @{ statusService = @{ isEnabled = $false } } -StartScript $script:StubScript
+        $null = Start-YurunaStatusServiceIfEnabled -Config @{ statusService = @{ enabled = $false } } -StartScript $script:StubScript
         Assert-True (-not (Test-Path $script:StubMarker)) 'disabled -> not invoked'
-        $null = Start-YurunaStatusServiceIfEnabled -Config @{ statusService = @{ isEnabled = $true } } -StartScript $script:StubScript -NoStatusService
+        $null = Start-YurunaStatusServiceIfEnabled -Config @{ statusService = @{ enabled = $true } } -StartScript $script:StubScript -NoStatusService
         Assert-True (-not (Test-Path $script:StubMarker)) '-NoStatusService -> not invoked'
     }
 
@@ -148,7 +148,7 @@ throw $ex
 '@
         Set-Content -LiteralPath $childScript -Value @"
 Import-Module '$preludePath' -Force -DisableNameChecking
-`$null = Start-YurunaStatusServiceIfEnabled -Config @{ statusService = @{ isEnabled = `$true; port = 8123 } } -StartScript '$conflictStub' -Restart
+`$null = Start-YurunaStatusServiceIfEnabled -Config @{ statusService = @{ enabled = `$true; port = 8123 } } -StartScript '$conflictStub' -Restart
 Set-Content -LiteralPath '$continuedFlag' -Value 'CONTINUED'
 "@
         try {
@@ -198,7 +198,7 @@ Describe 'Register-EntryPointCancelHandler (shared Ctrl+C handler)' {
 }
 
 Describe 'entry-point Ctrl+C handlers delegate to the shared helper' {
-    # Invoke-TestRunner.ps1 and Test-Sequence.ps1 must register/tear down the cancel
+    # Invoke-TestRunner.ps1 and Invoke-TestSequence.ps1 must register/tear down the cancel
     # handler through Register-/Unregister-EntryPointCancelHandler, not a hand-rolled
     # inline Register-ObjectEvent -EventName CancelKeyPress, so the pipeline-thread
     # subscription cannot drift between entry points.
@@ -208,7 +208,7 @@ Describe 'entry-point Ctrl+C handlers delegate to the shared helper' {
     # assertion reading an empty path; -TestCases binds the value into the It's own scope.
     It "<Entry> delegates to the shared cancel handler with no inline CancelKeyPress registration" -TestCases @(
         @{ Entry = 'Invoke-TestRunner.ps1' }
-        @{ Entry = 'Test-Sequence.ps1' }
+        @{ Entry = 'Invoke-TestSequence.ps1' }
     ) {
         param($Entry)
         $path = Join-Path $EntryPointDir $Entry

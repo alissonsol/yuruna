@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.28
+.VERSION 2026.07.29
 .GUID 42b7e3a1-c8d9-4f56-ab12-3e4f5a6b7c8d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -26,6 +26,20 @@ param(
     # invocation (no -Quiet) prints the full log.
     [switch]$Quiet
 )
+
+# --- REGION: Elevation gate
+# Every path below needs Administrator (Get-VMHost, Get-VM, Get-VMHardDiskDrive),
+# so refuse HERE -- ahead of the destructive-operation banner and the base-image
+# scan -- rather than after the operator has read "THIS CANNOT BE UNDONE" for a
+# run that cannot proceed. Write-Warning, not Write-CleanupMessage: the module is
+# not imported yet, and -Quiet must not swallow the reason for exit 1. Neither
+# Write-Error nor '#requires -RunAsAdministrator' would do: Remove-TestVMFiles.ps1
+# invokes this in-process under $ErrorActionPreference='Stop', where either would
+# abort the parent teardown instead of returning a graceful exit 1.
+if (-not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator")) {
+    Write-Warning "Remove-OrphanedVMFiles.ps1 requires elevation (Run as Administrator); nothing was scanned or deleted."
+    exit 1
+}
 
 # Write-CleanupMessage + base-image discovery live in
 # host/modules/Yuruna.VMCleanup.psm1 so a future tweak to the routing
@@ -64,12 +78,6 @@ $baseImageNames = $nameInfo.BaseImageNames
 Import-Module -Name (Join-Path $ScriptDir 'modules/Yuruna.Host.psm1') -Force
 
 # --- REGION: Check prerequisites
-Write-CleanupMessage "This script requires elevation (Run as Administrator)."
-if (-not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator")) {
-    Write-CleanupMessage "Please run this script as Administrator."
-    exit 1
-}
-
 # Hyper-V check via dism.exe (not Get-WindowsOptionalFeature) -- the cmdlet
 # fails with "Class not registered" on some fresh pwsh 7 sessions.
 if (-not (Assert-HyperVEnabled)) { exit 1 }

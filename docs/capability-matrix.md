@@ -27,7 +27,7 @@ Yuruna capability matrix (host.windows.hyper-v)
   Recovery:   VNC reconnect (built-in (clear cached handle)), screenshot (legacy capture)
   Extensions:
     authentication         default
-    caching-proxy-parser   default
+    caching-proxy-parser-service   default
     notification           default
 ─────────────────────────────────────────────────────────
 ```
@@ -57,7 +57,7 @@ When a required host I/O action is missing the cycle aborts with:
   CAPABILITY GATE FAILED -- cycle aborted on 'host.ubuntu.kvm'.
   Sequences reference host I/O actions this host has no backend for:
     - Send-Click
-  Wire a backend via Register-HostIOProvider in Invoke-Sequence.psm1,
+  Wire a backend via Register-HostIOProvider in Test.SequenceEngine.psm1,
   or drop the requiring action from the cycle's sequence YAMLs.
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 ```
@@ -82,7 +82,7 @@ When a sequence references a verb not registered in
 `Test.SequenceAction`, the gate emits a `Write-Warning` listing the
 unknown verbs but does NOT abort the cycle. The engine's own action
 switch in
-[`Invoke-Sequence.psm1`](../test/modules/Invoke-Sequence.psm1) will
+[`Test.SequenceEngine.psm1`](../test/modules/Test.SequenceEngine.psm1) will
 throw at runtime; the warning surfaces the typo / new-verb-in-progress
 before the slow path.
 
@@ -126,7 +126,7 @@ The matrix is queryable programmatically:
 
 ```
 Import-Module test/modules/Test.Capability.psm1 -Global -Force
-Import-Module test/modules/Invoke-Sequence.psm1 -Global -Force   # populates the registries
+Import-Module test/modules/Test.SequenceEngine.psm1 -Global -Force   # populates the registries
 
 $matrix = Get-HostCapabilityMatrix -HostType 'host.windows.hyper-v'
 $matrix.hostIO        # @('Send-Key','Send-Text','Send-Click')
@@ -135,7 +135,7 @@ $matrix.extensions    # ordered dict: area -> [active...]
 ```
 
 Used by future health-checks, CI smoke tests, and the upcoming
-`/control/capability` endpoint on the status server.
+`/control/capability` endpoint on the status service.
 
 ---
 
@@ -143,6 +143,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.28
+Last review: 2026.07.29
 
 Back to [Yuruna](../README.md)

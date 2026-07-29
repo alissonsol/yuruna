@@ -5,7 +5,7 @@ $id: https://yuruna.com/schemas/orchestration-sequence.schema.yml
 title: Yuruna orchestration sequence
 description: >
   An ordered list of inner sequences to run, each via an
-  `action: InvokeTestSequence` step. Test-Sequence.ps1 detects this shape
+  `action: InvokeTestSequence` step. Invoke-TestSequence.ps1 detects this shape
   (no `baseline:`, InvokeTestSequence steps) and hands it to
   Test.Orchestrator, which runs every inner sequence under ONE status.json
   cycle -- one top-level row per inner sequence, unified naming and pass/fail.
@@ -15,7 +15,7 @@ description: >
 
   Ownership + nesting: exactly one process -- the outermost -- owns the cycle
   document. A guest step runs IN-PROCESS as a top-level row. A host-action
-  step may itself re-enter Test-Sequence.ps1 in child processes (e.g.
+  step may itself re-enter Invoke-TestSequence.ps1 in child processes (e.g.
   Set-Resource.ps1 fanning out per-stage guest builds); those child runs do
   not reset status.json -- they ATTACH as nested tiles under the step, to any
   depth, via the inherited cycle-context handle, and write their transcripts

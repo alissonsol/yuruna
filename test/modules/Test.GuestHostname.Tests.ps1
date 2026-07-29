@@ -32,7 +32,7 @@
     Every per-guest New-VM.ps1 that substitutes HOSTNAME_PLACEHOLDER must
     declare -Hostname, resolve it against a VM-name fallback, and feed the
     placeholder from that resolved value. Guests with a fixed hostname baked
-    into their template (caching-proxy, stash-service) never substitute the
+    into their template (caching-proxy-service, stash-service) never substitute the
     placeholder and are correctly out of scope.
 
     Source-text only -- no host driver is imported and no VM is touched.
@@ -55,7 +55,7 @@ $guestCase = @($guestScript | ForEach-Object { @{ name = (Split-Path -Leaf $_.Di
 # in the discovery pass only, so a variable set there is gone by the time an It
 # body executes.
 $provisionSrc = Get-Content -Raw -LiteralPath (Join-Path $repoRoot 'host/modules/Yuruna.HostProvision.psm1')
-$engineSrc    = Get-Content -Raw -LiteralPath (Join-Path $repoRoot 'test/modules/Invoke-Sequence.psm1')
+$engineSrc    = Get-Content -Raw -LiteralPath (Join-Path $repoRoot 'test/modules/Test.SequenceEngine.psm1')
 
 # Every sequence the framework ships. Project sequences live in a separate
 # repo that need not be cloned here, so they are scanned only when present.

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.28
+.VERSION 2026.07.29
 .GUID 42634a21-7352-4663-b6f4-cff499ce7a2b
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -72,7 +72,7 @@ function Update-TransportDefault {
     # YURUNA_CONFIG_PATH wins over the in-tree template guess so an
     # operator running with `-ConfigPath <elsewhere>` sees their edits
     # to vmCommunication.* take effect mid-cycle (matches the contract
-    # Sync-RuntimeConfig honors for testCycle.shouldStopOnFailure).
+    # Sync-RuntimeConfig honors for testCycle.stopOnFailure).
     $cfgPath = if ($env:YURUNA_CONFIG_PATH) { $env:YURUNA_CONFIG_PATH } `
                else { Join-Path (Split-Path -Parent $PSScriptRoot) 'test.config.yml' }
     $cfg = Read-TestConfig -Path $cfgPath
@@ -82,7 +82,7 @@ function Update-TransportDefault {
     }
     if ($cfg) {
         $comm = $cfg.vmCommunication
-        if ($comm.characterDelayMs) { $script:DefaultCharDelayMs = [int]$comm.characterDelayMs }
+        if ($comm.charDelayMs) { $script:DefaultCharDelayMs = [int]$comm.charDelayMs }
         if ($comm.vncPort)          { $script:DefaultVncPort     = [int]$comm.vncPort }
         if ($null -ne $comm.settleMs) { $script:DefaultSettleMs   = [int]$comm.settleMs }
     }
@@ -358,6 +358,12 @@ function Send-KeyVNC {
     if (-not $chord -and -not $keySym) { Write-Warning "Unknown VNC key '$KeyName'"; return $false }
     $tcp = Connect-VNC -VMName $VMName -Port $Port
     if (-not $tcp) { return $false }
+    # Same held-key bookkeeping as Send-TextVNC: an unmatched press leaves
+    # the key auto-repeating in the guest. It matters just as much here --
+    # this is the path that sends the Enter after every typed command.
+    $heldSym    = $null
+    $heldModSym = $null
+    $sendFailed = $false
     try {
         if ($chord) {
             $modSym  = [int]$chord[0]
@@ -366,22 +372,40 @@ function Send-KeyVNC {
             # Shift: UTM's QEMU VNC needs the modifier to land before the
             # base key, and needs it released after.
             Send-VncKeyEvent -Client $tcp -KeySym $modSym -Down $true
+            $heldModSym = $modSym
             Start-Sleep -Milliseconds 20
+            $heldSym = $baseSym
             Send-VncKeyEvent -Client $tcp -KeySym $baseSym -Down $true
             Send-VncKeyEvent -Client $tcp -KeySym $baseSym -Down $false
+            $heldSym = $null
             Start-Sleep -Milliseconds 10
             Send-VncKeyEvent -Client $tcp -KeySym $modSym -Down $false
+            $heldModSym = $null
             Write-Debug "      VNC chord='$KeyName' mod=0x$($modSym.ToString('X4')) key=0x$($baseSym.ToString('X4'))"
             return $true
         }
+        $heldSym = $keySym
         Send-VncKeyEvent -Client $tcp -KeySym $keySym -Down $true
         Send-VncKeyEvent -Client $tcp -KeySym $keySym -Down $false
+        $heldSym = $null
         Write-Debug "      VNC key='$KeyName' sym=0x$($keySym.ToString('X4'))"
         return $true
     } catch {
         Write-Warning "VNC key send failed: $_"
-        Disconnect-VNC
+        $sendFailed = $true
         return $false
+    } finally {
+        if ($heldSym -or $heldModSym) {
+            Write-Warning "VNC key send: releasing key(s) still held after an interrupted send (guards against a stuck auto-repeat in the guest)."
+            try {
+                if ($heldSym)    { Send-VncKeyEvent -Client $tcp -KeySym $heldSym    -Down $false }
+                if ($heldModSym) { Send-VncKeyEvent -Client $tcp -KeySym $heldModSym -Down $false }
+            } catch {
+                Write-Debug "      VNC key release after interrupted send failed: $_"
+            }
+        }
+        # Ordered after the release so the cached handle is still open for it.
+        if ($sendFailed) { Disconnect-VNC }
     }
 }
 
@@ -395,23 +419,36 @@ function Send-TextVNC {
         shifted chars because UTM's QEMU VNC does NOT auto-shift from
         the bare keysym (asterisk arrives as 8 without the shift).
         Returns $false on transport failure.
+
+        Every press is paired with its release on EVERY exit path (see
+        the finally below): a KeyEvent down that never gets its matching
+        up leaves the key logically held in QEMU, and the guest kernel
+        then auto-repeats it at the console default (~30 chars/sec)
+        forever. That wedges the console for the rest of the run --
+        closing the RFB client does not undo it, because QEMU releases
+        only MODIFIER keys when a client goes away, not ordinary ones.
     #>
     param([string]$VMName, [string]$Text, [int]$CharDelayMs = $script:DefaultCharDelayMs,
           [int]$Port = 0)
     $tcp = Connect-VNC -VMName $VMName -Port $Port
     if (-not $tcp) { return $false }
     Write-Debug "      VNC text send: $($Text.Length) chars, charDelay=${CharDelayMs}ms"
+    # Empirically, UTM's QEMU VNC does NOT auto-shift from the keysym
+    # alone (e.g. `asterisk` arrives as `8`, `bar` arrives as `\`), so we
+    # must press LShift ourselves. 20ms down / 10ms up has tested clean
+    # for the supported guests and is matched against Send-TextHyperV's
+    # batched-scancode shift settle. If a future guest regresses, the
+    # cycle log's "VNC text send: failed" warning is the trigger -- a
+    # larger window (e.g. 80/40) is the conservative escape hatch.
+    # Hoisted out of the try so the finally can always name $shiftSym.
+    $shiftSym = $script:X11KeySyms["LShift"]
+    $shiftDownMs = 20
+    $shiftUpMs   = 10
+    # What is pressed right now, so the finally can let go of it.
+    $heldSym    = $null
+    $shiftHeld  = $false
+    $sendFailed = $false
     try {
-        # Empirically, UTM's QEMU VNC does NOT auto-shift from the keysym
-        # alone (e.g. `asterisk` arrives as `8`, `bar` arrives as `\`), so we
-        # must press LShift ourselves. 20ms down / 10ms up has tested clean
-        # for the supported guests and is matched against Send-TextHyperV's
-        # batched-scancode shift settle. If a future guest regresses, the
-        # cycle log's "VNC text send: failed" warning is the trigger -- a
-        # larger window (e.g. 80/40) is the conservative escape hatch.
-        $shiftSym = $script:X11KeySyms["LShift"]
-        $shiftDownMs = 20
-        $shiftUpMs   = 10
         foreach ($ch in $Text.ToCharArray()) {
             $entry = $script:X11CharKeySyms["$ch"]
             if (-not $entry) {
@@ -422,13 +459,17 @@ function Send-TextVNC {
             $shifted = $entry[1]
             if ($shifted) {
                 Send-VncKeyEvent -Client $tcp -KeySym $shiftSym -Down $true
+                $shiftHeld = $true
                 Start-Sleep -Milliseconds $shiftDownMs
             }
+            $heldSym = $keySym
             Send-VncKeyEvent -Client $tcp -KeySym $keySym -Down $true
             Send-VncKeyEvent -Client $tcp -KeySym $keySym -Down $false
+            $heldSym = $null
             if ($shifted) {
                 Start-Sleep -Milliseconds $shiftUpMs
                 Send-VncKeyEvent -Client $tcp -KeySym $shiftSym -Down $false
+                $shiftHeld = $false
             }
             if ($CharDelayMs -gt 0) { Start-Sleep -Milliseconds $CharDelayMs }
         }
@@ -436,8 +477,28 @@ function Send-TextVNC {
         return $true
     } catch {
         Write-Warning "VNC text send failed: $_"
-        Disconnect-VNC
+        $sendFailed = $true
         return $false
+    } finally {
+        # Let go of whatever was still down. Reached when the loop is torn
+        # down between a key's press and its release -- a mid-send transport
+        # error, or an operator Ctrl-C (PowerShell runs finally on pipeline
+        # stop too). Doing nothing here is what turns a one-character glitch
+        # into a console that auto-repeats that character until the VM is
+        # rebuilt. Best effort: if the socket is what broke, these writes
+        # throw as well, and swallowing that keeps the original failure --
+        # already reported above -- as the one the caller sees.
+        if ($heldSym -or $shiftHeld) {
+            Write-Warning "VNC text send: releasing key(s) still held after an interrupted send (guards against a stuck auto-repeat in the guest)."
+            try {
+                if ($heldSym)   { Send-VncKeyEvent -Client $tcp -KeySym $heldSym  -Down $false }
+                if ($shiftHeld) { Send-VncKeyEvent -Client $tcp -KeySym $shiftSym -Down $false }
+            } catch {
+                Write-Debug "      VNC key release after interrupted send failed: $_"
+            }
+        }
+        # Ordered after the release so the cached handle is still open for it.
+        if ($sendFailed) { Disconnect-VNC }
     }
 }
 
@@ -499,7 +560,7 @@ function Send-TextAXUI {
         symmetry with the active Send-TextUTM path.
     #>
     param([string]$VMName, [string]$Text, [int]$CharDelayMs = $script:DefaultCharDelayMs)
-    $delaySec = [math]::Max(0.02, $CharDelayMs / 1000.0)
+    $delaySeconds = [math]::Max(0.02, $CharDelayMs / 1000.0)
 
     # VMName is accepted for consistent API with Send-TextHyperV/Send-TextUTM;
     # AXUI targets the UTM app process, not an individual VM.
@@ -544,7 +605,7 @@ __KEYCALLS__
 'ok';
 '@
 
-    $jxaScript = $jxaTemplate -replace '__DELAY__', $delaySec `
+    $jxaScript = $jxaTemplate -replace '__DELAY__', $delaySeconds `
                               -replace '__KEYCALLS__', $keyCalls.ToString()
 
     $tmpFile = [System.IO.Path]::Combine([System.IO.Path]::GetTempPath(), "yuruna_axui_$([System.IO.Path]::GetRandomFileName()).js")
@@ -1064,7 +1125,7 @@ function Send-TextUTM {
         $Text = ConvertTo-ShellEscapedText -Text $Text
         Write-Debug "      UTM Send-Text -ShellEscape: '$orig' rewritten to '$Text' (Linux bash decodes \xNN at the prompt)."
     }
-    $delaySec = [math]::Max(0.02, $CharDelayMs / 1000.0)
+    $delaySeconds = [math]::Max(0.02, $CharDelayMs / 1000.0)
 
     $charIndex = 0
     $shiftedCount = 0
@@ -1153,7 +1214,7 @@ __KEYCALLS__
 '@
     $safeJxaVMName = $VMName -replace '\\', '\\\\' -replace "'", "\'"
     $jxaScript = $jxaTemplate -replace '__VMNAME__', $safeJxaVMName `
-                              -replace '__DELAY__', $delaySec `
+                              -replace '__DELAY__', $delaySeconds `
                               -replace '__KEYCALLS__', $keyCalls.ToString()
 
     $tmpFile = [System.IO.Path]::Combine([System.IO.Path]::GetTempPath(), "yuruna_utm_$([System.IO.Path]::GetRandomFileName()).js")

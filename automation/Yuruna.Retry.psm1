@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.28
+.VERSION 2026.07.29
 .GUID 42e3a5b6-c7d8-4901-2345-6e7f80910218
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -34,10 +34,10 @@
         the same failure window.
 
     Defaults can be overridden per call OR via the same env vars the
-    bash side honors (YURUNA_RETRY_MAX_ATTEMPTS, YURUNA_RETRY_DELAY),
+    bash side honors (YURUNA_RETRY_MAX_ATTEMPTS, YURUNA_RETRY_DELAY_SECONDS),
     so an operator can tune both halves of the system from one place.
     Parity covers those two vars only: the bash side's per-attempt
-    stall bound and heal hook (YURUNA_RETRY_STALL_TIMEOUT,
+    stall bound and heal hook (YURUNA_RETRY_STALL_TIMEOUT_SECONDS,
     YURUNA_*_STALL_TIMEOUT, YURUNA_RETRY_HEAL) are guest-side knobs
     built on timeout(1) with no counterpart here.
 
@@ -176,7 +176,7 @@ function Invoke-WithYurunaRetry {
         $MaxAttempts = Get-YurunaRetryDefault -EnvName 'YURUNA_RETRY_MAX_ATTEMPTS' -Fallback $script:RetryDefaults.MaxAttempts
     }
     if ($InitialDelaySeconds -le 0) {
-        $InitialDelaySeconds = Get-YurunaRetryDefault -EnvName 'YURUNA_RETRY_DELAY' -Fallback $script:RetryDefaults.InitialDelaySeconds
+        $InitialDelaySeconds = Get-YurunaRetryDefault -EnvName 'YURUNA_RETRY_DELAY_SECONDS' -Fallback $script:RetryDefaults.InitialDelaySeconds
     }
     if ($MaxDelaySeconds -le 0)     { $MaxDelaySeconds  = $script:RetryDefaults.MaxDelaySeconds }
     if ($JitterFraction  -lt 0)     { $JitterFraction   = $script:RetryDefaults.JitterFraction }

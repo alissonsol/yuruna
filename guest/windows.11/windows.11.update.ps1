@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.28
+.VERSION 2026.07.29
 .GUID 42f0a1b2-c3d4-4e56-f789-0a1b2c3d4e10
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -105,9 +105,9 @@ if (Test-Path -LiteralPath $hostEnv -PathType Leaf) {
         }
     }
 }
-if ($env:YURUNA_HOST_IP -and $env:YURUNA_HOST_PORT -and -not (Test-Path -LiteralPath $yurunaRoot -PathType Container)) {
-    $livecheckUrl = "http://$($env:YURUNA_HOST_IP):$($env:YURUNA_HOST_PORT)/livecheck"
-    $tarballUrl   = "http://$($env:YURUNA_HOST_IP):$($env:YURUNA_HOST_PORT)/yuruna-archive.tar.gz"
+if ($env:YURUNA_STATUS_SERVICE_IP -and $env:YURUNA_STATUS_SERVICE_PORT -and -not (Test-Path -LiteralPath $yurunaRoot -PathType Container)) {
+    $livecheckUrl = "http://$($env:YURUNA_STATUS_SERVICE_IP):$($env:YURUNA_STATUS_SERVICE_PORT)/livecheck"
+    $tarballUrl   = "http://$($env:YURUNA_STATUS_SERVICE_IP):$($env:YURUNA_STATUS_SERVICE_PORT)/yuruna-archive.tar.gz"
     try {
         # Livecheck probe: HEAD-equivalent via -Method Head so a present-but-
         # large /livecheck response isn't pulled into memory; status 200 is
@@ -170,12 +170,12 @@ Write-Output ">>> Checking for Windows updates..."
 # Bound Windows Update with a wall-clock timeout: run it in a job so a hung WU session can not
 # stall the whole guest-provisioning cycle. Log and continue on timeout rather than blocking
 # forever (the job runspace re-imports PSWindowsUpdate; jobs do not inherit the parent's modules).
-$wuTimeoutSec = 1800
+$wuTimeoutSeconds = 1800
 $wuJob = Start-Job -ScriptBlock { Import-Module PSWindowsUpdate; Get-WindowsUpdate -AcceptAll -Install -AutoReboot:$false -Verbose }
-if (Wait-Job -Job $wuJob -Timeout $wuTimeoutSec) {
+if (Wait-Job -Job $wuJob -Timeout $wuTimeoutSeconds) {
     Receive-Job -Job $wuJob
 } else {
-    Write-Warning "Get-WindowsUpdate exceeded ${wuTimeoutSec}s; stopping the update job and continuing provisioning."
+    Write-Warning "Get-WindowsUpdate exceeded ${wuTimeoutSeconds}s; stopping the update job and continuing provisioning."
     Stop-Job -Job $wuJob -ErrorAction SilentlyContinue
 }
 Remove-Job -Job $wuJob -Force -ErrorAction SilentlyContinue
@@ -200,8 +200,8 @@ Write-Output "<<< Git ready."
 # extract already succeeded.
 $frameworkUrl = ''
 $projectUrl   = ''
-if ($env:YURUNA_HOST_IP -and $env:YURUNA_HOST_PORT) {
-    $cfgUrl = "http://$($env:YURUNA_HOST_IP):$($env:YURUNA_HOST_PORT)/control/test-config"
+if ($env:YURUNA_STATUS_SERVICE_IP -and $env:YURUNA_STATUS_SERVICE_PORT) {
+    $cfgUrl = "http://$($env:YURUNA_STATUS_SERVICE_IP):$($env:YURUNA_STATUS_SERVICE_PORT)/control/test-config"
     try {
         $cfg = Invoke-RestMethod -Uri $cfgUrl -UseBasicParsing -TimeoutSec 5 -ErrorAction Stop
         if ($cfg.repositories.frameworkUrl) { $frameworkUrl = [string]$cfg.repositories.frameworkUrl }
@@ -213,9 +213,9 @@ if ($env:YURUNA_HOST_IP -and $env:YURUNA_HOST_PORT) {
 
 if (-not (Test-Path -LiteralPath $yurunaRoot -PathType Container)) {
     $hostOk = $false
-    if ($env:YURUNA_HOST_IP -and $env:YURUNA_HOST_PORT) {
-        $livecheckUrl = "http://$($env:YURUNA_HOST_IP):$($env:YURUNA_HOST_PORT)/livecheck"
-        $tarballUrl   = "http://$($env:YURUNA_HOST_IP):$($env:YURUNA_HOST_PORT)/yuruna-archive.tar.gz"
+    if ($env:YURUNA_STATUS_SERVICE_IP -and $env:YURUNA_STATUS_SERVICE_PORT) {
+        $livecheckUrl = "http://$($env:YURUNA_STATUS_SERVICE_IP):$($env:YURUNA_STATUS_SERVICE_PORT)/livecheck"
+        $tarballUrl   = "http://$($env:YURUNA_STATUS_SERVICE_IP):$($env:YURUNA_STATUS_SERVICE_PORT)/yuruna-archive.tar.gz"
         try {
             $null = Invoke-WebRequest -Uri $livecheckUrl -Method Head -UseBasicParsing -TimeoutSec 2 -ErrorAction Stop
             Write-Output "yuruna: fetching committed tarball from $tarballUrl"
@@ -253,8 +253,8 @@ if (-not (Test-Path -LiteralPath $yurunaRoot -PathType Container)) {
 $yurunaProject = Join-Path $yurunaRoot 'project'
 if (-not (Test-Path -LiteralPath $yurunaProject -PathType Container)) {
     $projectHostOk = $false
-    if ($env:YURUNA_HOST_IP -and $env:YURUNA_HOST_PORT) {
-        $projectTarballUrl = "http://$($env:YURUNA_HOST_IP):$($env:YURUNA_HOST_PORT)/yuruna-project-archive.tar.gz"
+    if ($env:YURUNA_STATUS_SERVICE_IP -and $env:YURUNA_STATUS_SERVICE_PORT) {
+        $projectTarballUrl = "http://$($env:YURUNA_STATUS_SERVICE_IP):$($env:YURUNA_STATUS_SERVICE_PORT)/yuruna-project-archive.tar.gz"
         Write-Output "yuruna: trying project tarball at $projectTarballUrl"
         try {
             New-Item -ItemType Directory -Path $yurunaProject -Force | Out-Null

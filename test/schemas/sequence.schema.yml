@@ -5,8 +5,27 @@ $id: https://yuruna.com/schemas/sequence.schema.yml
 title: Yuruna interaction sequence
 description: >
   Drives a VM through OCR/keystroke or SSH steps. Action set matches the
-  switch in test/modules/Invoke-Sequence.psm1; the catalog in
+  switch in test/modules/Test.SequenceEngine.psm1; the catalog in
   test/sequences/actions.yml documents per-action parameters and defaults.
+
+
+  FILE NAMING. A project sequence file is named
+  `workload.<guestKey>.<vm>.<scenario>.yml` -- e.g.
+  `workload.guest.ubuntu.server.24.amisad-core.s001.fulfillment.yml`: the guest
+  key it runs on, then the VM the scenario targets, then the scenario itself.
+  The name is a lookup key, not just a label: `resource:` prerequisites and
+  orchestration `sequence:` steps reference sequences by this name, so renaming
+  a file breaks every chain that names it (`sequenceGuid` is what survives a
+  rename, for perf analytics).
+
+
+  Scenario slugs of the form `sNNN.<topic>` (`s001.fulfillment`,
+  `s002.fitting`) are ORDER-SENSITIVE where a project says so in its
+  orchestration sequence: the number is the position in the intended run
+  order, and a scenario may assume state a lower-numbered one left behind.
+  Nothing in the engine enforces that -- run one on its own and it will
+  execute -- so a project whose scenarios share state must express the order
+  in an orchestration sequence rather than relying on the numbering.
 
 type: object
 # A guest sequence declares a `keystrokeMechanism`, a `resource:` prerequisite
@@ -161,7 +180,7 @@ $defs:
     properties:
       action:
         type: string
-        description: Which handler in Invoke-Sequence.psm1 to dispatch to.
+        description: Which handler in Test.SequenceEngine.psm1 to dispatch to.
         enum:
           - break
           - callExtension

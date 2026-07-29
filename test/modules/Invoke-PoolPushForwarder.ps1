@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.28
+.VERSION 2026.07.29
 .GUID 424f2c91-6d3b-4e75-9012-3c7a1e5b8d6f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -20,7 +20,7 @@
 # (Test.RunnerOuterLoop.psm1). It ships the latest cycle's cycle.events.ndjson to the
 # aggregator's POST /ingest over CA-pinned HTTPS with the shared bearer token, closing the
 # trailing-event gap between 30s pulls. Best-effort: gated on the token being configured
-# (the operator's push opt-in) + a reachable caching-proxy; a slow/absent aggregator never
+# (the operator's push opt-in) + a reachable caching-proxy-service; a slow/absent aggregator never
 # delays the cycle (own fresh process + bounded HttpClient). Pull backfills anything push
 # drops. Env (YURUNA_RUNTIME_DIR / YURUNA_LOG_DIR) is inherited; HostId is passed (for logs).
 
@@ -30,7 +30,7 @@ param([string]$HostId = '', [string]$CycleFolder = '')
 $ErrorActionPreference = 'Continue'
 $here = Split-Path -Parent $PSCommandPath
 
-foreach ($m in @('Test.PoolPush.psm1', 'Test.CachingProxy.psm1', 'Test.YurunaDir.psm1', 'Test.Log.psm1', 'Test.Extension.psm1')) {
+foreach ($m in @('Test.PoolPush.psm1', 'Test.CachingProxyService.psm1', 'Test.YurunaDir.psm1', 'Test.Log.psm1', 'Test.Extension.psm1')) {
     $p = Join-Path $here $m
     if (Test-Path -LiteralPath $p) { Import-Module $p -Global -ErrorAction SilentlyContinue }
 }
@@ -52,7 +52,7 @@ if (-not (Test-Path -LiteralPath $runtimeDir)) { New-Item -ItemType Directory -F
 # Get-Password then would auto-generate a junk per-host token. 'lab-auth-token'
 # first, then the legacy 'pool-auth-token' name, so a host enrolled under the
 # old logical user keeps pushing (same fallback order as Get-LabAuthTokenValue,
-# inlined because Test.HostConfigSync is not among this forwarder's imports).
+# inlined because Test.ConfigServiceSync is not among this forwarder's imports).
 $token = ''
 try {
     if ((Get-Command Get-EffectiveUser -ErrorAction SilentlyContinue) -and (Get-Command Test-VaultEntry -ErrorAction SilentlyContinue)) {
@@ -70,14 +70,14 @@ if ([string]::IsNullOrWhiteSpace($token)) {
     return
 }
 
-# --- REGION: caching-proxy (aggregator) address
+# --- REGION: caching-proxy-service (aggregator) address
 $proxyIp = ''
-if (Get-Command Read-CachingProxyState -ErrorAction SilentlyContinue) {
-    try { $st = Read-CachingProxyState; if ($st -and $st.ipAddress) { $proxyIp = [string]$st.ipAddress } } catch { $null = $_ }
+if (Get-Command Read-CachingProxyServiceState -ErrorAction SilentlyContinue) {
+    try { $st = Read-CachingProxyServiceState; if ($st -and $st.ipAddress) { $proxyIp = [string]$st.ipAddress } } catch { $null = $_ }
 }
-if ([string]::IsNullOrWhiteSpace($proxyIp) -and $env:YURUNA_CACHING_PROXY_IP) { $proxyIp = $env:YURUNA_CACHING_PROXY_IP.Trim() }
+if ([string]::IsNullOrWhiteSpace($proxyIp) -and $env:YURUNA_CACHING_PROXY_SERVICE_IP) { $proxyIp = $env:YURUNA_CACHING_PROXY_SERVICE_IP.Trim() }
 if ([string]::IsNullOrWhiteSpace($proxyIp)) {
-    Write-Verbose "pool push: no caching-proxy IP; cannot reach the aggregator."
+    Write-Verbose "pool push: no caching-proxy-service IP; cannot reach the aggregator."
     return
 }
 

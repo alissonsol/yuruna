@@ -10,13 +10,13 @@ architecture and [Yuruna Test ...](../test/README.md) for operator usage.
 | `Invoke-TestRunner.ps1`                            | Continuous test loop (the daily driver) |
 | `New-LocalTestUser.ps1`                            | Create a local OS user (cross-platform: Windows / macOS / Ubuntu), optionally with a password and machine-administrator rights, and register it in the default authentication `users.yml` |
 | `Remove-TestVMFiles.ps1`                           | Purge test VMs and per-VM artifacts |
-| `Repair-CachingProxyForwarder.ps1`                 | macOS/UTM: verify the caching-proxy VM is reachable on the LAN and refresh the `yuruna-caching-proxy` state file |
-| `Start-CachingProxyVM.ps1` / `Stop-CachingProxyVM.ps1` | Expose the Squid VM to remote clients |
+| `Repair-CachingProxyServiceForwarder.ps1`                 | macOS/UTM: verify the caching-proxy-service VM is reachable on the LAN and refresh the `yuruna-caching-proxy-service` state file |
+| `Start-CachingProxyServiceVM.ps1` / `Stop-CachingProxyServiceVM.ps1` | Expose the Squid VM to remote clients |
 | `Start-StatusService.ps1` / `Stop-StatusService.ps1` | Detached HTTP status UI |
-| `Test-CachingProxy.ps1`                            | Preflight a local or remote cache |
+| `Test-CachingProxyService.ps1`                            | Preflight a local or remote cache |
 | `Test-Config.ps1`                                  | Validate `test.config.yml` + optional notification send |
-| `Test-Project.ps1`                                 | One-shot variant: wipe + re-clone `<RepoRoot>/project`, run a single cycle |
-| `Test-Sequence.ps1`                                | Dev helper: single sequence, any start/stop step |
+| `Invoke-TestProject.ps1`                                 | One-shot variant: wipe + re-clone `<RepoRoot>/project`, run a single cycle |
+| `Invoke-TestSequence.ps1`                                | Dev helper: single sequence, any start/stop step |
 | `Test-TesseractOcr.ps1`                            | OCR sanity check via Tesseract (open-source; independent of WinRT) |
 | `Test-WinRtOcr.ps1`                                | OCR sanity check via WinRT — also demonstrates the modern-pwsh "closed access" issue |
 
@@ -28,7 +28,7 @@ Each iteration of `Invoke-TestRunner.ps1`:
 2. Every 24h (configurable): refresh base images via `Get-Image.ps1`.
 3. For each entry in `guestSequence`:
    - Verify `host/<short-host>/<guestKey>/` exists — missing folder is a
-     per-guest failure; other guests still run unless `testCycle.shouldStopOnFailure`.
+     per-guest failure; other guests still run unless `testCycle.stopOnFailure`.
    - Clean the previous test VM.
    - `New-VM.ps1` → `Start-VM` → poll until running → screenshot
      checkpoints → YAML sequences dispatched via the cycle planner.
@@ -64,12 +64,12 @@ contract](#yurunahost-contract) below.
 | `Test.Config`          | Cached YAML reader (`Read-TestConfig`, `Get-TestConfigValue`) used by every runner / entry-point |
 | `Test.ConfigPreflight` | `Invoke-ConfigGate` — pre-cycle `Test-Config.ps1` gate shared by every entry point |
 | `Test.LogLevel`        | Canonical log-level cascade (`Resolve-LogLevel`, `Use-LogLevelFromEnv`) — see [Log-level cascade](loglevels.md) |
-| `Test.InnerSpawn`      | `New-InnerRunnerArgList` — type-preserving pwsh -Command argv builder for the outer→inner spawn and `Test-Project` |
+| `Test.InnerSpawn`      | `New-InnerRunnerArgList` — type-preserving pwsh -Command argv builder for the outer→inner spawn and `Invoke-TestProject` |
 | `Test.Output`          | `Write-Pass`/`Fail`/`Warn`/`Section`/`Summary` + counters; reused across `Test-Config` and other check scripts |
 | `Test.ConfigValidator` | `Test-AgainstSchema`, `Test-IsSet`, `Test-RepoFreshness` — pieces of `Test-Config.ps1` reusable by future check scripts |
 | `Test.PortOwner`       | `Get-PortListenerPid` (Windows HTTP.sys + Unix lsof) + `Resolve-PortOrphan` for the status-service port |
 | `Test.Status`          | `status.json` lifecycle |
-| `Test.Extension`       | Loader for the pluggable extension areas under `test/extension/<area>/` (authentication, notification), plus `Get-ExtensionHostAddress` — where a service area (stash, pool control) is reachable for this host — see [Extensions API](extensions-api.md) |
+| `Test.Extension`       | Loader for the pluggable extension areas under `test/extension/<area>/` (authentication, notification), plus `Get-ExtensionHostAddress` — where a service area (stash, pool-control service) is reachable for this host — see [Extensions API](extensions-api.md) |
 | `Test.Notify`          | Thin dispatcher to the active notification extension(s) (`Send-Notification -EventCode -EventMessage -EventNote`); default extension delivers email via Resend |
 | `Test.Log` / `Test.YurunaDir` | Transcript and state directories |
 | `Test.Start-GuestOS`        | Start-GuestOS tile: start.guest.* sequence orchestration |
@@ -78,6 +78,18 @@ contract](#yurunahost-contract) below.
 | `Test.Ssh`             | Per-guest SSH keys + `ssh`/`scp` helpers |
 | `Test.Provenance`      | Artifact provenance metadata |
 | `Test.VMUtility`       | Cross-host VM helpers shared by every Yuruna.Host driver |
+
+### Test.Config* role pyramid
+
+The three `Test.Config*` modules in the table split by role:
+`Test.Config` is the mtime-cached YAML reader (the data layer);
+`Test.ConfigValidator` holds the schema + freshness primitives (the
+rules layer), reusable across callers; `Test.ConfigPreflight` is the
+pre-cycle gate that spawns `Test-Config.ps1` and refuses the cycle on
+FAIL items (the policy layer). "Preflight" names the *when* (before
+each cycle) instead of the *mechanism* (a gate). The split by role
+keeps the validation primitives reusable while the cycle-spawning
+policy lives in `Test.ConfigPreflight`.
 
 ### Yuruna.Host contract
 
@@ -97,9 +109,9 @@ lifecycle (`New-VM`, `Start-VM`, `Stop-VM`, `Remove-VM`, `Rename-VM`,
 VM I/O (`Send-Text`, `Send-Key`, `Send-Click`, `Get-VMScreenshot`),
 discovery (`Wait-VMIp`, `Get-VMIp`, `Get-VMMac`), networking
 (`Get-ExternalNetwork`, `New-ExternalNetwork`,
-`Test-CacheVMOnExternalNetwork`), caching-proxy port maps
-(`Add-PortMap`, `Remove-PortMap`, `Test-CachingProxyAvailable`,
-`Get-CachingProxyVMIp`), host-side proxy (`Set-HostProxy`,
+`Test-CacheVMOnExternalNetwork`), caching-proxy-service port maps
+(`Add-PortMap`, `Remove-PortMap`, `Test-CachingProxyServiceAvailable`,
+`Get-CachingProxyServiceVmIp`), host-side proxy (`Set-HostProxy`,
 `Clear-HostProxy`, `Remove-HostProxy`), and virtualization checks
 (`Assert-Virtualization`). Per-host implementation notes for the
 contracts whose behavior diverges in operationally significant ways
@@ -111,7 +123,7 @@ Per-cycle dispatch is YAML-driven: each cycle reads
 names, walks each sequence's `resource` field (object keyed by guest
 OS; the legacy `baseline` spelling is rejected with a migration error)
 to derive a dependency-ordered chain, and dispatches each chain
-entry through [`modules/Invoke-Sequence.psm1`](../test/modules/Invoke-Sequence.psm1).
+entry through [`modules/Test.SequenceEngine.psm1`](../test/modules/Test.SequenceEngine.psm1).
 Sequences whose name starts with `start.` run during the runner's
 Start-GuestOS step; everything else runs during Start-GuestWorkload. No
 per-OS `.ps1` glue is required. Full architecture:
@@ -134,12 +146,12 @@ test/
 │   ├── schedule.json           Capture checkpoints + thresholds (create if using screenshot validation)
 │   └── reference/*.png         Trained reference screenshots (commit manually per checkpoint)
 └── status/                     Status dashboard + ALL harness runtime state
-    ├── index.html, hostinfo.html, test.config.html, yuruna.common.{css,js},
+    ├── index.html, host.html, config.html, yuruna.common.{css,js},
     │                           status.json.template     (committed UI)
     ├── runtime/                $env:YURUNA_RUNTIME_DIR -- pids,
     │                           status.json, control flags, ipaddresses.txt,
-    │                           caching-proxy.txt, server.err, host.uuid,
-    │                           yuruna-caching-proxy.yml, .status-service.ps1
+    │                           caching-proxy-service.txt, server.err, host.uuid,
+    │                           yuruna-caching-proxy-service.yml, .status-service.ps1
     ├── log/                    $env:YURUNA_LOG_DIR -- HTML transcripts,
     │                           OCR debug, failure screenshots
     ├── perf/                   JSONL perf rows + content-addressed
@@ -182,7 +194,7 @@ list). A user override is to drop a sibling `<name>.psm1` next to
   under `test/extension/notification/`.
 
 Override track and log directories via `$env:YURUNA_RUNTIME_DIR` and
-`$env:YURUNA_LOG_DIR` before launch; the status server remaps the URL
+`$env:YURUNA_LOG_DIR` before launch; the status service remaps the URL
 prefixes.
 
 ## Self-healing extension points
@@ -209,7 +221,7 @@ Plus the [remediation dispatcher](remediation.md) (`Register-RecoveryHandler`,
 failure-class to recommendation), and the file-based
 [Extensions API](extensions-api.md) under
 `test/extension/<area>/` for authentication, notification transports,
-and caching-proxy log parsing.
+and caching-proxy-service log parsing.
 
 The runner lifecycle itself is observable through the explicit
 [runner state machine](runner-outer-loop.md#runner-state-machine) (`Set-RunnerState` at every
@@ -234,7 +246,7 @@ Three modules share the sequence-engine surface:
   magnet on the engine. Every handler in this module talks to the
   engine purely through the `$Context` hashtable and the standard
   `Yuruna.Host` / `Test.Ssh` / `Test.Extension` / `Test.Log` exports.
-- `Invoke-Sequence.psm1` — the engine driver. Two stateful verbs
+- `Test.SequenceEngine.psm1` — the engine driver. Two stateful verbs
   (`retry` and `recoverFromSnapshot`) deliberately stay here because
   they coordinate the engine's `$script:LastFailure*` state with the
   recursive `$invokeStepBlock` dispatch. Lifting that state into a
@@ -287,7 +299,7 @@ A concurrent reader sees either the prior file (if any) or the new
 file in full — never a partial write.
 
 **Per-writer unique temp name.** A fixed `$Path.tmp` lets two processes
-writing the same destination (e.g. the runner and the status server
+writing the same destination (e.g. the runner and the status service
 both flushing `status.json`) rename each other's half-written temp.
 `PID + GUID` keeps each writer's temp private; the rename to the final
 path stays atomic. The `.tmp` suffix is preserved so any `*.tmp`
@@ -310,10 +322,10 @@ Per-guest value shape (backward-compatible):
 
 | Shape | Meaning |
 |-------|---------|
-| `"pass"` / `"fail"` (bare string) | Older history rows pre-dating `stepDurationsSec` / `failureArtifacts`. Older dashboards still render these. |
-| `{ status, stepDurationsSec, [failureArtifacts] }` | Current form. |
+| `"pass"` / `"fail"` (bare string) | Older history rows pre-dating `stepDurationsSeconds` / `failureArtifacts`. Older dashboards still render these. |
+| `{ status, stepDurationsSeconds, [failureArtifacts] }` | Current form. |
 
-- `stepDurationsSec` is a per-step wall-clock seconds map, one entry
+- `stepDurationsSeconds` is a per-step wall-clock seconds map, one entry
   per step in the guest's step list (`New-VM`, `Start-VM`,
   `Start-GuestOS`, `New-VM.Resource`, optionally `Screenshots` /
   `Start-GuestWorkload`). Unlocks p50/p95 trend analysis across
@@ -369,15 +381,15 @@ Unix) and stops it — **only** if it is a `pwsh` process plausibly
 ours. Unknown owners (dev server, another tool) get a clear error
 and the launch bails. Sharing the helper out of `Test.PortOwner.psm1`
 keeps the same dispatch reusable by future callers (health-check,
-`Stop-StatusService`, `Test-CachingProxy`) without depending on the
-status server's full module.
+`Stop-StatusService`, `Test-CachingProxyService`) without depending on the
+status service's full module.
 
 ## Status-service port and the host firewall
 
 `Start-StatusService` binds `http://*:<port>/` (every interface), but a
 host firewall silently DROPs inbound TCP on non-loopback interfaces
 unless an allow rule exists — so localhost answers while a LAN client
-(the pool aggregator, an operator's browser) times out. One host with
+(the pool-aggregator service, an operator's browser) times out. One host with
 this gap disappears from the pool dashboard and drops its extension-host
 deep-link. `Test.StatusFirewall.psm1` centralizes the per-OS allow-rule
 logic used by BOTH the one-time elevated host setup
@@ -394,7 +406,7 @@ not blocked by default).
 pull a guest snapshot to the host. It uses a three-rung strategy
 chain: **keyed SSH → password SSH → console**. SSH is the default
 because it works the same on every host (Linux / macOS / Windows)
-without depending on a per-host keyboard injector, the status server
+without depending on a per-host keyboard injector, the status service
 being reachable from the guest, or the guest having an interactive
 shell on `tty1`. The console rung is the emergency fallback for the
 cases where SSH itself is the bug (sshd down, host-key mismatch, auth
@@ -444,6 +456,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.28
+Last review: 2026.07.29
 
 Back to [Yuruna](../README.md)

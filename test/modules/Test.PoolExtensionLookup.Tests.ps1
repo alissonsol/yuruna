@@ -3,7 +3,7 @@
 .GUID 42cf7f04-54f2-4dab-abff-66b238af7992
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
-.TAGS yuruna test pool aggregator extension stash discovery pester
+.TAGS yuruna test pool-aggregator service extension stash discovery pester
 .LICENSEURI https://yuruna.link/license
 .PROJECTURI https://yuruna.com
 .ICONURI
@@ -25,7 +25,7 @@
     lives on another host, often another subnet, at an address DHCP may change.
     The pool already collects that address -- every extension service announces
     itself to the aggregator, which is what fills the dashboard's Extension
-    hosts panel -- so the host reads it back, and knowing the caching-proxy
+    hosts panel -- so the host reads it back, and knowing the caching-proxy-service
     address is enough to locate everything else. The alternative, a hard-coded
     literal, is correct only until the service moves, and then a cycle spends
     its whole timeout budget on a machine that no longer exists.
@@ -40,7 +40,7 @@
 
 $here          = Split-Path -Parent $PSCommandPath
 $testRoot      = Split-Path -Parent $here
-$aggregatorPsm = Join-Path $testRoot 'extension' -AdditionalChildPath 'pool-aggregator', 'default.psm1'
+$aggregatorPsm = Join-Path $testRoot 'extension' -AdditionalChildPath 'pool-aggregator-service', 'default.psm1'
 $stashPsm      = Join-Path $testRoot 'extension' -AdditionalChildPath 'stash-service', 'default.psm1'
 
 function Assert-True { param($Condition, [string]$Because = '') if (-not $Condition) { throw "Expected true. $Because" } }
@@ -242,11 +242,11 @@ Describe 'pool-extension-lookup wiring' {
         $calls = @($fn.FindAll({
             param($n)
             $n -is [System.Management.Automation.Language.CommandAst] -and
-            $n.GetCommandName() -eq 'Get-DiscoveredStashHost'
+            $n.GetCommandName() -eq 'Get-DiscoveredStashServiceHost'
         }, $true))
         Assert-True ($calls.Count -ge 1) 'the resolver must consult the discovered addresses'
 
-        # Order matters: a stash VM on THIS host, and the address this cycle
+        # Order matters: a stash-service VM on THIS host, and the address this cycle
         # already proved answers /healthz, are both nearer than the pool's view.
         $vmIp = @($fn.FindAll({
             param($n)
@@ -256,7 +256,7 @@ Describe 'pool-extension-lookup wiring' {
         $published = @($fn.FindAll({
             param($n)
             $n -is [System.Management.Automation.Language.CommandAst] -and
-            $n.GetCommandName() -eq 'Get-PublishedStashHost'
+            $n.GetCommandName() -eq 'Get-PublishedStashServiceHost'
         }, $true))
         Assert-True ($vmIp.Count -ge 1 -and $published.Count -ge 1) 'the two nearer sources must remain'
         Assert-True ($calls[0].Extent.StartLineNumber -gt $published[0].Extent.StartLineNumber) `
@@ -264,7 +264,7 @@ Describe 'pool-extension-lookup wiring' {
     }
 
     It 'never lets a missing pool reach the caller as an error' {
-        $fn = Get-FunctionAst -Path $stashPsm -Name 'Get-DiscoveredStashHost'
+        $fn = Get-FunctionAst -Path $stashPsm -Name 'Get-DiscoveredStashServiceHost'
         Assert-True ($null -ne $fn) 'the wrapper must exist'
         $throws = @($fn.FindAll({
             param($n) $n -is [System.Management.Automation.Language.ThrowStatementAst]
@@ -288,7 +288,7 @@ Describe 'pool-extension-lookup wiring' {
         $calls = @($fn.FindAll({
             param($n)
             $n -is [System.Management.Automation.Language.CommandAst] -and
-            $n.GetCommandName() -eq 'Get-DiscoveredStashHost'
+            $n.GetCommandName() -eq 'Get-DiscoveredStashServiceHost'
         }, $true))
         Assert-True ($calls.Count -ge 1) 'the gate must consult the discovered address'
         $literals = [regex]::Matches((Get-Content -Raw $setResource), '\b\d{1,3}(\.\d{1,3}){3}\b')
@@ -296,13 +296,13 @@ Describe 'pool-extension-lookup wiring' {
     }
 
     It 'can address the aggregator on a host that only configured a proxy IP' {
-        # A host that USES a caching proxy it did not provision has no proxy
+        # A host that USES a caching-proxy service it did not provision has no proxy
         # state file and only carries the env var mid-cycle; without the config
         # key it could never find the aggregator -- and those are exactly the
         # hosts whose services live elsewhere.
-        $fn = Get-FunctionAst -Path (Join-Path $here 'Test.CachingProxy.psm1') -Name 'Get-PoolAggregatorSeedUrl'
+        $fn = Get-FunctionAst -Path (Join-Path $here 'Test.CachingProxyService.psm1') -Name 'Get-PoolAggregatorServiceSeedUrl'
         Assert-True ($null -ne $fn) 'the aggregator URL resolver must exist'
-        Assert-True ($fn.Extent.Text -match 'YURUNA_CACHING_PROXY_IP') 'must still honour the env override'
-        Assert-True ($fn.Extent.Text -match 'cachingProxyIP')          'must fall back to the persistent config key'
+        Assert-True ($fn.Extent.Text -match 'YURUNA_CACHING_PROXY_SERVICE_IP') 'must still honour the env override'
+        Assert-True ($fn.Extent.Text -match 'cachingProxyIp')          'must fall back to the persistent config key'
     }
 }

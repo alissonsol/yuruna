@@ -66,15 +66,15 @@ users:
   # does not refuse the cycle when a sequence references them.
   #
   # Cross-cycle persistence of the cache VM's password is owned by
-  # Test.CachingProxy (yuruna-caching-proxy.yml under status/runtime/).
-  caching-proxy-admin:
-    localOsUser: caching-proxy-admin
+  # Test.CachingProxyService (yuruna-caching-proxy-service.yml under status/runtime/).
+  caching-proxy-service-admin:
+    localOsUser: caching-proxy-service-admin
     corporate:   { domain: "", sam: "", upn: "" }
     vaultKey:           ""
     localOsPasswordRef: ""
 
-  pool-control-admin:
-    localOsUser: pool-control-admin
+  pool-control-service-admin:
+    localOsUser: pool-control-service-admin
     corporate:   { domain: "", sam: "", upn: "" }
     vaultKey:           ""
     localOsPasswordRef: ""
@@ -86,13 +86,13 @@ users:
     localOsPasswordRef: ""
 
   # Lab shared bearer token. NOT a login user: this logical entry holds the
-  # shared secret that gates the pool-aggregator's POST /ingest write route
-  # and keys the control proofs for the status-server /control/* routes.
+  # shared secret that gates the pool-aggregator-service's POST /ingest write route
+  # and keys the control proofs for the status-service /control/* routes.
   # Leave vaultKey EMPTY (default) to keep the host un-enrolled -- push stays
   # disabled and control stays loopback-only. The convenient way to populate
   # it is `pwsh test/Set-LabToken.ps1 -LabToken <code>` with the code from
   # the dashboard's "Lab token" tile (it sets vaultKey and stores the token
-  # in one step); building the caching proxy mints and stores one
+  # in one step); building the caching-proxy service mints and stores one
   # automatically when none exists. The vault never auto-generates for a
   # populated vaultKey, so the token stays lab-owned; every pool host and the
   # proxy must hold the SAME value. (Hosts provisioned under the earlier

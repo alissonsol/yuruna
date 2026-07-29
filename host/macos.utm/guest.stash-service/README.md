@@ -1,4 +1,4 @@
-# Stash Service VM (macOS UTM)
+# stash service VM (macOS UTM)
 
 Scripts and config in this folder:
 
@@ -21,6 +21,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.28
+Last review: 2026.07.29
 
 Back to [Yuruna](../../../README.md)

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.28
+.VERSION 2026.07.29
 .GUID 42b6d9f1-3c75-4e82-a0d4-6f8b1c2e3a49
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -19,7 +19,7 @@
 <#
 .SYNOPSIS
     Pester coverage for Write-HostRegistrationRecord (Test.Capability.psm1): the
-    runtime/host.registration.json the pool aggregator reads (Phase 0 of the
+    runtime/host.registration.json the pool-aggregator service reads (Phase 0 of the
     multi-host pool harness, docs/opportunities.md).
 .DESCRIPTION
     Throw-based assertions (OS-bundled Pester 3.4 / Pester 5+). The fixture points
@@ -115,7 +115,7 @@ Describe 'Write-HostRegistrationRecord' {
             # The runner derives these into pool.state.json; the registration writer forwards
             # them so the aggregator gets the gating policy without parsing pools.yml.
             $state = [ordered]@{ poolId = 'lab'; desiredState = 'run'; intentOk = $true;
-                gating = [ordered]@{ failuresBeforeAlert = 3; quorum = [ordered]@{ healthyThreshold = 0.5; degradedAfterMinutes = 30 } } }
+                gating = [ordered]@{ failuresBeforeAlert = 3; quorum = [ordered]@{ healthyThreshold = 0.5; degradedAfterSeconds = 1800 } } }
             [System.IO.File]::WriteAllText((Join-Path $fx.Tmp 'pool.state.json'), ($state | ConvertTo-Json -Depth 6), [System.Text.UTF8Encoding]::new($false))
             [void](Write-HostRegistrationRecord -HostType 'host.ubuntu.kvm' -RepoRoot $fx.Tmp)
             $rec = Get-Content -Raw (Join-Path $fx.Tmp 'host.registration.json') | ConvertFrom-Json
@@ -136,12 +136,12 @@ Describe 'Write-HostRegistrationRecord' {
         } finally { Remove-RegFixture -Fixture $fx }
     }
 
-    It 'folds an active stash-server marker into activeExtensions + extensionTargets' {
+    It 'folds an active stash-service marker into activeExtensions + extensionTargets' {
         $fx = New-RegFixture
         try {
             $marker = [ordered]@{ active = $true; vmName = 'yuruna-stash-service';
                 hostType = 'host.windows.hyper-v'; stashBaseUrl = 'http://10.0.0.5' }
-            [System.IO.File]::WriteAllText((Join-Path $fx.Tmp 'stash-server.json'), ($marker | ConvertTo-Json), [System.Text.UTF8Encoding]::new($false))
+            [System.IO.File]::WriteAllText((Join-Path $fx.Tmp 'stash-service.json'), ($marker | ConvertTo-Json), [System.Text.UTF8Encoding]::new($false))
             [void](Write-HostRegistrationRecord -HostType 'host.windows.hyper-v' -RepoRoot $fx.Tmp)
             $rec = Get-Content -Raw (Join-Path $fx.Tmp 'host.registration.json') | ConvertFrom-Json
             Assert-True ($rec.activeExtensions -contains 'stash-service') 'activeExtensions carries stash-service'
@@ -154,7 +154,7 @@ Describe 'Write-HostRegistrationRecord' {
         try {
             $marker = [ordered]@{ active = $false; vmName = 'yuruna-stash-service';
                 hostType = 'host.windows.hyper-v'; stashBaseUrl = 'http://10.0.0.5' }
-            [System.IO.File]::WriteAllText((Join-Path $fx.Tmp 'stash-server.json'), ($marker | ConvertTo-Json), [System.Text.UTF8Encoding]::new($false))
+            [System.IO.File]::WriteAllText((Join-Path $fx.Tmp 'stash-service.json'), ($marker | ConvertTo-Json), [System.Text.UTF8Encoding]::new($false))
             [void](Write-HostRegistrationRecord -HostType 'host.windows.hyper-v' -RepoRoot $fx.Tmp)
             $rec = Get-Content -Raw (Join-Path $fx.Tmp 'host.registration.json') | ConvertFrom-Json
             Assert-True (-not ($rec.activeExtensions -contains 'stash-service')) 'active:false marker is not advertised'

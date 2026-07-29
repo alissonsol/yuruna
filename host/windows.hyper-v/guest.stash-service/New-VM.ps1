@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.28
+.VERSION 2026.07.29
 .GUID 42f1b2c3-d4e5-4f67-8901-a2b3c4d5e680
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -18,7 +18,7 @@
 
 <#
 .SYNOPSIS
-    Creates (or recreates) the Yuruna Stash Service VM on Hyper-V.
+    Creates (or recreates) the Yuruna stash service VM on Hyper-V.
 
 .DESCRIPTION
     Builds an Ubuntu 26.04 LTS cloud-image VM that hosts the stash-service
@@ -135,7 +135,7 @@ Copy-Item -Path (Join-Path $hostVmConfigDir 'stash-service.meta-data') -Destinat
 # --- REGION: Yuruna harness SSH key + vault password
 # Yuruna harness SSH key + the vault-managed password of THIS VM's own
 # administrator. The account name is per-VM-family: a name shared with the
-# caching-proxy and pool-control VMs would resolve to a single vault entry,
+# caching-proxy-service and pool-control-service VMs would resolve to a single vault entry,
 # and whichever VM was built last would invalidate the others' credential.
 $_repoRoot = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))
 Import-Module (Join-Path $_repoRoot 'test/modules/Test.Ssh.psm1')       -Force -DisableNameChecking
@@ -151,22 +151,22 @@ Write-Output "See configuration at: $(Resolve-ExtensionAreaDir -Area 'authentica
 # --- REGION: Pick a vSwitch (BEFORE building user-data)
 # The share + source coordinates baked into cloud-init depend on the chosen
 # network, so resolve it first. Prefer Yuruna-External so the VM gets a LAN
-# IP and can reach the NAS + the host status server; fall back to Default
+# IP and can reach the NAS + the host status service; fall back to Default
 # Switch only when External is unavailable (Wi-Fi-only host), where the VM
 # is reachable only from same-host peers and the NAS likely isn't routable.
 $switchName = Get-OrCreateYurunaExternalSwitch
 if (-not $switchName) {
     Write-Verbose "External vSwitch unavailable -- falling back to 'Default Switch'."
-    Write-Verbose "  The stash VM won't be reachable from LAN by its own IP, and the NAS may be unreachable."
+    Write-Verbose "  The stash-service VM won't be reachable from LAN by its own IP, and the NAS may be unreachable."
     $switchName = 'Default Switch'
 }
 
-# Host coordinates (status server, for the in-VM source fetch) + stash storage
+# Host coordinates (status service, for the in-VM source fetch) + stash storage
 # coordinates (the share the daemon writes to), baked into the seed.
 Import-Module (Join-Path $_repoRoot 'test/modules/Test.PoolStorage.psm1')  -Global -Force
 Import-Module (Join-Path $_repoRoot 'test/modules/Test.YurunaDir.psm1')    -Global -Force
 Import-Module (Join-Path $_repoRoot 'test/modules/Test.Config.psm1')       -Global -Force
-Import-Module (Join-Path $_repoRoot 'test/modules/Test.CachingProxy.psm1') -Global -Force
+Import-Module (Join-Path $_repoRoot 'test/modules/Test.CachingProxyService.psm1') -Global -Force
 $YurunaHostIp = Get-GuestReachableHostIp -SwitchName $switchName
 if (-not $YurunaHostIp) { $YurunaHostIp = '' }
 $YurunaHostPort = '8080'
@@ -177,9 +177,9 @@ if (Test-Path -LiteralPath $YurunaTestConfig) {
     if ($tc -and $tc.statusService -and $tc.statusService.port) { $YurunaHostPort = "$($tc.statusService.port)" }
 }
 $ystashNas = Get-YurunaStashSeedValue -Config $tc
-# Pool-aggregator base URL for the guest's presence beacon + remote-host
-# resolution; '' (no caching proxy known) leaves those features off in-guest.
-$aggregatorSeedUrl = Get-PoolAggregatorSeedUrl
+# Pool-aggregator service base URL for the guest's presence beacon + remote-host
+# resolution; '' (no caching-proxy service known) leaves those features off in-guest.
+$aggregatorSeedUrl = Get-PoolAggregatorServiceSeedUrl
 
 # Render user-data from the shared base + Hyper-V overlay (host/vmconfig/
 # stash-service.*). New-CloudInitUserData resolves placeholders with literal
@@ -192,8 +192,8 @@ $UserData = New-CloudInitUserData `
     -Replacement @{
         SSH_AUTHORIZED_KEY_PLACEHOLDER = $SshAuthorizedKey
         PASSWORD_PLACEHOLDER           = $AdminPassword
-        YURUNA_HOST_IP_PLACEHOLDER     = $YurunaHostIp
-        YURUNA_HOST_PORT_PLACEHOLDER   = $YurunaHostPort
+        YURUNA_STATUS_SERVICE_IP_PLACEHOLDER     = $YurunaHostIp
+        YURUNA_STATUS_SERVICE_PORT_PLACEHOLDER   = $YurunaHostPort
         YSTASH_NAS_NETWORK_PATH_PLACEHOLDER  = $ystashNas.NetworkPath
         YSTASH_NAS_NETWORK_IP_PLACEHOLDER    = $ystashNas.NetworkIp
         YSTASH_NAS_NETWORK_USER_PLACEHOLDER  = $ystashNas.NetworkUser
@@ -217,7 +217,7 @@ Write-Output ""
 
 # --- REGION: Create and configure Hyper-V VM
 # 8 GB RAM, 4 vCPU. Sized for the SCP receive + SQLite metadata writer
-# + future in-VM UI. Roughly 4x caching-proxy's working-set baseline at
+# + future in-VM UI. Roughly 4x caching-proxy-service's working-set baseline at
 # 1/3 of its cache_mem allocation -- room to grow without locking the
 # operator into the heaviest profile from day one.
 Write-Output "Creating new VM '$VMName' on switch '$switchName'..."
@@ -246,7 +246,7 @@ Write-Output "Waiting for VM to obtain an IP address..."
 Write-Output "  (cloud-init brings up networking; first boot can take 1-3 minutes)"
 
 # Discover via Get-CacheVmCandidateIp -- shared primitive in Yuruna.Host
-# that combines KVP + ARP. Same approach as the caching-proxy pattern.
+# that combines KVP + ARP. Same approach as the caching-proxy-service pattern.
 $dockIp = $null
 $dockCandidateIps = @()
 $maxIterations = 120  # 120 * 5s = 10 minutes

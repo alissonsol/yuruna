@@ -1,10 +1,10 @@
 #!/bin/bash
-# Version: 2026.07.28
+# Version: 2026.07.29
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 
 # --- REGION: https://yuruna.link/definition#defining-fetch-and-execute-base-url-resolution
-# Two fetch sources, tried in order: the host status server, then GitHub. The
+# Two fetch sources, tried in order: the host status service, then GitHub. The
 # GitHub fallback is a repo slug + pinned commit supplied by the host, never a
 # fixed public URL -- the linked section explains why the integrity gate depends
 # on that, and why no repo+ref means no fallback at all.
@@ -25,7 +25,7 @@ resolve_fetch_source() {
 
     # EXEC_BASE_URL is the operator's manual override (CONTRIBUTING documents it
     # pointing at a raw GitHub URL for a work-in-progress branch). Classify it by
-    # scheme, not by the fact that it was set: only a real http:// status server
+    # scheme, not by the fact that it was set: only a real http:// status service
     # is on the LAN, so only it may be fetched --no-proxy and POSTed perf
     # checkpoints. An https:// override is somewhere on the internet and gets
     # neither -- 'base' exists to keep those two behaviors apart.
@@ -37,23 +37,23 @@ resolve_fetch_source() {
         esac
         return
     fi
-    if [ -n "${YURUNA_HOST_IP:-}" ] && [ -n "${YURUNA_HOST_PORT:-}" ]; then
+    if [ -n "${YURUNA_STATUS_SERVICE_IP:-}" ] && [ -n "${YURUNA_STATUS_SERVICE_PORT:-}" ]; then
         # --- REGION: https://yuruna.link/definition#defining-fetch-and-execute-host-environment-variables
         if wget -q --no-proxy --timeout=2 -O /dev/null \
-            "http://${YURUNA_HOST_IP}:${YURUNA_HOST_PORT}/livecheck" 2>/dev/null; then
+            "http://${YURUNA_STATUS_SERVICE_IP}:${YURUNA_STATUS_SERVICE_PORT}/livecheck" 2>/dev/null; then
             FETCH_SOURCE='host'
-            HOST_BASE="http://${YURUNA_HOST_IP}:${YURUNA_HOST_PORT}/yuruna-repo/"
+            HOST_BASE="http://${YURUNA_STATUS_SERVICE_IP}:${YURUNA_STATUS_SERVICE_PORT}/yuruna-repo/"
             return
         fi
         # --- REGION: https://yuruna.link/definition#defining-fetch-and-execute-host-unreachable-warning
         >&2 echo ""
         >&2 echo "!! HOST UNREACHABLE"
-        >&2 echo "!!   url:     http://${YURUNA_HOST_IP}:${YURUNA_HOST_PORT}/livecheck"
+        >&2 echo "!!   url:     http://${YURUNA_STATUS_SERVICE_IP}:${YURUNA_STATUS_SERVICE_PORT}/livecheck"
         >&2 echo "!!   source:  /etc/yuruna/host.env (provisioned at New-VM time)"
         >&2 echo "!!   probe:   wget --no-proxy --timeout=2 -O /dev/null -> no response"
         >&2 echo "!!   common:  the host's IP changed since this VM was provisioned (DHCP"
         >&2 echo "!!            lease renewed across a reboot, or Wi-Fi roamed to another"
-        >&2 echo "!!            subnet), or the status server is down, or the host firewall"
+        >&2 echo "!!            subnet), or the status service is down, or the host firewall"
         >&2 echo "!!            changed."
         if [ -n "$GH_REPO" ] && [ -n "$GH_REF" ]; then
             >&2 echo "!!   action:  falling back to GitHub -- ${GH_REPO} at ${GH_REF}"
@@ -180,7 +180,7 @@ clear
 echo "About to download and run project code: $FILE_PATH"
 
 # --- REGION: https://yuruna.link/definition#defining-fetch-and-execute-failure-modes
-# Resolve the base URL once (host status server, else the GitHub fallback) and
+# Resolve the base URL once (host status service, else the GitHub fallback) and
 # do a single fetch. A failed fetch on a bridged guest is most often the guest
 # having no IPv4 DHCP lease -- DHCP pool exhaustion, which retrying cannot fix --
 # so on failure run network_diag (sourced from yuruna-network.sh) to surface the
@@ -188,7 +188,7 @@ echo "About to download and run project code: $FILE_PATH"
 # loop. resolve_fetch_source prefers the fast --no-proxy host path when reachable.
 resolve_fetch_source
 # Two-valued for the log line and the perf-checkpoint POST below: 'host' means a
-# reachable status server that can receive the POST, so an https:// EXEC_BASE_URL
+# reachable status service that can receive the POST, so an https:// EXEC_BASE_URL
 # override reports (and behaves) as remote.
 if [ "$FETCH_SOURCE" = 'host' ]; then BASE_SOURCE='host'; else BASE_SOURCE='github'; fi
 
@@ -198,7 +198,7 @@ if [ "$FETCH_SOURCE" = 'host' ]; then BASE_SOURCE='host'; else BASE_SOURCE='gith
 if [ "$FETCH_SOURCE" = 'github' ] && { [ -z "$GH_REPO" ] || [ -z "$GH_REF" ]; }; then
     echo ""
     echo "!! NO FETCH SOURCE"
-    echo "!!   The host status server is unreachable and no GitHub fallback was"
+    echo "!!   The host status service is unreachable and no GitHub fallback was"
     echo "!!   supplied, so there is nowhere to fetch this file from."
     echo "!!   Wanted: EXEC_FALLBACK_REPO + EXEC_FALLBACK_REF (typed by the host),"
     echo "!!           or YURUNA_GITHUB_REPO + YURUNA_GITHUB_REF in /etc/yuruna/host.env."

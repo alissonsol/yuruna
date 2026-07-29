@@ -82,4 +82,4 @@ properties:
             should normally have. Set explicitly to vaultKey when you
             want the local OS account to share its password with the
             corporate identity (operator-convenience console fallback,
-            see docs/caching.md for the caching-proxy pattern).
+            see docs/caching.md for the caching-proxy-service pattern).

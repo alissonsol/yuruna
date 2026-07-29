@@ -2,11 +2,11 @@
 
 Cross-host harness modules. Each is a `.psm1` imported by
 [`../Invoke-TestRunner.ps1`](../Invoke-TestRunner.ps1) (and ad-hoc by
-[`../Test-Sequence.ps1`](../Test-Sequence.ps1) for one-off
+[`../Invoke-TestSequence.ps1`](../Invoke-TestSequence.ps1) for one-off
 sequence runs). Module list and per-module purpose:
 [Test harness — architecture](../../docs/test-harness.md#module-responsibilities).
 
-This folder also holds [`Invoke-TestInnerRunner.ps1`](Invoke-TestInnerRunner.ps1) —
+This folder also holds [`Invoke-TestRunnerInnerLoop.ps1`](Invoke-TestRunnerInnerLoop.ps1) —
 the single-cycle inner that the outer `Invoke-TestRunner.ps1` spawns
 once per cycle. It lives here (not in `test/`) so the entry-point
 folder contains only operator-facing scripts; the inner is an
@@ -19,7 +19,7 @@ exits if it detects an outer already running.
 The cycle no longer needs per-guest `.ps1` extensions. The runner walks
 `project/test/test.runner.yml` to derive an ordered execution plan,
 and runs every sequence inline through
-[`Invoke-Sequence.psm1`](Invoke-Sequence.psm1) — the engine that
+[`Test.SequenceEngine.psm1`](Test.SequenceEngine.psm1) — the engine that
 implements the YAML `actions` (keystrokes, OCR waits, SSH pushes,
 etc.). Action reference and per-host
 [Yuruna.Host](../../host) contract notes:
@@ -118,6 +118,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.28
+Last review: 2026.07.29
 
 Back to [Yuruna](../../README.md)

@@ -16,7 +16,7 @@ first login). Architecture (amd64 / arm64) is picked from the host.
 pwsh ./Get-Image.ps1                        # download / refresh live-server ISO
 pwsh ./New-VM.ps1                           # default name: ubuntu-server01
 pwsh ./New-VM.ps1 -VMName myhost            # custom name
-pwsh ./New-VM.ps1 -CachingProxyUrl http://192.168.122.10:3128
+pwsh ./New-VM.ps1 -CachingProxyServiceUrl http://192.168.122.10:3128
 ```
 
 `New-VM.ps1`:
@@ -25,7 +25,7 @@ pwsh ./New-VM.ps1 -CachingProxyUrl http://192.168.122.10:3128
    and `host/vmconfig/ubuntu.server.meta-data` with hostname,
    harness SSH public key (auto-generated under
    `test/status/ssh/yuruna_ed25519` if missing), password hash, optional
-   `CachingProxyUrl`, and the host's coordinates for the dev iteration
+   `CachingProxyServiceUrl`, and the host's coordinates for the dev iteration
    loop.
 2. Builds a CIDATA seed ISO with `genisoimage`.
 3. Creates an empty 64 G qcow2 install target.
@@ -69,6 +69,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.28
+Last review: 2026.07.29
 
 Back to [Yuruna](../../../README.md)

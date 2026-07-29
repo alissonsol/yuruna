@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.28
+.VERSION 2026.07.29
 .GUID 42b1c2d3-e4f5-4a67-8b90-1c2d3e4f5a6b
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -18,7 +18,7 @@
 
 # yuruna pool intent sync (the PULL spine for the multi-host pool harness).
 # Each runner PULLs the slow-changing pool intent (pools.yml: membership +
-# desiredState) from a bare git repo on the caching-proxy over the LAN, finds its
+# desiredState) from a bare git repo on the caching-proxy-service over the LAN, finds its
 # OWN pool by locating its stable hostId in members[] (the single source of
 # truth), and reconciles the pulled desiredState (run|paused|drain) into the outer
 # loop -- exactly like the local control.cycle-restart flag. Everything here is
@@ -30,8 +30,8 @@
 # Wall-clock backstops (seconds) for the git operations. A healthy LAN clone/fetch
 # of a tiny intent repo finishes well under a second; these only cap a wedged or
 # unreachable remote. The clone (first run) gets the larger cap.
-$script:PoolSyncCloneTimeoutSec = 60
-$script:PoolSyncFetchTimeoutSec = 30
+$script:PoolSyncCloneTimeoutSeconds = 60
+$script:PoolSyncFetchTimeoutSeconds = 30
 
 # Invoke-PoolSyncGitCapture (and its exit-code wrapper Invoke-PoolSyncGit)
 # runs a git command bounded by a wall-clock cap and kills the
@@ -155,7 +155,7 @@ function Get-YurunaPoolConfig {
     $enabled      = [bool]$p['enabled']
     $intentGitUrl = [string]$p['intentGitUrl']
     $localClone   = [string]$p['localClonePath']
-    $pullTimeout  = if ($p['pullTimeoutSeconds']) { [int]$p['pullTimeoutSeconds'] } else { $script:PoolSyncFetchTimeoutSec }
+    $pullTimeout  = if ($p['pullTimeoutSeconds']) { [int]$p['pullTimeoutSeconds'] } else { $script:PoolSyncFetchTimeoutSeconds }
     if (-not $enabled -and -not $IgnoreEnabled) { return $null }
     if ([string]::IsNullOrWhiteSpace($intentGitUrl)) {
         if ($enabled) { Write-Warning 'pool.enabled is true but pool.intentGitUrl is empty; pool intent sync disabled.' }
@@ -169,7 +169,7 @@ function Get-YurunaPoolConfig {
         Enabled        = $enabled
         IntentGitUrl   = $intentGitUrl.Trim()
         LocalClonePath = $localClone
-        PullTimeoutSec = $pullTimeout
+        PullTimeoutSeconds = $pullTimeout
     }
 }
 
@@ -286,7 +286,7 @@ function ConvertTo-PoolGatingRecord {
         if ($Gating['quorum'] -is [System.Collections.IDictionary]) {
             $q = [ordered]@{}
             if ($Gating['quorum'].Contains('healthyThreshold'))     { $q['healthyThreshold']     = [double]$Gating['quorum']['healthyThreshold'] }
-            if ($Gating['quorum'].Contains('degradedAfterMinutes')) { $q['degradedAfterMinutes'] = [int]$Gating['quorum']['degradedAfterMinutes'] }
+            if ($Gating['quorum'].Contains('degradedAfterSeconds')) { $q['degradedAfterSeconds'] = [int]$Gating['quorum']['degradedAfterSeconds'] }
             if ($q.Count -gt 0) { $rec['quorum'] = $q }
         }
     }
@@ -433,8 +433,8 @@ function Sync-YurunaPoolIntent {
         if (Test-Path -LiteralPath $gitDir) {
             # One wall-clock budget for the whole fetch+reset pull: derive each call's
             # timeout from a single deadline so a slow fetch cannot hand the reset a fresh
-            # full PullTimeoutSec and let the pair run to ~2x the intended bound.
-            $deadlineUtc = [DateTime]::UtcNow.AddSeconds($pcfg.PullTimeoutSec)
+            # full PullTimeoutSeconds and let the pair run to ~2x the intended bound.
+            $deadlineUtc = [DateTime]::UtcNow.AddSeconds($pcfg.PullTimeoutSeconds)
             $fetchBudget = [Math]::Max(1, [int][Math]::Ceiling(($deadlineUtc - [DateTime]::UtcNow).TotalSeconds))
             $rc = Invoke-PoolSyncGit -ArgumentList @('-C', $clone, 'fetch', '--depth', '1', '--quiet', 'origin') -TimeoutSeconds $fetchBudget
             if ($rc -eq 0) {
@@ -445,7 +445,7 @@ function Sync-YurunaPoolIntent {
         } else {
             $parent = Split-Path -Parent $clone
             if ($parent -and -not (Test-Path -LiteralPath $parent)) { New-Item -ItemType Directory -Force -Path $parent | Out-Null }
-            $rc = Invoke-PoolSyncGit -ArgumentList @('clone', '--depth', '1', '--quiet', $pcfg.IntentGitUrl, $clone) -TimeoutSeconds $script:PoolSyncCloneTimeoutSec
+            $rc = Invoke-PoolSyncGit -ArgumentList @('clone', '--depth', '1', '--quiet', $pcfg.IntentGitUrl, $clone) -TimeoutSeconds $script:PoolSyncCloneTimeoutSeconds
             $pullOk = ($rc -eq 0)
         }
     } catch { $rc = -1; Write-Verbose "Sync-YurunaPoolIntent: git step threw: $($_.Exception.Message)" }

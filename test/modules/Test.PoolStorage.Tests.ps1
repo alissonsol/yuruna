@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.28
+.VERSION 2026.07.29
 .GUID 42d6f9b2-0c4e-4a38-9b7d-2e3f4a5b6c7d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -155,29 +155,29 @@ Describe 'Find-PoolStorageConflictingMount (same share, other point -> macOS "Fi
 
 Describe 'Get-YurunaPoolStorageConfig (feature on/off)' {
     It 'returns null when replicate is false' {
-        $cfg = [ordered]@{ pool = [ordered]@{ networkReplicate = $false }; networkStorage = [ordered]@{ poolNetworkPath = '//srv/work'; poolNetworkUser = 'u'; poolLocalPath = '/mnt/ypool-nas' } }
+        $cfg = [ordered]@{ pool = [ordered]@{ networkReplicate = $false }; networkStorage = [ordered]@{ poolStorageNetworkPath = '//srv/work'; poolStorageNetworkUser = 'u'; poolStorageLocalPath = '/mnt/ypool-nas' } }
         Assert-Null (Get-YurunaPoolStorageConfig -Config $cfg) 'replicate false -> off'
     }
     It 'with -IgnoreReplicate returns the object even when replicate is false (pre-validation)' {
-        $cfg = [ordered]@{ pool = [ordered]@{ networkReplicate = $false }; networkStorage = [ordered]@{ poolNetworkPath = '//srv/work'; poolNetworkUser = 'u'; poolLocalPath = '/mnt/ypool-nas' } }
+        $cfg = [ordered]@{ pool = [ordered]@{ networkReplicate = $false }; networkStorage = [ordered]@{ poolStorageNetworkPath = '//srv/work'; poolStorageNetworkUser = 'u'; poolStorageLocalPath = '/mnt/ypool-nas' } }
         $r = Get-YurunaPoolStorageConfig -Config $cfg -IgnoreReplicate
         Assert-True ($null -ne $r) 'object returned despite replicate false'
         Assert-Equal -Expected $false -Actual $r.Replicate -Because 'Replicate field reflects the real flag'
         Assert-Equal -Expected '//srv/work' -Actual $r.NetworkPath -Because 'paths normalized'
     }
     It 'with -IgnoreReplicate still returns null when a path is empty' {
-        $cfg = [ordered]@{ pool = [ordered]@{ networkReplicate = $false }; networkStorage = [ordered]@{ poolNetworkPath = '//srv/work'; poolNetworkUser = 'u'; poolLocalPath = '' } }
+        $cfg = [ordered]@{ pool = [ordered]@{ networkReplicate = $false }; networkStorage = [ordered]@{ poolStorageNetworkPath = '//srv/work'; poolStorageNetworkUser = 'u'; poolStorageLocalPath = '' } }
         Assert-Null (Get-YurunaPoolStorageConfig -Config $cfg -IgnoreReplicate) 'incomplete -> still null'
     }
     It 'returns null when the networkStorage section is absent' {
         Assert-Null (Get-YurunaPoolStorageConfig -Config ([ordered]@{ statusService = [ordered]@{ port = 8080 } })) 'no section -> off'
     }
     It 'returns null when replicate is true but a required path is empty' {
-        $cfg = [ordered]@{ pool = [ordered]@{ networkReplicate = $true }; networkStorage = [ordered]@{ poolNetworkPath = '//srv/work'; poolNetworkUser = 'u'; poolLocalPath = '' } }
+        $cfg = [ordered]@{ pool = [ordered]@{ networkReplicate = $true }; networkStorage = [ordered]@{ poolStorageNetworkPath = '//srv/work'; poolStorageNetworkUser = 'u'; poolStorageLocalPath = '' } }
         Assert-Null (Get-YurunaPoolStorageConfig -Config $cfg) 'empty localPath -> off'
     }
     It 'returns the trimmed config object when fully set' {
-        $cfg = [ordered]@{ pool = [ordered]@{ networkReplicate = $true }; networkStorage = [ordered]@{ poolNetworkPath = ' //srv/work '; poolNetworkUser = ' yurunanet '; poolLocalPath = ' /mnt/ypool-nas ' } }
+        $cfg = [ordered]@{ pool = [ordered]@{ networkReplicate = $true }; networkStorage = [ordered]@{ poolStorageNetworkPath = ' //srv/work '; poolStorageNetworkUser = ' yurunanet '; poolStorageLocalPath = ' /mnt/ypool-nas ' } }
         $r = Get-YurunaPoolStorageConfig -Config $cfg
         Assert-True ($null -ne $r) 'object returned'
         Assert-Equal -Expected '//srv/work' -Actual $r.NetworkPath -Because 'networkPath trimmed'
@@ -186,12 +186,12 @@ Describe 'Get-YurunaPoolStorageConfig (feature on/off)' {
         Assert-True $r.Replicate 'replicate true'
     }
     It 'expands a leading ~ in localPath to $HOME' {
-        $cfg = [ordered]@{ pool = [ordered]@{ networkReplicate = $true }; networkStorage = [ordered]@{ poolNetworkPath = '//srv/work'; poolNetworkUser = 'u'; poolLocalPath = '~/Shares/ypool-nas' } }
+        $cfg = [ordered]@{ pool = [ordered]@{ networkReplicate = $true }; networkStorage = [ordered]@{ poolStorageNetworkPath = '//srv/work'; poolStorageNetworkUser = 'u'; poolStorageLocalPath = '~/Shares/ypool-nas' } }
         $r = Get-YurunaPoolStorageConfig -Config $cfg
         Assert-Equal -Expected (Join-Path $HOME 'Shares/ypool-nas') -Actual $r.LocalPath -Because '~ -> $HOME'
     }
     It 'leaves a non-tilde path untouched (a bare ~ in the middle is not expanded)' {
-        $cfg = [ordered]@{ pool = [ordered]@{ networkReplicate = $true }; networkStorage = [ordered]@{ poolNetworkPath = '//srv/work'; poolNetworkUser = 'u'; poolLocalPath = '/mnt/a~b' } }
+        $cfg = [ordered]@{ pool = [ordered]@{ networkReplicate = $true }; networkStorage = [ordered]@{ poolStorageNetworkPath = '//srv/work'; poolStorageNetworkUser = 'u'; poolStorageLocalPath = '/mnt/a~b' } }
         $r = Get-YurunaPoolStorageConfig -Config $cfg
         Assert-Equal -Expected '/mnt/a~b' -Actual $r.LocalPath -Because 'mid-path ~ untouched'
     }
@@ -215,25 +215,25 @@ Describe 'Get-YurunaPoolStorageConfig (feature on/off)' {
 Describe 'Get-YurunaStashStorageConfig (isolated stash storage)' {
     It 'returns the stash record from networkStorage.stash* (independent of the pool)' {
         $cfg = [ordered]@{ pool = [ordered]@{ networkReplicate = $true }; networkStorage = [ordered]@{
-            poolNetworkPath = '//srv/work/pool'; poolNetworkUser = 'u-pool'; poolLocalPath = 'y:'
-            stashNetworkPath = ' //srv/work/stash '; stashNetworkUser = ' u-stash '; stashLocalPath = ' z: '
+            poolStorageNetworkPath = '//srv/work/pool'; poolStorageNetworkUser = 'u-pool'; poolStorageLocalPath = 'y:'
+            stashStorageNetworkPath = ' //srv/work/stash '; stashStorageNetworkUser = ' u-stash '; stashStorageLocalPath = ' z: '
         } }
         $r = Get-YurunaStashStorageConfig -Config $cfg
         Assert-True ($null -ne $r) 'object returned'
-        Assert-Equal -Expected '//srv/work/stash' -Actual $r.NetworkPath -Because 'stashNetworkPath trimmed'
-        Assert-Equal -Expected 'u-stash'           -Actual $r.NetworkUser -Because 'stashNetworkUser trimmed'
-        Assert-Equal -Expected 'z:'                -Actual $r.LocalPath   -Because 'stashLocalPath trimmed'
+        Assert-Equal -Expected '//srv/work/stash' -Actual $r.NetworkPath -Because 'stashStorageNetworkPath trimmed'
+        Assert-Equal -Expected 'u-stash'           -Actual $r.NetworkUser -Because 'stashStorageNetworkUser trimmed'
+        Assert-Equal -Expected 'z:'                -Actual $r.LocalPath   -Because 'stashStorageLocalPath trimmed'
         Assert-Equal -Expected $false              -Actual $r.Replicate   -Because 'stash never replicates'
     }
     It 'returns null when any stash field is unset' {
-        $cfg = [ordered]@{ networkStorage = [ordered]@{ stashNetworkPath = '//srv/work/stash'; stashNetworkUser = 'u-stash'; stashLocalPath = '' } }
+        $cfg = [ordered]@{ networkStorage = [ordered]@{ stashStorageNetworkPath = '//srv/work/stash'; stashStorageNetworkUser = 'u-stash'; stashStorageLocalPath = '' } }
         Assert-Null (Get-YurunaStashStorageConfig -Config $cfg) 'incomplete -> null'
     }
     It 'returns null when networkStorage is absent' {
         Assert-Null (Get-YurunaStashStorageConfig -Config ([ordered]@{ statusService = [ordered]@{ port = 8080 } })) 'no section -> null'
     }
-    It 'expands a leading ~ in stashLocalPath to $HOME' {
-        $cfg = [ordered]@{ networkStorage = [ordered]@{ stashNetworkPath = '//srv/work/stash'; stashNetworkUser = 'u'; stashLocalPath = '~/Shares/stash' } }
+    It 'expands a leading ~ in stashStorageLocalPath to $HOME' {
+        $cfg = [ordered]@{ networkStorage = [ordered]@{ stashStorageNetworkPath = '//srv/work/stash'; stashStorageNetworkUser = 'u'; stashStorageLocalPath = '~/Shares/stash' } }
         $r = Get-YurunaStashStorageConfig -Config $cfg
         Assert-Equal -Expected (Join-Path $HOME 'Shares/stash') -Actual $r.LocalPath -Because '~ -> $HOME'
     }

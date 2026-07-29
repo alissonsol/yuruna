@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.28
+.VERSION 2026.07.29
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456720
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -397,9 +397,9 @@ function Invoke-Tool {
 function Get-LocalRegistryCatalog {
     [CmdletBinding()]
     [OutputType([object[]])]
-    param([int]$TimeoutSec = 3)
+    param([int]$TimeoutSeconds = 3)
     try {
-        $probe = Invoke-WebRequest -Uri 'http://localhost:5000/v2/_catalog' -TimeoutSec $TimeoutSec -UseBasicParsing -ErrorAction Stop
+        $probe = Invoke-WebRequest -Uri 'http://localhost:5000/v2/_catalog' -TimeoutSec $TimeoutSeconds -UseBasicParsing -ErrorAction Stop
     } catch {
         Write-Verbose ("local registry probe failed: {0}" -f $_.Exception.Message)
         return $null
@@ -1580,7 +1580,7 @@ try {
         $runtimeDir = $env:YURUNA_RUNTIME_DIR
         if (-not $runtimeDir) {
             # Common default when Get-SystemDiagnostic is invoked outside
-            # a runner cycle. The status server publishes its own copy
+            # a runner cycle. The status service publishes its own copy
             # of the env var to its child pwsh; absent here, derive from
             # script location.
             $runtimeDir = Join-Path -Path (Split-Path -Parent $PSScriptRoot) -ChildPath 'test' -AdditionalChildPath 'status', 'track'
@@ -1609,13 +1609,13 @@ try {
                     # CreationDate. No %CPU -- approximate via UserModeTime+KernelModeTime.
                     $allProcs = Get-CimInstance Win32_Process -ErrorAction Stop
                     foreach ($p in $allProcs) {
-                        $etimeSec = $null
+                        $etimeSeconds = $null
                         if ($p.CreationDate) {
-                            try { $etimeSec = [int]((Get-Date) - $p.CreationDate).TotalSeconds } catch { $etimeSec = $null }
+                            try { $etimeSeconds = [int]((Get-Date) - $p.CreationDate).TotalSeconds } catch { $etimeSeconds = $null }
                         }
                         $procMap[[int]$p.ProcessId] = @{
                             ppid  = [int]$p.ParentProcessId
-                            etime = $etimeSec
+                            etime = $etimeSeconds
                             cpu   = $null    # CIM doesn't expose pcpu; row formatter just shows '-'
                             cmd   = [string]$p.CommandLine
                         }
@@ -2100,7 +2100,7 @@ try {
                 Write-Output "(cloud-init not in PATH)"
             }
 
-            Write-Sub "cloud-init analyze blame (top 20)"
+            Write-Sub "cloud-init analyze blame (top 25)"
             if (Test-CommandAvailable 'cloud-init') {
                 $analyzeOut = & cloud-init analyze blame 2>&1
                 if ($LASTEXITCODE -eq 0) {
@@ -2534,9 +2534,9 @@ try {
                     Write-Output ("  {0:yyyy-MM-dd HH:mm:ss}  {1,10}  {2}" -f $f.LastWriteTime, $f.Length, $rel)
                 }
                 $newest = $recent | Select-Object -First 1
-                $ageMin = [int]((Get-Date) - $newest.LastWriteTime).TotalMinutes
+                $ageMinutes = [int]((Get-Date) - $newest.LastWriteTime).TotalMinutes
                 Write-Output ""
-                Write-Output ("Last .yuruna/ write : $($newest.LastWriteTime.ToString('yyyy-MM-ddTHH:mm:ss')) ({0} min ago)" -f $ageMin)
+                Write-Output ("Last .yuruna/ write : $($newest.LastWriteTime.ToString('yyyy-MM-ddTHH:mm:ss')) ({0} min ago)" -f $ageMinutes)
             }
         }
     }

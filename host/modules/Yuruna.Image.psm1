@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.28
+.VERSION 2026.07.29
 .GUID 42de9c8b-f7a6-4b34-9182-3c4d5e6f7ab7
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -25,7 +25,7 @@
 .DESCRIPTION
     The Ubuntu ISO pipeline runs through a warn-only checksum policy.
     The other guest-image sources (Windows ISO, Amazon Linux 2023
-    qcow2, caching-proxy base, macOS images) reach disk through
+    qcow2, caching-proxy-service base, macOS images) reach disk through
     `Save-CachedHttpUri` + `Invoke-WebRequest` without going through
     any shared integrity layer; a supply-chain incident on any of
     those mirrors would land silently.
@@ -56,7 +56,7 @@
        'Throw'                        emit banner + throw an exception
 
     Designed to be the migration target for the AL2023 / Windows /
-    caching-proxy / macOS Get-Image.ps1 scripts. The Ubuntu path
+    caching-proxy-service / macOS Get-Image.ps1 scripts. The Ubuntu path
     keeps using Yuruna.UbuntuImage (which has the codename resolver
     on top); this gateway covers everything else.
 #>

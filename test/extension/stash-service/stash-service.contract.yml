@@ -10,5 +10,5 @@ area: stash-service
 requiredFunction:
   - Get-StashServiceInfo
   - Resolve-Host
-  - Test-StashHost
-  - Publish-StashHost
+  - Test-StashServiceHost
+  - Publish-StashServiceHost

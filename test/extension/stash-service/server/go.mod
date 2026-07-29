@@ -1,4 +1,4 @@
-module stash-server
+module stash-service
 
 go 1.25.0
 

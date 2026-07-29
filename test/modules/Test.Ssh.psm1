@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.28
+.VERSION 2026.07.29
 .GUID 422c9a3d-41bb-4e8c-9b64-5f7a1d0c9a12
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -17,7 +17,7 @@
 #requires -version 7
 
 # SSH-based guest driver. Parallel to the GUI keystroke flow in
-# Invoke-Sequence.psm1; selected by test.config.yml "keystrokeMechanism"
+# Test.SequenceEngine.psm1; selected by test.config.yml "keystrokeMechanism"
 # ("GUI"|"SSH", case-insensitive, normalized uppercase by the validator).
 # A per-host ed25519 key pair lives under test/status/ssh/ (runtime,
 # gitignored) and is injected into each guest's cloud-init user-data via
@@ -50,27 +50,9 @@ $script:SshPubPath = "$script:SshKeyPath.pub"
 # probe + icacls) when the cached path still resolves to an on-disk file.
 $script:CachedSshKey = $null
 
-# Per-cycle overrides for Get-GuestSshUser. Populated by the runner
-# (Invoke-TestInnerRunner / Test-Sequence) from the cycle plan's
-# effectiveUsername so a workload's `variables.username:` cascade
-# reaches every SSH callsite that goes through Get-GuestSshUser:
-# Wait-SshReady, Invoke-GuestSsh, Save-GuestDiagnostic, the host
-# driver Send-Text / Send-Key SSH-mode dispatchers, and the inner
-# runner's fetchAndExecute SSH path. The alternative -- threading a
-# -Username parameter through every public signature -- would touch
-# every callsite (and the host contract) for the same outcome.
-#
-# Anchored in the global scope: Save-GuestDiagnostic and several
-# host drivers -Force re-import Test.Ssh defensively. A module-scoped
-# `$script:GuestSshUserOverrides = @{}` would be re-initialized on
-# every re-import, wiping the cascade value Test-Sequence /
-# Invoke-TestInnerRunner registered at plan-resolution time, falling
-# SSH auth back to the per-guest default (e.g. yauser1) and breaking
-# workloads whose `variables.username:` was meant to propagate down
-# the chain. Same eviction-safe pattern Test.Output and the
-# Test.Registry-based registries already use. Set-Variable
-# / Get-Variable -Scope Global is used instead of `$global:` so PSSA's
-# PSAvoidGlobalVars stays quiet for the rest of this large module.
+# --- REGION: https://yuruna.link/memory#why-the-guest-ssh-user-overrides-are-anchored-in-the-global-scope
+# Per-cycle overrides for Get-GuestSshUser. Global scope survives the defensive
+# -Force re-imports that would otherwise wipe the cascade mid-cycle.
 if (-not (Get-Variable -Name 'YurunaGuestSshUserOverrides' -Scope Global -ErrorAction SilentlyContinue)) {
     Set-Variable -Name 'YurunaGuestSshUserOverrides' -Scope Global -Value @{}
 }
@@ -321,8 +303,8 @@ The service VMs the harness brings up on a host each get their OWN
 administrator, so their vault entries stay independent -- one shared name
 means one vault password, and the most recently built VM invalidates the
 console credential of the others:
-  guest.caching-proxy  -> caching-proxy-admin
-  guest.pool-control   -> pool-control-admin
+  guest.caching-proxy-service  -> caching-proxy-service-admin
+  guest.pool-control-service   -> pool-control-service-admin
   guest.stash-service  -> stash-admin
 The username for each guest must match the `username:` variable in
 the corresponding test/sequences/**/*.<guest>.yml file.
@@ -344,8 +326,8 @@ System.String. Username to log in as over SSH.
         "guest.ubuntu.server.26"  { return "yuuser26" }
         "guest.amazon.linux.2023"   { return "yauser1" }
         "guest.windows.11"     { return "ywuser1" }
-        "guest.caching-proxy"  { return "caching-proxy-admin" }
-        "guest.pool-control"   { return "pool-control-admin" }
+        "guest.caching-proxy-service"  { return "caching-proxy-service-admin" }
+        "guest.pool-control-service"   { return "pool-control-service-admin" }
         "guest.stash-service"  { return "stash-admin" }
         default { return "root" }
     }
@@ -398,7 +380,7 @@ function Clear-GuestSshUserOverride {
     cycle so a fresh plan resolution starts from a known empty state.
 .DESCRIPTION
     The Inner runner is spawned fresh per cycle, so the script-scoped
-    map is already empty in practice. Test-Sequence (and any future
+    map is already empty in practice. Invoke-TestSequence (and any future
     long-lived runner) re-uses the same process across multiple plans,
     so an explicit reset prevents a prior run's override from leaking
     into the next one.
@@ -564,8 +546,8 @@ System.Boolean. $true if SSH became ready, $false on timeout.
             $proc = [System.Diagnostics.Process]::Start($psi)
         } catch {
             $lastError = "Process.Start('ssh') threw: $($_.Exception.Message)"
-            $remainingSec = ($deadline - (Get-Date)).TotalSeconds
-            if ($remainingSec -gt 0) { Start-Sleep -Seconds ([Math]::Min([double]$thisPollSeconds, $remainingSec)) }
+            $remainingSeconds = ($deadline - (Get-Date)).TotalSeconds
+            if ($remainingSeconds -gt 0) { Start-Sleep -Seconds ([Math]::Min([double]$thisPollSeconds, $remainingSeconds)) }
             continue
         }
         # Read both streams asynchronously to avoid the classic "child
@@ -612,9 +594,9 @@ System.Boolean. $true if SSH became ready, $false on timeout.
         # Poll before the next attempt, but never sleep past the deadline:
         # TimeoutSeconds is a hard wall-clock bound, so clamp the sleep to the
         # time left (and skip it entirely once the budget is spent).
-        $remainingSec = ($deadline - (Get-Date)).TotalSeconds
-        if ($remainingSec -gt 0) {
-            Start-Sleep -Seconds ([Math]::Min([double]$thisPollSeconds, $remainingSec))
+        $remainingSeconds = ($deadline - (Get-Date)).TotalSeconds
+        if ($remainingSeconds -gt 0) {
+            Start-Sleep -Seconds ([Math]::Min([double]$thisPollSeconds, $remainingSeconds))
         }
     }
 

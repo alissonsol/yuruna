@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"stash-server/internal/config"
+	"stash-service/internal/config"
 )
 
 // TestSidecarRoundTrip writes a sidecar for a committed record, then —

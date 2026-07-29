@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"stash-server/internal/config"
+	"stash-service/internal/config"
 )
 
 // TestAllocateUniqueWithinDay verifies that consecutive Allocate calls

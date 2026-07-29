@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.28
+.VERSION 2026.07.29
 .GUID 42d6f5e4-b3a2-4c91-8076-2e3f4a5b6c92
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -400,7 +400,7 @@ function Invoke-Remediation {
     # last_failure.json. The NDJSON event above is a transient breadcrumb and
     # the verb's suggestedRecoveries is only a HINT; this file is the
     # dispatcher's authoritative DECISION on disk, so a filesystem-polling
-    # consumer (dashboard, pool aggregator, a later autonomous loop) reads it
+    # consumer (dashboard, pool-aggregator service, a later autonomous loop) reads it
     # without tailing the stream. It lands in the runtime log dir; Stop-LogFile
     # archives it into the per-cycle folder and the pool copy carries it along.
     if (Get-Command Write-YurunaStateFileJson -ErrorAction SilentlyContinue) {

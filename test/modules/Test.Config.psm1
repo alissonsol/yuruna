@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.28
+.VERSION 2026.07.29
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456721
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -21,26 +21,9 @@
 # calls below resolve wherever Test.Config is loaded (including its ad-hoc importers).
 Import-Module (Join-Path $PSScriptRoot 'Test.Hash.psm1') -Global -Force
 
-# Single source of truth for reading test.config.yml. Centralizes the
-# `Get-Content -Raw $cfg | ConvertFrom-Yaml -Ordered` flow so error
-# handling stays uniform across call sites: parse failures, $null on
-# miss, and -is [IDictionary] validation all happen here. New validation
-# rules (e.g. schema check) added here reach every caller automatically.
-#
-# Cache key is absolute path + LastWriteTimeUtc + a SHA-256 of the first
-# 64 KB of file content. The content hash defends against the corner case
-# where an editor restores a file to its original size AND mtime (e.g. a
-# `git checkout` of a same-size revision, a `touch -d` to an exact prior
-# timestamp, or a CI step that copies a backup over): mtime alone would
-# return stale cached YAML, and downstream callers would silently see an
-# old config for the rest of the process.
-#
-# 64 KB is enough to cover the entire repo's YAML files (current largest
-# is < 8 KB); reading more than 64 KB on every cache check would
-# negate the benefit of caching for big files.
-#
-# Callers that need a guaranteed fresh read (e.g. the outer's failure-pause
-# config-mtime trigger) pass -NoCache.
+# --- REGION: https://yuruna.link/memory#why-the-testconfigyml-cache-key-includes-a-content-hash
+# Single source of truth for reading test.config.yml. Cache key is path +
+# mtime + SHA-256 of the first 64 KB; -NoCache forces a fresh read.
 
 # Ordinal (case-sensitive) key comparer: the cache is keyed by the resolved absolute
 # path, and on a case-sensitive filesystem two paths differing only in case are
@@ -331,7 +314,7 @@ function Read-TestConfigOrSnapshot {
     .PARAMETER NoCache
         Force a fresh read AND refuse the snapshot. Use when an
         intentional mid-cycle edit must be observed (e.g. the outer's
-        Get-OuterStepTimeoutMinute re-read).
+        Get-OuterStepTimeoutSeconds re-read).
     .PARAMETER ThrowOnError
         Re-throw on parse failure (forwarded to the fallback path).
     #>
@@ -449,7 +432,7 @@ function Resolve-CleanupVmNamePrefix {
         $value = "$p".Trim()
         # Skip blanks: an empty prefix matches every VM on the host, so a
         # stray "- " in the YAML list must not widen the sweep to include
-        # the caching proxy and every unrelated guest.
+        # the caching-proxy service and every unrelated guest.
         if (-not $value) { continue }
         if ($ordered -notcontains $value) { [void]$ordered.Add($value) }
     }

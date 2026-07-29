@@ -18,9 +18,9 @@ import (
 	"strings"
 	"time"
 
-	"stash-server/internal/config"
-	"stash-server/internal/meta"
-	"stash-server/internal/store"
+	"stash-service/internal/config"
+	"stash-service/internal/meta"
+	"stash-service/internal/store"
 )
 
 // IngestResult is returned to the HTTP create handler (§5.4).

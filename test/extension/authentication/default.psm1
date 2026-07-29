@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.28
+.VERSION 2026.07.29
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456810
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -156,7 +156,7 @@ function Write-VaultUnlocked {
     keys that hold the corresponding passwords. The mapping is operator-
     curated; the template ships pre-seeded with the four bundled Yuruna
     logical users (yuuser24, yuuser26, yauser1, ywuser1) plus the three
-    service-VM administrators (caching-proxy-admin, pool-control-admin,
+    service-VM administrators (caching-proxy-service-admin, pool-control-service-admin,
     stash-admin), all with empty corporate fields so the out-of-the-box
     behavior stays local-only.
 
@@ -213,7 +213,7 @@ function Read-UsersConfig {
 <#
 .SYNOPSIS
     Clears the in-process users.yml cache. Use after editing the file
-    in a long-running process (status server / dev REPL).
+    in a long-running process (status service / dev REPL).
 #>
 function Reset-UsersConfigCache {
     [CmdletBinding(SupportsShouldProcess)]
@@ -594,7 +594,7 @@ function Test-VaultEntry {
     can never diverge on path. Creates a minimal entry when the logical user
     is absent. Clears the in-process users.yml cache so a later resolve in
     THIS runspace sees the change; a SEPARATE long-running process (the
-    status server) keeps its own cached copy until restarted, because
+    status service) keeps its own cached copy until restarted, because
     Import-Extension skips re-import once a module is loaded.
 
     A non-empty vaultKey is the switch that moves an operator-supplied

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.28
+.VERSION 2026.07.29
 .GUID 42e2607c-3d4e-4f50-8a61-7c8d9e0f1a2b
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -51,6 +51,12 @@ $here = Split-Path -Parent $PSCommandPath
 Import-Module (Join-Path $here 'Test.Prelude.psm1')        -Force -DisableNameChecking -ErrorAction SilentlyContinue
 Import-Module (Join-Path $here 'Test.RunnerInnerLoop.psm1') -Force -DisableNameChecking
 Import-Module (Join-Path $here 'Test.ConfigSync.psm1')      -Force -DisableNameChecking
+# -Global: the runner resolves these two through the global command table, and
+# an InModuleScope body falls back to the global session state -- not to this
+# file's. Without -Global, Resolve-CleanupVmNamePrefix / Get-TestVMName are
+# invisible from inside the module under test.
+Import-Module (Join-Path $here 'Test.Config.psm1')          -Force -DisableNameChecking -Global
+Import-Module (Join-Path $here 'Test.HostDetection.psm1')   -Force -DisableNameChecking -Global
 try { Import-Module powershell-yaml -Force -ErrorAction Stop } catch { Write-Warning "powershell-yaml unavailable; YAML-dependent tests will fail." }
 
 function Assert-Equal {
@@ -204,7 +210,7 @@ function Invoke-NewVmFailureIteration {
             Justification = 'Stub mirrors the host-contract New-VM signature the iteration binds by name; dropping a parameter breaks the call.')]
         [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseSupportsShouldProcess', '',
             Justification = '-Confirm is a plain pass-through switch in the real host-contract signature being mirrored; SupportsShouldProcess would add a real confirmation prompt and hang the unattended run.')]
-        param($GuestKey, $RepoRoot, $VMName, $Username, $CachingProxyUrl, [switch]$Confirm)
+        param($GuestKey, $RepoRoot, $VMName, $Username, $CachingProxyServiceUrl, [switch]$Confirm)
         @{ success = $false; errorMessage = 'boom' }
     }
     function global:Remove-GuestVMQuietly {
@@ -245,7 +251,7 @@ function Invoke-NewVmFailureIteration {
             Mock Copy-FailureArtifactsToStatusLog {}
             Mock Sync-RunnerStepConfig {}
             $script:PoolCycle = $false; $script:CyclePlan = $null
-            $cfg = @{ Config = @{}; StopOnFailure = $global:__gpiStop; VmStartTimeout = 1; VmBootDelay = 0; GetImageRefreshHours = 1; CycleDelay = 0 }
+            $cfg = @{ Config = @{}; StopOnFailure = $global:__gpiStop; VmStartTimeoutSeconds = 1; VmBootDelaySeconds = 0; GetImageRefreshSeconds = 1; CycleDelaySeconds = 0 }
             Invoke-GuestProvisionIteration -GuestKey 'g1' -IterState $global:__gpiIter -VMNames @{ g1 = 'vm1' } `
                 -RepoRoot 'r' -HostType 'h' -ModulesDir 'm' -LogFile 'l' -SequencesDir 's' -ScreenshotsDir 'sc' `
                 -hasScreenshots $false -hasExtensions $false -cachingProxyUrl '' -cfg $cfg -ConfigPath 'c' `
@@ -263,52 +269,52 @@ function Invoke-NewVmFailureIteration {
 
 Describe 'Get-RunnerReloadableConfig' {
     It 'applies defaults when the parsed config is null' {
-        $r = Get-RunnerReloadableConfig -Config $null -CycleDelayFallback 30
+        $r = Get-RunnerReloadableConfig -Config $null -CycleDelaySecondsFallback 30
         Assert-Equal -Expected $false -Actual $r.StopOnFailure -Because 'default StopOnFailure'
-        Assert-Equal -Expected 120    -Actual $r.VmStartTimeout -Because 'default VmStartTimeout'
-        Assert-Equal -Expected 15     -Actual $r.VmBootDelay -Because 'default VmBootDelay'
-        Assert-Equal -Expected 24     -Actual $r.GetImageRefreshHours -Because 'default GetImageRefreshHours'
-        Assert-Equal -Expected 30     -Actual $r.CycleDelay -Because 'CycleDelay falls back to -CycleDelayFallback'
+        Assert-Equal -Expected 120    -Actual $r.VmStartTimeoutSeconds -Because 'default VmStartTimeoutSeconds'
+        Assert-Equal -Expected 15     -Actual $r.VmBootDelaySeconds -Because 'default VmBootDelaySeconds'
+        Assert-Equal -Expected 86400  -Actual $r.GetImageRefreshSeconds -Because 'default GetImageRefreshSeconds'
+        Assert-Equal -Expected 30     -Actual $r.CycleDelaySeconds -Because 'CycleDelaySeconds falls back to -CycleDelaySecondsFallback'
     }
     It 'reads operator values and coerces strings to int' {
         $cfg = @{
-            testCycle = @{ shouldStopOnFailure = $true; cycleDelaySeconds = '45' }
+            testCycle = @{ stopOnFailure = $true; cycleDelaySeconds = '45' }
             vmStart   = @{ startTimeoutSeconds = '200'; bootDelaySeconds = 9 }
-            vmImage   = @{ refreshHours = 6 }
+            vmImage   = @{ refreshSeconds = 6 }
         }
-        $r = Get-RunnerReloadableConfig -Config $cfg -CycleDelayFallback 30
+        $r = Get-RunnerReloadableConfig -Config $cfg -CycleDelaySecondsFallback 30
         Assert-Equal -Expected $true -Actual $r.StopOnFailure -Because 'operator StopOnFailure'
-        Assert-Equal -Expected 200   -Actual $r.VmStartTimeout -Because 'operator VmStartTimeout'
-        Assert-Equal -Expected 9     -Actual $r.VmBootDelay -Because 'operator VmBootDelay'
-        Assert-Equal -Expected 6     -Actual $r.GetImageRefreshHours -Because 'operator GetImageRefreshHours'
-        Assert-Equal -Expected 45    -Actual $r.CycleDelay -Because 'config cycleDelaySeconds wins over fallback'
-        Assert-True ($r.VmStartTimeout -is [int]) 'VmStartTimeout coerced to int'
+        Assert-Equal -Expected 200   -Actual $r.VmStartTimeoutSeconds -Because 'operator VmStartTimeoutSeconds'
+        Assert-Equal -Expected 9     -Actual $r.VmBootDelaySeconds -Because 'operator VmBootDelaySeconds'
+        Assert-Equal -Expected 6     -Actual $r.GetImageRefreshSeconds -Because 'operator GetImageRefreshSeconds'
+        Assert-Equal -Expected 45    -Actual $r.CycleDelaySeconds -Because 'config cycleDelaySeconds wins over fallback'
+        Assert-True ($r.VmStartTimeoutSeconds -is [int]) 'VmStartTimeoutSeconds coerced to int'
     }
     It 'treats a 0/absent value as falling back to the default' {
-        $r = Get-RunnerReloadableConfig -Config @{ vmStart = @{ startTimeoutSeconds = 0 } } -CycleDelayFallback 30
-        Assert-Equal -Expected 120 -Actual $r.VmStartTimeout -Because '0 is falsy -> default 120'
+        $r = Get-RunnerReloadableConfig -Config @{ vmStart = @{ startTimeoutSeconds = 0 } } -CycleDelaySecondsFallback 30
+        Assert-Equal -Expected 120 -Actual $r.VmStartTimeoutSeconds -Because '0 is falsy -> default 120'
     }
     It 'defaults guest quarantine ON with a 3-failure / 5-cycle threshold' {
-        $r = Get-RunnerReloadableConfig -Config $null -CycleDelayFallback 30
+        $r = Get-RunnerReloadableConfig -Config $null -CycleDelaySecondsFallback 30
         Assert-Equal -Expected $true -Actual $r.GuestQuarantineEnabled -Because 'quarantine default ON'
         Assert-Equal -Expected 3     -Actual $r.GuestQuarantineFailures -Because 'default failuresToQuarantine'
         Assert-Equal -Expected 5     -Actual $r.GuestQuarantineSkipCycles -Because 'default skipCycles'
     }
     It 'honors an operator-disabled quarantine block and coerces its thresholds' {
         $cfg = @{ testCycle = @{ guestQuarantine = @{ enabled = $false; failuresToQuarantine = '2'; skipCycles = '10' } } }
-        $r = Get-RunnerReloadableConfig -Config $cfg -CycleDelayFallback 30
+        $r = Get-RunnerReloadableConfig -Config $cfg -CycleDelaySecondsFallback 30
         Assert-Equal -Expected $false -Actual $r.GuestQuarantineEnabled -Because 'operator disabled quarantine'
         Assert-Equal -Expected 2      -Actual $r.GuestQuarantineFailures -Because 'operator failuresToQuarantine (int-coerced)'
         Assert-Equal -Expected 10     -Actual $r.GuestQuarantineSkipCycles -Because 'operator skipCycles (int-coerced)'
     }
     It 'defaults warm-resume ON with a 2-attempt budget' {
-        $r = Get-RunnerReloadableConfig -Config $null -CycleDelayFallback 30
+        $r = Get-RunnerReloadableConfig -Config $null -CycleDelaySecondsFallback 30
         Assert-Equal -Expected $true -Actual $r.WarmResumeEnabled -Because 'warm-resume default ON'
         Assert-Equal -Expected 2     -Actual $r.WarmResumeMaxAttempts -Because 'default maxAttempts'
     }
     It 'honors an operator-disabled warm-resume block and coerces maxAttempts' {
         $cfg = @{ testCycle = @{ warmResume = @{ enabled = $false; maxAttempts = '3' } } }
-        $r = Get-RunnerReloadableConfig -Config $cfg -CycleDelayFallback 30
+        $r = Get-RunnerReloadableConfig -Config $cfg -CycleDelaySecondsFallback 30
         Assert-Equal -Expected $false -Actual $r.WarmResumeEnabled -Because 'operator disabled warm-resume'
         Assert-Equal -Expected 3      -Actual $r.WarmResumeMaxAttempts -Because 'operator maxAttempts (int-coerced)'
     }
@@ -316,39 +322,39 @@ Describe 'Get-RunnerReloadableConfig' {
 
 Describe 'New-RunnerConfigState' {
     It 'seeds cache slots null and knobs to defaults' {
-        $s = New-RunnerConfigState -CmdLineLogLevel 'Debug' -CycleDelayFallback 42
+        $s = New-RunnerConfigState -CmdLineLogLevel 'Debug' -CycleDelaySecondsFallback 42
         Assert-Equal -Expected 'Debug' -Actual $s.CmdLineLogLevel -Because 'cmdline level captured'
-        Assert-Equal -Expected 42      -Actual $s.CycleDelayFallback -Because 'fallback captured'
+        Assert-Equal -Expected 42      -Actual $s.CycleDelaySecondsFallback -Because 'fallback captured'
         Assert-True ($null -eq $s.CachedConfigMtime) 'mtime cache empty'
         Assert-True ($null -eq $s.CachedConfigValue) 'value cache empty'
         Assert-True ($null -eq $s.Config) 'config empty'
-        Assert-Equal -Expected 120 -Actual $s.VmStartTimeout -Because 'knob default seeded'
-        Assert-Equal -Expected 42  -Actual $s.CycleDelay -Because 'CycleDelay seeded to fallback'
+        Assert-Equal -Expected 120 -Actual $s.VmStartTimeoutSeconds -Because 'knob default seeded'
+        Assert-Equal -Expected 42  -Actual $s.CycleDelaySeconds -Because 'CycleDelaySeconds seeded to fallback'
     }
 }
 
 Describe 'Sync-RunnerCycleConfig' {
     It 'resolves knobs from a real file and mutates $State by reference' {
-        $yaml = "testCycle:`n  shouldStopOnFailure: true`n  cycleDelaySeconds: 55`nvmStart:`n  startTimeoutSeconds: 300`n  bootDelaySeconds: 20`nvmImage:`n  refreshHours: 12`n"
+        $yaml = "testCycle:`n  stopOnFailure: true`n  cycleDelaySeconds: 55`nvmStart:`n  startTimeoutSeconds: 300`n  bootDelaySeconds: 20`nvmImage:`n  refreshSeconds: 12`n"
         $p = New-TempConfigFile -Content $yaml
         try {
-            $s = New-RunnerConfigState -CmdLineLogLevel $null -CycleDelayFallback 30
+            $s = New-RunnerConfigState -CmdLineLogLevel $null -CycleDelaySecondsFallback 30
             $alias = $s   # second reference to prove by-reference mutation (the scope-collapse guard)
             $status = Sync-RunnerCycleConfig -State $s -ConfigPath $p
             Assert-Equal -Expected 'resolved' -Actual $status -Because 'parsed + dict -> resolved'
             Assert-Equal -Expected $true -Actual $s.StopOnFailure -Because 'StopOnFailure mirrored'
-            Assert-Equal -Expected 300   -Actual $s.VmStartTimeout -Because 'VmStartTimeout mirrored'
-            Assert-Equal -Expected 20    -Actual $s.VmBootDelay -Because 'VmBootDelay mirrored'
-            Assert-Equal -Expected 12    -Actual $s.GetImageRefreshHours -Because 'GetImageRefreshHours mirrored'
-            Assert-Equal -Expected 55    -Actual $s.CycleDelay -Because 'CycleDelay mirrored'
-            Assert-Equal -Expected 300   -Actual $alias.VmStartTimeout -Because 'the other reference sees the same mutation'
+            Assert-Equal -Expected 300   -Actual $s.VmStartTimeoutSeconds -Because 'VmStartTimeoutSeconds mirrored'
+            Assert-Equal -Expected 20    -Actual $s.VmBootDelaySeconds -Because 'VmBootDelaySeconds mirrored'
+            Assert-Equal -Expected 12    -Actual $s.GetImageRefreshSeconds -Because 'GetImageRefreshSeconds mirrored'
+            Assert-Equal -Expected 55    -Actual $s.CycleDelaySeconds -Because 'CycleDelaySeconds mirrored'
+            Assert-Equal -Expected 300   -Actual $alias.VmStartTimeoutSeconds -Because 'the other reference sees the same mutation'
         } finally { Remove-Item $p -Force -ErrorAction SilentlyContinue }
     }
     It 'returns the cached Config object on an unchanged file (no re-parse)' {
         $yaml = "vmStart:`n  startTimeoutSeconds: 150`n"
         $p = New-TempConfigFile -Content $yaml
         try {
-            $s = New-RunnerConfigState -CmdLineLogLevel $null -CycleDelayFallback 30
+            $s = New-RunnerConfigState -CmdLineLogLevel $null -CycleDelaySecondsFallback 30
             $null = Sync-RunnerCycleConfig -State $s -ConfigPath $p
             $first = $s.Config
             $null = Sync-RunnerCycleConfig -State $s -ConfigPath $p   # unchanged mtime -> cache hit
@@ -359,20 +365,20 @@ Describe 'Sync-RunnerCycleConfig' {
     It 'keeps previously resolved values and returns failed when a later read fails' {
         $yaml = "vmStart:`n  startTimeoutSeconds: 175`n"
         $p = New-TempConfigFile -Content $yaml
-        $s = New-RunnerConfigState -CmdLineLogLevel $null -CycleDelayFallback 30
+        $s = New-RunnerConfigState -CmdLineLogLevel $null -CycleDelaySecondsFallback 30
         $null = Sync-RunnerCycleConfig -State $s -ConfigPath $p
-        Assert-Equal -Expected 175 -Actual $s.VmStartTimeout -Because 'resolved good value first'
+        Assert-Equal -Expected 175 -Actual $s.VmStartTimeoutSeconds -Because 'resolved good value first'
         $prevConfig = $s.Config
         Remove-Item $p -Force -ErrorAction SilentlyContinue   # force a read failure on the next sync
         $status = Sync-RunnerCycleConfig -State $s -ConfigPath $p
         Assert-Equal -Expected 'failed' -Actual $status -Because 'read failure -> failed'
-        Assert-Equal -Expected 175 -Actual $s.VmStartTimeout -Because 'knob kept at last-known-good'
+        Assert-Equal -Expected 175 -Actual $s.VmStartTimeoutSeconds -Because 'knob kept at last-known-good'
         Assert-True ([object]::ReferenceEquals($prevConfig, $s.Config)) 'Config kept (not wiped) on failure'
     }
     It 'returns failed on malformed YAML without throwing' {
         $p = New-TempConfigFile -Content "vmStart: [unterminated"
         try {
-            $s = New-RunnerConfigState -CmdLineLogLevel $null -CycleDelayFallback 30
+            $s = New-RunnerConfigState -CmdLineLogLevel $null -CycleDelaySecondsFallback 30
             $status = Sync-RunnerCycleConfig -State $s -ConfigPath $p -WarningAction SilentlyContinue
             Assert-Equal -Expected 'failed' -Actual $status -Because 'malformed yaml -> failed'
             Assert-True ($null -eq $s.Config) 'Config stays null when first parse fails'
@@ -381,7 +387,7 @@ Describe 'Sync-RunnerCycleConfig' {
     It 'returns nondict when the parsed value is a scalar' {
         $p = New-TempConfigFile -Content "just-a-scalar-string"
         try {
-            $s = New-RunnerConfigState -CmdLineLogLevel $null -CycleDelayFallback 30
+            $s = New-RunnerConfigState -CmdLineLogLevel $null -CycleDelaySecondsFallback 30
             $status = Sync-RunnerCycleConfig -State $s -ConfigPath $p
             Assert-Equal -Expected 'nondict' -Actual $status -Because 'scalar config -> nondict'
         } finally { Remove-Item $p -Force -ErrorAction SilentlyContinue }
@@ -397,16 +403,16 @@ Describe 'Convert-LocalRepoUrlToPath' {
     }
 }
 
-Describe 'Assert-CachingProxyStillReachable' {
+Describe 'Assert-CachingProxyServiceStillReachable' {
     It 'no-ops without warning on an empty or non-http URL' {
         $out = @()
-        $out += Assert-CachingProxyStillReachable -ProxyUrl '' -StepName 'New-VM' -GuestKey 'g' 3>&1
-        $out += Assert-CachingProxyStillReachable -ProxyUrl 'not-a-url' -StepName 'New-VM' -GuestKey 'g' 3>&1
+        $out += Assert-CachingProxyServiceStillReachable -ProxyUrl '' -StepName 'New-VM' -GuestKey 'g' 3>&1
+        $out += Assert-CachingProxyServiceStillReachable -ProxyUrl 'not-a-url' -StepName 'New-VM' -GuestKey 'g' 3>&1
         $warnings = @($out | Where-Object { $_ -is [System.Management.Automation.WarningRecord] })
         Assert-Equal -Expected 0 -Actual $warnings.Count -Because 'no warnings on the no-op paths'
     }
     It 'warns when the proxy URL does not answer (1s probe to TEST-NET-1)' {
-        $out = Assert-CachingProxyStillReachable -ProxyUrl 'http://192.0.2.1:3128' -StepName 'New-VM' -GuestKey 'g' 3>&1
+        $out = Assert-CachingProxyServiceStillReachable -ProxyUrl 'http://192.0.2.1:3128' -StepName 'New-VM' -GuestKey 'g' 3>&1
         $warnings = @($out | Where-Object { $_ -is [System.Management.Automation.WarningRecord] })
         Assert-True ($warnings.Count -ge 1) 'unreachable proxy surfaces a warning'
     }
@@ -460,7 +466,7 @@ Describe 'gitCommits array-shape (double-wrap regression guard)' {
     # so a one-element list does not unroll -- the helper already hands back an
     # array. The status doc's gitCommits must be a FLAT array of {sha,repoUrl}
     # ([{...},{...}]); a nested array ([[{...}]]) is rejected by the status schema
-    # reader and by the pool aggregator (json: cannot unmarshal array into the
+    # reader and by the pool-aggregator service (json: cannot unmarshal array into the
     # gitCommits struct), which then cannot parse the whole status.json and drops
     # the host from the pool view. Guards the array-double-wrap trap class.
     It 'New-CycleGitCommitList assigned directly yields a flat array of {sha,repoUrl}' {
@@ -501,6 +507,55 @@ Describe 'gitCommits array-shape (double-wrap regression guard)' {
             'New-CycleGitCommitList must receive the resolved $projLinkUrl'
         Assert-True (-not ($src -match '-ProjectGitCommit\s+\$ProjectGitCommit\s+-ProjectUrl\s+\$projUrl\b')) `
             'the raw $projUrl must not reach New-CycleGitCommitList directly'
+    }
+}
+
+Describe 'Cycle VM naming strategy (one naming prefix vs many sweep prefixes)' {
+    # Composing a VM name takes exactly ONE prefix; sweeping disposable VMs
+    # matches MANY. Feeding the sweep list to the name composer binds a
+    # [string[]] to a [string] parameter, which an advanced function refuses
+    # ("Cannot process argument transformation on parameter 'Prefix'. Cannot
+    # convert value to type System.String") -- a simple function would silently
+    # join the entries with a space instead and mis-name every guest. Either way
+    # the cycle dies before its first guest, and ANY config whose
+    # vmStart.cleanupVmNamePrefixes adds a second prefix reaches that state.
+    It 'keeps Prefix a single string while SweepPrefixes carries every disposable prefix' {
+        InModuleScope Test.RunnerInnerLoop {
+            $cfg = @{ vmStart = @{
+                testVmNamePrefix      = 'test-'
+                cleanupVmNamePrefixes = @('amisad-', 'test-', 'yuruna-')
+            } }
+            $strategy = Resolve-CycleVmNamingStrategy -Config $cfg -IsPoolCycle $false -HostId ''
+            if ($strategy.Prefix -isnot [string]) {
+                throw "Prefix must be a single string, got [$($strategy.Prefix.GetType().Name)]"
+            }
+            if ($strategy.Prefix -ne 'test-') { throw "naming prefix wrong: $($strategy.Prefix)" }
+            $sweep = @($strategy.SweepPrefixes)
+            if ($sweep.Count -ne 3) { throw "expected 3 sweep prefixes, got $($sweep.Count): $($sweep -join ',')" }
+            if ($sweep -notcontains 'amisad-') { throw 'the project prefix must stay in the sweep set' }
+        }
+    }
+    It 'composes the VM name map when several cleanup prefixes are configured' {
+        InModuleScope Test.RunnerInnerLoop {
+            $cfg = @{ vmStart = @{
+                testVmNamePrefix      = 'test-'
+                cleanupVmNamePrefixes = @('amisad-', 'test-', 'yuruna-')
+            } }
+            $strategy = Resolve-CycleVmNamingStrategy -Config $cfg -IsPoolCycle $false -HostId ''
+            $map = New-CycleVmNameMap -GuestList @('ubuntu2404') -Prefix $strategy.Prefix -HostId $strategy.PoolHostId
+            if ($map['ubuntu2404'] -ne 'test-ubuntu2404-01') {
+                throw "expected 'test-ubuntu2404-01', got '$($map['ubuntu2404'])'"
+            }
+        }
+    }
+    It 'the sweep call sites receive the sweep list, not the naming prefix' {
+        $src = Get-Content -LiteralPath (Join-Path $here 'Test.RunnerInnerLoop.psm1') -Raw
+        Assert-True ($src -match 'Remove-CycleStartOrphanVM\s+-TestRoot\s+\$TestRoot\s+-Prefix\s+\$_sweepPrefixes') `
+            'the cycle-start sweep must get every disposable prefix, not just the naming one'
+        Assert-True ($src -match 'Remove-CycleTeardownOrphanVM\s+.*-Prefix\s+\$_sweepPrefixes') `
+            'the teardown sweep must get every disposable prefix, not just the naming one'
+        Assert-True ($src -match 'New-CycleVmNameMap\s+-GuestList\s+\$GuestList\s+-Prefix\s+\$Prefix\b') `
+            'the name composer must get the single naming prefix, never the sweep list'
     }
 }
 
@@ -632,7 +687,7 @@ Describe 'Invoke-RunnerBootstrapFailureGate (shared bootstrap-failure gating)' {
         function global:Send-CycleFailureNotification {
             [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', '',
                 Justification = 'Stub mirrors the Send-CycleFailureNotification signature the gate binds by name; only the recorded subset is asserted, but dropping a parameter breaks the call.')]
-            param($HostType, $SubjectSuffix, $GuestKey, $StepName, $ErrorMessage, $CycleId, $GitCommit, $DefaultFailureClass, $DefaultSeverity)
+            param($HostType, $SubjectSuffix, $GuestKey, $StepName, $ErrorMessage, $CycleStartUtc, $GitCommit, $DefaultFailureClass, $DefaultSeverity)
             $global:__gateNotifyCount++
             $global:__gateNotifyArgs = @{ SubjectSuffix = $SubjectSuffix; FailureClass = $DefaultFailureClass; ErrorMessage = $ErrorMessage; GitCommit = $GitCommit }
         }
@@ -657,7 +712,7 @@ Describe 'Invoke-RunnerBootstrapFailureGate (shared bootstrap-failure gating)' {
         function global:Send-CycleFailureNotification {
             [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', '',
                 Justification = 'Stub mirrors the Send-CycleFailureNotification signature the gate binds by name; this case asserts only the call COUNT, but dropping a parameter breaks the call.')]
-            param($HostType, $SubjectSuffix, $GuestKey, $StepName, $ErrorMessage, $CycleId, $GitCommit, $DefaultFailureClass, $DefaultSeverity)
+            param($HostType, $SubjectSuffix, $GuestKey, $StepName, $ErrorMessage, $CycleStartUtc, $GitCommit, $DefaultFailureClass, $DefaultSeverity)
             $global:__gateNotifyCount++
         }
         try {
@@ -679,7 +734,7 @@ Describe 'Invoke-RunnerBootstrapFailureGate (shared bootstrap-failure gating)' {
         function global:Send-CycleFailureNotification {
             [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', '',
                 Justification = 'Stub mirrors the Send-CycleFailureNotification signature the gate binds by name; this case asserts only the call COUNT, but dropping a parameter breaks the call.')]
-            param($HostType, $SubjectSuffix, $GuestKey, $StepName, $ErrorMessage, $CycleId, $GitCommit, $DefaultFailureClass, $DefaultSeverity)
+            param($HostType, $SubjectSuffix, $GuestKey, $StepName, $ErrorMessage, $CycleStartUtc, $GitCommit, $DefaultFailureClass, $DefaultSeverity)
             $global:__gateNotifyCount++
         }
         try {
@@ -774,7 +829,7 @@ Describe 'Inner-cycle guest-iteration failure-path invariants (carry-back + arti
     #      failure fields from the iteration bag -- because Complete-CycleRun and the
     #      outer catch read the caller-local $Config; dropping either re-read silently
     #      trims run history with a stale display count.
-    #  (2) failure artifacts are copied BEFORE the shouldStopOnFailure return, so the
+    #  (2) failure artifacts are copied BEFORE the stopOnFailure return, so the
     #      debug folder exists on both the stop and the continue paths.
     It 'the iteration re-reads $StopOnFailure after every per-step Sync (fresh stop-guard)' {
         $f = Get-InnerCycleControlFlow -Psm1Path (Join-Path $here 'Test.RunnerInnerLoop.psm1')
@@ -787,7 +842,7 @@ Describe 'Inner-cycle guest-iteration failure-path invariants (carry-back + arti
         Assert-True ($f.CallerConfigRehydrate -ge 1) "dispatcher must re-read `$Config from `$cfg after the iteration, found $($f.CallerConfigRehydrate)"
         Assert-True ($f.CallerFailureRehydrate -eq 4) "dispatcher must carry back the 4 failure fields from the iteration bag, found $($f.CallerFailureRehydrate)"
     }
-    It 'failure artifacts are copied before every shouldStopOnFailure return (both paths)' {
+    It 'failure artifacts are copied before every stopOnFailure return (both paths)' {
         $f = Get-InnerCycleControlFlow -Psm1Path (Join-Path $here 'Test.RunnerInnerLoop.psm1')
         Assert-True ($f.HelperStopReturns -eq 6) "expected 6 if(`$StopOnFailure){...return} guards, found $($f.HelperStopReturns)"
         Assert-True ($f.HelperStopReturnsWithCopy -eq $f.HelperStopReturns) "each stop-guard must be preceded by Copy-FailureArtifactsToStatusLog ($($f.HelperStopReturnsWithCopy)/$($f.HelperStopReturns))"
@@ -800,22 +855,22 @@ Describe 'Invoke-GuestProvisionIteration failure dispatch (runtime -- the paths 
     # with its collaborators stubbed (host-contract commands are unresolved in a unit
     # run, so global stubs resolve; the two module-internal collaborators that do real
     # I/O are Mocked). It asserts the control signal, the carried-back failure fields,
-    # and the teardown asymmetry: shouldStopOnFailure=true leaves the VM for
+    # and the teardown asymmetry: stopOnFailure=true leaves the VM for
     # investigation (pre-cleanup only), false tears it down before the next guest.
     # The driver itself is Invoke-NewVmFailureIteration, defined at file scope above.
-    It 'New-VM failure + shouldStopOnFailure=true signals break, carries the failure back, leaves the VM' {
+    It 'New-VM failure + stopOnFailure=true signals break, carries the failure back, leaves the VM' {
         $o = Invoke-NewVmFailureIteration -StopOnFailure $true
         Assert-True ($o.Iter.Control -eq 'break') "expected Control=break, got $($o.Iter.Control)"
         Assert-True ($o.Iter.OverallPassed -eq $false) 'OverallPassed must carry back false'
         Assert-True ($o.Iter.FailedStep -eq 'New-VM') "FailedStep must be New-VM, got $($o.Iter.FailedStep)"
         Assert-True ($o.Iter.FailedGuest -eq 'g1') "FailedGuest must be g1, got $($o.Iter.FailedGuest)"
-        Assert-True ($o.Rm -eq 1) "shouldStopOnFailure=true must NOT tear down (pre-cleanup only); Remove-GuestVMQuietly calls=$($o.Rm)"
+        Assert-True ($o.Rm -eq 1) "stopOnFailure=true must NOT tear down (pre-cleanup only); Remove-GuestVMQuietly calls=$($o.Rm)"
     }
-    It 'New-VM failure + shouldStopOnFailure=false signals continue and tears the VM down' {
+    It 'New-VM failure + stopOnFailure=false signals continue and tears the VM down' {
         $o = Invoke-NewVmFailureIteration -StopOnFailure $false
         Assert-True ($o.Iter.Control -eq 'continue') "expected Control=continue, got $($o.Iter.Control)"
         Assert-True ($o.Iter.OverallPassed -eq $false) 'OverallPassed must carry back false'
         Assert-True ($o.Iter.FailedStep -eq 'New-VM') "FailedStep must be New-VM, got $($o.Iter.FailedStep)"
-        Assert-True ($o.Rm -eq 2) "shouldStopOnFailure=false must tear down (pre-cleanup + post-fail); Remove-GuestVMQuietly calls=$($o.Rm)"
+        Assert-True ($o.Rm -eq 2) "stopOnFailure=false must tear down (pre-cleanup + post-fail); Remove-GuestVMQuietly calls=$($o.Rm)"
     }
 }

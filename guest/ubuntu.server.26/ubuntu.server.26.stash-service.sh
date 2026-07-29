@@ -1,9 +1,9 @@
 #!/bin/bash
-# Version: 2026.07.28
+# Version: 2026.07.29
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 #
-# Bring up the Yuruna Stash Service daemon: build the in-repo Go stash-server,
+# Bring up the Yuruna stash service daemon: build the in-repo Go stash-service,
 # bind :22, and register its systemd unit (the cifs share is mounted by the
 # cloud-init bring-up, not here). User guide:
 # --- REGION: https://yuruna.link/stash-guide
@@ -40,7 +40,7 @@ if [ -r /usr/local/lib/yuruna/yuruna-retry.sh ]; then
   # wrapped-apt teardown-hang trap class (apt blocks at end-of-transaction
   # under a timeout(1) parent). Force unbounded regardless of the image's
   # lib vintage; remove once no image predates the lib's unbounded default.
-  export YURUNA_APT_STALL_TIMEOUT=0
+  export YURUNA_APT_STALL_TIMEOUT_SECONDS=0
 fi
 
 # --- REGION: Service user
@@ -71,15 +71,15 @@ HOST_ID=$(get_env YSTASH_NAS_HOST_ID)
 MOUNT=$(get_env YSTASH_NAS_MOUNT)
 MOUNT=${MOUNT:-/mnt/ystash-nas}
 
-METADATA_DIR=/var/lib/stash-server/metadata
-BUFFER_DIR=/var/lib/stash-server/buffer
-LOCAL_FALLBACK=/var/lib/stash-server/share-local
+METADATA_DIR=/var/lib/stash-service/metadata
+BUFFER_DIR=/var/lib/stash-service/buffer
+LOCAL_FALLBACK=/var/lib/stash-service/share-local
 
 # UI/API HTTP listener + pool knobs.
 # Operator-overridable via the environment; sensible defaults otherwise.
 # HTTP_ADDR binds :80 (the unprivileged service user holds
 # CAP_NET_BIND_SERVICE, set below, which covers any port <1024).
-# AGGREGATOR_URL is the pool-aggregator base (e.g. https://<proxy>:9400) for
+# AGGREGATOR_URL is the pool-aggregator-service base (e.g. https://<proxy>:9400) for
 # the remote-host deep-link (§3.4) and the presence beacon (§4.7). The
 # operator export wins; otherwise the host-baked seed value from
 # /etc/yuruna/pool.env; empty leaves both best-effort/off.
@@ -94,11 +94,11 @@ AGGREGATOR_URL="${STASH_AGGREGATOR_URL:-$AGGREGATOR_URL_SEED}"
 # reads and writes stay open to any host. Sed-extracted from the seed's
 # host.env (never sourced); empty leaves deletes VM-local-only. An operator
 # STASH_HOST_IP export wins for a dev launch off the seed.
-HOST_IP_SEED=$(sed -nE 's/^YURUNA_HOST_IP=(.*)$/\1/p' /etc/yuruna/host.env 2>/dev/null | head -n1 || true)
+HOST_IP_SEED=$(sed -nE 's/^YURUNA_STATUS_SERVICE_IP=(.*)$/\1/p' /etc/yuruna/host.env 2>/dev/null | head -n1 || true)
 HOST_IP="${STASH_HOST_IP:-$HOST_IP_SEED}"
 # Presence beacon (§4.7): the daemon self-announces to the aggregator on
 # boot, every PRESENCE_INTERVAL, and at shutdown, so the pool dashboard's
-# Extension hosts row exists without the owning host's status server. The
+# Extension hosts row exists without the owning host's status service. The
 # announce runs under the HOST's identity (HOST_ID, extracted above from the
 # stash storage env); no stash storage -> no host identity -> beacon off.
 PRESENCE_INTERVAL="${STASH_PRESENCE_INTERVAL:-15m}"
@@ -169,7 +169,7 @@ go version
 # Stage to a user-writable dir so the module cache lands under this user's
 # $HOME/go. go.sum is committed, so DO NOT run `go mod tidy` (it needs the
 # network to recompute the graph); `go build` verifies against go.sum and
-# fetches any missing modules through the caching proxy.
+# fetches any missing modules through the caching-proxy service.
 BUILD_DIR=/tmp/stash-build
 echo ""
 echo -e "\e[1;36m==== Staging source to $BUILD_DIR ====\e[0m"
@@ -177,12 +177,12 @@ sudo rm -rf "$BUILD_DIR"
 sudo cp -r "$SERVER_SRC" "$BUILD_DIR"
 sudo chown -R "$(id -un):$(id -gn)" "$BUILD_DIR"
 echo ""
-echo -e "\e[1;36m==== stash-server ====\e[0m"
+echo -e "\e[1;36m==== stash-service ====\e[0m"
 cd "$BUILD_DIR"
 attempts=3
 delay=10
 for try in $(seq 1 "$attempts"); do
-  if go build ${BUILD_TAGS:+-tags "$BUILD_TAGS"} -ldflags "-X main.version=$VERSION_STR" -o stash-server .; then
+  if go build ${BUILD_TAGS:+-tags "$BUILD_TAGS"} -ldflags "-X main.version=$VERSION_STR" -o stash-service .; then
     break
   fi
   if [ "$try" -ge "$attempts" ]; then
@@ -195,15 +195,15 @@ for try in $(seq 1 "$attempts"); do
 done
 
 echo ""
-echo -e "\e[1;36m==== /usr/local/bin/stash-server ====\e[0m"
-sudo install -m 0755 -o root -g root "$BUILD_DIR/stash-server" /usr/local/bin/stash-server
+echo -e "\e[1;36m==== /usr/local/bin/stash-service ====\e[0m"
+sudo install -m 0755 -o root -g root "$BUILD_DIR/stash-service" /usr/local/bin/stash-service
 # Allow the unprivileged service user to bind the privileged ports :22
 # (SCP/SFTP sink) AND :80 (UI/API). Under the systemd unit the LOAD-BEARING
 # grant is AmbientCapabilities=CAP_NET_BIND_SERVICE: with NoNewPrivileges=true
 # the kernel ignores file capabilities at execve, so this setcap does NOT
 # reach the systemd-launched process. The setcap is the fallback for a
 # DIRECT (non-systemd) launch, where no_new_privs is not set.
-sudo setcap 'cap_net_bind_service=+ep' /usr/local/bin/stash-server
+sudo setcap 'cap_net_bind_service=+ep' /usr/local/bin/stash-service
 
 # §4.2 mandates the custom daemon binds :22, so the OS sshd has to go.
 # `disable --now` is idempotent.
@@ -214,12 +214,12 @@ sudo systemctl disable --now ssh.socket  2>/dev/null || true
 
 # --- REGION: VM-local dirs (metadata index + offline buffer), owned by the user
 echo ""
-echo -e "\e[1;36m==== VM-local storage: /var/lib/stash-server ====\e[0m"
+echo -e "\e[1;36m==== VM-local storage: /var/lib/stash-service ====\e[0m"
 sudo mkdir -p "$METADATA_DIR" "$BUFFER_DIR"
 if [ "$SHARE_FOLDER" = "$LOCAL_FALLBACK" ]; then
   sudo mkdir -p "$LOCAL_FALLBACK"
 fi
-sudo chown -R "$SERVICE_USER":"$SERVICE_USER" /var/lib/stash-server
+sudo chown -R "$SERVICE_USER":"$SERVICE_USER" /var/lib/stash-service
 echo "  metadata: $METADATA_DIR"
 echo "  buffer  : $BUFFER_DIR"
 
@@ -246,10 +246,10 @@ ENV
 # guest with no NAS the mnt-ystash\x2dnas.mount unit doesn't exist (After= a
 # missing unit is a harmless no-op).
 echo ""
-echo -e "\e[1;36m==== /etc/systemd/system/stash-server.service ====\e[0m"
-sudo tee /etc/systemd/system/stash-server.service >/dev/null <<UNIT
+echo -e "\e[1;36m==== /etc/systemd/system/stash-service.service ====\e[0m"
+sudo tee /etc/systemd/system/stash-service.service >/dev/null <<UNIT
 [Unit]
-Description=Yuruna Stash Service daemon
+Description=Yuruna stash service daemon
 Documentation=https://yuruna.link/stash-guide
 After=network-online.target mnt-ystash\x2dnas.mount
 Wants=network-online.target
@@ -258,7 +258,7 @@ Wants=network-online.target
 Type=simple
 User=$SERVICE_USER
 EnvironmentFile=/etc/yuruna/stash.env
-ExecStart=/usr/local/bin/stash-server --share-folder \${SHARE_FOLDER} --metadata-dir \${METADATA_DIR} --buffer-dir \${BUFFER_DIR} --http-addr=\${HTTP_ADDR} --pool-window-days=\${POOL_WINDOW_DAYS} --aggregator-url=\${AGGREGATOR_URL} --host-id=\${HOST_ID} --host-ip=\${HOST_IP} --presence-interval=\${PRESENCE_INTERVAL}
+ExecStart=/usr/local/bin/stash-service --share-folder \${SHARE_FOLDER} --metadata-dir \${METADATA_DIR} --buffer-dir \${BUFFER_DIR} --http-addr=\${HTTP_ADDR} --pool-window-days=\${POOL_WINDOW_DAYS} --aggregator-url=\${AGGREGATOR_URL} --host-id=\${HOST_ID} --host-ip=\${HOST_IP} --presence-interval=\${PRESENCE_INTERVAL}
 Restart=on-failure
 RestartSec=5
 StandardOutput=journal
@@ -277,36 +277,36 @@ CapabilityBoundingSet=CAP_NET_BIND_SERVICE
 NoNewPrivileges=true
 ProtectSystem=full
 ProtectHome=false
-ReadWritePaths=/var/lib/stash-server -$MOUNT
+ReadWritePaths=/var/lib/stash-service -$MOUNT
 
 [Install]
 WantedBy=multi-user.target
 UNIT
 
 echo ""
-echo -e "\e[1;36m==== stash-server.service start and enable ====\e[0m"
+echo -e "\e[1;36m==== stash-service.service start and enable ====\e[0m"
 sudo systemctl daemon-reload
-sudo systemctl enable --now stash-server.service
+sudo systemctl enable --now stash-service.service
 
 # Wait briefly for the unit to settle (binding :22 is fast, but the Go
 # runtime adds a couple hundred ms before the first listen).
 for _ in 1 2 3 4 5 6; do
-  if sudo systemctl is-active --quiet stash-server.service; then
+  if sudo systemctl is-active --quiet stash-service.service; then
     break
   fi
   sleep 1
 done
 
-if ! sudo systemctl is-active --quiet stash-server.service; then
-  echo "stash-server.service did not reach active state. journalctl tail:" >&2
-  sudo journalctl -u stash-server.service -n 50 --no-pager >&2 || true
+if ! sudo systemctl is-active --quiet stash-service.service; then
+  echo "stash-service.service did not reach active state. journalctl tail:" >&2
+  sudo journalctl -u stash-service.service -n 50 --no-pager >&2 || true
   exit 1
 fi
 ss -ltnp '( sport = :22 or sport = :80 )' 2>/dev/null | sed -n '1,6p' || true
 
 echo ""
-echo "== Stash Service ready =="
-echo "  Binary     : /usr/local/bin/stash-server"
+echo "== stash service ready =="
+echo "  Binary     : /usr/local/bin/stash-service"
 echo "  StashFolder: $SHARE_FOLDER"
 echo "  Metadata   : $METADATA_DIR"
 echo "  Buffer     : $BUFFER_DIR"
@@ -315,7 +315,7 @@ if [ -n "$HTTP_ADDR" ]; then
 else
   echo "  UI/API     : disabled (STASH_HTTP_ADDR empty)"
 fi
-echo "  systemd    : sudo systemctl status stash-server.service"
-echo "  logs       : sudo journalctl -u stash-server.service -f"
+echo "  systemd    : sudo systemctl status stash-service.service"
+echo "  logs       : sudo journalctl -u stash-service.service -f"
 echo "  Exercise   : scp ./file alice@<vm-ip>:/scratch"
 echo "               (any username / any password / any key accepted; §4.3)"

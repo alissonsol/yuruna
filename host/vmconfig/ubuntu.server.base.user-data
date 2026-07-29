@@ -57,7 +57,7 @@ APT_PROXY_BLOCK_PLACEHOLDER
         CACHE_HOST=$(echo "CACHING_PROXY_URL_PLACEHOLDER" | sed -E 's|^https?://([^:/]+).*|\1|')
         CACHE_HTTP_PORT=$(echo "CACHING_PROXY_URL_PLACEHOLDER" | sed -nE 's|^https?://[^:/]+:([0-9]+).*|\1|p')
         [ -z "$CACHE_HTTP_PORT" ] && CACHE_HTTP_PORT=3128
-        NO_PROXY_LIST="localhost,127.0.0.1,${CACHE_HOST},YURUNA_HOST_IP_PLACEHOLDER,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,169.254.0.0/16,::1"
+        NO_PROXY_LIST="localhost,127.0.0.1,${CACHE_HOST},YURUNA_STATUS_SERVICE_IP_PLACEHOLDER,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,169.254.0.0/16,::1"
         cat >> /target/etc/environment << EOF
       http_proxy="http://${CACHE_HOST}:${CACHE_HTTP_PORT}/"
       https_proxy="http://${CACHE_HOST}:3129/"
@@ -164,8 +164,8 @@ APT_PROXY_BLOCK_PLACEHOLDER
     - mkdir -p /target/etc/yuruna
     - |
       cat > /target/etc/yuruna/host.env << 'EOF'
-      YURUNA_HOST_IP=YURUNA_HOST_IP_PLACEHOLDER
-      YURUNA_HOST_PORT=YURUNA_HOST_PORT_PLACEHOLDER
+      YURUNA_STATUS_SERVICE_IP=YURUNA_STATUS_SERVICE_IP_PLACEHOLDER
+      YURUNA_STATUS_SERVICE_PORT=YURUNA_STATUS_SERVICE_PORT_PLACEHOLDER
       YURUNA_GITHUB_REPO=YURUNA_GITHUB_REPO_PLACEHOLDER
       YURUNA_GITHUB_REF=YURUNA_GITHUB_REF_PLACEHOLDER
       YURUNA_FRAMEWORK_URL=YURUNA_FRAMEWORK_URL_PLACEHOLDER
@@ -173,11 +173,11 @@ APT_PROXY_BLOCK_PLACEHOLDER
       EOF
     - |
       grep -q yuruna-host /target/etc/hosts || \
-        echo "YURUNA_HOST_IP_PLACEHOLDER yuruna-host" >> /target/etc/hosts
+        echo "YURUNA_STATUS_SERVICE_IP_PLACEHOLDER yuruna-host" >> /target/etc/hosts
     # --- REGION: https://yuruna.link/vmconfig#wget-no_proxy
     - |
       cat >> /target/etc/wgetrc << 'EOF'
-      no_proxy = YURUNA_HOST_IP_PLACEHOLDER
+      no_proxy = YURUNA_STATUS_SERVICE_IP_PLACEHOLDER
       EOF
     # --- REGION: https://yuruna.link/vmconfig#install-yuruna-lib
     - mkdir -p /target/usr/local/lib/yuruna
@@ -254,8 +254,8 @@ APT_PROXY_BLOCK_PLACEHOLDER
   error-commands:
     - |
       set +e
-      HOST_IP="YURUNA_HOST_IP_PLACEHOLDER"
-      HOST_PORT="YURUNA_HOST_PORT_PLACEHOLDER"
+      HOST_IP="YURUNA_STATUS_SERVICE_IP_PLACEHOLDER"
+      HOST_PORT="YURUNA_STATUS_SERVICE_PORT_PLACEHOLDER"
       if [ -z "$HOST_IP" ] || [ -z "$HOST_PORT" ]; then
           echo "yuruna error-commands: no host coordinates baked in -- skipping log upload" >&2
           exit 0

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.28
+.VERSION 2026.07.29
 .GUID 42d0e1f2-a3b4-4c56-9789-0b1c2d3e4f53
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -47,7 +47,7 @@ function Initialize-YurunaHost {
     .DESCRIPTION
     Determines the current host via Get-HostType, builds the absolute
     path to its Yuruna.Host.psm1, and imports it with -Global so every
-    test/ caller (Invoke-TestRunner.ps1, Test-Sequence.ps1,
+    test/ caller (Invoke-TestRunner.ps1, Invoke-TestSequence.ps1,
     sequence extensions, etc.) resolves the interface names directly.
 
     The driver's New-VM/Start-VM/Stop-VM/Get-VM/Remove-VM exports shadow

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.28
+.VERSION 2026.07.29
 .GUID 42a1b2c3-d4e5-4f67-8901-bc012345672a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -45,6 +45,28 @@ $script:Fail = Get-SequenceFailureState
 # Test.NonzeroExitSentinel drift-guard asserts the bash producer agrees.
 $script:NonzeroScriptExitSentinel = 'NONZERO SCRIPT EXIT:'
 
+# Console-typed length above which a fetchAndExecute step is flagged.
+#
+# fetchAndExecute does not pipe its command anywhere -- it TYPES it into the
+# guest console, one key event per character, and the whole line has to land
+# intact. Long lines have been observed to corrupt mid-send on host.macos.utm
+# (RFB -> QEMU -> guest): characters silently dropped, and then a key left
+# held down that the guest kernel auto-repeats at the console default of
+# ~30 chars/sec, filling the screen until the VM is rebuilt. Cycles
+# 001927-001929 on 2026-07-29 lost the same 557-character send three times,
+# each run degrading around character ~416; the 370- and 410-character sends
+# in that same sequence were unaffected.
+#
+# 400 sits just under the longest length observed to survive. This is a
+# WARNING, not a cap: the fix for a long step is to move the work into the
+# fetched script, where it costs no keystrokes -- not to raise this number.
+#
+# AUTHORS: the budget is NOT the yml `text:` on its own. Get-FetchExecuteEnvPrefix
+# prepends ~280 characters of integrity envelope (two SHA-256 digests plus the
+# fallback repo and commit), so a 276-character `text:` is really a 557-character
+# send. Keeping `text:` near 120 characters leaves comfortable headroom.
+$script:FetchExecuteTypedCharWarn = 400
+
 function Get-NonzeroScriptExitSentinel {
     <#
     .SYNOPSIS
@@ -68,7 +90,7 @@ Import-Module (Join-Path $PSScriptRoot 'Test.OcrMatch.psm1') -Force -Global
 Import-Module (Join-Path $PSScriptRoot 'Test.Backoff.psm1') -Force -Global
 
 # fetchAndExecute tells the guest which GitHub repo + commit to fall back to when
-# the host status server is unreachable. Get-YurunaGitHubSource answers that from
+# the host status service is unreachable. Get-YurunaGitHubSource answers that from
 # the same place the New-VM seed does, so the typed and the baked coordinates can
 # never name different repositories.
 Import-Module (Join-Path -Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) -ChildPath 'automation' -AdditionalChildPath 'Yuruna.GitHubSource.psm1') -Force -Global
@@ -136,7 +158,7 @@ function Send-TabNavigation {
     if ($tabCount -gt 0) {
         Write-Debug "      Sending $tabCount Tab(s) to reach the target element"
         for ($t = 0; $t -lt $tabCount; $t++) {
-            Invoke-Sequence\Send-Key -HostType $Context.HostType -VMName $Context.VMName -KeyName 'Tab' | Out-Null
+            Test.SequenceEngine\Send-Key -HostType $Context.HostType -VMName $Context.VMName -KeyName 'Tab' | Out-Null
             Start-Sleep -Milliseconds 300
         }
         Start-Sleep -Milliseconds 500
@@ -165,7 +187,7 @@ function Invoke-TypeDrainEnter {
         [Parameter(Mandatory)][string]$Activity,
         [switch]$ShellEscape
     )
-    $ok = Invoke-Sequence\Send-Text -HostType $Context.HostType -VMName $Context.VMName -Text $Text -CharDelayMs $CharDelayMs -ShellEscape:$ShellEscape
+    $ok = Test.SequenceEngine\Send-Text -HostType $Context.HostType -VMName $Context.VMName -Text $Text -CharDelayMs $CharDelayMs -ShellEscape:$ShellEscape
     if ($ok -eq $false) { return $false }
     $delaySecsInt = [int][math]::Ceiling($DelaySeconds)
     for ($r = $delaySecsInt; $r -gt 0; $r--) {
@@ -175,7 +197,7 @@ function Invoke-TypeDrainEnter {
     }
     Write-ProgressTick -Activity $Activity -Completed
     Start-Sleep -Milliseconds 800
-    return [bool](Invoke-Sequence\Send-Key -HostType $Context.HostType -VMName $Context.VMName -KeyName 'Enter')
+    return [bool](Test.SequenceEngine\Send-Key -HostType $Context.HostType -VMName $Context.VMName -KeyName 'Enter')
 }
 
 Register-SequenceAction -Name 'waitForSeconds' -HostIORequirement @() -OcrRequired $false `
@@ -202,7 +224,7 @@ Register-SequenceAction -Name 'pressKey' -HostIORequirement @('Send-Key') -OcrRe
         param([hashtable]$c)
         $keyName = $c.Step.name
         Write-Debug "      Sending key '$keyName'..."
-        return [bool](Invoke-Sequence\Send-Key -HostType $c.HostType -VMName $c.VMName -KeyName $keyName)
+        return [bool](Test.SequenceEngine\Send-Key -HostType $c.HostType -VMName $c.VMName -KeyName $keyName)
     }
 
 Register-SequenceAction -Name 'break' -HostIORequirement @() -OcrRequired $false `
@@ -446,7 +468,7 @@ Register-SequenceAction -Name 'saveDiskSnapshot' -HostIORequirement @() -OcrRequ
         try { $ok = [bool](Save-VMDiskSnapshot -VMName $c.VMName -Id $snapId -Confirm:$false) }
         catch {
             # YurunaCycleRestart is a control-flow marker -- re-throw so
-            # the cycle-level handler in Invoke-TestInnerRunner consumes
+            # the cycle-level handler in Invoke-TestRunnerInnerLoop consumes
             # control.cycle-restart; otherwise the warning + return $false
             # turns the marker into a soft step failure and the flag
             # re-fires on every subsequent sequence.
@@ -667,7 +689,7 @@ Register-SequenceAction -Name 'inputText' -HostIORequirement @('Send-Text') -Ocr
         $masked = ($c.Step.sensitive -and -not $c.ShowSensitive) ? '***' : $text
         $charDelay = $c.Step.charDelayMs ? [int]$c.Step.charDelayMs : $c.DefaultCharDelayMs
         Write-Debug "      Typing: '$masked' (charDelay=${charDelay}ms)"
-        return [bool](Invoke-Sequence\Send-Text -HostType $c.HostType -VMName $c.VMName -Text $text -CharDelayMs $charDelay -ShellEscape)
+        return [bool](Test.SequenceEngine\Send-Text -HostType $c.HostType -VMName $c.VMName -Text $text -CharDelayMs $charDelay -ShellEscape)
     }
 
 Register-SequenceAction -Name 'inputTextAndEnter' -HostIORequirement @('Send-Text', 'Send-Key') -OcrRequired $false `
@@ -704,10 +726,10 @@ Register-SequenceAction -Name 'networkRelease' -HostIORequirement @('Send-Text',
                 : 'bash /usr/local/lib/yuruna/yuruna-network.sh release'
             $charDelay = $c.Step.charDelayMs ? [int]$c.Step.charDelayMs : $c.DefaultCharDelayMs
             Write-Debug "      networkRelease: typing '$cmd' + Enter"
-            $ok = Invoke-Sequence\Send-Text -HostType $c.HostType -VMName $c.VMName -Text $cmd -CharDelayMs $charDelay -ShellEscape
+            $ok = Test.SequenceEngine\Send-Text -HostType $c.HostType -VMName $c.VMName -Text $cmd -CharDelayMs $charDelay -ShellEscape
             if ($ok -eq $false) { return $false }
             Start-Sleep -Milliseconds 800
-            return [bool](Invoke-Sequence\Send-Key -HostType $c.HostType -VMName $c.VMName -KeyName 'Enter')
+            return [bool](Test.SequenceEngine\Send-Key -HostType $c.HostType -VMName $c.VMName -KeyName 'Enter')
         }
         # TODO(windows.11): implement DHCP lease release for Windows guests
         # (e.g. `ipconfig /release`). Left as a no-op reminder until the
@@ -878,7 +900,7 @@ function Get-FetchExecuteEnvPrefix {
     #
     # GH_TOKEN is deliberately NOT typed. This command line is rendered on the VM
     # console, which the host screenshots and OCRs into the run log published by
-    # the status server -- a token typed here would be readable in
+    # the status service -- a token typed here would be readable in
     # failure_screenshot.png and failure_ocr.txt. The guest gets it from the
     # cloud-init seed instead, which never leaves the VM.
     $source = Get-YurunaGitHubSource -RepoRoot $RepoRoot
@@ -890,10 +912,10 @@ function Get-FetchExecuteEnvPrefix {
         # on an "INTEGRITY MISMATCH" whose real cause is this uncommitted edit.
         # Say it here, where it is still cheap to act on.
         if (-not (Test-YurunaFileMatchesHead -RepoRoot $RepoRoot -RelativePath $rel)) {
-            Write-Warning "fetch-and-execute fallback: '$rel' differs from HEAD, so the GitHub fallback cannot match its digest. Harmless while the host status server is reachable (the guest fetches the working tree); if it is not, commit and push -- or bring the status server back up."
+            Write-Warning "fetch-and-execute fallback: '$rel' differs from HEAD, so the GitHub fallback cannot match its digest. Harmless while the host status service is reachable (the guest fetches the working tree); if it is not, commit and push -- or bring the status service back up."
         }
     } else {
-        Write-Warning "fetch-and-execute fallback: could not resolve a GitHub repo+commit for '$RepoRoot' (repositories.frameworkUrl / git remote / HEAD). If the host status server is unreachable, the guest has no fallback and will refuse to guess at another repository."
+        Write-Warning "fetch-and-execute fallback: could not resolve a GitHub repo+commit for '$RepoRoot' (repositories.frameworkUrl / git remote / HEAD). If the host status service is unreachable, the guest has no fallback and will refuse to guess at another repository."
     }
     return $prefix
 }
@@ -906,7 +928,19 @@ Register-SequenceAction -Name 'fetchAndExecute' -HostIORequirement @('Send-Text'
     -Handler {
         param([hashtable]$c)
         $text = & $c.ExpandVariable $c.Step.text $c.Vars
-        $text = (Get-FetchExecuteEnvPrefix -CommandLine $text -RepoRoot $c.RepoRoot) + $text
+        $envPrefix  = Get-FetchExecuteEnvPrefix -CommandLine $text -RepoRoot $c.RepoRoot
+        $payloadLen = $text.Length
+        $text = $envPrefix + $text
+        # Typed one key event per character; see $script:FetchExecuteTypedCharWarn
+        # for why length matters and why the prefix counts against the budget.
+        if ($text.Length -gt $script:FetchExecuteTypedCharWarn) {
+            Write-Warning ("fetchAndExecute: typing $($text.Length) characters " +
+                "($($envPrefix.Length) integrity prefix + $payloadLen step text), over the " +
+                "$($script:FetchExecuteTypedCharWarn) this console path is known to carry intact. " +
+                "Sends this long have corrupted mid-flight on host.macos.utm and left a key " +
+                "auto-repeating in the guest. Move the work into the fetched script and keep " +
+                "the typed command short.")
+        }
         $delaySeconds = $c.Step.delaySeconds ? [double]$c.Step.delaySeconds : 2
         $charDelay = $c.Step.charDelayMs ? [int]$c.Step.charDelayMs : $c.DefaultCharDelayMs
         Write-Debug "      fetchAndExecute: typing '$text' + Enter"
@@ -962,7 +996,7 @@ Register-SequenceAction -Name 'sshWaitReady' -HostIORequirement @() -OcrRequired
         # without this, a crashed install only surfaces after the full
         # timeoutSeconds (~40 min on the Ubuntu Server sequences) because
         # sshd never comes up to satisfy Wait-SshReady. Pairs with the
-        # yuruna_retry exp-backoff auto-retry in Invoke-TestInnerRunner so
+        # yuruna_retry exp-backoff auto-retry in Invoke-TestRunnerInnerLoop so
         # a transient installer flake is recovered on the next cycle.
         [string[]]$installerFailPatterns = @()
         if ($null -ne $c.Step.installerFailurePatterns) {
@@ -1016,9 +1050,9 @@ Register-SequenceAction -Name 'sshWaitReady' -HostIORequirement @() -OcrRequired
         Write-Debug "      sshWaitReady: $($c.GuestKey)@$($c.VMName) (timeout: ${timeout}s, installerFailurePatterns=[$($installerFailPatterns -join ', ')], chunk=${chunkSeconds}s)"
 
         while ([DateTime]::UtcNow -lt $deadlineUtc) {
-            $remainingSec = [int]($deadlineUtc - [DateTime]::UtcNow).TotalSeconds
-            if ($remainingSec -le 0) { break }
-            $thisChunk = [Math]::Min($chunkSeconds, $remainingSec)
+            $remainingSeconds = [int]($deadlineUtc - [DateTime]::UtcNow).TotalSeconds
+            if ($remainingSeconds -le 0) { break }
+            $thisChunk = [Math]::Min($chunkSeconds, $remainingSeconds)
             if (Wait-SshReady -VMName $c.VMName -GuestKey $c.GuestKey -TimeoutSeconds $thisChunk -PollSeconds $poll) {
                 return $true
             }
@@ -1197,7 +1231,7 @@ Register-SequenceAction -Name 'retry' -HostIORequirement @() -OcrRequired $false
             # already refreshes at step boundaries (top of
             # $invokeStepBlock); a multi-attempt retry block runs as
             # a SINGLE step from the watchdog's perspective and would
-            # blow past stepTimeoutMinutes without ever signaling
+            # blow past stepTimeoutSeconds without ever signaling
             # proof-of-life. Per-attempt refresh keeps the watchdog
             # aligned with reality.
             try {

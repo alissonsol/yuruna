@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.28
+.VERSION 2026.07.29
 .GUID 421a7e34-5b82-4d60-8f13-2a6c9e0b4d75
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -66,7 +66,7 @@ Describe 'forget-host client (best-effort guards)' {
         $tmp = Join-Path ([System.IO.Path]::GetTempPath()) ('pfh_' + [guid]::NewGuid().ToString('N').Substring(0, 8))
         New-Item -ItemType Directory -Force -Path $tmp | Out-Null
         try {
-            $r = Invoke-PoolForgetHost -ProxyIp '192.0.2.1' -HostId '42cafe0000000000000000000000dead' -Token 't' -RuntimeDir $tmp -TimeoutSec 2
+            $r = Invoke-PoolForgetHost -ProxyIp '192.0.2.1' -HostId '42cafe0000000000000000000000dead' -Token 't' -RuntimeDir $tmp -TimeoutSeconds 2
             Assert-True ($r -is [hashtable]) 'returns a summary hashtable'
             Assert-True (-not $r.ok) 'not ok against an unreachable aggregator'
             Assert-True ([bool]$r.reason) 'a reason is set'

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.28
+.VERSION 2026.07.29
 .GUID 422aa14c-4ea9-404d-a5eb-6069c11a61fe
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -39,13 +39,7 @@ Import-Module (Join-Path $here 'Test.SingleInstance.psm1') -Force -DisableNameCh
 function Assert-Equal { param($Expected, $Actual, [string]$Because = '') if ($Expected -ne $Actual) { throw "Expected [$Expected] got [$Actual]. $Because" } }
 function Assert-True { param($Condition, [string]$Because = '') if (-not $Condition) { throw "Expected true. $Because" } }
 
-# Helpers and path fixtures live at FILE scope, above the first Describe: a
-# Describe body runs during discovery and its variables and functions are
-# discarded before any It executes, and the run pass stops descending top-level
-# statements at the first Describe. Only the PATHS are computed here -- the
-# directories, files and child processes they name are side effects, and the
-# file body runs twice (discovery, then run), so the creation itself stays
-# inside BeforeAll / It bodies.
+# --- REGION: https://yuruna.link/memory#pester-file-scope-fixtures
 
 function Start-TestChildProcess {
     <#
@@ -199,8 +193,8 @@ Describe 'Get-RunnerInstanceState' {
     }
     It 'takes over a stranded inner runner with the default identity regex' {
         # The default regex matches Invoke-TestRunner.ps1 AND
-        # Invoke-TestInnerRunner.ps1, so an orphaned inner is reclaimed too.
-        $inner = Start-TestChildProcess -Command 'Start-Sleep -Seconds 90 # Invoke-TestInnerRunner.ps1'
+        # Invoke-TestRunnerInnerLoop.ps1, so an orphaned inner is reclaimed too.
+        $inner = Start-TestChildProcess -Command 'Start-Sleep -Seconds 90 # Invoke-TestRunnerInnerLoop.ps1'
         try {
             Set-Content -LiteralPath $StatePidFile -Value "$($inner.Id)" -Encoding utf8NoBOM
             $s = Get-RunnerInstanceState -RunnerPidFile $StatePidFile -RunnerStartFile $StateStartFile

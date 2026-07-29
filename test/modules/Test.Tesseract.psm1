@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.28
+.VERSION 2026.07.29
 .GUID 42a7b8c9-d0e1-4f23-a4b5-6c7d8e9f0a1b
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -22,7 +22,7 @@
 
 .DESCRIPTION
     Provides shared functions for Tesseract OCR used by Invoke-TestRunner,
-    Test-Sequence, and the OCR-engine dispatcher (Test.OcrEngine).
+    Invoke-TestSequence, and the OCR-engine dispatcher (Test.OcrEngine).
     Works on Windows, macOS, and Linux.
 #>
 

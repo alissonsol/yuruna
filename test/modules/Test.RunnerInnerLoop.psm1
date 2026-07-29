@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.28
+.VERSION 2026.07.29
 .GUID 42d15e27-b2c3-4d4e-9f50-6b7c8d9e0f1a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -19,13 +19,13 @@
 <#
 .SYNOPSIS
     Per-cycle helpers for the single-cycle inner runner
-    ([Invoke-TestInnerRunner.ps1](Invoke-TestInnerRunner.ps1)).
+    ([Invoke-TestRunnerInnerLoop.ps1](Invoke-TestRunnerInnerLoop.ps1)).
 .DESCRIPTION
     Holds the cycle-scoped helpers the inner runner threads through one
     cycle: an exit-path timeline log (sibling of the outer's Write-OuterLog),
     the working-tree-drift guard that warns when the host runs uncommitted
     code while guests only ever see `git archive HEAD`, and the per-step
-    caching-proxy reachability probe that surfaces the moment a roamed host
+    caching-proxy-service reachability probe that surfaces the moment a roamed host
     network strands guests configured with a now-unreachable proxy URL.
 
     These functions are imported with the Inner module set so a mid-run
@@ -130,9 +130,9 @@ function Write-UncommittedChangesWarning {
     }
 }
 
-# === Helper: pre-step caching-proxy reachability check ===
+# === Helper: pre-step caching-proxy-service reachability check ===
 # Background: a real-world failure mode is the host's Wi-Fi roaming to a
-# different SSID/subnet mid-cycle. The caching-proxy VM is on the host's
+# different SSID/subnet mid-cycle. The caching-proxy-service VM is on the host's
 # Default Switch (Hyper-V) / VZ shared-NAT (UTM) and remains routable from
 # the host, BUT the URL injected into guest cidata at New-VM time may have
 # pointed at the IP the host had on the prior network -- which guests can
@@ -147,14 +147,14 @@ function Write-UncommittedChangesWarning {
 # was detected at startup (nothing to lose) or when the URL doesn't parse
 # as http://ip:port. The down/up state is module-scoped: every probe goes
 # through this one function so the transition log stays coherent.
-$script:CachingProxyLastReachable = $true
+$script:CachingProxyServiceLastReachable = $true
 <#
 .SYNOPSIS
-    TCP-probe the startup-detected caching-proxy URL before a step and emit a
+    TCP-probe the startup-detected caching-proxy-service URL before a step and emit a
     coherent transition log (one-shot LOST warning, terse still-unreachable
     notes, recovered note) so a mid-cycle host network roam is visible.
 #>
-function Assert-CachingProxyStillReachable {
+function Assert-CachingProxyServiceStillReachable {
     param(
         [string]$ProxyUrl,
         [string]$StepName,
@@ -171,39 +171,39 @@ function Assert-CachingProxyStillReachable {
         $async = $tcp.BeginConnect($ip, $port, $null, $null)
         # 3s cap, not 1s: a remote/cross-host cache (UTM/macOS squid over bridged
         # networking) takes 600ms-1s+ to ACCEPT, so a 1s probe produced spurious
-        # per-step "Caching proxy LOST" warnings on a healthy remote proxy. The cap
+        # per-step "Caching-proxy service LOST" warnings on a healthy remote proxy. The cap
         # only matters when the port is slow/down; a fast cache returns on accept.
         if ($async.AsyncWaitHandle.WaitOne(3000) -and $tcp.Connected) {
             $reachable = $true
         }
     } catch {
-        Write-Verbose "Caching proxy probe to ${ip}:${port} threw: $($_.Exception.Message)"
+        Write-Verbose "Caching-proxy service probe to ${ip}:${port} threw: $($_.Exception.Message)"
     } finally {
         $tcp.Close()
     }
 
     if ($reachable) {
-        if (-not $script:CachingProxyLastReachable) {
-            Write-Output "  Caching proxy reachable again at $GuestKey/$StepName ($ProxyUrl)."
+        if (-not $script:CachingProxyServiceLastReachable) {
+            Write-Output "  Caching-proxy service reachable again at $GuestKey/$StepName ($ProxyUrl)."
         }
     } else {
-        if ($script:CachingProxyLastReachable) {
-            Write-Warning "  Caching proxy LOST at ${GuestKey}/${StepName}: $ProxyUrl no longer answers (3s TCP probe)."
+        if ($script:CachingProxyServiceLastReachable) {
+            Write-Warning "  Caching-proxy service LOST at ${GuestKey}/${StepName}: $ProxyUrl no longer answers (3s TCP probe)."
             Write-Warning "    Common cause: host Wi-Fi roamed to a different SSID/subnet mid-cycle, or a remote/cross-host cache is briefly slow to accept."
             Write-Warning "    Guests configured at New-VM time with this URL will fall back to direct downloads."
         } else {
-            Write-Warning "  Caching proxy still unreachable at $GuestKey/$StepName ($ProxyUrl)."
+            Write-Warning "  Caching-proxy service still unreachable at $GuestKey/$StepName ($ProxyUrl)."
         }
     }
-    $script:CachingProxyLastReachable = $reachable
+    $script:CachingProxyServiceLastReachable = $reachable
 }
 
 # === Per-cycle config reload =============================================
 # Resolve the reloadable per-cycle knobs (with their defaults) from a parsed
 # test.config.yml. The cycle-start initializer and the mid-cycle reload share
 # one rule-set here so they cannot drift. A 0 / absent value falls through to
-# the default (the runner's historical truthiness check), and CycleDelay falls
-# back to -CycleDelayFallback (the runner's -CycleDelaySeconds parameter) when
+# the default (the runner's historical truthiness check), and CycleDelaySeconds falls
+# back to -CycleDelaySecondsFallback (the runner's -CycleDelaySeconds parameter) when
 # the config key is absent so a cmdline override survives a config edit.
 function Get-RunnerReloadableConfig {
 <#
@@ -218,7 +218,7 @@ function Get-RunnerReloadableConfig {
     [OutputType([System.Collections.Specialized.OrderedDictionary])]
     param(
         [Parameter(Mandatory)][AllowNull()]$Config,
-        [Parameter(Mandatory)][int]$CycleDelayFallback
+        [Parameter(Mandatory)][int]$CycleDelaySecondsFallback
     )
     $tc = if ($Config -is [System.Collections.IDictionary]) { $Config['testCycle'] } else { $null }
     $vs = if ($Config -is [System.Collections.IDictionary]) { $Config['vmStart'] }  else { $null }
@@ -226,11 +226,11 @@ function Get-RunnerReloadableConfig {
     $gq = if ($tc -is [System.Collections.IDictionary]) { $tc['guestQuarantine'] } else { $null }
     $wr = if ($tc -is [System.Collections.IDictionary]) { $tc['warmResume'] } else { $null }
     return [ordered]@{
-        StopOnFailure        = if ($tc -is [System.Collections.IDictionary] -and $tc.Contains('shouldStopOnFailure')) { [bool]$tc['shouldStopOnFailure'] } else { $false }
-        VmStartTimeout       = if ($vs -is [System.Collections.IDictionary] -and $vs['startTimeoutSeconds']) { [int]$vs['startTimeoutSeconds'] } else { 120 }
-        VmBootDelay          = if ($vs -is [System.Collections.IDictionary] -and $vs['bootDelaySeconds'])    { [int]$vs['bootDelaySeconds'] }    else { 15 }
-        GetImageRefreshHours = if ($vi -is [System.Collections.IDictionary] -and $vi['refreshHours'])        { [int]$vi['refreshHours'] }        else { 24 }
-        CycleDelay           = if ($tc -is [System.Collections.IDictionary] -and $tc['cycleDelaySeconds'])   { [int]$tc['cycleDelaySeconds'] }   else { $CycleDelayFallback }
+        StopOnFailure        = if ($tc -is [System.Collections.IDictionary] -and $tc.Contains('stopOnFailure')) { [bool]$tc['stopOnFailure'] } else { $false }
+        VmStartTimeoutSeconds       = if ($vs -is [System.Collections.IDictionary] -and $vs['startTimeoutSeconds']) { [int]$vs['startTimeoutSeconds'] } else { 120 }
+        VmBootDelaySeconds          = if ($vs -is [System.Collections.IDictionary] -and $vs['bootDelaySeconds'])    { [int]$vs['bootDelaySeconds'] }    else { 15 }
+        GetImageRefreshSeconds = if ($vi -is [System.Collections.IDictionary] -and $vi['refreshSeconds'])        { [int]$vi['refreshSeconds'] }        else { 86400 }
+        CycleDelaySeconds           = if ($tc -is [System.Collections.IDictionary] -and $tc['cycleDelaySeconds'])   { [int]$tc['cycleDelaySeconds'] }   else { $CycleDelaySecondsFallback }
         # Guest quarantine / circuit breaker: default ON. A guest that fails N
         # times in a row with the SAME failureClass is skipped for up to
         # SkipCycles cycles or until a framework/project commit changes, so a
@@ -266,20 +266,20 @@ function New-RunnerConfigState {
         Justification = 'Pure in-memory builder: returns a fresh state hashtable; changes no externally observable state.')]
     param(
         [AllowNull()][string]$CmdLineLogLevel,
-        [Parameter(Mandatory)][int]$CycleDelayFallback
+        [Parameter(Mandatory)][int]$CycleDelaySecondsFallback
     )
-    $defaults = Get-RunnerReloadableConfig -Config $null -CycleDelayFallback $CycleDelayFallback
+    $defaults = Get-RunnerReloadableConfig -Config $null -CycleDelaySecondsFallback $CycleDelaySecondsFallback
     return @{
         CmdLineLogLevel      = $CmdLineLogLevel
-        CycleDelayFallback   = $CycleDelayFallback
+        CycleDelaySecondsFallback   = $CycleDelaySecondsFallback
         CachedConfigMtime    = $null
         CachedConfigValue    = $null
         Config               = $null
         StopOnFailure        = $defaults.StopOnFailure
-        VmStartTimeout       = $defaults.VmStartTimeout
-        VmBootDelay          = $defaults.VmBootDelay
-        GetImageRefreshHours = $defaults.GetImageRefreshHours
-        CycleDelay           = $defaults.CycleDelay
+        VmStartTimeoutSeconds       = $defaults.VmStartTimeoutSeconds
+        VmBootDelaySeconds          = $defaults.VmBootDelaySeconds
+        GetImageRefreshSeconds = $defaults.GetImageRefreshSeconds
+        CycleDelaySeconds           = $defaults.CycleDelaySeconds
         GuestQuarantineEnabled    = $defaults.GuestQuarantineEnabled
         GuestQuarantineFailures   = $defaults.GuestQuarantineFailures
         GuestQuarantineSkipCycles = $defaults.GuestQuarantineSkipCycles
@@ -297,7 +297,7 @@ function Sync-RunnerCycleConfig {
 <#
 .SYNOPSIS
     Re-read test.config.yml mid-cycle into $State so values changed via the
-    status server's "Edit config" page take effect on the next step.
+    status service's "Edit config" page take effect on the next step.
 .DESCRIPTION
     mtime-keyed parse cache: ConvertFrom-Yaml on the ~5-10 KB config is
     ~30-100 ms and this fires at ~8 step boundaries per cycle, so an unchanged
@@ -348,12 +348,12 @@ function Sync-RunnerCycleConfig {
 
     if (-not ($State.Config -is [System.Collections.IDictionary])) { return 'nondict' }
 
-    $knobs = Get-RunnerReloadableConfig -Config $State.Config -CycleDelayFallback ([int]$State.CycleDelayFallback)
+    $knobs = Get-RunnerReloadableConfig -Config $State.Config -CycleDelaySecondsFallback ([int]$State.CycleDelaySecondsFallback)
     $State.StopOnFailure        = $knobs.StopOnFailure
-    $State.VmStartTimeout       = $knobs.VmStartTimeout
-    $State.VmBootDelay          = $knobs.VmBootDelay
-    $State.GetImageRefreshHours = $knobs.GetImageRefreshHours
-    $State.CycleDelay           = $knobs.CycleDelay
+    $State.VmStartTimeoutSeconds       = $knobs.VmStartTimeoutSeconds
+    $State.VmBootDelaySeconds          = $knobs.VmBootDelaySeconds
+    $State.GetImageRefreshSeconds = $knobs.GetImageRefreshSeconds
+    $State.CycleDelaySeconds           = $knobs.CycleDelaySeconds
     $State.GuestQuarantineEnabled    = $knobs.GuestQuarantineEnabled
     $State.GuestQuarantineFailures   = $knobs.GuestQuarantineFailures
     $State.GuestQuarantineSkipCycles = $knobs.GuestQuarantineSkipCycles
@@ -820,7 +820,7 @@ function Assert-RunnerCycleState {
         with a null-deref that points nowhere near the real cause -- e.g. a missing
         ShutdownState surfaces only at the loop's ['Requested'] index, a missing
         RunnerCfgState only when a knob is mirrored. Checks presence (ContainsKey,
-        not value: a legitimately-null Config/CachingProxyUrl is well-formed) so the
+        not value: a legitimately-null Config/CachingProxyServiceUrl is well-formed) so the
         missing key is named here; the well-formed success path is untouched.
     #>
     [CmdletBinding()]
@@ -876,14 +876,25 @@ function Complete-CycleRun {
 function Resolve-CycleVmNamingStrategy {
     <#
     .SYNOPSIS
-        Resolve the cycle's VM-name prefix and the pool host-id scoping suffix used
-        to name this cycle's guest VMs.
+        Resolve the cycle's VM-name prefix, the disposable-VM sweep prefixes, and the
+        pool host-id scoping suffix used to name this cycle's guest VMs.
     .DESCRIPTION
+        Naming and sweeping are deliberately separate values. Composing a VM name
+        takes exactly ONE prefix (vmStart.testVmNamePrefix, the same source
+        Invoke-TestSequence and the orchestrator compose from, so all three agree on
+        the name); the sweep matches MANY, because a project VM promoted out of the
+        test namespace (its name becomes a snapshot id) still has to be removed or it
+        survives teardown and blocks the next cycle's start. Feeding the multi-entry
+        sweep list into the name composer binds a [string[]] to a [string] parameter,
+        which an advanced function refuses outright ("Cannot process argument
+        transformation on parameter 'Prefix'") -- and would silently mis-name every
+        guest if it did not.
+
         On a POOL cycle the VM names are scoped by this host's id so pool members
         sharing a store never collide; the single-host path uses '' for a
         byte-identical name. Prefix falls back to "test-" when unavailable.
     .OUTPUTS
-        [hashtable] with Prefix, PoolHostId.
+        [hashtable] with Prefix, SweepPrefixes, PoolHostId.
     #>
     [CmdletBinding()]
     [OutputType([hashtable])]
@@ -893,12 +904,9 @@ function Resolve-CycleVmNamingStrategy {
         [AllowNull()][string]$HostId
     )
     return @{
-        # Every disposable prefix, not just the test-VM one: a project VM
-        # promoted out of the test namespace (its name becomes a snapshot
-        # id) still has to be swept, or it survives teardown and blocks the
-        # next cycle's start.
-        Prefix     = Resolve-CleanupVmNamePrefix -VmStart $Config.vmStart
-        PoolHostId = if ($IsPoolCycle) { [string]$HostId } else { '' }
+        Prefix        = $Config.vmStart.testVmNamePrefix ?? "test-"
+        SweepPrefixes = Resolve-CleanupVmNamePrefix -VmStart $Config.vmStart
+        PoolHostId    = if ($IsPoolCycle) { [string]$HostId } else { '' }
     }
 }
 
@@ -1214,11 +1222,11 @@ function Start-CycleLogFile {
         Justification = 'Delegates to Start-LogFile -- the same transcript-open the cycle body already performed; that callee owns its own confirmation surface.')]
     param(
         [Parameter(Mandatory)][string]$TestRoot,
-        [Parameter(Mandatory)][string]$CycleId,
+        [Parameter(Mandatory)][string]$CycleStartUtc,
         [Parameter(Mandatory)][string]$Hostname
     )
     $CycleNumber = Get-CycleNumber
-    $LogFile = Start-LogFile -TestRoot $TestRoot -CycleId $CycleId -Hostname $Hostname -CycleNumber $CycleNumber
+    $LogFile = Start-LogFile -TestRoot $TestRoot -CycleStartUtc $CycleStartUtc -Hostname $Hostname -CycleNumber $CycleNumber
     Write-Output "Log file: $LogFile"
     return @{
         CycleNumber = $CycleNumber
@@ -1253,7 +1261,7 @@ function Start-CycleHostDiagnostic {
         Justification = 'Delegates to the child diagnostic script / Start-PerfCycle -- the same soft-failing capture the cycle body already performed; those callees own their own confirmation surface.')]
     param(
         [Parameter(Mandatory)][string]$RepoRoot,
-        [Parameter(Mandatory)][string]$CycleId,
+        [Parameter(Mandatory)][string]$CycleStartUtc,
         [Parameter(Mandatory)][string]$HostType,
         [Parameter(Mandatory)][string]$Hostname,
         [AllowNull()][string]$GitCommit,
@@ -1289,7 +1297,7 @@ function Start-CycleHostDiagnostic {
     if (Get-Command -Name Start-PerfCycle -ErrorAction SilentlyContinue) {
         try {
             Start-PerfCycle `
-                -CycleId            $CycleId `
+                -CycleStartUtc            $CycleStartUtc `
                 -HostPlatform       $HostType `
                 -Hostname           $Hostname `
                 -HarnessCommit      $GitCommit `
@@ -1394,7 +1402,7 @@ function Write-CapabilityGateFailureBanner {
     if ($Cap.missingHostIO.Count) {
         Write-Output "  Sequences reference host I/O actions this host has no backend for:"
         foreach ($a in $Cap.missingHostIO) { Write-Output "    - $a" }
-        Write-Output "  Wire a backend via Register-HostIOProvider in Invoke-Sequence.psm1,"
+        Write-Output "  Wire a backend via Register-HostIOProvider in Test.SequenceEngine.psm1,"
         Write-Output "  or drop the requiring action from the cycle's sequence YAMLs."
     }
     if ($Cap.ocrRequired -and -not $Cap.ocrAvailable) {
@@ -1509,7 +1517,7 @@ function Invoke-RunnerBootstrapFailureGate {
             -GuestKey            '(bootstrap)' `
             -StepName            $Stage `
             -ErrorMessage        $ErrorMessage `
-            -CycleId             '(not yet assigned)' `
+            -CycleStartUtc             '(not yet assigned)' `
             -GitCommit           $GitCommit `
             -DefaultFailureClass $FailureClass `
             -DefaultSeverity     'hard'
@@ -1547,7 +1555,7 @@ function Invoke-RunnerInnerCycle {
     $NoGitPull         = $State.NoGitPull
     $NoProjectClone    = $State.NoProjectClone
     $CycleDelaySeconds = $State.CycleDelaySeconds
-    $cachingProxyUrl   = $State.CachingProxyUrl
+    $cachingProxyUrl   = $State.CachingProxyServiceUrl
     $startScript       = $State.StartScript
     $StepHeartbeatFile = $State.StepHeartbeatFile
     # Shared with the entry point's Ctrl+C handler (same dictionary instance),
@@ -1558,8 +1566,8 @@ function Invoke-RunnerInnerCycle {
     $cfg                  = $State.RunnerCfgState
     $Config               = $State.Config
     $StopOnFailure        = $cfg.StopOnFailure
-    $GetImageRefreshHours = $cfg.GetImageRefreshHours
-    $CycleDelay           = $cfg.CycleDelay
+    $GetImageRefreshSeconds = $cfg.GetImageRefreshSeconds
+    $CycleDelaySeconds           = $cfg.CycleDelaySeconds
 # === Continuous test loop ===
 # Load the cycle counter + gating counters (persisted across the single-cycle
 # respawn via status.json + runner.gating.json) and reassign each local by name.
@@ -1724,7 +1732,7 @@ do {
         $projUrl = [string]$Config.repositories.projectUrl
     }
     if ($NoProjectClone) {
-        # Test-Project.ps1 spawn path: the wipe + clone happened in the
+        # Invoke-TestProject.ps1 spawn path: the wipe + clone happened in the
         # parent before we were invoked. Trust the on-disk state; just
         # verify the project's .git is present so the cycle's downstream
         # consumers (HEAD capture, sequence planner, fetch-and-execute
@@ -1821,17 +1829,17 @@ do {
     # --- REGION: Re-read config (may have changed via git pull); sync against template
     $Config = Update-CycleConfigFromTemplate -ConfigPath $ConfigPath -TemplatePath $TemplatePath -PreviousConfig $Config
 
-    # --- REGION: Restart status server to pick up any file/config changes
+    # --- REGION: Restart status service to pick up any file/config changes
     # -Restart forces a relaunch so a mid-cycle git pull / config edit is
-    # reflected; the shared gate honors isEnabled / -NoStatusService / port identically
-    # to the startup path and Test-Sequence.
+    # reflected; the shared gate honors enabled / -NoStatusService / port identically
+    # to the startup path and Invoke-TestSequence.
     $null = Start-YurunaStatusServiceIfEnabled -Config $Config -StartScript $startScript -NoStatusService:$NoStatusService -Restart
 
-    # The Host Config Service is intentionally NOT ensured here: it is a
-    # caching-proxy companion (owned by Start-CachingProxyVM.ps1 on the caching-proxy
+    # The config service is intentionally NOT ensured here: it is a
+    # caching-proxy-service companion (owned by Start-CachingProxyServiceVM.ps1 on the caching-proxy-service
     # host), not a per-cycle runner concern. Coupling it to the test loop would
-    # start it on plain runner hosts that never host a caching proxy, and would not
-    # help a dedicated caching-proxy host that doesn't run the runner.
+    # start it on plain runner hosts that never host a caching-proxy service, and would not
+    # help a dedicated caching-proxy-service host that doesn't run the runner.
 
     # Build per-cycle execution plan from project/test/test.runner.yml.
     # Each plan entry is a (top-level workload, guest, sequence chain) tuple;
@@ -1895,7 +1903,7 @@ do {
     # baseline; steps are InvokeTestSequence). It contributes no per-guest plan
     # entries, so it owns the whole cycle via Invoke-OrchestrationSequence
     # (Test.Orchestrator) -- Reset/Initialize/Start-Log, one dashboard row per
-    # inner sequence, Complete/seal -- exactly as a standalone `Test-Sequence
+    # inner sequence, Complete/seal -- exactly as a standalone `Invoke-TestSequence
     # <orch>` run does. The runner delegates to it below instead of the per-guest
     # VM lifecycle, and forces GuestList empty so the empty-plan fallback to the
     # legacy guestSequence does NOT bring up a phantom guest (the bug this fixes).
@@ -1982,6 +1990,7 @@ do {
     }
     $namingStrategy = Resolve-CycleVmNamingStrategy -Config $Config -IsPoolCycle $script:PoolCycle -HostId $global:__YurunaHostId
     $Prefix                 = $namingStrategy.Prefix
+    $_sweepPrefixes         = $namingStrategy.SweepPrefixes
     $_poolHostId            = $namingStrategy.PoolHostId
 
     # Build VM name map via Get-TestVMName so any guestSequence key yields a
@@ -1997,10 +2006,10 @@ do {
     # Cycle-start reloadable knobs from the freshly-reconciled config, resolved
     # through the same tested rule set as the mid-cycle Sync-RunnerCycleConfig
     # refresh (Get-RunnerReloadableConfig): a 0/absent value falls back to the
-    # default and CycleDelay honors the -CycleDelaySeconds override.
-    $reloadable = Get-RunnerReloadableConfig -Config $Config -CycleDelayFallback $CycleDelaySeconds
-    $CycleDelay           = $reloadable.CycleDelay
-    $GetImageRefreshHours = $reloadable.GetImageRefreshHours
+    # default and CycleDelaySeconds honors the -CycleDelaySeconds override.
+    $reloadable = Get-RunnerReloadableConfig -Config $Config -CycleDelaySecondsFallback $CycleDelaySeconds
+    $CycleDelaySeconds           = $reloadable.CycleDelaySeconds
+    $GetImageRefreshSeconds = $reloadable.GetImageRefreshSeconds
     $StopOnFailure        = $reloadable.StopOnFailure
 
     # --- REGION: Initialize status for this cycle
@@ -2009,22 +2018,22 @@ do {
     # pipeline item (so even a one-element list stays an array). Wrapping that single
     # array item in @() nests it one level deeper, yielding gitCommits = [[{...}]]
     # instead of [{...}] -- the array-double-wrap trap class. That malformed shape is
-    # rejected by the status schema's gitCommits reader and by the pool aggregator,
+    # rejected by the status schema's gitCommits reader and by the pool-aggregator service,
     # which then cannot parse the host's status.json at all.
     # An orchestration cycle skips this whole block: Invoke-OrchestrationSequence
     # (delegated at "Finalise cycle" below) does its own Reset/Initialize-Status
     # Document + Start-LogFile so it owns the status doc + transcript. Running the
     # runner's Initialize here too would create an empty guest cycle that the
-    # orchestrator then clobbers. $CycleId/$LogFile stay empty; the guest loop
+    # orchestrator then clobbers. $CycleStartUtc/$LogFile stay empty; the guest loop
     # (empty GuestList) and the failure-notification tail tolerate that.
     if ($isOrchestrationCycle) {
-        $CycleId = ''
+        $CycleStartUtc = ''
         $LogFile = ''
     } else {
         $GitCommitsList = New-CycleGitCommitList -GitCommit $GitCommit `
             -FrameworkUrl $Config.repositories.frameworkUrl `
             -ProjectGitCommit $ProjectGitCommit -ProjectUrl $projLinkUrl
-        $CycleId = Initialize-StatusDocument `
+        $CycleStartUtc = Initialize-StatusDocument `
             -StatusFilePath $StatusFile `
             -HostType       $HostType `
             -Hostname       (hostname) `
@@ -2047,13 +2056,13 @@ do {
         # CycleNumber (also returned by the helper) is not read downstream in the
         # cycle body -- it is consumed inside Start-CycleLogFile to name the cycle
         # folder -- so only LogFile is captured here.
-        $LogFile = (Start-CycleLogFile -TestRoot $TestRoot -CycleId $CycleId -Hostname (hostname)).LogFile
+        $LogFile = (Start-CycleLogFile -TestRoot $TestRoot -CycleStartUtc $CycleStartUtc -Hostname (hostname)).LogFile
 
         # --- REGION: Cycle-start host diagnostic + perf-log open
-        Start-CycleHostDiagnostic -RepoRoot $RepoRoot -CycleId $CycleId -HostType $HostType `
+        Start-CycleHostDiagnostic -RepoRoot $RepoRoot -CycleStartUtc $CycleStartUtc -HostType $HostType `
             -Hostname (hostname) -GitCommit $GitCommit -ProjectGitCommit $ProjectGitCommit
 
-        Write-Output "Cycle ID: $CycleId"
+        Write-Output "Cycle start: $CycleStartUtc"
         # Commit line mirrors the dashboard's "Commit" meta-card: framework
         # SHA first, then the project SHA when repositories.projectUrl is set,
         # comma-space delimited (matching renderCommitLinks() in
@@ -2068,7 +2077,7 @@ do {
     # Every guestSequence key needs a host/<short-host>/<guest>/ folder on this
     # host. No hardcoded allow-list -- this existence check IS the allow-list.
     # Missing folders fail the guest and skip it for the rest of the cycle;
-    # shouldStopOnFailure ends the cycle now.
+    # stopOnFailure ends the cycle now.
     $FailedGuests = [System.Collections.Generic.HashSet[string]]::new()
     foreach ($GuestKey in $GuestList) {
         if (Test-GuestFolder -RepoRoot $RepoRoot -HostType $HostType -GuestKey $GuestKey) { continue }
@@ -2091,16 +2100,16 @@ do {
 
     if ($StopOnFailure -and -not $OverallPassed) {
         Complete-Run -OverallStatus "fail" -MaxHistoryRuns ([int]$Config.testCycle.recentDisplayCount)
-        $earlyAbortReason = if ($FailedGuest -and $FailedStep) { "$FailedGuest / $FailedStep" } else { 'shouldStopOnFailure tripped' }
+        $earlyAbortReason = if ($FailedGuest -and $FailedStep) { "$FailedGuest / $FailedStep" } else { 'stopOnFailure tripped' }
         Stop-LogFile -Outcome 'fail' -Reason $earlyAbortReason
         break
     }
 
     $lastGetImage = Get-LastGetImageTime -StatusFilePath $StatusFile
-    $needGetImage = (-not $lastGetImage) -or ((Get-Date).ToUniversalTime() - [datetime]$lastGetImage).TotalHours -ge $GetImageRefreshHours
+    $needGetImage = (-not $lastGetImage) -or ((Get-Date).ToUniversalTime() - [datetime]$lastGetImage).TotalSeconds -ge $GetImageRefreshSeconds
     if ($needGetImage) {
         Write-Output ""
-        Write-Output "--- Get-Image (${GetImageRefreshHours}h refresh) ---"
+        Write-Output "--- Get-Image (${GetImageRefreshSeconds}s refresh) ---"
         foreach ($GuestKey in $GuestList) {
             if ($FailedGuests.Contains($GuestKey)) { continue }
             Write-Output "Downloading image for $GuestKey..."
@@ -2169,16 +2178,16 @@ do {
 
     Write-CycleConfigLog -ConfigPath $ConfigPath
 
-    # --- REGION: Abort cycle early if a pre-pipeline step failed under shouldStopOnFailure
+    # --- REGION: Abort cycle early if a pre-pipeline step failed under stopOnFailure
     if ($StopOnFailure -and -not $OverallPassed) {
         Complete-Run -OverallStatus "fail" -MaxHistoryRuns ([int]$Config.testCycle.recentDisplayCount)
-        $prePipelineReason = if ($FailedGuest -and $FailedStep) { "$FailedGuest / $FailedStep (pre-pipeline)" } else { 'shouldStopOnFailure tripped pre-pipeline' }
+        $prePipelineReason = if ($FailedGuest -and $FailedStep) { "$FailedGuest / $FailedStep (pre-pipeline)" } else { 'stopOnFailure tripped pre-pipeline' }
         Stop-LogFile -Outcome 'fail' -Reason $prePipelineReason
         break
     }
 
     # --- REGION: Cycle-start VM sweep
-    Remove-CycleStartOrphanVM -TestRoot $TestRoot -Prefix $Prefix
+    Remove-CycleStartOrphanVM -TestRoot $TestRoot -Prefix $_sweepPrefixes
 
     # Re-assert the host driver into the GLOBAL session before the guest loop.
     # The &-invoked child scripts run just above (status-service restart, the
@@ -2235,7 +2244,7 @@ do {
             $FailedGuest = $guestIterState.FailedGuest
             $FailedStep = $guestIterState.FailedStep
             $FailureMessage = $guestIterState.FailureMessage
-            $Config = $cfg.Config; $StopOnFailure = $cfg.StopOnFailure; $GetImageRefreshHours = $cfg.GetImageRefreshHours; $CycleDelay = $cfg.CycleDelay
+            $Config = $cfg.Config; $StopOnFailure = $cfg.StopOnFailure; $GetImageRefreshSeconds = $cfg.GetImageRefreshSeconds; $CycleDelaySeconds = $cfg.CycleDelaySeconds
         }
         # Fold this guest's outcome into the quarantine circuit breaker. A failed
         # guest sets $guestIterState.FailedGuest to its own key (a pass leaves it
@@ -2273,7 +2282,7 @@ do {
         # Delegate the whole cycle to the orchestration runner: it owns Reset/
         # Initialize/Start-Log, walks the InvokeTestSequence steps (one dashboard
         # row per inner sequence), and Completes + seals the transcript itself --
-        # the same path a standalone `Test-Sequence <orch>` takes. So we do NOT
+        # the same path a standalone `Invoke-TestSequence <orch>` takes. So we do NOT
         # call Complete-CycleRun here; we only map its exit code to the cycle
         # result the gating/notification tail below reads.
         Write-Output ""
@@ -2320,7 +2329,7 @@ do {
         # Final reload so an edit made during the last step's cleanup
         # affects the cycle-end abort decision (matches per-step semantics).
         Sync-RunnerStepConfig -State $cfg -ConfigPath $ConfigPath
-        $Config = $cfg.Config; $StopOnFailure = $cfg.StopOnFailure; $GetImageRefreshHours = $cfg.GetImageRefreshHours; $CycleDelay = $cfg.CycleDelay
+        $Config = $cfg.Config; $StopOnFailure = $cfg.StopOnFailure; $GetImageRefreshSeconds = $cfg.GetImageRefreshSeconds; $CycleDelaySeconds = $cfg.CycleDelaySeconds
         if ($StopOnFailure) {
             break
         }
@@ -2350,7 +2359,7 @@ do {
                     -GuestKey      $FailedGuest `
                     -StepName      $FailedStep `
                     -ErrorMessage  $FailureMessage `
-                    -CycleId       $CycleId `
+                    -CycleStartUtc       $CycleStartUtc `
                     -GitCommit     $GitCommit `
                     -ProjectCommit $ProjectGitCommit
                 # Close the self-heal observability loop: route the failure
@@ -2378,7 +2387,7 @@ do {
                     -GuestKey      $FailedGuest `
                     -StepName      $FailedStep `
                     -ErrorMessage  $FailureMessage `
-                    -CycleId       $CycleId `
+                    -CycleStartUtc       $CycleStartUtc `
                     -GitCommit     $GitCommit `
                     -EventData     $inCycleEventData
                 $AlertArmed           = $false
@@ -2523,9 +2532,9 @@ do {
         break
     }
 
-    Remove-CycleTeardownOrphanVM -CycleCount $CycleCount -TestRoot $TestRoot -Prefix $Prefix
+    Remove-CycleTeardownOrphanVM -CycleCount $CycleCount -TestRoot $TestRoot -Prefix $_sweepPrefixes
 
-    # Cycle-pause back-channel: status server's /control/cycle-pause
+    # Cycle-pause back-channel: status service's /control/cycle-pause
     # endpoint creates $env:YURUNA_RUNTIME_DIR/control.cycle-pause. Gate
     # here -- AFTER cleanup, BEFORE the inter-cycle wait -- so the UI's
     # "Cycle pause" stops the runner at the cycle boundary with VMs torn
@@ -2534,7 +2543,7 @@ do {
     # still breaks out of the wait.
     $cyclePauseFlagFile   = Join-Path $env:YURUNA_RUNTIME_DIR 'control.cycle-pause'
     # control.cycle-restart is the "start a new cycle now" signal from the
-    # status server's /control/start-cycle endpoint. Polled in the inter-
+    # status service's /control/start-cycle endpoint. Polled in the inter-
     # cycle delay loop below: if seen, break out, remove the file, exit
     # inner so outer respawns with no further wait. The endpoint also
     # clears any cycle-pause/step-pause and runs Remove-TestVMFiles before
@@ -2545,7 +2554,7 @@ do {
         Write-Output "Cycle pause set via status UI. Waiting for resume..."
         # Refresh runner.stepHeartbeat each iteration: the outer watchdog
         # reads only this file's mtime and kills the inner after
-        # testCycle.stepTimeoutMinutes (default 45 min) of staleness. A
+        # testCycle.stepTimeoutSeconds (default 2700) of staleness. A
         # deliberate pause has no step boundaries to refresh it via
         # Invoke-Sequence's normal path, so without this the watchdog
         # would TerminateProcess the inner mid-pause, drop the outer into
@@ -2583,12 +2592,12 @@ do {
     # Start-Sleep. Write-Progress shows a percentage bar; Write-Output
     # emits a coarser tick (every ~5 s) so a non-progress-rendering log
     # collector still records forward motion.
-    # $CycleDelay is set inside the cycle's try block once config is
+    # $CycleDelaySeconds is set inside the cycle's try block once config is
     # merged; an early throw before that point would leave it null.
     # Fall back to the script param so the inter-cycle wait is still
     # respected on the rare crash-before-config path.
     $delayId       = 2
-    $effectiveDelay = if ($null -ne $CycleDelay -and [int]$CycleDelay -gt 0) { [int]$CycleDelay } else { [int]$CycleDelaySeconds }
+    $effectiveDelay = if ($null -ne $CycleDelaySeconds -and [int]$CycleDelaySeconds -gt 0) { [int]$CycleDelaySeconds } else { [int]$CycleDelaySeconds }
     if ($effectiveDelay -gt 0 -and -not $ShutdownState['Requested']) {
         Write-Output "[cycle $CycleCount] cycleDelaySeconds wait: $effectiveDelay s before exiting to outer."
         $exitReason = Wait-WithProgress -Activity "[cycle $CycleCount] inter-cycle delay" `
@@ -2653,7 +2662,7 @@ do {
     $State.FailedGuest          = $FailedGuest
     $State.FailedStep           = $FailedStep
     $State.FailureMessage       = $FailureMessage
-    $State.CycleId              = $CycleId
+    $State.CycleStartUtc              = $CycleStartUtc
     $State.LogFile              = $LogFile
     $State.GitCommit            = $GitCommit
     $State.ProjectGitCommit     = $ProjectGitCommit
@@ -2697,14 +2706,14 @@ function Invoke-GuestProvisionIteration {
         $ShutdownState
     )
     $IterState.Control = 'proceed'
-    $StopOnFailure = $cfg.StopOnFailure; $VmStartTimeout = $cfg.VmStartTimeout; $VmBootDelay = $cfg.VmBootDelay
+    $StopOnFailure = $cfg.StopOnFailure; $VmStartTimeoutSeconds = $cfg.VmStartTimeoutSeconds; $VmBootDelaySeconds = $cfg.VmBootDelaySeconds
     if ($ShutdownState['Requested']) {
         Write-Output "Shutdown requested. Skipping remaining guests."
         $IterState.OverallPassed = $false; $IterState.FailedStep = "shutdown"
         $IterState.Control = 'break'; return
     }
     # Skip guests that already failed pre-flight or Get-Image
-    # (shouldStopOnFailure=false path).
+    # (stopOnFailure=false path).
     if ($FailedGuests.Contains($GuestKey)) {
         Write-Output ""
         Write-Output "== $GuestKey (skipped -- earlier failure) =="
@@ -2761,7 +2770,7 @@ function Invoke-GuestProvisionIteration {
     # on it. Stop the cycle's other test guests first -- the guest sweep
     # runs one full lifecycle at a time, so guests before this one are
     # already past their sequences. Scoped to $VMNames (this cycle's
-    # guests only) so infra VMs -- e.g. the caching proxy, which every
+    # guests only) so infra VMs -- e.g. the caching-proxy service, which every
     # step asserts reachable -- are never touched. Force, because a
     # guest sitting in an installer ignores ACPI shutdown.
     # No continue/break in this loop: the enclosing helper's control-flow
@@ -2800,14 +2809,14 @@ function Invoke-GuestProvisionIteration {
         }
     }
 
-    Assert-CachingProxyStillReachable -ProxyUrl $cachingProxyUrl -StepName "New-VM" -GuestKey $GuestKey
+    Assert-CachingProxyServiceStillReachable -ProxyUrl $cachingProxyUrl -StepName "New-VM" -GuestKey $GuestKey
     Set-StepStatus -GuestKey $GuestKey -StepName "New-VM" -Status "running"
     # Forward the cache URL detected at runner startup so every guest
     # uses the same address. Without this, each guest's New-VM.ps1
     # probes independently and races with transient listeners (stale
     # DHCP leases, torn-down sibling VMs), baking a dead IP into the
     # cidata seed -- seen on UTM where apt then fails with "No route
-    # to host" at install. This is the same URL Test-CachingProxy.ps1
+    # to host" at install. This is the same URL Test-CachingProxyService.ps1
     # probes; install VMs reach it directly: Default-Switch guests
     # via Hyper-V's NAT-to-LAN, UTM guests via the vmnet-shared
     # gateway forwarder. No cache detected -> pass "" so guests skip
@@ -2849,7 +2858,7 @@ function Invoke-GuestProvisionIteration {
             $effectiveCores = [string]$mergedPlan.effectiveCores
         }
     }
-    $newVmArgs = @{ GuestKey = $GuestKey; RepoRoot = $RepoRoot; VMName = $VMName; CachingProxyUrl = $newVmProxy }
+    $newVmArgs = @{ GuestKey = $GuestKey; RepoRoot = $RepoRoot; VMName = $VMName; CachingProxyServiceUrl = $newVmProxy }
     if ($effectiveUser) {
         Write-Verbose "Cascaded username for $GuestKey -> $effectiveUser (overrides per-host New-VM.ps1 default)"
         $newVmArgs.Username = $effectiveUser
@@ -2868,7 +2877,7 @@ function Invoke-GuestProvisionIteration {
     }
     $r = New-VM @newVmArgs -Confirm:$false
     Sync-RunnerStepConfig -State $cfg -ConfigPath $ConfigPath
-    $StopOnFailure = $cfg.StopOnFailure; $VmStartTimeout = $cfg.VmStartTimeout; $VmBootDelay = $cfg.VmBootDelay
+    $StopOnFailure = $cfg.StopOnFailure; $VmStartTimeoutSeconds = $cfg.VmStartTimeoutSeconds; $VmBootDelaySeconds = $cfg.VmBootDelaySeconds
     if ($r.success) {
         Set-StepStatus -GuestKey $GuestKey -StepName "New-VM" -Status "pass"
         $prov = Get-GuestProvenance -GuestKey $GuestKey
@@ -2881,7 +2890,7 @@ function Invoke-GuestProvisionIteration {
         Set-GuestStatus -GuestKey $GuestKey -Status "fail"
         $IterState.OverallPassed = $false; $IterState.FailedGuest = $GuestKey; $IterState.FailedStep = "New-VM"; $IterState.FailureMessage = $r.errorMessage
         Write-CycleInfraFailure -Stage 'New-VM' -FailureClass 'provisioning_failure' -GuestKey $GuestKey -VMName $VMName -ErrorMessage $r.errorMessage -HostType $HostType
-        # Copy artifacts BEFORE the shouldStopOnFailure break so the debug
+        # Copy artifacts BEFORE the stopOnFailure break so the debug
         # folder exists, the log links it, and the dashboard's "fail"
         # pill points to it on both paths (continue and stop).
         Copy-FailureArtifactsToStatusLog -VMName $VMName -GuestKey $GuestKey -RepoRoot $RepoRoot -ModulesDir $ModulesDir -LogFile $LogFile
@@ -2897,11 +2906,11 @@ function Invoke-GuestProvisionIteration {
     }
 
     # --- REGION: Start-VM
-    Assert-CachingProxyStillReachable -ProxyUrl $cachingProxyUrl -StepName "Start-VM" -GuestKey $GuestKey
+    Assert-CachingProxyServiceStillReachable -ProxyUrl $cachingProxyUrl -StepName "Start-VM" -GuestKey $GuestKey
     Set-StepStatus -GuestKey $GuestKey -StepName "Start-VM" -Status "running"
     $r = Start-VM -VMName $VMName -Confirm:$false
     Sync-RunnerStepConfig -State $cfg -ConfigPath $ConfigPath
-    $StopOnFailure = $cfg.StopOnFailure; $VmStartTimeout = $cfg.VmStartTimeout; $VmBootDelay = $cfg.VmBootDelay
+    $StopOnFailure = $cfg.StopOnFailure; $VmStartTimeoutSeconds = $cfg.VmStartTimeoutSeconds; $VmBootDelaySeconds = $cfg.VmBootDelaySeconds
     if ($r.success) {
         Set-StepStatus -GuestKey $GuestKey -StepName "Start-VM" -Status "pass"
         # Resolve the guest's host-side IP so the operator can ssh /
@@ -2946,7 +2955,7 @@ function Invoke-GuestProvisionIteration {
     }
 
     # --- REGION: Start-GuestOS (start.guest.* sequences from the cycle plan)
-    Assert-CachingProxyStillReachable -ProxyUrl $cachingProxyUrl -StepName "Start-GuestOS" -GuestKey $GuestKey
+    Assert-CachingProxyServiceStillReachable -ProxyUrl $cachingProxyUrl -StepName "Start-GuestOS" -GuestKey $GuestKey
     Set-StepStatus -GuestKey $GuestKey -StepName "Start-GuestOS" -Status "running"
     $startSeqs       = @()
     $workSeqs        = @()
@@ -2970,7 +2979,7 @@ function Invoke-GuestProvisionIteration {
     }
     $r = Start-GuestOS -HostType $HostType -GuestKey $GuestKey -VMName $VMName -RepoRoot $RepoRoot -SequencesDir $SequencesDir -SequenceNames $startSeqs -EffectiveVariables $cascadeVarsMap
     Sync-RunnerStepConfig -State $cfg -ConfigPath $ConfigPath
-    $StopOnFailure = $cfg.StopOnFailure; $VmStartTimeout = $cfg.VmStartTimeout; $VmBootDelay = $cfg.VmBootDelay
+    $StopOnFailure = $cfg.StopOnFailure; $VmStartTimeoutSeconds = $cfg.VmStartTimeoutSeconds; $VmBootDelaySeconds = $cfg.VmBootDelaySeconds
     if ($r.skipped) {
         Set-StepStatus -GuestKey $GuestKey -StepName "Start-GuestOS" -Status "skipped" -Skipped $true
     } elseif ($r.success) {
@@ -2993,12 +3002,12 @@ function Invoke-GuestProvisionIteration {
     }
 
     # --- REGION: New-VM.Resource (poll until running, wait boot delay)
-    Assert-CachingProxyStillReachable -ProxyUrl $cachingProxyUrl -StepName "New-VM.Resource" -GuestKey $GuestKey
+    Assert-CachingProxyServiceStillReachable -ProxyUrl $cachingProxyUrl -StepName "New-VM.Resource" -GuestKey $GuestKey
     Set-StepStatus -GuestKey $GuestKey -StepName "New-VM.Resource" -Status "running"
     $ok = Wait-VMRunning -VMName $VMName `
-        -TimeoutSeconds $VmStartTimeout -BootDelaySeconds $VmBootDelay
+        -TimeoutSeconds $VmStartTimeoutSeconds -BootDelaySeconds $VmBootDelaySeconds
     Sync-RunnerStepConfig -State $cfg -ConfigPath $ConfigPath
-    $StopOnFailure = $cfg.StopOnFailure; $VmStartTimeout = $cfg.VmStartTimeout; $VmBootDelay = $cfg.VmBootDelay
+    $StopOnFailure = $cfg.StopOnFailure; $VmStartTimeoutSeconds = $cfg.VmStartTimeoutSeconds; $VmBootDelaySeconds = $cfg.VmBootDelaySeconds
     if (-not $ok) {
         $err = "VM '$VMName' did not reach running state after start."
         Write-Warning "  ERROR [$GuestKey / New-VM.Resource]: $err"
@@ -3021,12 +3030,12 @@ function Invoke-GuestProvisionIteration {
 
     # --- REGION: Screenshots (compare against trained references)
     if ($hasScreenshots) {
-        Assert-CachingProxyStillReachable -ProxyUrl $cachingProxyUrl -StepName "Screenshots" -GuestKey $GuestKey
+        Assert-CachingProxyServiceStillReachable -ProxyUrl $cachingProxyUrl -StepName "Screenshots" -GuestKey $GuestKey
         Set-StepStatus -GuestKey $GuestKey -StepName "Screenshots" -Status "running"
         $r = Invoke-ScreenshotTest -GuestKey $GuestKey `
             -VMName $VMName -ScreenshotsDir $ScreenshotsDir
         Sync-RunnerStepConfig -State $cfg -ConfigPath $ConfigPath
-        $StopOnFailure = $cfg.StopOnFailure; $VmStartTimeout = $cfg.VmStartTimeout; $VmBootDelay = $cfg.VmBootDelay
+        $StopOnFailure = $cfg.StopOnFailure; $VmStartTimeoutSeconds = $cfg.VmStartTimeoutSeconds; $VmBootDelaySeconds = $cfg.VmBootDelaySeconds
         if ($r.skipped) {
             Set-StepStatus -GuestKey $GuestKey -StepName "Screenshots" -Status "skipped" -Skipped $true
         } elseif ($r.success) {
@@ -3050,7 +3059,7 @@ function Invoke-GuestProvisionIteration {
 
     # --- REGION: Start-GuestWorkload (workload sequences from the cycle plan)
     if ($hasExtensions) {
-        Assert-CachingProxyStillReachable -ProxyUrl $cachingProxyUrl -StepName "Start-GuestWorkload" -GuestKey $GuestKey
+        Assert-CachingProxyServiceStillReachable -ProxyUrl $cachingProxyUrl -StepName "Start-GuestWorkload" -GuestKey $GuestKey
         Set-StepStatus -GuestKey $GuestKey -StepName "Start-GuestWorkload" -Status "running"
         $wlStartUtc = [DateTime]::UtcNow
         $r = Start-GuestWorkload -HostType $HostType -GuestKey $GuestKey -VMName $VMName -RepoRoot $RepoRoot -SequencesDir $SequencesDir -SequenceNames $workSeqs -EffectiveVariables $cascadeVarsMap
@@ -3092,7 +3101,7 @@ function Invoke-GuestProvisionIteration {
             }
         }
         Sync-RunnerStepConfig -State $cfg -ConfigPath $ConfigPath
-        $StopOnFailure = $cfg.StopOnFailure; $VmStartTimeout = $cfg.VmStartTimeout; $VmBootDelay = $cfg.VmBootDelay
+        $StopOnFailure = $cfg.StopOnFailure; $VmStartTimeoutSeconds = $cfg.VmStartTimeoutSeconds; $VmBootDelaySeconds = $cfg.VmBootDelaySeconds
         if ($r.skipped) {
             Set-StepStatus -GuestKey $GuestKey -StepName "Start-GuestWorkload" -Status "skipped" -Skipped $true
         } elseif ($r.success) {
@@ -3180,7 +3189,7 @@ function Invoke-GuestProvisionIteration {
 
 Export-ModuleMember -Function `
     Write-InnerLog, Convert-LocalRepoUrlToPath, `
-    Write-UncommittedChangesWarning, Assert-CachingProxyStillReachable, `
+    Write-UncommittedChangesWarning, Assert-CachingProxyServiceStillReachable, `
     Get-RunnerReloadableConfig, New-RunnerConfigState, Sync-RunnerCycleConfig, `
     Sync-RunnerStepConfig, `
     Resolve-RunnerLogLevel, Copy-FailureArtifactsToStatusLog, Invoke-RunnerInnerCycle

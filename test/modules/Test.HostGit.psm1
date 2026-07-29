@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.28
+.VERSION 2026.07.29
 .GUID 42c9d0e1-f2a3-4b45-9678-9a0b1c2d3e42
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -380,7 +380,7 @@ function Invoke-GitPull {
     # Fetch without modifying working tree. Linear-backoff retry on
     # failure: on macOS the Application Firewall stalls outbound TCP
     # connects right after a process opens a new listening socket
-    # (status server, caching-proxy forwarders). Shows up as "Couldn't
+    # (status service, caching-proxy-service forwarders). Shows up as "Couldn't
     # connect / No route to host" on the first fetches of a fresh
     # runner and has recovered past a 5s wait in observed runs. 5
     # retries with 10/20/30/40/50s waits cover ~2.5 min of blip without

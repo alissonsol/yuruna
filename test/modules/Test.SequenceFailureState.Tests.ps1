@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.28
+.VERSION 2026.07.29
 .GUID 42b1f7c4-3a8e-4d52-9c61-0e7a2b3c4d5f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -79,12 +79,12 @@ Describe 'New-SequenceFailureRecord actionability enrichment (step)' {
         Assert-Equal -Expected 'ocr_timeout' -Actual $r.File.failureClass -Because 'class from stubbed registry'
         Assert-True ($null -ne $r.File.repro) 'repro block present'
         Assert-Equal -Expected 3 -Actual $r.File.repro.resumeFromStep -Because 'resumeFromStep = file-local failing step'
-        Assert-Equal -Expected 'Test-Sequence' -Actual $r.File.repro.entrypoint -Because 'entrypoint'
+        Assert-Equal -Expected 'Invoke-TestSequence' -Actual $r.File.repro.entrypoint -Because 'entrypoint'
     }
     It 'builds a repro command that omits -StartStep (chain-global vs file-local trap)' {
         [void](Reset-FailState)
         $r = New-SequenceFailureRecord -Reason step -VMName 'vm1' -GuestKey 'guest.ubuntu.server.24' -HostType 'h' -SequencePath $seqPath -LogDir 'd' -TotalSteps 11
-        Assert-Match -Pattern 'Test-Sequence\.ps1' -Actual $r.File.repro.command -Because 'command runs Test-Sequence'
+        Assert-Match -Pattern 'Invoke-TestSequence\.ps1' -Actual $r.File.repro.command -Because 'command runs Invoke-TestSequence'
         Assert-Match -Pattern '-SequenceName "workload\.guest\.ubuntu\.server\.24\.k8s\.text-to-sql\.test"' -Actual $r.File.repro.command -Because 'names the failing sequence'
         Assert-True ($r.File.repro.command -notmatch '-StartStep') 'command must NOT contain -StartStep'
     }

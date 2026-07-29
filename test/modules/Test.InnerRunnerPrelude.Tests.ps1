@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.28
+.VERSION 2026.07.29
 .GUID 42f6a7b8-c9d0-4e13-9456-7f8a9b0c1d2e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -22,7 +22,7 @@
     is checked, and failure exits honor the canonical Get-EntryPointExitCode
     contract.
 .DESCRIPTION
-    Invoke-TestInnerRunner.ps1 is an entry script (top-level flow, not a function)
+    Invoke-TestRunnerInnerLoop.ps1 is an entry script (top-level flow, not a function)
     so it is not invoked in-process here; the tests parse it and assert the
     required SHAPE via AST nodes rather than raw text, so a code comment cannot
     satisfy a guard.
@@ -41,7 +41,7 @@
 #>
 
 $here    = Split-Path -Parent $PSCommandPath
-$script = Join-Path $here 'Invoke-TestInnerRunner.ps1'
+$script = Join-Path $here 'Invoke-TestRunnerInnerLoop.ps1'
 
 # --- REGION: AST helpers (script scope; referenced from It blocks -> Pester 4)
 function Get-ScriptAst {

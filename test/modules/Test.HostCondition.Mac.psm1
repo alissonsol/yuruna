@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.28
+.VERSION 2026.07.29
 .GUID 42d4a3b2-c1f0-4e89-5678-9a0b1c2d3e40
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -218,8 +218,8 @@ function Assert-ScreenLock {
     try {
         $pmsetLine = & pmset -g custom 2>$null | Select-String '^\s*displaysleep\s+(\d+)' | Select-Object -First 1
         if ($pmsetLine -and $pmsetLine.Matches[0].Groups[1].Value -ne "0") {
-            $sleepMin = $pmsetLine.Matches[0].Groups[1].Value
-            $issues += "Display sleep is set to $sleepMin minute(s)."
+            $sleepMinutes = $pmsetLine.Matches[0].Groups[1].Value
+            $issues += "Display sleep is set to $sleepMinutes minute(s)."
         }
     } catch {
         Write-Debug "pmset check failed: $_"

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.28
+.VERSION 2026.07.29
 .GUID 42b7c3f8-9a1d-4e62-8c05-6d4f2a1b9e37
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -21,11 +21,11 @@
     Enroll THIS host in the lab: redeem the dashboard's Lab token for the
     shared lab-auth-token and store it in the host vault (idempotent).
 .DESCRIPTION
-    The Yuruna hosts dashboard (Grafana on the caching proxy) shows a "Lab
+    The Yuruna hosts dashboard (Grafana on the caching-proxy service) shows a "Lab
     token" tile with a 6-character code that rotates about once a minute.
-    This script redeems that code at the pool aggregator's
+    This script redeems that code at the pool-aggregator service's
     POST /api/v1/lab-token, receives the shared lab-auth-token, and stores it
-    in this host's vault -- enabling the status-server control routes (the
+    in this host's vault -- enabling the status-service control routes (the
     Grafana deep-link control proofs) and cross-host config-sync. The secret
     itself never has to be read off the proxy or typed by the operator.
 
@@ -34,16 +34,16 @@
     leaf (the proxy's own CA signs it), and the seal is what keeps anything
     else on the network from answering the exchange and planting a token.
 
-    The caching proxy is found from this host's configuration (the persisted
-    caching-proxy state, $env:YURUNA_CACHING_PROXY_IP, or
-    vmStart.cachingProxyIP in test.config.yml). Each is probed on the
+    The caching-proxy service is found from this host's configuration (the persisted
+    caching-proxy-service state, $env:YURUNA_CACHING_PROXY_SERVICE_IP, or
+    vmStart.cachingProxyIp in test.config.yml). Each is probed on the
     aggregator port and the first that answers is used, so an address left
     behind by a proxy that has since moved is passed over instead of
     swallowing the enrollment; when none answers, the probing continues for
     up to two minutes before giving up, so a momentary outage does not cost
-    the operator a code. When no address answers at all, pass -CachingProxy
+    the operator a code. When no address answers at all, pass -CachingProxyService
     or answer the prompt. That address is written to
-    vmStart.cachingProxyIP when test.config.yml exists, binding the host to
+    vmStart.cachingProxyIp when test.config.yml exists, binding the host to
     this lab's proxy for later runs; on a machine with no config file yet it
     serves this enrollment only, and Sync-HostConfiguration.ps1 brings over
     the config that binds it.
@@ -56,27 +56,27 @@
     (lowercase letters and digits; case and surrounding spaces are
     forgiven). It rotates every minute and stays redeemable for about three,
     so read it right before running.
-.PARAMETER CachingProxy
-    Address (IP or name) of the caching proxy whose dashboard shows the Lab
+.PARAMETER CachingProxyService
+    Address (IP or name) of the caching-proxy service whose dashboard shows the Lab
     token. Only needed when this host's configuration does not already name
-    one; when given (or prompted), it is persisted to vmStart.cachingProxyIP
+    one; when given (or prompted), it is persisted to vmStart.cachingProxyIp
     if this host has a test.config.yml to persist it into.
 .PARAMETER BounceStatusService
-    Restart the status server after storing, so the change is live now
+    Restart the status service after storing, so the change is live now
     rather than at the next cycle.
 .PARAMETER NonInteractive
-    Never prompt; fail instead when the caching-proxy address cannot be
+    Never prompt; fail instead when the caching-proxy-service address cannot be
     resolved.
 .EXAMPLE
     pwsh test/Set-LabToken.ps1 -LabToken k3v9qa -BounceStatusService
 .EXAMPLE
-    pwsh test/Set-LabToken.ps1 -LabToken k3v9qa -CachingProxy 192.168.7.229
+    pwsh test/Set-LabToken.ps1 -LabToken k3v9qa -CachingProxyService 192.168.7.229
 #>
 
 [CmdletBinding(SupportsShouldProcess)]
 param(
     [Parameter(Mandatory, Position = 0)][string]$LabToken,
-    [Parameter()][string]$CachingProxy,
+    [Parameter()][string]$CachingProxyService,
     [switch]$BounceStatusService,
     [switch]$NonInteractive
 )
@@ -93,18 +93,18 @@ if ($code -notmatch '^[a-z0-9]{6}$') {
 }
 
 # The authentication extension supplies Set-Password / Set-UserVaultKey /
-# Test-VaultEntry; Test.HostConfigSync supplies the exchange client and the
-# Set-LabAuthToken orchestrator; Test.CachingProxy resolves the aggregator
+# Test-VaultEntry; Test.ConfigServiceSync supplies the exchange client and the
+# Set-LabAuthToken orchestrator; Test.CachingProxyService resolves the aggregator
 # address. -Global -Force mirrors Import-Extension so a nested import does
 # not evict the module from the global scope.
 Write-Information 'Importing the authentication extension and the config-sync module ...' -InformationAction Continue
 Import-Module (Join-Path $PSScriptRoot 'extension/authentication/default.psm1') -Global -Force -DisableNameChecking
-Import-Module (Join-Path $PSScriptRoot 'modules/Test.HostConfigSync.psm1') -Global -Force -DisableNameChecking
-Import-Module (Join-Path $PSScriptRoot 'modules/Test.CachingProxy.psm1') -Global -Force -DisableNameChecking
+Import-Module (Join-Path $PSScriptRoot 'modules/Test.ConfigServiceSync.psm1') -Global -Force -DisableNameChecking
+Import-Module (Join-Path $PSScriptRoot 'modules/Test.CachingProxyService.psm1') -Global -Force -DisableNameChecking
 
 # --- REGION: Resolve the aggregator base URL
-# An explicit -CachingProxy wins; else the host's own configuration (the
-# probe-and-discard resolution Get-PoolAggregatorSeedUrl owns, which believes
+# An explicit -CachingProxyService wins; else the host's own configuration (the
+# probe-and-discard resolution Get-PoolAggregatorServiceSeedUrl owns, which believes
 # a stored address only once it answers); else ask. $addressSource records
 # where the address came from so only an operator-supplied one is persisted
 # below.
@@ -117,24 +117,24 @@ Import-Module (Join-Path $PSScriptRoot 'modules/Test.CachingProxy.psm1') -Global
 $addressSource = ''
 $proxyAddress  = ''
 $baseUrl       = ''
-if (-not [string]::IsNullOrWhiteSpace($CachingProxy)) {
-    $proxyAddress  = $CachingProxy.Trim()
+if (-not [string]::IsNullOrWhiteSpace($CachingProxyService)) {
+    $proxyAddress  = $CachingProxyService.Trim()
     $addressSource = 'parameter'
 } else {
     # -WhatIf is forwarded by hand because it does not cross into a module's
     # session state on its own, and resolving repairs a stored address that
     # loses its probe -- a write, and so not something a preview may do.
-    $baseUrl = Get-PoolAggregatorSeedUrl -MaxWaitSeconds 120 -WhatIf:$WhatIfPreference
+    $baseUrl = Get-PoolAggregatorServiceSeedUrl -MaxWaitSeconds 120 -WhatIf:$WhatIfPreference
     if ($baseUrl) { $addressSource = 'config' }
 }
 if (-not $proxyAddress -and -not $baseUrl) {
     if ($NonInteractive -or $WhatIfPreference) {
-        Write-Error 'No caching proxy this host names answered on :9400 (and prompting is disabled); pass -CachingProxy <address>.'
+        Write-Error 'No caching-proxy service this host names answered on :9400 (and prompting is disabled); pass -CachingProxyService <address>.'
         exit 1
     }
-    $proxyAddress = (Read-Host 'Caching proxy address (the machine whose dashboard shows the Lab token)').Trim()
+    $proxyAddress = (Read-Host 'Caching-proxy service address (the machine whose dashboard shows the Lab token)').Trim()
     if (-not $proxyAddress) {
-        Write-Error 'No caching-proxy address given; cannot reach the lab.'
+        Write-Error 'No caching-proxy-service address given; cannot reach the lab.'
         exit 1
     }
     $addressSource = 'prompt'
@@ -181,7 +181,7 @@ if ($PSBoundParameters.ContainsKey('Confirm')) { $persistArgs['Confirm'] = $PSBo
 $provision = Set-LabAuthToken @persistArgs
 
 # --- REGION: Bind this host to the lab proxy
-# Persist an operator-supplied address into vmStart.cachingProxyIP -- the key
+# Persist an operator-supplied address into vmStart.cachingProxyIp -- the key
 # every aggregator-address consumer resolves last -- so the enrollment is the
 # one-time step and later runs (and the runner itself) find the proxy on
 # their own. A config-sourced address is already persistent; nothing to do.
@@ -195,20 +195,20 @@ if ($provision.ok -and $proxyAddress -and ($addressSource -in @('parameter', 'pr
             $cfg = Get-Content -Raw -LiteralPath $configPath | ConvertFrom-Yaml -Ordered
             if ($null -eq $cfg) { $cfg = [ordered]@{} }
             if (-not ($cfg['vmStart'] -is [System.Collections.IDictionary])) { $cfg['vmStart'] = [ordered]@{} }
-            $current = "$($cfg['vmStart']['cachingProxyIP'])".Trim()
+            $current = "$($cfg['vmStart']['cachingProxyIp'])".Trim()
             if ($current -eq $proxyAddress) {
-                Write-Information "vmStart.cachingProxyIP already names $proxyAddress; binding unchanged." -InformationAction Continue
+                Write-Information "vmStart.cachingProxyIp already names $proxyAddress; binding unchanged." -InformationAction Continue
             } else {
-                $cfg['vmStart']['cachingProxyIP'] = $proxyAddress
+                $cfg['vmStart']['cachingProxyIp'] = $proxyAddress
                 $yaml = (ConvertTo-SortedConfig $cfg) | ConvertTo-Yaml
                 $null = Write-YurunaStateFile -Path $configPath -Content $yaml -Confirm:$false
-                Write-Information "Bound this host to the lab proxy: vmStart.cachingProxyIP = $proxyAddress." -InformationAction Continue
+                Write-Information "Bound this host to the lab proxy: vmStart.cachingProxyIp = $proxyAddress." -InformationAction Continue
             }
         } else {
-            Write-Warning "test.config.yml not found; the proxy address was not persisted. Run Sync-HostConfiguration.ps1 (or create the config) and re-run with -CachingProxy $proxyAddress to bind."
+            Write-Warning "test.config.yml not found; the proxy address was not persisted. Run Sync-HostConfiguration.ps1 (or create the config) and re-run with -CachingProxyService $proxyAddress to bind."
         }
     } catch {
-        Write-Warning "Could not persist vmStart.cachingProxyIP ($($_.Exception.Message)); the token is stored, but later runs must pass -CachingProxy again."
+        Write-Warning "Could not persist vmStart.cachingProxyIp ($($_.Exception.Message)); the token is stored, but later runs must pass -CachingProxyService again."
     }
 }
 
@@ -216,11 +216,11 @@ $took = "{0:N1}s" -f $elapsed.Elapsed.TotalSeconds
 if ($provision.ok) {
     $msg = "Done in ${took}: lab-auth-token stored and verified (vaultKey '$($provision.vaultKey)')."
     if ($provision.bounced) {
-        $msg += ' Status server restarted, so the token is live now.'
+        $msg += ' Status service restarted, so the token is live now.'
     } elseif ($BounceStatusService) {
         $msg += ' Status-server bounce did not complete; the token takes effect at the next cycle.'
     } else {
-        $msg += ' Re-run with -BounceStatusService (or wait for the next cycle) to make the running status server pick it up.'
+        $msg += ' Re-run with -BounceStatusService (or wait for the next cycle) to make the running status service pick it up.'
     }
     Write-Information $msg -InformationAction Continue
     exit 0

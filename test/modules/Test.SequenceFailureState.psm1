@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.28
+.VERSION 2026.07.29
 .GUID 42d5e8a2-b1c4-4f09-a6d3-7e8f0a1b2c3d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -179,7 +179,7 @@ function New-SequenceFailureRecord {
     # repro: a copy-paste command that re-runs the failing sequence (and its
     # baseline chain) to reproduce the failure deterministically. The command
     # deliberately OMITS -StartStep: stepNumber is file-local (1-based within
-    # this sequence file), but Test-Sequence's -StartStep is chain-GLOBAL, so a
+    # this sequence file), but Invoke-TestSequence's -StartStep is chain-GLOBAL, so a
     # naive -StartStep would mis-target a leaf that still has an unbuilt
     # baseline. The file-local failing step is exposed as resumeFromStep
     # (advisory; valid as -StartStep on the warm / no-baseline path). Contract
@@ -193,7 +193,7 @@ function New-SequenceFailureRecord {
     $shellSafe = { param([string]$v) ($v -replace '[`"$\r\n]', '') }
     $reproCommand = ''
     if ($sequenceName) {
-        $reproParts = @('pwsh test/Test-Sequence.ps1', "-SequenceName `"$(& $shellSafe $sequenceName)`"")
+        $reproParts = @('pwsh test/Invoke-TestSequence.ps1', "-SequenceName `"$(& $shellSafe $sequenceName)`"")
         if ($GuestKey) { $reproParts += "-GuestKey `"$(& $shellSafe $GuestKey)`"" }
         if ($VMName)   { $reproParts += "-VMName `"$(& $shellSafe $VMName)`"" }
         $reproParts += '-logLevel Debug'
@@ -201,8 +201,8 @@ function New-SequenceFailureRecord {
     }
     $repro = [ordered]@{
         command        = $reproCommand
-        runnerScript   = 'test/Test-Sequence.ps1'
-        entrypoint     = 'Test-Sequence'
+        runnerScript   = 'test/Invoke-TestSequence.ps1'
+        entrypoint     = 'Invoke-TestSequence'
         sequenceName   = $sequenceName
         resumeFromStep = $stepNumber
     }

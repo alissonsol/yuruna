@@ -1,7 +1,7 @@
 /*
   LICENSEURI https://yuruna.link/license
   Copyright (c) 2019-2026 by Alisson Sol et al.
-  Version: 2026.07.28
+  Version: 2026.07.29
 
   Framework-free structural check for the per-row status badge colors. Run:
   node status-badges.test.js (exit 0 = pass). No repo JS test runner and no
@@ -14,7 +14,7 @@
       inline (they are not duplicated);
     - both files are brace-balanced.
 
-  The .badge/.step-pill scope is deliberate: perf.html reuses bare status
+  The .badge/.step-pill scope is deliberate: performance.html reuses bare status
   words for unrelated elements (.cycle-dur.fail), so an unscoped promotion
   would tint them. This check does NOT prove the rendered colors -- eyeball
   index / hostinfo / test.config / perf in a browser.

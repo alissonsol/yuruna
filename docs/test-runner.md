@@ -128,7 +128,7 @@ its cycle model from the sequence itself:
   `Get-CycleOrchestrationList` and delegates to `Invoke-OrchestrationSequence`
   (Test.Orchestrator), which runs each inner sequence — guest chains and
   `host:` actions — under one `status.json` cycle, one dashboard row per inner
-  sequence. This is the same path `pwsh test/Test-Sequence.ps1 <name>` takes
+  sequence. This is the same path `pwsh test/Invoke-TestSequence.ps1 <name>` takes
   standalone; the amisad POC's `amisad.end-to-end` is the reference example.
 
 The two models can't share one cycle: a `test.runner.yml` may hold **one**
@@ -199,6 +199,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.28
+Last review: 2026.07.29
 
 Back to [Yuruna](../README.md)

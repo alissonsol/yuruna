@@ -32,9 +32,9 @@ import (
 	"github.com/pkg/sftp"
 	"golang.org/x/crypto/ssh"
 
-	"stash-server/internal/config"
-	"stash-server/internal/meta"
-	"stash-server/internal/store"
+	"stash-service/internal/config"
+	"stash-service/internal/meta"
+	"stash-service/internal/store"
 )
 
 // serveSFTP runs the SFTP request server over the SSH channel until the

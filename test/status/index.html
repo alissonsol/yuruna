@@ -32,7 +32,7 @@
     #banner-dash:hover { text-decoration: underline; }
 
     /* .section-title / .meta-btn / .no-data chrome lives in
-       yuruna.common.css (shared with perf.html). The per-id rules
+       yuruna.common.css (shared with performance.html). The per-id rules
        below pin flex behavior that's unique to index.html's
        three-section layout. */
     .section-title.with-controls #sec-cycle-title,
@@ -261,7 +261,7 @@
       <button id="cycle-pause-btn" class="meta-btn" type="button" disabled>Pause after cycle</button>
     </div>
     <div class="meta-grid">
-      <div class="meta-card"><div class="label">Cycle ID (UTC)</div><div class="value" id="cycle-timestamp">—</div></div>
+      <div class="meta-card"><div class="label">Cycle start (UTC)</div><div class="value" id="cycle-timestamp">—</div></div>
       <div class="meta-card"><div class="label">Started</div><div class="value" id="cycle-started">—</div></div>
       <div class="meta-card"><div class="label">Commit</div><div class="value" id="cycle-commit">—</div></div>
       <div class="meta-card"><div class="label">Images refresh</div><div class="value" id="cycle-images-refresh">—</div></div>
@@ -281,13 +281,13 @@
   <section id="sec-history" style="display:none">
     <div class="section-title with-controls">
       <span id="sec-history-title">Recent Cycles</span>
-      <a class="section-title-link" href="perf.html">Performance</a>
+      <a class="section-title-link" href="performance.html">Performance</a>
     </div>
     <div class="table-wrap">
       <table>
         <thead>
           <tr>
-            <th scope="col">Cycle ID (UTC)</th><th scope="col">Duration</th>
+            <th scope="col">Cycle start (UTC)</th><th scope="col">Duration</th>
             <th scope="col">Sequences</th><th scope="col">Commit</th>
           </tr>
         </thead>

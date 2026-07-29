@@ -1,9 +1,9 @@
 <#PSScriptInfo
-.VERSION 2026.07.28
+.VERSION 2026.07.29
 .GUID 42e0d1c8-9b3a-4f52-8c61-7d2e4a9b0f33
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
-.TAGS yuruna host download squid caching-proxy
+.TAGS yuruna host download squid caching-proxy-service
 .LICENSEURI https://yuruna.link/license
 .PROJECTURI https://yuruna.com
 .ICONURI
@@ -16,17 +16,17 @@
 
 #requires -version 7
 
-# Shared squid caching-proxy download stack for the host drivers. Why
+# Shared squid caching-proxy-service download stack for the host drivers. Why
 # Resolve-CacheHostIp is injected rather than called by name, and the per-driver
 # import/re-export contract:
 # docs/guest-image-setup.md#cache-routed-downloads-yurunahostdownloadpsm1
 
-# Own the dependencies (Get-CachingProxyPort, Format-IpUrlHost) rather than
+# Own the dependencies (Get-CachingProxyServicePort, Format-IpUrlHost) rather than
 # assuming a caller imported Yuruna.Common into a visible scope.
 $script:RepoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 Import-Module (Join-Path $script:RepoRoot 'automation/Yuruna.Common.psm1') -DisableNameChecking -ErrorAction SilentlyContinue
 
-function Test-CachingProxyPort {
+function Test-CachingProxyServicePort {
     <#
     .SYNOPSIS
         Async TCP port probe with a bounded wait. $true when $IpAddress:$Port
@@ -46,7 +46,7 @@ function Test-CachingProxyPort {
         $h = $tcp.BeginConnect($IpAddress, $Port, $null, $null)
         return ($h.AsyncWaitHandle.WaitOne($TimeoutMs) -and $tcp.Connected)
     } catch {
-        Write-Verbose "Test-CachingProxyPort ${IpAddress}:${Port} failed: $($_.Exception.Message)"
+        Write-Verbose "Test-CachingProxyServicePort ${IpAddress}:${Port} failed: $($_.Exception.Message)"
         return $false
     } finally {
         $tcp.Close()
@@ -214,8 +214,8 @@ function Get-CacheProxyForHostDownload {
         [Parameter(Mandatory)][scriptblock]$ResolveCacheHostIp
     )
 
-    $httpPort  = Get-CachingProxyPort -Scheme http
-    $httpsPort = Get-CachingProxyPort -Scheme https
+    $httpPort  = Get-CachingProxyServicePort -Scheme http
+    $httpsPort = Get-CachingProxyServicePort -Scheme https
 
     $scheme = ([System.Uri]$Uri).Scheme.ToLowerInvariant()
     if ($scheme -ne 'http' -and $scheme -ne 'https') {
@@ -236,11 +236,11 @@ function Get-CacheProxyForHostDownload {
 
     # HTTPS via SSL-bump on the HTTPS port -- needs the apache CA endpoint on
     # :80 AND the SSL-bump listener. Probe both before committing.
-    if (-not (Test-CachingProxyPort -IpAddress $cacheIp -Port $httpsPort -TimeoutMs 500)) {
+    if (-not (Test-CachingProxyServicePort -IpAddress $cacheIp -Port $httpsPort -TimeoutMs 500)) {
         Write-Verbose "Get-CacheProxyForHostDownload: squid :${httpsPort} not reachable on $cacheIp; HTTPS goes direct."
         return $null
     }
-    if (-not (Test-CachingProxyPort -IpAddress $cacheIp -Port 80 -TimeoutMs 500)) {
+    if (-not (Test-CachingProxyServicePort -IpAddress $cacheIp -Port 80 -TimeoutMs 500)) {
         Write-Verbose "Get-CacheProxyForHostDownload: apache :80 not reachable on $cacheIp (cannot fetch CA); HTTPS goes direct."
         return $null
     }
@@ -427,4 +427,4 @@ function Invoke-HttpsViaSquidBump {
     }
 }
 
-Export-ModuleMember -Function Test-CachingProxyPort, Test-DownloadAlreadyCurrent, Write-ImageSentinel, Get-CacheProxyForHostDownload, Save-CachedHttpUri, Invoke-HttpsViaSquidBump
+Export-ModuleMember -Function Test-CachingProxyServicePort, Test-DownloadAlreadyCurrent, Write-ImageSentinel, Get-CacheProxyForHostDownload, Save-CachedHttpUri, Invoke-HttpsViaSquidBump

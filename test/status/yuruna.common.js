@@ -1,7 +1,7 @@
 /*
   LICENSEURI https://yuruna.link/license
   Copyright (c) 2019-2026 by Alisson Sol et al.
-  Version: 2026.07.28
+  Version: 2026.07.29
 
   Shared helpers for the Yuruna status pages. Mounted on window.Yuruna.
   --- REGION: https://yuruna.link/definition#defining-the-status-page-browser-baseline
@@ -10,10 +10,10 @@
 (function() {
   'use strict';
 
-  var VERSION = '2026.07.28';
+  var VERSION = '2026.07.29';
 
-  // --- REGION: control-route auth (proof from the Caching Proxy /go/host redirect)
-  // A Grafana deep-link routes through the Caching Proxy's /go/host, which appends a
+  // --- REGION: https://yuruna.link/control-proof
+  // A Grafana deep-link routes through the caching-proxy service's /go/host, which appends a
   // short-lived HMAC control proof in the URL FRAGMENT (#yctl=<expiry>.<proof>). Capture
   // it once, stash it in sessionStorage, and strip it from the address bar so the proof is
   // not shoulder-surfed or copy-pasted out of the URL. The mutating /control/* POSTs then
@@ -99,10 +99,10 @@
 
   // Scheme-validate a URL before it is placed in an href/src. escHtml alone
   // stops attribute break-out but not a javascript:/data:/vbscript: payload
-  // in status.json / caching-proxy.txt (both host-generated but influenced
+  // in status.json / caching-proxy-service.txt (both host-generated but influenced
   // by guest-supplied names), so a click on a poisoned link would execute.
   // The status pages deep-link almost entirely with DOCUMENT-RELATIVE paths
-  // (log/..., index.html, hostinfo.html), so a strict ^https?:// gate would
+  // (log/..., index.html, host.html), so a strict ^https?:// gate would
   // break every results/log link -- instead allow same-origin relative paths
   // and absolute http(s), reject everything else. ES5 only (iOS 9.3 baseline,
   // no URL constructor): returns '' for anything not provably safe so callers
@@ -235,7 +235,7 @@
     stack.className = 'hm-stack';
     var nameLink = document.createElement('a');
     nameLink.className = 'hm-name';
-    nameLink.href = 'hostinfo.html';
+    nameLink.href = 'host.html';
     nameLink.title = 'Host diagnostic';
     nameLink.textContent = name;
     stack.appendChild(nameLink);
@@ -307,7 +307,7 @@
     };
   }
 
-  // ── Shared banner helpers (perf.html, hostinfo.html, test.config.html
+  // ── Shared banner helpers (performance.html, host.html, config.html
   // and index.html all share the same banner DOM contract: #banner +
   // #banner-text). The polling-driven banner refresh used by the
   // light-weight pages is consolidated here.
@@ -340,10 +340,10 @@
     var banner = document.getElementById('banner');
     if (!banner) return;
     var runnerStopped = !!(runnerStatus && runnerStatus.running === false);
-    var liveCycleId = data && (data.cycleId || data.runId);
+    var liveCycleStartUtc = data && (data.cycleStartUtc || data.runId);
     var hasGuests   = !!(data && data.guests && data.guests.length);
     var hasHistory  = !!(data && data.history && data.history.length);
-    if (!data || (!liveCycleId && !hasGuests && !hasHistory)) {
+    if (!data || (!liveCycleStartUtc && !hasGuests && !hasHistory)) {
       banner.className = runnerStopped ? 'stopped' : 'idle';
       setBannerText(runnerStopped ? BANNER_TEXT.stopped : BANNER_TEXT.idle);
       return;
@@ -462,7 +462,7 @@
   // === index.html handlers ===
   function bootIndex() {
     var PAGE_CTA = {
-      href:  'test.config.html',
+      href:  'config.html',
       label: 'Edit config',
       title: 'Edit test/test.config.yml'
     };
@@ -483,7 +483,7 @@
       el.rows = Math.min(2, Math.max(1, el.value.split('\n').length));
     }
 
-    function applyCachingProxyBanner() {
+    function applyCachingProxyServiceBanner() {
       var linkEl = document.getElementById('banner-dash');
       var noEl   = document.getElementById('banner-dash-noproxy');
       if (!linkEl || !noEl) return;
@@ -499,8 +499,8 @@
       }
     }
 
-    function loadCachingProxyText() {
-      fetch('runtime/caching-proxy.txt?_=' + Date.now(), { cache: 'no-store' })
+    function loadCachingProxyServiceText() {
+      fetch('runtime/caching-proxy-service.txt?_=' + Date.now(), { cache: 'no-store' })
         .then(function(res) {
           if (!res.ok) throw new Error('HTTP ' + res.status);
           return res.text();
@@ -510,10 +510,10 @@
         })
         ['catch'](function(e) {
           cachingProxyHtml = '';
-          safeWarn('Could not load runtime/caching-proxy.txt:', e);
+          safeWarn('Could not load runtime/caching-proxy-service.txt:', e);
         })
         .then(function() {
-          applyCachingProxyBanner();
+          applyCachingProxyServiceBanner();
         });
     }
 
@@ -539,17 +539,8 @@
       }
     }
 
-    // Refusal notice for a control POST the host would not accept. A 403 is a
-    // RESOLVED fetch (not a network error), so it never reaches .catch -- the
-    // old code fell straight through to loadStatus() and the click looked like a
-    // silent no-op. The mutating /control/* routes are loopback-or-proof: an
-    // on-host browser (http://localhost:<port>) is trusted; a browser on another
-    // machine needs the short-lived token the pool dashboard grants. Tell the
-    // operator that instead of doing nothing, and lead with WHICH precondition
-    // failed: the host names it in the 403 body ("reason"), and "open this page
-    // via the dashboard again" vs "enroll the host first" are different fixes.
-    // Static markup: reasons resolve through the fixed map below, so no
-    // server-supplied text is ever interpolated.
+    // --- REGION: https://yuruna.link/control-routes#browser-refusal-notice
+    // A 403 is a RESOLVED fetch (not a network error), so it never reaches .catch.
     function hideControlNotice() {
       var n = document.getElementById('control-notice');
       if (n) { n.hidden = true; }
@@ -559,7 +550,7 @@
       'proof-expired':        'this page’s control token has expired (they last 15 minutes)',
       'proof-invalid':        'this page’s control token does not verify here — this host’s stored lab token likely differs from the lab’s current one, so re-enroll',
       'host-token-missing':   'this host holds no lab token yet',
-      'verifier-unavailable': 'this host’s status server could not load its token verifier (check test/status/runtime/server.err on the host)'
+      'verifier-unavailable': 'this host’s status service could not load its token verifier (check test/status/runtime/server.err on the host)'
     };
     function showControlNotice(reason) {
       var n = document.getElementById('control-notice');
@@ -666,7 +657,7 @@
       return out;
     }
 
-    function logFileUrl(cycleId, hostKey, gitCommit, cycleFolderUrl) {
+    function logFileUrl(cycleStartUtc, hostKey, gitCommit, cycleFolderUrl) {
       if (cycleFolderUrl) {
         var trimmed = cycleFolderUrl.replace(/\/+$/, '');
         var parts = trimmed.split('/');
@@ -685,14 +676,14 @@
       // being silently stuck with a non-actionable cycle id. hostKey is
       // the hostId (callers pass hostId, falling back to hostname for a
       // legacy status.json) -- the cycleFolder's hostname-free 4th segment.
-      if (cycleId && hostKey && gitCommit) {
-        return 'log/' + cycleId.replace(/:/g, '-') + '.' + hostKey + '.' + gitCommit + '.html';
+      if (cycleStartUtc && hostKey && gitCommit) {
+        return 'log/' + cycleStartUtc.replace(/:/g, '-') + '.' + hostKey + '.' + gitCommit + '.html';
       }
-      if (cycleId && hostKey) {
+      if (cycleStartUtc && hostKey) {
         // Mirror Format-CycleFolderBaseName: <padded>.<cycleDate>.<cycleTime>.<hostId>
         // We lack the padded counter, so degrade to a directory link the
         // server's index/listing can resolve to the actual cycle folder.
-        var iso = String(cycleId);
+        var iso = String(cycleStartUtc);
         var d = (iso.length >= 10) ? iso.substring(0, 10) : '';
         var t = (iso.length >= 19) ? iso.substring(11, 19).replace(/:/g, '-') : '';
         if (d && t) {
@@ -898,16 +889,7 @@
       }).join(' ');
     }
 
-    // --- Nested-run subtree ------------------------------------------------
-    // status.json's `nested` map (nodeId -> node) is authored by nested
-    // Test-Sequence child processes -- a host-action stage that re-enters
-    // Test-Sequence.ps1 in its own pwsh (e.g. set-resource -> Set-Resource.ps1
-    // fanning out per-stage guest builds). Each node.parentId points at the id
-    // of the tile it nests under: a top-level sequences[] name, a guest key, or
-    // another nested node's id. We render them recursively as indented
-    // sub-tiles so the owner's top-level tiles stay stable while a stage
-    // expands to show its children, to any depth. See Test.Status.psm1
-    // "Nested-cycle support".
+    // --- REGION: https://yuruna.link/definition#defining-the-nested-run-subtree
     function nestedChildrenIndex(nested) {
       var byParent = {};
       if (!nested) return byParent;
@@ -1000,13 +982,13 @@
       }
       Yuruna.renderHeaderMachine(headerMachine, nameText, hostText, PAGE_CTA);
 
-      var liveCycleId = data && (data.cycleId || data.runId);
+      var liveCycleStartUtc = data && (data.cycleStartUtc || data.runId);
       var hasGuests   = !!(data && data.guests && data.guests.length);
       var hasHistory  = !!(data && data.history && data.history.length);
 
       var runnerStopped = !!(runnerStatus && runnerStatus.running === false);
 
-      if (!data || (!liveCycleId && !hasGuests && !hasHistory)) {
+      if (!data || (!liveCycleStartUtc && !hasGuests && !hasHistory)) {
         banner.className = runnerStopped ? 'stopped' : 'idle';
         setBannerText(runnerStopped ? BANNER.stopped : BANNER.idle);
         updatePauseButton('step',  false, false);
@@ -1046,12 +1028,12 @@
       updatePauseButton('step',  stepPaused,  cycleActive);
       updatePauseButton('cycle', cyclePaused, cycleActive || runnerAlive);
 
-      if (liveCycleId) {
+      if (liveCycleStartUtc) {
         document.getElementById('sec-cycle').style.display = '';
         var liveCommits = gitCommitsForRender(data, data.repoUrl);
         document.getElementById('cycle-commit').innerHTML = renderCommitLinks(liveCommits);
-        var cycleIdLabel = escHtml((liveCycleId || '—').slice(0, 19).replace('T', ' T'));
-        var cycleLogUrl  = safeUrl(logFileUrl(liveCycleId, (data.hostId || data.hostname), primaryShaForLog(data), data.cycleFolderUrl));
+        var cycleIdLabel = escHtml((liveCycleStartUtc || '—').slice(0, 19).replace('T', ' T'));
+        var cycleLogUrl  = safeUrl(logFileUrl(liveCycleStartUtc, (data.hostId || data.hostname), primaryShaForLog(data), data.cycleFolderUrl));
         var cycleCell = cycleLogUrl
           ? ('<a href="' + escHtml(cycleLogUrl) + '" target="_blank" style="color:inherit;text-decoration:underline dotted">' + cycleIdLabel + '</a>')
           : cycleIdLabel;
@@ -1154,16 +1136,16 @@
         });
         document.getElementById('history-body').innerHTML = history.map(function(h) {
           var summaryCell = historySummaryCell(h, guestToSeq);
-          var hCycleId    = h.cycleId || h.runId;
+          var hCycleStartUtc    = h.cycleStartUtc || h.runId;
           // Legacy entries (recorded before Complete-Run started
           // stripping the suffix) saved the in-progress `.incomplete/`
           // URL into history. Strip on read so those rows resolve to
           // the post-rename folder on disk.
           var hCycleFolderUrl = stripCycleFolderSuffix(h.cycleFolderUrl);
-          var hLogUrl     = safeUrl(logFileUrl(hCycleId, (h.hostId || h.hostname), primaryShaForLog(h), hCycleFolderUrl));
+          var hLogUrl     = safeUrl(logFileUrl(hCycleStartUtc, (h.hostId || h.hostname), primaryShaForLog(h), hCycleFolderUrl));
           // Escape the id BEFORE inserting the literal <wbr> so an id carrying
           // markup can't inject, while the intended line-break hint survives.
-          var hCycleLabel = escHtml((hCycleId || '—').slice(0, 19)).replace('T', ' <wbr>T');
+          var hCycleLabel = escHtml((hCycleStartUtc || '—').slice(0, 19)).replace('T', ' <wbr>T');
           var hCycleCell  = hLogUrl
             ? ('<a href="' + escHtml(hLogUrl) + '" target="_blank" style="color:inherit;text-decoration:underline dotted">' + hCycleLabel + '</a>')
             : hCycleLabel;
@@ -1207,7 +1189,7 @@
         if (contBtn) { contBtn.onclick = continueFromBreak; }
         document.getElementById('last-loaded').textContent = new Date().toLocaleTimeString();
         countdown = 60;
-        loadCachingProxyText();
+        loadCachingProxyServiceText();
       });
     }
     // --- REGION: https://yuruna.link/definition#defining-the-status-page-visibility-aware-polling
@@ -1229,7 +1211,7 @@
 
     Yuruna.populateHeader(PAGE_CTA);
     Yuruna.getHostInfo().then(function(info) { renderIpAddresses(info.ipAddresses); });
-    loadCachingProxyText();
+    loadCachingProxyServiceText();
     loadStatus();
 
     // Footer refresh link. Wired via addEventListener rather than an inline
@@ -1243,7 +1225,7 @@
     }
   }
 
-  // === perf.html handlers ===
+  // === performance.html handlers ===
   function bootPerf() {
     Yuruna.populateHeader({ href: 'index.html', label: '← Status' });
     startBannerPolling();
@@ -1273,7 +1255,7 @@
       return el;
     }
 
-    function fmtSec(ms) {
+    function fmtSeconds(ms) {
       if (!isFinite(ms) || ms < 0) return '—';
       return (ms / 1000).toFixed(1) + 's';
     }
@@ -1409,9 +1391,9 @@
 
       var head = document.createElement('div');
       head.className = 'cycle-row-head';
-      var when  = fmtDateLocal(cyc.cycleStartedAtUtc) || (cyc.cycleId || '');
+      var when  = fmtDateLocal(cyc.cycleStartedAtUtc) || (cyc.cycleStartUtc || '');
       var label = when.replace(/^\d{4}-/, '').replace(/:\d{2}Z?$/, '');   // MM-DD HH:MM
-      var url   = safeUrl((cycleLinks && cyc.cycleId) ? cycleLinks[cyc.cycleId] : '');
+      var url   = safeUrl((cycleLinks && cyc.cycleStartUtc) ? cycleLinks[cyc.cycleStartUtc] : '');
       var failCount = +cyc.failCount || 0;
       var whenEl;
       if (url) {
@@ -1430,7 +1412,7 @@
 
       var durEl = document.createElement('span');
       durEl.className = 'cycle-dur' + (failCount > 0 ? ' fail' : '');
-      durEl.textContent = fmtSec(flame.spanMs) + (failCount > 0 ? ' ✕' : '');
+      durEl.textContent = fmtSeconds(flame.spanMs) + (failCount > 0 ? ' ✕' : '');
       head.appendChild(durEl);
       row.appendChild(head);
 
@@ -1448,7 +1430,7 @@
           x: 0, y: ROW_PAD, width: Math.max(2, flame.spanMs * pxPerMs), height: BAND_H
         });
         var ft = svgEl('title', {});
-        ft.textContent = '(no per-step timing)\nDuration: ' + fmtSec(flame.spanMs);
+        ft.textContent = '(no per-step timing)\nDuration: ' + fmtSeconds(flame.spanMs);
         fr.appendChild(ft);
         svg.appendChild(fr);
         row.appendChild(svg);
@@ -1470,7 +1452,7 @@
         title.textContent =
           (nd.isCkpt ? '▸ ' : '') + (nd.name || '(unnamed)') + '\n' +
           (nd.isCkpt ? '' : ('Kind: ' + (nd.kind || '?') + '\n')) +
-          'Duration: ' + fmtSec(nd.durationMs) + '\n' +
+          'Duration: ' + fmtSeconds(nd.durationMs) + '\n' +
           (nd.outcome ? ('Outcome: ' + nd.outcome + '\n') : '') +
           (nd.parentAction ? ('Within: ' + nd.parentAction + '\n') : '') +
           'Cycle: ' + fmtDateLocal(cyc.cycleStartedAtUtc);
@@ -1503,7 +1485,7 @@
         var ms = maxSpan * ticks[i];
         var anchor = (i === 0) ? 'start' : (i === ticks.length - 1 ? 'end' : 'middle');
         var t = svgEl('text', { 'class': 'flame-axis-text', x: ms * pxPerMs, y: AXIS_H - 5, 'text-anchor': anchor });
-        t.textContent = fmtSec(ms);
+        t.textContent = fmtSeconds(ms);
         svg.appendChild(t);
       }
       row.appendChild(svg);
@@ -1602,7 +1584,7 @@
       }
     }
 
-    // cycleId -> cycle-folder URL, joined from status.json so each icicle row
+    // cycleStartUtc -> cycle-folder URL, joined from status.json so each icicle row
     // can deep-link to that cycle's data folder. The .incomplete / .aborted
     // lifecycle suffix is stripped the same way index.html's history rows do.
     function buildCycleLinks(statusDoc) {
@@ -1612,10 +1594,10 @@
       var hist = statusDoc.history || [];
       for (var i = 0; i < hist.length; i++) {
         var h = hist[i];
-        var id = h.cycleId || h.runId;
+        var id = h.cycleStartUtc || h.runId;
         if (id && h.cycleFolderUrl) { map[id] = strip(h.cycleFolderUrl); }
       }
-      var liveId = statusDoc.cycleId || statusDoc.runId;
+      var liveId = statusDoc.cycleStartUtc || statusDoc.runId;
       if (liveId && statusDoc.cycleFolderUrl && !map[liveId]) { map[liveId] = strip(statusDoc.cycleFolderUrl); }
       return map;
     }
@@ -1634,7 +1616,7 @@
       var opts = { cache: 'no-store' };
       if (recalculate) { opts.method = 'POST'; opts.headers = yurunaControlHeaders(); }
       // Two independent fetches: the aggregates drive the icicles; status.json
-      // supplies the cycleId -> folder map that makes each row's timestamp a
+      // supplies the cycleStartUtc -> folder map that makes each row's timestamp a
       // deep link. A status.json miss only costs the links, not the charts.
       // Read the body before failing: a 403 here carries the precondition that
       // actually failed (no token on this host, no/expired proof), and reporting
@@ -1674,7 +1656,7 @@
     loadAggregates(false);
   }
 
-  // === hostinfo.html handlers ===
+  // === host.html handlers ===
   function bootHostInfo() {
     Yuruna.populateHeader({ href: 'index.html', label: '← Status' });
 
@@ -1699,7 +1681,7 @@
       ['catch'](function(e) { el.className = 'error'; el.textContent = 'Could not load: ' + (e.message || e); });
   }
 
-  // === test.config.html handlers ===
+  // === config.html handlers ===
   function bootTestConfig() {
     var PAGE_CTA = { href: 'index.html', label: '← Status' };
 
@@ -2059,7 +2041,7 @@
       input.setAttribute('autocapitalize', 'off');
 
       var refreshHint = null;
-      if (key === 'cachingProxyIP') {
+      if (key === 'cachingProxyIp') {
         input.placeholder = 'e.g. 192.168.1.42 (probed first; empty = env-var fallback, else local discovery)';
         // url inputmode gives mobile keyboards the dot + digits row first,
         // matching the IPv4 / IPv6 / FQDN values this field accepts.
@@ -2082,7 +2064,7 @@
         if (refreshHint) refreshHint();
       };
 
-      if (key === 'cachingProxyIP') {
+      if (key === 'cachingProxyIp') {
         var wrap = document.createElement('div');
         wrap.className = 'cache-ip-wrap';
 
@@ -2108,7 +2090,7 @@
         envRow.className = 'cache-ip-envrow';
         var envLabel = document.createElement('span');
         envLabel.className = 'cache-ip-envlabel';
-        envLabel.textContent = '$env:YURUNA_CACHING_PROXY_IP =';
+        envLabel.textContent = '$env:YURUNA_CACHING_PROXY_SERVICE_IP =';
         var envInput = document.createElement('input');
         envInput.type = 'text';
         envInput.className = 'tree-input string cache-ip-envinput';
@@ -2122,7 +2104,7 @@
         envInput.setAttribute('autocapitalize', 'off');
         envInput.tabIndex = -1;
         envInput.value = '(loading…)';
-        envInput.title = 'Process-environment value the status server inherited at startup. Read-only here; fallback source only: at cycle start the vmStart.cachingProxyIP field above is probed first and wins when its :3128 answers. Export this in the shell that launches Invoke-TestRunner.ps1 for hosts whose config field is empty.';
+        envInput.title = 'Process-environment value the status service inherited at startup. Read-only here; fallback source only: at cycle start the vmStart.cachingProxyIp field above is probed first and wins when its :3128 answers. Export this in the shell that launches Invoke-TestRunner.ps1 for hosts whose config field is empty.';
         var envMark = buildCacheIpMark();
         envRow.appendChild(envLabel);
         envRow.appendChild(envInput);
@@ -2131,7 +2113,7 @@
 
         var envProbe = makeCacheIpProbeDriver(envMark);
         fetchRuntimeEnv().then(function(envObj) {
-          var v = (envObj && typeof envObj.YURUNA_CACHING_PROXY_IP === 'string') ? envObj.YURUNA_CACHING_PROXY_IP : '';
+          var v = (envObj && typeof envObj.YURUNA_CACHING_PROXY_SERVICE_IP === 'string') ? envObj.YURUNA_CACHING_PROXY_SERVICE_IP : '';
           envInput.value = v === '' ? '(unset)' : v;
           envProbe(v, true);
         })['catch'](function() {
@@ -2149,7 +2131,7 @@
       var mark = document.createElement('span');
       mark.className = 'cache-ip-mark disabled';
       mark.textContent = '✗';
-      mark.title = 'Enter a valid IP address to test caching-proxy connectivity from host.';
+      mark.title = 'Enter a valid IP address to test caching-proxy-service connectivity from host.';
       mark.setCacheIpState = function(state, tooltip) {
         mark.className = 'cache-ip-mark ' + state;
         if (state === 'ok')           mark.textContent = '✓';
@@ -2180,13 +2162,13 @@
 
         if (!trigger) {
           if (v === lastProbedValue) return;
-          markEl.setCacheIpState('disabled', 'Leave the field to test caching proxy from host.');
+          markEl.setCacheIpState('disabled', 'Leave the field to test caching-proxy service from host.');
           return;
         }
 
         if (v === lastProbedValue) return;
 
-        markEl.setCacheIpState('pending', 'Testing caching proxy from host…');
+        markEl.setCacheIpState('pending', 'Testing caching-proxy service from host…');
         debounceTimer = setTimeout(function() {
           if (myId !== latestId) return;
           // Deliberately do NOT disable the field while probing. The current
@@ -2201,7 +2183,7 @@
           var ctrl     = (typeof AbortController !== 'undefined') ? new AbortController() : null;
           var timedOut = false;
           var timer    = setTimeout(function() { timedOut = true; if (ctrl) { ctrl.abort(); } }, 15000);
-          fetch('control/test-caching-proxy?ip=' + encodeURIComponent(v) + '&_=' + Date.now(),
+          fetch('control/test-caching-proxy-service?ip=' + encodeURIComponent(v) + '&_=' + Date.now(),
                 { method: 'POST', cache: 'no-store', headers: yurunaControlHeaders(),
                   signal: ctrl ? ctrl.signal : undefined })
             .then(function(r) {
@@ -2219,11 +2201,11 @@
               lastProbedValue = v;
               if (j.success === true) {
                 markEl.setCacheIpState('ok',
-                  'Test caching proxy from host succeeded (' + j.passCount + ' pass'
+                  'Test caching-proxy service from host succeeded (' + j.passCount + ' pass'
                   + (j.warnCount ? ', ' + j.warnCount + ' warn' : '') + ').');
               } else {
                 markEl.setCacheIpState('fail',
-                  'Test caching proxy from host failed (' + j.failCount + ' fail'
+                  'Test caching-proxy service from host failed (' + j.failCount + ' fail'
                   + (j.warnCount ? ', ' + j.warnCount + ' warn' : '')
                   + (j.passCount ? ', ' + j.passCount + ' pass' : '') + ').');
               }

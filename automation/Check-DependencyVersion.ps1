@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.28
+.VERSION 2026.07.29
 .GUID 42d1e2f3-a4b5-4c67-8d90-1e2f3a4b5c6d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -23,7 +23,7 @@
 .DESCRIPTION
     yuruna-versions.sh is the single source of truth for the dependency
     version numbers the guest provisioning scripts bake in (Kubernetes minor,
-    OpenTofu, nvm, Node.js major). This script reads those pins and asks each
+    OpenTofu, Helm, nvm, Node.js major). This script reads those pins and asks each
     upstream what its current stable release is, then reports which pins have
     a newer release available so an operator knows what to bump.
 

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.28
+.VERSION 2026.07.29
 .GUID 42a1b2c3-d4e5-4f67-8901-bc012345677a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -44,7 +44,7 @@
 # runner imports Invoke-Sequence at startup; if any later -Force import here
 # evicts it, every caller that built a function reference to e.g.
 # Invoke-SequenceByName / Read-SequenceFile loses visibility.
-$script:EngineModule = Join-Path $PSScriptRoot "Invoke-Sequence.psm1"
+$script:EngineModule = Join-Path $PSScriptRoot "Test.SequenceEngine.psm1"
 if (Test-Path $script:EngineModule) {
     Import-Module $script:EngineModule -Force -Global -Verbose:$false -ErrorAction SilentlyContinue
 }
@@ -66,7 +66,7 @@ function Get-CycleConfigPath {
     cycle has no work to do without one. Callers can wrap in try/catch
     and degrade to legacy guestSequence if they want fallback behavior.
 
-    Uses Read-SequenceFile (exported by Invoke-Sequence.psm1) as the
+    Uses Read-SequenceFile (exported by Test.SequenceEngine.psm1) as the
     centralized powershell-yaml loader -- it parses any YAML file, not
     just sequence files, and keeps the dependency check in one place.
 #>
@@ -526,11 +526,11 @@ function Get-CyclePlanSequencesForGuest {
 
 <#
 .SYNOPSIS
-    Walks the baseline chain of a single named sequence (Test-Sequence helper).
+    Walks the baseline chain of a single named sequence (Invoke-TestSequence helper).
 .DESCRIPTION
     Resolve-CyclePlan keys off project/test/test.runner.yml, which the
-    runner consumes but Test-Sequence does not. This sibling takes a top-
-    level sequence NAME directly (the same name a Test-Sequence operator
+    runner consumes but Invoke-TestSequence does not. This sibling takes a top-
+    level sequence NAME directly (the same name a Invoke-TestSequence operator
     types) and produces the same per-entry shape Resolve-CyclePlan would
     have emitted for that sequence:
       topLevel / guestKey / fullChain / startSequences / workloadSequences
@@ -543,10 +543,10 @@ function Get-CyclePlanSequencesForGuest {
 
     -OsKey is optional; absent, the first key of the sequence's own
     `baseline:` map is used. Pass it explicitly when a sequence supports
-    more than one OS and the caller wants a specific one (Test-Sequence
+    more than one OS and the caller wants a specific one (Invoke-TestSequence
     derives it from the resolved GuestKey, stripping the "guest." prefix).
 
-    -TopLevelPath is the path-override escape hatch for Test-Sequence dev
+    -TopLevelPath is the path-override escape hatch for Invoke-TestSequence dev
     setups where the project repo is NOT cloned under <RepoRoot>/project/
     (e.g. yuruna-project as a sibling working tree). When provided, the
     walker uses that path verbatim for the top-level sequence -- but still
@@ -566,7 +566,7 @@ function Resolve-NamedSequenceChain {
         [string]$OsKey,
         [string]$TopLevelPath
     )
-    # Top-level: prefer the explicit override (Test-Sequence path-form),
+    # Top-level: prefer the explicit override (Invoke-TestSequence path-form),
     # fall back to Resolve-SequencePath for the name form.
     $topPath = if ($TopLevelPath) { $TopLevelPath } else {
         Resolve-SequencePath -SequencesDir $SequencesDir -Name $SequenceName -HostType $HostType -RepoRoot $RepoRoot

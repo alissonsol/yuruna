@@ -109,7 +109,7 @@ diagnostics.
 
 **The heartbeat is not per step.** Only the two sequence-engine steps
 (`Start-GuestOS`, `Start-GuestWorkload`) refresh `runner.stepHeartbeat`,
-because `Invoke-Sequence.psm1` touches it at the top of each sequence step —
+because `Test.SequenceEngine.psm1` touches it at the top of each sequence step —
 plus the retry-backoff and cycle-pause keep-alive loops. `New-VM`,
 `Start-VM`, `New-VM.Resource` and `Screenshots` write it nowhere; they run
 under the mtime left by the outer's pre-spawn force-touch or the inner's
@@ -117,7 +117,7 @@ startup seed, so each one's whole duration counts against the same staleness
 budget.
 
 The out-of-process watchdog reads that mtime, re-verifies the inner PID's
-identity, and kills a runspace wedged longer than `stepTimeoutMinutes` — the
+identity, and kills a runspace wedged longer than `stepTimeoutSeconds` — the
 inner process tree, never the VM — forcing the `in_cycle --> fault`
 transition above.
 
@@ -127,4 +127,4 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.28
+Last review: 2026.07.29

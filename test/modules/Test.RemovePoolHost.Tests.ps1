@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.28
+.VERSION 2026.07.29
 .GUID 42b8d1f3-6a4c-4e29-9b57-0d3e2f6a8c15
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -56,7 +56,7 @@ function New-RphFixture {
     New-Item -ItemType Directory -Force -Path $cfgDir | Out-Null
     $cfgPath = Join-Path $cfgDir 'test.config.yml'
     # single-quoted YAML scalar keeps the Windows backslashes literal
-    Set-Content $cfgPath "networkStorage:`n  poolNetworkPath: '//fake/pool'`n  poolNetworkUser: 'fakeuser'`n  poolLocalPath: '$pool'`npool:`n  networkReplicate: false`n"
+    Set-Content $cfgPath "networkStorage:`n  poolStorageNetworkPath: '//fake/pool'`n  poolStorageNetworkUser: 'fakeuser'`n  poolStorageLocalPath: '$pool'`npool:`n  networkReplicate: false`n"
     return [pscustomobject]@{ Tmp = $tmp; Id = $id; InfoFile = $infoFile; CycleDir = $cycleDir; CfgPath = $cfgPath }
 }
 

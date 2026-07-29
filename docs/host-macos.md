@@ -112,13 +112,13 @@ Open an issue with:
 **Limitation:** before starting an `Invoke-TestRunner.ps1` cycle, stop
 (or pause) every other UTM VM in the library. Leaving an unrelated VM
 running is a known-bad state — cloud-init in the test guests will fail
-to reach the host caching proxy and the cycle will fail at the first
+to reach the host caching-proxy service and the cycle will fail at the first
 `fetch-and-execute` step.
 
 Symptom in the cycle log:
 
 ```
-cachingProxyIP: 192.168.7.46
+cachingProxyIp: 192.168.7.46
 guest.<os> Start-VM: PASS ==> IP: 192.168.64.4
 Failure pattern matched: 'NONZERO SCRIPT EXIT:' -- aborting wait early
 ```
@@ -225,6 +225,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.28
+Last review: 2026.07.29
 
 Back to [Yuruna](../README.md)

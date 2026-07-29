@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.28
+.VERSION 2026.07.29
 .GUID 42e0f1a2-b3c4-4d56-e789-0f1a2b3c4d56
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -143,7 +143,7 @@ if (-not $Password) { Write-Error "Get-LocalOsPassword returned empty for '$User
 Write-Output "Password came from authentication mechanism: $_authActiveName"
 Write-Output "See configuration at: $(Resolve-ExtensionAreaDir -Area 'authentication')"
 
-# Yuruna host (status server) IP+port baked into the seed for the dev
+# Yuruna host (status service) IP+port baked into the seed for the dev
 # iteration loop. Guest scripts read /etc/yuruna/host.env (written by
 # user-data runcmd) to resolve a local URL before falling back to
 # GitHub. See Test-YurunaHost.ps1 for the in-guest probe.
@@ -169,8 +169,8 @@ $UserData = New-CloudInitUserData `
         USERNAME_PLACEHOLDER           = $Username
         PLAINTEXT_PASSWORD_PLACEHOLDER = $Password
         SSH_AUTHORIZED_KEY_PLACEHOLDER = $SshAuthorizedKey
-        YURUNA_HOST_IP_PLACEHOLDER     = $YurunaHostIp
-        YURUNA_HOST_PORT_PLACEHOLDER   = $YurunaHostPort
+        YURUNA_STATUS_SERVICE_IP_PLACEHOLDER     = $YurunaHostIp
+        YURUNA_STATUS_SERVICE_PORT_PLACEHOLDER   = $YurunaHostPort
     } -Confirm:$false
 
 Set-Content -Path "$SeedDir/meta-data" -Value $MetaData -NoNewline

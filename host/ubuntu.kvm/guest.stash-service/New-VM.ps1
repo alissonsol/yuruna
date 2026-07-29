@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.28
+.VERSION 2026.07.29
 .GUID 42f4e5f6-a7b8-4c9d-0123-4e5f6a7b8c81
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -18,7 +18,7 @@
 
 <#
 .SYNOPSIS
-    Creates the Yuruna Stash Service VM on Ubuntu KVM (libvirt).
+    Creates the Yuruna stash service VM on Ubuntu KVM (libvirt).
 
 .DESCRIPTION
     Builds a libvirt VM that boots the Ubuntu 26.04 LTS cloud image
@@ -160,9 +160,9 @@ if (-not $networkName) {
     exit 1
 }
 if ($networkName -eq 'default') {
-    Write-Warning "Using libvirt NAT 'default' network (192.168.122/24). The stash VM is reachable from this host only and the NAS likely isn't routable; define a bridged 'yuruna-external' libvirt network for LAN + NAS access."
+    Write-Warning "Using libvirt NAT 'default' network (192.168.122/24). The stash-service VM is reachable from this host only and the NAS likely isn't routable; define a bridged 'yuruna-external' libvirt network for LAN + NAS access."
 } else {
-    Write-Output "Using libvirt network: $networkName (stash VM will get a LAN-routable IP)"
+    Write-Output "Using libvirt network: $networkName (stash-service VM will get a LAN-routable IP)"
 
     # --- REGION: bridge-uplink preflight (fail fast, not a silent 20-min wait)
     # A libvirt <forward mode='bridge'/> network stays ACTIVE even after its host
@@ -172,7 +172,7 @@ if ($networkName -eq 'default') {
     # network (disk growth freezes), and qemu-guest-agent, itself installed over that
     # network, never comes up. The IP wait below would then burn its whole budget for
     # nothing. Detect it HERE and stop with the remediation. The bridge lifecycle is
-    # owned by test/Start-CachingProxyVM.ps1 (New-YurunaExternalNetwork self-heals or
+    # owned by test/Start-CachingProxyServiceVM.ps1 (New-YurunaExternalNetwork self-heals or
     # rebuilds the uplink); this guest script only consumes the network, so it must
     # not flap host networking itself -- it points at the owner instead. Same brif
     # check as Test-YurunaBridgeHasUplink; inlined via direct virsh (the module's
@@ -194,23 +194,23 @@ physical LAN uplink (only guest tap ports are attached). A guest on it can never
 obtain a DHCP lease -- this is the silent 20-minute 'no IP' wait, not a slow boot.
 
 Heal the bridge, then re-run this script:
-    test/Start-CachingProxyVM.ps1
+    test/Start-CachingProxyServiceVM.ps1
 (it owns the 'yuruna-external' bridge lifecycle and self-heals or rebuilds the
-uplink NIC). Nothing was created; the stash VM was not started.
+uplink NIC). Nothing was created; the stash-service VM was not started.
 "@
             exit 1
         }
     }
 }
 
-# Host coordinates (status server, for the in-VM source fetch) + stash storage
+# Host coordinates (status service, for the in-VM source fetch) + stash storage
 # coordinates (the share), baked into the seed. The host address came from the
 # same binding as the network above ($env:YURUNA_GUEST_REACHABLE_HOST_IP wins
 # there); empty means the guest falls back to the public github mirror.
 Import-Module (Join-Path $repoRoot 'test/modules/Test.PoolStorage.psm1')  -Global -Force
 Import-Module (Join-Path $repoRoot 'test/modules/Test.YurunaDir.psm1')    -Global -Force
 Import-Module (Join-Path $repoRoot 'test/modules/Test.Config.psm1')       -Global -Force
-Import-Module (Join-Path $repoRoot 'test/modules/Test.CachingProxy.psm1') -Global -Force
+Import-Module (Join-Path $repoRoot 'test/modules/Test.CachingProxyService.psm1') -Global -Force
 $YurunaHostIp = $guestBinding.HostIp
 $YurunaHostPort = '8080'
 $YurunaTestConfig = Join-Path $repoRoot 'test/test.config.yml'
@@ -220,9 +220,9 @@ if (Test-Path -LiteralPath $YurunaTestConfig) {
     if ($tc -and $tc.statusService -and $tc.statusService.port) { $YurunaHostPort = "$($tc.statusService.port)" }
 }
 $ystashNas = Get-YurunaStashSeedValue -Config $tc
-# Pool-aggregator base URL for the guest's presence beacon + remote-host
-# resolution; '' (no caching proxy known) leaves those features off in-guest.
-$aggregatorSeedUrl = Get-PoolAggregatorSeedUrl
+# Pool-aggregator service base URL for the guest's presence beacon + remote-host
+# resolution; '' (no caching-proxy service known) leaves those features off in-guest.
+$aggregatorSeedUrl = Get-PoolAggregatorServiceSeedUrl
 
 # Render user-data from the shared base + KVM overlay (host/vmconfig/
 # stash-service.*). New-CloudInitUserData resolves placeholders with literal
@@ -235,8 +235,8 @@ $userData = New-CloudInitUserData `
     -Replacement @{
         SSH_AUTHORIZED_KEY_PLACEHOLDER = $SshAuthorizedKey
         PASSWORD_PLACEHOLDER           = $AdminPassword
-        YURUNA_HOST_IP_PLACEHOLDER     = $YurunaHostIp
-        YURUNA_HOST_PORT_PLACEHOLDER   = $YurunaHostPort
+        YURUNA_STATUS_SERVICE_IP_PLACEHOLDER     = $YurunaHostIp
+        YURUNA_STATUS_SERVICE_PORT_PLACEHOLDER   = $YurunaHostPort
         YSTASH_NAS_NETWORK_PATH_PLACEHOLDER  = $ystashNas.NetworkPath
         YSTASH_NAS_NETWORK_IP_PLACEHOLDER    = $ystashNas.NetworkIp
         YSTASH_NAS_NETWORK_USER_PLACEHOLDER  = $ystashNas.NetworkUser
@@ -358,8 +358,8 @@ for ($i = 0; $i -lt $maxIterations; $i++) {
         $deltaMB = $sizeMB - $baselineSizeMB
         $min     = [int][math]::Floor($elapsed / 60)
         $sec     = [int]($elapsed % 60)
-        $totalMin = [int][math]::Floor($maxIterations * 5 / 60)
-        Write-Output ("  [{0:D2}m{1:D2}s / {2}m] still waiting for IP -- qcow2 {3} MB (+{4} MB since boot)" -f $min, $sec, $totalMin, $sizeMB, $deltaMB)
+        $totalMinutes = [int][math]::Floor($maxIterations * 5 / 60)
+        Write-Output ("  [{0:D2}m{1:D2}s / {2}m] still waiting for IP -- qcow2 {3} MB (+{4} MB since boot)" -f $min, $sec, $totalMinutes, $sizeMB, $deltaMB)
     }
 }
 

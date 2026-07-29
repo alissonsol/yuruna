@@ -84,7 +84,7 @@ Likely the best path for those using the command line and environments like Linu
   - Other scripts for convenience.
     - `test/Enable-TestAutomation.ps1`: Change host settings to avoid screen savers and other disruptions for long test cycles.
     - `test/Sync-HostConfiguration.ps1`: Copy host configuration (`test.config.yml`) parameters from another host.
-    - `test/Test-CachingProxy.ps1`: Test the connectivity to the caching proxy.
+    - `test/Test-CachingProxyService.ps1`: Test the connectivity to the caching-proxy service.
     - `test/Test-Config.ps1`: Test if the host configuration has valid values.
 
 ## Workflow
@@ -128,15 +128,15 @@ No assistance will be provided to help migrate changes you made in the public re
          projectUrl: file:///Users/[username]/git/yuruna-project
       ```
 
-#### `repositories.GH_TOKEN` — reading a private framework/project repo
+#### `repositories.ghToken` — reading a private framework/project repo
 
-Leave `GH_TOKEN: ""` if both `frameworkUrl` and `projectUrl` are public. You
+Leave `ghToken: ""` if both `frameworkUrl` and `projectUrl` are public. You
 need it only when a guest has to read a **private** repo — either to clone
 the framework/project, or to fetch its update script from GitHub when the host
-status server is unreachable.
+status service is unreachable.
 
 **Use a read-only, fine-grained token scoped to exactly those two repositories.**
-This token is copied onto every test VM and is served by the status server on
+This token is copied onto every test VM and is served by the status service on
 `/control/test-config`, so anything that can reach the host on port 8080 can read
 it. Its blast radius should be "read these two repos", nothing more — the guests
 only ever pull.
@@ -158,7 +158,7 @@ The result looks like `github_pat_…`:
 ```
  repositories:
    frameworkUrl: https://github.com/alissonsol/yurunadev
-   GH_TOKEN: "github_pat_YourReadOnlyTokenGoesHere"
+   ghToken: "github_pat_YourReadOnlyTokenGoesHere"
    projectUrl: https://github.com/alissonsol/yurunadev-project
 ```
 
@@ -167,7 +167,7 @@ Two constraints worth knowing before you generate one:
 - **A fine-grained token covers a single resource owner.** It works here because
   `frameworkUrl` and `projectUrl` live under the same account. If they ever move
   to different owners or orgs, no single fine-grained token can pull from both,
-  and `repositories.GH_TOKEN` holds only one — you would need the repos under a
+  and `repositories.ghToken` holds only one — you would need the repos under a
   common owner, or a GitHub App.
 - **A classic PAT is a poor fit.** Its smallest useful scope, `repo`, is
   read-**write** and reaches *every* repository the account can see. On a
@@ -178,12 +178,12 @@ The token never travels over the VM console (the host screenshots and OCRs that
 into the published run log) — guests receive it on the cloud-init seed. It is
 also kept out of `~/.gitconfig`, out of remote URLs, and out of the process list.
 `test/test.config.yml` is gitignored, so the real value is never committed; only
-the empty `GH_TOKEN: ""` in the template is.
+the empty `ghToken: ""` in the template is.
 
   - If you modify files that guest VMs fetch
    via the [fetch-and-execution contract](https://yuruna.link/definition#fetch-and-execution-contract),
    commit your changes before testing
-   so the VM can download them via the status server "interceptor" (see
+   so the VM can download them via the status service "interceptor" (see
    [Testing changes from a branch](#testing-changes-from-a-branch)).
   - When you look at the diagnostics for any running test sequence, check the `Yuruna version` and `Project version` fields at the beginning of the `YURUNA PROJECT` section.
 
@@ -208,25 +208,25 @@ the empty `GH_TOKEN: ""` in the template is.
 
 ### 4. **Project work**
 
-  - As long as your local `frameworkUrl` configuration points to the "`yurunadev`" repository, it is business as usual with git, with the bonus of **all committed changes** being served to your guests via the "status server interceptor".
+  - As long as your local `frameworkUrl` configuration points to the "`yurunadev`" repository, it is business as usual with git, with the bonus of **all committed changes** being served to your guests via the "status service interceptor".
 
 ### 5. **Running Tests**
 
-  - If not using a local caching proxy, set the address of that server —
-    durably via `vmStart.cachingProxyIP` in `test/test.config.yml` (probed
+  - If not using a local caching-proxy service, set the address of that server —
+    durably via `vmStart.cachingProxyIp` in `test/test.config.yml` (probed
     first at cycle start), or for the session only via the fallback env var
     (consulted only when the config key is empty or unreachable):
     ```
-    $env:YURUNA_CACHING_PROXY_IP = 'x.y.z.a'
+    $env:YURUNA_CACHING_PROXY_SERVICE_IP = 'x.y.z.a'
     ```
   
   - Test your configuration and address errors and understand the warnings.
-    - Test just the caching proxy: `test/Test-CachingProxy.ps1`
+    - Test just the caching-proxy service: `test/Test-CachingProxyService.ps1`
     - Check the configuration: `test/Test-Config.ps1`
 
 #### **Ensuring local changes are used in tests**
 
-  - Working on a project, including the framework sample project, requires a deeper understanding of "git details". If the projectUrl points to an external site (like `GitHub.com`), then the "status server interceptor" doesn't serve its local commits. Why? Because you can clone that remote repository into multiple local folders. Which one would contain the code you want "intercepted"?
+  - Working on a project, including the framework sample project, requires a deeper understanding of "git details". If the projectUrl points to an external site (like `GitHub.com`), then the "status service interceptor" doesn't serve its local commits. Why? Because you can clone that remote repository into multiple local folders. Which one would contain the code you want "intercepted"?
     - Solutions are:
       - Serve the folder you want as a git repository using the git daemon.
         ```
@@ -247,21 +247,21 @@ the empty `GH_TOKEN: ""` in the template is.
 
   Test steps assume a PowerShell terminal (with Administrator permissions in Windows)
 
-  - Start the Yuruna caching proxy
-    - Locally: `test/Start-CachingProxyVM.ps1`
-    - For a remote cache: set `vmStart.cachingProxyIP` in `test/test.config.yml` (probed first), or `$env:YURUNA_CACHING_PROXY_IP = 'x.y.z.p'` when the config key is empty
-    - Test: `test/Test-CachingProxy.ps1`
-  - Single test loop: `test/Test-Project.ps1`
+  - Start the Yuruna caching-proxy service
+    - Locally: `test/Start-CachingProxyServiceVM.ps1`
+    - For a remote cache: set `vmStart.cachingProxyIp` in `test/test.config.yml` (probed first), or `$env:YURUNA_CACHING_PROXY_SERVICE_IP = 'x.y.z.p'` when the config key is empty
+    - Test: `test/Test-CachingProxyService.ps1`
+  - Single test loop: `test/Invoke-TestProject.ps1`
   - For running unattended tests, see the [Test Runner](docs/test-runner.md) documentation.
 
 ### 7. **Debug a specific step**
-  - `Test-Sequence.ps1` re-runs a
+  - `Invoke-TestSequence.ps1` re-runs a
    single sequence from (or stopping at) a chosen step without VM
    re-creation:
 
      ```
-     test/Test-Sequence.ps1 -SequenceName "start.guest.ubuntu.server.24" -StartStep 5
-     test/Test-Sequence.ps1 -SequenceName "start.guest.ubuntu.server.24" -StartStep 3 -StopStep 7
+     test/Invoke-TestSequence.ps1 -SequenceName "start.guest.ubuntu.server.24" -StartStep 5
+     test/Invoke-TestSequence.ps1 -SequenceName "start.guest.ubuntu.server.24" -StartStep 3 -StopStep 7
      ```
 
    The script lists all steps with markers showing which will execute
@@ -310,7 +310,7 @@ workarounds collected during development live in [Yuruna Workarounds](docs/worka
 
 **Interceptor**
 
-  The concept of the interceptor is simple. You can test locally submitted changes without pushing to the repository. The status server "intercepts" your requests if you used the "fetch and execute" pattern, and serves the local commits affecting the framework. Even for the development repository, you don't want to push untested changes. More details on the definition of the "[Fetch-and-execution contract](https://yuruna.link/definition#fetch-and-execution-contract)".
+  The concept of the interceptor is simple. You can test locally submitted changes without pushing to the repository. The status service "intercepts" your requests if you used the "fetch and execute" pattern, and serves the local commits affecting the framework. Even for the development repository, you don't want to push untested changes. More details on the definition of the "[Fetch-and-execution contract](https://yuruna.link/definition#fetch-and-execution-contract)".
 
 **Testing workload scripts** (self-contained):
 
@@ -328,7 +328,7 @@ the branch and use `EXEC_BASE_URL` with `fetch-and-execute.sh`:
 `YURUNA_GITHUB_REF` placeholders in `host/vmconfig/<guest>.base.user-data`
 resolve to the framework repo and its HEAD commit, so committed branch
 changes are served automatically. The exception is
-`host/vmconfig/caching-proxy.base.user-data`, which hard-codes its fetch
+`host/vmconfig/caching-proxy-service.base.user-data`, which hard-codes its fetch
 base; edit its `refs/heads/main` to your branch when testing cache-VM
 changes. **Revert before opening a PR.**
 
@@ -352,6 +352,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.28
+Last review: 2026.07.29
 
 Back to [Yuruna](README.md)

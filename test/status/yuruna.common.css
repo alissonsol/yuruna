@@ -1,7 +1,7 @@
 /*
   LICENSEURI https://yuruna.link/license
   Copyright (c) 2019-2026 by Alisson Sol et al.
-  Version: 2026.07.28
+  Version: 2026.07.29
   --- REGION: https://yuruna.link/definition#defining-the-status-page-browser-baseline
   --- REGION: https://yuruna.link/definition#defining-the-status-page-header-anatomy
   --- REGION: https://yuruna.link/definition#defining-the-status-page-mobile-and-dark-mode-hardening
@@ -31,7 +31,7 @@
   --cta-fg:       #d1d5db;
   --cta-hover-bg: #1f2937;
   /* Translucent-white overlays for affordances hosted ON the status banner
-     (e.g. perf.html #perf-recalc). They ride whatever saturated banner color
+     (e.g. performance.html #perf-recalc). They ride whatever saturated banner color
      is behind, so they stay theme-neutral -- one definition keeps banner
      buttons rendering identically across the status pages. */
   --banner-overlay-bg:       rgba(255,255,255,.18);
@@ -250,7 +250,7 @@ button {
    page) so index / hostinfo / test.config render identical status colors.
    The bare status word is scoped to .badge / .step-pill (the elements
    yuruna.common.js emits) so a page that reuses a status word for an
-   unrelated element -- e.g. perf.html's .cycle-dur.fail duration cell --
+   unrelated element -- e.g. performance.html's .cycle-dur.fail duration cell --
    is not tinted. */
 .badge.idle,    .step-pill.idle,    .idle-bg    { background: var(--bg-hover); color: var(--fg-muted); }
 .badge.pending, .step-pill.pending, .pending-bg { background: var(--bg-hover); color: var(--fg-muted); }
@@ -295,7 +295,7 @@ button {
 
 /* Narrow-viewport hardening. Two layers:
      - <600 px: drop the 860 px / 1100 px <main> caps so cards span the
-       full width and shrink the side padding so a 320 px iPad can
+       full width and shrink the side padding so a 320 px iPhone can
        breathe.
      - tables are wrapped in .table-wrap (overflow-x: auto) by each
        page; the floor below keeps the table itself responsive when no
@@ -333,7 +333,7 @@ button {
 
 /* SVG perf charts: scale with the container instead of pinning to a
    fixed 1100 px <main>. viewBox preserves the chart's aspect ratio
-   when narrower. (`cycle-flame` is the per-cycle icicle on perf.html.) */
+   when narrower. (`cycle-flame` is the per-cycle icicle on performance.html.) */
 svg.cycle-flame { width: 100%; height: auto; max-width: 100%; }
 
 /* Utility: hide without removing from the layout-tree-discovery pass.
@@ -386,7 +386,7 @@ svg.cycle-flame { width: 100%; height: auto; max-width: 100%; }
   border-color: var(--meta-btn-active-border);
 }
 
-/* Empty-state panel shared by index.html and perf.html. */
+/* Empty-state panel shared by index.html and performance.html. */
 .no-data {
   text-align: center; padding: 3.5rem 1rem; color: var(--fg-faint);
 }

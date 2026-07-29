@@ -24,8 +24,8 @@ import (
 
 	_ "modernc.org/sqlite"
 
-	"stash-server/internal/config"
-	"stash-server/internal/fsutil"
+	"stash-service/internal/config"
+	"stash-service/internal/fsutil"
 )
 
 // Status values (§8.1).

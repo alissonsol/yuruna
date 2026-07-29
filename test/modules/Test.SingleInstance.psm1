@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.28
+.VERSION 2026.07.29
 .GUID 42d9c8b7-6f5e-4a23-9c81-7e4f3a2d1b50
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -21,7 +21,7 @@
     Shared single-instance pidfile guard for the runner trio.
 .DESCRIPTION
     Outer ([test/Invoke-TestRunner.ps1](../Invoke-TestRunner.ps1)) and
-    inner ([test/modules/Invoke-TestInnerRunner.ps1](Invoke-TestInnerRunner.ps1))
+    inner ([test/modules/Invoke-TestRunnerInnerLoop.ps1](Invoke-TestRunnerInnerLoop.ps1))
     share one pidfile guard here instead of each carrying a near-identical
     hand-rolled copy that drifts when a per-platform fix lands -- the
     [BSD `ps -ww` truncation trap](../../docs/test-harness.md), for

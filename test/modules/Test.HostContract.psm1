@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.28
+.VERSION 2026.07.29
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456701
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -20,7 +20,7 @@
 # split into four siblings along feature boundaries (detection,
 # condition-set, git/project, host-driver bootstrap). Importing this
 # file imports all four siblings with -Global so callers that only
-# know the facade -- the runner, Test-Sequence.ps1, sequence
+# know the facade -- the runner, Invoke-TestSequence.ps1, sequence
 # extensions -- get every export reachable. New code should import
 # the matching sibling directly.
 # Aligned with host/Yuruna.Host.Contract.psm1: the test-harness side
@@ -68,7 +68,7 @@ function Stop-ConcurrentVM {
         Host-neutral: enumeration and lifecycle both go through the host
         contract, so this behaves the same on UTM, Hyper-V and libvirt.
     .PARAMETER AlwaysAllow
-        VM names that may keep running. The caching proxy is infrastructure
+        VM names that may keep running. The caching-proxy service is infrastructure
         the guests consume, not a competitor for the host.
     .PARAMETER ExceptVmName
         A VM to leave alone -- the dev loop where an operator re-runs a
@@ -82,7 +82,7 @@ function Stop-ConcurrentVM {
     [CmdletBinding(SupportsShouldProcess)]
     [OutputType([bool])]
     param(
-        [string[]]$AlwaysAllow = @('yuruna-caching-proxy'),
+        [string[]]$AlwaysAllow = @('yuruna-caching-proxy-service'),
         [string]$ExceptVmName
     )
     if (-not (Get-Command Get-VMName -ErrorAction SilentlyContinue)) {

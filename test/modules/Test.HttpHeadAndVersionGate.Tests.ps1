@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.28
+.VERSION 2026.07.29
 .GUID 42d8b0a1-6c74-4e35-9f28-1a5b3c7d0e46
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -18,7 +18,7 @@
 
 <#
 .SYNOPSIS
-    Guards two functional fixes: the status server never writes a body on a HEAD
+    Guards two functional fixes: the status service never writes a body on a HEAD
     response, and Check-DependencyVersion signals dependency drift via its exit code.
 .DESCRIPTION
     An HTTP HEAD response must carry GET's headers (including Content-Length)

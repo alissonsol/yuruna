@@ -11,13 +11,13 @@
 sequenceGuid: 42e26897-db3b-4d98-b923-5f39ad3349bb
 sequenceRevision: 2
 
-description: "Ubuntu Server 26.04: log in as stash-admin and bring up the Yuruna Stash Service daemon."
+description: "Ubuntu Server 26.04: log in as stash-admin and bring up the Yuruna stash service daemon."
 keystrokeMechanism: gui
 resource:
   ubuntu.server.26:
     - start.guest.ubuntu.server.26
 variables:
-  # The stash VM's cloud-init creates only 'stash-admin' (passwordless sudo
+  # The stash-service VM's cloud-init creates only 'stash-admin' (passwordless sudo
   # + vault password); use it for console login. The bring-up script runs
   # many sudo commands, so a NOPASSWD account is required here.
   username: stash-admin

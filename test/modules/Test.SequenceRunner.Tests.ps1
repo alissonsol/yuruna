@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.28
+.VERSION 2026.07.29
 .GUID 42f8c3d6-1a4b-4e29-9c70-5d8e1f2a3b40
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -37,7 +37,7 @@
 
 $here               = Split-Path -Parent $PSCommandPath
 $modulePath         = Join-Path $here 'Test.SequenceRunner.psm1'
-$testSequenceScript = Join-Path (Split-Path -Parent $here) 'Test-Sequence.ps1'
+$testSequenceScript = Join-Path (Split-Path -Parent $here) 'Invoke-TestSequence.ps1'
 
 Import-Module $modulePath -Force -DisableNameChecking -ErrorAction SilentlyContinue
 
@@ -144,7 +144,7 @@ Describe 'Invoke-TestSequenceChain accepts the planner List shape' {
     }
 }
 
-Describe 'Test-Sequence.ps1 passes ChainEntries without an @() wrap' {
+Describe 'Invoke-TestSequence.ps1 passes ChainEntries without an @() wrap' {
     It 'forwards the bare $ChainEntries variable (an @() wrap breaks the [IList] bind)' {
         $arg = Get-CallArgumentAst -Path $testSequenceScript -Command 'Invoke-TestSequenceChain' -ParameterName 'ChainEntries'
         Assert-True ($arg -is [System.Management.Automation.Language.VariableExpressionAst]) `

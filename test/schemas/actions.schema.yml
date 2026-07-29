@@ -5,7 +5,7 @@ $id: https://yuruna.com/schemas/actions.schema.yml
 title: Yuruna action catalog
 description: >
   Documentation file (test/sequences/actions.yml) describing the parameters
-  for every action handled by Invoke-Sequence.psm1. Pure prose — the runner
+  for every action handled by Test.SequenceEngine.psm1. Pure prose — the runner
   never reads this file; it's a reference for sequence authors. The action
   names here are the same enum as in sequence.schema.yml's step.action.
 

@@ -223,7 +223,7 @@
                     <Description>Expire default password so user must change it on next login</Description>
                 </SynchronousCommand>
                 <!--
-                  Put repositories.GH_TOKEN into the user's PowerShell profile and point
+                  Put repositories.ghToken into the user's PowerShell profile and point
                   git at it, so a private frameworkUrl/projectUrl clones unattended.
 
                   Passed as -EncodedCommand because the bootstrap is a multi-line script

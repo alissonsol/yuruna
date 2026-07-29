@@ -4,7 +4,7 @@ $schema: https://json-schema.org/draft/2020-12/schema
 $id: https://yuruna.com/schemas/pool-test-sets.schema.yml
 title: Yuruna pool test-set library
 description: >
-  The reusable library of named test-sets, authored via the Pool control UI
+  The reusable library of named test-sets, authored via the pool-control service UI
   and stored as test-sets.yml in the pool-intent repo alongside pools.yml. A
   test-set is a framework/project repo PAIR; assigning one to a pool copies its
   triple into that pool's `testSet` (pools.schema.yml). GH_TOKEN is never stored

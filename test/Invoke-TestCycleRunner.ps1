@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.28
+.VERSION 2026.07.29
 .GUID 42c7a1b4-6e28-4d35-9f70-2a41c6b8e903
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -79,9 +79,9 @@ $ModulesDir = $paths.ModulesDir
 $ConfigPath = $paths.ConfigPath
 $env:YURUNA_CONFIG_PATH = $ConfigPath
 
-$InnerScript = Join-Path $ModulesDir 'Invoke-TestInnerRunner.ps1'
+$InnerScript = Join-Path $ModulesDir 'Invoke-TestRunnerInnerLoop.ps1'
 if (-not (Test-Path -LiteralPath $InnerScript)) {
-    Write-Error "Invoke-TestInnerRunner.ps1 not found at $InnerScript"
+    Write-Error "Invoke-TestRunnerInnerLoop.ps1 not found at $InnerScript"
     exit 1
 }
 
@@ -112,7 +112,7 @@ $argList = New-InnerRunnerArgList -ScriptPath $InnerScript -Parameters $PSBoundP
 $shutdownState = @{ Requested = $false; ExitAfterLabel = 'cycle' }
 
 $forwardEnvSnapshot = @{}
-foreach ($n in @('YURUNA_CACHING_PROXY_IP','YURUNA_RUNTIME_DIR','YURUNA_LOG_DIR',
+foreach ($n in @('YURUNA_CACHING_PROXY_SERVICE_IP','YURUNA_RUNTIME_DIR','YURUNA_LOG_DIR',
                  'YURUNA_LOG_LEVEL','YURUNA_OCR_COMBINE','YURUNA_CONFIG_PATH',
                  'YURUNA_STATUS_PUBLIC_URL')) {
     $v = [Environment]::GetEnvironmentVariable($n)
@@ -123,7 +123,7 @@ foreach ($n in @('YURUNA_CACHING_PROXY_IP','YURUNA_RUNTIME_DIR','YURUNA_LOG_DIR'
 # the cycle off the success stream, and that one assignment is enough to make
 # PowerShell give the inner pwsh an anonymous pipe for stdout instead of letting it
 # inherit this process's console. The call operator inside then returns when that
-# pipe reaches EOF rather than when the inner exits -- and the status server the
+# pipe reaches EOF rather than when the inner exits -- and the status service the
 # inner spawns holds the write end open for its whole life (Start-Process
 # -RedirectStandard* sets bInheritHandles=TRUE, which hands it a duplicate of every
 # inheritable handle the inner has). The host completes one cycle and stops: the
@@ -142,9 +142,9 @@ Invoke-RunnerOuterCycle -Cycle $Cycle -State @{
     NoGitPull                 = [bool]$NoGitPull
     FailurePauseMaxSeconds    = 60 * 60
     FailureCommitPollSeconds  = 5 * 60
-    OuterPullErrorSleepSec    = 30
-    InnerSpawnErrorSleepSec   = 30
-    StepTimeoutMinutesDefault = 45
+    OuterPullErrorSleepSeconds    = 30
+    InnerSpawnErrorSleepSeconds   = 30
+    StepTimeoutSecondsDefault = 2700
     WatchdogPollSeconds       = 30
     TestRoot                  = $TestRoot
 }

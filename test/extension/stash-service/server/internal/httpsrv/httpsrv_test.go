@@ -17,11 +17,11 @@ import (
 	"testing"
 	"time"
 
-	"stash-server/internal/config"
-	"stash-server/internal/id"
-	"stash-server/internal/meta"
-	"stash-server/internal/sshsrv"
-	"stash-server/internal/store"
+	"stash-service/internal/config"
+	"stash-service/internal/id"
+	"stash-service/internal/meta"
+	"stash-service/internal/sshsrv"
+	"stash-service/internal/store"
 )
 
 const testHostID = "42aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" // 32 hex, hostId-shaped

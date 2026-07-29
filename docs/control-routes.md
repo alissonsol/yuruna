@@ -8,7 +8,7 @@
 ## What changed
 
 The status page's action buttons call **state-changing `/control/*` routes** on the
-host's status server. Those routes rewrite the host's `test.config.yml`, start and stop
+host's status service. Those routes rewrite the host's `test.config.yml`, start and stop
 cycles, and run diagnostics — so anything that can call them owns the host.
 
 A state-changing control request is now accepted only when the caller is **one of**:
@@ -24,8 +24,9 @@ renders for anyone on the LAN, `status.json` is still served, and the config-syn
 
 | Route | Gated |
 | --- | --- |
-| `control/start-cycle`, `control/cycle-pause`, `control/cycle-resume`, `control/step-pause`, `control/step-resume`, `control/break-continue`, `control/test-caching-proxy`, `control/host-diagnostic` | always |
+| `control/start-cycle`, `control/cycle-pause`, `control/cycle-resume`, `control/step-pause`, `control/step-resume`, `control/break-continue`, `control/test-caching-proxy-service`, `control/host-diagnostic` | always |
 | `control/test-config`, `control/perf-aggregates` | on `POST`/`PUT` — their read path stays open |
+| `control/runner-status`, `control/control-status` | never — read-only, and the pool dashboard reads them |
 
 ## Where the proof comes from
 
@@ -34,7 +35,7 @@ the aggregator's push-ingest and the cross-host credential fetch. It is **not a 
 secret**, and the token itself never travels in a URL.
 
 When you open a host from the *Yuruna hosts* dashboard, the link goes through the pool
-aggregator on the caching proxy, which mints a proof valid for **15 minutes** and hands it
+aggregator on the caching-proxy service, which mints a proof valid for **15 minutes** and hands it
 to the host page in the URL **fragment** (`#yctl=…`). A fragment is never sent to a server
 and never lands in an access log; only the page's own JavaScript reads it. The page keeps
 it in `sessionStorage` **for that tab** and presents it as the `X-Yuruna-Control` header on
@@ -49,14 +50,14 @@ from loopback only.
 
 ## Enabling remote control on a host
 
-Every host **and** the caching proxy must hold the **same** token value: a proof minted by
+Every host **and** the caching-proxy service must hold the **same** token value: a proof minted by
 the proxy can only be verified by a host that shares its token. The token originates on
-the caching proxy — building the proxy VM mints one automatically when the building host
+the caching-proxy service — building the proxy VM mints one automatically when the building host
 has none — and every other host obtains it by **enrolling with the Lab token**; nobody
 ever reads or types the secret itself.
 
 **1. Read the Lab token off the dashboard.** Open the *Yuruna hosts* dashboard (Grafana on
-the caching proxy) and find the **Lab token** tile next to the *Extension hosts* table: a
+the caching-proxy service) and find the **Lab token** tile next to the *Extension hosts* table: a
 6-character code, the **lab connection token**. It rotates every minute (aggregator
 `-lab-token-rotate`), and a displayed code stays redeemable for about three, so read it
 right before the next step. A tile showing `off` means the aggregator holds no token —
@@ -78,28 +79,28 @@ journal and to Loki — and per-address throttled. Whoever can **view** the dash
 enroll a host: that is the lab's trust model, and the dashboard and the code rotate
 together.
 
-The caching proxy is found from this host's configuration (`vmStart.cachingProxyIP`, the
-persisted proxy state, or `$env:YURUNA_CACHING_PROXY_IP`). Each is probed on the
+The caching-proxy service is found from this host's configuration (`vmStart.cachingProxyIp`, the
+persisted proxy state, or `$env:YURUNA_CACHING_PROXY_SERVICE_IP`). Each is probed on the
 aggregator port `:9400` and the first that answers is used, so an address left behind by a
 proxy that has since moved — the persisted state keeps its last value on a host that
 stopped running a proxy of its own — is passed over instead of consuming the enrollment on
 a timeout. When none answers, probing continues for up to two minutes, so a momentary
 outage does not cost you a code; a claim that loses its probe is replaced with the address
 that won, so the next run does not pay for it again. A host where nothing answers at all
-is asked for the address (or takes `-CachingProxy <address>`). When this host already has
-a `test/test.config.yml`, that answer is written to `vmStart.cachingProxyIP` and binds the
+is asked for the address (or takes `-CachingProxyService <address>`). When this host already has
+a `test/test.config.yml`, that answer is written to `vmStart.cachingProxyIp` and binds the
 host to this lab's proxy from then on. On a machine so new it has no config file yet, the
 address is used for this enrollment only — the `Sync-HostConfiguration.ps1` run below
-brings over a config whose `vmStart.cachingProxyIP` does the binding.
+brings over a config whose `vmStart.cachingProxyIp` does the binding.
 
 The script is idempotent — a lost token, a rebuilt proxy, or a doubtful host state is
 fixed by reading the current code and running it again. It declares the `users.yml` vault
 key, stores the token, and verifies the round-trip through the same lookup the control
 gate performs — so a key that is stored under one name and read under another (a silent
-`403`) cannot happen. `-BounceStatusService` restarts the status server so the token takes
+`403`) cannot happen. `-BounceStatusService` restarts the status service so the token takes
 effect immediately instead of at the next cycle; `-WhatIf` previews without touching the
 vault. The vault writes are sub-second; the restart is the slow part (it re-asserts the
-caching-proxy port map and waits for the port to answer), so expect that step to take tens
+caching-proxy-service port map and waits for the port to answer), so expect that step to take tens
 of seconds. It is bounded: if the restart has not finished in 180 s the script says so and
 leaves it running, and the token is already stored either way — it simply takes effect at
 the next cycle instead.
@@ -108,7 +109,7 @@ Bringing a **new** host into the pool? Enroll it first, then sync its config —
 reads the just-stored token from this host's own vault to fetch credentials:
 
 ```
-pwsh test/Set-LabToken.ps1 -LabToken <code> -CachingProxy <proxy> -BounceStatusService
+pwsh test/Set-LabToken.ps1 -LabToken <code> -CachingProxyService <proxy> -BounceStatusService
 pwsh test/Sync-HostConfiguration.ps1 -ReferenceHost <host>
 ```
 
@@ -117,12 +118,29 @@ host-to-host path for a lab whose aggregator is unreachable: it takes the raw sh
 from an operator who already holds it and stores it the same way.)
 
 **3. Drive the host from the dashboard.** Open the *Yuruna hosts* dashboard on the caching
-proxy and follow the host's link — the Host ID in the *Pool hosts* table, or the timeline's
-"open host status page" — every one routes through the
+proxy and follow the host's link — the **Control** cell in the *Pool hosts* table, or the
+timeline's "open host status page" — every one routes through the
 aggregator's `/go/host` redirect. Arriving that way is what carries the proof; typing the
-host's URL by hand does not. The *Extension hosts* table's Host ID is plain text on
-purpose: its rows include hosts that run only an extension service, which have no status
-page to open — use their *Pool hosts* row when they have one.
+host's URL by hand does not. Host ID cells are plain text in **every** table: exactly one
+cell per row grants control, and it is the one that tells you whether control is on offer.
+
+**The Control cell answers "is this host enrolled?" before you click.** It reads:
+
+| Cell | Meaning |
+|---|---|
+| **remote** (green) | this host holds the same `lab-auth-token` the proxy mints with, so its control buttons will work |
+| **onsite** (grey) | the host holds no token — item 3 below |
+| **onsite** (amber) | the host holds a *different* token, or its clock is skewed far enough to expire a fresh proof — items 4 and 6 |
+| **unknown** | the host has not answered `/control/control-status`; a framework build older than this route does not serve it |
+
+Following the link still opens the host's status page in every state — it is the *control*
+that is withheld, not the view. The cell refreshes on the aggregator's poll (30 s), so a
+host flips to **remote** within about a minute of `Set-LabToken.ps1` finishing — roughly the
+same beat as the *Lab token* tile beside it.
+
+The *Extension hosts* table has no Control cell at all: its rows include hosts that run
+only an extension service, which have no status page to open — use their *Pool hosts* row
+when they have one.
 
 ## What still works with no setup at all
 
@@ -140,9 +158,11 @@ In the config editor this reads `Save failed: …`; the short link lands on this
 underlying condition is always the same: the caller was neither on loopback nor carrying a
 valid control proof.
 
-**Read the `reason` first — it names the precondition that actually failed**, so you can skip
-straight to the matching item below. The 403 body carries it alongside the message, and the
-status pages render it in place of a bare `HTTP 403`:
+**Check the dashboard's Control cell first** — it names most of these conditions *before* a
+click ([Drive the host from the dashboard](#enabling-remote-control-on-a-host) above). When
+you are already looking at a 403, **read the `reason`: it names the precondition that
+actually failed**, so you can skip straight to the matching item below. The 403 body carries
+it alongside the message, and the status pages render it in place of a bare `HTTP 403`:
 
 | `reason` | Meaning |
 |---|---|
@@ -150,7 +170,7 @@ status pages render it in place of a bare `HTTP 403`:
 | `proof-missing` | The request carried no proof at all — usually item 1 or 2. |
 | `proof-expired` | A well-formed proof whose expiry has passed (item 1). |
 | `proof-invalid` | A proof that does not verify against this host's token (item 4). |
-| `verifier-unavailable` | The status server could not load its verifier; check its log. |
+| `verifier-unavailable` | The status service could not load its verifier; check its log. |
 
 1. **Your browser is not actually on loopback.** Only a genuine loopback address is exempt.
    Browsing `http://<this-host's-own-LAN-IP>:<port>` **from the host itself is _not_ loopback** —
@@ -185,6 +205,23 @@ A different message — `forbidden: missing X-Yuruna request header` — is the 
 request guard, not the proof: it means a non-browser client (`curl`) called a control route
 without that header.
 
+## Browser refusal notice
+
+A refused control action is surfaced, not swallowed. To a status page's JavaScript a 403
+is a *resolved* fetch, not a network error, so a page that only handled fetch failures
+fell straight through to its normal reload and the refused click looked like a silent
+no-op. The mutating `/control/*` routes are loopback-or-proof — an on-host browser
+(`http://localhost:<port>`) is trusted, and a browser on another machine needs the
+short-lived proof the pool dashboard grants — so that silent no-op is exactly what a
+remote operator without a proof would see on every button.
+
+The status pages therefore show an explicit notice, and lead with **which precondition
+failed**: the host names it in the 403 body (`reason`, table above), and "open this page
+via the dashboard again" vs "enroll the host first" are different fixes. The notice markup
+is static: each `reason` resolves through a fixed map of prewritten texts in
+[`test/status/yuruna.common.js`](../test/status/yuruna.common.js), so no server-supplied
+text is ever interpolated into the page.
+
 ## GET /control/runner-status
 
 An always-open read route that reports whether the outer `Invoke-TestRunner`
@@ -208,20 +245,50 @@ the outer runner via two paths:
 The UI shows a "Stopped" banner when `running=false` so stale `status.json`
 data is not mistaken for a live runner.
 
+## GET /control/control-status
+
+An always-open read route that answers "can this host be driven remotely, and by
+whose token?" — the input behind the dashboard's **Control** column:
+
+```json
+{ "ok": true, "tokenConfigured": true, "tokenTag": "<base64>", "utcNow": "2026-07-29T12:34:56Z" }
+```
+
+`tokenTag` is `base64(HMAC-SHA256(lab-auth-token, "yuruna-control|tag|v1"))` — a
+non-secret **name** for the token, not the token and not a hash of it. The aggregator
+derives the same tag from its own copy and compares: equal means a proof it mints will
+verify here, unequal means this host was enrolled against a different (usually rebuilt)
+proxy. Neither end ever discloses the token, and the comparison happens inside the
+aggregator — the tag is **never** exported to Prometheus, because `/metrics` and the
+dashboard are unauthenticated by design.
+
+Reading the tag does not help forge a proof: a proof signs `yuruna-control|proof|<expiry>`
+and the tag signs a fixed message whose label segment is `tag`, so no expiry can ever
+produce it. `utcNow` is what lets the aggregator spot the clock skew of item 6 without
+minting anything. A host holding no token answers `tokenConfigured: false` with an empty
+tag; a runspace that cannot load the verifier answers the same way, so a tag is never
+published by a host that would refuse every proof anyway.
+
+The route is deliberately outside the cross-site request guard and the loopback-or-proof
+gate: it changes nothing, and the aggregator has to be able to ask a host it may share no
+token with. That is also why it is a **live** route rather than a field in
+`host.registration.json` — that record is written once per cycle, so a host enrolled
+between cycles (or one not running cycles at all) would report stale for hours.
+
 ## File serving: URL-prefix dispatch and deny-list
 
-The status server's file-serving side dispatches by URL prefix:
+The status service's file-serving side dispatches by URL prefix:
 `yuruna-repo/<rel>` maps to the repo working tree (deny-listed),
 `runtime/<name>` to the runtime dir (pids, `status.json`, control flags,
-`ipaddresses.txt`, `caching-proxy.txt`, `current-action.json`, `server.err`,
-`yuruna-caching-proxy.yml`, `host.uuid`), `log/<name>` to the log dir (HTML
+`ipaddresses.txt`, `caching-proxy-service.txt`, `current-action.json`, `server.err`,
+`yuruna-caching-proxy-service.yml`, `host.uuid`), `log/<name>` to the log dir (HTML
 transcripts, OCR/screenshot debug, failure captures), and anything else to the
 status dir (`index.html`, template, static assets, `perf/`, `extension/`,
 `captures/`, `ssh/`). Each branch pins the resolved path under its mount root
 with a StartsWith check, so traversal such as `runtime/../../../etc/passwd`
 cannot escape. A unified deny-list is then applied to every served path so
 secrets under `status/` (`vault.yml`, `transports.yml`, `events.log`, the SSH
-private key, the caching-proxy state file) are blocked regardless of which
+private key, the caching-proxy-service state file) are blocked regardless of which
 route reached them.
 
 ## Short per-cycle links: `/cycle/<number>`
@@ -229,7 +296,7 @@ route reached them.
 `GET /cycle/004062` redirects (302) to that cycle's HTML transcript. It exists
 because the transcript's real path repeats the cycle folder name twice and that
 name carries a timestamp and host id — too long to paste into a message, and
-nothing a reader can recognise. The cycle number is the part an operator reads
+nothing a reader can recognize. The cycle number is the part an operator reads
 off the runner console or a dashboard row, so it is the part the link uses.
 
 The number is resolved against the log dir at request time: the recent cycles at
@@ -251,8 +318,8 @@ The outer runner prints one of these per finished cycle, e.g.
 - [pool-admin.md](pool-admin.md) — running a pool and the *Yuruna hosts* dashboard.
 - [pool-storage.md](pool-storage.md) — the `lab-auth-token`-gated credential fetch used
   when syncing a new host's config.
-- [caching.md](caching.md#caching-proxy--test-harness-operator-reference) — the caching-proxy VM that hosts Grafana and the
-  pool aggregator.
+- [caching.md](caching.md#caching-proxy-service--test-harness-operator-reference) — the caching-proxy-service VM that hosts Grafana and the
+  pool-aggregator service.
 - [test-config.md](test-config.md) — the host-side config keys, including the vault.
 
 ---
@@ -261,6 +328,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.28
+Last review: 2026.07.29
 
 Back to [Yuruna](../README.md)

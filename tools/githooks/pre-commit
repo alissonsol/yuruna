@@ -35,7 +35,7 @@ fi
 # Second pass: no file anywhere may carry a BOM. A BOM is invisible in every
 # editor, survives copy/paste between projects, and rides into byte-for-byte
 # consumers -- the signed install.sha256, heredoc bodies, the guest scripts the
-# status server serves verbatim. Non-ASCII bytes are fine outside the bootstrap
+# status service serves verbatim. Non-ASCII bytes are fine outside the bootstrap
 # set, so this pass checks only for the BOM. -Staged keeps it to what is about
 # to be committed; the whole tree is ~1000 files and this runs on every commit.
 if ! pwsh -NoProfile -ExecutionPolicy Bypass -File "$gate" -BomOnly -Staged -Quiet; then
@@ -43,5 +43,56 @@ if ! pwsh -NoProfile -ExecutionPolicy Bypass -File "$gate" -BomOnly -Staged -Qui
     echo "pre-commit: a staged file carries a byte-order mark (see above)." >&2
     echo "  Rewrite it as BOM-less UTF-8, or bypass with 'git commit --no-verify'." >&2
     exit 1
+fi
+
+# Third pass (WARN only): retired names. Each spelling below was replaced by a
+# current one; a copy/paste from an old cycle log, an archived doc, or another
+# machine's checkout is how they come back, and they come back silently because
+# nothing fails -- the code reads the current name and quietly uses a default.
+# Warn rather than block: an archived artifact or a migration note may legitimately
+# quote the old spelling, and only the author can tell those apart.
+# Format: <retired>|<current>
+retired_names='
+status server|status service
+stash appliance|stash service
+HostConfigService|ConfigService
+Test-Sequence.ps1|Invoke-TestSequence.ps1
+Invoke-TestInnerRunner|Invoke-TestRunnerInnerLoop
+stepTimeoutMinutes|stepTimeoutSeconds
+refreshHours|refreshSeconds
+characterDelayMs|charDelayMs
+shouldStopOnFailure|stopOnFailure
+autoRemediationEnabled|autoRemediation.enabled
+isEnabled|enabled
+GH_TOKEN:|ghToken:
+cachingProxyIP|cachingProxyIp
+poolLocalPath|poolStorageLocalPath
+poolNetworkPath|poolStorageNetworkPath
+stashLocalPath|stashStorageLocalPath
+stashNetworkPath|stashStorageNetworkPath
+test.config.html|config.html
+hostinfo.html|host.html
+perf.html|performance.html
+YURUNA_HOST_IP|YURUNA_STATUS_SERVICE_IP
+YURUNA_HOST_PORT|YURUNA_STATUS_SERVICE_PORT
+stash-server|stash-service
+'
+# Exclude the three files that carry retired names BY DEFINITION -- this hook's
+# own list, the migration table it mirrors, and the private history under
+# dev-only/ -- or every commit reports them and the pass becomes noise.
+staged=$(git diff --cached --name-only --diff-filter=ACM |
+    grep -v -e '^tools/githooks/pre-commit$' \
+            -e '^test/modules/Test\.ConfigNaming\.psm1$' \
+            -e '^dev-only/')
+if [ -n "$staged" ]; then
+    printf '%s\n' "$retired_names" | while IFS='|' read -r old new; do
+        [ -n "$old" ] || continue
+        hits=$(printf '%s\n' "$staged" | tr '\n' '\0' |
+            xargs -0 grep -l -F -- "$old" 2>/dev/null)
+        if [ -n "$hits" ]; then
+            echo "pre-commit: retired name '$old' (use '$new') in:" >&2
+            printf '  %s\n' $hits >&2
+        fi
+    done
 fi
 exit 0

@@ -26,6 +26,30 @@ used by [memory.md](memory.md), [definition.md](definition.md),
 
 ## All hosts (shared rationale)
 
+### Install log
+
+Each installer mirrors stdout+stderr to a log file as well as the
+terminal so a mid-install failure can be inspected afterwards. The shell
+installers do this with a FIFO and a backgrounded `tee` (rather than
+`exec > >(tee ...)`) so the EXIT path can wait for tee to flush, making
+the file complete even on an abrupt exit — a plain process-substitution
+tee is left an orphan that may be killed before flushing its
+block-buffered file write. The log lands in the standard per-user
+location — `~/Library/Logs/Yuruna` on macOS, the state dir
+`$XDG_STATE_HOME/yuruna/logs` (default `~/.local/state/yuruna/logs`) on
+Ubuntu — falling back to `${TMPDIR:-/tmp}`.
+
+On Windows the failure mode is different: the elevated relaunch runs in
+a SEPARATE console window that vanishes the instant the script ends or
+dies, so a mid-install failure there leaves nothing on screen to read.
+The installer transcripts every elevated stage to a file under a
+standard, discoverable location (`%ProgramData%\Yuruna\logs`, falling
+back to `%TEMP%`) so the failure can be inspected after the window is
+gone. The path is generated ONCE and forwarded through every relaunch
+via `-LogPath`, so the line printed before the UAC relaunch names the
+exact file the elevated window writes, and every stage appends to that
+one file.
+
 ### Two-repo split
 
 The installer ships in TWO repos that share the same script:
@@ -43,7 +67,7 @@ GitHub credentials this run doesn't have.
 
 ### Release pinning + signed integrity
 
-`VERSION` (bare CalVer, e.g. `2026.07.28`) is the source of truth for releases.
+`VERSION` (bare CalVer, e.g. `2026.07.29`) is the source of truth for releases.
 At release time `tools/Update-YurunaReleasePins.ps1` regenerates
 `install/install.sha256`, signs it (`install/install.sha256.sig`, RSA-4096),
 runs the ASCII/no-BOM gate as a hard precondition, and bumps the one tag still
@@ -123,7 +147,7 @@ so self-relaunches (UAC elevation, PS5→PS7 bootstrap) do not re-prompt.
 ### Stop running Yuruna processes before updating
 
 Re-runs of the installer must be able to upgrade installed packages and
-the repository in place. An active Yuruna test run or status server
+the repository in place. An active Yuruna test run or status service
 would fight with the upgrade for the working tree and port 8080. The
 installer force-stops the outer runner, its per-cycle inner pwsh, and
 the detached status HTTP server, then WAITS for them to actually exit
@@ -143,12 +167,12 @@ caught even when one channel misses it:
 2. Command-line pattern match — catches an ad-hoc runner started
    outside the managed runtime dir, whose PID-file location can't be
    predicted. The patterns: `Invoke-TestRunner.ps1`,
-   `Invoke-TestInnerRunner.ps1`, `Test-Sequence.ps1`,
+   `Invoke-TestRunnerInnerLoop.ps1`, `Invoke-TestSequence.ps1`,
    `Start-StatusService.ps1`, plus the detached server's generated
    script name `.status-service.ps1`, which does NOT contain
    "Start-StatusService.ps1".
 3. The status port's listening owner (the configured port plus the
-   8080 default), so port 8080 is freed even if the status server was
+   8080 default), so port 8080 is freed even if the status service was
    started some other way.
 
 The wait covers only the PIDs actually stopped, not every candidate.
@@ -174,7 +198,7 @@ Candidate PIDs are deduplicated, the installer's own PID is dropped,
 and each survivor is identity-validated before anything is killed:
 only PIDs whose executable is actually a PowerShell interpreter
 (`pwsh` / `powershell`) are stopped, because every real target — the
-outer runner, the per-cycle inner runner, the detached status server —
+outer runner, the per-cycle inner runner, the detached status service —
 is a PowerShell process.
 
 Two ways an innocent PID reaches the candidate list:
@@ -201,9 +225,9 @@ kept rather than silently disabling the stop (a degrade to the
 pre-validation behavior). This mirrors the PowerShell side's
 PID-identity check (the `Invoke-TestRunner.ps1` stale-pid guard).
 
-### Preserve the yuruna-caching-proxy VM
+### Preserve the yuruna-caching-proxy-service VM
 
-The cache VM (`yuruna-caching-proxy`) holds tens
+The cache VM (`yuruna-caching-proxy-service`) holds tens
 of GB of pre-fetched `.deb` / `.iso` content built up across test
 cycles. The installer never stops Hyper-V VMs (no `Stop-VM` / `Remove-VM`
 in any installer), so the cache survives re-runs by default.
@@ -229,26 +253,36 @@ If the cache is running OR its state is uncertain, the macOS installer
 skips the UTM cask upgrade so a quit-UTM window does not let the
 orphaned-bundle sweep delete the multi-GB squid spool.
 
-### Checkout-movable probe (Windows)
+### Directory rename that stays a rename
+
+`Move-Item` degrades a failed directory rename into a recursive
+copy-then-delete — that is how it supports moves across volumes. Pointed
+at a checkout that is held open, it copies part of the tree (`.git`
+included) to the destination name, deletes the originals it copied, then
+fails on the first file it cannot touch: a destroyed working tree,
+reported as "the item is in use". Every directory move in the Windows
+installer therefore goes through `Move-YurunaDirectory`, a thin wrapper
+over `[System.IO.Directory]::Move`, which is a rename and nothing else —
+it either succeeds or throws with both paths exactly as they were. Every
+destination is a sibling of its source, so the same-volume restriction
+on `[System.IO.Directory]::Move` never applies.
+
+### Checkout not held open
 
 The non-ff rescue below has to rename the checkout aside, and on Windows
 a directory cannot be renamed while any process holds a handle inside
-it. That failure would otherwise surface only after the winget installs,
-the Hyper-V enable and the `test/status` backup, so the Windows
-installer probes it up front with the same operation the rescue uses: a
-rename to `<dir>.locktest` and straight back.
+it — most often a shell sitting inside the tree (its working directory
+pins it), or an editor or Explorer window with the folder open. That
+failure would otherwise surface only after the winget installs, the
+Hyper-V enable and the `test/status` backup, so the operator would wait
+minutes for a surprising "item is in use" abort. The Windows installer
+probes it up front with the same operation the rescue uses — a rename to
+the `<dir>.locktest` sibling — and a pass renames straight back, so
+nothing is disrupted.
 
-Three properties keep the probe from costing more than it reports.
-
-**It never copies.** `Move-Item` degrades a failed directory rename into
-a recursive copy-then-delete — that is how it supports moves across
-volumes. Pointed at a checkout that is held open, it copies part of the
-tree (`.git` included) to the probe name, deletes the originals it
-copied, then fails on the first file it cannot touch: a destroyed
-working tree, reported as "the item is in use". Every directory move in
-the installer therefore goes through `Move-YurunaDirectory`, a thin
-wrapper over `[System.IO.Directory]::Move`, which is a rename and
-nothing else — it either succeeds or throws with both paths untouched.
+Besides never copying (the probe renames through `Move-YurunaDirectory`;
+see [Directory rename that stays a rename](#directory-rename-that-stays-a-rename)),
+two properties keep the probe from costing more than it reports.
 
 **It steps the PROCESS working directory out of the tree, not just the
 PowerShell location.** A process holds an open handle on its own current
@@ -266,7 +300,8 @@ releases it.
 needs the rename. A checkout that something else holds open still
 updates normally through `git pull`, so the probe reports the condition
 and the install continues; the rescue path reports its own failure if it
-is ever reached.
+is ever reached. The probe exists to tell the operator early, not to
+veto the run.
 
 On entry the probe also repairs a `<dir>.locktest` an interrupted run
 left behind, in either shape it can take: the whole checkout under the
@@ -316,7 +351,7 @@ type a Linux guest reads — `*.sh`, `*.yml`, `user-data`, `meta-data`,
 etc. Adding `.gitattributes` does NOT rewrite files already in the
 working tree: without this step a developer who cloned with
 `core.autocrlf=true` still has `fetch-and-execute.sh` sitting on disk
-as CRLF, the host status server serves those CRLF bytes byte-faithfully
+as CRLF, the host status service serves those CRLF bytes byte-faithfully
 to the guest, and the guest's bash chokes with `$'\r': command not
 found` on line 2 of the script. The installer forces a one-shot rebuild
 of the working tree from the index so every file picks up the `eol=`
@@ -363,10 +398,10 @@ and the generated SSH key pair all survive a clone/update.
 
 ### Baseline reset removes test-* VMs
 
-An install is a return-to-baseline operation. Status server + runner
+An install is a return-to-baseline operation. Status service + runner
 processes are killed earlier (`stop_yuruna_processes` / `Stop-YurunaProcess`);
 their VMs are not. `test/Remove-TestVMFiles.ps1` enumerates VMs matching
-the `test-` prefix and stops + removes each. The `yuruna-caching-proxy`
+the `test-` prefix and stops + removes each. The `yuruna-caching-proxy-service`
 VM does NOT match this prefix and is preserved. Failure here is
 non-fatal — a wedged hypervisor helper or locked image file on one VM
 must not block the rest of the install. The step runs AFTER the repo
@@ -395,7 +430,7 @@ install.
 ### powershell-yaml install
 
 `powershell-yaml` is required by `Resolve-CyclePlan` and every YAML
-reader in the harness. pwsh 7 does NOT ship it, and `test/Test-Project.ps1`
+reader in the harness. pwsh 7 does NOT ship it, and `test/Invoke-TestProject.ps1`
 preflight fails fast with "powershell-yaml is not installed" if the
 module is missing — the friction of every fresh-host bootstrap. Each
 installer installs `powershell-yaml` (CurrentUser scope,
@@ -440,6 +475,22 @@ accepts `param()` as a top-of-script construct ONLY when the input has
 no leading BOM and `param()` is positioned after the comment-based help
 blocks. Both conditions are constraints on the file's byte layout, not
 on PowerShell syntax.
+
+### Single-fetch materialization
+
+Under `irm | iex` there is no `$PSCommandPath`, so the elevation and
+PS7 relaunches would each RE-FETCH the installer from the moving ref —
+extra unverified swings, two of them in the elevated context. Instead
+the installer fetches the source ONCE to a BOM-less temp file and
+relaunches via `-File`, so every child runs from that one file with a
+real `$PSCommandPath` and never re-fetches. The temp file is written
+byte-true from the IRM response (not `ScriptBlock.ToString()`, whose
+PS 5.1 round-trip fidelity is unverified), so the materialized bytes
+match the canonical installer.
+
+Before materializing, the installer sweeps stale materialization temps
+left by a crashed prior run — only temps older than one hour, so the
+age guard never touches a concurrent run's fresh temp.
 
 ### Self-elevation and PS5 → PS7 bootstrap
 
@@ -650,8 +701,8 @@ install/upgrade write targets directly.
 
 `brew upgrade --cask utm` requires UTM closed. The installer
 gracefully quits UTM via AppleScript (`tell application "UTM" to quit`)
-and falls back to `pkill` if it refuses. If the caching-proxy VM is
-running (see [Preserve the yuruna-caching-proxy VM](#preserve-the-yuruna-caching-proxy-vm)),
+and falls back to `pkill` if it refuses. If the caching-proxy-service VM is
+running (see [Preserve the yuruna-caching-proxy-service VM](#preserve-the-yuruna-caching-proxy-service-vm)),
 the UTM cask upgrade is skipped this run; it gets upgraded on the next
 install re-run when the cache happens to be stopped (or when the
 operator quits UTM manually).
@@ -867,6 +918,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.28
+Last review: 2026.07.29
 
 Back to [Yuruna](../README.md)

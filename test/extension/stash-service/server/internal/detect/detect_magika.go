@@ -14,7 +14,7 @@ import (
 
 	"github.com/google/magika/go/magika"
 
-	"stash-server/internal/config"
+	"stash-service/internal/config"
 )
 
 func newBackend() Detector {

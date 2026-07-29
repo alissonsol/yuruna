@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.28
+.VERSION 2026.07.29
 .GUID 42f0a1b2-c3d4-4e56-f789-0a1b2c3d4e80
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -29,8 +29,8 @@ if (-not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdent
 
 # --- REGION: Configuration
 # Ubuntu 26.04 LTS (Resolute Raccoon), per the stash-service spec
-# (section 3.1: default image ubuntu.server.26) so the stash VM stays
-# inside the supported-LTS window (matching the caching-proxy image) and
+# (section 3.1: default image ubuntu.server.26) so the stash-service VM stays
+# inside the supported-LTS window (matching the caching-proxy-service image) and
 # the distro Go toolchain ships new enough to satisfy the daemon's go.mod
 # directive without a toolchain fetch.
 $sourceUrl = "https://cloud-images.ubuntu.com/resolute/current/resolute-server-cloudimg-amd64.img"

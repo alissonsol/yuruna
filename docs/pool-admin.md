@@ -21,7 +21,7 @@ Intent has three parts:
 - **desiredState** — whether the pool is running, paused, or draining.
 
 ```
-  you ──run──▶ admin CLI ──writes──▶ pools.yml  (intent git repo on the caching-proxy)
+  you ──run──▶ admin CLI ──writes──▶ pools.yml  (intent git repo on the caching-proxy-service)
                                           │
   every host ──pulls read-only each cycle─┘──▶ runs the assigned test-set, reports under <poolId>
 ```
@@ -31,9 +31,9 @@ library, `guests.compatibility.yml`). No credential is ever routed through it.
 
 ## Before you start
 
-1. **The intent store exists.** The caching-proxy VM seeds a bare git repo at
+1. **The intent store exists.** The caching-proxy-service VM seeds a bare git repo at
    `/var/lib/yuruna/pool-intent.git` and serves it **read-only over HTTP** at
-   `http://<proxy>/pool-intent.git`. This is set up automatically when the caching-proxy is
+   `http://<proxy>/pool-intent.git`. This is set up automatically when the caching-proxy-service is
    provisioned — you don't create it.
 2. **Each host has opted in.** In each host's `test/test.config.yml`, set the `pool` block:
    ```yaml
@@ -47,7 +47,7 @@ library, `guests.compatibility.yml`). No credential is ever routed through it.
    `42`-prefixed 32-hex string. It is also shown as `hostId` on the host's own status page
    and on the pool dashboard.
 4. **You can write the intent repo.** The HTTP url above is read-only. The admin commands
-   need a **writable** path/url, so run them **on the caching-proxy** against the local repo
+   need a **writable** path/url, so run them **on the caching-proxy-service** against the local repo
    (`/var/lib/yuruna/pool-intent.git`), or against any pre-authenticated writable remote.
    Pass it with `-IntentGitUrl <writable-url>`, or set `pool.intentGitUrl` to a writable
    value in the `test.config.yml` you run the admin CLI from (then you can omit the flag).
@@ -90,7 +90,7 @@ sequences a pool runs are whatever that project declares. `GH_TOKEN` is never
 stored in pool intent; it stays host-local.
 
 Register the pair in the intent store's test-set library (`test-sets.yml`, the
-store behind the Pool control "Test sets" page):
+store behind the pool-control service "Test sets" page):
 
 ```powershell
 pwsh test/Set-PoolTestSetDefinition.ps1 -Name smoke -FrameworkUrl <framework-url> -ProjectUrl <project-url> -IntentGitUrl <writable-url>
@@ -111,7 +111,7 @@ pwsh test/Set-PoolTestSet.ps1 -PoolId lab -Name smoke -FrameworkUrl <framework-u
 - The URLs are recorded inline in `pools.yml`, so the assignment is
   self-contained — no file in the project repo is involved.
 - Nothing probes the URLs at assignment time: a typo first surfaces when a
-  member's next cycle tries to clone — see [Limitations](#current-limitations).
+  member's next cycle tries to clone.
 
 ## Step 5 — Verify
 
@@ -146,7 +146,7 @@ In-flight cycles always finish, so pause/drain never corrupt an accumulating run
 `Remove-HostFromPool` only drops a host from ONE pool's `members[]`. A host that
 ran cycles also leaves a `hosts/info.<hostId>.yml` identity record plus replicated
 cycle folders on the NAS, and — separately — keeps showing on the **Yuruna hosts**
-dashboard, which is the pool-aggregator's own polled, in-memory view (each host
+dashboard, which is the pool-aggregator-service's own polled, in-memory view (each host
 kept for the aggregator's host TTL after last contact — 24h by default, set with
 `-host-ttl`), *not* the NAS records. To fully retire a
 stale host — a disposable `example/nested.host` run, a decommissioned box, an id
@@ -156,13 +156,13 @@ that will never return — use:
 pwsh test/Remove-PoolHost.ps1 -HostId 42<...30 hex...>          # add -WhatIf to preview
 ```
 
-It (1) reads `networkStorage.poolLocalPath` from `test.config.yml` and deletes
-`<poolLocalPath>/hosts/info.<hostId>.yml` + `<poolLocalPath>/<hostId>/`; (2) strips
+It (1) reads `networkStorage.poolStorageLocalPath` from `test.config.yml` and deletes
+`<poolStorageLocalPath>/hosts/info.<hostId>.yml` + `<poolStorageLocalPath>/<hostId>/`; (2) strips
 the id from EVERY pool's `members[]` (needs `pool.intentGitUrl`; without it the NAS
 records are still removed and membership is skipped with a warning); and (3) asks
 the aggregator to **forget** the host (`POST /api/v1/forget-host`) so it leaves the
 dashboard NOW instead of after the host TTL. Step 3 is opt-in + best-effort: it
-fires only when a `lab-auth-token` and a caching-proxy are configured (the same
+fires only when a `lab-auth-token` and a caching-proxy-service are configured (the same
 CA-pinned bearer transport as pool push), and a missing token / unreachable
 aggregator is a silent skip — the panel still self-clears on the TTL. A host that
 is still live is re-discovered on the aggregator's next poll, so stop/drain it
@@ -214,7 +214,7 @@ for the cycle and runs the assigned project's own `test.runner.yml`.
 
 ### Architecture
 
-A small Go daemon (`test/extension/pool-control/server`, module `pool-control`) that:
+A small Go daemon (`test/extension/pool-control-service/server`, module `pool-control-service`) that:
 
 - Serves the embedded static pages + a JSON API (`/api/state`, `/api/pool`,
   `/api/pool/testset`, `/api/testset`, ...). Strict page CSP; XSS-safe DOM.
@@ -224,12 +224,12 @@ A small Go daemon (`test/extension/pool-control/server`, module `pool-control`) 
   git + YAML + schema validation + commit/push in Go &mdash; one authoritative
   implementation. A failed push surfaces to the UI as an error (never a silent
   success).
-- **Self-announces** to the pool aggregator (beacon, area `pool-control`) and, via
-  the `runtime/pool-control.json` marker + `host.registration.json`, appears in the
-  Extension hosts table (shown as "Pool control"). Either path alone paints the row.
+- **Self-announces** to the pool-aggregator service (beacon, area `pool-control-service`) and, via
+  the `runtime/pool-control-service.json` marker + `host.registration.json`, appears in the
+  Extension hosts table (shown as "Pool-control service"). Either path alone paints the row.
 - Persists an **audit log** (`audit.jsonl`) + **status.json** (last write,
   last-publish outcome, heartbeat, intent-readable, health) under
-  `poolNetworkPath/pool-control/` (the pool NAS), surviving restarts. `/healthz`
+  `poolStorageNetworkPath/pool-control-service/` (the pool NAS), surviving restarts. `/healthz`
   serves that status. A monitor loop probes the intent every `--monitor-interval`.
 
 ### Running it
@@ -237,25 +237,25 @@ A small Go daemon (`test/extension/pool-control/server`, module `pool-control`) 
 **Default &mdash; on its own VM:**
 
 ```powershell
-pwsh test/Start-PoolControlVM.ps1 [-VMName yuruna-pool-control]
-# stop (and tear down the VM) with test/Stop-PoolControlVM.ps1
+pwsh test/Start-PoolControlServiceVM.ps1 [-VMName yuruna-pool-control-service]
+# stop (and tear down the VM) with test/Stop-PoolControlServiceVM.ps1
 ```
 
-Like Start-CachingProxyVM / Start-StashVM, this brings the service up on a
-dedicated VM. `host/vmconfig/pool-control.base.user-data` seeds an Ubuntu guest
+Like Start-CachingProxyServiceVM / Start-StashServiceVM, this brings the service up on a
+dedicated VM. `host/vmconfig/pool-control-service.base.user-data` seeds an Ubuntu guest
 that builds the daemon, installs pwsh + `powershell-yaml`, CIFS-mounts the pool NAS
-for the state dir, and runs it under systemd (`guest/ubuntu.server.26/ubuntu.server.26.pool-control.sh`).
-The per-hypervisor `guest.pool-control/New-VM.ps1` (mirroring the stash VM chain)
+for the state dir, and runs it under systemd (`guest/ubuntu.server.26/ubuntu.server.26.pool-control-service.sh`).
+The per-hypervisor `guest.pool-control-service/New-VM.ps1` (mirroring the stash-service VM chain)
 generates the seed with `/etc/yuruna/{pool.env,host.env,pool-nas.cifs.cred}` and a
 distinct guest username. **No `go` toolchain is needed on the host** &mdash; the
 daemon is built inside the guest. The Extension-hosts row then points at the VM
 (beacon self-IP); deleting the VM clears it after the announce TTL.
 
 After the VM boots, the launcher waits for the daemon to actually serve on `:80`
-(up to 15 min; override with `YURUNA_POOL_CONTROL_READY_TIMEOUT=<seconds>`) before
+(up to 15 min; override with `YURUNA_POOL_CONTROL_SERVICE_READY_TIMEOUT_SECONDS=<seconds>`) before
 reporting success &mdash; an IP alone is not "up", since the guest still has to
 build the daemon. If `:80` never comes up, it pulls the in-guest build log,
-`cloud-init status`, and the `pool-control.service` journal over the harness SSH
+`cloud-init status`, and the `pool-control-service.service` journal over the harness SSH
 key and prints them, so a failed build shows you the reason instead of a dead URL.
 (That log is root-only; the harness `yuruna` account has NOPASSWD `sudo`, so
 `sudo tail /var/log/cloud-init-output.log` reads it &mdash; a plain `tail` returns
@@ -264,8 +264,8 @@ key and prints them, so a failed build shows you the reason instead of a dead UR
 **Host-side (proof / fallback):**
 
 ```powershell
-pwsh test/Start-PoolControlVM.ps1 -HostSideProof [-Port 8090] [-AggregatorUrl <url>]
-# UI at http://<host>:8090/ ; stop with test/Stop-PoolControlVM.ps1
+pwsh test/Start-PoolControlServiceVM.ps1 -HostSideProof [-Port 8090] [-AggregatorUrl <url>]
+# UI at http://<host>:8090/ ; stop with test/Stop-PoolControlServiceVM.ps1
 ```
 
 `-HostSideProof` builds + runs the daemon directly on this host instead of a VM.
@@ -289,7 +289,7 @@ These have no dedicated command yet — author them directly in `pools.yml` (val
 `Test-PoolIntent.ps1`); see [`test/schemas/pools.schema.yml`](../test/schemas/pools.schema.yml):
 
 - **`config.testCycle`** — override test-cycle knobs for the whole pool (e.g.
-  `stepTimeoutMinutes`, `autoRemediationEnabled`); pool value wins over each host's config.
+  `stepTimeoutSeconds`, `autoRemediation.enabled`); pool value wins over each host's config.
 - **`gating`** — pool health-alert thresholds (the healthy-member quorum + how long before a
   pool is flagged "degraded"). Advisory: it drives alerting + the dashboard, never gating a
   cycle. Delivery is configured separately on the alert host (see the notifier docs).
@@ -307,7 +307,7 @@ then to standalone — a pool never stops a host from testing.
   buttons, and the one-time `lab-auth-token` setup that enables them from another machine.
 - [pool-storage.md](pool-storage.md) — optional NAS replication of pool observability data
   (a separate, NAS-only feature).
-- [test/extension/pool-aggregator/README.md](../test/extension/pool-aggregator/README.md) —
+- [test/extension/pool-aggregator-service/README.md](../test/extension/pool-aggregator-service/README.md) —
   the read-only pool dashboard + telemetry collector.
 - [test-config.md](test-config.md) — the host-side `pool` config keys.
 
@@ -317,6 +317,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.28
+Last review: 2026.07.29
 
 Back to [Yuruna](../README.md)

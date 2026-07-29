@@ -87,7 +87,7 @@ script falls back to size + timestamp and prints a one-line warning.
 
 ### 3. Conversion (Hyper-V only, for cloud images)
 
-Hyper-V requires VHDX. The caching-proxy and any other cloud-image-based
+Hyper-V requires VHDX. The caching-proxy-service and any other cloud-image-based
 Hyper-V guests run `qemu-img convert ... -O vhdx` and then clear the
 NTFS-sparse flag that qemu-img leaves on the output (otherwise
 `Resize-VHD` fails with `0xC03A001A`). This step is encapsulated in
@@ -98,7 +98,7 @@ NTFS-sparse flag that qemu-img leaves on the output (otherwise
 ```
 pwsh ./New-VM.ps1                          # default VM name from the planner
 pwsh ./New-VM.ps1 -VMName myhost           # custom VM name
-pwsh ./New-VM.ps1 -CachingProxyUrl http://192.168.122.10:3128
+pwsh ./New-VM.ps1 -CachingProxyServiceUrl http://192.168.122.10:3128
 ```
 
 What `New-VM.ps1` does is host-dependent:
@@ -195,15 +195,15 @@ sequence drives that rotation against the OS prompt.
 For ad-hoc runs outside a cycle, set `$env:YURUNA_GUEST_PASSWORD` to
 a known plaintext before `New-VM.ps1` to bypass the vault.
 
-## Caching proxy
+## Caching-proxy service
 
-When a `guest.caching-proxy` VM is running on any host, pass its IP via
-`-CachingProxyUrl` to `New-VM.ps1` for supported guests. Ubuntu Server
+When a `guest.caching-proxy-service` VM is running on any host, pass its IP via
+`-CachingProxyServiceUrl` to `New-VM.ps1` for supported guests. Ubuntu Server
 guests (24.04, 26.04) accept the parameter and cloud-init / autoinstall
 points apt at it for the install, which is dramatically faster than
 hitting upstream mirrors on every rebuild. Amazon Linux 2023 guests do
-**not** support the caching proxy — their `New-VM.ps1` declares no
-`-CachingProxyUrl` parameter because templating a dnf proxy into
+**not** support the caching-proxy service — their `New-VM.ps1` declares no
+`-CachingProxyServiceUrl` parameter because templating a dnf proxy into
 cloud-init proved unreliable. See the per-guest README files for
 feature availability, and
 [`docs/caching.md`](caching.md).
@@ -240,20 +240,20 @@ resolves in *that* module's session state, not the importing driver's
 — a bare-name call to a driver-private command would silently fail to
 bind. See `feedback_closure_foreign_module_command_resolution.md`.
 
-The caching-proxy probe's cross-module dependencies are the exception:
-`Get-CachingProxyPort`, `Test-IpAddress`, and `Format-IpUrlHost` from
-`Yuruna.Common`, plus `Read-CachingProxyState` from
-`Test.CachingProxy`, are called **by name**, so the module owns those
+The caching-proxy-service probe's cross-module dependencies are the exception:
+`Get-CachingProxyServicePort`, `Test-IpAddress`, and `Format-IpUrlHost` from
+`Yuruna.Common`, plus `Read-CachingProxyServiceState` from
+`Test.CachingProxyService`, are called **by name**, so the module owns those
 imports itself rather than assuming a driver imported them into a
 visible scope. This mirrors the `Yuruna.HostDownload.psm1`
 self-import pattern. A load-time check warns if any of the four failed
 to resolve, so a broken or moved module surfaces at import instead of
-on the one caching-proxy probe per cycle — where it would look like a
+on the one caching-proxy-service probe per cycle — where it would look like a
 cache outage.
 
 ### Cache-routed downloads: `Yuruna.HostDownload.psm1`
 
-Holds the shared squid caching-proxy download stack:
+Holds the shared squid caching-proxy-service download stack:
 `Test-DownloadAlreadyCurrent`, `Get-CacheProxyForHostDownload`,
 `Save-CachedHttpUri`, `Invoke-HttpsViaSquidBump`, and the TCP port
 probe. Centralizing them means a hardening fix to the X509
@@ -311,6 +311,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.28
+Last review: 2026.07.29
 
 Back to [Yuruna](../README.md)

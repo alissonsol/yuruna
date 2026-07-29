@@ -43,7 +43,7 @@ and select only **Deployment Tools**.
 
 ## 4) Install QEMU tools
 
-`guest.caching-proxy/Get-Image.ps1` uses `qemu-img.exe` to convert the
+`guest.caching-proxy-service/Get-Image.ps1` uses `qemu-img.exe` to convert the
 Ubuntu Server cloud image (qcow2) to VHDX:
 
 ```
@@ -141,6 +141,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.28
+Last review: 2026.07.29
 
 Back to [Yuruna](../../README.md)

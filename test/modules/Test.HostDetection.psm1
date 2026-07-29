@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.28
+.VERSION 2026.07.29
 .GUID 42a7b8c9-d0e1-4f23-9456-7e8f9a0b1c20
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -256,24 +256,23 @@ function Get-TestVMName {
     .SYNOPSIS
     Derives the test VM name from guest key + prefix.
     .DESCRIPTION
-    Strip "guest.", replace remaining dots with hyphens, append "-01",
-    add the prefix. Examples with prefix "test-":
-        guest.ubuntu.server.24  ->  test-ubuntu-server-01
-        guest.amazon.linux.2023   ->  test-amazon-linux-01
-        guest.windows.11     ->  test-windows-11-01
-    Any guest key produces a deterministic VM name without code changes.
-    Migration note: pre-2026-04 harness used "test-amazon-linux01",
-    "test-windows11-01". VMs from the old convention are orphaned
-    (Remove-TestVM keys off the new name); clean them up once with
-    `Get-VM test-* | Remove-VM` on Hyper-V or `utmctl list | grep test-`
-    on UTM.
+    The guest key rides through VERBATIM -- prefix, then the key exactly as it
+    appears in guestSequence and on disk, then the "-01" ordinal. Examples with
+    prefix "test-":
+        guest.ubuntu.server.24    ->  test-guest.ubuntu.server.24-01
+        guest.amazon.linux.2023   ->  test-guest.amazon.linux.2023-01
+        guest.windows.11          ->  test-guest.windows.11-01
+    Reading the guest key straight off a VM name is the point: an operator
+    listing VMs on a hypervisor sees which guest folder each one came from,
+    with no transform to undo. Every hypervisor the harness drives (Hyper-V,
+    KVM/libvirt, UTM) accepts dots in a domain/VM name.
     #>
     param(
         [Parameter(Mandatory)] [string]$GuestKey,
         [string]$Prefix = "test-",
         [string]$HostId
     )
-    $stem = ($GuestKey -replace '^guest\.', '') -replace '\.', '-'
+    $stem = $GuestKey
     # Pool: an 8-hex HostId segment scopes the VM name to this host so
     # multiple pool members on a SHARED store never collide. ABSENT (legacy /
     # single-host) -> byte-identical to the old name. The segment is alphanumeric,
@@ -288,12 +287,12 @@ function Get-TestVMName {
     }
     # Shell-safety guard at the composition ingest point. The VM name flows
     # into interpolated commands downstream -- a KVM `bash -c` virt-viewer
-    # invocation and hypervisor CLIs on every platform. The stem and HostId
-    # segments are already reduced to [A-Za-z0-9-], but the
-    # operator-configurable prefix (vmStart.testVmNamePrefix) is NOT: a prefix
-    # carrying a space or shell metacharacter would ride through the
-    # interpolation. Reject here so a metacharacter name can never reach a
-    # command string, whichever host type ends up running it.
+    # invocation and hypervisor CLIs on every platform. The HostId segment is
+    # reduced to [A-Za-z0-9] above, but neither the operator-configurable prefix
+    # (vmStart.testVmNamePrefix) nor the guest key is: either one carrying a
+    # space or shell metacharacter would ride through the interpolation. Reject
+    # here so a metacharacter name can never reach a command string, whichever
+    # host type ends up running it.
     if ($vmName -notmatch '^[A-Za-z0-9._-]+$') {
         throw "Composed VM name '$vmName' has characters outside [A-Za-z0-9._-]; fix vmStart.testVmNamePrefix ('$Prefix') -- VM names must be shell-safe."
     }

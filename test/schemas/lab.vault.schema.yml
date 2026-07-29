@@ -51,7 +51,7 @@ properties:
         type: string
       intentGitPath:
         description: >
-          Path of the bare pool-intent repository inside yuruna.pool. Pool Control
+          Path of the bare pool-intent repository inside yuruna.pool. pool-control service
           serves this over git:// and that URL becomes the lab's intentGitUrl.
         type: string
 

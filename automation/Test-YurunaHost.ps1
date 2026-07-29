@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.28
+.VERSION 2026.07.29
 .GUID 42d4e5f6-a7b8-4c90-1d23-4e5f6a7b8c91
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -18,12 +18,12 @@
 
 <#
 .SYNOPSIS
-    From inside a guest VM, verify whether the yuruna status server on
+    From inside a guest VM, verify whether the yuruna status service on
     the host is reachable.
 
 .DESCRIPTION
     The dev iteration loop relies on each guest knowing the host's IP
-    and port for the status server. Those are baked into
+    and port for the status service. Those are baked into
     /etc/yuruna/host.env at VM-provision time by New-VM.ps1. On
     Hyper-V Default Switch the host IP changes across host reboots, so
     a guest provisioned today and used tomorrow may have stale
@@ -40,7 +40,7 @@
     Path to host.env. Default /etc/yuruna/host.env. Override useful
     for unit-testing the script outside a real guest.
 
-.PARAMETER TimeoutSec
+.PARAMETER TimeoutSeconds
     HTTP timeout for the /livecheck probe. Default 3.
 
 .OUTPUTS
@@ -50,7 +50,7 @@
 
 param(
     [string]$HostEnvFile = '/etc/yuruna/host.env',
-    [int]$TimeoutSec = 3
+    [int]$TimeoutSeconds = 3
 )
 
 $ErrorActionPreference = 'Continue'
@@ -66,7 +66,7 @@ function Show-Remediation {
     Write-Output ''
     Write-Output '--- Remediation ---'
     Write-Output 'The yuruna-host coordinates baked into this guest are stale or the'
-    Write-Output 'host status server is not reachable. The supported fix is to rebuild'
+    Write-Output 'host status service is not reachable. The supported fix is to rebuild'
     Write-Output 'the guest VM from the host:'
     Write-Output ''
     Write-Output '  macOS / UTM:'
@@ -75,7 +75,7 @@ function Show-Remediation {
     Write-Output '  Windows / Hyper-V:'
     Write-Output '    pwsh host\windows.hyper-v\<guest>\New-VM.ps1'
     Write-Output ''
-    Write-Output 'Make sure the status server is running on the host first:'
+    Write-Output 'Make sure the status service is running on the host first:'
     Write-Output '    pwsh test/Start-StatusService.ps1'
     Write-Output ''
     Write-Output 'Until the rebuild lands, fetch-and-execute.sh will silently fall'
@@ -100,23 +100,23 @@ foreach ($line in (Get-Content $HostEnvFile -ErrorAction Stop)) {
     }
 }
 
-$hostIp   = $envMap['YURUNA_HOST_IP']
-$hostPort = $envMap['YURUNA_HOST_PORT']
+$hostIp   = $envMap['YURUNA_STATUS_SERVICE_IP']
+$hostPort = $envMap['YURUNA_STATUS_SERVICE_PORT']
 
 if (-not $hostIp) {
-    Write-Result 'FAIL' "YURUNA_HOST_IP missing or empty in $HostEnvFile"
+    Write-Result 'FAIL' "YURUNA_STATUS_SERVICE_IP missing or empty in $HostEnvFile"
     Show-Remediation
     exit 1
 }
 if (-not $hostPort) {
-    Write-Result 'FAIL' "YURUNA_HOST_PORT missing or empty in $HostEnvFile"
+    Write-Result 'FAIL' "YURUNA_STATUS_SERVICE_PORT missing or empty in $HostEnvFile"
     Show-Remediation
     exit 1
 }
 
-Write-Result 'INFO' "host.env: YURUNA_HOST_IP=$hostIp YURUNA_HOST_PORT=$hostPort"
+Write-Result 'INFO' "host.env: YURUNA_STATUS_SERVICE_IP=$hostIp YURUNA_STATUS_SERVICE_PORT=$hostPort"
 
-# --- REGION: 2. /etc/hosts maps yuruna-host to YURUNA_HOST_IP
+# --- REGION: 2. /etc/hosts maps yuruna-host to YURUNA_STATUS_SERVICE_IP
 # Parse the mapped IP (first field of the "<ip> <name>..." line) and compare it
 # to host.env: a stale mapping resolves the name to the wrong host even though
 # IP-based URLs still work. Commented lines are skipped.
@@ -128,10 +128,10 @@ if (Test-Path $hostsFile) {
     if ($hostsLine) {
         $mappedIp = ($hostsLine.Trim() -split '\s+')[0]
         if ($mappedIp -eq $hostIp) {
-            Write-Result 'OK' "/etc/hosts maps yuruna-host to $mappedIp (matches YURUNA_HOST_IP)."
+            Write-Result 'OK' "/etc/hosts maps yuruna-host to $mappedIp (matches YURUNA_STATUS_SERVICE_IP)."
             $hostsNameMapsHostIp = $true
         } else {
-            Write-Result 'WARN' "/etc/hosts maps yuruna-host to $mappedIp but YURUNA_HOST_IP is $hostIp -- stale name->IP mapping; name-based URLs will hit the wrong host."
+            Write-Result 'WARN' "/etc/hosts maps yuruna-host to $mappedIp but YURUNA_STATUS_SERVICE_IP is $hostIp -- stale name->IP mapping; name-based URLs will hit the wrong host."
         }
     } else {
         Write-Result 'WARN' '/etc/hosts has no yuruna-host entry -- only IP-based URLs will work.'
@@ -140,11 +140,11 @@ if (Test-Path $hostsFile) {
 
 # --- REGION: 3. /livecheck probe
 $livecheckUrl = "http://${hostIp}:${hostPort}/livecheck"
-Write-Result 'INFO' "Probing $livecheckUrl (timeout ${TimeoutSec}s) ..."
+Write-Result 'INFO' "Probing $livecheckUrl (timeout ${TimeoutSeconds}s) ..."
 
 $response = $null
 try {
-    $response = Invoke-WebRequest -Uri $livecheckUrl -TimeoutSec $TimeoutSec -UseBasicParsing -ErrorAction Stop
+    $response = Invoke-WebRequest -Uri $livecheckUrl -TimeoutSec $TimeoutSeconds -UseBasicParsing -ErrorAction Stop
 } catch {
     Write-Result 'FAIL' "Probe failed: $($_.Exception.Message)"
     Show-Remediation
@@ -157,7 +157,7 @@ if ($response.StatusCode -ne 200) {
     exit 1
 }
 
-# --- REGION: 4. Validate the JSON looks like the yuruna status server
+# --- REGION: 4. Validate the JSON looks like the yuruna status service
 # A misdirected probe (someone else's HTTP server on :8080) would 200
 # but the body wouldn't match. Distinguish by the `service` field.
 try {
@@ -181,7 +181,7 @@ if ($payload.service -ne 'yuruna-status-service') {
 if ($hostsNameMapsHostIp) {
     $nameUrl = "http://yuruna-host:${hostPort}/livecheck"
     try {
-        $nameResp = Invoke-WebRequest -Uri $nameUrl -TimeoutSec $TimeoutSec -UseBasicParsing -ErrorAction Stop
+        $nameResp = Invoke-WebRequest -Uri $nameUrl -TimeoutSec $TimeoutSeconds -UseBasicParsing -ErrorAction Stop
         if ($nameResp.StatusCode -eq 200) {
             Write-Result 'OK' "yuruna-host name resolves and $nameUrl is reachable."
         } else {

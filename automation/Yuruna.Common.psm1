@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.28
+.VERSION 2026.07.29
 .GUID 4288bcbc-ede3-4dda-bb77-b9782c7615ad
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -136,7 +136,7 @@ function Get-PortMapStatePath {
     } elseif (-not (Test-Path $RuntimeDir)) {
         New-Item -ItemType Directory -Path $RuntimeDir -Force | Out-Null
     }
-    return (Join-Path $RuntimeDir 'caching-proxy-port-map.json')
+    return (Join-Path $RuntimeDir 'caching-proxy-service-port-map.json')
 }
 
 function Test-IsAdministrator {
@@ -153,27 +153,27 @@ function Test-IsAdministrator {
     return ([Security.Principal.WindowsPrincipal]$id).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 }
 
-function Get-CachingProxyPort {
+function Get-CachingProxyServicePort {
 <#
 .SYNOPSIS
-    Resolve the client-facing caching-proxy port for one of the supported
+    Resolve the client-facing caching-proxy-service port for one of the supported
     schemes (http / https / ftp), honoring per-scheme env-var overrides
     with squid-style defaults.
 .DESCRIPTION
-    Reads `$env:YURUNA_CACHING_PROXY_<SCHEME>_PORT`. Empty / missing /
+    Reads `$env:YURUNA_CACHING_PROXY_SERVICE_<SCHEME>_PORT`. Empty / missing /
     non-integer values fall through to the squid defaults: 3128 for HTTP,
     3129 for HTTPS, 3128 for FTP. The FTP knob is reserved for callers
     extending the harness (squid handles FTP via HTTP CONNECT today, so
     out-of-the-box code uses 3128 -- same value as HTTP).
 
-    Companion to YURUNA_CACHING_PROXY_IP: clients that need to point at
+    Companion to YURUNA_CACHING_PROXY_SERVICE_IP: clients that need to point at
     a non-default external squid (different IP AND/OR different port)
     set both knobs together.
 .OUTPUTS
     [int]
 .EXAMPLE
-    Get-CachingProxyPort                       # 3128 (or override)
-    Get-CachingProxyPort -Scheme https         # 3129 (or override)
+    Get-CachingProxyServicePort                       # 3128 (or override)
+    Get-CachingProxyServicePort -Scheme https         # 3129 (or override)
 #>
     [CmdletBinding()]
     [OutputType([int])]
@@ -181,7 +181,7 @@ function Get-CachingProxyPort {
         [ValidateSet('http','https','ftp')]
         [string]$Scheme = 'http'
     )
-    $envVar = "YURUNA_CACHING_PROXY_$($Scheme.ToUpperInvariant())_PORT"
+    $envVar = "YURUNA_CACHING_PROXY_SERVICE_$($Scheme.ToUpperInvariant())_PORT"
     $val = [System.Environment]::GetEnvironmentVariable($envVar)
     if ($val) {
         $parsed = 0
@@ -894,4 +894,4 @@ function Select-NameByPrefix {
     return $matched.ToArray()
 }
 
-Export-ModuleMember -Function New-YurunaTimestampedBackup, Get-HostProxyBackupPath, ConvertTo-ProxyHostPort, Get-PortMapStatePath, Test-IsAdministrator, Get-CachingProxyPort, Test-Ipv4Address, Test-Ipv6Address, Format-IpUrlHost, Test-IpAddress, ConvertTo-Sha512CryptHash, ConvertTo-YurunaMacAddress, ConvertTo-Ipv4UInt32, Get-HostIpv4Subnet, Get-Ipv4OnLinkVerdict, Select-DhcpLeaseIpAddress, Get-UtmGuestSeedHostname, ConvertTo-MemoryStartupBytes, Select-NameByPrefix
+Export-ModuleMember -Function New-YurunaTimestampedBackup, Get-HostProxyBackupPath, ConvertTo-ProxyHostPort, Get-PortMapStatePath, Test-IsAdministrator, Get-CachingProxyServicePort, Test-Ipv4Address, Test-Ipv6Address, Format-IpUrlHost, Test-IpAddress, ConvertTo-Sha512CryptHash, ConvertTo-YurunaMacAddress, ConvertTo-Ipv4UInt32, Get-HostIpv4Subnet, Get-Ipv4OnLinkVerdict, Select-DhcpLeaseIpAddress, Get-UtmGuestSeedHostname, ConvertTo-MemoryStartupBytes, Select-NameByPrefix

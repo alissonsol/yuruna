@@ -42,9 +42,9 @@ const (
 	MaxUploadFiles = 64
 )
 
-// Presence beacon (§4.7). The daemon self-announces to the pool-aggregator
+// Presence beacon (§4.7). The daemon self-announces to the pool-aggregator-service
 // so the dashboard's Extension hosts row exists without depending on the
-// owning host's status server being up. 15 minutes keeps the row alive well
+// owning host's status service being up. 15 minutes keeps the row alive well
 // inside the aggregator's announce TTL while staying negligible traffic; the
 // area is the extension-area name the pool dashboard groups rows by.
 const (
@@ -116,8 +116,8 @@ const (
 // Provisioning (the bring-up step) creates these owned by the service
 // user; for local runs override with --metadata-dir / --buffer-dir.
 const (
-	DefaultMetadataDir = "/var/lib/stash-server/metadata"
-	DefaultBufferDir   = "/var/lib/stash-server/buffer"
+	DefaultMetadataDir = "/var/lib/stash-service/metadata"
+	DefaultBufferDir   = "/var/lib/stash-service/buffer"
 )
 
 // Local buffer ceiling (§8.4, §10): once the VM-local buffer reaches this

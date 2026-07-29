@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.28
+.VERSION 2026.07.29
 .GUID 42a2b3c4-d5e6-4f78-9012-3a4b5c6d7e90
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -45,7 +45,7 @@ $script:HostFolder     = Join-Path $script:RepoRoot 'host\windows.hyper-v'
 # Test.Ssh\Invoke-GuestSsh) -- feedback_module_force_import_evicts_global.
 Import-Module (Join-Path $script:RepoRoot 'automation\Yuruna.Common.psm1') -Force -DisableNameChecking -Global
 Import-Module (Join-Path $script:TestModulesDir 'Test.Ssh.psm1')          -Force -DisableNameChecking -Global
-Import-Module (Join-Path $script:TestModulesDir 'Test.CachingProxy.psm1') -Force -DisableNameChecking -Global
+Import-Module (Join-Path $script:TestModulesDir 'Test.CachingProxyService.psm1') -Force -DisableNameChecking -Global
 # Shared squid download / TLS-bump stack -- single source of truth across host drivers.
 # The X509 chain-validation callback lives here verbatim; per-driver cache-host
 # discovery is injected via the -ResolveCacheHostIp scriptblock (see wrapper below).
@@ -114,9 +114,9 @@ function CreateIso {
     Write-Verbose "ISO created successfully at: $OutputFile"
 }
 
-# --- REGION: caching-proxy IP discovery (shared by producer + consumers)
-# Single source of truth for KVP+ARP discovery shared by guest.caching-proxy/
-# New-VM.ps1, ubuntu.server.24/New-VM.ps1, and test/Start-CachingProxyVM.ps1.
+# --- REGION: caching-proxy-service IP discovery (shared by producer + consumers)
+# Single source of truth for KVP+ARP discovery shared by guest.caching-proxy-service/
+# New-VM.ps1, ubuntu.server.24/New-VM.ps1, and test/Start-CachingProxyServiceVM.ps1.
 # Guards against the regression class where a KVP-only summary reports
 # "(discovery failed)" even though the ARP fallback has already found the
 # cache and it is serving -- by routing all three callers through the same
@@ -137,7 +137,7 @@ function Get-CacheVmCandidateIp {
              populated. Filtered by the VM's MAC across ALL host
              interfaces (Default Switch's vEthernet for guests on the
              internal NAT, plus the External-vSwitch vEthernet for the
-             caching-proxy VM on the External vSwitch). The MAC filter
+             caching-proxy-service VM on the External vSwitch). The MAC filter
              is sufficient -- it can only match neighbors of this
              specific VM. Stale 'Permanent' entries across VM
              rebuilds can map one MAC to multiple IPs; all returned so
@@ -332,13 +332,13 @@ function Wait-ExternalSwitchHostIpv4 {
     Idempotently create (or return) the Yuruna External vSwitch bridged
     to the host's primary physical NIC.
 .DESCRIPTION
-    The caching-proxy VM rides on this switch (instead of the built-in
+    The caching-proxy-service VM rides on this switch (instead of the built-in
     Default Switch) so it gets a real LAN IP via DHCP and is reachable
     by remote LAN clients without any host-side port forwarding. squid
     sees the actual LAN client IP at TCP level -- no PROXY-protocol
     forwarder needed and no Defender per-program filtering layer to
     fight (which is what blocked the user-mode forwarder path on
-    Hyper-V hosts; see test/Start-CachingProxyVM.ps1 for the long note).
+    Hyper-V hosts; see test/Start-CachingProxyServiceVM.ps1 for the long note).
 
     Picks the NIC carrying the default IPv4 route (the one with actual
     LAN connectivity, by definition). An uplink that can't carry a
@@ -379,21 +379,8 @@ function Get-OrCreateYurunaExternalSwitch {
     # downstream `-SwitchName` parameter binding (System.Object[] ->
     # System.String coercion failure).
 
-    # 0. Not-bridgeable-uplink divert (mirrors host.macos.utm's Shared-vs-
-    # Bridged choice keyed on Test-MacUplinkNotBridgeable). An External
-    # vSwitch bridges the guest MAC onto the uplink; Wi-Fi (802.11) and USB
-    # Ethernet adapters both refuse to carry that MAC, so on such an uplink
-    # we never bridge: return $null so the caller falls back to the Default
-    # Switch (NAT + DHCP). This supersedes any already-present External
-    # switch -- a stale one bound to a non-bridgeable uplink has a dead port
-    # (its vEthernet sits at APIPA) and would strand guests with eth0 DOWN.
-    # Cache export to the LAN then rides host port-forwarders
-    # (Test-CacheVmOnYurunaExternalSwitch -> $false -> netsh portproxy),
-    # exactly as macOS does over Wi-Fi.
-    # Verbose, not Warning: on a Wi-Fi/USB-uplink host this is the permanent
-    # steady state, not an anomaly, and the divert is re-evaluated once per VM
-    # creation -- warning about it repeats the same line every guest of every
-    # cycle without ever asking the operator to do anything.
+    # --- REGION: https://yuruna.link/network#why-hyper-v-never-bridges-wi-fi-or-usb-uplinks
+    # 0. Not-bridgeable-uplink divert: return $null so the caller falls back to the Default Switch (NAT + DHCP).
     if (Test-WindowsUplinkNotBridgeable) {
         Write-Verbose "Host default-route uplink is not bridgeable (Wi-Fi 802.11, or a USB Ethernet adapter) -- Hyper-V can't carry a bridged guest MAC over it, so guests fail DHCP and boot with eth0 DOWN. Using the Default Switch (NAT); LAN export rides host port-forwarders."
         return $null
@@ -550,7 +537,7 @@ function Invoke-YurunaExternalArpProbe {
 function Test-CacheVmOnYurunaExternalSwitch {
     <#
     .SYNOPSIS
-        $true if the caching-proxy VM is attached to ANY External-type
+        $true if the caching-proxy-service VM is attached to ANY External-type
         vSwitch (LAN-bridged, has a real LAN IP, no host forwarders needed).
     .DESCRIPTION
         Used by the cross-platform test/ scripts to decide whether
@@ -571,7 +558,7 @@ function Test-CacheVmOnYurunaExternalSwitch {
     #>
     [CmdletBinding()]
     [OutputType([bool])]
-    param([string]$VMName = 'yuruna-caching-proxy')
+    param([string]$VMName = 'yuruna-caching-proxy-service')
 
     if (-not $IsWindows) { return $false }
     $vm = Get-VM -Name $VMName -ErrorAction SilentlyContinue
@@ -583,17 +570,17 @@ function Test-CacheVmOnYurunaExternalSwitch {
     return ($switch -and $switch.SwitchType -eq 'External')
 }
 
-function Get-WorkingCachingProxyUrl {
+function Get-WorkingCachingProxyServiceUrl {
     <#
     .SYNOPSIS
-        "http://<ip>:3128" of a caching-proxy VM that answers on :3128,
+        "http://<ip>:3128" of a caching-proxy-service VM that answers on :3128,
         or $null if none of the candidate IPs respond.
     .DESCRIPTION
         One-shot helper for consumers (ubuntu guests) and
-        Start-CachingProxyVM.ps1's summary. Does NOT wait for the cache VM
+        Start-CachingProxyServiceVM.ps1's summary. Does NOT wait for the cache VM
         to boot or for squid to come up -- callers expect the VM already
         running and squid listening. The producer
-        (guest.caching-proxy/New-VM.ps1) uses Get-CacheVmCandidateIp
+        (guest.caching-proxy-service/New-VM.ps1) uses Get-CacheVmCandidateIp
         directly because it provisions the cache and must poll while
         cloud-init runs.
     .OUTPUTS
@@ -602,16 +589,16 @@ function Get-WorkingCachingProxyUrl {
     [CmdletBinding()]
     [OutputType([System.String])]
     param(
-        [string]$VMName = "yuruna-caching-proxy",
+        [string]$VMName = "yuruna-caching-proxy-service",
         [int]$ProbeTimeoutMs = 500
     )
 
     $cacheVM = Get-VM -Name $VMName -ErrorAction SilentlyContinue
     if (-not $cacheVM -or $cacheVM.State -ne 'Running') { return $null }
 
-    $httpPort = Get-CachingProxyPort -Scheme http
+    $httpPort = Get-CachingProxyServicePort -Scheme http
     foreach ($ip in (Get-CacheVmCandidateIp -VM $cacheVM)) {
-        if (Test-CachingProxyPort -IpAddress $ip -Port $httpPort -TimeoutMs $ProbeTimeoutMs) {
+        if (Test-CachingProxyServicePort -IpAddress $ip -Port $httpPort -TimeoutMs $ProbeTimeoutMs) {
             return "http://$(Format-IpUrlHost $ip):${httpPort}"
         }
     }
@@ -706,14 +693,14 @@ function Get-GuestReachableHostIp {
 
 <#
 .SYNOPSIS
-    Returns the IP of a reachable caching-proxy VM (probed on :3128),
+    Returns the IP of a reachable caching-proxy-service VM (probed on :3128),
     or $null when no cache is currently usable.
 
 .DESCRIPTION
     Caller-facing primitive shared by Get-CacheProxyForHostDownload
     and Save-CachedHttpUri so the platform-specific discovery logic
     lives in exactly one place. Wraps Get-CacheVmCandidateIp +
-    Test-CachingProxyPort: we need the IP itself (not the proxy URL)
+    Test-CachingProxyServicePort: we need the IP itself (not the proxy URL)
     so callers can also reach :80 (CA fetch) and :3129 (SSL-bump).
 .OUTPUTS
     [string] IPv4 like '172.17.96.42', or $null.
@@ -721,12 +708,12 @@ function Get-GuestReachableHostIp {
 function Resolve-CacheHostIp {
     [CmdletBinding()]
     [OutputType([string])]
-    param([string]$VMName = 'yuruna-caching-proxy')
+    param([string]$VMName = 'yuruna-caching-proxy-service')
     $vm = Get-VM -Name $VMName -ErrorAction SilentlyContinue
     if (-not $vm -or $vm.State -ne 'Running') { return $null }
-    $httpPort = Get-CachingProxyPort -Scheme http
+    $httpPort = Get-CachingProxyServicePort -Scheme http
     foreach ($ip in (Get-CacheVmCandidateIp -VM $vm)) {
-        if (Test-CachingProxyPort -IpAddress $ip -Port $httpPort -TimeoutMs 500) {
+        if (Test-CachingProxyServicePort -IpAddress $ip -Port $httpPort -TimeoutMs 500) {
             return $ip
         }
     }
@@ -735,7 +722,7 @@ function Resolve-CacheHostIp {
 
 <#
 .SYNOPSIS
-    Downloads $Uri to $OutFile through the caching proxy, resolving the
+    Downloads $Uri to $OutFile through the caching-proxy service, resolving the
     Hyper-V cache VM's IP via this driver's Resolve-CacheHostIp.
 
 .DESCRIPTION
@@ -767,7 +754,7 @@ function Assert-HyperVEnabled {
         Enable-WindowsOptionalFeature completes, can fail with "Class
         not registered" (HRESULT 0x80040154) even when Hyper-V is
         enabled and healthy. Seen on the first post-install run of
-        Start-CachingProxyVM -> guest.caching-proxy/New-VM.ps1. dism.exe is
+        Start-CachingProxyServiceVM -> guest.caching-proxy-service/New-VM.ps1. dism.exe is
         the plain Win32 tool the cmdlet wraps; calling it directly
         sidesteps the COM failure (same workaround as
         install/windows.hyper-v.ps1).
@@ -1602,20 +1589,20 @@ function Remove-WindowsHostProxy {
 }
 
 # --- REGION: Port-map helpers
-$script:FirewallRulePrefix        = 'Yuruna-CachingProxy-Port-'
-$script:FirewallProgramRulePrefix = 'Yuruna-CachingProxy-Pwsh-'
+$script:FirewallRulePrefix        = 'Yuruna-CachingProxyService-Port-'
+$script:FirewallProgramRulePrefix = 'Yuruna-CachingProxyService-Pwsh-'
 
 <#
 .SYNOPSIS
-Return the path to the shared caching-proxy TCP forwarder script.
+Return the path to the shared caching-proxy-service TCP forwarder script.
 
 .DESCRIPTION
-Resolves host/macos.utm/Start-CachingProxyForwarder.ps1 against the
+Resolves host/macos.utm/Start-CachingProxyServiceForwarder.ps1 against the
 repository root inferred from $PSScriptRoot. The forwarder script
 lives under host/macos.utm/ as the canonical copy but is pure
 PowerShell and runs unchanged on Windows.
 #>
-function Get-CachingProxyForwarderScriptPath {
+function Get-CachingProxyServiceForwarderScriptPath {
     [CmdletBinding()]
     [OutputType([string])]
     param()
@@ -1623,7 +1610,7 @@ function Get-CachingProxyForwarderScriptPath {
     # it's pure PowerShell so it runs on Windows as well.
     # $PSScriptRoot is host/windows.hyper-v/modules, so three levels up is repo root.
     $repoRoot = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))
-    return (Join-Path $repoRoot 'host/macos.utm/Start-CachingProxyForwarder.ps1')
+    return (Join-Path $repoRoot 'host/macos.utm/Start-CachingProxyServiceForwarder.ps1')
 }
 
 <#
@@ -1654,34 +1641,34 @@ function Get-PwshExePath {
 
 <#
 .SYNOPSIS
-Return the pidfile path for the per-port caching-proxy forwarder.
+Return the pidfile path for the per-port caching-proxy-service forwarder.
 
 .DESCRIPTION
-Composes ~/virtual/caching-proxy/forwarder.<Port>.pid. The pidfile is
-the canonical handle Stop-WindowsCachingProxyForwarder uses to find
+Composes ~/virtual/caching-proxy-service/forwarder.<Port>.pid. The pidfile is
+the canonical handle Stop-WindowsCachingProxyServiceForwarder uses to find
 and kill the detached pwsh worker that owns a given listen port.
 #>
 function Get-WindowsForwarderPidPath {
     [CmdletBinding()]
     [OutputType([string])]
     param([Parameter(Mandatory)][int]$Port)
-    $stateDir = Join-Path $HOME 'virtual\caching-proxy'
+    $stateDir = Join-Path $HOME 'virtual\caching-proxy-service'
     return (Join-Path $stateDir "forwarder.$Port.pid")
 }
 
 <#
 .SYNOPSIS
-Stop a detached pwsh caching-proxy forwarder by listen port.
+Stop a detached pwsh caching-proxy-service forwarder by listen port.
 
 .DESCRIPTION
-Reads ~/virtual/caching-proxy/forwarder.<Port>.pid, validates the pid
+Reads ~/virtual/caching-proxy-service/forwarder.<Port>.pid, validates the pid
 belongs to a pwsh/powershell process, and calls Stop-Process -Force.
 Removes the pidfile in all cases (including missing pid, non-pwsh
 owner, or successful kill) so a stale file doesn't trip later starts.
 No-op on non-Windows hosts; -Quiet suppresses the per-port summary
 line.
 #>
-function Stop-WindowsCachingProxyForwarder {
+function Stop-WindowsCachingProxyServiceForwarder {
     [CmdletBinding(SupportsShouldProcess)]
     [OutputType([bool])]
     param([Parameter(Mandatory)][int]$Port, [switch]$Quiet)
@@ -1710,12 +1697,12 @@ function Stop-WindowsCachingProxyForwarder {
 
 <#
 .SYNOPSIS
-Launch a detached pwsh TCP forwarder for the squid caching proxy.
+Launch a detached pwsh TCP forwarder for the squid caching-proxy service.
 
 .DESCRIPTION
 Stops any prior forwarder for the same $Port, then spawns
-Start-CachingProxyForwarder.ps1 hidden, wired to redirect stdout /
-stderr to per-port logs under ~/virtual/caching-proxy/. Polls
+Start-CachingProxyServiceForwarder.ps1 hidden, wired to redirect stdout /
+stderr to per-port logs under ~/virtual/caching-proxy-service/. Polls
 127.0.0.1:$Port for up to 3 s; on success returns a PSCustomObject
 @{ Success=$true; Pid; PwshPath } where PwshPath is the post-spawn
 loaded binary (used by callers to rewrite the Defender per-program
@@ -1723,7 +1710,7 @@ firewall rule when the WindowsApps alias differs). $VMPort defaults
 to $Port. -PrependProxyV1 forwards a HAProxy v1 PROXY header so the
 upstream cache can see the original LAN client IP.
 #>
-function Start-WindowsCachingProxyForwarder {
+function Start-WindowsCachingProxyServiceForwarder {
     [CmdletBinding(SupportsShouldProcess)]
     [OutputType([PSCustomObject])]
     param(
@@ -1733,22 +1720,22 @@ function Start-WindowsCachingProxyForwarder {
         [switch]$PrependProxyV1
     )
     if (-not $IsWindows) {
-        Write-Warning "Start-WindowsCachingProxyForwarder called on non-Windows host -- no-op."
+        Write-Warning "Start-WindowsCachingProxyServiceForwarder called on non-Windows host -- no-op."
         return [PSCustomObject]@{ Success = $false; Pid = $null; PwshPath = $null }
     }
     if ($VMPort -eq 0) { $VMPort = $Port }
-    $forwarderScript = Get-CachingProxyForwarderScriptPath
+    $forwarderScript = Get-CachingProxyServiceForwarderScriptPath
     if (-not (Test-Path $forwarderScript)) {
         Write-Warning "Forwarder script not found: $forwarderScript"
         return [PSCustomObject]@{ Success = $false; Pid = $null; PwshPath = $null }
     }
-    $stateDir = Join-Path $HOME 'virtual\caching-proxy'
+    $stateDir = Join-Path $HOME 'virtual\caching-proxy-service'
     if (-not (Test-Path $stateDir)) { New-Item -ItemType Directory -Path $stateDir -Force | Out-Null }
     $pidFile = Get-WindowsForwarderPidPath -Port $Port
     $logFile = Join-Path $stateDir "forwarder.$Port.log"
     $stdoutLog = Join-Path $stateDir "forwarder.$Port.stdout.log"
     $stderrLog = Join-Path $stateDir "forwarder.$Port.stderr.log"
-    Stop-WindowsCachingProxyForwarder -Port $Port -Quiet
+    Stop-WindowsCachingProxyServiceForwarder -Port $Port -Quiet
     $proxyTag = if ($PrependProxyV1) { ' [PROXY v1]' } else { '' }
     $action   = "0.0.0.0:${Port} -> ${CacheIp}:${VMPort}${proxyTag}"
     if (-not $PSCmdlet.ShouldProcess($action, 'Launch detached pwsh TCP forwarder')) {
@@ -1822,20 +1809,20 @@ function Start-WindowsCachingProxyForwarder {
 
 <#
 .SYNOPSIS
-Install Yuruna-tagged inbound firewall rules for a caching-proxy port.
+Install Yuruna-tagged inbound firewall rules for a caching-proxy-service port.
 
 .DESCRIPTION
-Removes any existing rules with the Yuruna-CachingProxy-Port-<Port>
+Removes any existing rules with the Yuruna-CachingProxyService-Port-<Port>
 display name, then creates a fresh Allow rule on that TCP port across
 all profiles. When -IncludeProgram is set it also (re)creates a
-Yuruna-CachingProxy-Pwsh-<Port> per-program rule scoped to
+Yuruna-CachingProxyService-Pwsh-<Port> per-program rule scoped to
 $ProgramPath (or Get-PwshExePath when omitted). The per-program rule
 guards against Defender silently dropping LAN traffic when the
 WindowsApps App Execution Alias resolves to a different binary than
 the loaded pwsh.exe; if no path is resolvable the rule is skipped
 with a warning.
 #>
-function Add-CachingProxyFirewallRule {
+function Add-CachingProxyServiceFirewallRule {
     [CmdletBinding(SupportsShouldProcess)]
     param(
         [Parameter(Mandatory)][int]$Port,
@@ -1878,7 +1865,7 @@ function Add-CachingProxyFirewallRule {
 List ports that currently have a forwarder pidfile on disk.
 
 .DESCRIPTION
-Walks ~/virtual/caching-proxy/ for forwarder.<port>.pid files and
+Walks ~/virtual/caching-proxy-service/ for forwarder.<port>.pid files and
 returns the parsed integer port numbers as an array (always wrapped
 with the unary comma so a single-element result still flows as an
 array). Empty array on non-Windows hosts or when the state directory
@@ -1889,7 +1876,7 @@ function Get-WindowsForwarderPidPort {
     [OutputType([int[]], [System.Object[]])]
     param()
     if (-not $IsWindows) { return @() }
-    $stateDir = Join-Path $HOME 'virtual\caching-proxy'
+    $stateDir = Join-Path $HOME 'virtual\caching-proxy-service'
     if (-not (Test-Path $stateDir)) { return @() }
     $ports = @()
     Get-ChildItem -LiteralPath $stateDir -Filter 'forwarder.*.pid' -File -ErrorAction SilentlyContinue |
@@ -1901,13 +1888,13 @@ function Get-WindowsForwarderPidPort {
 
 <#
 .SYNOPSIS
-Discover Yuruna caching-proxy ports from existing firewall rules.
+Discover Yuruna caching-proxy-service ports from existing firewall rules.
 
 .DESCRIPTION
 Scans Get-NetFirewallRule for display names that begin with
-Yuruna-CachingProxy-Port- or Yuruna-CachingProxy-Pwsh- and returns
+Yuruna-CachingProxyService-Port- or Yuruna-CachingProxyService-Pwsh- and returns
 the parsed integer ports, sorted and de-duplicated. Used by
-Clear-AllCachingProxyPortMapping to clean up rules left behind when
+Clear-AllCachingProxyServicePortMapping to clean up rules left behind when
 a state file was deleted out of band.
 #>
 function Get-YurunaMappedPortFromFirewall {
@@ -1940,7 +1927,7 @@ Remove the portproxy, forwarder, and firewall rules for one port.
 .DESCRIPTION
 Deletes the netsh interface portproxy v4tov4 entry on 0.0.0.0:$Port,
 stops the matching detached pwsh forwarder, and removes both the
-Yuruna-CachingProxy-Port-<Port> and Yuruna-CachingProxy-Pwsh-<Port>
+Yuruna-CachingProxyService-Port-<Port> and Yuruna-CachingProxyService-Pwsh-<Port>
 firewall rules if present. Idempotent: missing pieces are silently
 skipped so callers can issue a blanket sweep.
 #>
@@ -1949,7 +1936,7 @@ function Remove-SinglePortMap {
     param([Parameter(Mandatory)][int]$Port)
     if (-not $PSCmdlet.ShouldProcess("host:${Port}", 'Remove portproxy + firewall rule')) { return }
     & netsh interface portproxy delete v4tov4 listenport=$Port listenaddress=0.0.0.0 2>&1 | Out-Null
-    Stop-WindowsCachingProxyForwarder -Port $Port -Quiet
+    Stop-WindowsCachingProxyServiceForwarder -Port $Port -Quiet
     foreach ($prefix in @($script:FirewallRulePrefix, $script:FirewallProgramRulePrefix)) {
         $ruleName = "${prefix}${Port}"
         Get-NetFirewallRule -DisplayName $ruleName -ErrorAction SilentlyContinue |
@@ -1959,7 +1946,7 @@ function Remove-SinglePortMap {
 
 <#
 .SYNOPSIS
-Tear down every Yuruna caching-proxy port mapping on this host.
+Tear down every Yuruna caching-proxy-service port mapping on this host.
 
 .DESCRIPTION
 Builds the union of ports recorded in the optional $StatePath JSON,
@@ -1970,7 +1957,7 @@ returns the de-duplicated, sorted port list as an array. The triple
 union is the safety net that keeps state, firewall, and pidfile in
 sync even when one of them has drifted.
 #>
-function Clear-AllCachingProxyPortMapping {
+function Clear-AllCachingProxyServicePortMapping {
     [CmdletBinding(SupportsShouldProcess)]
     [OutputType([int[]], [System.Object[]])]
     param([string]$StatePath)
@@ -1982,7 +1969,7 @@ function Clear-AllCachingProxyPortMapping {
                 if ($p -is [int] -or $p -match '^\d+$') { $ports += [int]$p }
             }
         } catch {
-            Write-Verbose "Clear-AllCachingProxyPortMapping: could not read state ($StatePath): $_"
+            Write-Verbose "Clear-AllCachingProxyServicePortMapping: could not read state ($StatePath): $_"
         }
     }
     foreach ($p in (Get-YurunaMappedPortFromFirewall)) { $ports += $p }
@@ -2433,12 +2420,12 @@ function New-VM {
         [Parameter(Mandatory)][string]$GuestKey,
         [Parameter(Mandatory)][string]$RepoRoot,
         [Parameter(Mandatory)][string]$VMName,
-        [string]$CachingProxyUrl,
+        [string]$CachingProxyServiceUrl,
         # Planner-cascaded username override (resolved by Test.SequencePlanner
         # from variables.username on the chain's top sequence). Forwarded
         # to the per-guest New-VM.ps1 only when (a) the caller bound it
         # AND (b) the target script declares a -Username parameter -- some
-        # guests (windows.11, caching-proxy, macos.26) don't take one and
+        # guests (windows.11, caching-proxy-service, macos.26) don't take one and
         # would error on the unexpected arg.
         [string]$Username,
         # Planner-cascaded guest hostname (variables.hostname), forwarded
@@ -2453,7 +2440,7 @@ function New-VM {
     )
     # Thin wrapper over the shared per-guest runner; the host subdir is the
     # only platform variable. Splatting $PSBoundParameters preserves the
-    # conditional -CachingProxyUrl/-Username/-Hostname/-MemoryStartupBytes/-Cores
+    # conditional -CachingProxyServiceUrl/-Username/-Hostname/-MemoryStartupBytes/-Cores
     # forwarding (the runner checks ContainsKey) and propagates -WhatIf/-Confirm.
     Invoke-PerGuestNewVm -HostSubdir 'host\windows.hyper-v' @PSBoundParameters
 }
@@ -2648,7 +2635,7 @@ function Save-VMDiskSnapshot {
 .SYNOPSIS
     Returns $true when checkpoint $Id is present on $VMName, $false
     otherwise (including when the VM does not exist). Used by
-    Test-Sequence.ps1's requiresSnapshot warm-path probe before
+    Invoke-TestSequence.ps1's requiresSnapshot warm-path probe before
     deciding whether to walk the baseline chain.
 #>
 function Test-VMDiskSnapshot {
@@ -2768,7 +2755,7 @@ function Test-VMConsoleOpen {
     [OutputType([bool])]
     param([Parameter(Mandatory)][string]$VMName)
     # vmconnect's window title contains the VM name. A best-effort check;
-    # Invoke-Sequence.psm1's Send-ClickHyperV uses similar logic.
+    # Test.SequenceEngine.psm1's Send-ClickHyperV uses similar logic.
     $proc = Get-Process -Name 'vmconnect' -ErrorAction SilentlyContinue |
         Where-Object { $_.MainWindowTitle -match [regex]::Escape($VMName) } |
         Select-Object -First 1
@@ -2869,18 +2856,18 @@ function Send-Text {
     # module; calling it directly from here fails under module scoping
     # because Yuruna.Host's body cannot see another module's private
     # functions even when both are loaded -Global. Going through the
-    # exported Invoke-Sequence\Send-Text avoids the visibility trap.
-    $invokeSequence = Join-Path $script:TestModulesDir 'Invoke-Sequence.psm1'
-    if (Test-Path $invokeSequence) {
+    # exported Test.SequenceEngine\Send-Text avoids the visibility trap.
+    $sequenceEngine = Join-Path $script:TestModulesDir 'Test.SequenceEngine.psm1'
+    if (Test-Path $sequenceEngine) {
         # Import once and reuse. When the outer loop already loaded Invoke-Sequence -Global we must
         # NOT re-import per call: a -Force re-import evicts/reinitializes the global module (and its
         # nested modules + $script: state) the outer loop still calls, and doing it on every
         # keystroke is pure overhead (feedback_module_force_import_evicts_global,
         # feedback_module_script_state_reset_by_force_reimport).
-        if (-not (Get-Module -Name Invoke-Sequence)) { Import-Module $invokeSequence -DisableNameChecking -Global }
-        return [bool](Invoke-Sequence\Send-Text -HostType $script:HostTag -VMName $VMName -Text $Text -CharDelayMs $CharDelayMs)
+        if (-not (Get-Module -Name Test.SequenceEngine)) { Import-Module $sequenceEngine -DisableNameChecking -Global }
+        return [bool](Test.SequenceEngine\Send-Text -HostType $script:HostTag -VMName $VMName -Text $Text -CharDelayMs $CharDelayMs)
     }
-    Write-Warning "Send-Text -Mechanism gui: Invoke-Sequence.psm1 not found at '$invokeSequence'."
+    Write-Warning "Send-Text -Mechanism gui: Test.SequenceEngine.psm1 not found at '$sequenceEngine'."
     return $false
 }
 
@@ -2903,17 +2890,17 @@ function Send-Key {
     # Defer to Invoke-Sequence's host-aware dispatcher (same reasoning as
     # Send-Text above -- Send-KeyHyperV is private to Invoke-Sequence and
     # not resolvable from this module's scope).
-    $invokeSequence = Join-Path $script:TestModulesDir 'Invoke-Sequence.psm1'
-    if (Test-Path $invokeSequence) {
+    $sequenceEngine = Join-Path $script:TestModulesDir 'Test.SequenceEngine.psm1'
+    if (Test-Path $sequenceEngine) {
         # Import once and reuse. When the outer loop already loaded Invoke-Sequence -Global we must
         # NOT re-import per call: a -Force re-import evicts/reinitializes the global module (and its
         # nested modules + $script: state) the outer loop still calls, and doing it on every
         # keystroke is pure overhead (feedback_module_force_import_evicts_global,
         # feedback_module_script_state_reset_by_force_reimport).
-        if (-not (Get-Module -Name Invoke-Sequence)) { Import-Module $invokeSequence -DisableNameChecking -Global }
-        return [bool](Invoke-Sequence\Send-Key -HostType $script:HostTag -VMName $VMName -KeyName $Key)
+        if (-not (Get-Module -Name Test.SequenceEngine)) { Import-Module $sequenceEngine -DisableNameChecking -Global }
+        return [bool](Test.SequenceEngine\Send-Key -HostType $script:HostTag -VMName $VMName -KeyName $Key)
     }
-    Write-Warning "Send-Key -Mechanism gui: Invoke-Sequence.psm1 not found at '$invokeSequence'."
+    Write-Warning "Send-Key -Mechanism gui: Test.SequenceEngine.psm1 not found at '$sequenceEngine'."
     return $false
 }
 
@@ -2929,17 +2916,17 @@ function Send-Click {
         [Parameter(Mandatory)][int]$X,
         [Parameter(Mandatory)][int]$Y
     )
-    $invokeSequence = Join-Path $script:TestModulesDir 'Invoke-Sequence.psm1'
-    if (Test-Path $invokeSequence) {
+    $sequenceEngine = Join-Path $script:TestModulesDir 'Test.SequenceEngine.psm1'
+    if (Test-Path $sequenceEngine) {
         # Import once and reuse. When the outer loop already loaded Invoke-Sequence -Global we must
         # NOT re-import per call: a -Force re-import evicts/reinitializes the global module (and its
         # nested modules + $script: state) the outer loop still calls, and doing it on every
         # keystroke is pure overhead (feedback_module_force_import_evicts_global,
         # feedback_module_script_state_reset_by_force_reimport).
-        if (-not (Get-Module -Name Invoke-Sequence)) { Import-Module $invokeSequence -DisableNameChecking -Global }
-        return [bool](Invoke-Sequence\Send-Click -HostType $script:HostTag -VMName $VMName -X $X -Y $Y)
+        if (-not (Get-Module -Name Test.SequenceEngine)) { Import-Module $sequenceEngine -DisableNameChecking -Global }
+        return [bool](Test.SequenceEngine\Send-Click -HostType $script:HostTag -VMName $VMName -X $X -Y $Y)
     }
-    Write-Warning "Send-Click: Invoke-Sequence.psm1 not found at '$invokeSequence'."
+    Write-Warning "Send-Click: Test.SequenceEngine.psm1 not found at '$sequenceEngine'."
     return $false
 }
 
@@ -3017,7 +3004,7 @@ function Get-VMIp {
     # cache entries for its own MAC. Active probing (the slow part)
     # lives in Invoke-YurunaExternalArpProbe; that is called by
     # consumers that need fresh data (Save-GuestDiagnostic) and by
-    # the caching-proxy discovery path. This Get-VMIp is the cheap
+    # the caching-proxy-service discovery path. This Get-VMIp is the cheap
     # lookup -- safe to call from polling loops.
     try {
         $vmAdapter = Hyper-V\Get-VMNetworkAdapter -VMName $VMName -ErrorAction Stop
@@ -3103,18 +3090,18 @@ function New-ExternalNetwork {
 
 <#
 .SYNOPSIS
-    Returns true if the caching-proxy VM is on an External-type network.
+    Returns true if the caching-proxy-service VM is on an External-type network.
 #>
 function Test-CacheVMOnExternalNetwork {
     [CmdletBinding()]
     [OutputType([bool])]
-    param([string]$VMName = 'yuruna-caching-proxy')
+    param([string]$VMName = 'yuruna-caching-proxy-service')
     return [bool](Test-CacheVmOnYurunaExternalSwitch -VMName $VMName)
 }
 
 <#
 .SYNOPSIS
-    Install host to VM port forwarders for the caching proxy.
+    Install host to VM port forwarders for the caching-proxy service.
 #>
 function Add-PortMap {
     [CmdletBinding(SupportsShouldProcess)]
@@ -3153,7 +3140,7 @@ function Add-PortMap {
     $statePath = Get-PortMapStatePath -RuntimeDir $RuntimeDir
     # Tear down every prior Yuruna mapping (state-file ports + firewall-
     # rule ports + live forwarder pidfiles) before adding the new set.
-    [void](Clear-AllCachingProxyPortMapping -StatePath $statePath -Confirm:$false)
+    [void](Clear-AllCachingProxyServicePortMapping -StatePath $statePath -Confirm:$false)
     # Track which host ports actually came up so the state file records only live mappings and
     # the caller can detect (and re-drive) a partial setup instead of trusting a complete state.
     $launched = [System.Collections.Generic.List[int]]::new()
@@ -3163,12 +3150,12 @@ function Add-PortMap {
         $useProxy = $proxyProtoSet.ContainsKey([int]$hostPort)
         $proxyTag = if ($useProxy) { ' [PROXY v1]' } else { '' }
         if (-not $PSCmdlet.ShouldProcess("host:${hostPort} -> ${VMIp}:${vmPort}${proxyTag}", 'Add port mapping')) { continue }
-        $desc = "Yuruna caching proxy: forward host :${hostPort} to VM :${vmPort}${proxyTag}"
+        $desc = "Yuruna caching-proxy service: forward host :${hostPort} to VM :${vmPort}${proxyTag}"
         & netsh interface portproxy delete v4tov4 listenport=$hostPort listenaddress=0.0.0.0 2>&1 | Out-Null
-        Stop-WindowsCachingProxyForwarder -Port $hostPort -Quiet
-        Add-CachingProxyFirewallRule -Port $hostPort -Description $desc -IncludeProgram:$useProxy -Confirm:$false
+        Stop-WindowsCachingProxyServiceForwarder -Port $hostPort -Quiet
+        Add-CachingProxyServiceFirewallRule -Port $hostPort -Description $desc -IncludeProgram:$useProxy -Confirm:$false
         if ($useProxy) {
-            $spawn = Start-WindowsCachingProxyForwarder -CacheIp $VMIp -Port $hostPort -VMPort $vmPort -PrependProxyV1
+            $spawn = Start-WindowsCachingProxyServiceForwarder -CacheIp $VMIp -Port $hostPort -VMPort $vmPort -PrependProxyV1
             if (-not $spawn.Success) {
                 Write-Warning "Add-PortMap: pwsh forwarder failed for host ${hostPort} -> ${VMIp}:${vmPort} (PROXY v1)."
                 $failed.Add($hostPort)
@@ -3180,7 +3167,7 @@ function Add-PortMap {
             if ($spawn.PwshPath) {
                 $existingProgramPath = $null
                 try {
-                    $existingProgramPath = (Get-NetFirewallRule -DisplayName "Yuruna-CachingProxy-Pwsh-${hostPort}" -ErrorAction Stop |
+                    $existingProgramPath = (Get-NetFirewallRule -DisplayName "Yuruna-CachingProxyService-Pwsh-${hostPort}" -ErrorAction Stop |
                                             Get-NetFirewallApplicationFilter -ErrorAction Stop).Program
                 } catch { $null = $_ }
                 if ($existingProgramPath -ne $spawn.PwshPath) {
@@ -3189,7 +3176,7 @@ function Add-PortMap {
                     } else {
                         Write-Information "  Installing per-program firewall rule with resolved pwsh path '$($spawn.PwshPath)'."
                     }
-                    Add-CachingProxyFirewallRule -Port $hostPort -Description $desc -IncludeProgram -ProgramPath $spawn.PwshPath -Confirm:$false
+                    Add-CachingProxyServiceFirewallRule -Port $hostPort -Description $desc -IncludeProgram -ProgramPath $spawn.PwshPath -Confirm:$false
                 }
             }
         } else {
@@ -3230,7 +3217,7 @@ function Add-PortMap {
 
 <#
 .SYNOPSIS
-    Tear down all yuruna caching-proxy port forwarders.
+    Tear down all yuruna caching-proxy-service port forwarders.
 #>
 function Remove-PortMap {
     [CmdletBinding(SupportsShouldProcess)]
@@ -3245,7 +3232,7 @@ function Remove-PortMap {
         return $false
     }
     $statePath = Get-PortMapStatePath -RuntimeDir $RuntimeDir
-    $cleared = @(Clear-AllCachingProxyPortMapping -StatePath $statePath -Confirm:$false)
+    $cleared = @(Clear-AllCachingProxyServicePortMapping -StatePath $statePath -Confirm:$false)
     foreach ($p in $cleared) {
         Write-Information "  Port map removed: host:${p}"
     }
@@ -3280,26 +3267,26 @@ function Get-BestHostIp {
     return ($ranked | Select-Object -ExpandProperty IPAddress -First 1)
 }
 
-# --- REGION: Caching proxy
+# --- REGION: Caching-proxy service
 
 <#
 .SYNOPSIS
-    Probe and return the caching-proxy URL, or null if none is reachable.
+    Probe and return the caching-proxy-service URL, or null if none is reachable.
 .DESCRIPTION
     Discovery is intentionally narrow -- only caches this host owns,
     or a remote cache the operator explicitly named, are returned:
-      1. $Env:YURUNA_CACHING_PROXY_IP -- explicit remote cache override.
-      2. State file (Read-CachingProxyState).ipAddress -- the cache VM's
-         IP written by Start-CachingProxyVM.ps1 (our own VM).
+      1. $Env:YURUNA_CACHING_PROXY_SERVICE_IP -- explicit remote cache override.
+      2. State file (Read-CachingProxyServiceState).ipAddress -- the cache VM's
+         IP written by Start-CachingProxyServiceVM.ps1 (our own VM).
 
     No Hyper-V VM enumeration, no KVP/ARP discovery. Get-CacheVmCandidate-
-    Ip / Get-WorkingCachingProxyUrl still exist for use by the producer
-    (guest.caching-proxy/New-VM.ps1) and Start-CachingProxyVM.ps1 itself
+    Ip / Get-WorkingCachingProxyServiceUrl still exist for use by the producer
+    (guest.caching-proxy-service/New-VM.ps1) and Start-CachingProxyServiceVM.ps1 itself
     while the cache VM is being brought up -- they are not part of the
     steady-state discovery path. LAN-wide cache discovery is a separate
     future feature.
 #>
-function Test-CachingProxyAvailable {
+function Test-CachingProxyServiceAvailable {
     [CmdletBinding()]
     [OutputType([string])]
     param()
@@ -3307,20 +3294,20 @@ function Test-CachingProxyAvailable {
     # operator verify-command template embedded in the unreachable-cache
     # warning (Test-NetConnection on Windows). The kvm driver keeps its own
     # probe (it omits Format-IpUrlHost's IPv6 bracketing the guests rely on).
-    Invoke-CachingProxyAvailableProbe -VerifyHint 'Test-NetConnection {0} -Port {1}'
+    Invoke-CachingProxyServiceAvailableProbe -VerifyHint 'Test-NetConnection {0} -Port {1}'
 }
 
 <#
 .SYNOPSIS
     Return the cache VM's real IP for downstream port-forwarder setup.
 #>
-function Get-CachingProxyVMIp {
+function Get-CachingProxyServiceVmIp {
     [CmdletBinding()]
     [OutputType([string])]
     param()
-    # On Windows the URL Test-CachingProxyAvailable returns already
+    # On Windows the URL Test-CachingProxyServiceAvailable returns already
     # contains the cache VM's real IP, so callers extract it from there.
-    # The yuruna-caching-proxy state file is a macOS-specific breadcrumb
+    # The yuruna-caching-proxy-service state file is a macOS-specific breadcrumb
     # (the macOS URL contains the VZ gateway, not the VM IP). Returning
     # $null here is correct.
     return $null
@@ -3523,12 +3510,12 @@ Export-ModuleMember -Function `
     Wait-VMIp, Get-VMIp, Get-VMMac, `
     Get-ExternalNetwork, New-ExternalNetwork, Test-CacheVMOnExternalNetwork, `
     Add-PortMap, Remove-PortMap, Get-BestHostIp, Get-GuestReachableHostIp, `
-    Test-CachingProxyAvailable, Get-CachingProxyVMIp, `
+    Test-CachingProxyServiceAvailable, Get-CachingProxyServiceVmIp, `
     Set-HostProxy, Clear-HostProxy, Remove-HostProxy, Get-HostProxyBackupPath, Assert-Virtualization, `
     `
     CreateIso, Get-CacheVmCandidateIp, `
-    Get-OrCreateYurunaExternalSwitch, Test-WindowsUplinkNotBridgeable, Test-CachingProxyPort, Invoke-YurunaExternalArpProbe, `
-    Test-CacheVmOnYurunaExternalSwitch, Get-WorkingCachingProxyUrl, `
+    Get-OrCreateYurunaExternalSwitch, Test-WindowsUplinkNotBridgeable, Test-CachingProxyServicePort, Invoke-YurunaExternalArpProbe, `
+    Test-CacheVmOnYurunaExternalSwitch, Get-WorkingCachingProxyServiceUrl, `
     Test-DownloadAlreadyCurrent, Resolve-CacheHostIp, `
     Save-CachedHttpUri, Assert-HyperVEnabled, `
     Confirm-HyperVVMCreated, Stop-HyperVVMForce, Remove-HyperVTestVM, `
@@ -3536,10 +3523,10 @@ Export-ModuleMember -Function `
     Resolve-VMConnectAnotherUserDialog, Restart-HyperVConnect, `
     Test-WindowsProxyIsYurunaManaged, Read-WindowsProxyState, Invoke-WinInetRefresh, `
     Set-WindowsHostProxy, Restore-WindowsHostProxy, Disable-WindowsHostProxy, Remove-WindowsHostProxy, `
-    Get-CachingProxyForwarderScriptPath, Get-PwshExePath, Get-WindowsForwarderPidPath, `
-    Stop-WindowsCachingProxyForwarder, Start-WindowsCachingProxyForwarder, Add-CachingProxyFirewallRule, `
+    Get-CachingProxyServiceForwarderScriptPath, Get-PwshExePath, Get-WindowsForwarderPidPath, `
+    Stop-WindowsCachingProxyServiceForwarder, Start-WindowsCachingProxyServiceForwarder, Add-CachingProxyServiceFirewallRule, `
     Get-WindowsForwarderPidPort, Get-YurunaMappedPortFromFirewall, `
-    Remove-SinglePortMap, Clear-AllCachingProxyPortMapping, `
+    Remove-SinglePortMap, Clear-AllCachingProxyServicePortMapping, `
     Get-HyperVScreenshot, Get-HyperVWindowScreenshot, `
     Remove-OrphanedVMFileAccess
 
@@ -3556,7 +3543,7 @@ $null = Assert-YurunaHostContractCoverage -HostType 'windows.hyper-v' -ExportedF
     'Wait-VMIp','Get-VMIp','Get-VMMac',
     'Get-ExternalNetwork','New-ExternalNetwork','Test-CacheVMOnExternalNetwork',
     'Add-PortMap','Remove-PortMap','Get-BestHostIp','Get-GuestReachableHostIp',
-    'Test-CachingProxyAvailable','Get-CachingProxyVMIp',
+    'Test-CachingProxyServiceAvailable','Get-CachingProxyServiceVmIp',
     'Set-HostProxy','Clear-HostProxy','Remove-HostProxy','Get-HostProxyBackupPath','Assert-Virtualization'
 )
 

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.28
+.VERSION 2026.07.29
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456703
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -262,7 +262,7 @@ function Format-FailureMessage {
         [string]$GuestKey,
         [string]$StepName,
         [string]$ErrorMessage,
-        [string]$CycleId,
+        [string]$CycleStartUtc,
         [string]$GitCommit,
         [hashtable]$EventData = $null
     )
@@ -274,7 +274,7 @@ Machine:  $Hostname
 Guest:    $GuestKey
 Step:     $StepName
 Error:    $ErrorMessage
-Cycle ID: $CycleId
+Cycle start: $CycleStartUtc
 Commit:   $GitCommit
 Time:     $((Get-Date).ToUniversalTime().ToString('yyyy-MM-dd HH:mm:ss')) UTC
 "@
@@ -355,7 +355,7 @@ function Get-FailureEventData {
         [string]$GuestKey,
         [string]$StepName,
         [string]$ErrorMessage,
-        [string]$CycleId,
+        [string]$CycleStartUtc,
         [string]$GitCommit,
         [string]$ProjectCommit,
         # Used when no last_failure.json exists (bootstrap stages
@@ -398,7 +398,7 @@ function Get-FailureEventData {
 
     # Cycle-level context the failure file does not record. Set even
     # when fields are empty so consumers see a consistent shape.
-    $payload['cycleId']       = $CycleId
+    $payload['cycleStartUtc']       = $CycleStartUtc
     $payload['hostType']      = if ($HostType) { $HostType } else { $payload['hostType'] }
     $payload['hostname']      = $Hostname
     $payload['guestKey']      = if ($GuestKey) { $GuestKey } else { $payload['guestKey'] }
@@ -417,7 +417,7 @@ function Get-FailureEventData {
     #      exposed via a reverse proxy, a tunnelled hostname, or a LAN
     #      IP). An off-host LLM remediator can follow the link.
     #   2. http://<HOST_FQDN>:<statusService.port> -- best guess from the
-    #      cycle's recorded hostname + the running status server port,
+    #      cycle's recorded hostname + the running status service port,
     #      when both are known. Works on most LANs where the dashboard
     #      hostname resolves.
     #   3. http://localhost:8080/ -- last-resort fallback. Only useful
@@ -456,7 +456,7 @@ function Get-FailureEventData {
     Builds the failure-notification body and dispatches it for a cycle failure.
 .DESCRIPTION
     Collapses the duplicated "format the body, then Send-Notification" unit
-    shared by the cycle-failure sites in Invoke-TestInnerRunner.ps1 into one
+    shared by the cycle-failure sites in Invoke-TestRunnerInnerLoop.ps1 into one
     place. Owns ONLY that build-body-and-send step: the fixed EventCode
     'cycle.failure', the fixed subject prefix "Yuruna Test: FAIL on <HostType>
     / " with the caller-supplied -SubjectSuffix appended, Format-FailureMessage
@@ -509,7 +509,7 @@ function Send-CycleFailureNotification {
         [string]$GuestKey,
         [string]$StepName,
         [string]$ErrorMessage,
-        [string]$CycleId,
+        [string]$CycleStartUtc,
         [string]$GitCommit,
         # Pre-built payload (in-cycle / post-loop sites remediate on it before
         # the send). When supplied the internal Get-FailureEventData build is
@@ -531,7 +531,7 @@ function Send-CycleFailureNotification {
             -GuestKey            $GuestKey `
             -StepName            $StepName `
             -ErrorMessage        $ErrorMessage `
-            -CycleId             $CycleId `
+            -CycleStartUtc             $CycleStartUtc `
             -GitCommit           $GitCommit `
             -ProjectCommit       $ProjectCommit `
             -DefaultFailureClass $DefaultFailureClass `
@@ -543,7 +543,7 @@ function Send-CycleFailureNotification {
         -GuestKey     $GuestKey `
         -StepName     $StepName `
         -ErrorMessage $ErrorMessage `
-        -CycleId      $CycleId `
+        -CycleStartUtc      $CycleStartUtc `
         -GitCommit    $GitCommit `
         -EventData    $payload
     # -Synchronous: cycle-failure notifications are the delivery-critical path,

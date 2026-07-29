@@ -14,7 +14,7 @@ rather than repeat.
    available). See
    [Kubernetes Deployment](kubernetes.md).
 3. **Test harness** — continuous VM creation + validation across hosts
-   and guests, with status server, notifications, and extensible
+   and guests, with status service, notifications, and extensible
    sequences. See [Test harness](test-harness.md).
 
 ## Three-phase deployment model
@@ -223,6 +223,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.28
+Last review: 2026.07.29
 
 Back to [Yuruna](../README.md)

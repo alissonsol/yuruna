@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.28
+.VERSION 2026.07.29
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456724
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -99,7 +99,7 @@ function Invoke-HostIOAction {
         Dispatch to the scriptblock registered for (HostType, Action).
         Throws if the pair is not registered -- callers that need
         graceful degradation (the existing Send-Key/Send-Text/Send-Click
-        dispatchers in Invoke-Sequence.psm1) wrap with try/catch.
+        dispatchers in Test.SequenceEngine.psm1) wrap with try/catch.
     .PARAMETER Arguments
         Hashtable forwarded as the single positional argument to the
         scriptblock.

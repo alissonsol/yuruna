@@ -70,7 +70,7 @@ unique display number from the VM name:
   `config.plist.template`.
 - Consumers: `Get-UtmScreenshot` and `Connect-VNC` (in
   [`Yuruna.Host.psm1`](modules/Yuruna.Host.psm1)
-  and [`Invoke-Sequence.psm1`](../../test/modules/Invoke-Sequence.psm1))
+  and [`Test.SequenceEngine.psm1`](../../test/modules/Test.SequenceEngine.psm1))
   call the same helper.
 
 Adding a new QEMU+VNC guest = copy the `-vnc 127.0.0.1:__VNC_DISPLAY__`
@@ -122,7 +122,7 @@ open -a UTM      # surfaces any first-run dialogs
 See [Hosts — ...](../README.md#optional-squid-cache-vm) and
 [Caching](../../docs/caching.md). After provision,
 double-click
-`~/yuruna/guest.nosync/yuruna-caching-proxy.utm` to register
+`~/yuruna/guest.nosync/yuruna-caching-proxy-service.utm` to register
 the bundle with UTM and start the VM.
 
 ## 9) Run the Test Harness
@@ -137,6 +137,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.28
+Last review: 2026.07.29
 
 Back to [Yuruna](../../README.md)

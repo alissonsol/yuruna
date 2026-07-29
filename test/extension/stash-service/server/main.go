@@ -1,7 +1,7 @@
 // LICENSEURI https://yuruna.link/license
 // Copyright (c) 2019-2026 by Alisson Sol et al.
 
-// Yuruna Stash Service daemon. Guide: https://yuruna.link/stash-guide.
+// Yuruna stash service daemon. Guide: https://yuruna.link/stash-guide.
 //
 // Single binary with two listeners: the SCP/SFTP sink on TCP/22 and the
 // UI/API HTTP server (default :80). In production the daemon is
@@ -22,13 +22,13 @@ import (
 	"syscall"
 	"time"
 
-	"stash-server/internal/beacon"
-	"stash-server/internal/config"
-	"stash-server/internal/httpsrv"
-	"stash-server/internal/id"
-	"stash-server/internal/meta"
-	"stash-server/internal/sshsrv"
-	"stash-server/internal/store"
+	"stash-service/internal/beacon"
+	"stash-service/internal/config"
+	"stash-service/internal/httpsrv"
+	"stash-service/internal/id"
+	"stash-service/internal/meta"
+	"stash-service/internal/sshsrv"
+	"stash-service/internal/store"
 )
 
 // version is the framework version shown in the UI header. The bring-up
@@ -45,10 +45,10 @@ func main() {
 	poolWindowDays := flag.Int("pool-window-days", config.DefaultPoolWindowDays, "days of cross-host sidecars the pool index holds in memory")
 	poolRefreshSecs := flag.Int("pool-refresh-secs", 60, "pool-index rescan interval in seconds")
 	listLimit := flag.Int("list-default-limit", config.DefaultListLimit, "default page size for the recent-stash list")
-	aggregatorURL := flag.String("aggregator-url", "", "pool-aggregator base URL for hostId→stash-UI resolution and the presence beacon (§4.7); empty disables both (best-effort)")
+	aggregatorURL := flag.String("aggregator-url", "", "pool-aggregator-service base URL for hostId→stash-UI resolution and the presence beacon (§4.7); empty disables both (best-effort)")
 	hostID := flag.String("host-id", "", "owning HOST's hostId (the pool-table identity) the presence beacon announces under (§4.7); empty disables the beacon")
 	hostIP := flag.String("host-ip", "", "the deploying host's IP address: the one non-VM source permitted to DELETE stashes. Reads and writes stay open to any host. Comma-separated list accepted; empty = only this VM may delete")
-	presenceInterval := flag.Duration("presence-interval", config.DefaultPresenceInterval, "presence re-announce period to the pool-aggregator (§4.7); 0 disables the beacon")
+	presenceInterval := flag.Duration("presence-interval", config.DefaultPresenceInterval, "presence re-announce period to the pool-aggregator-service (§4.7); 0 disables the beacon")
 	flag.Parse()
 
 	log.SetFlags(log.LstdFlags | log.LUTC | log.Lmicroseconds)
@@ -56,7 +56,7 @@ func main() {
 	if *shareFolder == "" {
 		log.Fatalf("--share-folder is required (the daemon writes to the mounted stash share; see https://yuruna.link/stash-guide)")
 	}
-	log.Printf("stash-server starting; share=%s metadata=%s buffer=%s", *shareFolder, *metadataDir, *bufferDir)
+	log.Printf("stash-service starting; share=%s metadata=%s buffer=%s", *shareFolder, *metadataDir, *bufferDir)
 
 	st, err := store.New(*shareFolder)
 	if err != nil {
@@ -137,19 +137,19 @@ func main() {
 			Version:        version,
 			HostIP:         *hostIP,
 		})
-		log.Printf("stash-server UI on %s (pool window %dd, refresh %ds, aggregator=%q)", *httpAddr, *poolWindowDays, *poolRefreshSecs, *aggregatorURL)
+		log.Printf("stash-service UI on %s (pool window %dd, refresh %ds, aggregator=%q)", *httpAddr, *poolWindowDays, *poolRefreshSecs, *aggregatorURL)
 		if *hostIP != "" {
-			log.Printf("stash-server delete authz: VM-local + host IP(s) %q may DELETE; reads/writes stay open", *hostIP)
+			log.Printf("stash-service delete authz: VM-local + host IP(s) %q may DELETE; reads/writes stay open", *hostIP)
 		} else {
-			log.Printf("stash-server delete authz: VM-local only may DELETE (no --host-ip); reads/writes stay open")
+			log.Printf("stash-service delete authz: VM-local only may DELETE (no --host-ip); reads/writes stay open")
 		}
 		listeners++
 		go func() { errCh <- ui.ListenAndServe(ctx) }()
 	} else {
-		log.Printf("stash-server UI disabled (--http-addr empty)")
+		log.Printf("stash-service UI disabled (--http-addr empty)")
 	}
 
-	// Presence beacon (§4.7): self-announce to the pool-aggregator on boot,
+	// Presence beacon (§4.7): self-announce to the pool-aggregator-service on boot,
 	// every --presence-interval, and (best-effort) at shutdown, so the
 	// dashboard's Extension hosts row exists WITHOUT the owning host's status
 	// server. The announce carries only the UI PORT; the aggregator derives the
@@ -211,7 +211,7 @@ func main() {
 	case <-beaconDone:
 	case <-time.After(8 * time.Second):
 	}
-	log.Printf("stash-server stopped")
+	log.Printf("stash-service stopped")
 }
 
 // uiPort extracts the port from an --http-addr value like "0.0.0.0:80" for

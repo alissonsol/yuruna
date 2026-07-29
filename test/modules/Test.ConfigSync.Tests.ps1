@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.28
+.VERSION 2026.07.29
 .GUID 42b593af-6071-4283-9d94-0f1a2b3c4d5e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -44,11 +44,11 @@ vmStart:
   startTimeoutSeconds: 120
   bootDelaySeconds: 15
 vmImage:
-  refreshHours: 24
+  refreshSeconds: 24
 vmCommunication:
   keystrokeMechanism: GUI
 testCycle:
-  shouldStopOnFailure: false
+  stopOnFailure: false
   cycleDelaySeconds: 30
 repositories:
   frameworkUrl: https://example/framework
@@ -126,14 +126,14 @@ Describe 'Sync-TestConfigToTemplate' {
             # Template renamed the old top-level poolStorage block to networkStorage.*
             # and is deliberately authored out of alphabetical order.
             $tmpl = Join-Path $d 'template.yml'
-            Set-Content $tmpl "networkStorage:`n  poolLocalPath: ''`n  poolNetworkPath: ''`nlogLevel: Information`n"
+            Set-Content $tmpl "networkStorage:`n  poolStorageLocalPath: ''`n  poolStorageNetworkPath: ''`nlogLevel: Information`n"
             $cfg = Join-Path $d 'test.config.yml'
             Set-Content $cfg "logLevel: Information`npoolStorage:`n  localPath: 'y:'`n"
             $res = Sync-TestConfigToTemplate -Template (Get-Content -Raw $tmpl | ConvertFrom-Yaml -Ordered) `
                                              -Current  (Get-Content -Raw $cfg  | ConvertFrom-Yaml -Ordered) `
                                              -ConfigPath $cfg
             Assert-True $res.Wrote 'file rewritten'
-            Assert-True ($res.Added -contains 'networkStorage.poolLocalPath') 'new schema field reported as added'
+            Assert-True ($res.Added -contains 'networkStorage.poolStorageLocalPath') 'new schema field reported as added'
             Assert-True ($res.Removed -contains 'poolStorage.localPath') 'renamed-section old key reported as removed'
             Assert-True (Test-Path "$cfg.backup") 'populated dropped key triggers a backup'
             Assert-Equal -Expected "$cfg.backup" -Actual $res.BackupPath -Because 'backup path reported'
@@ -150,14 +150,14 @@ Describe 'Sync-TestConfigToTemplate' {
         $d = New-TempDir
         try {
             $tmpl = Join-Path $d 'template.yml'
-            Set-Content $tmpl "logLevel: Information`nnetworkStorage:`n  poolLocalPath: ''`n  poolNetworkPath: ''`n"
+            Set-Content $tmpl "logLevel: Information`nnetworkStorage:`n  poolStorageLocalPath: ''`n  poolStorageNetworkPath: ''`n"
             $cfg = Join-Path $d 'test.config.yml'
-            Set-Content $cfg "logLevel: Information`nnetworkStorage:`n  poolLocalPath: 'y:'`n"
+            Set-Content $cfg "logLevel: Information`nnetworkStorage:`n  poolStorageLocalPath: 'y:'`n"
             $res = Sync-TestConfigToTemplate -Template (Get-Content -Raw $tmpl | ConvertFrom-Yaml -Ordered) `
                                              -Current  (Get-Content -Raw $cfg  | ConvertFrom-Yaml -Ordered) `
                                              -ConfigPath $cfg
             Assert-True $res.Wrote 'file rewritten (field added)'
-            Assert-True ($res.Added -contains 'networkStorage.poolNetworkPath') 'missing field added'
+            Assert-True ($res.Added -contains 'networkStorage.poolStorageNetworkPath') 'missing field added'
             Assert-Equal -Expected 0 -Actual $res.Removed.Count -Because 'nothing populated dropped'
             Assert-True (-not (Test-Path "$cfg.backup")) 'pure add/sort writes NO backup'
             Assert-Equal -Expected $null -Actual $res.BackupPath -Because 'no backup path when nothing dropped'
@@ -167,9 +167,9 @@ Describe 'Sync-TestConfigToTemplate' {
         $d = New-TempDir
         try {
             $tmpl = Join-Path $d 'template.yml'
-            Set-Content $tmpl "logLevel: Information`nnetworkStorage:`n  poolLocalPath: ''`n"
+            Set-Content $tmpl "logLevel: Information`nnetworkStorage:`n  poolStorageLocalPath: ''`n"
             $cfg = Join-Path $d 'test.config.yml'
-            Set-Content $cfg "logLevel: Information`nnetworkStorage:`n  poolLocalPath: 'y:'`n"
+            Set-Content $cfg "logLevel: Information`nnetworkStorage:`n  poolStorageLocalPath: 'y:'`n"
             $before = Get-Item -LiteralPath $cfg
             $res = Sync-TestConfigToTemplate -Template (Get-Content -Raw $tmpl | ConvertFrom-Yaml -Ordered) `
                                              -Current  (Get-Content -Raw $cfg  | ConvertFrom-Yaml -Ordered) `
@@ -251,14 +251,14 @@ Describe 'Update-TestConfigFromTemplate' {
         try {
             $tmpl = Join-Path $d 'template.yml'; Set-Content $tmpl $MinimalTemplate
             $cfg  = Join-Path $d 'test.config.yml'
-            # Config matches the nested SHAPE but is missing vmImage.refreshHours and
+            # Config matches the nested SHAPE but is missing vmImage.refreshSeconds and
             # carries an operator override for startTimeoutSeconds.
-            Set-Content $cfg "vmStart:`n  startTimeoutSeconds: 300`n  bootDelaySeconds: 15`nvmImage: {}`nvmCommunication:`n  keystrokeMechanism: GUI`ntestCycle:`n  shouldStopOnFailure: false`n  cycleDelaySeconds: 30`nrepositories:`n  frameworkUrl: https://example/framework`n"
+            Set-Content $cfg "vmStart:`n  startTimeoutSeconds: 300`n  bootDelaySeconds: 15`nvmImage: {}`nvmCommunication:`n  keystrokeMechanism: GUI`ntestCycle:`n  stopOnFailure: false`n  cycleDelaySeconds: 30`nrepositories:`n  frameworkUrl: https://example/framework`n"
             $r = Update-TestConfigFromTemplate -ConfigPath $cfg -TemplatePath $tmpl
             Assert-Equal -Expected 300 -Actual $r.vmStart.startTimeoutSeconds -Because 'operator override preserved'
-            Assert-Equal -Expected 24  -Actual $r.vmImage.refreshHours -Because 'missing template key filled'
+            Assert-Equal -Expected 24  -Actual $r.vmImage.refreshSeconds -Because 'missing template key filled'
             $onDisk = Get-Content -Raw $cfg | ConvertFrom-Yaml -Ordered
-            Assert-Equal -Expected 24 -Actual $onDisk.vmImage.refreshHours -Because 'rewrite persisted the merge'
+            Assert-Equal -Expected 24 -Actual $onDisk.vmImage.refreshSeconds -Because 'rewrite persisted the merge'
         } finally { Remove-Item -LiteralPath $d -Recurse -Force -ErrorAction SilentlyContinue }
     }
     It 'drops the deprecated hostSshServer top-level key' {
@@ -266,7 +266,7 @@ Describe 'Update-TestConfigFromTemplate' {
         try {
             $tmpl = Join-Path $d 'template.yml'; Set-Content $tmpl $MinimalTemplate
             $cfg  = Join-Path $d 'test.config.yml'
-            Set-Content $cfg "hostSshServer: legacy`nvmStart:`n  startTimeoutSeconds: 120`n  bootDelaySeconds: 15`nvmImage:`n  refreshHours: 24`nvmCommunication:`n  keystrokeMechanism: GUI`ntestCycle:`n  shouldStopOnFailure: false`n  cycleDelaySeconds: 30`nrepositories:`n  frameworkUrl: https://example/framework`n"
+            Set-Content $cfg "hostSshServer: legacy`nvmStart:`n  startTimeoutSeconds: 120`n  bootDelaySeconds: 15`nvmImage:`n  refreshSeconds: 24`nvmCommunication:`n  keystrokeMechanism: GUI`ntestCycle:`n  stopOnFailure: false`n  cycleDelaySeconds: 30`nrepositories:`n  frameworkUrl: https://example/framework`n"
             $r = Update-TestConfigFromTemplate -ConfigPath $cfg -TemplatePath $tmpl
             Assert-True (-not $r.Contains('hostSshServer')) 'deprecated key dropped'
         } finally { Remove-Item -LiteralPath $d -Recurse -Force -ErrorAction SilentlyContinue }
@@ -308,7 +308,7 @@ Describe 'Update-TestConfigFromTemplate' {
             Set-Content $tmpl ($MinimalTemplate + "`npool:`n  enabled: false`n  intentGitUrl: ''`n")
             $cfg = Join-Path $d 'test.config.yml'
             # Shape-valid for the OLD schema (no 'pool'), with operator overrides.
-            Set-Content $cfg "vmStart:`n  startTimeoutSeconds: 300`n  bootDelaySeconds: 15`nvmImage:`n  refreshHours: 24`nvmCommunication:`n  keystrokeMechanism: GUI`ntestCycle:`n  shouldStopOnFailure: false`n  cycleDelaySeconds: 30`nrepositories:`n  frameworkUrl: https://operator/fork`n"
+            Set-Content $cfg "vmStart:`n  startTimeoutSeconds: 300`n  bootDelaySeconds: 15`nvmImage:`n  refreshSeconds: 24`nvmCommunication:`n  keystrokeMechanism: GUI`ntestCycle:`n  stopOnFailure: false`n  cycleDelaySeconds: 30`nrepositories:`n  frameworkUrl: https://operator/fork`n"
             $r = Update-TestConfigFromTemplate -ConfigPath $cfg -TemplatePath $tmpl -InformationAction SilentlyContinue
             Assert-True ($r -is [System.Collections.IDictionary]) 'returns merged config (did not exit)'
             Assert-Equal -Expected 300 -Actual $r.vmStart.startTimeoutSeconds -Because 'operator override carried forward'
@@ -326,7 +326,7 @@ Describe 'Update-TestConfigFromTemplate' {
             $tmpl = Join-Path $d 'template.yml'; Set-Content $tmpl $MinimalTemplate
             $cfg  = Join-Path $d 'test.config.yml'
             # Shape-valid nested fields (carryable) + an orphan top-level key with a value (unmappable).
-            Set-Content $cfg "vmStart:`n  startTimeoutSeconds: 300`n  bootDelaySeconds: 15`nvmImage:`n  refreshHours: 24`nvmCommunication:`n  keystrokeMechanism: GUI`ntestCycle:`n  shouldStopOnFailure: false`n  cycleDelaySeconds: 30`nrepositories:`n  frameworkUrl: https://example/framework`nlegacyOrphan: keepme`n"
+            Set-Content $cfg "vmStart:`n  startTimeoutSeconds: 300`n  bootDelaySeconds: 15`nvmImage:`n  refreshSeconds: 24`nvmCommunication:`n  keystrokeMechanism: GUI`ntestCycle:`n  stopOnFailure: false`n  cycleDelaySeconds: 30`nrepositories:`n  frameworkUrl: https://example/framework`nlegacyOrphan: keepme`n"
             # Child pwsh: the unmappable orphan makes it stop for operator review.
             $childScript = "Import-Module '$here\Test.Prelude.psm1' -Global -Force -DisableNameChecking; Import-Module powershell-yaml -Global -Force; Import-Module '$here\Test.ConfigSync.psm1' -Global -Force -DisableNameChecking; Update-TestConfigFromTemplate -ConfigPath '$cfg' -TemplatePath '$tmpl' -WarningAction SilentlyContinue -InformationAction SilentlyContinue | Out-Null"
             $sf = Join-Path $d 'child.ps1'; Set-Content $sf $childScript
@@ -357,5 +357,91 @@ Describe 'Get-DroppedConfigField' {
     It 'returns nothing when every leaf was carried' {
         $c = [ordered]@{ a = 1; b = [ordered]@{ x = 2 } }
         Assert-Equal -Expected 0 -Actual (@(Get-DroppedConfigField -Current $c -Merged $c)).Count -Because 'identical -> none dropped'
+    }
+}
+
+Describe 'Format-YamlScalarValue' {
+    It 'leaves unambiguous scalars bare' {
+        Assert-Equal -Expected 'plain'                -Actual (Format-YamlScalarValue 'plain')
+        Assert-Equal -Expected 'https://example.com/x' -Actual (Format-YamlScalarValue 'https://example.com/x') -Because 'a colon not followed by space is legal bare'
+        Assert-Equal -Expected 'true'                 -Actual (Format-YamlScalarValue $true)
+        Assert-Equal -Expected '42'                   -Actual (Format-YamlScalarValue 42)
+    }
+    It 'quotes what YAML would otherwise re-read as something else' {
+        Assert-Equal -Expected "'y:'"        -Actual (Format-YamlScalarValue 'y:')     -Because 'trailing colon would read as a key'
+        Assert-Equal -Expected "'a: b'"      -Actual (Format-YamlScalarValue 'a: b')   -Because 'colon-space would read as a mapping'
+        Assert-Equal -Expected "'true'"      -Actual (Format-YamlScalarValue 'true')   -Because 'string must not come back as a bool'
+        Assert-Equal -Expected "'123'"       -Actual (Format-YamlScalarValue '123')    -Because 'string must not come back as a number'
+        Assert-Equal -Expected '""'          -Actual (Format-YamlScalarValue '')
+        Assert-Equal -Expected '""'          -Actual (Format-YamlScalarValue $null)
+    }
+    It 'leaves an embedded single quote bare but escapes a leading one' {
+        # Only a LEADING quote is a YAML indicator; "it's" is a valid plain scalar
+        # and round-trips unchanged, so quoting it would be noise.
+        Assert-Equal -Expected "it's"      -Actual (Format-YamlScalarValue "it's")
+        Assert-Equal -Expected "'''lead'"  -Actual (Format-YamlScalarValue "'lead")
+    }
+}
+
+Describe 'Get-ObsoleteConfigEntry' {
+    It 'reads back the commented obsolete entries a render wrote' {
+        $text = "a: 1`n# --- Obsolete keys ---`n#   old.key: true`n#   other.path: 'y:'`n"
+        $e = Get-ObsoleteConfigEntry -Text $text
+        Assert-Equal -Expected 2      -Actual $e.Count
+        Assert-Equal -Expected 'true' -Actual $e['old.key']
+        Assert-Equal -Expected "'y:'" -Actual $e['other.path']
+    }
+    It 'returns an empty map for text with no obsolete block' {
+        Assert-Equal -Expected 0 -Actual (Get-ObsoleteConfigEntry -Text "a: 1`nb: 2`n").Count
+    }
+}
+
+Describe 'ConvertTo-DocumentedConfigYaml' {
+    It 'keeps the template comments while substituting operator values' {
+        $tpl = "# top note`nsvc:`n  # why this knob exists`n  enabled: true`n  port: 8443`n"
+        $cfg = [ordered]@{ svc = [ordered]@{ enabled = $false; port = 9999 } }
+        $out = ConvertTo-DocumentedConfigYaml -TemplateText $tpl -Config $cfg
+        Assert-True ($out -match '# top note')              'file-level comment kept'
+        Assert-True ($out -match '# why this knob exists')  'per-knob comment kept'
+        Assert-True ($out -match 'enabled: false')          'operator value substituted'
+        Assert-True ($out -match 'port: 9999')              'operator value substituted'
+    }
+    It 'fills a key the file lacks from the template default' {
+        $tpl = "svc:`n  enabled: true`n  port: 8443`n"
+        $out = ConvertTo-DocumentedConfigYaml -TemplateText $tpl -Config ([ordered]@{ svc = [ordered]@{ enabled = $true } })
+        Assert-True ($out -match 'port: 8443') 'missing key takes the template value'
+    }
+    It 'renders lists from the config, not the template' {
+        $tpl = "guestSequence:`n- template.one`n- template.two`n"
+        $out = ConvertTo-DocumentedConfigYaml -TemplateText $tpl -Config ([ordered]@{ guestSequence = @('only.mine') })
+        Assert-True ($out -match '- only\.mine')      'operator list rendered'
+        Assert-True (-not ($out -match 'template\.one')) 'template list items replaced'
+    }
+    It 'keeps an out-of-band secrets node as real yaml, never as a comment' {
+        $tpl = "logLevel: Information`n"
+        $out = ConvertTo-DocumentedConfigYaml -TemplateText $tpl -Config ([ordered]@{ logLevel = 'Information'; secrets = [ordered]@{ cred = 'keepme' } })
+        $back = ConvertFrom-Yaml $out -Ordered
+        Assert-Equal -Expected 'keepme' -Actual $back.secrets.cred -Because 'credentials must survive the rewrite'
+    }
+    It 'parks obsolete entries as comments and round-trips them' {
+        $tpl = "logLevel: Information`n"
+        $ob  = [ordered]@{ 'configService.isEnabled' = 'true' }
+        $out = ConvertTo-DocumentedConfigYaml -TemplateText $tpl -Config ([ordered]@{ logLevel = 'Information' }) -ObsoleteEntry $ob
+        Assert-True ($out -match '#   configService\.isEnabled: true') 'obsolete value parked in view'
+        $back = ConvertFrom-Yaml $out -Ordered
+        Assert-True (-not $back.Contains('configService')) 'parked key is a comment, not live config'
+        Assert-Equal -Expected 'true' -Actual (Get-ObsoleteConfigEntry -Text $out)['configService.isEnabled'] -Because 'a later run can carry it forward'
+    }
+    It 'is idempotent: rendering its own output reproduces it byte for byte' {
+        $tplPath = Join-Path (Split-Path -Parent (Split-Path -Parent $PSCommandPath)) 'test.config.yml.template'
+        if (Test-Path $tplPath) {
+            $tplText = Get-Content -Raw $tplPath
+            $tpl     = ConvertFrom-Yaml $tplText -Ordered
+            $cfg     = ConvertTo-SortedConfig (ConvertTo-MergedHashtable -Template $tpl -Current ([ordered]@{ logLevel = 'Debug' }))
+            $r1 = ConvertTo-DocumentedConfigYaml -TemplateText $tplText -Config $cfg
+            $r2 = ConvertTo-DocumentedConfigYaml -TemplateText $tplText -Config (ConvertTo-SortedConfig (ConvertTo-MergedHashtable -Template $tpl -Current (ConvertFrom-Yaml $r1 -Ordered)))
+            Assert-Equal -Expected $r1 -Actual $r2 -Because 'the writer runs every cycle; it must converge'
+            Assert-True ($r1 -match 'logLevel: Debug') 'operator value survived the round trip'
+        }
     }
 }

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.28
+.VERSION 2026.07.29
 .GUID 42e6f7a8-b9c0-4d12-9345-6e7f8a9b0c1d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -28,7 +28,7 @@ $here = Split-Path -Parent $PSCommandPath
 Import-Module (Join-Path $here 'Test.HostDetection.psm1')   -Force -DisableNameChecking -ErrorAction SilentlyContinue
 try { Import-Module powershell-yaml -Force -ErrorAction Stop } catch { Write-Warning 'powershell-yaml unavailable.' }
 Import-Module (Join-Path $here 'Test.SequenceResolve.psm1') -Force -DisableNameChecking -ErrorAction SilentlyContinue
-Import-Module (Join-Path $here 'Invoke-Sequence.psm1')      -Force -Global -DisableNameChecking -ErrorAction SilentlyContinue
+Import-Module (Join-Path $here 'Test.SequenceEngine.psm1')      -Force -Global -DisableNameChecking -ErrorAction SilentlyContinue
 Import-Module (Join-Path $here 'Test.Capability.psm1')      -Force -DisableNameChecking -ErrorAction SilentlyContinue
 Import-Module (Join-Path $here 'Test.StateFile.psm1')       -Force -DisableNameChecking -ErrorAction SilentlyContinue
 Import-Module (Join-Path $here 'Test.SequencePlanner.psm1') -Force -DisableNameChecking -ErrorAction SilentlyContinue
@@ -175,16 +175,21 @@ Describe 'Select-RunnableGuestList (folder AND capability AND compat, stable ord
     }
 }
 
-Describe 'Get-TestVMName -HostId (legacy byte-identical; HostId-scoped on pool)' {
-    It 'is byte-identical to the legacy name when HostId is absent/empty' {
-        $legacy = Get-TestVMName -GuestKey 'guest.ubuntu.server.24'
-        Assert-Equal -Expected 'test-ubuntu-server-24-01' -Actual $legacy -Because 'legacy stem keeps the version'
-        Assert-Equal -Expected $legacy -Actual (Get-TestVMName -GuestKey 'guest.ubuntu.server.24' -HostId '') -Because 'empty HostId == legacy'
+Describe 'Get-TestVMName -HostId (guest key verbatim; HostId-scoped on pool)' {
+    It 'carries the guest key through verbatim when HostId is absent/empty' {
+        $single = Get-TestVMName -GuestKey 'guest.ubuntu.server.24'
+        Assert-Equal -Expected 'test-guest.ubuntu.server.24-01' -Actual $single -Because 'guest key verbatim + ordinal'
+        Assert-Equal -Expected $single -Actual (Get-TestVMName -GuestKey 'guest.ubuntu.server.24' -HostId '') -Because 'empty HostId == single-host'
     }
     It 'inserts an 8-char alphanumeric host segment when HostId is set' {
         $n = Get-TestVMName -GuestKey 'guest.ubuntu.server.24' -HostId '42abcdef0123456789abcdef01234567'
-        Assert-Equal -Expected 'test-ubuntu-server-24-42abcdef-01' -Actual $n -Because 'HostId-scoped'
+        Assert-Equal -Expected 'test-guest.ubuntu.server.24-42abcdef-01' -Actual $n -Because 'HostId-scoped'
         Assert-True ($n -match '^[A-Za-z0-9.\-]+$') 'name is validator-safe (alnum/dot/hyphen)'
+    }
+    It 'rejects a prefix carrying a shell metacharacter' {
+        $threw = $false
+        try { $null = Get-TestVMName -GuestKey 'guest.ubuntu.server.24' -Prefix 'test ;rm -rf /' } catch { $threw = $true }
+        Assert-True $threw 'a metacharacter prefix never reaches a command string'
     }
 }
 

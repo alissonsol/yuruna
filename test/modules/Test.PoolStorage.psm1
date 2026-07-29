@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.28
+.VERSION 2026.07.29
 .GUID 42c5e8a1-9b3d-4f27-8a6c-1d2e3f4a5b6c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -31,9 +31,9 @@
 # mount + copy finish in well under a second. Copy gets the largest cap because a
 # legitimately large (but progressing) cycle folder must not be killed mid-flight;
 # rsync additionally carries its own --timeout for precise I/O-stall detection.
-$script:PoolStorageMountTimeoutSec     = 90
-$script:PoolStorageCopyTimeoutSec      = 600
-$script:PoolStorageSmbCmdletTimeoutSec = 60
+$script:PoolStorageMountTimeoutSeconds     = 90
+$script:PoolStorageCopyTimeoutSeconds      = 600
+$script:PoolStorageSmbCmdletTimeoutSeconds = 60
 
 # Verbatim reason the last Connect-YurunaPoolStorage attempt failed, so the
 # write-path pre-flight can report WHAT went wrong instead of enumerating every
@@ -322,7 +322,7 @@ function Get-PoolStorageConflictingMount {
     try {
         $lines = @()
         if ($IsWindows) {
-            $r = Invoke-PoolStorageBoundedScript -TimeoutSeconds $script:PoolStorageSmbCmdletTimeoutSec -ScriptBlock {
+            $r = Invoke-PoolStorageBoundedScript -TimeoutSeconds $script:PoolStorageSmbCmdletTimeoutSeconds -ScriptBlock {
                 Get-SmbMapping -ErrorAction SilentlyContinue | ForEach-Object { "$($_.RemotePath) on $($_.LocalPath)" }
             }
             if (-not $r.TimedOut -and $r.Result) { $lines = @($r.Result | ForEach-Object { [string]$_ }) }
@@ -350,17 +350,17 @@ function Dismount-PoolStoragePoint {
     param([Parameter(Mandatory)][string]$MountPoint)
     try {
         if ($IsWindows) {
-            $r = Invoke-PoolStorageBoundedScript -TimeoutSeconds $script:PoolStorageSmbCmdletTimeoutSec -ArgumentList @($MountPoint) -ScriptBlock {
+            $r = Invoke-PoolStorageBoundedScript -TimeoutSeconds $script:PoolStorageSmbCmdletTimeoutSeconds -ArgumentList @($MountPoint) -ScriptBlock {
                 param($p) Remove-SmbMapping -LocalPath $p -Force -ErrorAction Stop
             }
             return (-not $r.TimedOut -and -not $r.Error)
         } elseif ($IsMacOS) {
-            $rc = Invoke-PoolStorageProcess -FilePath 'diskutil' -ArgumentList @('unmount', 'force', $MountPoint) -TimeoutSeconds $script:PoolStorageMountTimeoutSec
-            if ($rc -ne 0) { $rc = Invoke-PoolStorageProcess -FilePath 'umount' -ArgumentList @('-f', $MountPoint) -TimeoutSeconds $script:PoolStorageMountTimeoutSec }
+            $rc = Invoke-PoolStorageProcess -FilePath 'diskutil' -ArgumentList @('unmount', 'force', $MountPoint) -TimeoutSeconds $script:PoolStorageMountTimeoutSeconds
+            if ($rc -ne 0) { $rc = Invoke-PoolStorageProcess -FilePath 'umount' -ArgumentList @('-f', $MountPoint) -TimeoutSeconds $script:PoolStorageMountTimeoutSeconds }
             return ($rc -eq 0)
         } else {
-            $rc = Invoke-PoolStorageProcess -FilePath 'sudo' -ArgumentList @('-n', 'umount', $MountPoint) -TimeoutSeconds $script:PoolStorageMountTimeoutSec
-            if ($rc -ne 0) { $rc = Invoke-PoolStorageProcess -FilePath 'umount' -ArgumentList @($MountPoint) -TimeoutSeconds $script:PoolStorageMountTimeoutSec }
+            $rc = Invoke-PoolStorageProcess -FilePath 'sudo' -ArgumentList @('-n', 'umount', $MountPoint) -TimeoutSeconds $script:PoolStorageMountTimeoutSeconds
+            if ($rc -ne 0) { $rc = Invoke-PoolStorageProcess -FilePath 'umount' -ArgumentList @($MountPoint) -TimeoutSeconds $script:PoolStorageMountTimeoutSeconds }
             return ($rc -eq 0)
         }
     } catch {
@@ -461,15 +461,15 @@ function Get-YurunaPoolStorageConfig {
     if ($Config.Contains('pool') -and ($Config['pool'] -is [System.Collections.IDictionary])) {
         $replicate = [bool]$Config['pool']['networkReplicate']
     }
-    $networkPath = [string]$ps['poolNetworkPath']
-    $networkUser = [string]$ps['poolNetworkUser']
-    $localPath   = [string]$ps['poolLocalPath']
+    $networkPath = [string]$ps['poolStorageNetworkPath']
+    $networkUser = [string]$ps['poolStorageNetworkUser']
+    $localPath   = [string]$ps['poolStorageLocalPath']
     if (-not $replicate -and -not $IgnoreReplicate) { return $null }
     if ([string]::IsNullOrWhiteSpace($networkPath) -or
         [string]::IsNullOrWhiteSpace($networkUser) -or
         [string]::IsNullOrWhiteSpace($localPath)) {
         if ($replicate) {
-            Write-Warning "pool.networkReplicate is true but networkStorage.poolNetworkPath/poolNetworkUser/poolLocalPath are not all set; replication disabled."
+            Write-Warning "pool.networkReplicate is true but networkStorage.poolStorageNetworkPath/poolStorageNetworkUser/poolStorageLocalPath are not all set; replication disabled."
         }
         return $null
     }
@@ -498,7 +498,7 @@ function Expand-YurunaLocalPath {
 
 <#
 .SYNOPSIS
-Returns the normalized STASH storage record from networkStorage.{stashNetworkPath,stashNetworkUser,stashLocalPath}, or $null when any is unset; the stash storage is ISOLATED from the pool (its own share + account) and has no replicate flag (the stash daemon writes files directly). Returns the SAME shape as Get-YurunaPoolStorageConfig so the generic mount / credential helpers work unchanged.
+Returns the normalized STASH storage record from networkStorage.{stashStorageNetworkPath,stashStorageNetworkUser,stashStorageLocalPath}, or $null when any is unset; the stash storage is ISOLATED from the pool (its own share + account) and has no replicate flag (the stash daemon writes files directly). Returns the SAME shape as Get-YurunaPoolStorageConfig so the generic mount / credential helpers work unchanged.
 #>
 function Get-YurunaStashStorageConfig {
     [CmdletBinding()]
@@ -511,9 +511,9 @@ function Get-YurunaStashStorageConfig {
     if (-not ($Config -is [System.Collections.IDictionary]) -or -not $Config.Contains('networkStorage')) { return $null }
     $ns = $Config['networkStorage']
     if (-not ($ns -is [System.Collections.IDictionary])) { return $null }
-    $networkPath = [string]$ns['stashNetworkPath']
-    $networkUser = [string]$ns['stashNetworkUser']
-    $localPath   = [string]$ns['stashLocalPath']
+    $networkPath = [string]$ns['stashStorageNetworkPath']
+    $networkUser = [string]$ns['stashStorageNetworkUser']
+    $localPath   = [string]$ns['stashStorageLocalPath']
     if ([string]::IsNullOrWhiteSpace($networkPath) -or
         [string]::IsNullOrWhiteSpace($networkUser) -or
         [string]::IsNullOrWhiteSpace($localPath)) {
@@ -539,7 +539,7 @@ function Test-YurunaPoolStorageMounted {
     try {
         if ($IsWindows) {
             $want = Get-PoolStorageUncPath -Path $Config.NetworkPath -Style windows
-            $r = Invoke-PoolStorageBoundedScript -TimeoutSeconds $script:PoolStorageSmbCmdletTimeoutSec -ArgumentList @($Config.LocalPath) -ScriptBlock {
+            $r = Invoke-PoolStorageBoundedScript -TimeoutSeconds $script:PoolStorageSmbCmdletTimeoutSeconds -ArgumentList @($Config.LocalPath) -ScriptBlock {
                 param($local) Get-SmbMapping -LocalPath $local -ErrorAction SilentlyContinue
             }
             if ($r.TimedOut) { return $false }
@@ -590,16 +590,16 @@ function Connect-YurunaPoolStorage {
     try {
         if ($IsWindows) {
             $remote = Get-PoolStorageUncPath -Path $Config.NetworkPath -Style windows
-            $null = Invoke-PoolStorageBoundedScript -TimeoutSeconds $script:PoolStorageSmbCmdletTimeoutSec -ArgumentList @($Config.LocalPath) -ScriptBlock {
+            $null = Invoke-PoolStorageBoundedScript -TimeoutSeconds $script:PoolStorageSmbCmdletTimeoutSeconds -ArgumentList @($Config.LocalPath) -ScriptBlock {
                 param($local)
                 Get-SmbMapping -LocalPath $local -ErrorAction SilentlyContinue |
                     ForEach-Object { Remove-SmbMapping -LocalPath $local -Force -ErrorAction SilentlyContinue }
             }
-            $r = Invoke-PoolStorageBoundedScript -TimeoutSeconds $script:PoolStorageMountTimeoutSec -ArgumentList @($Config.LocalPath, $remote, $Config.NetworkUser, $password) -ScriptBlock {
+            $r = Invoke-PoolStorageBoundedScript -TimeoutSeconds $script:PoolStorageMountTimeoutSeconds -ArgumentList @($Config.LocalPath, $remote, $Config.NetworkUser, $password) -ScriptBlock {
                 param($local, $rem, $user, $pass)
                 New-SmbMapping -LocalPath $local -RemotePath $rem -UserName $user -Password $pass -Persistent $true -ErrorAction Stop | Out-Null
             }
-            if ($r.TimedOut) { throw "New-SmbMapping timed out after ${script:PoolStorageMountTimeoutSec}s" }
+            if ($r.TimedOut) { throw "New-SmbMapping timed out after ${script:PoolStorageMountTimeoutSeconds}s" }
             if ($r.Error) { throw $r.Error }
         } elseif ($IsMacOS) {
             $bare = Get-PoolStorageBareShare -Path $Config.NetworkPath
@@ -615,7 +615,7 @@ function Connect-YurunaPoolStorage {
             # diagnostic ("Authentication error", "File exists" for a share already
             # mounted elsewhere), never the argument -- safe to surface, and the
             # bare rc alone does not distinguish those.
-            $sm = Invoke-PoolStorageProcessResult -FilePath 'mount_smbfs' -ArgumentList @('-N', $url, $Config.LocalPath) -TimeoutSeconds $script:PoolStorageMountTimeoutSec
+            $sm = Invoke-PoolStorageProcessResult -FilePath 'mount_smbfs' -ArgumentList @('-N', $url, $Config.LocalPath) -TimeoutSeconds $script:PoolStorageMountTimeoutSeconds
             if ($sm.ExitCode -ne 0) { throw "mount_smbfs rc=$($sm.ExitCode)$(Get-PoolStorageProcessErrorDetail -StdErr $sm.StdErr)" }
         } else {
             $remote = Get-PoolStorageUncPath -Path $Config.NetworkPath -Style unix
@@ -639,7 +639,7 @@ function Connect-YurunaPoolStorage {
                 # handled by the fallback, so an error record there would be noise.
                 New-Item -ItemType Directory -Force -Path $Config.LocalPath -ErrorAction SilentlyContinue | Out-Null
                 if (-not (Test-Path -LiteralPath $Config.LocalPath)) {
-                    $mk = Invoke-PoolStorageProcessResult -FilePath 'sudo' -ArgumentList @('-n', 'mkdir', '-p', $Config.LocalPath) -TimeoutSeconds $script:PoolStorageMountTimeoutSec
+                    $mk = Invoke-PoolStorageProcessResult -FilePath 'sudo' -ArgumentList @('-n', 'mkdir', '-p', $Config.LocalPath) -TimeoutSeconds $script:PoolStorageMountTimeoutSeconds
                     if ($mk.ExitCode -ne 0) { throw "could not create mount point '$($Config.LocalPath)' (sudo -n mkdir rc=$($mk.ExitCode); a root-owned mount-point parent such as /mnt needs passwordless sudo for mkdir as well as mount)$(Get-PoolStorageProcessErrorDetail -StdErr $mk.StdErr)" }
                 }
             }
@@ -662,7 +662,7 @@ function Connect-YurunaPoolStorage {
                 $opts = "credentials=$credFile,vers=3.0,uid=$uid,gid=$gid,iocharset=utf8,nofail"
                 # sudo -n: never prompt. Without passwordless sudo for this mount it
                 # fails fast instead of blocking the loop on a hidden password prompt.
-                $mnt = Invoke-PoolStorageProcessResult -FilePath 'sudo' -ArgumentList @('-n', 'mount', '-t', 'cifs', $remote, $Config.LocalPath, '-o', $opts) -TimeoutSeconds $script:PoolStorageMountTimeoutSec
+                $mnt = Invoke-PoolStorageProcessResult -FilePath 'sudo' -ArgumentList @('-n', 'mount', '-t', 'cifs', $remote, $Config.LocalPath, '-o', $opts) -TimeoutSeconds $script:PoolStorageMountTimeoutSeconds
                 if ($mnt.ExitCode -ne 0) {
                     # The credentials went in via a 0600 file, so neither the account
                     # nor the password can appear in what mount prints back -- the
@@ -923,16 +923,16 @@ function Sync-YurunaPoolStorageFolder {
         if ($IsWindows) {
             # robocopy exit codes 0-7 are success (>=8 = failure); 124 = our
             # timeout; <0 = failed to start. Only 0-7 is success.
-            $rc = Invoke-PoolStorageProcess -FilePath 'robocopy' -ArgumentList @($Source, $dest, '/E', '/R:1', '/W:1', '/NFL', '/NDL', '/NJH', '/NJS') -TimeoutSeconds $script:PoolStorageCopyTimeoutSec
+            $rc = Invoke-PoolStorageProcess -FilePath 'robocopy' -ArgumentList @($Source, $dest, '/E', '/R:1', '/W:1', '/NFL', '/NDL', '/NJH', '/NJS') -TimeoutSeconds $script:PoolStorageCopyTimeoutSeconds
             if ($rc -lt 0 -or $rc -ge 8) { throw "robocopy rc=$rc" }
         } elseif (Get-Command rsync -ErrorAction SilentlyContinue) {
             # --timeout aborts on an I/O stall (a wedged-but-not-errored mount)
             # precisely, without killing a legitimately slow-but-progressing copy;
             # the process cap is the outer backstop.
-            $rc = Invoke-PoolStorageProcess -FilePath 'rsync' -ArgumentList @('-a', '--timeout=120', "$Source/", "$dest/") -TimeoutSeconds $script:PoolStorageCopyTimeoutSec
+            $rc = Invoke-PoolStorageProcess -FilePath 'rsync' -ArgumentList @('-a', '--timeout=120', "$Source/", "$dest/") -TimeoutSeconds $script:PoolStorageCopyTimeoutSeconds
             if ($rc -ne 0) { throw "rsync rc=$rc" }
         } elseif (Get-Command cp -ErrorAction SilentlyContinue) {
-            $rc = Invoke-PoolStorageProcess -FilePath 'cp' -ArgumentList @('-a', "$Source/.", $dest) -TimeoutSeconds $script:PoolStorageCopyTimeoutSec
+            $rc = Invoke-PoolStorageProcess -FilePath 'cp' -ArgumentList @('-a', "$Source/.", $dest) -TimeoutSeconds $script:PoolStorageCopyTimeoutSeconds
             if ($rc -ne 0) { throw "cp rc=$rc" }
         } else {
             Write-Warning "poolStorage: no bounded copy tool (robocopy/rsync/cp) available; skipping replication of '$Source'."
@@ -1179,7 +1179,7 @@ function Test-PoolStorageServerReachable {
 
 <#
 .SYNOPSIS
-LOUD-FAIL pre-check: resolves a user's vault key (read-only) and refuses to mount when a mount would auto-generate a junk SMB password (empty vaultKey AND no stored entry); all read-only -- never triggers auto-generation, never writes the vault. networkUser is the single account used for every NAS connection (host-side drain AND the guest caching-proxy mount).
+LOUD-FAIL pre-check: resolves a user's vault key (read-only) and refuses to mount when a mount would auto-generate a junk SMB password (empty vaultKey AND no stored entry); all read-only -- never triggers auto-generation, never writes the vault. networkUser is the single account used for every NAS connection (host-side drain AND the guest caching-proxy-service mount).
 #>
 function Test-PoolStorageVaultReady {
     [CmdletBinding()]
@@ -1401,14 +1401,14 @@ function Initialize-PoolStorageHostFolder {
     }
     # Create + verify the per-host folder under a wall-clock cap so a share that
     # wedges AFTER mounting (a NAS can stall mid-write) can't hang the caller.
-    $r = Invoke-PoolStorageBoundedScript -TimeoutSeconds $script:PoolStorageSmbCmdletTimeoutSec -ArgumentList @($folder) -ScriptBlock {
+    $r = Invoke-PoolStorageBoundedScript -TimeoutSeconds $script:PoolStorageSmbCmdletTimeoutSeconds -ArgumentList @($folder) -ScriptBlock {
         param($f)
         if (-not (Test-Path -LiteralPath $f)) { New-Item -ItemType Directory -Force -Path $f -ErrorAction Stop | Out-Null }
         return [bool](Test-Path -LiteralPath $f)
     }
     if ($r.TimedOut) {
         $result.stage = 'folder'
-        $result.error = "creating the per-host folder '$folder' on the share timed out after ${script:PoolStorageSmbCmdletTimeoutSec}s (the share may be wedged)"
+        $result.error = "creating the per-host folder '$folder' on the share timed out after ${script:PoolStorageSmbCmdletTimeoutSeconds}s (the share may be wedged)"
         return $result
     }
     if ($r.Error -or -not $r.Result) {
@@ -1449,7 +1449,7 @@ function Get-PoolStorageStaleAliasMount {
     [OutputType([pscustomobject[]], [object[]])]
     param()
     if (-not $IsWindows) { return @() }
-    $r = Invoke-PoolStorageBoundedScript -TimeoutSeconds $script:PoolStorageSmbCmdletTimeoutSec -ScriptBlock {
+    $r = Invoke-PoolStorageBoundedScript -TimeoutSeconds $script:PoolStorageSmbCmdletTimeoutSeconds -ScriptBlock {
         Get-SmbMapping -ErrorAction SilentlyContinue | Select-Object LocalPath, RemotePath
     }
     if ($r.TimedOut -or $r.Error) { return @() }
@@ -1482,7 +1482,7 @@ function Remove-PoolStorageStaleAliasMount {
     if (-not $IsWindows) { return $false }
     $target = if (-not [string]::IsNullOrWhiteSpace($LocalPath)) { $LocalPath } else { $RemotePath }
     if (-not $PSCmdlet.ShouldProcess($target, 'Remove stale SMB mapping')) { return $false }
-    $r = Invoke-PoolStorageBoundedScript -TimeoutSeconds $script:PoolStorageSmbCmdletTimeoutSec -ArgumentList @($LocalPath, $RemotePath) -ScriptBlock {
+    $r = Invoke-PoolStorageBoundedScript -TimeoutSeconds $script:PoolStorageSmbCmdletTimeoutSeconds -ArgumentList @($LocalPath, $RemotePath) -ScriptBlock {
         param($local, $remote)
         if (-not [string]::IsNullOrWhiteSpace($local)) {
             Remove-SmbMapping -LocalPath $local -Force -ErrorAction Stop
@@ -1528,14 +1528,14 @@ function Initialize-PoolStorageTargetFolder {
     }
     try {
         $leaf = Join-PoolStoragePath -LocalPath $Config.LocalPath -SubPath ($subRel -replace '/', [System.IO.Path]::DirectorySeparatorChar)
-        $r = Invoke-PoolStorageBoundedScript -TimeoutSeconds $script:PoolStorageSmbCmdletTimeoutSec -ArgumentList @($leaf) -ScriptBlock {
+        $r = Invoke-PoolStorageBoundedScript -TimeoutSeconds $script:PoolStorageSmbCmdletTimeoutSeconds -ArgumentList @($leaf) -ScriptBlock {
             param($f)
             $existed = [bool](Test-Path -LiteralPath $f)
             if (-not $existed) { New-Item -ItemType Directory -Force -Path $f -ErrorAction Stop | Out-Null }
             return [pscustomobject]@{ Existed = $existed; Present = [bool](Test-Path -LiteralPath $f) }
         }
         if ($r.TimedOut) {
-            $result.error = "creating '$subRel' on the share timed out after ${script:PoolStorageSmbCmdletTimeoutSec}s (the share may be wedged)"
+            $result.error = "creating '$subRel' on the share timed out after ${script:PoolStorageSmbCmdletTimeoutSeconds}s (the share may be wedged)"
         } elseif ($r.Error -or ($null -eq $r.Result) -or -not $r.Result.Present) {
             $detail = if ($r.Error) { ": $($r.Error)" } else { '' }
             $result.error = "could not create '$subRel' on the share$detail (the account may lack write permission at the share root)"
@@ -1620,7 +1620,7 @@ function Get-PoolStorageHealthWarning {
 
 <#
 .SYNOPSIS
-Resolves the STASH storage coordinates the stash VM's cloud-init seed needs -- the share UNC (unix form), the stashNetworkUser, its vault password, and this host's id -- read from the ISOLATED networkStorage stash* keys (Get-YurunaStashStorageConfig), not the pool keys. Returns empty strings when unavailable so a caller bakes blanks (the guest then uses local fallback); the fail-fast gate lives in Start-StashVM, not here. Get-YurunaHostId and Get-Password must be loaded in the caller's session.
+Resolves the STASH storage coordinates the stash-service VM's cloud-init seed needs -- the share UNC (unix form), the stashStorageNetworkUser, its vault password, and this host's id -- read from the ISOLATED networkStorage stash* keys (Get-YurunaStashStorageConfig), not the pool keys. Returns empty strings when unavailable so a caller bakes blanks (the guest then uses local fallback); the fail-fast gate lives in Start-StashServiceVM, not here. Get-YurunaHostId and Get-Password must be loaded in the caller's session.
 #>
 function Get-YurunaStashSeedValue {
     [CmdletBinding()]
@@ -1667,7 +1667,7 @@ function Get-YurunaStashSeedValue {
 
 <#
 .SYNOPSIS
-Resolves the POOL storage coordinates the pool-control VM's cloud-init seed needs -- the pool NAS share UNC (unix form), the poolNetworkUser, its vault password, and this host's id -- read from the pool networkStorage keys via Get-YurunaPoolStorageConfig -IgnoreReplicate (so the seed bakes regardless of the replicate flag, matching how the stash seed has no replicate gate). Returns empty strings when unavailable so a caller bakes blanks (the guest then degrades to no persistence); the fail-fast gate lives in Start-PoolControlVM, not here. Get-YurunaHostId and Get-Password must be loaded in the caller's session.
+Resolves the POOL storage coordinates the pool-control-service VM's cloud-init seed needs -- the pool NAS share UNC (unix form), the poolStorageNetworkUser, its vault password, and this host's id -- read from the pool networkStorage keys via Get-YurunaPoolStorageConfig -IgnoreReplicate (so the seed bakes regardless of the replicate flag, matching how the stash seed has no replicate gate). Returns empty strings when unavailable so a caller bakes blanks (the guest then degrades to no persistence); the fail-fast gate lives in Start-PoolControlServiceVM, not here. Get-YurunaHostId and Get-Password must be loaded in the caller's session.
 #>
 function Get-YurunaPoolSeedValue {
     [CmdletBinding()]

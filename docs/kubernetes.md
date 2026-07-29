@@ -8,7 +8,7 @@ See [Yuruna Architecture](architecture.md) for the three-phase model
 (Resources→Components→Workloads), the CLI entry points, and the project
 layout. This doc is the user-facing quick start for Kubernetes itself.
 
-Prerequisites are in [Yuruna Requirements](requirements.md).
+Prerequisites are in [Preflight dependencies](operator.md#b2-preflight-dependencies).
 
 ## Quick Start (Localhost)
 
@@ -151,7 +151,8 @@ can both do this.
 
 Workload that installs SSH, Git, Docker, Kubernetes, PowerShell, Helm,
 OpenTofu, mkcert, Graphviz, and cloud CLIs (Azure, AWS, GCP) on a running
-guest VM. Full tool list: [Yuruna Requirements](requirements.md). Guest
+guest VM. Full tool list: [Preflight
+dependencies](operator.md#b2-preflight-dependencies). Guest
 workload pattern: [Yuruna Architecture](architecture.md).
 
 | Guest | Command |
@@ -178,8 +179,8 @@ kubectl config current-context
 
 ### Why the website readiness check waits on Deployment availability, not Endpoints
 
-The website workload's GUI test waits on **Deployment availability**,
-not on Endpoints addresses:
+The website workload script waits on **Deployment availability**, not on
+Endpoints addresses, at its end — before the GUI test step that follows:
 
 ```
 kubectl wait --for=condition=available deployment/website -n website --timeout=240s
@@ -222,6 +223,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.28
+Last review: 2026.07.29
 
 Back to [Yuruna](../README.md)

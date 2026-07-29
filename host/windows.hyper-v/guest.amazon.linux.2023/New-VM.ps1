@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.28
+.VERSION 2026.07.29
 .GUID 42e9f0a1-b2c3-4d45-e678-9f0a1b2c3d45
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -204,7 +204,7 @@ if (-not $switchName) {
     $switchName = 'Default Switch'
 }
 
-# Yuruna host (status server) IP+port baked into the seed for the dev
+# Yuruna host (status service) IP+port baked into the seed for the dev
 # iteration loop. Guest scripts read /etc/yuruna/host.env (written by
 # user-data runcmd) to resolve a local URL before falling back to
 # GitHub. Default Switch's host IP changes across host reboots -- see
@@ -231,8 +231,8 @@ $UserData = New-CloudInitUserData `
         USERNAME_PLACEHOLDER           = $Username
         PLAINTEXT_PASSWORD_PLACEHOLDER = $Password
         SSH_AUTHORIZED_KEY_PLACEHOLDER = $SshAuthorizedKey
-        YURUNA_HOST_IP_PLACEHOLDER     = $YurunaHostIp
-        YURUNA_HOST_PORT_PLACEHOLDER   = $YurunaHostPort
+        YURUNA_STATUS_SERVICE_IP_PLACEHOLDER     = $YurunaHostIp
+        YURUNA_STATUS_SERVICE_PORT_PLACEHOLDER   = $YurunaHostPort
     } -Confirm:$false
 Set-Content -Path "$SeedDir/user-data" -Value $UserData -NoNewline
 

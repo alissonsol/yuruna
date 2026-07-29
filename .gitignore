@@ -362,6 +362,9 @@ crash.log
 test/test-config.json
 test/test.config.yml
 test/test.config.yml.backup
+# Migration backup: Update-TestConfigNaming.ps1 copies the live config here
+# before rewriting it, so it holds the same real credentials the live file does.
+test/test.config.yml.pre-renaming
 
 # Project tree (cloned per cycle from test.config.yml's repositories.projectUrl)
 project/
@@ -369,11 +372,11 @@ project/
 # All harness runtime state lives under test/status/<subdir>/ -- one
 # umbrella rule covers every subdirectory the runner creates:
 #   test/status/runtime/    pids, status.json, control flags,
-#                           ipaddresses.txt, caching-proxy.txt, server.err,
-#                           yuruna-caching-proxy.yml, host.uuid,
+#                           ipaddresses.txt, caching-proxy-service.txt, server.err,
+#                           yuruna-caching-proxy-service.yml, host.uuid,
 #                           .status-service.ps1, etc. See Test.YurunaDir.psm1
 #                           -- $env:YURUNA_RUNTIME_DIR defaults here so the
-#                           status server can serve /runtime/<name>.
+#                           status service can serve /runtime/<name>.
 #   test/status/log/        HTML transcripts, OCR debug artifacts, failure
 #                           screenshots. See Test.YurunaDir.psm1 --
 #                           $env:YURUNA_LOG_DIR defaults here so the status
@@ -393,7 +396,7 @@ project/
 #   test/status/ssh/        Generated per-host ed25519 key pair injected
 #                           into every guest's cloud-init.
 # Only the committed UI files at the test/status/ root (index.html,
-# hostinfo.html, test.config.html, yuruna.common.css, yuruna.common.js,
+# host.html, config.html, yuruna.common.css, yuruna.common.js,
 # status.json.template) and the .gitkeep stay tracked.
 test/status/*/
 
@@ -431,7 +434,7 @@ Fido.ps1
 .bazel-cache
 .bazelrc.user
 MODULE.bazel.lock
-test/extension/pool-aggregator/pool-aggregator.exe
+test/extension/pool-aggregator-service/pool-aggregator-service.exe
 
 # Generated CIDATA seed images. New-VM.ps1 writes seed.iso per run --
 # it holds the per-cycle vault password + the harness SSH key, so it must never
@@ -443,3 +446,4 @@ test/status/launch-runner.ps1
 project-poc.tar.gz
 out.txt
 **/yuruna-archive.tar.gz
+test/extension/pool-aggregator/pool-aggregator.exe

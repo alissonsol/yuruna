@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.28
+.VERSION 2026.07.29
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456811
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -331,7 +331,7 @@ function Import-ConfiguredExtension {
     at, nearest first. The list may be empty and is never $null.
 .DESCRIPTION
     The one call client code makes to answer "where is the stash service /
-    pool control?" without naming an address itself.
+    pool-control service?" without naming an address itself.
 
     A host that NEEDS one of these services usually does not run it: the
     service lives on another host, often another subnet, at an address DHCP is
@@ -349,9 +349,9 @@ function Import-ConfiguredExtension {
       2. The live host-contract lookup (Get-VMIp) for the VM that serves the
          area on THIS host -- nearer than any remote answer, and current
          across rebuilds in a way a literal never is.
-      3. The pool's own record (the pool-aggregator's /api/v1/extension-hosts),
+      3. The pool's own record (the pool-aggregator-service's /api/v1/extension-hosts),
          which is where a service running on ANOTHER host is found. Since the
-         aggregator lives in the caching-proxy VM, knowing the proxy address --
+         aggregator lives in the caching-proxy-service VM, knowing the proxy address --
          which every host needs anyway, to reach the cache at all -- is enough
          to locate every other service the pool offers. A host with no caching
          proxy has no aggregator to ask and no pool: the lookup simply
@@ -378,15 +378,15 @@ function Import-ConfiguredExtension {
         $addresses = @(Get-ExtensionHostAddress -HostType 'stash-service')
 .PARAMETER HostType
     The KIND of service wanted, named by its extension area slug:
-    'stash-service', 'pool-control'. Not the hypervisor host type
+    'stash-service', 'pool-control-service'. Not the hypervisor host type
     Get-HostType returns ('host.windows.hyper-v') -- unrelated vocabulary.
 .PARAMETER VMName
     VM to ask the host contract about. Defaults to "yuruna-<HostType>", the
     name the framework's own Start-*VM scripts create. Pass '' to skip the
     local lookup entirely (a caller that already did it).
 .PARAMETER AggregatorBaseUrl
-    Pool-aggregator base URL. Defaults to the one derived from this host's
-    caching proxy; pass it to query a specific collector.
+    Pool-aggregator service base URL. Defaults to the one derived from this host's
+    caching-proxy service; pass it to query a specific collector.
 .PARAMETER TimeoutSeconds
     Per-request timeout for the pool lookup. Short by default: this sits in
     front of a cycle, and a pool that does not answer promptly must not delay
@@ -438,10 +438,10 @@ function Get-ExtensionHostAddress {
     #    not have the parser loaded for; hence the module file as fallback
     #    rather than as the first choice.
     if (-not (Get-Command Get-PoolExtensionHost -ErrorAction SilentlyContinue)) {
-        try { $null = Import-Extension -Area 'pool-aggregator' }
+        try { $null = Import-Extension -Area 'pool-aggregator-service' }
         catch {
-            Write-Verbose "Get-ExtensionHostAddress: Import-Extension pool-aggregator failed: $($_.Exception.Message)"
-            $readerPath = Join-Path $script:ExtensionDir 'pool-aggregator' -AdditionalChildPath 'default.psm1'
+            Write-Verbose "Get-ExtensionHostAddress: Import-Extension pool-aggregator-service failed: $($_.Exception.Message)"
+            $readerPath = Join-Path $script:ExtensionDir 'pool-aggregator-service' -AdditionalChildPath 'default.psm1'
             if (Test-Path -LiteralPath $readerPath) {
                 try { Import-Module -Name $readerPath -Global -Force -DisableNameChecking -Verbose:$false }
                 catch { Write-Verbose "Get-ExtensionHostAddress: loading $readerPath failed: $($_.Exception.Message)" }
@@ -460,7 +460,7 @@ function Get-ExtensionHostAddress {
             Write-Verbose "Get-ExtensionHostAddress: the pool lookup for '$HostType' failed: $($_.Exception.Message)"
         }
     } else {
-        Write-Verbose "Get-ExtensionHostAddress: no pool-aggregator reader available; the pool contributes nothing."
+        Write-Verbose "Get-ExtensionHostAddress: no pool-aggregator-service reader available; the pool contributes nothing."
     }
 
     $addresses = [System.Collections.Generic.List[string]]::new()

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.28
+.VERSION 2026.07.29
 .GUID 42c2d3e4-f5a6-4b78-9c01-2d3e4f5a6b7c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -26,14 +26,14 @@
 # that the whole pool pulls. Git calls reuse Test.PoolSync's bounded, prompt-proof
 # Invoke-PoolSyncGit.
 
-$script:PoolAdminGitTimeoutSec = 60
+$script:PoolAdminGitTimeoutSeconds = 60
 # Idempotent network git ops (fetch/clone/push) retry within one overall
 # wall-clock budget so a single transient blip (a proxy hiccup, a momentary
 # DNS/TLS failure) does not abort the operator action or leave intent
 # committed-but-unpushed. Kept short so an interactive admin command fails in
 # bounded time rather than hanging.
-$script:PoolAdminRetryBudgetSec = 90
-$script:PoolAdminRetryDelaySec  = 3
+$script:PoolAdminRetryBudgetSeconds = 90
+$script:PoolAdminRetryDelaySeconds  = 3
 
 <#
 .SYNOPSIS
@@ -55,9 +55,9 @@ function Invoke-PoolAdminGitWithRetry {
     param(
         [Parameter(Mandatory)][string[]]$ArgumentList,
         [Parameter(Mandatory)][string]$Label,
-        [int]$TimeoutSeconds = $script:PoolAdminGitTimeoutSec,
-        [int]$BudgetSeconds  = $script:PoolAdminRetryBudgetSec,
-        [int]$DelaySeconds   = $script:PoolAdminRetryDelaySec
+        [int]$TimeoutSeconds = $script:PoolAdminGitTimeoutSeconds,
+        [int]$BudgetSeconds  = $script:PoolAdminRetryBudgetSeconds,
+        [int]$DelaySeconds   = $script:PoolAdminRetryDelaySeconds
     )
     $deadlineUtc = [DateTime]::UtcNow.AddSeconds([Math]::Max(1, $BudgetSeconds))
     $rc = -1
@@ -192,13 +192,13 @@ function Open-YurunaPoolIntent {
         # recovery. Any other rc -- 1 (local-ahead / diverged), 124 (timeout), -1
         # (git unrunnable) -- cannot prove containment, so refuse rather than
         # green-light a destructive reset.
-        $rcAncestor = Invoke-PoolSyncGit -ArgumentList @('-C', $IntentDir, 'merge-base', '--is-ancestor', 'HEAD', 'FETCH_HEAD') -TimeoutSeconds $script:PoolAdminGitTimeoutSec
+        $rcAncestor = Invoke-PoolSyncGit -ArgumentList @('-C', $IntentDir, 'merge-base', '--is-ancestor', 'HEAD', 'FETCH_HEAD') -TimeoutSeconds $script:PoolAdminGitTimeoutSeconds
         if ($rcAncestor -ne 0 -and $rcAncestor -ne 128) {
             return @{ Ok = $false; Error = "cannot confirm the admin clone at $IntentDir is safe to reset (merge-base rc=$rcAncestor; likely local commit(s) the remote does not have); refusing to reset --hard. Push them from a writable location, or delete $IntentDir to discard and re-clone from $IntentGitUrl." }
         }
         # Reset to FETCH_HEAD (origin's default branch) rather than the origin/HEAD
         # symbolic ref, which a plain clone does not always populate.
-        $rc = Invoke-PoolSyncGit -ArgumentList @('-C', $IntentDir, 'reset', '--hard', '--quiet', 'FETCH_HEAD') -TimeoutSeconds $script:PoolAdminGitTimeoutSec
+        $rc = Invoke-PoolSyncGit -ArgumentList @('-C', $IntentDir, 'reset', '--hard', '--quiet', 'FETCH_HEAD') -TimeoutSeconds $script:PoolAdminGitTimeoutSeconds
         if ($rc -ne 0) { return @{ Ok = $false; Error = "git reset failed (exit $rc)" } }
         return @{ Ok = $true; Error = '' }
     }
@@ -279,15 +279,15 @@ function Publish-YurunaPoolIntent {
         [Parameter(Mandatory)][string]$Message
     )
     if (-not $PSCmdlet.ShouldProcess($IntentDir, "Commit + push pool intent: $Message")) { return @{ Ok = $true; Pushed = $true; Error = '' } }
-    $rc = Invoke-PoolSyncGit -ArgumentList @('-C', $IntentDir, 'add', '-A') -TimeoutSeconds $script:PoolAdminGitTimeoutSec
+    $rc = Invoke-PoolSyncGit -ArgumentList @('-C', $IntentDir, 'add', '-A') -TimeoutSeconds $script:PoolAdminGitTimeoutSeconds
     if ($rc -ne 0) { return @{ Ok = $false; Pushed = $false; Error = "git add failed (exit $rc)" } }
     # Nothing staged -> no-op success (idempotent re-run).
-    $rcDiff = Invoke-PoolSyncGit -ArgumentList @('-C', $IntentDir, 'diff', '--cached', '--quiet') -TimeoutSeconds $script:PoolAdminGitTimeoutSec
+    $rcDiff = Invoke-PoolSyncGit -ArgumentList @('-C', $IntentDir, 'diff', '--cached', '--quiet') -TimeoutSeconds $script:PoolAdminGitTimeoutSeconds
     if ($rcDiff -eq 0) { return @{ Ok = $true; Pushed = $true; Error = 'no changes' } }
     $rc = Invoke-PoolSyncGit -ArgumentList @(
         '-C', $IntentDir,
         '-c', 'user.name=yuruna-pool-admin', '-c', 'user.email=pool-admin@yuruna.local',
-        'commit', '--quiet', '-m', $Message) -TimeoutSeconds $script:PoolAdminGitTimeoutSec
+        'commit', '--quiet', '-m', $Message) -TimeoutSeconds $script:PoolAdminGitTimeoutSeconds
     if ($rc -ne 0) { return @{ Ok = $false; Pushed = $false; Error = "git commit failed (exit $rc)" } }
     # Push to origin's 'main' explicitly (HEAD:main). The yuruna intent repo is
     # always 'main' (the proxy seeds it with --initial-branch=main); pinning the
@@ -305,13 +305,13 @@ function Publish-YurunaPoolIntent {
         # Pushed=$false without disturbing the clone.
         $rcFetch = Invoke-PoolAdminGitWithRetry -ArgumentList @('-C', $IntentDir, 'fetch', '--quiet', 'origin') -Label 'git fetch (rebase retry)'
         if ($rcFetch -eq 0) {
-            $rcRebase = Invoke-PoolSyncGit -ArgumentList @('-C', $IntentDir, '-c', 'user.name=yuruna-pool-admin', '-c', 'user.email=pool-admin@yuruna.local', 'rebase', 'FETCH_HEAD') -TimeoutSeconds $script:PoolAdminGitTimeoutSec
+            $rcRebase = Invoke-PoolSyncGit -ArgumentList @('-C', $IntentDir, '-c', 'user.name=yuruna-pool-admin', '-c', 'user.email=pool-admin@yuruna.local', 'rebase', 'FETCH_HEAD') -TimeoutSeconds $script:PoolAdminGitTimeoutSeconds
             if ($rcRebase -eq 0) {
                 $rc2 = Invoke-PoolAdminGitWithRetry -ArgumentList @('-C', $IntentDir, 'push', '--quiet', 'origin', 'HEAD:main') -Label 'git push (after rebase)'
                 if ($rc2 -eq 0) { return @{ Ok = $true; Pushed = $true; Error = '' } }
                 $rc = $rc2
             } else {
-                $null = Invoke-PoolSyncGit -ArgumentList @('-C', $IntentDir, 'rebase', '--abort') -TimeoutSeconds $script:PoolAdminGitTimeoutSec
+                $null = Invoke-PoolSyncGit -ArgumentList @('-C', $IntentDir, 'rebase', '--abort') -TimeoutSeconds $script:PoolAdminGitTimeoutSeconds
             }
         }
         return @{ Ok = $true; Pushed = $false; Error = "committed locally but push failed (exit $rc) -- push from a writable location (e.g. on the proxy: a file:// or local path to the bare repo)" }
@@ -393,7 +393,7 @@ function ConvertTo-YurunaHostId {
     Create a bare pool-intent repository, seeded with an empty schema-valid pools.yml.
 .DESCRIPTION
     Until now the only implementations of this lived in shell, inside the
-    caching-proxy and pool-control cloud-init, so nothing on the host side could
+    caching-proxy-service and pool-control-service cloud-init, so nothing on the host side could
     create a store. Three details are load-bearing and are the reason this is a
     shared function rather than a fresh `git init` at each call site:
 

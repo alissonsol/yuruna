@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.28
+.VERSION 2026.07.29
 .GUID 42d3e6a1-9b74-4c25-8f30-1a2b3c4d5e6f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -65,15 +65,22 @@ try {
     # Tracked + untracked-but-not-ignored, restricted to PowerShell files. This
     # is the exact set .gitignore does NOT cover, so generated/runtime trees are
     # excluded without a hand-maintained path list.
-    # Forward slashes: git pathspecs are '/'-separated on every platform, so do
-    # NOT use Join-Path (it would emit a backslash on Windows that git mismatches).
-    $pathspec = @('*.ps1', '*.psm1', '*.psd1')
-    if ($Path) {
-        $prefix = ($Path -replace '\\', '/').TrimEnd('/')
-        $pathspec = $pathspec | ForEach-Object { "$prefix/$_" }
-    }
-    $files = @(git ls-files --cached --others --exclude-standard -- @pathspec |
-        Where-Object { $_ -and (Test-Path -LiteralPath $_) } |
+    #
+    # The extension filter runs HERE, not as a git pathspec. A `*.ps1` pathspec
+    # argument is expanded against the current directory before git ever sees it
+    # whenever a file in that directory matches -- so from the repo root, git
+    # received the single root-level .ps1 filename and returned it alone, and
+    # every .ps1 in a subdirectory went unscanned (`*.psm1` matched nothing at the
+    # root, so it survived as a pattern and those files were scanned). Listing
+    # first and filtering in PowerShell removes the expansion from the path
+    # entirely; -Path is applied to the same list.
+    # Forward slashes: git output is '/'-separated on every platform, so do NOT
+    # use Join-Path (it would emit a backslash on Windows that would not match).
+    $prefix = if ($Path) { ($Path -replace '\\', '/').TrimEnd('/') + '/' } else { '' }
+    $files = @(git ls-files --cached --others --exclude-standard |
+        Where-Object { $_ -and $_ -match '\.(ps1|psm1|psd1)$' } |
+        Where-Object { -not $prefix -or $_.StartsWith($prefix, [StringComparison]::OrdinalIgnoreCase) } |
+        Where-Object { Test-Path -LiteralPath $_ } |
         Sort-Object -Unique)
 
     if ($files.Count -eq 0) {

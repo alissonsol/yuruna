@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.28
+.VERSION 2026.07.29
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456712
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -47,7 +47,7 @@
          the bug we're trying to debug), we fall back to typing a one-
          liner into the guest's tty1 via the Yuruna.Host Send-Text
          contract. The one-liner curls Get-SystemDiagnostic.ps1 from
-         the host's status server, runs it locally, and POSTs the
+         the host's status service, runs it locally, and POSTs the
          result back to the host's /diagnostics/<folder>/<file>
          endpoint, which writes it directly into the per-guest folder.
          Precondition: an interactive shell is sitting at the guest's
@@ -114,7 +114,7 @@ function Get-RemoteDiagnosticsCommand {
     watchdog fires mid-update.sh -- e.g. apt-get update stalled on UTM
     bridge networking before reaching the tarball-extract step -- so
     pwsh would otherwise exit 64 with its usage banner and the
-    captured artifact would be useless. The status server's
+    captured artifact would be useless. The status service's
     /yuruna-repo/ mount serves the host's working tree, so the
     downloaded script is the same one that would have been in the
     tarball.
@@ -139,7 +139,7 @@ function Get-RemoteDiagnosticsCommand {
             "pwsh -NoProfile -File $remote; " +
             "elif curl -fsSL '$u/yuruna-repo/automation/Get-SystemDiagnostic.ps1' -o /tmp/yuruna-diag.ps1; then " +
             "pwsh -NoProfile -File /tmp/yuruna-diag.ps1; rc=`$?; rm -f /tmp/yuruna-diag.ps1; exit `$rc; " +
-            "else echo 'diag-bootstrap: yuruna not extracted and status server unreachable' >&2; exit 64; fi")
+            "else echo 'diag-bootstrap: yuruna not extracted and status service unreachable' >&2; exit 64; fi")
 }
 
 # --- REGION: Save-GuestDiagnostic timeouts
@@ -437,7 +437,7 @@ function New-DiagnosticsConsoleCommand {
 <#
 .SYNOPSIS
     Returns the one-line bash command that fetches
-    Get-SystemDiagnostic.ps1 from the status server, runs it under
+    Get-SystemDiagnostic.ps1 from the status service, runs it under
     pwsh on the guest, and POSTs the captured text back to
     /diagnostics/<folder>/<file>.
 .DESCRIPTION
@@ -486,7 +486,7 @@ function Wait-DiagnosticsFile {
     success, $null on timeout.
 .DESCRIPTION
     The console path is best-effort: the guest writes the file
-    indirectly via the status server's /diagnostics POST handler, so
+    indirectly via the status service's /diagnostics POST handler, so
     "did it land" is observable on the host filesystem. We poll on a
     1-second cadence -- fast enough to confirm a healthy capture
     within a few seconds of curl returning, slow enough not to
@@ -966,7 +966,7 @@ function Invoke-RemoteDiagnosticsConsole {
     hashtable so Save-GuestDiagnostic's strategy chain can branch
     on the same shape regardless of which path produced the file.
     `output` is the empty string here -- the actual capture is
-    written directly into the failure folder by the status server,
+    written directly into the failure folder by the status service,
     not piped through this function.
 #>
     [CmdletBinding()]
@@ -1257,7 +1257,7 @@ function Save-GuestDiagnostic {
     $FailureFolderPath = $OutputFolder
 
     # Module-qualified Test.Ssh calls below: when Save-GuestDiagnostic
-    # runs from the failure-artifact path (Invoke-TestInnerRunner's
+    # runs from the failure-artifact path (Invoke-TestRunnerInnerLoop's
     # Copy-FailureArtifactsToStatusLog re-imports this module with
     # -Force -Global), PowerShell's nested re-import can lose the bare-
     # name binding to Test.Ssh's exports even though Test.Diagnostic's
@@ -1492,11 +1492,11 @@ function Save-GuestDiagnostic {
         return @{ success=$false; outPath=$outPath; mechanism=[string]$result.mechanism; attempted=$attempted; exitCode=[int]$result.exitCode; bytes=0L; skipped=$false; reason="Set-Content failed: $($_.Exception.Message)" }
     }
 
-    $elapsedSec = [int]((Get-Date) - $diagStart).TotalSeconds
-    if ($elapsedSec -gt $script:SaveGuestDiagnosticTotalTimeoutSeconds) {
-        Write-Warning ("Save-GuestDiagnostic: total elapsed {0}s exceeded the {1}s cap (`$script:SaveGuestDiagnosticTotalTimeoutSeconds in Test.Diagnostic.psm1) -- rung sequence ran long for VM '{2}'. Inspect SSH responsiveness or raise the cap." -f $elapsedSec, $script:SaveGuestDiagnosticTotalTimeoutSeconds, $VMName)
+    $elapsedSeconds = [int]((Get-Date) - $diagStart).TotalSeconds
+    if ($elapsedSeconds -gt $script:SaveGuestDiagnosticTotalTimeoutSeconds) {
+        Write-Warning ("Save-GuestDiagnostic: total elapsed {0}s exceeded the {1}s cap (`$script:SaveGuestDiagnosticTotalTimeoutSeconds in Test.Diagnostic.psm1) -- rung sequence ran long for VM '{2}'. Inspect SSH responsiveness or raise the cap." -f $elapsedSeconds, $script:SaveGuestDiagnosticTotalTimeoutSeconds, $VMName)
     }
-    Write-Verbose "  Diagnostics saved: $(Split-Path -Leaf $FailureFolderPath)/$fileName (mechanism=$($result.mechanism), exit=$($result.exitCode), elapsed=${elapsedSec}s)"
+    Write-Verbose "  Diagnostics saved: $(Split-Path -Leaf $FailureFolderPath)/$fileName (mechanism=$($result.mechanism), exit=$($result.exitCode), elapsed=${elapsedSeconds}s)"
     $writtenBytes = 0L
     try { if (Test-Path -LiteralPath $outPath) { $writtenBytes = [long](Get-Item -LiteralPath $outPath).Length } } catch { Write-Verbose "Save-GuestDiagnostic: outPath size probe failed: $($_.Exception.Message)" }
     return @{

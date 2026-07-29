@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.28
+.VERSION 2026.07.29
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456722
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -27,7 +27,7 @@
 #   child AFTER the parent's snapshot pinned the right values.
 # Why a helper module:
 #   The same single-quote escaping + -Command construction lived in both
-#   Invoke-TestRunner.ps1 and Test-Project.ps1; a quoting-edge-case fix in
+#   Invoke-TestRunner.ps1 and Invoke-TestProject.ps1; a quoting-edge-case fix in
 #   one wouldn't reach the other.
 
 function New-InnerRunnerArgList {

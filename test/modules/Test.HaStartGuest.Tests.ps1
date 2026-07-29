@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.28
+.VERSION 2026.07.29
 .GUID 42a1b2c3-d4e5-4f67-8901-9c0d1e2f3a58
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -48,16 +48,16 @@ function Get-CallCount {
 # Unqualified file-scope variables: inside an It block a $script: reference resolves to the
 # test runner's own script scope, not this file's, so a $script:-qualified AST reaches the
 # structural guards as $null.
-$engineAst = Get-FileAst (Join-Path $here 'Invoke-Sequence.psm1')
+$engineAst = Get-FileAst (Join-Path $here 'Test.SequenceEngine.psm1')
 $osAst     = Get-FileAst (Join-Path $here 'Test.Start-GuestOS.psm1')
 $wlAst     = Get-FileAst (Join-Path $here 'Test.Start-GuestWorkload.psm1')
 
 Describe 'ha-startguest: the dispatcher loop is shared, not duplicated' {
     BeforeAll {
-        Get-Module Test.Start-GuestOS, Test.Start-GuestWorkload, Invoke-Sequence, Test.YurunaDir |
+        Get-Module Test.Start-GuestOS, Test.Start-GuestWorkload, Test.SequenceEngine, Test.YurunaDir |
             Remove-Module -Force -ErrorAction SilentlyContinue
         Import-Module (Join-Path $here 'Test.YurunaDir.psm1')          -Force -Global -DisableNameChecking
-        Import-Module (Join-Path $here 'Invoke-Sequence.psm1')         -Force -Global -DisableNameChecking
+        Import-Module (Join-Path $here 'Test.SequenceEngine.psm1')         -Force -Global -DisableNameChecking
         Import-Module (Join-Path $here 'Test.Start-GuestOS.psm1')      -Force -Global -DisableNameChecking
         Import-Module (Join-Path $here 'Test.Start-GuestWorkload.psm1') -Force -Global -DisableNameChecking
     }
@@ -80,7 +80,7 @@ Describe 'ha-startguest: the dispatcher loop is shared, not duplicated' {
             @{ Cmd = 'Start-GuestOS' }, @{ Cmd = 'Start-GuestWorkload' }
         ) {
             param($Cmd)
-            foreach ($m in 'Invoke-Sequence', 'Test.Start-GuestOS', 'Test.Start-GuestWorkload') {
+            foreach ($m in 'Test.SequenceEngine', 'Test.Start-GuestOS', 'Test.Start-GuestWorkload') {
                 Mock Invoke-SequenceByName    -ModuleName $m { $true }
                 Mock Get-SequenceFinishedVMName -ModuleName $m { $null }
             }
@@ -92,7 +92,7 @@ Describe 'ha-startguest: the dispatcher loop is shared, not duplicated' {
 
     Context 'the generic failure message carries the caller phase label' {
         It 'Start-GuestOS uses the "Start" label' {
-            foreach ($m in 'Invoke-Sequence', 'Test.Start-GuestOS') {
+            foreach ($m in 'Test.SequenceEngine', 'Test.Start-GuestOS') {
                 Mock Invoke-SequenceByName    -ModuleName $m { $false }
                 Mock Initialize-YurunaLogDir  -ModuleName $m { Join-Path $env:TEMP ('nolog-' + [guid]::NewGuid().ToString('N')) }
             }
@@ -101,7 +101,7 @@ Describe 'ha-startguest: the dispatcher loop is shared, not duplicated' {
             $r.errorMessage | Should -Be "Start sequence 'seqX' failed"
         }
         It 'Start-GuestWorkload uses the "Workload" label' {
-            foreach ($m in 'Invoke-Sequence', 'Test.Start-GuestWorkload') {
+            foreach ($m in 'Test.SequenceEngine', 'Test.Start-GuestWorkload') {
                 Mock Invoke-SequenceByName    -ModuleName $m { $false }
                 Mock Initialize-YurunaLogDir  -ModuleName $m { Join-Path $env:TEMP ('nolog-' + [guid]::NewGuid().ToString('N')) }
             }
@@ -124,7 +124,7 @@ Describe 'ha-startguest: the dispatcher loop is shared, not duplicated' {
             # $script: var is $null there; bake the path in as a literal instead.
             $logMock = [scriptblock]::Create("'" + ($script:halog -replace "'", "''") + "'")
             try {
-                foreach ($m in 'Invoke-Sequence', 'Test.Start-GuestOS') {
+                foreach ($m in 'Test.SequenceEngine', 'Test.Start-GuestOS') {
                     Mock Initialize-YurunaLogDir -ModuleName $m $logMock
                     Mock Invoke-SequenceByName   -ModuleName $m { $false }
                 }
@@ -144,7 +144,7 @@ Describe 'ha-startguest: the dispatcher loop is shared, not duplicated' {
             (Get-Item -LiteralPath $stale).LastWriteTimeUtc = [DateTime]::UtcNow.AddMinutes(-10)
             $logMock = [scriptblock]::Create("'" + ($script:hastale -replace "'", "''") + "'")
             try {
-                foreach ($m in 'Invoke-Sequence', 'Test.Start-GuestWorkload') {
+                foreach ($m in 'Test.SequenceEngine', 'Test.Start-GuestWorkload') {
                     Mock Initialize-YurunaLogDir -ModuleName $m $logMock
                     Mock Invoke-SequenceByName   -ModuleName $m { $false }
                 }
@@ -158,13 +158,13 @@ Describe 'ha-startguest: the dispatcher loop is shared, not duplicated' {
 
     Context 'a mid-chain saveDiskSnapshot rename retargets the next sequence' {
         It 'runs the following sequence against the renamed VM' {
-            foreach ($m in 'Invoke-Sequence', 'Test.Start-GuestOS') {
+            foreach ($m in 'Test.SequenceEngine', 'Test.Start-GuestOS') {
                 Mock Invoke-SequenceByName     -ModuleName $m { $true }
                 Mock Get-SequenceFinishedVMName -ModuleName $m { 'vm-renamed' }
             }
             $r = Start-GuestOS -HostType h -GuestKey g -VMName vm -RepoRoot r -SequencesDir s -SequenceNames @('seq1', 'seq2')
             $r.success | Should -BeTrue
-            Assert-MockCalled Invoke-SequenceByName -ModuleName 'Invoke-Sequence' -Times 1 -Exactly -ParameterFilter {
+            Assert-MockCalled Invoke-SequenceByName -ModuleName 'Test.SequenceEngine' -Times 1 -Exactly -ParameterFilter {
                 $Name -eq 'seq2' -and $VMName -eq 'vm-renamed'
             }
         }
@@ -172,14 +172,14 @@ Describe 'ha-startguest: the dispatcher loop is shared, not duplicated' {
 
     Context 'the caller variable overrides reach Invoke-SequenceByName' {
         It 'forwards EffectiveVariables and the sequence name through the delegation' {
-            foreach ($m in 'Invoke-Sequence', 'Test.Start-GuestWorkload') {
+            foreach ($m in 'Test.SequenceEngine', 'Test.Start-GuestWorkload') {
                 Mock Invoke-SequenceByName     -ModuleName $m { $true }
                 Mock Get-SequenceFinishedVMName -ModuleName $m { $null }
             }
             $vars = [ordered]@{ username = 'yuser1'; currentPassword = 'p@ss' }
             $r = Start-GuestWorkload -HostType h -GuestKey g -VMName vm -RepoRoot r -SequencesDir s -SequenceNames @('seq1') -EffectiveVariables $vars
             $r.success | Should -BeTrue
-            Assert-MockCalled Invoke-SequenceByName -ModuleName 'Invoke-Sequence' -Times 1 -Exactly -ParameterFilter {
+            Assert-MockCalled Invoke-SequenceByName -ModuleName 'Test.SequenceEngine' -Times 1 -Exactly -ParameterFilter {
                 $Name -eq 'seq1' -and $EffectiveVariables['username'] -eq 'yuser1' -and $EffectiveVariables['currentPassword'] -eq 'p@ss'
             }
         }

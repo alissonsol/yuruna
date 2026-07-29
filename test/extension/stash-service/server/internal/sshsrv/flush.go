@@ -15,8 +15,8 @@ import (
 	"path/filepath"
 	"time"
 
-	"stash-server/internal/meta"
-	"stash-server/internal/store"
+	"stash-service/internal/meta"
+	"stash-service/internal/store"
 )
 
 // flushInterval is the worker's idle cadence; a buffered upload also nudges

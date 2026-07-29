@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.28
+.VERSION 2026.07.29
 .GUID 42e8a1b2-c3d4-4e5f-9012-cd0123456822
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -21,7 +21,7 @@
     Copies another pool host's test.config.yml onto this Ubuntu KVM host.
 
 .DESCRIPTION
-    Pulls the reference host's config over its status server
+    Pulls the reference host's config over its status service
     (http://<ReferenceHost>:8080/control/test-config), converts the
     host-type-specific values for Linux (share paths to //server/share,
     missing local mount paths to the /mnt/<server> convention -- an
@@ -50,7 +50,7 @@
     (macos.utm / ubuntu.kvm / windows.hyper-v).
 
 .PARAMETER StatusPort
-    The reference host's status-server port. Default 8080.
+    The reference host's status-service port. Default 8080.
 
 .PARAMETER SharedToken
     The shared lab-auth-token used to fetch missing vault credentials.
@@ -67,7 +67,7 @@
 .PARAMETER NoPool
     Sync the reference config but do NOT join the pool: the pool + networkStorage
     nodes are dropped, so this host never mounts the NAS, replicates cycles, or
-    registers in the pool set. The caching proxy + repository settings still come
+    registers in the pool set. The caching-proxy service + repository settings still come
     across (cache reuse is unaffected). For disposable / self-verification hosts.
 
 .EXAMPLE
@@ -89,7 +89,8 @@ param(
     [Parameter()][string]$SharedToken = '',
     [switch]$NonInteractive,
     [switch]$SkipValidation,
-    [switch]$NoPool
+    [switch]$NoPool,
+    [switch]$AllowStaleReference
 )
 
 $ErrorActionPreference = 'Stop'
@@ -100,6 +101,25 @@ $InformationPreference = 'Continue'
 
 if (-not $IsLinux) {
     throw "This is the Ubuntu KVM variant; run host/<type>/Sync-HostConfiguration.ps1 for this platform instead."
+}
+
+# Elevation announcement, ahead of the module installs, the reference-host fetch
+# and the operator questions that follow -- so a password request later in the
+# run is never a surprise. It announces rather than priming because both sudo
+# paths are CONDITIONAL: the /etc/hosts write only when a networkStorage name
+# disagrees with the reference, the /etc/sudoers.d drop-in only when a pool or
+# stash network path is configured and not already granted. An unconditional
+# prime would ask for a password the common idempotent re-run never spends.
+if (-not $NoPool -and -not $NonInteractive -and -not $WhatIfPreference) {
+    Write-Information @'
+
+Note: this sync may need sudo later in the run --
+  * write /etc/hosts via automation/Set-HostAlias.ps1, when a networkStorage
+    server name does not resolve to what the reference host says
+  * install the /etc/sudoers.d drop-in so poolStorage/stashStorage mounts run
+    without a password
+You may be prompted for your password once for each.
+'@
 }
 
 # Shared bootstrap (Test.HostContract import + powershell-yaml +
@@ -115,7 +135,8 @@ foreach ($k in @('WhatIf', 'Confirm')) {
 }
 Initialize-HostSetupModule -RepoRoot $RepoRoot -BoundParameters $bootstrapParams
 
-Import-Module (Join-Path $RepoRoot 'test/modules/Test.HostConfigSync.psm1') -Force -DisableNameChecking
+Import-Module (Join-Path $RepoRoot 'test/modules/Test.ConfigServiceSync.psm1') -Force -DisableNameChecking
 
 Sync-HostConfiguration -ReferenceHost $ReferenceHost -StatusPort $StatusPort -RepoRoot $RepoRoot `
-    -SharedToken $SharedToken -NonInteractive:$NonInteractive -SkipValidation:$SkipValidation -NoPool:$NoPool
+    -SharedToken $SharedToken -NonInteractive:$NonInteractive -SkipValidation:$SkipValidation -NoPool:$NoPool `
+    -AllowStaleReference:$AllowStaleReference

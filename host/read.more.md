@@ -25,7 +25,7 @@ don't apply to the running process.
 Most VMs are **12 GB RAM, 4 vCPU**; disks are dynamic/thin and vary by
 guest (64 GB for the Ubuntu Server guests, up to 512 GB for
 Windows 11 — see [README.md](README.md));
-the stash-service guest is smaller (8 GB; caching-proxy stays at 12 GB) and
+the stash-service guest is smaller (8 GB; caching-proxy-service stays at 12 GB) and
 the KVM guests are sized down further. Change for **new VMs**: edit
 `New-VM.ps1` (Hyper-V: replace `12288MB`; UTM: replace
 `__MEMORY_SIZE__`; KVM: replace `--memory`).
@@ -62,6 +62,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.28
+Last review: 2026.07.29
 
 Back to [Yuruna](../README.md)

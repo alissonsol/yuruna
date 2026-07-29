@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.28
+.VERSION 2026.07.29
 .GUID 42e3f4a5-b6c7-4d89-9e01-3f4a5b6c7d8e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -58,7 +58,7 @@ Describe 'Get-YurunaPoolConfig (feature on/off)' {
         $o = Get-YurunaPoolConfig -Config $cfg
         Assert-True $o.Enabled 'Enabled true'
         Assert-Equal -Expected 'http://proxy/pool-intent.git' -Actual $o.IntentGitUrl -Because 'url trimmed'
-        Assert-Equal -Expected 20 -Actual $o.PullTimeoutSec -Because 'pull timeout'
+        Assert-Equal -Expected 20 -Actual $o.PullTimeoutSeconds -Because 'pull timeout'
         Assert-True (-not [string]::IsNullOrWhiteSpace($o.LocalClonePath)) 'clone path defaulted'
     }
     It 'carries NO poolId field (membership is pools.yml-only)' {
@@ -105,12 +105,12 @@ Describe 'ConvertTo-PoolGatingRecord (gating normalization)' {
         Assert-Equal -Expected 0 -Actual (ConvertTo-PoolGatingRecord -Gating ([ordered]@{})).Count -Because 'empty -> empty record'
     }
     It 'copies only the known knobs from a full block' {
-        $g = [ordered]@{ failuresBeforeAlert = 5; successesBeforeRearm = 4; extra = 'drop'; quorum = [ordered]@{ healthyThreshold = 0.75; degradedAfterMinutes = 10; junk = 1 } }
+        $g = [ordered]@{ failuresBeforeAlert = 5; successesBeforeRearm = 4; extra = 'drop'; quorum = [ordered]@{ healthyThreshold = 0.75; degradedAfterSeconds = 10; junk = 1 } }
         $rec = ConvertTo-PoolGatingRecord -Gating $g
         Assert-Equal -Expected 5 -Actual $rec['failuresBeforeAlert'] -Because 'failuresBeforeAlert'
         Assert-Equal -Expected 4 -Actual $rec['successesBeforeRearm'] -Because 'successesBeforeRearm'
         Assert-Equal -Expected 0.75 -Actual $rec['quorum']['healthyThreshold'] -Because 'healthyThreshold'
-        Assert-Equal -Expected 10 -Actual $rec['quorum']['degradedAfterMinutes'] -Because 'degradedAfterMinutes'
+        Assert-Equal -Expected 10 -Actual $rec['quorum']['degradedAfterSeconds'] -Because 'degradedAfterSeconds'
         Assert-True (-not $rec.Contains('extra')) 'extra key dropped'
         Assert-True (-not $rec['quorum'].Contains('junk')) 'junk quorum key dropped'
     }
@@ -141,7 +141,7 @@ Describe 'Write-YurunaPoolState (gating round-trips through pool.state.json)' {
         Remove-Item -LiteralPath $script:StateRuntimeDir -Recurse -Force -ErrorAction SilentlyContinue
     }
     It 'writes gating into the state file when present' {
-        $gating = [ordered]@{ failuresBeforeAlert = 3; quorum = [ordered]@{ healthyThreshold = 0.5; degradedAfterMinutes = 30 } }
+        $gating = [ordered]@{ failuresBeforeAlert = 3; quorum = [ordered]@{ healthyThreshold = 0.5; degradedAfterSeconds = 1800 } }
         $null = Write-YurunaPoolState -PoolId 'lab' -DesiredState 'run' -IntentOk:$true -Gating $gating -Confirm:$false
         $state = Get-Content -Raw -LiteralPath (Join-Path $script:StateRuntimeDir 'pool.state.json') | ConvertFrom-Json
         Assert-Equal -Expected 'lab' -Actual $state.poolId -Because 'poolId'

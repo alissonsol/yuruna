@@ -30,12 +30,12 @@ import (
 
 	"golang.org/x/crypto/ssh"
 
-	"stash-server/internal/config"
-	"stash-server/internal/detect"
-	"stash-server/internal/id"
-	"stash-server/internal/meta"
-	"stash-server/internal/scp"
-	"stash-server/internal/store"
+	"stash-service/internal/config"
+	"stash-service/internal/detect"
+	"stash-service/internal/id"
+	"stash-service/internal/meta"
+	"stash-service/internal/scp"
+	"stash-service/internal/store"
 )
 
 // Server pulls together every layer the daemon needs: share + VM-local
@@ -129,7 +129,7 @@ func (s *Server) ListenAndServe(ctx context.Context, addr string) error {
 		return err
 	}
 	s.listener = ln
-	log.Printf("stash-server listening on %s", addr)
+	log.Printf("stash-service listening on %s", addr)
 
 	go func() {
 		<-ctx.Done()
@@ -224,14 +224,14 @@ func (s *Server) handleSession(ch ssh.Channel, reqs <-chan *ssh.Request, usernam
 				return
 			}
 			_ = req.Reply(false, nil)
-			fmt.Fprintln(ch.Stderr(), "stash-server: only scp / sftp are supported.")
+			fmt.Fprintln(ch.Stderr(), "stash-service: only scp / sftp are supported.")
 			writeExit(ch, 1)
 			return
 		case "pty-req", "shell":
 			// §4.2: no GUI / interactive shell. Reject cleanly so a stray
 			// `ssh` (no scp) gets a useful error instead of hanging.
 			_ = req.Reply(false, nil)
-			fmt.Fprintln(ch.Stderr(), "stash-server: only scp / sftp are supported (interactive shell rejected).")
+			fmt.Fprintln(ch.Stderr(), "stash-service: only scp / sftp are supported (interactive shell rejected).")
 			writeExit(ch, 1)
 			return
 		default:
@@ -243,7 +243,7 @@ func (s *Server) handleSession(ch ssh.Channel, reqs <-chan *ssh.Request, usernam
 func (s *Server) runCommand(ch ssh.Channel, rawCmd, username, remote string) {
 	parsed, ok := parseSCPCommand(rawCmd)
 	if !ok {
-		fmt.Fprintf(ch.Stderr(), "stash-server: only scp is supported (got: %q).\n", rawCmd)
+		fmt.Fprintf(ch.Stderr(), "stash-service: only scp is supported (got: %q).\n", rawCmd)
 		writeExit(ch, 1)
 		return
 	}
@@ -254,7 +254,7 @@ func (s *Server) runCommand(ch ssh.Channel, rawCmd, username, remote string) {
 	allocated, err := s.IDs.Allocate(now)
 	if err != nil {
 		log.Printf("alloc id: %v", err)
-		fmt.Fprintln(ch.Stderr(), "stash-server: internal error (ID allocation).")
+		fmt.Fprintln(ch.Stderr(), "stash-service: internal error (ID allocation).")
 		writeExit(ch, 1)
 		return
 	}
@@ -267,7 +267,7 @@ func (s *Server) runCommand(ch ssh.Channel, rawCmd, username, remote string) {
 	target, buffered, err := s.chooseTarget(allocated)
 	if err != nil {
 		if errors.Is(err, errBufferFull) {
-			fmt.Fprintln(ch.Stderr(), "stash-server: storage offline and local buffer full; upload rejected.")
+			fmt.Fprintln(ch.Stderr(), "stash-service: storage offline and local buffer full; upload rejected.")
 		}
 		writeExit(ch, 1)
 		return
@@ -544,7 +544,7 @@ func loadOrGenerateHostKey(primary, fallback string) (ssh.Signer, error) {
 	if err != nil {
 		return nil, fmt.Errorf("ed25519.GenerateKey: %w", err)
 	}
-	block, err := ssh.MarshalPrivateKey(priv, "stash-server host key")
+	block, err := ssh.MarshalPrivateKey(priv, "stash-service host key")
 	if err != nil {
 		return nil, fmt.Errorf("MarshalPrivateKey: %w", err)
 	}
@@ -642,7 +642,7 @@ func (s *Server) Close() error {
 			_ = c.Close()
 		}
 		s.connMu.Unlock()
-		log.Printf("stash-server: shutdown drain exceeded %v; force-closed %d connection(s)", shutdownDrainTimeout, n)
+		log.Printf("stash-service: shutdown drain exceeded %v; force-closed %d connection(s)", shutdownDrainTimeout, n)
 	}
 	return lerr
 }

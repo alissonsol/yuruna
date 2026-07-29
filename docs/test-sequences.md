@@ -53,7 +53,7 @@ failure (with retry-wrapping as documented under `retry`).
   `start.*.yml` still declaring `username: yuuser26` silently runs with
   `webuser` whenever the workload is the cycle's top-level. Sequence
   YAML stays self-contained — the local `variables:` block remains the
-  standalone-invocation fallback for `Test-Sequence.ps1` runs with no
+  standalone-invocation fallback for `Invoke-TestSequence.ps1` runs with no
   cascade context.
 - **`${hostname}` defaults to the VM name** — that is what the guest is
   actually called when nothing pins it (`New-VM` falls back to
@@ -97,7 +97,7 @@ log directory (`$env:YURUNA_LOG_DIR`):
 
 | File | What it carries |
 |---|---|
-| `last_failure.json` | Schema-v2 record of the failed step (`stepNumber`, `action`, `description`, `vmName`, `guestKey`, `failureClass`, `severity`, `suggestedRecoveries`, `actionVerb`, `context`). The parent runner reads it; `Send-Notification`'s `-EventData` payload is built from it. See [`test/modules/Invoke-Sequence.psm1`](../test/modules/Invoke-Sequence.psm1) for the writer and [`test/modules/Test.Notify.psm1`](../test/modules/Test.Notify.psm1) for the consumer. |
+| `last_failure.json` | Schema-v2 record of the failed step (`stepNumber`, `action`, `description`, `vmName`, `guestKey`, `failureClass`, `severity`, `suggestedRecoveries`, `actionVerb`, `context`). The parent runner reads it; `Send-Notification`'s `-EventData` payload is built from it. See [`test/modules/Test.SequenceEngine.psm1`](../test/modules/Test.SequenceEngine.psm1) for the writer and [`test/modules/Test.Notify.psm1`](../test/modules/Test.Notify.psm1) for the consumer. |
 | `failure_screenshot_<VM>.png` | Last VM screenshot captured at time of failure. Present for every failing step that has a host-IO backend. |
 | `failure_ocr_<VM>.txt` | Last OCR text. Written only by `waitForText` family failures. |
 
@@ -293,7 +293,7 @@ sequence's `break` handler polls for:
 # is active, so a stray POST cannot arm the NEXT break).
 curl -fsS -X POST http://localhost:8080/control/break-continue
 
-# Direct flag-file write (no status server required; useful on a
+# Direct flag-file write (no status service required; useful on a
 # headless host or when the dashboard isn't running).
 #   pwsh: Set-Content -Path "$env:YURUNA_RUNTIME_DIR/control.break-continue" -Value (Get-Date -Format o)
 #   bash: date -u +%FT%TZ > "$YURUNA_RUNTIME_DIR/control.break-continue"
@@ -326,8 +326,8 @@ similar steps after the break.
 > from the YAML. A `break` (optionally paired with a
 > [`saveDiskSnapshot`](#savedisksnapshot)) is the author's explicit
 > assertion that "resumption here is well-defined", which is also what
-> snapshot-restore + Start-VM materialises at runtime. For ad-hoc dev
-> iteration on a specific step, [`Test-Sequence.ps1`](../test/Test-Sequence.ps1)
+> snapshot-restore + Start-VM materializes at runtime. For ad-hoc dev
+> iteration on a specific step, [`Invoke-TestSequence.ps1`](../test/Invoke-TestSequence.ps1)
 > takes `-StartStep` / `-StopStep` and indexes into the concatenated
 > baseline chain.
 
@@ -692,7 +692,7 @@ re-DHCPs and re-handshakes SSH.
 
 ### `Test-VMDiskSnapshot`
 
-Probe used by Test-Sequence's [`requiresSnapshot`](#requiressnapshot)
+Probe used by Invoke-TestSequence's [`requiresSnapshot`](#requiressnapshot)
 warm-path detection: returns `$true` when snapshot `Id` is present on
 VM `VMName`, `$false` otherwise (including when the VM does not exist).
 Pure read; never stops the VM, never mutates state.
@@ -723,7 +723,7 @@ routes the gui vs ssh backend.
 For VM lifecycle (`New-VM`, `Start-VM`, `Stop-VM`, `Remove-VM`,
 `Get-VMState`), image fetch (`Get-Image`, `Get-ImagePath`),
 discovery (`Wait-VMIp`, `Get-VMIp`, `Get-VMMac`), networking,
-caching-proxy port maps, and host-side proxy:
+caching-proxy-service port maps, and host-side proxy:
 see [Test harness — Yuruna.Host contract](test-harness.md#yurunahost-contract) for the per-function
 summary, and each driver's source under
 [`host/<short-host>/modules/Yuruna.Host.psm1`](../host) for the
@@ -748,6 +748,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.28
+Last review: 2026.07.29
 
 Back to [Yuruna](../README.md)

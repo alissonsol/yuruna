@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.28
+.VERSION 2026.07.29
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456709
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -196,6 +196,33 @@ try {
     Exit-WithSummary 1
 }
 
+# -- Section 2a: retired key names --------------------------------------------
+# Only the current key names are accepted. A retired key that merely warned
+# would keep working by accident on the host that still carries it while the
+# code reads the new name and silently falls back to a default -- the config
+# would look honored and be ignored. Each failure line names the replacement,
+# and the whole file converts in one command.
+
+Write-Section "Config key names"
+
+$configNamingMod = Join-Path $script:ModulesDir 'Test.ConfigNaming.psm1'
+if (-not (Test-Path $configNamingMod)) {
+    Write-Info "Test.ConfigNaming.psm1 not found at ${configNamingMod}; retired-key check skipped."
+} else {
+    Import-Module $configNamingMod -Global -Force
+    $rawConfigText = Get-Content -Raw -LiteralPath $ConfigPath -ErrorAction SilentlyContinue
+    $retired = @(Get-RetiredConfigKeyPresent -Text ([string]$rawConfigText))
+    if ($retired.Count -eq 0) {
+        Write-Pass "No retired config keys."
+    } else {
+        foreach ($r in $retired) {
+            $unit = if ($r.Factor -ne 1) { " (value converts: old x $($r.Factor))" } else { "" }
+            Write-Fail "'$($r.Old)' is retired -- use '$($r.New)'$unit." -FullPath $ConfigPath
+        }
+        Write-Info "Convert the whole file in one step: pwsh tools/Update-TestConfigNaming.ps1"
+    }
+}
+
 # -- Section 2b: Config schema vs template ------------------------------------
 # The template is the schema source of truth: Sync-TestConfigToTemplate fully
 # reconciles the live test.config.yml to it (add missing fields, remove
@@ -235,7 +262,7 @@ if (-not (Test-Path $TemplatePath)) {
             # drop keys the template no longer defines (backing up first when a
             # populated key is dropped), and rewrite in canonical alphabetical
             # order. Operator values that still map are kept; 'secrets' untouched.
-            $res = Sync-TestConfigToTemplate -Template $templateDoc -Current $Config -ConfigPath $ConfigPath
+            $res = Sync-TestConfigToTemplate -Template $templateDoc -Current $Config -ConfigPath $ConfigPath -TemplatePath $TemplatePath
             $Config = $res.Config
 
             if ($res.Wrote) {
@@ -549,7 +576,7 @@ if (Test-Path (Join-Path $projectClone '.git')) {
     $entries = (Get-ChildItem -LiteralPath $projectClone -Force -ErrorAction SilentlyContinue | Measure-Object).Count
     if ($entries -eq 0) {
         $hint = if (Test-IsSet $projectUrlConfigured) {
-            "Last cycle's Update-ProjectClone removed the previous clone and then 'git clone $projectUrlConfigured' failed, leaving an empty target dir. Status server will 404 /yuruna-project-archive.tar.gz and guests will fall through to their own clone of the same URL. Delete this folder and fix repositories.projectUrl before rerunning."
+            "Last cycle's Update-ProjectClone removed the previous clone and then 'git clone $projectUrlConfigured' failed, leaving an empty target dir. Status service will 404 /yuruna-project-archive.tar.gz and guests will fall through to their own clone of the same URL. Delete this folder and fix repositories.projectUrl before rerunning."
         } else {
             "<RepoRoot>/project/ is empty AND repositories.projectUrl is unset -- nothing will populate it. Either commit the in-tree project layout under project/, or set repositories.projectUrl."
         }
@@ -583,7 +610,7 @@ if (Test-IsSet $projectUrlConfigured) {
         } else {
             Write-Pass "projectUrl resolves to local git repo: $localPath"
         }
-        Write-Warn "projectUrl is a file:// URL -- only the host can resolve it. Guests that hit the tarball-fallback path (status server 404 on /yuruna-project-archive.tar.gz) will attempt 'git clone $projectUrlConfigured' on their OWN Linux filesystem and fail. Use an HTTPS/SSH URL guests can reach if you rely on the guest fallback."
+        Write-Warn "projectUrl is a file:// URL -- only the host can resolve it. Guests that hit the tarball-fallback path (status service 404 on /yuruna-project-archive.tar.gz) will attempt 'git clone $projectUrlConfigured' on their OWN Linux filesystem and fail. Use an HTTPS/SSH URL guests can reach if you rely on the guest fallback."
     } elseif ($projectUrlConfigured -match '^(?i)(https?|ssh|git)://') {
         # Cheap, no-fetch reachability probe routed through the shared network-git
         # helper: it is prompt-proof (a private/missing repo exits non-zero instead
@@ -670,7 +697,7 @@ if ($Config.testCycle -is [System.Collections.IDictionary] -and $Config.testCycl
 
 if ($Config.Contains("statusService")) {
     $ss = $Config.statusService
-    Write-Pass "'statusService' block present (isEnabled=$($ss.isEnabled), port=$($ss.port))."
+    Write-Pass "'statusService' block present (enabled=$($ss.enabled), port=$($ss.port))."
 } else {
     Write-Warn "'statusService' not set -- status HTTP server will be disabled."
 }
@@ -695,10 +722,10 @@ if ($Config.repositories -is [System.Collections.IDictionary] -and $Config.repos
     Write-Warn "'repositories.projectUrl' not set -- in-tree <RepoRoot>/project/ will be used (no clone)."
 }
 
-if ($Config.testCycle -is [System.Collections.IDictionary] -and $Config.testCycle.Contains("shouldStopOnFailure")) {
-    Write-Pass "'testCycle.shouldStopOnFailure' = $($Config.testCycle.shouldStopOnFailure)"
+if ($Config.testCycle -is [System.Collections.IDictionary] -and $Config.testCycle.Contains("stopOnFailure")) {
+    Write-Pass "'testCycle.stopOnFailure' = $($Config.testCycle.stopOnFailure)"
 } else {
-    Write-Warn "'testCycle.shouldStopOnFailure' not set -- defaults to false (continues on failure)."
+    Write-Warn "'testCycle.stopOnFailure' not set -- defaults to false (continues on failure)."
 }
 
 # Abort here if notification block is missing; nothing more to check.
@@ -1164,7 +1191,7 @@ function Invoke-PoolStorageVaultCredentialOffer {
     Write-Info "networkStorage pool: stored the NAS password for '$who' under vault key '$vaultKey'."
     # A single quote survives the vault fine but unbalances the single-quoted
     # cifs credential/env entries the guest seeds are built from, so the pool
-    # share would never mount inside the caching-proxy and pool-control VMs.
+    # share would never mount inside the caching-proxy-service and pool-control-service VMs.
     if ($plain -match "'") {
         Write-Info "networkStorage pool: the password contains a single quote -- the host mount works, but the guest VM seeds cannot bake it. Change it on the NAS to avoid quotes, backslash, and YAML/shell separators."
     }
@@ -1218,7 +1245,7 @@ if (-not (Test-Path $poolMod)) {
         # cycle); when off it is advisory (WARN) -- the cycle runs fine without it.
         $psCfg = Get-YurunaPoolStorageConfig -Config $Config -IgnoreReplicate -WarningAction SilentlyContinue
         if (-not $psCfg) {
-            $incomplete = "networkStorage poolNetworkPath / poolNetworkUser / poolLocalPath are not all set"
+            $incomplete = "networkStorage poolStorageNetworkPath / poolStorageNetworkUser / poolStorageLocalPath are not all set"
             if ($psReplicate) {
                 Write-Fail "pool.networkReplicate is true but $incomplete -- replication stays OFF until all three are populated. See docs/test-config.md." -FullPath $ConfigPath
             } else {
@@ -1341,18 +1368,18 @@ if (-not (Test-Path $poolMod)) {
     }
 }
 
-# -- Section 9c-stash: networkStorage stash (Stash Service) -------------------
+# -- Section 9c-stash: networkStorage stash (stash service) -------------------
 # The stash storage is ISOLATED from the pool (its own share + account). It is
-# optional (only the Stash Service uses it); issues here are advisory WARN, not
-# FAIL -- Start-StashVM hard-fails at build time when it is misconfigured.
-Write-Section "networkStorage: stash (Stash Service)"
+# optional (only the stash service uses it); issues here are advisory WARN, not
+# FAIL -- Start-StashServiceVM hard-fails at build time when it is misconfigured.
+Write-Section "networkStorage: stash (stash service)"
 
 if (-not (Test-Path $poolMod)) {
     Write-Info "Test.PoolStorage.psm1 not found at ${poolMod}; stash storage check skipped."
 } else {
     $stashCfg = Get-YurunaStashStorageConfig -Config $Config
     if (-not $stashCfg) {
-        Write-Info "networkStorage stash* not fully set -- the Stash Service is off (optional). Set stashNetworkPath / stashNetworkUser / stashLocalPath to enable it."
+        Write-Info "networkStorage stash* not fully set -- the stash service is off (optional). Set stashStorageNetworkPath / stashStorageNetworkUser / stashStorageLocalPath to enable it."
     } else {
         Write-Pass "networkStorage stash: '$($stashCfg.NetworkPath)' -> '$($stashCfg.LocalPath)' as user '$($stashCfg.NetworkUser)'."
         Show-NetworkStorageFieldSwapWarning -Config $stashCfg -Prefix 'stash'
@@ -1373,7 +1400,7 @@ if (-not (Test-Path $poolMod)) {
                 $stashCredStored = $true
                 Write-Pass "networkStorage stash: a vault credential is stored for '$($stashCfg.NetworkUser)'."
             } else {
-                Write-Warn "networkStorage stash: '$($stashCfg.NetworkUser)' has NO stored vault credential -- the stash VM would bake a junk SMB password the NAS rejects. Set-Password it before Start-StashVM. See docs/test-config.md."
+                Write-Warn "networkStorage stash: '$($stashCfg.NetworkUser)' has NO stored vault credential -- the stash-service VM would bake a junk SMB password the NAS rejects. Set-Password it before Start-StashServiceVM. See docs/test-config.md."
             }
         }
         $stashReachable = $false
@@ -1383,14 +1410,14 @@ if (-not (Test-Path $poolMod)) {
                 $stashReachable = $true
                 Write-Pass "networkStorage stash: SMB server reachable (${stashSrv}:445)."
             } else {
-                Write-Warn "networkStorage stash: SMB server '${stashSrv}:445' is not reachable right now -- fine if the NAS is intentionally offline; otherwise check stashNetworkPath / firewall / VPN."
+                Write-Warn "networkStorage stash: SMB server '${stashSrv}:445' is not reachable right now -- fine if the NAS is intentionally offline; otherwise check stashStorageNetworkPath / firewall / VPN."
             }
         }
         # ACTIVE write-path pre-flight: the stash share is configured as a SUBFOLDER
         # ('\\server\share\yuruna.stash'); New-SmbMapping to a missing subfolder fails
         # with a vague "network name cannot be found", so ensure the target folder
         # exists (create it via the parent share when missing), then verify an actual
-        # mount of it. Advisory throughout -- the stash is optional and Start-StashVM
+        # mount of it. Advisory throughout -- the stash is optional and Start-StashServiceVM
         # hard-fails at build time -- but this catches the "reachable NAS, credential
         # stored, yet the mount still fails because the folder was never created" class
         # the passive checks above cannot see. Only attempted when a credential is
@@ -1407,12 +1434,12 @@ if (-not (Test-Path $poolMod)) {
                     if (Connect-YurunaPoolStorage -Config $stashCfg -Confirm:$false) {
                         Write-Pass "networkStorage stash: localPath mounted ('$($stashCfg.LocalPath)' -> '$($stashCfg.NetworkPath)')."
                     } else {
-                        Write-Warn "networkStorage stash: the target folder exists but mounting '$($stashCfg.LocalPath)' -> '$($stashCfg.NetworkPath)' still failed -- check the '$($stashCfg.NetworkUser)' password and that no other mapping holds the same NAS under a conflicting credential. Start-StashVM will buffer locally until this is fixed."
+                        Write-Warn "networkStorage stash: the target folder exists but mounting '$($stashCfg.LocalPath)' -> '$($stashCfg.NetworkPath)' still failed -- check the '$($stashCfg.NetworkUser)' password and that no other mapping holds the same NAS under a conflicting credential. Start-StashServiceVM will buffer locally until this is fixed."
                         Show-LinuxSudoHintOnce
                     }
                 }
             } else {
-                Write-Warn "networkStorage stash: could not ensure the target folder '$($stashCfg.NetworkPath)' -- $($mk.error). Start-StashVM will buffer locally until this is fixed."
+                Write-Warn "networkStorage stash: could not ensure the target folder '$($stashCfg.NetworkPath)' -- $($mk.error). Start-StashServiceVM will buffer locally until this is fixed."
                 if ($mk.error -match 'mount') { Show-LinuxSudoHintOnce }
             }
         }

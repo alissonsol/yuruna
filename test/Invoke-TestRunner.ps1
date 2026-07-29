@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.28
+.VERSION 2026.07.29
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456707
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -20,7 +20,7 @@
 .SYNOPSIS
     Resilient outer runner. Eternal loop:
       1. git pull the framework repo (this clone)
-      2. spawn modules/Invoke-TestInnerRunner.ps1 in a fresh pwsh per cycle
+      2. spawn modules/Invoke-TestRunnerInnerLoop.ps1 in a fresh pwsh per cycle
          (so module/Add-Type caches are reset on every cycle, uniformly
           on Windows AND macOS)
       3. on inner success -- immediately loop (next iteration pulls + respawns)
@@ -35,7 +35,7 @@
 
 .DESCRIPTION
     Two-process design: a thin outer (this file) and a single-cycle
-    inner (modules/Invoke-TestInnerRunner.ps1 -- intentionally placed
+    inner (modules/Invoke-TestRunnerInnerLoop.ps1 -- intentionally placed
     under modules/ so it's not mistaken for an entry-point script in the
     test/ folder; the operator never invokes it directly).
     Why the split:
@@ -46,11 +46,11 @@
       * backoff with commit polling stops infinite-failure burn
 
     See test/README.md for cycle flow, config, notifications, and the
-    YURUNA_CACHING_PROXY_IP knob; docs/test-harness.md for harness architecture.
+    YURUNA_CACHING_PROXY_SERVICE_IP knob; docs/test-harness.md for harness architecture.
 
 .PARAMETER ConfigPath           test.config.yml path (forwarded to inner)
 .PARAMETER NoGitPull            Skip git pull (forwarded; outer also skips its own pull)
-.PARAMETER NoStatusService      Skip the built-in HTTP status server (forwarded)
+.PARAMETER NoStatusService      Skip the built-in HTTP status service (forwarded)
 .PARAMETER CycleDelaySeconds    Pause between cycles inside the inner (forwarded; default 30)
 .PARAMETER logLevel             Error|Warning|Information|Verbose|Debug (forwarded)
 #>
@@ -80,14 +80,14 @@ param(
 # mirror hiccup) recovers within an hour without manual intervention.
 $script:FailurePauseMaxSeconds    = 60 * 60   # cap a backoff at 60 min
 $script:FailureCommitPollSeconds  = 5 * 60    # check origin every 5 min
-$script:OuterPullErrorSleepSec    = 30        # short pause if outer's own git pull errors
-$script:InnerSpawnErrorSleepSec   = 30        # short pause if Start-Process itself fails
-$script:StepTimeoutMinutesDefault = 45        # watchdog: kill inner when heartbeat older than this
+$script:OuterPullErrorSleepSeconds    = 30        # short pause if outer's own git pull errors
+$script:InnerSpawnErrorSleepSeconds   = 30        # short pause if Start-Process itself fails
+$script:StepTimeoutSecondsDefault = 2700        # watchdog: kill inner when heartbeat older than this
 $script:WatchdogPollSeconds       = 30        # how often the watchdog re-checks the heartbeat file
 
 # --- REGION: https://yuruna.link/memory#why-yuruna-env-vars-are-snapshotted-and-re-asserted-across-inner-spawns
 $script:ForwardEnvNames = @(
-    'YURUNA_CACHING_PROXY_IP',  # Test-CachingProxy / external-cache branch
+    'YURUNA_CACHING_PROXY_SERVICE_IP',  # Test-CachingProxyService / external-cache branch
     'YURUNA_RUNTIME_DIR',         # Test.YurunaDir override
     'YURUNA_LOG_DIR',           # Test.YurunaDir override
     'YURUNA_LOG_LEVEL',         # cascade visibility
@@ -98,7 +98,7 @@ $script:ForwardEnvNames = @(
 
 # === Resolve paths ==========================================================
 # Canonical path bundle from Test.Prelude. Same call shape used by
-# Test-Project, Test-Sequence, and Invoke-TestInnerRunner -- adding a
+# Invoke-TestProject, Invoke-TestSequence, and Invoke-TestRunnerInnerLoop -- adding a
 # new entry point uses the same one-liner.
 Import-Module (Join-Path $PSScriptRoot 'modules/Test.Prelude.psm1') -Global -Force
 $paths       = Initialize-YurunaEntryPoint -ScriptRoot $PSScriptRoot -ConfigPath $ConfigPath
@@ -113,9 +113,9 @@ $ConfigPath  = $paths.ConfigPath
 # falls back to the in-tree template and the operator's dashboard edits
 # to vmCommunication.* never take effect.
 $env:YURUNA_CONFIG_PATH = $ConfigPath
-$InnerScript = Join-Path $ModulesDir 'Invoke-TestInnerRunner.ps1'
+$InnerScript = Join-Path $ModulesDir 'Invoke-TestRunnerInnerLoop.ps1'
 if (-not (Test-Path -LiteralPath $InnerScript)) {
-    Write-Error "Invoke-TestInnerRunner.ps1 not found at $InnerScript"
+    Write-Error "Invoke-TestRunnerInnerLoop.ps1 not found at $InnerScript"
     exit (Get-EntryPointExitCode -Outcome Failure)
 }
 
@@ -134,6 +134,21 @@ Initialize-YurunaEntryPointModuleSet -For Outer -ModulesDir $ModulesDir
 # effective set. See Invoke-LibvirtGroupReExecIfNeeded for the full
 # rationale (sg + initgroups, why $env: would leak, etc.).
 Invoke-LibvirtGroupReExecIfNeeded -HostType (Get-HostType) -ScriptPath $PSCommandPath -BoundParameters $PSBoundParameters
+
+# Surface the credential a cycle may need BEFORE the operator walks away from a
+# loop that runs for hours. On a NAT-networked caching proxy the inner loop's
+# port-map refresh installs and removes systemd forwarder units with sudo. The
+# prompt itself stays where the work is -- priming here would ask on hosts whose
+# cycles never touch the port map, and a sudo timestamp is long dead by cycle 2.
+if ((Get-HostType) -eq 'host.ubuntu.kvm') {
+    Write-Output ""
+    Write-Output "Note: on a NAT-networked caching proxy each cycle installs systemd forwarder units with sudo -- you may be prompted for your password mid-cycle."
+    Write-Output "  Elevation is needed to:"
+    Write-Output "    * write/remove /etc/systemd/system/yuruna-cacheproxy-p<port>.{socket,service}"
+    Write-Output "    * systemctl daemon-reload + enable/disable those units (Add-PortMap / Remove-PortMap)"
+    Write-Output "  An /etc/sudoers.d drop-in granting those commands NOPASSWD avoids it entirely."
+}
+
 # ConfigPath was resolved by Initialize-YurunaEntryPoint above; the
 # failure-pause break-out triggers read repositories.projectUrl and
 # watch the file's mtime without each call site re-deriving the path.
@@ -142,7 +157,7 @@ Invoke-LibvirtGroupReExecIfNeeded -HostType (Get-HostType) -ScriptPath $PSComman
 # Initialize-YurunaRuntimeDir / Initialize-YurunaLogDir publish the canonical
 # locations as $env:YURUNA_RUNTIME_DIR / $env:YURUNA_LOG_DIR. The inner pwsh
 # inherits these via Start-Process WITHOUT -UseNewEnvironment so the inner
-# and the status server agree on the on-disk track + log paths every cycle.
+# and the status service agree on the on-disk track + log paths every cycle.
 $null = Initialize-YurunaRuntimeDir
 $null = Initialize-YurunaLogDir
 # Stable per-host pool identity, cached on the process global so NDJSON events
@@ -156,7 +171,7 @@ $global:__YurunaHostId = Get-YurunaHostId
 # that no live runner is honouring, and leftover pause flags
 # (control.step-pause / control.cycle-pause) so a fresh launch never
 # inherits a prior session's pause -- the same Clear-StalePauseFlag
-# policy Test-Project and Test-Sequence apply directly at their startup.
+# policy Invoke-TestProject and Invoke-TestSequence apply directly at their startup.
 # Runs ONCE per outer startup and is a no-op on a clean boot. Sits BEFORE the runner.pid dance so the
 # existing single-instance flow sees a clean field; Clear-StalePidFile
 # inside the sweep only removes pidfiles whose process is provably
@@ -277,7 +292,7 @@ Write-Output "  Yuruna outer runner"
 Write-Output "  Inner:        $InnerScript"
 Write-Output "  Backoff cap:  $($script:FailurePauseMaxSeconds / 60) min"
 Write-Output "  Commit poll:  $($script:FailureCommitPollSeconds / 60) min"
-Write-Output "  Step timeout: $(Get-OuterStepTimeoutMinute -ConfigPath $ConfigPath -DefaultMinutes $script:StepTimeoutMinutesDefault) min (testCycle.stepTimeoutMinutes; default $($script:StepTimeoutMinutesDefault))"
+Write-Output "  Step timeout: $(Get-OuterStepTimeoutSeconds -ConfigPath $ConfigPath -DefaultSeconds $script:StepTimeoutSecondsDefault) s (testCycle.stepTimeoutSeconds; default $($script:StepTimeoutSecondsDefault))"
 Write-Output "  Stop:         Ctrl+C"
 if ($script:ForwardEnvSnapshot.Count -gt 0) {
     Write-Output "  Forwarded env to inner:"
@@ -337,9 +352,9 @@ Invoke-RunnerOuterLoop -State @{
     NoGitPull                 = [bool]$NoGitPull
     FailurePauseMaxSeconds    = $script:FailurePauseMaxSeconds
     FailureCommitPollSeconds  = $script:FailureCommitPollSeconds
-    OuterPullErrorSleepSec    = $script:OuterPullErrorSleepSec
-    InnerSpawnErrorSleepSec   = $script:InnerSpawnErrorSleepSec
-    StepTimeoutMinutesDefault = $script:StepTimeoutMinutesDefault
+    OuterPullErrorSleepSeconds    = $script:OuterPullErrorSleepSeconds
+    InnerSpawnErrorSleepSeconds   = $script:InnerSpawnErrorSleepSeconds
+    StepTimeoutSecondsDefault = $script:StepTimeoutSecondsDefault
     WatchdogPollSeconds       = $script:WatchdogPollSeconds
 }
 

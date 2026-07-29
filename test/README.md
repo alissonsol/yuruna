@@ -9,7 +9,7 @@ architecture (modules, directories, sequences, extension API) see
 Cycle summary in [Test harness](../docs/test-harness.md). On first failure the runner
 copies debug artifacts to `test/status/log/`, sends a Resend
 notification, and either preserves the VM or cleans it up depending on
-`testCycle.shouldStopOnFailure`.
+`testCycle.stopOnFailure`.
 
 ## Prerequisites
 
@@ -50,7 +50,7 @@ cp test/test.config.yml.template test/test.config.yml
 ```
 
 Most operators only ever set `guestSequence`, `repositories.frameworkUrl`,
-`repositories.projectUrl`, `statusService.port`, and `testCycle.shouldStopOnFailure`.
+`repositories.projectUrl`, `statusService.port`, and `testCycle.stopOnFailure`.
 Notification credentials moved to
 `test/status/extension/notification/transports.yml` -- see the
 "Notifications (Resend)" section below.
@@ -85,22 +85,22 @@ pwsh test/Test-Config.ps1 -SkipSend  # Skip the send
 
 Each check prints `[PASS]`, `[WARN]`, or `[FAIL]`.
 
-## Remote caching proxy
+## Remote caching-proxy service
 
-The runner auto-discovers a local `caching-proxy` VM. Point at a remote
-proxy by setting `vmStart.cachingProxyIP` in `test/test.config.yml`
+The runner auto-discovers a local `caching-proxy-service` VM. Point at a remote
+proxy by setting `vmStart.cachingProxyIp` in `test/test.config.yml`
 (or on the status page) — it is probed first at cycle start and wins
 when its `:3128` answers. The session-scope alternative is the env
 var, consulted only when the config key is empty or unreachable:
 
 ```
-$Env:YURUNA_CACHING_PROXY_IP = '10.0.0.5'
+$Env:YURUNA_CACHING_PROXY_SERVICE_IP = '10.0.0.5'
 pwsh test/Invoke-TestRunner.ps1
 ```
 
 Setup, monitoring, SSL-bump, and offline replay:
 [Caching](../docs/caching.md). Test-harness wrappers:
-[Caching proxy](../docs/caching.md#caching-proxy--test-harness-operator-reference).
+[Caching-proxy service](../docs/caching.md#caching-proxy-service--test-harness-operator-reference).
 
 ## Usage
 
@@ -138,7 +138,7 @@ and assign already-developed test sequences to it, see the operator guide
 
 ## Logging
 
-Each cycle writes `test/status/log/{cycleId}.{hostname}.{gitCommit}.html`
+Each cycle writes `test/status/log/{cycleStartUtc}.{hostname}.{gitCommit}.html`
 (git-ignored; linked from the status page). Exit codes:
 [Test harness](../docs/test-harness.md#exit-codes).
 
@@ -150,6 +150,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.28
+Last review: 2026.07.29
 
 Back to [Yuruna](../README.md)

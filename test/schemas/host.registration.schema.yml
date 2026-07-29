@@ -5,7 +5,7 @@ $id: https://yuruna.com/schemas/host.registration.schema.yml
 title: Yuruna host registration record
 description: >
   Each runner writes runtime/host.registration.json (served at
-  /runtime/host.registration.json) so the pool aggregator learns a host's
+  /runtime/host.registration.json) so the pool-aggregator service learns a host's
   identity, capabilities, and pool WITHOUT logging in. The aggregator labels the
   host's telemetry by `poolId` (which the runner derived from pools.yml members[],
   the single source of truth), falling back to its own default when null. Every
@@ -70,7 +70,7 @@ properties:
         additionalProperties: false
         properties:
           healthyThreshold: { type: number }
-          degradedAfterMinutes: { type: integer }
+          degradedAfterSeconds: { type: integer }
 
   capabilities:
     type: object
@@ -85,7 +85,7 @@ properties:
   statusPort:
     type: [integer, "null"]
     description: >
-      The host's real status-server HTTP port (the aggregator otherwise assumes
+      The host's real status-service HTTP port (the aggregator otherwise assumes
       8080). null when unresolved.
 
   writtenAtUtc:

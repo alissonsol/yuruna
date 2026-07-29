@@ -15,12 +15,12 @@ the watchdog side. For the rationale on splitting outer / inner, see
 
 | File                     | Writer                  | Reader                | Purpose |
 |--------------------------|-------------------------|-----------------------|---------|
-| `runner.pid`             | outer runner            | next outer + status server | Single-instance guard; PID of the outer eternal-loop process. |
-| `runner.start`           | outer runner            | next outer + status server | StartTime sidecar — used to confirm a recovered PID belongs to a still-live outer (forgery-resistant: PID reuse has a different StartTime). |
+| `runner.pid`             | outer runner            | next outer + status service | Single-instance guard; PID of the outer eternal-loop process. |
+| `runner.start`           | outer runner            | next outer + status service | StartTime sidecar — used to confirm a recovered PID belongs to a still-live outer (forgery-resistant: PID reuse has a different StartTime). |
 | `inner.pid`              | inner runner per cycle  | outer watchdog        | PID of the current inner cycle. Wiped by the outer before each spawn. |
 | `runner.heartbeat`       | C# `System.Threading.Timer` inside inner | (legacy) | Liveness at the process level. Keeps ticking even when the runspace is wedged inside a non-terminating OCR / SSH loop — therefore **NOT a safe signal for "the cycle is making progress."** |
 | `runner.stepHeartbeat`   | `Invoke-Sequence` at the top of each step | outer watchdog | Touched from the runspace itself. The signal the watchdog uses to detect a wedged step. |
-| `outer.log`              | outer + inner           | post-mortem, status server | Append-only milestone log. Survives a `conhost` output wedge. |
+| `outer.log`              | outer + inner           | post-mortem, status service | Append-only milestone log. Survives a `conhost` output wedge. |
 
 ## Why two heartbeats
 
@@ -36,7 +36,7 @@ written heartbeat fresh.
 top of every step iteration inside `Invoke-Sequence`. A wedged step
 stops touching it. The watchdog reads this file's mtime and kills the
 inner when the mtime exceeds
-`testCycle.stepTimeoutMinutes` (default 45).
+`testCycle.stepTimeoutSeconds` (default 2700).
 
 The split was added after the trap recorded in repo memory
 `feedback_threadpool_heartbeat_watchdog_blind.md`.
@@ -82,12 +82,12 @@ inner. See runtime/outer.log for the kill line.
 This stops operators from chasing an application-level bug that
 never happened.
 
-## Tuning `testCycle.stepTimeoutMinutes`
+## Tuning `testCycle.stepTimeoutSeconds`
 
-Default 45 minutes. Hot-reloaded on every cycle's spawn, so an
+Default 2700 (45 minutes). Hot-reloaded on every cycle's spawn, so an
 operator can edit `test.config.yml` between cycles without restarting
 the outer. Tightening helps on hosts where genuine slow steps complete
-under, say, 20 min; loosening protects against a known-slow first-run
+under, say, 1200; loosening protects against a known-slow first-run
 image-build step.
 
 ## Module: Test.RunnerWatchdog
@@ -103,7 +103,7 @@ the kill without spinning up an inner runner.
 
 | Function | Used by |
 |---|---|
-| `Start-Watchdog -StepTimeoutMinutes -RuntimeDir -PollSeconds` | [Outer-loop dispatcher](runner-outer-loop.md) per cycle |
+| `Start-Watchdog -StepTimeoutSeconds -RuntimeDir -PollSeconds` | [Outer-loop dispatcher](runner-outer-loop.md) per cycle |
 | `Stop-Watchdog -Job` | Outer-loop dispatcher on cycle end / spawn failure |
 
 `Start-Watchdog` returns a `System.Management.Automation.Job` whose
@@ -114,7 +114,7 @@ safe with `$null` and safe after the watchdog has already exited
 ### `$using:` scope discipline
 
 The scriptblock passed to `Start-Job` reads `$RuntimeDir`,
-`$thresholdSec`, and `$PollSeconds` via `$using:` rather than
+`$thresholdSeconds`, and `$PollSeconds` via `$using:` rather than
 `-ArgumentList`. The `$using:` form pulls each variable straight from
 the enclosing function's scope at job-dispatch time — cleaner than
 threading them through a positional argument list, and dodges a
@@ -140,6 +140,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.28
+Last review: 2026.07.29
 
 Back to [Yuruna](../README.md)

@@ -9,8 +9,8 @@ import (
 	"strings"
 	"testing"
 
-	"stash-server/internal/config"
-	"stash-server/internal/meta"
+	"stash-service/internal/config"
+	"stash-service/internal/meta"
 )
 
 // TestSFTPUploadStoresArtifactAndSidecar drives the SFTP ingest the way

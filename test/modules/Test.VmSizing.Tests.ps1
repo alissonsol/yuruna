@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.28
+.VERSION 2026.07.29
 .GUID 42e5a9c1-3b7d-4f28-9a06-1c2d3e4f5a6b
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -22,7 +22,7 @@
     and `variables.cores` must reach the per-guest New-VM.ps1, exactly like
     `variables.username` / `variables.hostname` do.
 .DESCRIPTION
-    The value crosses the same files (planner -> runner/Test-Sequence -> the
+    The value crosses the same files (planner -> runner/Invoke-TestSequence -> the
     Invoke-PerGuestNewVm dispatcher -> the per-guest New-VM.ps1), and the
     dispatcher forwards -MemoryStartupBytes/-Cores only to scripts that DECLARE
     them, dropping them on the Verbose stream otherwise. A guest script that
@@ -58,7 +58,7 @@ $provisionSrc = Get-Content -Raw -LiteralPath (Join-Path $repoRoot 'host/modules
 $plannerSrc   = Get-Content -Raw -LiteralPath (Join-Path $repoRoot 'test/modules/Test.SequencePlanner.psm1')
 $runnerSrc    = Get-Content -Raw -LiteralPath (Join-Path $repoRoot 'test/modules/Test.SequenceRunner.psm1')
 $innerSrc     = Get-Content -Raw -LiteralPath (Join-Path $repoRoot 'test/modules/Test.RunnerInnerLoop.psm1')
-$seqEntrySrc  = Get-Content -Raw -LiteralPath (Join-Path $repoRoot 'test/Test-Sequence.ps1')
+$seqEntrySrc  = Get-Content -Raw -LiteralPath (Join-Path $repoRoot 'test/Invoke-TestSequence.ps1')
 
 Describe 'vm-sizing -- ConvertTo-MemoryStartupBytes normalizes memory sizes' {
     BeforeAll { Import-Module (Join-Path $repoRoot 'automation/Yuruna.Common.psm1') -Force }
@@ -152,8 +152,8 @@ Describe 'vm-sizing -- the planner cascade surfaces the effective fields' {
         Assert-True ($runnerSrc -match 'effectiveCores') 'Resolve-TestSequencePlan must surface cores'
     }
     It 'both forward sites add MemoryStartupBytes/Cores to newVmArgs' {
-        Assert-True ($seqEntrySrc -match [regex]::Escape('$newVmArgs.MemoryStartupBytes')) 'Test-Sequence must forward memory'
-        Assert-True ($seqEntrySrc -match [regex]::Escape('$newVmArgs.Cores')) 'Test-Sequence must forward cores'
+        Assert-True ($seqEntrySrc -match [regex]::Escape('$newVmArgs.MemoryStartupBytes')) 'Invoke-TestSequence must forward memory'
+        Assert-True ($seqEntrySrc -match [regex]::Escape('$newVmArgs.Cores')) 'Invoke-TestSequence must forward cores'
         Assert-True ($innerSrc -match [regex]::Escape('$newVmArgs.MemoryStartupBytes')) 'the runner must forward memory'
         Assert-True ($innerSrc -match [regex]::Escape('$newVmArgs.Cores')) 'the runner must forward cores'
     }

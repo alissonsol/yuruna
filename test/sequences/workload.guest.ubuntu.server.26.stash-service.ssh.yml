@@ -5,7 +5,7 @@
 
 # Standalone SMOKE TEST of the stash daemon build + launch on a vanilla
 # Ubuntu guest (no NAS seed -> local-fallback storage); NOT the production
-# bring-up (Start-StashVM + cloud-init) and NOT wired into automated
+# bring-up (Start-StashServiceVM + cloud-init) and NOT wired into automated
 # test-sets -- run it manually.
 
 # The deploy is the LAST step on purpose: ubuntu.server.26.stash-service.sh
@@ -16,7 +16,7 @@
 sequenceGuid: 420b70c9-7921-4194-b84c-7569563c0131
 sequenceRevision: 1
 
-description: "Ubuntu Server 26.04 (SSH): bring up the Yuruna Stash Service daemon."
+description: "Ubuntu Server 26.04 (SSH): bring up the Yuruna stash service daemon."
 keystrokeMechanism: ssh
 resource:
   ubuntu.server.26:

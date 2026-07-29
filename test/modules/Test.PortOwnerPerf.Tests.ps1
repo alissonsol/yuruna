@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.28
+.VERSION 2026.07.29
 .GUID 42a7b8c9-d0e1-4f23-9567-8a9b0c1d2e3f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -90,7 +90,7 @@ Describe 'Get-PortHolderServiceInfo requires the Yuruna field combination' {
         (Get-PortHolderServiceInfo -Port 65010).IsYuruna | Should -Be $true
     }
     It 'classifies the bootstrap template (schemaVersion + overallStatus, no hostId) as Yuruna' {
-        # The status server answers with status.json.template before the first cycle;
+        # The status service answers with status.json.template before the first cycle;
         # it carries schemaVersion + overallStatus but no hostId, so the marker must
         # not require hostId or a just-launched peer would go unnamed.
         Mock -ModuleName Test.PortOwner Invoke-WebRequest {

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.28
+.VERSION 2026.07.29
 .GUID 42c8e4f6-b2d3-4a91-9e45-7f6a8b9c0d12
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -19,7 +19,7 @@
 <#
 .SYNOPSIS
     Pins the resolution order of Get-PoolIntentSeedUrl, the value baked into the
-    pool-control VM seed as its intent store.
+    pool-control-service VM seed as its intent store.
 .DESCRIPTION
     The order encodes a writability claim, so a reordering is a real regression
     rather than a cosmetic one:
@@ -29,7 +29,7 @@
       proxy http URL   -- pull-only; the UI reads and every write fails
       ''               -- nothing resolvable; the guest reports why
 
-    Read-CachingProxyState is mocked in module scope so the proxy branch is
+    Read-CachingProxyServiceState is mocked in module scope so the proxy branch is
     exercised without a provisioned lab. The proxy IP is TEST-NET (192.0.2.x,
     RFC 5737) and is never contacted -- this resolver only formats a URL.
 
@@ -37,7 +37,7 @@
 #>
 
 $here = Split-Path -Parent $PSCommandPath
-$cachingProxyModule = Join-Path $here 'Test.CachingProxy.psm1'
+$cachingProxyModule = Join-Path $here 'Test.CachingProxyService.psm1'
 
 function Assert-Equal { param($Expected, $Actual, [string]$Because = '') if ($Expected -ne $Actual) { throw "Expected '$Expected' but got '$Actual'. $Because" } }
 
@@ -45,18 +45,18 @@ Import-Module $cachingProxyModule -Force -DisableNameChecking
 
 $nasConfig = @{
     pool           = @{ intentGitUrl = '' }
-    networkStorage = @{ poolNetworkPath = '\\ypool-nas\work\yuruna.pool' }
+    networkStorage = @{ poolStorageNetworkPath = '\\ypool-nas\work\yuruna.pool' }
 }
 
 Describe 'Get-PoolIntentSeedUrl resolution order' {
-    BeforeEach { $env:YURUNA_CACHING_PROXY_IP = '' }
-    AfterEach  { $env:YURUNA_CACHING_PROXY_IP = '' }
+    BeforeEach { $env:YURUNA_CACHING_PROXY_SERVICE_IP = '' }
+    AfterEach  { $env:YURUNA_CACHING_PROXY_SERVICE_IP = '' }
 
     Context 'an explicit intentGitUrl wins' {
         It 'returns the configured value even when pool storage could supply one' {
             $cfg = @{
                 pool           = @{ intentGitUrl = 'ssh://git@example/pool-intent.git' }
-                networkStorage = @{ poolNetworkPath = '\\ypool-nas\work\yuruna.pool' }
+                networkStorage = @{ poolStorageNetworkPath = '\\ypool-nas\work\yuruna.pool' }
             }
             Assert-Equal -Expected 'ssh://git@example/pool-intent.git' -Actual (Get-PoolIntentSeedUrl -Config $cfg) `
                 -Because 'the operator override outranks every derived value'
@@ -77,7 +77,7 @@ Describe 'Get-PoolIntentSeedUrl resolution order' {
                 -Actual (Get-PoolIntentSeedUrl -Config $nasConfig -GuestPoolMount '/mnt/custom/')
         }
         It 'prefers the NAS over a reachable proxy' {
-            Mock Read-CachingProxyState -ModuleName Test.CachingProxy { @{ ipAddress = '192.0.2.10' } }
+            Mock Read-CachingProxyServiceState -ModuleName Test.CachingProxyService { @{ ipAddress = '192.0.2.10' } }
             Assert-Equal -Expected '/mnt/yuruna-pool/pool-intent.git' -Actual (Get-PoolIntentSeedUrl -Config $nasConfig) `
                 -Because 'a pull-only proxy url must never displace a writable store'
         }
@@ -85,16 +85,16 @@ Describe 'Get-PoolIntentSeedUrl resolution order' {
 
     Context 'the proxy url is the last resort' {
         It 'falls back to the read-only http route when no pool storage is configured' {
-            Mock Read-CachingProxyState -ModuleName Test.CachingProxy { @{ ipAddress = '192.0.2.10' } }
+            Mock Read-CachingProxyServiceState -ModuleName Test.CachingProxyService { @{ ipAddress = '192.0.2.10' } }
             Assert-Equal -Expected 'http://192.0.2.10/pool-intent.git' -Actual (Get-PoolIntentSeedUrl -Config @{ pool = @{ intentGitUrl = '' } })
         }
         It 'accepts the environment override when no state file names a proxy' {
-            Mock Read-CachingProxyState -ModuleName Test.CachingProxy { $null }
-            $env:YURUNA_CACHING_PROXY_IP = '192.0.2.11'
+            Mock Read-CachingProxyServiceState -ModuleName Test.CachingProxyService { $null }
+            $env:YURUNA_CACHING_PROXY_SERVICE_IP = '192.0.2.11'
             Assert-Equal -Expected 'http://192.0.2.11/pool-intent.git' -Actual (Get-PoolIntentSeedUrl -Config $null)
         }
         It 'refuses an IP carrying whitespace or a quote rather than corrupting the seed line' {
-            Mock Read-CachingProxyState -ModuleName Test.CachingProxy { @{ ipAddress = "192.0.2.10'" } }
+            Mock Read-CachingProxyServiceState -ModuleName Test.CachingProxyService { @{ ipAddress = "192.0.2.10'" } }
             Assert-Equal -Expected '' -Actual (Get-PoolIntentSeedUrl -Config $null) `
                 -Because 'the value lands in an unquoted env line the guest sed-extracts'
         }
@@ -102,11 +102,11 @@ Describe 'Get-PoolIntentSeedUrl resolution order' {
 
     Context 'nothing resolvable' {
         It 'returns empty so the guest reports the reason instead of guessing' {
-            Mock Read-CachingProxyState -ModuleName Test.CachingProxy { $null }
+            Mock Read-CachingProxyServiceState -ModuleName Test.CachingProxyService { $null }
             Assert-Equal -Expected '' -Actual (Get-PoolIntentSeedUrl -Config $null)
         }
         It 'treats a whitespace-only intentGitUrl as unset' {
-            Mock Read-CachingProxyState -ModuleName Test.CachingProxy { $null }
+            Mock Read-CachingProxyServiceState -ModuleName Test.CachingProxyService { $null }
             Assert-Equal -Expected '' -Actual (Get-PoolIntentSeedUrl -Config @{ pool = @{ intentGitUrl = '   ' } })
         }
     }

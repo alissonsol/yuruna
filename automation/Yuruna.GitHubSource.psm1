@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.28
+.VERSION 2026.07.29
 .GUID 42b7c1d9-3e5a-4f26-9c84-6d1f0a7b2e53
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -19,12 +19,12 @@
 <#
 .SYNOPSIS
     Resolve the GitHub coordinates a guest needs when it cannot reach the host
-    status server: the repository the host is itself running from, the exact
+    status service: the repository the host is itself running from, the exact
     commit it is serving, and the token that opens that repository if it is
     private.
 
 .DESCRIPTION
-    A guest fetches project code from the host status server. When the host is
+    A guest fetches project code from the host status service. When the host is
     unreachable -- a changed DHCP lease, a Wi-Fi roam, a stopped service -- it
     falls back to GitHub. That fallback is only sound if it lands on the SAME
     repository at the SAME commit the host would have served: the host hands the
@@ -88,7 +88,7 @@ function Get-YurunaGitHubSource {
         digest the host computed from its working tree does not. Pinning the
         commit is what lets the fallback bytes match that digest at all.
 
-        Token comes from test.config.yml's repositories.GH_TOKEN and is required
+        Token comes from test.config.yml's repositories.ghToken and is required
         only when the repository is private -- raw.githubusercontent.com and the
         Contents API both refuse an unauthenticated read of a private repo.
     .PARAMETER RepoRoot
@@ -133,8 +133,8 @@ function Get-YurunaGitHubSource {
                     if ($repositories.Contains('projectUrl')) {
                         $result.ProjectUrl = ([string]$repositories['projectUrl']).Trim()
                     }
-                    if ($repositories.Contains('GH_TOKEN')) {
-                        $result.Token = ([string]$repositories['GH_TOKEN']).Trim()
+                    if ($repositories.Contains('ghToken')) {
+                        $result.Token = ([string]$repositories['ghToken']).Trim()
                     }
                 }
             }

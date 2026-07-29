@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.28
+.VERSION 2026.07.29
 .GUID 42e6a1d3-9b74-4c28-8f10-6a5b4c3d2e1f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -18,7 +18,7 @@
 
 <#
 .SYNOPSIS
-    Guards two engine seams in Invoke-Sequence.psm1 that used to hard-code
+    Guards two engine seams in Test.SequenceEngine.psm1 that used to hard-code
     verb-name lists, plus the cycle-restart control-flow marker's carrier.
 .DESCRIPTION
     UsesWaitSignals / CapturesOwnFailureScreenshot: the sequence engine reads
@@ -38,7 +38,7 @@
 
 $here       = Split-Path -Parent $PSCommandPath
 $handlerPsm = Join-Path $here 'Test.SequenceHandler.psm1'
-$enginePsm  = Join-Path $here 'Invoke-Sequence.psm1'
+$enginePsm  = Join-Path $here 'Test.SequenceEngine.psm1'
 
 # Loading the handler module registers every built-in verb (it imports
 # Test.SequenceAction and calls Register-SequenceAction at load), so

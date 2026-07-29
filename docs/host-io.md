@@ -2,7 +2,7 @@
 
 Every sequence step that drives the guest GUI (keystrokes, text input,
 mouse clicks) goes through a thin dispatcher in
-[`Invoke-Sequence.psm1`](../test/modules/Invoke-Sequence.psm1) — which
+[`Test.SequenceEngine.psm1`](../test/modules/Test.SequenceEngine.psm1) — which
 in turn looks up the current host's backend in a registry exported by
 [`test/modules/Test.HostIO.psm1`](../test/modules/Test.HostIO.psm1).
 
@@ -94,7 +94,7 @@ Each `Implementation` is a `param([hashtable]$a)` scriptblock returning
    owning its `Register-HostIOProvider` calls (mirror
    `Test.HostIO.HyperV.psm1` / `Test.HostIO.Utm.psm1` /
    `Test.HostIO.Kvm.psm1`), and add its `Import-Module` line to
-   `Invoke-Sequence.psm1`:
+   `Test.SequenceEngine.psm1`:
 
    ```powershell
    Register-HostIOProvider -HostType 'host.your.new.host' -Action 'Send-Key' -Implementation {
@@ -119,7 +119,7 @@ Each `Implementation` is a `param([hashtable]$a)` scriptblock returning
    [capability gate](capability-matrix.md) refuses cycles on hosts
    without a backend.
 5. Add a dispatcher (`Send-Scroll`, three-line wrapper) and export it
-   from `Invoke-Sequence.psm1` so the
+   from `Test.SequenceEngine.psm1` so the
    `Yuruna.Host\Send-Scroll` contract can route through it.
 
 ## Why the registry uses a global anchor
@@ -162,7 +162,7 @@ per-host I/O backends consumed by the registry:
   `Send-ClickHyperV`, `Send-ClickUtm`.
 - **Send-ScanCode** — Hyper-V PS/2 scancode-burst primitive.
 
-The public surface is unchanged: `Invoke-Sequence.psm1` exports the
+The public surface is unchanged: `Test.SequenceEngine.psm1` exports the
 three dispatchers (`Send-Key`, `Send-Text`, `Send-Click`) and routes
 them through `Test.HostIO`'s registry; the registered scriptblocks in
 the per-host `Test.HostIO.<Host>.psm1` modules call the bare backend names above,
@@ -171,11 +171,11 @@ imported with `-Global`.
 
 ## Transport config reload at module load
 
-`Test.Transport` reads transport-level defaults (`characterDelayMs`,
+`Test.Transport` reads transport-level defaults (`charDelayMs`,
 `vncPort`, …) from `test.config.yml` at module-load time via
 `Test.Config` (mtime-cached, so this is cheap even on re-import). The
 cycle re-imports modules every cycle so a freshly-committed
-`vmCommunication.characterDelayMs` / `vmCommunication.vncPort` takes
+`vmCommunication.charDelayMs` / `vmCommunication.vncPort` takes
 effect on the next step rather than requiring a runner restart. This
 mirrors the broader live-edit responsiveness contract — an operator
 clicking "Stop on failure" in the dashboard at step 5 must abort the
@@ -192,6 +192,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.28
+Last review: 2026.07.29
 
 Back to [Yuruna](../README.md)

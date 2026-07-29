@@ -52,7 +52,7 @@ sequences automatically.
 
 **A.4 — Watch progress at** `http://localhost:8080/status/`.
 
-For a durable setup — dedicated test user, storage, caching proxy,
+For a durable setup — dedicated test user, storage, caching-proxy service,
 stash service — continue with the [operator guide](docs/operator.md);
 to run several machines as one lab, the
 [lab operator guide](docs/lab-operator.md).
@@ -88,7 +88,7 @@ After the guest OS is up, test workloads:
 ## Read More
 
 - **[All documentation](docs/README.md)** — what every doc under `docs/` covers
-- [Requirements](docs/requirements.md) · [Workarounds & FAQ](docs/workarounds.md) · [Roadmap](docs/opportunities.md#roadmap)
+- [Requirements](docs/operator.md#b2-preflight-dependencies) · [Workarounds & FAQ](docs/workarounds.md) · [Roadmap](docs/opportunities.md#roadmap)
 - Machine [operator](docs/operator.md) and [lab operator](docs/lab-operator.md) guides
 - [Contributing](CONTRIBUTING.md) · [Contributors](CONTRIBUTING.md#contributors) · [Opportunities](docs/opportunities.md)
 
@@ -101,4 +101,4 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.28
+Last review: 2026.07.29

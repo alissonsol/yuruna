@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.28
+.VERSION 2026.07.29
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456729
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -122,7 +122,7 @@ function Test-PortListenerFree {
     <#
     .SYNOPSIS
         $true when THIS process can bind http://*:$Port/ -- the OS-agnostic
-        proof that the detached status server will be able to start.
+        proof that the detached status service will be able to start.
     .DESCRIPTION
         The single source of truth across host environments. HttpListener
         binds a real reservation, so a holder owned by ANOTHER USER (which
@@ -186,7 +186,7 @@ function Test-PortPrivilegeBlocked {
             HttpListener is not HTTP.sys and the error codes do not apply.
 
         Deliberately NOT folded into Test-PortListenerFree: that function answers
-        "can the status server bind here", and the answer stays $false in this
+        "can the status service bind here", and the answer stays $false in this
         case -- the server binds the same wildcard prefix and fails identically.
         Only the explanation differs, so only the explanation is computed here.
     .OUTPUTS
@@ -339,7 +339,7 @@ function Get-PortHolderServiceInfo {
 function Resolve-PortOrphan {
     <#
     .SYNOPSIS
-        Try to free $Port for THIS user's status server, distinguishing a
+        Try to free $Port for THIS user's status service, distinguishing a
         reclaimable orphan (our own detached pwsh holder) from an unrecoverable
         conflict (port owned by another user, a non-pwsh process, or a holder
         this user cannot even see). Returns a structured result; never exits or
@@ -368,7 +368,7 @@ function Resolve-PortOrphan {
                       cannot) take over. The cycle must refuse to start.
         'PrivilegeRequired' : the port is EMPTY, but this process may not reserve
                       the wildcard prefix (elevation, or a standing urlacl). The
-                      cycle must still refuse -- the status server binds the same
+                      cycle must still refuse -- the status service binds the same
                       prefix and would fail identically -- but there is no holder
                       to hunt, so it is reported apart from 'Conflict' rather than
                       being described as a port that is "in use".
@@ -406,7 +406,7 @@ function Resolve-PortOrphan {
     if (-not $holderPids.Count) {
         # Before concluding "held by a user we cannot see", rule out the other
         # reason a wildcard bind fails: not being allowed to make the reservation
-        # at all. Both refuse to start -- the status server binds the same prefix
+        # at all. Both refuse to start -- the status service binds the same prefix
         # and would fail the same way -- but they send the operator to opposite
         # places, and the port-is-empty case has no holder to go looking for.
         if (Test-PortPrivilegeBlocked -Port $Port) {
@@ -414,7 +414,7 @@ function Resolve-PortOrphan {
                 "Status-service port $Port is FREE, but this process may not reserve http://*:$Port/."
                 "  That is an HTTP.sys URL reservation: making one needs elevation. Nothing is holding"
                 "  the port -- this is a privilege problem, not a port conflict."
-                "  Refusing to start: the status server binds the same wildcard prefix (so that guests"
+                "  Refusing to start: the status service binds the same wildcard prefix (so that guests"
                 "  can reach it on the host's LAN IP, not just localhost) and would fail identically."
                 "  Resolve by ONE of:"
                 "    - run this shell as Administrator; or"
@@ -430,14 +430,14 @@ function Resolve-PortOrphan {
         # OTHER users, and on Windows HTTP.sys hides a foreign url-group -- so
         # this is the signature of a listener owned by a DIFFERENT USER. Treat
         # it as a hard conflict: a bind failure with no reclaimable owner means
-        # this user cannot host a status server here, and proceeding would run
+        # this user cannot host a status service here, and proceeding would run
         # the cycle blind (no dashboard, no breakpoint controls).
         $ownerLine = if ($svcClause) { "  $svcClause" }
                      else { "  The holder is owned by another user (its socket is hidden from lsof/netsh without elevation)." }
         $lines = @(
             "Status-service port $Port is in use but no owning PID is visible to this user."
             $ownerLine
-            "  Refusing to start: a second status server cannot bind the same port, and running the"
+            "  Refusing to start: a second status service cannot bind the same port, and running the"
             "  cycle without one hides the live dashboard / breakpoint controls (a hard-to-debug state)."
             "  Resolve by ONE of:"
             "    - stop the other owner's status service (it may belong to another user account); or"

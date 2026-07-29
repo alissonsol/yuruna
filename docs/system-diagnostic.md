@@ -2,7 +2,7 @@
 
 [`automation/Get-SystemDiagnostic.ps1`](../automation/Get-SystemDiagnostic.ps1)
 is a read-only diagnostic dump invoked from the host (and pulled
-through the status server during incident triage) when a Yuruna cycle
+through the status service during incident triage) when a Yuruna cycle
 wedges or returns an empty cluster. It enumerates host facts, Docker
 state, Kubernetes state, install-time evidence (Linux only), and a
 "problems detected" summary aggregating signals that typically
@@ -110,7 +110,7 @@ logic.
 - Walks descendants iteratively with a visited set so a process
   recycling its parent's pid can't loop the walker.
 - When invoked outside a runner cycle, `$env:YURUNA_RUNTIME_DIR` is
-  derived from the script location (the status server publishes its
+  derived from the script location (the status service publishes its
   own copy of the env var to its child pwsh).
 
 #### `ps -ww` is mandatory on macOS / Linux
@@ -202,6 +202,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.28
+Last review: 2026.07.29
 
 Back to [Yuruna](../README.md)

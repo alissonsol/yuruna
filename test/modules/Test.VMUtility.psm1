@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.28
+.VERSION 2026.07.29
 .GUID 42a2b3c4-d5e6-4f78-9012-3a4b5c6d7e92
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -41,7 +41,7 @@ Import-Module (Join-Path $PSScriptRoot 'Test.YurunaDir.psm1') -Force -Global
 # The cross-host pure helpers (IP validation, proxy/port parsing, crypt hash,
 # state-file paths, admin check) are defined once in automation/Yuruna.Common.psm1.
 # Import it -Global so they stay visible to Test.VMUtility's own callers AND to
-# Get-CachingProxyExposedPort below, which calls Get-CachingProxyPort. -Global
+# Get-CachingProxyServiceExposedPort below, which calls Get-CachingProxyServicePort. -Global
 # mirrors the Test.YurunaDir import above so a re-import does not evict the
 # caller's binding into a private scope.
 Import-Module (Join-Path -Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) -ChildPath 'automation' -AdditionalChildPath 'Yuruna.Common.psm1') -Global -Force
@@ -275,18 +275,18 @@ function Invoke-ScreenshotTest {
     return @{ success=$true; skipped=$false; errorMessage=$null }
 }
 
-function Get-CachingProxyExposedPort {
+function Get-CachingProxyServiceExposedPort {
 <#
 .SYNOPSIS
-    The TCP ports the caching proxy exposes to the LAN, resolved in one place so
+    The TCP ports the caching-proxy service exposes to the LAN, resolved in one place so
     the parent status-service port-map setup, the inner cycle-start gate, and
-    Start-CachingProxyVM's install list cannot drift apart on the shared set.
+    Start-CachingProxyServiceVM's install list cannot drift apart on the shared set.
 .DESCRIPTION
     Returns the fixed service ports -- 80 (Apache CA cert), 3000 (Grafana),
-    9302 (caching-proxy-parser live tail), 9400 (pool-aggregator: /metrics,
+    9302 (caching-proxy-parser-service live tail), 9400 (pool-aggregator-service: /metrics,
     /api/v1/pool-status, the /go/* dashboard redirects, and the bearer-gated
     /ingest) -- plus the client-facing squid HTTP/HTTPS ports (each defaulting
-    to Get-CachingProxyPort). Add-PortMap is clear-all-first on Windows, so any
+    to Get-CachingProxyServicePort). Add-PortMap is clear-all-first on Windows, so any
     port dropped from this set goes dark on the next map; owning the set here
     keeps the callers in lockstep. A caller that re-maps a reduced set on a
     platform (e.g. macOS, where only Grafana is re-mapped) keeps that branch and
@@ -298,15 +298,15 @@ function Get-CachingProxyExposedPort {
     connection from the host, so squid sees one client (the NAT gateway) for the
     whole LAN and the aggregator, which discovers hosts by their real client IP,
     finds none. The pool view needs a bridged cache VM (real client IPs); see
-    host/ubuntu.kvm/guest.caching-proxy/README.md.
+    host/ubuntu.kvm/guest.caching-proxy-service/README.md.
 .OUTPUTS
     [int[]]
 #>
     [CmdletBinding()]
     [OutputType([int[]])]
     param(
-        [int]$HttpPort  = (Get-CachingProxyPort -Scheme http),
-        [int]$HttpsPort = (Get-CachingProxyPort -Scheme https)
+        [int]$HttpPort  = (Get-CachingProxyServicePort -Scheme http),
+        [int]$HttpsPort = (Get-CachingProxyServicePort -Scheme https)
     )
     [int[]]@(80, 3000, 9302, 9400, $HttpPort, $HttpsPort)
 }
@@ -370,16 +370,16 @@ function Remove-GuestVMQuietly {
 function Update-StashServiceMarkerAddress {
     <#
     .SYNOPSIS
-        Resolve the stash VM's current IPv4 and record it as `stashBaseUrl`
-        (http://<ip>) in the stash-server.json marker, so the pool-aggregator
-        can deep-link the Extension hosts cell to the stash VM's UI.
+        Resolve the stash-service VM's current IPv4 and record it as `stashBaseUrl`
+        (http://<ip>) in the stash-service.json marker, so the pool-aggregator-service
+        can deep-link the Extension hosts cell to the stash-service VM's UI.
     .DESCRIPTION
         Best-effort and never throws -- telemetry must not fail a bring-up or a
-        cycle. The stash VM's guest address is not known until the host's
+        cycle. The stash-service VM's guest address is not known until the host's
         virtualization stack reports it (KVP / dhcpd_leases / utmctl), which can
         lag minutes after boot on a Hyper-V External vSwitch, so callers poll:
         pass a -TimeoutSeconds budget when the VM may have just started
-        (Start-StashVM), or 0 for a single-shot refresh on an established VM
+        (Start-StashServiceVM), or 0 for a single-shot refresh on an established VM
         (the per-cycle runner call). Resolution goes through the host contract
         Get-VMIp resolved at call time after Initialize-YurunaHost (the same
         late-bind the teardown helpers use); a host without it loaded is a no-op.
@@ -400,7 +400,7 @@ function Update-StashServiceMarkerAddress {
     )
     try {
         if ([string]::IsNullOrWhiteSpace($RuntimeDir)) { return $null }
-        $markerPath = Join-Path $RuntimeDir 'stash-server.json'
+        $markerPath = Join-Path $RuntimeDir 'stash-service.json'
         if (-not (Test-Path -LiteralPath $markerPath)) { return $null }
         $marker = Get-Content -Raw -LiteralPath $markerPath | ConvertFrom-Json -ErrorAction Stop
         # A marker being torn down (active:false) must not be re-advertised.
@@ -438,4 +438,4 @@ function Update-StashServiceMarkerAddress {
     }
 }
 
-Export-ModuleMember -Function Wait-VMRunning, Get-ScreenshotSchedule, Invoke-ScreenshotTest, Compare-Screenshot, Get-CachingProxyExposedPort, Remove-GuestVMQuietly, Update-StashServiceMarkerAddress
+Export-ModuleMember -Function Wait-VMRunning, Get-ScreenshotSchedule, Invoke-ScreenshotTest, Compare-Screenshot, Get-CachingProxyServiceExposedPort, Remove-GuestVMQuietly, Update-StashServiceMarkerAddress

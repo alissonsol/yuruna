@@ -5,7 +5,7 @@ $id: https://yuruna.com/schemas/pools.schema.yml
 title: Yuruna pool definitions
 description: >
   The slow-changing pool INTENT, authored by the operator (pool admin CLI) and
-  pulled by each runner over the LAN from the bare git repo on the caching-proxy.
+  pulled by each runner over the LAN from the bare git repo on the caching-proxy-service.
   `members[]` (a list of stable hostIds) is the SINGLE source of truth for which
   host belongs to which pool: a runner finds its own pool by locating its hostId
   here (a host belongs to AT MOST one pool); the aggregator labels each host's
@@ -136,10 +136,10 @@ $defs:
                 minimum: 0
                 maximum: 1
                 description: Fraction of members that must be healthy. Default 0.5.
-              degradedAfterMinutes:
+              degradedAfterSeconds:
                 type: integer
                 minimum: 0
-                description: Minutes below the threshold before the pool is "degraded". Default 30.
+                description: Seconds below the threshold before the pool is "degraded". Default 1800.
 
       desiredState:
         type: string

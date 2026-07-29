@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.28
+.VERSION 2026.07.29
 .GUID 42e5f6a7-b8c9-4d12-9345-6e7f8a9b0c1d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -231,10 +231,10 @@ function Get-OuterPoolTestCycleOverride {
     return $out
 }
 
-function Get-OuterStepTimeoutMinute {
+function Get-OuterStepTimeoutSeconds {
     <#
     .SYNOPSIS
-        Read testCycle.stepTimeoutMinutes from test.config.yml each cycle so
+        Read testCycle.stepTimeoutSeconds from test.config.yml each cycle so
         an operator can edit between cycles and the new bound takes effect on
         the next spawn without restarting the outer. A positive per-pool
         config.testCycle override WINS over the local config (precedence:
@@ -242,9 +242,11 @@ function Get-OuterStepTimeoutMinute {
     #>
     [CmdletBinding()]
     [OutputType([int])]
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseSingularNouns', '',
+        Justification = 'The plural is the unit, not a collection: a duration is named <name>Seconds so a bare number can never be read in the wrong unit (docs/design/naming.md). Singularizing to Second would read as one second.')]
     param(
         [Parameter(Mandatory)][string]$ConfigPath,
-        [Parameter(Mandatory)][int]$DefaultMinutes,
+        [Parameter(Mandatory)][int]$DefaultSeconds,
         # Per-pool config.testCycle overrides (from Get-OuterPoolTestCycleOverride).
         # An override here WINS over test.config.yml (precedence: pool > config >
         # default). Empty @{} for a no-pool host -> identical to single-host.
@@ -255,14 +257,14 @@ function Get-OuterStepTimeoutMinute {
     # at the spawn boundary even if Read-TestConfig's mtime-keyed cache
     # hasn't noticed yet on a low-resolution filesystem.
     $cfg = Read-TestConfig -Path $ConfigPath -NoCache
-    $v = Get-TestConfigValue -Config $cfg -Path 'testCycle.stepTimeoutMinutes'
-    $result = $DefaultMinutes
+    $v = Get-TestConfigValue -Config $cfg -Path 'testCycle.stepTimeoutSeconds'
+    $result = $DefaultSeconds
     if ($null -ne $v) {
         $i = [int]$v
         if ($i -gt 0) { $result = $i }
     }
-    if ($PoolTestCycleOverride.ContainsKey('stepTimeoutMinutes') -and ([int]$PoolTestCycleOverride['stepTimeoutMinutes'] -gt 0)) {
-        $result = [int]$PoolTestCycleOverride['stepTimeoutMinutes']
+    if ($PoolTestCycleOverride.ContainsKey('stepTimeoutSeconds') -and ([int]$PoolTestCycleOverride['stepTimeoutSeconds'] -gt 0)) {
+        $result = [int]$PoolTestCycleOverride['stepTimeoutSeconds']
     }
     return $result
 }
@@ -272,7 +274,7 @@ function Get-OuterAutoRemediation {
     .SYNOPSIS
         Read the default-off auto-remediation opt-in (enable flag + per-streak
         cap) fresh from test.config.yml so an operator edit takes effect at the
-        spawn boundary, like Get-OuterStepTimeoutMinute. A per-pool config.testCycle
+        spawn boundary, like Get-OuterStepTimeoutSeconds. A per-pool config.testCycle
         override WINS over the local config (pool > config > default), so a pool can
         ENGAGE remediation fleet-wide without editing every host's test.config.yml.
     #>
@@ -286,16 +288,21 @@ function Get-OuterAutoRemediation {
     $maxAttempts = 2
     try {
         $cfg = Read-TestConfig -Path $ConfigPath -NoCache
-        $e = Get-TestConfigValue -Config $cfg -Path 'testCycle.autoRemediationEnabled'
+        $e = Get-TestConfigValue -Config $cfg -Path 'testCycle.autoRemediation.enabled'
         if ($null -ne $e) { $enabled = [bool]$e }
-        $m = Get-TestConfigValue -Config $cfg -Path 'testCycle.autoRemediationMaxAttemptsPerCycle'
+        $m = Get-TestConfigValue -Config $cfg -Path 'testCycle.autoRemediation.maxAttemptsPerCycle'
         if (($null -ne $m) -and ([int]$m -gt 0)) { $maxAttempts = [int]$m }
     } catch { Write-Verbose "Get-OuterAutoRemediation: $($_.Exception.Message)" }
-    if ($PoolTestCycleOverride.ContainsKey('autoRemediationEnabled')) {
-        $enabled = [bool]$PoolTestCycleOverride['autoRemediationEnabled']
-    }
-    if ($PoolTestCycleOverride.ContainsKey('autoRemediationMaxAttemptsPerCycle') -and ([int]$PoolTestCycleOverride['autoRemediationMaxAttemptsPerCycle'] -gt 0)) {
-        $maxAttempts = [int]$PoolTestCycleOverride['autoRemediationMaxAttemptsPerCycle']
+    # The pool override arrives as the pool's testCycle map, so the nested block
+    # is a dictionary value under 'autoRemediation' rather than two flat keys.
+    $poolAr = $PoolTestCycleOverride['autoRemediation']
+    if ($poolAr -is [System.Collections.IDictionary]) {
+        if ($poolAr.Contains('enabled')) {
+            $enabled = [bool]$poolAr['enabled']
+        }
+        if ($poolAr.Contains('maxAttemptsPerCycle') -and ([int]$poolAr['maxAttemptsPerCycle'] -gt 0)) {
+            $maxAttempts = [int]$poolAr['maxAttemptsPerCycle']
+        }
     }
     return @{ Enabled = $enabled; MaxAttempts = $maxAttempts }
 }
@@ -339,7 +346,7 @@ function Get-OuterProjectUrl {
 function Get-OuterStatusBaseUrl {
     <#
     .SYNOPSIS
-        Scheme + host + port of this host's status server, as another machine
+        Scheme + host + port of this host's status service, as another machine
         on the LAN would address it. Empty string when no routable address
         exists.
     .DESCRIPTION
@@ -424,7 +431,7 @@ function Get-OuterCycleSummaryLine {
         what the loop does next (retry vs pause). The cycle number comes from
         the status document, which the inner writes before it exits.
 
-        The link is the status server's /cycle/<number> alias, not the
+        The link is the status service's /cycle/<number> alias, not the
         transcript's real path: that path carries the cycle's timestamp and
         host id, which makes it too long to paste into a message, and the
         number is the only part of it a reader can recognise. The server
@@ -590,7 +597,7 @@ function Clear-TerminalNotifierJob {
 # stream. It must not capture: doing so makes PowerShell hand the inner pwsh an
 # anonymous pipe for stdout instead of letting it inherit the console, and the
 # call operator then returns on that pipe reaching EOF rather than on the inner
-# exiting. The status server the inner spawns is the process that keeps it open --
+# exiting. The status service the inner spawns is the process that keeps it open --
 # Start-Process -RedirectStandard* sets bInheritHandles=TRUE, so it receives a
 # duplicate of the write end and holds it for its whole unbounded life. The host
 # then completes exactly one cycle and never starts another: the inner logs
@@ -649,8 +656,8 @@ function Invoke-RunnerOuterCycle {
         'RepoRoot','ConfigPath','InnerScript','PwshExe','ArgList',
         'ForwardEnvSnapshot','ShutdownState','NoGitPull',
         'FailurePauseMaxSeconds','FailureCommitPollSeconds',
-        'OuterPullErrorSleepSec','InnerSpawnErrorSleepSec',
-        'StepTimeoutMinutesDefault','WatchdogPollSeconds'
+        'OuterPullErrorSleepSeconds','InnerSpawnErrorSleepSeconds',
+        'StepTimeoutSecondsDefault','WatchdogPollSeconds'
     )
     foreach ($k in $required) {
         if (-not $State.ContainsKey($k)) {
@@ -777,7 +784,7 @@ function Invoke-RunnerOuterCycle {
         # it at the start of each sequence within a cycle, but between
         # the previous cycle's failure and the new cycle's first
         # sequence there is a multi-second window where a dashboard /
-        # status-server reader sees stale cycle-N failure context
+        # status-service reader sees stale cycle-N failure context
         # attached to cycle N+1. Pre-spawn deletion closes that window.
         $innerPidFile    = Join-Path $env:YURUNA_RUNTIME_DIR 'inner.pid'
         $stepHbFile      = Join-Path $env:YURUNA_RUNTIME_DIR 'runner.stepHeartbeat'
@@ -815,17 +822,17 @@ function Invoke-RunnerOuterCycle {
         # new-cycle step's Gate #1 thinks a break is still active --
         # hanging the cycle on a non-existent marker. Status-server
         # startup also sweeps this file but the runner can start
-        # without the status server; clean here so both startup paths
+        # without the status service; clean here so both startup paths
         # agree.
         Remove-Item -LiteralPath (Join-Path $env:YURUNA_RUNTIME_DIR 'break-active.json') -Force -ErrorAction SilentlyContinue
         # Arm the watchdog BEFORE the spawn so it's already polling
         # by the time the inner writes inner.pid + the first
-        # heartbeat. Re-read stepTimeoutMinutes each cycle so an
+        # heartbeat. Re-read stepTimeoutSeconds each cycle so an
         # operator can tighten / loosen the bound between cycles
         # without restarting the outer.
-        $stepTimeoutMin = Get-OuterStepTimeoutMinute -ConfigPath $State.ConfigPath -DefaultMinutes $State.StepTimeoutMinutesDefault -PoolTestCycleOverride $poolTC
-        Write-OuterLog "[outer cycle $cycle] watchdog: stepTimeoutMinutes=$stepTimeoutMin"
-        $watchdogJob = Start-Watchdog -StepTimeoutMinutes $stepTimeoutMin -RuntimeDir $env:YURUNA_RUNTIME_DIR -PollSeconds $State.WatchdogPollSeconds
+        $stepTimeoutSeconds = Get-OuterStepTimeoutSeconds -ConfigPath $State.ConfigPath -DefaultSeconds $State.StepTimeoutSecondsDefault -PoolTestCycleOverride $poolTC
+        Write-OuterLog "[outer cycle $cycle] watchdog: stepTimeoutSeconds=$stepTimeoutSeconds"
+        $watchdogJob = Start-Watchdog -StepTimeoutSeconds $stepTimeoutSeconds -RuntimeDir $env:YURUNA_RUNTIME_DIR -PollSeconds $State.WatchdogPollSeconds
         # The watchdog lifetime -- the arm-state check, the in-cycle transition,
         # and the inner spawn -- runs inside try/finally so Stop-Watchdog ALWAYS
         # runs. A throw in the arm-check warn or in Set-RunnerState (between
@@ -979,7 +986,7 @@ function Invoke-RunnerOuterCycle {
         # idiom as the drain) so a slow/absent aggregator can NEVER delay the next cycle
         # (preserving read-side decoupling); pull backfills anything push drops. The
         # forwarder self-gates: it is a fast no-op unless the lab-auth-token is configured
-        # (enrollment is the push opt-in) AND a caching-proxy is reachable. Spawn failure is
+        # (enrollment is the push opt-in) AND a caching-proxy-service is reachable. Spawn failure is
         # non-fatal.
         try {
             $pushScript = Join-Path $PSScriptRoot 'Invoke-PoolPushForwarder.ps1'
@@ -1015,10 +1022,10 @@ function Invoke-RunnerOuterCycle {
         # prompt-safe + subprocess-bounded contract). IN-PROCESS so the dispatcher's delivery
         # ledger (the confirmation channel) is readable; no detached spawn needed.
         try {
-            # Import the notifier + its dependencies (poolStorage config, caching-proxy IP,
+            # Import the notifier + its dependencies (poolStorage config, caching-proxy-service IP,
             # the Send-Notification dispatcher) best-effort. Plain Import-Module (no -Force)
             # is idempotent and avoids the global-module-eviction trap.
-            foreach ($m in @('Test.PoolStorage.psm1', 'Test.CachingProxy.psm1', 'Test.Notify.psm1', 'Test.PoolNotifier.psm1')) {
+            foreach ($m in @('Test.PoolStorage.psm1', 'Test.CachingProxyService.psm1', 'Test.Notify.psm1', 'Test.PoolNotifier.psm1')) {
                 $mp = Join-Path $PSScriptRoot $m
                 if (Test-Path -LiteralPath $mp) { Import-Module $mp -ErrorAction SilentlyContinue }
             }
@@ -1084,9 +1091,9 @@ function Invoke-RunnerOuterCycle {
             $stepHbFile = Join-Path $env:YURUNA_RUNTIME_DIR 'runner.stepHeartbeat'
             if (Test-Path -LiteralPath $stepHbFile) {
                 $hbAge = ((Get-Date) - (Get-Item -LiteralPath $stepHbFile).LastWriteTime).TotalSeconds
-                if ($hbAge -gt ($stepTimeoutMin * 60)) {
-                    Write-Warning "[outer cycle $cycle] inner exited non-zero AND runner.stepHeartbeat is $([int]$hbAge)s stale (threshold $($stepTimeoutMin * 60)s) -- watchdog likely killed the inner. See runtime/outer.log for the kill line."
-                    Write-OuterLog "[outer cycle $cycle] inner kill attributed to watchdog (step heartbeat age $([int]$hbAge)s > $($stepTimeoutMin * 60)s)"
+                if ($hbAge -gt $stepTimeoutSeconds) {
+                    Write-Warning "[outer cycle $cycle] inner exited non-zero AND runner.stepHeartbeat is $([int]$hbAge)s stale (threshold ${stepTimeoutSeconds}s) -- watchdog likely killed the inner. See runtime/outer.log for the kill line."
+                    Write-OuterLog "[outer cycle $cycle] inner kill attributed to watchdog (step heartbeat age $([int]$hbAge)s > ${stepTimeoutSeconds}s)"
                     # A SIGKILL leaves no last_failure.json (the inner's application
                     # failure path cannot run), so the auto-remediation pause-skip
                     # below has nothing to classify and the cycle escalates straight
@@ -1123,7 +1130,7 @@ function Invoke-RunnerOuterCycle {
                             actionVerb              = 'watchdog'
                             suggestedRecoveries     = @()
                             stepHeartbeatAgeSeconds = [int]$hbAge
-                            stepTimeoutSeconds      = ($stepTimeoutMin * 60)
+                            stepTimeoutSeconds      = $stepTimeoutSeconds
                             cycle                   = $cycle
                             synthesizedBy           = 'outer-watchdog'
                             timestamp               = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
@@ -1291,8 +1298,8 @@ function Invoke-RunnerOuterLoop {
           RepoRoot, ConfigPath, InnerScript, PwshExe, ArgList,
           ForwardEnvSnapshot, ShutdownState, NoGitPull,
           FailurePauseMaxSeconds, FailureCommitPollSeconds,
-          OuterPullErrorSleepSec, InnerSpawnErrorSleepSec,
-          StepTimeoutMinutesDefault, WatchdogPollSeconds.
+          OuterPullErrorSleepSeconds, InnerSpawnErrorSleepSeconds,
+          StepTimeoutSecondsDefault, WatchdogPollSeconds.
         Optional: CycleScript -- path to Invoke-TestCycleRunner.ps1. Absent, the
         cycle runs IN-PROCESS via Invoke-RunnerOuterCycle, which is the shape the
         unit tests drive and a usable fallback if the script is missing.
@@ -1307,8 +1314,8 @@ function Invoke-RunnerOuterLoop {
         'RepoRoot','ConfigPath','InnerScript','PwshExe','ArgList',
         'ForwardEnvSnapshot','ShutdownState','NoGitPull',
         'FailurePauseMaxSeconds','FailureCommitPollSeconds',
-        'OuterPullErrorSleepSec','InnerSpawnErrorSleepSec',
-        'StepTimeoutMinutesDefault','WatchdogPollSeconds'
+        'OuterPullErrorSleepSeconds','InnerSpawnErrorSleepSeconds',
+        'StepTimeoutSecondsDefault','WatchdogPollSeconds'
     )
     foreach ($k in $required) {
         if (-not $State.ContainsKey($k)) {
@@ -1338,12 +1345,12 @@ function Invoke-RunnerOuterLoop {
         # Transient, non-fault outcomes: hold, then re-enter. The hold is sliced so
         # a Ctrl+C during it is seen within a few seconds instead of at the end.
         if ($outcome -in @('pull-error','paused','spawn-failed')) {
-            $holdSec = switch ($outcome) {
-                'pull-error'   { $State.OuterPullErrorSleepSec }
-                'spawn-failed' { $State.InnerSpawnErrorSleepSec }
+            $holdSeconds = switch ($outcome) {
+                'pull-error'   { $State.OuterPullErrorSleepSeconds }
+                'spawn-failed' { $State.InnerSpawnErrorSleepSeconds }
                 default        { 30 }
             }
-            Wait-OuterInterruptible -Seconds $holdSec -ShutdownState $State.ShutdownState
+            Wait-OuterInterruptible -Seconds $holdSeconds -ShutdownState $State.ShutdownState
             continue
         }
         # One console line per finished cycle. Between the startup banner and
@@ -1383,13 +1390,13 @@ function Invoke-RunnerOuterLoop {
             $null = Set-RunnerState -To 'fault' -Reason "inner exited $exitCode" -Confirm:$false
         }
 
-        # Re-ensure the status server before the pause. The step-heartbeat
+        # Re-ensure the status service before the pause. The step-heartbeat
         # watchdog's Windows tree-kill (taskkill /T) also takes down the status
         # server, which the inner spawns as its own child on Windows -- exactly
         # when the operator's UI recovery path (/control/start-cycle) is needed
         # during the failure-pause below. (The Unix branch re-parents the server
-        # so its kill spares it; the Host Config Service is owned by
-        # Start-CachingProxyVM, not the inner, so it is never in the kill-tree and
+        # so its kill spares it; the config service is owned by
+        # Start-CachingProxyServiceVM, not the inner, so it is never in the kill-tree and
         # needs no re-ensure here.) Re-spawning from THIS outer process makes it
         # a stable child that survives the pause; it is a no-op when the server
         # is still alive (the common non-watchdog inner exit -- skip-if-healthy)
@@ -1453,10 +1460,10 @@ function Invoke-RunnerOuterLoop {
                     $slice = [math]::Min(5, $remainingPoll)
                     Start-Sleep -Seconds $slice
                     $remainingPoll -= $slice
-                    $remainingSec = [math]::Max(0, [int]($deadline - (Get-Date)).TotalSeconds)
-                    $elapsedSec   = [int]((Get-Date) - $pauseStart).TotalSeconds
-                    $percent      = [math]::Min(100, [math]::Max(0, [int](($elapsedSec * 100) / $State.FailurePauseMaxSeconds)))
-                    $remainingMin = [math]::Round($remainingSec / 60, 1)
+                    $remainingSeconds = [math]::Max(0, [int]($deadline - (Get-Date)).TotalSeconds)
+                    $elapsedSeconds   = [int]((Get-Date) - $pauseStart).TotalSeconds
+                    $percent      = [math]::Min(100, [math]::Max(0, [int](($elapsedSeconds * 100) / $State.FailurePauseMaxSeconds)))
+                    $remainingMinutes = [math]::Round($remainingSeconds / 60, 1)
                     # Hardened the same way Wait-WithProgress draws its bar:
                     # Write-Progress throws on tmux/sshd PTYs without a
                     # resolvable TERM (the SetCursorPosition trap in
@@ -1466,9 +1473,9 @@ function Invoke-RunnerOuterLoop {
                     try {
                         Write-Progress -Id $progressId `
                             -Activity "[outer cycle $cycle] failure-pause toward next cycle" `
-                            -Status  ("{0} min remain (next commit poll in {1}s)" -f $remainingMin, $remainingPoll) `
+                            -Status  ("{0} min remain (next commit poll in {1}s)" -f $remainingMinutes, $remainingPoll) `
                             -PercentComplete $percent `
-                            -SecondsRemaining $remainingSec
+                            -SecondsRemaining $remainingSeconds
                     } catch { $null = $_ }
                 }
                 if ($State.ShutdownState['Requested']) { break }
@@ -1509,7 +1516,7 @@ function Invoke-RunnerOuterLoop {
                 # poll, that path would leave the UI's "Start cycle"
                 # button silent until the backoff cap. Consume the
                 # flag here so the next inner spawn doesn't re-fire on
-                # it (Test-Sequence / inner's boot sweep also consume,
+                # it (Invoke-TestSequence / inner's boot sweep also consume,
                 # but the closer the consume to the wake the smaller
                 # the window for stale-flag re-entry).
                 $outerRestartFlag = Join-Path $env:YURUNA_RUNTIME_DIR 'control.cycle-restart'
@@ -1555,8 +1562,8 @@ function Invoke-RunnerOuterLoop {
                         break
                     }
                 }
-                $remainingMin = [math]::Max(0, [math]::Round((($deadline - (Get-Date)).TotalMinutes), 1))
-                Write-Output "[outer cycle $cycle] no new commits, no config edit; ${remainingMin} min remain in pause."
+                $remainingMinutes = [math]::Max(0, [math]::Round((($deadline - (Get-Date)).TotalMinutes), 1))
+                Write-Output "[outer cycle $cycle] no new commits, no config edit; ${remainingMinutes} min remain in pause."
             }
         } finally {
             # Dismiss the bar on every exit path (trigger, cap, Ctrl+C,
@@ -1576,7 +1583,7 @@ function Invoke-RunnerOuterLoop {
 }
 Export-ModuleMember -Function `
     Get-OuterCommitSha, Test-OuterNewCommitsAvailable, Invoke-OuterGitPull, Invoke-OuterNetworkGit, `
-    Get-OuterRemoteSha, Get-OuterConfigMtime, Get-OuterStepTimeoutMinute, Get-OuterProjectUrl, `
+    Get-OuterRemoteSha, Get-OuterConfigMtime, Get-OuterStepTimeoutSeconds, Get-OuterProjectUrl, `
     Get-OuterPoolTestCycleOverride, Get-OuterAutoRemediation, Test-OuterNoStatusServiceForwarded, `
     Get-OuterStatusBaseUrl, Get-OuterCycleSummaryLine, `
     Sync-ForwardEnv, Write-OuterLog, `

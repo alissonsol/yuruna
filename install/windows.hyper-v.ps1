@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.28
+.VERSION 2026.07.29
 .GUID 42c2a1aa-2e97-414a-9393-0d097d2e2a2c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -83,14 +83,7 @@ try {
 }
 
 # --- REGION: Install log
-# The elevated relaunch runs in a SEPARATE console window that vanishes the
-# instant the script ends or dies, so a mid-install failure there leaves
-# nothing on screen to read. Transcript every elevated stage to a file under a
-# standard, discoverable location (%ProgramData%\Yuruna\logs, falling back to
-# %TEMP%) so the failure can be inspected after the window is gone. The path is
-# generated ONCE and forwarded through every relaunch via -LogPath, so the line
-# printed before the UAC relaunch names the exact file the elevated window
-# writes, and every stage appends to that one file.
+# --- REGION: https://yuruna.link/install/explained#install-log
 $script:InstallLogActive = $false
 
 function Resolve-InstallLogPath {
@@ -336,17 +329,7 @@ if (-not $SkipPreflight) {
 }
 
 # --- REGION: Single-fetch materialization (irm|iex path)
-# Under `irm | iex` there is no $PSCommandPath, so the elevation and PS7
-# relaunches below would each RE-FETCH the installer from the moving ref --
-# extra unverified swings, two of them in the elevated context. Instead fetch
-# the source ONCE here to a BOM-less temp file and relaunch via -File, so
-# every child runs from that one file with a real
-# $PSCommandPath and never re-fetches. Byte-true IRM-to-temp (not
-# ScriptBlock.ToString(), whose PS5.1 round-trip fidelity is unverified), so
-# the materialized bytes match the canonical installer.
-#
-# Sweep stale materialization temps left by a crashed prior run (>1h old; the
-# age guard never touches a concurrent run's fresh temp).
+# --- REGION: https://yuruna.link/install/explained#single-fetch-materialization
 Get-ChildItem -LiteralPath $env:TEMP -Filter 'yuruna-windows-hyper-v-*.ps1' -ErrorAction SilentlyContinue |
     Where-Object { $_.LastWriteTime -lt (Get-Date).AddHours(-1) } |
     ForEach-Object { Remove-Item -LiteralPath $_.FullName -Force -ErrorAction SilentlyContinue }
@@ -551,7 +534,7 @@ function Stop-YurunaProcess {
     }
 
     # (2) Command-line pattern match.
-    $patterns = @('Invoke-TestRunner.ps1','Invoke-TestInnerRunner.ps1','Test-Sequence.ps1','Start-StatusService.ps1','.status-service.ps1')
+    $patterns = @('Invoke-TestRunner.ps1','Invoke-TestRunnerInnerLoop.ps1','Invoke-TestSequence.ps1','Start-StatusService.ps1','.status-service.ps1')
     foreach ($pat in $patterns) {
         $procs = Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
             Where-Object { $_.CommandLine -and $_.CommandLine -like "*$pat*" }
@@ -579,7 +562,7 @@ function Stop-YurunaProcess {
     # is killed once.
     $targetPids = @($candidatePids | Where-Object { $_ -gt 0 -and $_ -ne $PID } | Select-Object -Unique)
     if ($targetPids.Count -eq 0) {
-        Write-Step '  no running Yuruna runner / status server found'
+        Write-Step '  no running Yuruna runner / status service found'
         return
     }
 
@@ -595,7 +578,7 @@ function Stop-YurunaProcess {
         $proc  = Get-Process -Id $targetPid -ErrorAction SilentlyContinue
         if (-not $proc) { continue }   # already gone (e.g. killed as a child of an earlier target's tree)
         # Identity-validate: only stop actual PowerShell processes (the runner /
-        # inner / status server are all pwsh). A PID read from a stale PID file
+        # inner / status service are all pwsh). A PID read from a stale PID file
         # may have been recycled by the OS to an unrelated process -- never
         # taskkill /T /F an innocent recycled PID's whole tree.
         if ($proc.ProcessName -notmatch '^(pwsh|powershell)$') {
@@ -638,15 +621,8 @@ function Stop-YurunaProcess {
 }
 
 # --- REGION: Directory rename that stays a rename
-# Move-Item degrades a failed directory rename into a recursive copy-then-delete
-# -- that is how it supports moves across volumes. Applied to a checkout that is
-# held open, it copies part of the tree (.git included) to the destination name,
-# deletes those originals, then fails on the first file it cannot touch: a
-# destroyed working tree, reported as "the item is in use". Every directory move
-# in this installer therefore goes through [System.IO.Directory]::Move, which is
-# a rename and nothing else -- it either succeeds or throws with both paths
-# exactly as they were. Sibling destinations only, so the same-volume
-# restriction never applies.
+# --- REGION: https://yuruna.link/install/explained#directory-rename-that-stays-a-rename
+# Invariant: always [System.IO.Directory]::Move; sibling destinations only.
 function Move-YurunaDirectory {
     [CmdletBinding(SupportsShouldProcess)]
     [OutputType([bool])]
@@ -669,20 +645,8 @@ function Move-YurunaDirectory {
 }
 
 # --- REGION: Preflight: the checkout is not held open
-# The update path (below) may have to move the existing checkout aside to
-# re-clone, and moving a directory is a rename that fails when the folder is
-# held open -- most often a shell sitting inside it (its working directory pins
-# the tree), or an editor / Explorer window with it open. That failure is
-# otherwise only reached AFTER the winget installs, the Hyper-V enable, and the
-# test/status backup, so the operator waits minutes for a surprising "item is in
-# use" abort. Probe it up front with the SAME operation the fallback uses -- a
-# sibling rename -- after first dropping our own lock by stepping out of the
-# tree. A pass renames straight back, so nothing is disrupted.
-#
-# A failure WARNS and lets the install continue: the rename is needed only by
-# the non-ff re-clone path below, which reports its own failure, so a plain
-# `git pull` update still completes on a checkout something else holds open.
-# The probe exists to tell the operator early, not to veto the run.
+# --- REGION: https://yuruna.link/install/explained#checkout-not-held-open
+# A failed probe WARNS and the install continues -- it never vetoes the run.
 function Test-YurunaPathInside {
     [CmdletBinding()]
     [OutputType([bool])]
@@ -839,11 +803,11 @@ function Assert-YurunaCheckoutMovable {
     Write-Die "Verified '$Dir' is movable but could not restore it from the probe name '$probe': $restoreError. Rename '$probe' back to '$Dir' manually, then re-run."
 }
 
-# --- REGION: yuruna-caching-proxy detection
-function Test-CachingProxyRunning {
+# --- REGION: yuruna-caching-proxy-service detection
+function Test-CachingProxyServiceRunning {
     [CmdletBinding()]
     [OutputType([bool])]
-    param([string]$VMName = 'yuruna-caching-proxy')
+    param([string]$VMName = 'yuruna-caching-proxy-service')
     if (-not (Get-Command Get-VM -ErrorAction SilentlyContinue)) { return $false }
     $vm = Get-VM -Name $VMName -ErrorAction SilentlyContinue
     return ($vm -and $vm.State -eq 'Running')
@@ -854,11 +818,11 @@ $script:InstallError        = $null
 $script:YurunaBackupCreated = $null
 try {
 
-if (Test-CachingProxyRunning) {
-    Write-Step 'yuruna-caching-proxy VM is running -- preserving cached content (no Stop-VM / Remove-VM in this installer)'
+if (Test-CachingProxyServiceRunning) {
+    Write-Step 'yuruna-caching-proxy-service VM is running -- preserving cached content (no Stop-VM / Remove-VM in this installer)'
 }
 
-Write-Step 'Stopping anything that would block a repo update (runner + status server; VMs preserved)'
+Write-Step 'Stopping anything that would block a repo update (runner + status service; VMs preserved)'
 Stop-YurunaProcess -YurunaDir $YurunaDir
 
 Write-Step 'Checking the Yuruna checkout is not locked by a shell / editor / Explorer'
@@ -910,7 +874,7 @@ if ($PSVersionTable.PSEdition -eq 'Core') {
 }
 Install-WingetPackage -Id 'Git.Git'                           -FriendlyName 'Git (brings openssl.exe used by Ubuntu guest New-VM.ps1 password hashing)'
 Install-WingetPackage -Id 'Microsoft.WindowsADK'              -FriendlyName 'Windows ADK (Deployment Tools / oscdimg)'
-Install-WingetPackage -Id 'SoftwareFreedomConservancy.QEMU'   -FriendlyName 'QEMU tools (qemu-img for guest.caching-proxy/Get-Image.ps1)'
+Install-WingetPackage -Id 'SoftwareFreedomConservancy.QEMU'   -FriendlyName 'QEMU tools (qemu-img for guest.caching-proxy-service/Get-Image.ps1)'
 Install-WingetPackage -Id 'UB-Mannheim.TesseractOCR'          -FriendlyName 'Tesseract OCR'
 Install-WingetPackage -Id 'GitHub.cli'                        -FriendlyName 'GitHub CLI (gh) -- run `gh auth login` after install to authenticate'
 
@@ -934,7 +898,7 @@ if (Get-Module -ListAvailable -Name powershell-yaml -ErrorAction SilentlyContinu
         Install-Module -Name powershell-yaml -Scope CurrentUser -Force -AllowClobber -ErrorAction Stop
     } catch {
         Write-Warn "  Install-Module powershell-yaml failed: $($_.Exception.Message)"
-        Write-Warn "  Test-Project.ps1 will refuse to run until this is fixed."
+        Write-Warn "  Invoke-TestProject.ps1 will refuse to run until this is fixed."
         Write-Warn "  Try manually: Install-Module powershell-yaml -Scope CurrentUser"
     }
 }

@@ -62,7 +62,7 @@ sequenceDiagram
     participant Inner as InnerRunner
     participant Host as Host contract
     participant Guest as Guest VM
-    participant Status as Status server
+    participant Status as Status service
     participant Notify
 
     Outer->>Cycle: spawn one process per cycle
@@ -106,8 +106,8 @@ sequenceDiagram
     participant Harness as SequenceHandler
     participant Guest as fetch-and-execute.sh
     participant HostEnv as /etc/yuruna/host.env
-    participant StatusSrv as Host status server
-    participant Proxy as Caching proxy (squid)
+    participant StatusSrv as Host status service
+    participant Proxy as caching-proxy service (squid)
     participant Upstream as GitHub / mirrors
 
     Harness->>Guest: type cmd + EXEC_SHA256, EXEC_FALLBACK_REPO/REF
@@ -165,7 +165,7 @@ sequenceDiagram
     participant Diag as Save-GuestDiagnostic
     participant Guest as Guest VM
     participant HostDiag as Get-SystemDiagnostic
-    participant Status as Status server
+    participant Status as Status service
     participant Notify
 
     Inner->>Diag: step failed
@@ -187,4 +187,4 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.28
+Last review: 2026.07.29

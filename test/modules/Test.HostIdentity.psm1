@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.28
+.VERSION 2026.07.29
 .GUID 42f0a1b2-c3d4-4e56-9788-9a0b1c2d3e4f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -717,9 +717,9 @@ function Set-PoolStorageConfigValue {
         if (-not ($doc['pool'] -is [System.Collections.IDictionary])) { $doc['pool'] = [ordered]@{} }
         $doc['pool']['networkReplicate'] = $Replicate
         $ps = $doc['networkStorage']
-        $ps['poolNetworkPath']  = $NetworkPath
-        $ps['poolNetworkUser']  = $NetworkUser
-        $ps['poolLocalPath']    = $LocalPath
+        $ps['poolStorageNetworkPath']  = $NetworkPath
+        $ps['poolStorageNetworkUser']  = $NetworkUser
+        $ps['poolStorageLocalPath']    = $LocalPath
         $yaml = ConvertTo-Yaml $doc
         $wrote = $false
         if (Get-Command Write-YurunaStateFile -ErrorAction SilentlyContinue) {
@@ -805,9 +805,9 @@ function Invoke-PoolStorageSetupAndReclaim {
         try {
             $cur = Get-Content -Raw -LiteralPath $cfgPath | ConvertFrom-Yaml -Ordered
             if ($cur -is [System.Collections.IDictionary] -and $cur['networkStorage'] -is [System.Collections.IDictionary]) {
-                $curPath  = [string]$cur['networkStorage']['poolNetworkPath']
-                $curUser  = [string]$cur['networkStorage']['poolNetworkUser']
-                $curLocal = [string]$cur['networkStorage']['poolLocalPath']
+                $curPath  = [string]$cur['networkStorage']['poolStorageNetworkPath']
+                $curUser  = [string]$cur['networkStorage']['poolStorageNetworkUser']
+                $curLocal = [string]$cur['networkStorage']['poolStorageLocalPath']
             }
         } catch { $null = $_ }
     }
@@ -897,7 +897,7 @@ function Invoke-PoolStorageSetupAndReclaim {
 
     # poolStorage is now configured + mounted here, so this is a pool-services candidate.
     # Surface whether the pool-alert notification transport still needs setup, so the
-    # operator on the caching-proxy + dashboards host doesn't silently skip pool alerting.
+    # operator on the caching-proxy-service + dashboards host doesn't silently skip pool alerting.
     # Best-effort + bounded; never blocks setup.
     try {
         if (-not (Get-Command Write-PoolNotifierSetupNotice -ErrorAction SilentlyContinue)) {

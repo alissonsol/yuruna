@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.28
+.VERSION 2026.07.29
 .GUID 42e060d7-36ff-4d1a-8a46-0ee20e443f51
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -73,16 +73,16 @@ function Initialize-TestRunId {
     $global:__YurunaRunId = $RunId
 }
 
-function Initialize-TestCycleId {
+function Initialize-TestCycleStartUtc {
     <#
     .SYNOPSIS
         Set the cycle-id anchor Set-RunnerState copies onto a cycle-start write.
     #>
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidGlobalVars', '',
-        Justification = 'Set-RunnerState reads global:__YurunaCycleId (set by Start-LogFile); the test has to drive it.')]
+        Justification = 'Set-RunnerState reads global:__YurunaCycleStartUtc (set by Start-LogFile); the test has to drive it.')]
     [CmdletBinding()]
-    param([Parameter(Mandatory)][AllowEmptyString()][string]$CycleId)
-    $global:__YurunaCycleId = $CycleId
+    param([Parameter(Mandatory)][AllowEmptyString()][string]$CycleStartUtc)
+    $global:__YurunaCycleStartUtc = $CycleStartUtc
 }
 
 # The adjacency map as the module documents it, restated as data so that
@@ -268,18 +268,18 @@ Describe 'Set-RunnerState' {
     BeforeAll {
         $null = Initialize-TestRuntimeDir
         Initialize-TestRunId -RunId 'run-set'
-        Initialize-TestCycleId -CycleId ''
+        Initialize-TestCycleStartUtc -CycleStartUtc ''
     }
     AfterAll {
         $dir = $env:YURUNA_RUNTIME_DIR
         Remove-Item Env:\YURUNA_RUNTIME_DIR -ErrorAction SilentlyContinue
         if ($dir) { Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue }
         Initialize-TestRunId -RunId ''
-        Initialize-TestCycleId -CycleId ''
+        Initialize-TestCycleStartUtc -CycleStartUtc ''
     }
     BeforeEach {
         Remove-Item -LiteralPath (Get-RunnerStatePath) -Force -ErrorAction SilentlyContinue
-        Initialize-TestCycleId -CycleId ''
+        Initialize-TestCycleStartUtc -CycleStartUtc ''
     }
 
     It 'walks the happy path and persists every hop' {
@@ -339,13 +339,13 @@ Describe 'Set-RunnerState' {
     }
     It 'stamps the cycle id on a cycle-start and carries it across later hops' {
         $null = Initialize-RunnerState -Confirm:$false
-        Initialize-TestCycleId -CycleId 'cycle-000042'
+        Initialize-TestCycleStartUtc -CycleStartUtc 'cycle-000042'
         $start = Set-RunnerState -To 'cycle-start' -Confirm:$false
-        Assert-Equal -Expected 'cycle-000042' -Actual $start.lastCycleId
+        Assert-Equal -Expected 'cycle-000042' -Actual $start.lastCycleStartUtc
 
         $inCycle = Set-RunnerState -To 'in-cycle' -Confirm:$false
-        Assert-Equal -Expected 'cycle-000042' -Actual $inCycle.lastCycleId -Because 'cycle context survives the next transition'
-        Assert-Equal -Expected 'cycle-000042' -Actual (Get-RunnerState).lastCycleId
+        Assert-Equal -Expected 'cycle-000042' -Actual $inCycle.lastCycleStartUtc -Because 'cycle context survives the next transition'
+        Assert-Equal -Expected 'cycle-000042' -Actual (Get-RunnerState).lastCycleStartUtc
     }
     It 'preserves cycle-context fields a prior write left on the file' {
         $null = Initialize-RunnerState -Confirm:$false

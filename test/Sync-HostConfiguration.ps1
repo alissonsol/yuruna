@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.28
+.VERSION 2026.07.29
 .GUID 42795a67-cd5f-42ad-bd44-8d466ffec8fb
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -39,7 +39,7 @@
     Network name or IP address of the pool host to copy the config from. Any
     host type -- converting between them is the point.
 .PARAMETER StatusPort
-    The reference host's status-server port. The per-host script's default
+    The reference host's status-service port. The per-host script's default
     applies when this is omitted.
 .PARAMETER SharedToken
     Shared lab-auth-token, used to fetch a missing vault credential from the
@@ -58,6 +58,15 @@
 .PARAMETER NoPersistSharedToken
     Use -SharedToken only for this run and do NOT store it. The host keeps
     loopback-only control. For a host that should not be remotely drivable.
+.PARAMETER AllowStaleReference
+    Copy from a reference host whose test.config.yml is behind THIS host's
+    test.config.yml.template without asking. The sync compares the fetched config
+    against the local template first and, when the reference is missing current
+    keys, still spells retired ones, or carries keys the schema dropped, it lists
+    the differences and asks before overwriting -- copying a half-migrated config
+    lands keys silently defaulted here. Under -NonInteractive that check FAILS the
+    run instead of prompting, so this switch is what an unattended sync passes once
+    the drift is understood.
 .PARAMETER NonInteractive
     Never prompt; skip anything needing operator input, with a warning.
 .PARAMETER SkipValidation
@@ -81,7 +90,7 @@
     Justification = 'Forwarded as the plaintext vault stores it, to a per-host script that takes it the same way; only its HMAC proof crosses the wire.')]
 # SupportsShouldProcess is load-bearing, not decoration: this script performs a
 # state change of its own (storing the shared token in the vault and bouncing
-# the status server) before delegating. Without it, -WhatIf binds to
+# the status service) before delegating. Without it, -WhatIf binds to
 # -RemainingArguments as a plain string instead of a common parameter, so the
 # rehearsal reaches only the per-host script -- and the vault write it was meant
 # to rehearse happens for real.
@@ -102,6 +111,7 @@ param(
     [switch]$NonInteractive,
     [switch]$SkipValidation,
     [switch]$NoPool,
+    [switch]$AllowStaleReference,
 
     [Parameter(ValueFromRemainingArguments)]
     [string[]]$RemainingArguments
@@ -110,6 +120,22 @@ param(
 $ErrorActionPreference = 'Stop'
 
 Import-Module -Name (Join-Path (Split-Path -Parent $PSScriptRoot) 'automation/Yuruna.HostRedirect.psm1') -Force -DisableNameChecking
+
+# Elevation before anything happens. Invoke-YurunaHostScript makes the same
+# check, but only at line-of-delegation -- by then this redirector has already
+# rewritten the vault's lab-auth-token and bounced the status service (a wait of
+# up to three minutes), so an unelevated Windows operator pays for work that
+# cannot finish. Test-IsAdministrator lives in Yuruna.Common: Yuruna.HostRedirect
+# imports it into its own scope only, so this entry point imports it too.
+# Windows-only, exactly as the redirector has it -- '#requires -RunAsAdministrator'
+# exists only in the Hyper-V per-host script; the macOS and Ubuntu variants ask
+# for sudo themselves, per operation, with a reason.
+Import-Module -Name (Join-Path (Split-Path -Parent $PSScriptRoot) 'automation/Yuruna.Common.psm1') -Force -DisableNameChecking
+$hostTarget = Resolve-YurunaHostScript -ScriptName 'Sync-HostConfiguration.ps1'
+if ($hostTarget.RequiresElevation -and $IsWindows -and -not (Test-IsAdministrator)) {
+    throw ("$($hostTarget.RelativePath) requires Administrator, and this session is not elevated. " +
+           "Re-run the same command from an elevated PowerShell (Start-Process pwsh -Verb RunAs).")
+}
 
 # The per-host Sync-HostConfiguration.ps1 is an advanced script and narrates
 # each decision (kept local path, added alias, stored credential) under
@@ -144,7 +170,7 @@ if ($persistToken) {
         throw "-PersistSharedToken requires -SharedToken (the shared lab-auth-token to store in this host's vault)."
     }
     Import-Module (Join-Path $PSScriptRoot 'extension/authentication/default.psm1') -Global -Force -DisableNameChecking
-    Import-Module (Join-Path $PSScriptRoot 'modules/Test.HostConfigSync.psm1') -Global -Force -DisableNameChecking
+    Import-Module (Join-Path $PSScriptRoot 'modules/Test.ConfigServiceSync.psm1') -Global -Force -DisableNameChecking
     $tokenArgs = @{ Token = $SharedToken; BounceStatusService = $true }
     if ($PSBoundParameters.ContainsKey('WhatIf')) { $tokenArgs['WhatIf'] = $PSBoundParameters['WhatIf'] }
     $provision = Set-LabAuthToken @tokenArgs

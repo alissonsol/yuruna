@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.28
+.VERSION 2026.07.29
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456790
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -30,13 +30,13 @@
 # cycle's folder under test/status/log/, read by failure / diagnostics
 # helpers so the path doesn't have to thread through every call site).
 [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidGlobalVars', '',
-    Justification = 'global:__YurunaLogFile is the cross-module log-file handle read by Yuruna.Log.psm1; global:__YurunaCycleFolder is the cycle folder path read by failure / diagnostics handlers; global:__YurunaCycleId is the stable per-cycle correlation key stamped on every NDJSON event by Write-CycleNdjsonEvent; global:__YurunaRunId is the per-runner-process GUID stamped on every NDJSON event so a multi-host pool consumer can join (runId, cycleId) to identify a specific cycle on a specific host. All four are intentionally process-wide.')]
+    Justification = 'global:__YurunaLogFile is the cross-module log-file handle read by Yuruna.Log.psm1; global:__YurunaCycleFolder is the cycle folder path read by failure / diagnostics handlers; global:__YurunaCycleStartUtc is the stable per-cycle correlation key stamped on every NDJSON event by Write-CycleNdjsonEvent; global:__YurunaRunId is the per-runner-process GUID stamped on every NDJSON event so a multi-host pool consumer can join (runId, cycleStartUtc) to identify a specific cycle on a specific host. All four are intentionally process-wide.')]
 param()
 
 # Per-runner-process correlation ID. Generated once at module load and
 # reused for the life of the process; a -Force re-import preserves the
 # existing GUID so a mid-run `git pull` reload doesn't split one cycle's
-# stream across two runIds. New outer / inner / Test-Sequence processes
+# stream across two runIds. New outer / inner / Invoke-TestSequence processes
 # get their own GUIDs because each starts with a fresh global scope.
 if (-not (Get-Variable -Name '__YurunaRunId' -Scope Global -ErrorAction SilentlyContinue) -or
     -not $global:__YurunaRunId) {
@@ -91,17 +91,17 @@ function Format-CycleFolderBaseName {
     Single source of truth for the format so Start-LogFile, the per-guest
     folder helper, and the dashboard JS all produce identical strings.
     The 4th segment is the stable per-host hostId (runtime/host.uuid), NOT
-    the hostname: the cycleFolder name surfaces in the pool aggregator's
+    the hostname: the cycleFolder name surfaces in the pool-aggregator service's
     cycleFolderUrl (the dashboard deep-link + /api/v1/pool-status), which
     must stay hostname-free so the unauthenticated pool view discloses no
-    hostnames. CycleNumber is zero-padded to 6 digits per spec; CycleId is
+    hostnames. CycleNumber is zero-padded to 6 digits per spec; CycleStartUtc is
     parsed as an ISO-8601 UTC timestamp and split into date + time-with-
     dashes (colons can't appear in filenames on Windows/macOS volumes).
 #>
     [OutputType([string])]
     param(
         [Parameter(Mandatory)] [int]$CycleNumber,
-        [Parameter(Mandatory)] [string]$CycleId,
+        [Parameter(Mandatory)] [string]$CycleStartUtc,
         # Optional: empty/missing yields the 'unknown-host' placeholder
         # below. A Mandatory string param would REJECT an empty string,
         # which a one-shot caller with no host identity legitimately
@@ -109,12 +109,12 @@ function Format-CycleFolderBaseName {
         [string]$HostId = ''
     )
     $padded = '{0:D6}' -f $CycleNumber
-    # CycleId is "2026-05-11T16:24:39Z" -- index 0..9 is the date,
+    # CycleStartUtc is "2026-05-11T16:24:39Z" -- index 0..9 is the date,
     # index 11..18 is HH:mm:ss. Defensive .Length checks so a caller
-    # passing a non-ISO timestamp (Test-Sequence.ps1 one-shots) still
+    # passing a non-ISO timestamp (Invoke-TestSequence.ps1 one-shots) still
     # yields a usable folder name with whatever the substring produces.
-    $cycleDate = if ($CycleId.Length -ge 10) { $CycleId.Substring(0,10) } else { 'unknown-date' }
-    $cycleTime = if ($CycleId.Length -ge 19) { ($CycleId.Substring(11,8) -replace ':','-') } else { 'unknown-time' }
+    $cycleDate = if ($CycleStartUtc.Length -ge 10) { $CycleStartUtc.Substring(0,10) } else { 'unknown-date' }
+    $cycleTime = if ($CycleStartUtc.Length -ge 19) { ($CycleStartUtc.Substring(11,8) -replace ':','-') } else { 'unknown-time' }
     # 4th segment: the opaque hostId (keeps the name hostname-free). The
     # 'unknown-host' placeholder only applies to a one-shot caller with no
     # host identity established; it preserves the 4-segment shape that the
@@ -225,7 +225,7 @@ function Get-YurunaLogPreamble {
     .DESCRIPTION
         The <pre> wraps long lines (pre-wrap) so a wide command line or URL in
         the transcript does not force horizontal scrolling. The cache-control
-        meta tags MIRROR the HTTP headers the status server already sends
+        meta tags MIRROR the HTTP headers the status service already sends
         (`Cache-Control: no-store, no-cache, must-revalidate`) so a bfcache
         (back/forward) restore, a mirrored copy, or a direct file:// open still
         re-fetches instead of showing a stale in-progress log. Meta tags are
@@ -277,10 +277,10 @@ function Start-LogFile {
     [CmdletBinding(SupportsShouldProcess)]
     param(
         [Parameter(Mandatory)] [string]$TestRoot,
-        [Parameter(Mandatory)] [string]$CycleId,
+        [Parameter(Mandatory)] [string]$CycleStartUtc,
         [Parameter(Mandatory)] [string]$Hostname,
         # Monotonic cycle counter (1, 2, 3, ...). Defaults to 0 for
-        # callers without cycle context (Test-Sequence.ps1); the
+        # callers without cycle context (Invoke-TestSequence.ps1); the
         # resulting folder is 000000.YYYY-MM-DD.HH-mm-ss.HOSTID which
         # is still unique-per-invocation thanks to the timestamp.
         [int]$CycleNumber = 0
@@ -302,7 +302,7 @@ function Start-LogFile {
     } elseif (Get-Command Get-YurunaHostId -ErrorAction SilentlyContinue) {
         [string](Get-YurunaHostId)
     } else { '' }
-    $cycleBase = Format-CycleFolderBaseName -CycleNumber $CycleNumber -CycleId $CycleId -HostId $folderHostId
+    $cycleBase = Format-CycleFolderBaseName -CycleNumber $CycleNumber -CycleStartUtc $CycleStartUtc -HostId $folderHostId
     # Allocate the cycle folder with a `.incomplete` suffix so a
     # crashed cycle is visible at the folder-name level (in addition to
     # the in-folder marker file). Stop-LogFile renames to the bare
@@ -319,14 +319,14 @@ function Start-LogFile {
             New-Item -ItemType Directory -Path $cycleFolder -Force | Out-Null
         }
         # Cycle-folder lifecycle marker. A `.incomplete` sidecar file
-        # inside the cycle folder carries the cycleId / pid / startedAtUtc
+        # inside the cycle folder carries the cycleStartUtc / pid / startedAtUtc
         # for the boot-recovery sweep. Layers with the folder-name
         # suffix: the folder name signals "in progress / clean close /
         # aborted" at a glance; the marker file carries the forensic
-        # detail (which pid, which cycleId).
+        # detail (which pid, which cycleStartUtc).
         $incompleteMarker = Join-Path $cycleFolder '.incomplete'
         $markerPayload = [ordered]@{
-            cycleId      = [string]$CycleId
+            cycleStartUtc      = [string]$CycleStartUtc
             cycleNumber  = [int]$CycleNumber
             cycleFolder  = $cycleBase
             startedAtUtc = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
@@ -358,11 +358,11 @@ function Start-LogFile {
         # CycleNdjsonEvent. cycleFolder alone IS unique on a single host,
         # but a multi-host pool consumer joining live streams off three
         # boxes would otherwise have to parse the leaf name to recover
-        # the originating cycle time. cycleId is the ISO timestamp the
+        # the originating cycle time. cycleStartUtc is the ISO timestamp the
         # outer assigned at cycle start, so two events with the same
-        # cycleId are guaranteed to belong to the same cycle even when
+        # cycleStartUtc are guaranteed to belong to the same cycle even when
         # the cycleFolder leaf names diverge across hosts.
-        $global:__YurunaCycleId = [string]$CycleId
+        $global:__YurunaCycleStartUtc = [string]$CycleStartUtc
         # Fallback: import the proxy module if not already loaded
         if (-not (Get-Module Yuruna.Log)) {
             $repoRoot = Split-Path -Parent (Split-Path -Parent $TestRoot)
@@ -380,7 +380,7 @@ function Start-LogFile {
         Write-CycleNdjsonEvent -EventRecord @{
             timestamp    = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
             event        = 'cycle_start'
-            cycleId      = [string]$CycleId
+            cycleStartUtc      = [string]$CycleStartUtc
             cycleNumber  = [int]$CycleNumber
             cycleFolder  = $cycleBase
             hostname     = [string]$Hostname
@@ -388,7 +388,7 @@ function Start-LogFile {
         # Persist the cycle folder URL on the status doc so the dashboard
         # can build per-guest tile links without re-deriving the format.
         # During the cycle the on-disk folder is <base>.incomplete/; the
-        # status server's directory listing serves it under that path,
+        # status service's directory listing serves it under that path,
         # so the URL has to include the suffix. Stop-LogFile updates
         # the URL to the bare <base>/ after the clean-close rename.
         if (Get-Command Set-CycleFolderUrl -ErrorAction SilentlyContinue) {
@@ -441,7 +441,7 @@ function Get-CycleScreenDir {
         cycle that produced it -- the next cycle gets its own folder
         and can't overwrite earlier captures.
         Falls back to {YURUNA_LOG_DIR}/screens_{VMName}/ when no cycle
-        folder is established (Test-Sequence.ps1 normally calls
+        folder is established (Invoke-TestSequence.ps1 normally calls
         Start-LogFile, but defensive in case future drivers don't).
     #>
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidGlobalVars', '',
@@ -547,7 +547,7 @@ function Write-CycleManifest {
             }) | Out-Null
         }
         $payload = [ordered]@{
-            schemaVersion = 1
+            schemaVersion = 2
             cycleFolder   = Get-CycleFolderIdentity -Path $CycleFolder
             writtenAtUtc  = (Get-Date).ToUniversalTime().ToString('o')
             artifactCount = $entries.Count
@@ -685,7 +685,7 @@ function Stop-LogFile {
         }
         $global:__YurunaLogFile = $null
         $global:__YurunaCycleFolder = $null
-        $global:__YurunaCycleId = $null
+        $global:__YurunaCycleStartUtc = $null
     }
 }
 
@@ -696,10 +696,10 @@ function Start-NestedLogFile {
         without consuming a top-level cycle number or touching the owner's cycle
         document.
     .DESCRIPTION
-        A nested Test-Sequence (a host-action stage re-entering Test-Sequence.ps1
+        A nested Invoke-TestSequence (a host-action stage re-entering Invoke-TestSequence.ps1
         in a child pwsh) writes its detailed transcript to
         <rootCycleFolder>/nested/<safeNodeId>/<safeNodeId>.html and sets the same
-        $global:__YurunaLogFile / __YurunaCycleFolder / __YurunaCycleId handles
+        $global:__YurunaLogFile / __YurunaCycleFolder / __YurunaCycleStartUtc handles
         the Yuruna.Log tee + per-guest helpers read -- so the child's Write-*
         output and per-guest artifacts land under its own sub-folder. It does
         NOT rotate, allocate a cycle number, emit cycle_start, or set the
@@ -711,8 +711,8 @@ function Start-NestedLogFile {
         the flipped (bare/renamed) variant is tried as a fallback.
     .PARAMETER NodeId
         The nested node id (path-derived). Sanitized into a folder-safe leaf.
-    .PARAMETER CycleId
-        The owner's cycleId, stamped on this process's NDJSON events.
+    .PARAMETER CycleStartUtc
+        The owner's cycleStartUtc, stamped on this process's NDJSON events.
     .OUTPUTS
         [pscustomobject] @{ LogFile; CycleFolder; LogRel } where LogRel is the
         transcript path RELATIVE to the cycle folder (forward-slash), for the
@@ -723,7 +723,7 @@ function Start-NestedLogFile {
     param(
         [Parameter(Mandatory)][string]$RootCycleFolder,
         [Parameter(Mandatory)][string]$NodeId,
-        [string]$CycleId = ''
+        [string]$CycleStartUtc = ''
     )
     # Resolve the on-disk cycle folder: the owner may already have renamed
     # <base>.incomplete -> <base>, so try the given path then the flipped suffix.
@@ -744,10 +744,10 @@ function Start-NestedLogFile {
         # The Yuruna.Log proxy tees Write-* to whatever these handles point at;
         # aiming them at the nested transcript is what routes this child's output
         # into its own sub-log instead of a fresh top-level cycle. The proxy is
-        # already imported by the child's Test-Sequence entry point.
+        # already imported by the child's Invoke-TestSequence entry point.
         $global:__YurunaLogFile     = $logFile
         $global:__YurunaCycleFolder = $nestedFolder
-        $global:__YurunaCycleId     = [string]$CycleId
+        $global:__YurunaCycleStartUtc     = [string]$CycleStartUtc
     }
     return [pscustomobject]@{ LogFile = $logFile; CycleFolder = $nestedFolder; LogRel = $logRel }
 }
@@ -773,7 +773,7 @@ function Stop-NestedLogFile {
     }
     $global:__YurunaLogFile     = $null
     $global:__YurunaCycleFolder = $null
-    $global:__YurunaCycleId     = $null
+    $global:__YurunaCycleStartUtc     = $null
 }
 
 function Write-CycleNdjsonEvent {
@@ -804,12 +804,12 @@ function Write-CycleNdjsonEvent {
     if (-not $cycleFolder -and $env:YURUNA_LOG_DIR) { $cycleFolder = $env:YURUNA_LOG_DIR }
     if (-not $cycleFolder) { return }
     $path = Join-Path $cycleFolder 'cycle.events.ndjson'
-    # Stamp cycleFolder + cycleId on every record so off-host consumers
+    # Stamp cycleFolder + cycleStartUtc on every record so off-host consumers
     # can join events back to their cycle without reparsing the file
     # path or the leaf-name format. Existing values from the caller win
     # (cycle_start in particular already carries both); only set when
-    # missing. cycleId is the multi-host correlation key -- two events
-    # with the same cycleId belong to the same cycle even when emitted
+    # missing. cycleStartUtc is the multi-host correlation key -- two events
+    # with the same cycleStartUtc belong to the same cycle even when emitted
     # by sibling runners on different hosts.
     #
     # Stamp cycleFolder as the cycle's stable IDENTITY, not the
@@ -821,10 +821,10 @@ function Write-CycleNdjsonEvent {
     if (-not $EventRecord.Contains('cycleFolder')) {
         $EventRecord['cycleFolder'] = Get-CycleFolderIdentity -Path $cycleFolder
     }
-    if (-not $EventRecord.Contains('cycleId') -and $global:__YurunaCycleId) {
-        $EventRecord['cycleId'] = [string]$global:__YurunaCycleId
+    if (-not $EventRecord.Contains('cycleStartUtc') -and $global:__YurunaCycleStartUtc) {
+        $EventRecord['cycleStartUtc'] = [string]$global:__YurunaCycleStartUtc
     }
-    # runId stamps the per-runner-process GUID. With (runId, cycleId)
+    # runId stamps the per-runner-process GUID. With (runId, cycleStartUtc)
     # a multi-host pool consumer joins events back to a specific cycle
     # on a specific host without parsing folder leaf names or relying
     # on hostname collisions across the pool.
@@ -833,10 +833,10 @@ function Write-CycleNdjsonEvent {
     }
     # hostId stamps the STABLE per-host identity (persisted in runtime/host.uuid;
     # distinct from hostname, which can collide/rename across a pool). With
-    # (hostId, runId, cycleId) a pool consumer joins events to a cycle on a
+    # (hostId, runId, cycleStartUtc) a pool consumer joins events to a cycle on a
     # specific host without trusting hostname uniqueness. Set on $global at the
     # process entry point (Get-YurunaHostId), so this mirrors the runId stamp:
-    # conditional, and a no-op when unset (standalone Test-Sequence, tests).
+    # conditional, and a no-op when unset (standalone Invoke-TestSequence, tests).
     if (-not $EventRecord.Contains('hostId') -and $global:__YurunaHostId) {
         $EventRecord['hostId'] = [string]$global:__YurunaHostId
     }
@@ -988,7 +988,7 @@ function Send-YurunaDegradation {
         the line.
     .PARAMETER Dependency
         The subsystem/capability that degraded (e.g. 'keystroke-mechanism',
-        'capture-feed', 'caching-proxy').
+        'capture-feed', 'caching-proxy-service').
     .PARAMETER Primary
         The preferred mechanism that was unavailable (e.g. 'ssh-sequence').
     .PARAMETER Fallback

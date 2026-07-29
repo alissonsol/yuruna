@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.28
+.VERSION 2026.07.29
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456740
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -42,7 +42,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-# Seconds to wait for the detached status server to start answering on $Port
+# Seconds to wait for the detached status service to start answering on $Port
 # before emitting the "not responding" warning. The loop polls once per
 # second, so this is also the maximum number of poll attempts.
 $script:StatusServiceReadyTimeoutSeconds = 60
@@ -58,7 +58,7 @@ $ModulesDir = $paths.ModulesDir
 # debug artifacts). Default to status/ subdirs so the HTTP server serves
 # them at /runtime/* and /log/*. Other status/ subdirs (perf/, extension/,
 # captures/, ssh/) are served straight from $StatusDir as relative paths.
-# StatusService kind imports Test.YurunaDir, Test.VMUtility, Test.CachingProxy,
+# StatusService kind imports Test.YurunaDir, Test.VMUtility, Test.CachingProxyService,
 # Test.PortOwner, and Test.HostContract -- one call replaces five inline imports
 # spread across the bootstrap section of this script.
 Initialize-YurunaEntryPointModuleSet -For StatusService -ModulesDir $ModulesDir
@@ -86,10 +86,10 @@ if ($Restart -and (Test-Path $PidFile)) {
         $proc = Get-Process -Id $oldPid -ErrorAction SilentlyContinue
         if ($proc -and (Test-PidFileIdentity -PidFile $PidFile -Process $proc)) {
             Stop-Process -Id $oldPid -Force -ErrorAction SilentlyContinue
-            Write-Output "Stopped existing status server (PID $oldPid)."
+            Write-Output "Stopped existing status service (PID $oldPid)."
             Start-Sleep -Seconds 1
         } elseif ($proc) {
-            Write-Warning "PID $oldPid is not the status server (started after the PID file -- recycled onto an unrelated process); leaving it running and clearing the stale PID file."
+            Write-Warning "PID $oldPid is not the status service (started after the PID file -- recycled onto an unrelated process); leaving it running and clearing the stale PID file."
         }
     }
     Remove-Item $PidFile -Force -ErrorAction SilentlyContinue
@@ -142,7 +142,7 @@ if (Test-Path $PidFile) {
             try { $persistedSha = (Get-Content -LiteralPath $ShaFile -Raw).Trim() } catch { Write-Verbose "server.sha read failed: $($_.Exception.Message)" }
         }
         if ($currentSha -and $persistedSha -and ($currentSha -eq $persistedSha)) {
-            Write-Output "Status server is already running on the current framework SHA (PID $oldPid, port $Port, sha $($currentSha.Substring(0,[Math]::Min(12,$currentSha.Length))))."
+            Write-Output "Status service is already running on the current framework SHA (PID $oldPid, port $Port, sha $($currentSha.Substring(0,[Math]::Min(12,$currentSha.Length))))."
             Write-Output "Stop with: .\Stop-StatusService.ps1"
             exit 0
         }
@@ -155,7 +155,7 @@ if (Test-Path $PidFile) {
         $reason = if (-not $currentSha) { 'current HEAD unknown' }
                   elseif (-not $persistedSha) { 'no persisted SHA' }
                   else { "framework SHA changed ($persistedSha -> $currentSha)" }
-        Write-Output "Restarting status server (PID $oldPid): $reason."
+        Write-Output "Restarting status service (PID $oldPid): $reason."
         Stop-Process -Id $oldPid -Force -ErrorAction SilentlyContinue
         Start-Sleep -Seconds 1
     }
@@ -329,17 +329,49 @@ try {
     # is resolvable here without a redundant Import-Module call.
     $detectedHost = Get-HostType
 } catch {
-    Write-Warning "Host-type detection failed (continuing with HTTP status server): $_"
+    Write-Warning "Host-type detection failed (continuing with HTTP status service): $_"
 }
 
-# --- REGION: Probe proxy cache -> $env:YURUNA_RUNTIME_DIR/caching-proxy.txt
+# --- REGION: Announce the forwarder teardown's sudo
+# macOS: the Remove-PortMap calls in the port-map region below are clear-ALL,
+# so they stop every host-side forwarder -- and killing the root-owned :80
+# forwarder that Start-CachingProxyServiceVM created on the Shared-NAT path
+# needs sudo. Left to itself that fires a bare "[sudo] password for ..." deep
+# in the run, including on the unattended per-cycle path. Detect the exact
+# condition and announce the reason NOW, so the prompt is never a surprise and
+# a host without such a forwarder is never asked. Mirrors the same detection in
+# Stop-CachingProxyServiceVM.ps1; self-contained (pidfile + /bin/ps), no import.
+if ($IsMacOS) {
+    $forwarderStateDir = Join-Path $HOME 'yuruna/image/caching-proxy-service'
+    $hasRootForwarder  = $false
+    $meIsRoot          = $false
+    try { $meIsRoot = ((& '/usr/bin/id' -u) -eq '0') } catch { Write-Verbose "id -u check failed, assuming non-root: $_" }
+    if (-not $meIsRoot -and (Test-Path $forwarderStateDir)) {
+        foreach ($pf in (Get-ChildItem -LiteralPath $forwarderStateDir -Filter 'forwarder.*.pid' -File -ErrorAction SilentlyContinue)) {
+            $fp = (Get-Content $pf.FullName -Raw).Trim()
+            if ($fp -as [int]) {
+                $owner = "$(& '/bin/ps' -p $fp -o 'user=' 2>$null)".Trim()
+                if ($owner -eq 'root') { $hasRootForwarder = $true; break }
+            }
+        }
+    }
+    if ($hasRootForwarder) {
+        Write-Output "  Root-owned caching-proxy forwarder detected -- the port-map refresh below must stop it, which needs sudo (you may be prompted for your password)..."
+        & sudo -v
+        if ($LASTEXITCODE -ne 0) {
+            Write-Warning "  sudo -v failed -- the root-owned forwarder may not be stopped cleanly."
+        }
+    }
+}
+
+# --- REGION: Probe proxy cache -> $env:YURUNA_RUNTIME_DIR/caching-proxy-service.txt
 # UI banner appends this string to the status text so viewers see at a
 # glance whether the harness is behind a local squid. File holds
 # ready-to-embed HTML (including <a href> to the Grafana dashboards URL) so the UI
 # injects it without knowing the URL format. Written once at
 # Start-StatusService -- restart to refresh after bringing squid up/down.
 # Needs $detectedHost, so runs AFTER the SSH block's host detection.
-$CachingProxyFile = Join-Path $RuntimeDir "caching-proxy.txt"
+$CachingProxyServiceFile = Join-Path $RuntimeDir "caching-proxy-service.txt"
 try {
     if ($detectedHost) {
         # -Global: this script is &-invoked from the inner cycle runner (a module
@@ -350,34 +382,34 @@ try {
         Import-Module (Join-Path $ModulesDir 'Test.HostContract.psm1') -Force -Global
         [void](Initialize-YurunaHost -RepoRoot (Split-Path -Parent $TestRoot) -HostType $detectedHost)
         # Mandatory after Initialize-YurunaHost even though the StatusService
-        # module set at file top already imported Test.CachingProxy once:
+        # module set at file top already imported Test.CachingProxyService once:
         # docs/workarounds.md#nested-non-global-import-evicts-a-callers-view-of-a-module
-        Import-Module (Join-Path $ModulesDir 'Test.CachingProxy.psm1') -Global -Force -DisableNameChecking -Verbose:$false
-        $cachingProxyUrl = Test-CachingProxyAvailable
+        Import-Module (Join-Path $ModulesDir 'Test.CachingProxyService.psm1') -Global -Force -DisableNameChecking -Verbose:$false
+        $cachingProxyUrl = Test-CachingProxyServiceAvailable
         if ($cachingProxyUrl) {
             # Port mapping so the status-page banner reports the same
             # state as Invoke-TestRunner's console output.
             # Add-PortMap dispatches per-platform via the host driver
             # (netsh portproxy on Hyper-V, detached TcpListener
             # forwarders on macOS/UTM). Both channels read
-            # the same caching-proxy.txt so banner and console stay
+            # the same caching-proxy-service.txt so banner and console stay
             # in lock-step.
             #
             # Windows: port lists across callers MUST match -- Add-PortMap
-            # runs Clear-AllCachingProxyPortMapping first (netsh clears all), so
+            # runs Clear-AllCachingProxyServicePortMapping first (netsh clears all), so
             # any port omitted here would be torn down. macOS: per-port pidfiles
             # mean each caller manages its own subset independently; no match
             # required. Port 80 is excluded on macOS (see below).
             #
-            # External-cache branch: when $Env:YURUNA_CACHING_PROXY_IP
-            # is set, Test-CachingProxyAvailable returns the remote URL and
+            # External-cache branch: when $Env:YURUNA_CACHING_PROXY_SERVICE_IP
+            # is set, Test-CachingProxyServiceAvailable returns the remote URL and
             # the remote host exposes all its ports itself. Skip the
             # local portproxy/forwarder entirely -- the dashboard link
             # points straight at the remote IP.
             $cachingProxyContent = $null
             $mapOk = $false
             $bestIp = $null
-            $isExternal = [bool]$Env:YURUNA_CACHING_PROXY_IP
+            $isExternal = [bool]$Env:YURUNA_CACHING_PROXY_SERVICE_IP
             if ($isExternal) {
                 $externUrlIp = if ($cachingProxyUrl -match '^http://([0-9.]+):') { $matches[1] } else { $null }
                 # External handling below removes this host's
@@ -405,21 +437,21 @@ try {
                     $mapOk = [bool]$bestIp
                 } else {
                     # Local-cache port-map target IP: on Windows
-                    # Test-CachingProxyAvailable returns the VM's direct
+                    # Test-CachingProxyServiceAvailable returns the VM's direct
                     # IP (Hyper-V Default Switch is reachable from the
                     # host), so parsing works. On macOS the URL is
                     # http://192.168.64.1:3128 -- the VZ-gateway URL
                     # guests use, NOT the cache VM. Feeding 192.168.64.1
-                    # to Start-CachingProxyForwarder would make the
+                    # to Start-CachingProxyServiceForwarder would make the
                     # forwarder tunnel to its own listen socket (self-
                     # loop: TCP accepts succeed, nothing reaches squid,
                     # subiquity sees "Connection failed [IP: 192.168.64.1
                     # 3128]" and falls back to offline install). Read
-                    # the real VM IP from the yuruna-caching-proxy state
-                    # file written by Start-CachingProxyVM.ps1.
+                    # the real VM IP from the yuruna-caching-proxy-service state
+                    # file written by Start-CachingProxyServiceVM.ps1.
                     if ($IsMacOS) {
                         $vmIp = $null
-                        $candidate = (Read-CachingProxyState).ipAddress
+                        $candidate = (Read-CachingProxyServiceState).ipAddress
                         if ($candidate -and (Test-IpAddress $candidate)) { $vmIp = $candidate }
                     } else {
                         $vmIp = if ($cachingProxyUrl -match '^http://([0-9.]+):') { $matches[1] } else { $null }
@@ -428,17 +460,17 @@ try {
                             # by this host's forwarders): the port-map
                             # target must be the cache VM's real IP, never
                             # the host address fronting it (self-loop).
-                            $stateVmIp = Get-CachingProxyVMIp
+                            $stateVmIp = Get-CachingProxyServiceVmIp
                             if ($stateVmIp) { $vmIp = $stateVmIp }
                         }
                     }
                     # macOS: port 80 (<1024) is managed exclusively by
-                    # Start-CachingProxyVM.ps1 (it calls `sudo -v` first). Including
+                    # Start-CachingProxyServiceVM.ps1 (it calls `sudo -v` first). Including
                     # it here would trigger a sudo prompt on every status-service
                     # restart. On macOS each port is independent (per-port pidfile),
                     # so excluding :80 does not affect the other ports.
                     # Windows: all ports in one list -- netsh clears everything first.
-                    # All caching-proxy port mappings are repeated in EVERY caller's
+                    # All caching-proxy-service port mappings are repeated in EVERY caller's
                     # list because Add-PortMap clears ALL Yuruna netsh /
                     # pwsh-forwarder / firewall state first; omitting any here
                     # would tear it down each status-service restart.
@@ -474,18 +506,18 @@ try {
                         # portproxy because the user-mode listener path is
                         # unreachable from LAN on this host (squid logs the
                         # NAT-side IP -- see docs/caching.md).
-                        # macOS skips :80 -- Start-CachingProxyVM.ps1 is the
+                        # macOS skips :80 -- Start-CachingProxyServiceVM.ps1 is the
                         # sole sudo owner of the privileged bind.
-                        # Port values come from YURUNA_CACHING_PROXY_*_PORT
+                        # Port values come from YURUNA_CACHING_PROXY_SERVICE_*_PORT
                         # env vars (defaults 3128 / 3129).
-                        $cacheHttpPort  = Get-CachingProxyPort -Scheme http
-                        $cacheHttpsPort = Get-CachingProxyPort -Scheme https
-                        # The exposed-port set (incl. 9302 caching-proxy-parser
-                        # live tail) comes from Get-CachingProxyExposedPort so it
-                        # cannot drift from Start-CachingProxyVM's install list;
+                        $cacheHttpPort  = Get-CachingProxyServicePort -Scheme http
+                        $cacheHttpsPort = Get-CachingProxyServicePort -Scheme https
+                        # The exposed-port set (incl. 9302 caching-proxy-parser-service
+                        # live tail) comes from Get-CachingProxyServiceExposedPort so it
+                        # cannot drift from Start-CachingProxyServiceVM's install list;
                         # Add-PortMap is clear-all-first, so a dropped port goes
                         # dark on reinstall. macOS re-maps only Grafana.
-                        $squidPorts = if ($IsMacOS) { @(3000) } else { Get-CachingProxyExposedPort -HttpPort $cacheHttpPort -HttpsPort $cacheHttpsPort }
+                        $squidPorts = if ($IsMacOS) { @(3000) } else { Get-CachingProxyServiceExposedPort -HttpPort $cacheHttpPort -HttpsPort $cacheHttpsPort }
                         if ($vmIp) {
                             $portMapArgs = @{
                                 VMIp = $vmIp
@@ -514,17 +546,17 @@ try {
                 # way, but strict ones trip on bare `&` next to
                 # entity-like sequences.
                 $hrefUrl = $dashboardUrl -replace '&', '&amp;'
-                $cachingProxyContent = 'Caching proxy: <a href="' + $hrefUrl + '" target="_blank">detected</a>'
-                Write-Output "Caching proxy: detected, port map OK, dashboard=$dashboardUrl -- written to $CachingProxyFile"
+                $cachingProxyContent = 'Caching-proxy service: <a href="' + $hrefUrl + '" target="_blank">detected</a>'
+                Write-Output "Caching-proxy service: detected, port map OK, dashboard=$dashboardUrl -- written to $CachingProxyServiceFile"
             } else {
-                $cachingProxyContent = 'Caching proxy: detected (port map failed)'
-                Write-Output "Caching proxy: detected, port map failed -- written to $CachingProxyFile"
+                $cachingProxyContent = 'Caching-proxy service: detected (port map failed)'
+                Write-Output "Caching-proxy service: detected, port map failed -- written to $CachingProxyServiceFile"
             }
         } else {
-            $cachingProxyContent = 'Caching proxy: not detected'
-            Write-Output "Caching proxy: not detected -- written to $CachingProxyFile"
+            $cachingProxyContent = 'Caching-proxy service: not detected'
+            Write-Output "Caching-proxy service: not detected -- written to $CachingProxyServiceFile"
         }
-        [System.IO.File]::WriteAllText($CachingProxyFile, $cachingProxyContent, [System.Text.UTF8Encoding]::new($false))
+        [System.IO.File]::WriteAllText($CachingProxyServiceFile, $cachingProxyContent, [System.Text.UTF8Encoding]::new($false))
     } else {
         Write-Warning "Proxy-cache probe skipped -- module missing or host not detected."
     }
@@ -542,14 +574,14 @@ $serverScript = @"
 `$runtimeDir  = '$($RuntimeDir  -replace "'","''")'
 `$logDir    = '$($LogDir    -replace "'","''")'
 `$repoRoot  = '$($RepoRoot  -replace "'","''")'
-# Test-IpAddress and Get-CachingProxyPort are used to validate
-# vmStart.cachingProxyIP at save time in /control/test-config. Detached
+# Test-IpAddress and Get-CachingProxyServicePort are used to validate
+# vmStart.cachingProxyIp at save time in /control/test-config. Detached
 # server runspace is fresh -- import the module that exports them.
 Import-Module (Join-Path `$repoRoot 'test/modules/Test.VMUtility.psm1') -Force -DisableNameChecking -Verbose:`$false -ErrorAction SilentlyContinue
-# Invoke-CachingProxyProbe (used by /control/test-caching-proxy) lives in
-# Test.CachingProxy.psm1. The parent process imports it for its startup
+# Invoke-CachingProxyServiceProbe (used by /control/test-caching-proxy-service) lives in
+# Test.CachingProxyService.psm1. The parent process imports it for its startup
 # probe, but the detached child has its own fresh runspace.
-Import-Module (Join-Path `$repoRoot 'test/modules/Test.CachingProxy.psm1') -Force -DisableNameChecking -Verbose:`$false -ErrorAction SilentlyContinue
+Import-Module (Join-Path `$repoRoot 'test/modules/Test.CachingProxyService.psm1') -Force -DisableNameChecking -Verbose:`$false -ErrorAction SilentlyContinue
 # Read-TestConfig (mtime+hash cached YAML parse) for the test-config GET
 # and perf-aggregates handlers. Same cache the runner uses, so an
 # operator edit to test.config.yml is observed on the very next handler
@@ -564,7 +596,7 @@ Import-Module (Join-Path `$repoRoot 'test/modules/Test.PoolStorage.psm1') -Force
 # one module so the two ends of the shared-token envelope cannot drift.
 # Test.Extension supplies Import-Extension for the lazy authentication-
 # extension load inside that route.
-Import-Module (Join-Path `$repoRoot 'test/modules/Test.HostConfigSync.psm1') -Force -DisableNameChecking -Verbose:`$false -ErrorAction SilentlyContinue
+Import-Module (Join-Path `$repoRoot 'test/modules/Test.ConfigServiceSync.psm1') -Force -DisableNameChecking -Verbose:`$false -ErrorAction SilentlyContinue
 Import-Module (Join-Path `$repoRoot 'test/modules/Test.Extension.psm1')      -Force -DisableNameChecking -Verbose:`$false -ErrorAction SilentlyContinue
 # Get-RunnerInstanceState is the single tested implementation of the
 # runner PID + StartTime-sidecar identity check; the runner-status and
@@ -610,6 +642,22 @@ function Write-ServerErr {
 function ConvertTo-JsonEscapedString {
     param([string]`$s)
     `$s -replace '\\','\\' -replace '"','\"' -replace '[\r\n]+',' '
+}
+# Render a perf-row timestamp as round-trip ISO-8601 UTC regardless of how it
+# arrived. ConvertFrom-Json silently materializes an ISO-8601 field as a
+# [DateTime], and interpolating one of those renders it in the SERVER's culture
+# ("07/28/2026 17:32:03" on an en-US host). Two things break on that form: the
+# status page parses these as ISO to label each cycle row, and the aggregate
+# sorts cycles by comparing the field as TEXT -- and a lexical sort of
+# MM/DD/YYYY orders December 2025 after January 2026, silently drawing a
+# sequence's cycles out of chronological order. Normalizing on read keeps both
+# the wire format and the ordering key locale-independent.
+function ConvertTo-IsoUtcString {
+    param(`$Value)
+    if (`$null -eq `$Value) { return '' }
+    if (`$Value -is [DateTime])       { return ([DateTime]`$Value).ToUniversalTime().ToString('o') }
+    if (`$Value -is [DateTimeOffset]) { return ([DateTimeOffset]`$Value).UtcDateTime.ToString('o') }
+    return "`$Value"
 }
 # Uniform tail for an error response whose Content-Type / Cache-Control / Allow
 # headers (when a branch needs them) are set by the caller BEFORE this call, so
@@ -795,7 +843,7 @@ try {
             # in-progress VMs), triggers the arbitrary-target host probe, or
             # spawns the host diagnostic on every hit.
             `$csrfAlwaysProtected = @(
-                'control/start-cycle','control/break-continue','control/test-caching-proxy',
+                'control/start-cycle','control/break-continue','control/test-caching-proxy-service',
                 'control/host-diagnostic','control/step-pause','control/step-resume',
                 'control/cycle-pause','control/cycle-resume'
             )
@@ -824,7 +872,7 @@ try {
                 # is either on the loopback interface (the on-host operator, who
                 # is implicitly trusted) or presents a valid, short-lived control
                 # proof. The proof is an HMAC over the shared lab-auth-token,
-                # minted by the pool aggregator when the operator follows a
+                # minted by the pool-aggregator service when the operator follows a
                 # Grafana deep-link and delivered to the page in a URL fragment
                 # (never sent to a server or written to an access log). A LAN peer
                 # or a guest VM reaches this listener over the network -- it can
@@ -904,7 +952,7 @@ try {
 
             # --- REGION: /control/test-config: read/write test.config.yml from UI
             # GET parses the YAML on disk and sends it as JSON (200) so the
-            # in-browser tree editor (test.config.html) does not need a YAML
+            # in-browser tree editor (config.html) does not need a YAML
             # parser. POST/PUT accepts a JSON body, validates that
             # ConvertFrom-Json parses it, converts to YAML, and atomically
             # replaces the file (write .tmp + [IO.File]::Move). Bypasses the
@@ -977,7 +1025,7 @@ try {
                         Send-JsonError -Response `$res -StatusCode 400 -Json ('{"ok":false,"error":"invalid JSON: ' + `$errMsg + '"}')
                         continue
                     }
-                    # Validate vmStart.cachingProxyIP at save time: must be
+                    # Validate vmStart.cachingProxyIp at save time: must be
                     # a valid IPv4/IPv6 address AND TCP-reachable on the
                     # squid HTTP port (3128). Empty/whitespace -> stored as
                     # empty (cycle-start treats empty as absent). Either
@@ -987,28 +1035,28 @@ try {
                     `$cacheIpErr = `$null
                     if (`$parsedDoc -is [System.Collections.IDictionary] -and `$parsedDoc.Contains('vmStart')) {
                         `$vsNode = `$parsedDoc['vmStart']
-                        if (`$vsNode -is [System.Collections.IDictionary] -and `$vsNode.Contains('cachingProxyIP')) {
-                            `$cacheIp = "`$(`$vsNode['cachingProxyIP'])".Trim()
-                            `$vsNode['cachingProxyIP'] = `$cacheIp
+                        if (`$vsNode -is [System.Collections.IDictionary] -and `$vsNode.Contains('cachingProxyIp')) {
+                            `$cacheIp = "`$(`$vsNode['cachingProxyIp'])".Trim()
+                            `$vsNode['cachingProxyIp'] = `$cacheIp
                             if (`$cacheIp) {
                                 if (-not (Get-Command Test-IpAddress -ErrorAction SilentlyContinue)) {
-                                    `$cacheIpErr = "Test-IpAddress not available in this runspace -- cannot validate vmStart.cachingProxyIP"
+                                    `$cacheIpErr = "Test-IpAddress not available in this runspace -- cannot validate vmStart.cachingProxyIp"
                                 } elseif (-not (Test-IpAddress `$cacheIp)) {
-                                    `$cacheIpErr = "vmStart.cachingProxyIP='`$cacheIp' is not a valid IPv4 or IPv6 address"
+                                    `$cacheIpErr = "vmStart.cachingProxyIp='`$cacheIp' is not a valid IPv4 or IPv6 address"
                                 } else {
-                                    `$cachePort = Get-CachingProxyPort -Scheme http
+                                    `$cachePort = Get-CachingProxyServicePort -Scheme http
                                     `$probeTcp = New-Object System.Net.Sockets.TcpClient
                                     `$probeOk  = `$false
                                     try {
                                         `$probeAsync = `$probeTcp.BeginConnect(`$cacheIp, `$cachePort, `$null, `$null)
                                         `$probeOk    = (`$probeAsync.AsyncWaitHandle.WaitOne(1500) -and `$probeTcp.Connected)
                                     } catch {
-                                        Write-ServerErr "save-time cachingProxyIP probe `${cacheIp}:`${cachePort} threw: `$(`$_.Exception.Message)"
+                                        Write-ServerErr "save-time cachingProxyIp probe `${cacheIp}:`${cachePort} threw: `$(`$_.Exception.Message)"
                                     } finally {
                                         `$probeTcp.Close()
                                     }
                                     if (-not `$probeOk) {
-                                        `$cacheIpErr = "vmStart.cachingProxyIP='`$cacheIp' is not reachable on TCP :`$cachePort"
+                                        `$cacheIpErr = "vmStart.cachingProxyIp='`$cacheIp' is not reachable on TCP :`$cachePort"
                                     }
                                 }
                             }
@@ -1087,9 +1135,9 @@ try {
 
             # --- REGION: /control/runtime-env: surface specific env vars to the UI
             # Read-only GET endpoint. Currently emits one key,
-            # YURUNA_CACHING_PROXY_IP, so the test-config editor can show
+            # YURUNA_CACHING_PROXY_SERVICE_IP, so the test-config editor can show
             # the env value side-by-side with the persisted
-            # vmStart.cachingProxyIP. Value reflects the server process's
+            # vmStart.cachingProxyIp. Value reflects the server process's
             # env (snapshotted at server start when this pwsh inherited
             # its parent's env block) -- separate from the value that an
             # Invoke-TestRunner.ps1 inner runspace might see if it was
@@ -1103,7 +1151,7 @@ try {
                 }
                 `$res.ContentType = 'application/json; charset=utf-8'
                 `$res.Headers.Add('Cache-Control', 'no-store')
-                `$envValue = if (`$env:YURUNA_CACHING_PROXY_IP) { `$env:YURUNA_CACHING_PROXY_IP } else { '' }
+                `$envValue = if (`$env:YURUNA_CACHING_PROXY_SERVICE_IP) { `$env:YURUNA_CACHING_PROXY_SERVICE_IP } else { '' }
                 # [Environment]::UserName returns the effective user the
                 # status-service process is running as. Cross-platform: on
                 # Windows it's the (possibly space-containing) display name
@@ -1114,7 +1162,7 @@ try {
                 # in play, or on a host with multiple operator accounts).
                 `$serverUser = try { [Environment]::UserName } catch { '' }
                 `$payload = @{
-                    YURUNA_CACHING_PROXY_IP = `$envValue
+                    YURUNA_CACHING_PROXY_SERVICE_IP = `$envValue
                     serverUserAccount = `$serverUser
                 } | ConvertTo-Json -Compress
                 `$body = [System.Text.Encoding]::UTF8.GetBytes(`$payload)
@@ -1126,7 +1174,7 @@ try {
                 continue
             }
 
-            # --- REGION: /control/perf-aggregates: per-sequence cycle durations for perf.html
+            # --- REGION: /control/perf-aggregates: per-sequence cycle durations for performance.html
             # GET  -> cached aggregates (computes on first call).
             # POST -> clear the cache then return fresh aggregates.
             if (`$path -eq 'control/perf-aggregates') {
@@ -1143,7 +1191,7 @@ try {
                     # Same cap that bounds status.json's history[] (the
                     # "Recent Cycles" list on the dashboard). Read from
                     # test.config.yml so the constant lives in exactly
-                    # one place; Invoke-TestInnerRunner uses the same
+                    # one place; Invoke-TestRunnerInnerLoop uses the same
                     # path for its Complete-Run -MaxHistoryRuns.
                     `$recentLimit = 30
                     try {
@@ -1175,15 +1223,15 @@ try {
                                         `$line = `$reader.ReadLine()
                                         if ([string]::IsNullOrWhiteSpace(`$line)) { continue }
                                         try { `$row = `$line | ConvertFrom-Json -ErrorAction Stop } catch { continue }
-                                        if (-not `$row.sequenceName -or -not `$row.cycleId) { continue }
+                                        if (-not `$row.sequenceName -or -not `$row.cycleStartUtc) { continue }
                                         `$seq = "`$(`$row.sequenceName)"
-                                        `$cyc = "`$(`$row.cycleId)"
+                                        `$cyc = "`$(`$row.cycleStartUtc)"
                                         if (-not `$sequences.ContainsKey(`$seq)) { `$sequences[`$seq] = @{} }
                                         `$bag = `$sequences[`$seq]
                                         if (-not `$bag.ContainsKey(`$cyc)) {
                                             `$bag[`$cyc] = [ordered]@{
-                                                cycleId           = `$cyc
-                                                cycleStartedAtUtc = "`$(`$row.cycleStartedAtUtc)"
+                                                cycleStartUtc           = `$cyc
+                                                cycleStartedAtUtc = (ConvertTo-IsoUtcString `$row.cycleStartedAtUtc)
                                                 hostPlatform      = "`$(`$row.hostPlatform)"
                                                 guestKey          = "`$(`$row.guestKey)"
                                                 durationMs        = 0
@@ -1201,7 +1249,7 @@ try {
                                         `$ord = 0; try { `$ord = [int]`$row.stepOrdinal    } catch { `$ord = 0 }
                                         `$occ = 1; try { `$occ = [int]`$row.stepOccurrence } catch { `$occ = 1 }
                                         `$prnt = 0; try { `$prnt = [int]`$row.parentStepOrdinal } catch { `$prnt = 0 }
-                                        # Absolute step window as epoch-ms integers. perf.html derives
+                                        # Absolute step window as epoch-ms integers. performance.html derives
                                         # the step hierarchy from these windows (a retry parent's
                                         # window brackets its child steps) and draws each cycle as a
                                         # time-based icicle, so nested time is shown once instead of
@@ -1227,8 +1275,8 @@ try {
                                         # guest-pushed checkpoint sidecars are joined to them by
                                         # matching receivedAtUtc against this window.
                                         if ("`$(`$row.stepKind)" -eq 'fetchAndExecute') {
-                                            `$stepEntry.startedAtUtc = "`$(`$row.startedAtUtc)"
-                                            `$stepEntry.endedAtUtc   = "`$(`$row.endedAtUtc)"
+                                            `$stepEntry.startedAtUtc = (ConvertTo-IsoUtcString `$row.startedAtUtc)
+                                            `$stepEntry.endedAtUtc   = (ConvertTo-IsoUtcString `$row.endedAtUtc)
                                         }
                                         `$null = `$agg.steps.Add(`$stepEntry)
                                     }
@@ -1267,7 +1315,7 @@ try {
                     }
                     `$out = [ordered]@{}
                     foreach (`$seq in (`$sequences.Keys | Sort-Object)) {
-                        `$cyclesArr = @(`$sequences[`$seq].Values | Sort-Object { "`$(`$_.cycleStartedAtUtc)" })
+                        `$cyclesArr = @(`$sequences[`$seq].Values | Sort-Object { [string]`$_.cycleStartedAtUtc })
                         # Sort each cycle's steps in execution order so the
                         # stacked-bar segments render bottom-to-top in the order
                         # the runner ran them, then splice any matching checkpoint
@@ -1440,16 +1488,16 @@ try {
                 continue
             }
 
-            # --- REGION: /control/test-caching-proxy (POST ?ip=<ip>): probe a caching proxy from the host
-            # Wraps Invoke-CachingProxyProbe (Test.CachingProxy.psm1, same
+            # --- REGION: /control/test-caching-proxy-service (POST ?ip=<ip>): probe a caching-proxy service from the host
+            # Wraps Invoke-CachingProxyServiceProbe (Test.CachingProxyService.psm1, same
             # function the startup probe uses) so the test-config UI can
-            # show a live connectivity verdict next to cachingProxyIP and
-            # the `$env:YURUNA_CACHING_PROXY_IP mirror. UI debounces input;
+            # show a live connectivity verdict next to cachingProxyIp and
+            # the `$env:YURUNA_CACHING_PROXY_SERVICE_IP mirror. UI debounces input;
             # the probe itself is sync (~few seconds: 4 TCP probes with
             # 1.5s timeouts + a 5s CA-cert HTTP fetch). Empty/invalid IP
             # returns valid=false WITHOUT running the probe so the UI can
             # render a "disabled" mark instead of a false negative.
-            if (`$path -eq 'control/test-caching-proxy') {
+            if (`$path -eq 'control/test-caching-proxy-service') {
                 # POST-only: this drives a live host-side outbound probe to an
                 # operator-supplied target, so it must not be reachable via a
                 # simple GET (e.g. a foreign page's <img src>). The ?ip= query
@@ -1487,7 +1535,7 @@ try {
                         }
                         elseif (`$parsedIp.IsIPv6LinkLocal -or `$parsedIp.IsIPv6UniqueLocal) { `$ipAllowed = `$true }
                     }
-                    if (-not `$ipAllowed -and `$env:YURUNA_CACHING_PROXY_IP -and (`$ipQ -eq "`$env:YURUNA_CACHING_PROXY_IP".Trim())) { `$ipAllowed = `$true }
+                    if (-not `$ipAllowed -and `$env:YURUNA_CACHING_PROXY_SERVICE_IP -and (`$ipQ -eq "`$env:YURUNA_CACHING_PROXY_SERVICE_IP".Trim())) { `$ipAllowed = `$true }
                     if (-not `$ipAllowed) {
                         Send-JsonError -Response `$res -StatusCode 403 -Json '{"ok":false,"error":"forbidden: probe target must be a private (loopback/RFC1918/link-local) address or the configured cache IP"}'
                         continue
@@ -1507,7 +1555,7 @@ try {
                     } | ConvertTo-Json -Compress -Depth 4
                 } else {
                     try {
-                        `$probe = Invoke-CachingProxyProbe -CacheIp `$ipQ -CacheSource 'status-service /control/test-caching-proxy'
+                        `$probe = Invoke-CachingProxyServiceProbe -CacheIp `$ipQ -CacheSource 'status-service /control/test-caching-proxy-service'
                         `$payload = [pscustomobject]@{
                             ok                 = `$true
                             ip                 = `$ipQ
@@ -1522,7 +1570,7 @@ try {
                     } catch {
                         `$errMsg = (ConvertTo-JsonEscapedString `$_.Exception.Message)
                         `$payload = '{"ok":false,"ip":"' + (`$ipQ -replace '\\','\\' -replace '"','\"') + '","valid":true,"error":"' + `$errMsg + '"}'
-                        Write-ServerErr "test-caching-proxy probe failed for `${ipQ}: `$errMsg"
+                        Write-ServerErr "test-caching-proxy-service probe failed for `${ipQ}: `$errMsg"
                     }
                 }
                 `$body = [System.Text.Encoding]::UTF8.GetBytes(`$payload)
@@ -1585,6 +1633,51 @@ try {
                 continue
             }
 
+            # --- REGION: /control/control-status: can this host be driven remotely?
+            # Read-only and always open -- deliberately NOT in the CSRF lists
+            # above: it changes nothing, and the pool-aggregator service must be
+            # able to ask before it holds anything to authenticate with. Answers
+            # { tokenConfigured, tokenTag, verifier, utcNow }: the tag is a
+            # non-secret HMAC naming WHICH lab-auth-token this host holds
+            # (Get-YurunaControlTag), so the aggregator can compare it with the
+            # token it mints proofs from and tell "enrolled here" from "enrolled
+            # against a proxy that has since been rebuilt" -- the difference
+            # between reasons 3 and 4 in docs/control-routes.md, which is
+            # otherwise invisible until a button 403s. utcNow lets the same
+            # comparison catch the clock skew that expires a fresh proof.
+            # See docs/control-routes.md (GET /control/control-status).
+            if (`$path -eq 'control/control-status') {
+                `$res.ContentType = 'application/json; charset=utf-8'
+                `$res.Headers.Add('Cache-Control', 'no-store')
+                `$csToken = ''
+                # Same lazy-load shape as /control/vault-credential: the vault
+                # only has to be readable when someone actually asks, and a
+                # startup import that silently failed heals here.
+                if (Import-RouteModule -ModuleRelativePath 'test/modules/Test.Extension.psm1' -RequiredCommand 'Import-Extension') {
+                    try { `$null = Import-Extension -Area 'authentication' -RequireSingle } catch { `$null = `$_ }
+                }
+                `$csTag = ''
+                if (Import-RouteModule -ModuleRelativePath 'test/modules/Test.ConfigServiceSync.psm1' -RequiredCommand 'Get-YurunaControlTag', 'Test-YurunaControlProof', 'Get-LabAuthTokenValue') {
+                    try { `$csToken = [string](Get-LabAuthTokenValue) } catch { `$csToken = '' }
+                    try { `$csTag = [string](Get-YurunaControlTag -Token `$csToken) } catch { `$csTag = '' }
+                }
+                # Test-YurunaControlProof is required above alongside the tag
+                # helper on purpose: a runspace that cannot load the verifier
+                # reports no tag at all, rather than a tag that promises control
+                # this host would then refuse ('verifier-unavailable').
+                `$payload = @{
+                    ok              = `$true
+                    tokenConfigured = (-not [string]::IsNullOrWhiteSpace(`$csToken))
+                    tokenTag        = `$csTag
+                    utcNow          = [DateTime]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ssZ')
+                } | ConvertTo-Json -Compress
+                `$body = [System.Text.Encoding]::UTF8.GetBytes(`$payload)
+                `$res.ContentLength64 = `$body.Length
+                `$res.OutputStream.Write(`$body, 0, `$body.Length)
+                `$res.OutputStream.Close()
+                continue
+            }
+
             # --- REGION: /control/host-diagnostic: run Get-SystemDiagnostic on the host
             # --- REGION: https://yuruna.link/definition#defining-the-status-page-hostinfo-dump
             if (`$path -eq 'control/host-diagnostic') {
@@ -1603,8 +1696,8 @@ try {
                 # text (persisted to `$tmpFile) instead of spawning again -- the
                 # UI still gets recent host info.
                 `$nowUtc = [DateTime]::UtcNow
-                `$diagCooldownSec = 15
-                if (`$script:LastHostDiagUtc -and ((`$nowUtc - `$script:LastHostDiagUtc).TotalSeconds -lt `$diagCooldownSec) -and (Test-Path -LiteralPath `$tmpFile)) {
+                `$diagCooldownSeconds = 15
+                if (`$script:LastHostDiagUtc -and ((`$nowUtc - `$script:LastHostDiagUtc).TotalSeconds -lt `$diagCooldownSeconds) -and (Test-Path -LiteralPath `$tmpFile)) {
                     try { `$content = [System.IO.File]::ReadAllText(`$tmpFile) } catch { `$content = '' }
                 }
                 if ([string]::IsNullOrEmpty(`$content)) {
@@ -1656,7 +1749,7 @@ try {
                         `$aliases    = [ordered]@{}
                         `$unresolved = [System.Collections.Generic.List[string]]::new()
                         if (`$ns -is [System.Collections.IDictionary]) {
-                            foreach (`$npKey in @('poolNetworkPath', 'stashNetworkPath')) {
+                            foreach (`$npKey in @('poolStorageNetworkPath', 'stashStorageNetworkPath')) {
                                 `$np = if (`$ns.Contains(`$npKey)) { "`$(`$ns[`$npKey])".Trim() } else { '' }
                                 if (-not `$np) { continue }
                                 `$server = Get-PoolStorageServerName -NetworkPath `$np
@@ -1713,9 +1806,9 @@ try {
                     `$res.Headers.Add('Allow', 'GET')
                 } elseif (-not `$qUser -or -not `$qNonce -or -not `$qProof) {
                     `$vcStatus = 400; `$vcError = 'user, nonce and proof query parameters are required'
-                } elseif (-not (Import-RouteModule -ModuleRelativePath 'test/modules/Test.HostConfigSync.psm1' -RequiredCommand 'Test-ConfigSyncProof', 'Protect-ConfigSyncCredential', 'Get-LabAuthTokenValue') -or
+                } elseif (-not (Import-RouteModule -ModuleRelativePath 'test/modules/Test.ConfigServiceSync.psm1' -RequiredCommand 'Test-ConfigSyncProof', 'Protect-ConfigSyncCredential', 'Get-LabAuthTokenValue') -or
                           -not (Import-RouteModule -ModuleRelativePath 'test/modules/Test.Config.psm1'        -RequiredCommand 'Read-TestConfig')) {
-                    `$vcStatus = 500; `$vcError = 'Test.HostConfigSync / Test.Config could not be loaded in the server runspace (see runtime/server.err)'
+                    `$vcStatus = 500; `$vcError = 'Test.ConfigServiceSync / Test.Config could not be loaded in the server runspace (see runtime/server.err)'
                 }
                 if (-not `$vcError) {
                     # Lazy authentication-extension load: the vault only has
@@ -1737,7 +1830,7 @@ try {
                         `$ns  = if (`$doc -is [System.Collections.IDictionary]) { `$doc['networkStorage'] } else { `$null }
                         `$allowed = [System.Collections.Generic.List[string]]::new()
                         if (`$ns -is [System.Collections.IDictionary]) {
-                            foreach (`$nuKey in @('poolNetworkUser', 'stashNetworkUser')) {
+                            foreach (`$nuKey in @('poolStorageNetworkUser', 'stashStorageNetworkUser')) {
                                 `$nu = if (`$ns.Contains(`$nuKey)) { "`$(`$ns[`$nuKey])".Trim() } else { '' }
                                 if (`$nu) { [void]`$allowed.Add(`$nu) }
                             }
@@ -1835,7 +1928,7 @@ try {
 
             # --- REGION: /control/break-continue: Continue-from-break button
             # POST-only. Writes control.break-continue under runtimeDir;
-            # the break action in Invoke-Sequence.psm1 polls for this
+            # the break action in Test.SequenceEngine.psm1 polls for this
             # file inside its wait loop and on detection calls
             # Restore-VMDiskSnapshot (if break.id was set) + Start-VM,
             # removes the marker, and resumes the sequence.
@@ -1877,7 +1970,7 @@ try {
             #   1. clear control.cycle-pause and control.step-pause so a
             #      paused runner unblocks immediately
             #   2. touch control.cycle-restart so an in-delay-loop inner
-            #      wakes early and exits to outer (see Invoke-TestInnerRunner.ps1)
+            #      wakes early and exits to outer (see Invoke-TestRunnerInnerLoop.ps1)
             #   3. run Remove-TestVMFiles.ps1 -- this kills any in-progress
             #      VMs out from under a running cycle; the inner then errors
             #      out, outer respawns, and the saved test.config.yml mtime
@@ -1887,7 +1980,7 @@ try {
             #      this server -- Start-Process Hidden on Windows, bash nohup
             #      on Linux/macOS)
             # Save the test.config.yml separately via /control/test-config
-            # before calling this (test.config.html does both back-to-back).
+            # before calling this (config.html does both back-to-back).
             if (`$path -eq 'control/start-cycle') {
                 `$res.ContentType = 'application/json; charset=utf-8'
                 `$res.Headers.Add('Cache-Control', 'no-store')
@@ -1991,7 +2084,7 @@ try {
                             # see the spawn site at the bottom of
                             # Start-StatusService.ps1 for the full rationale.
                             # Same trap class -- without it the spawned
-                            # runner inherits this status server's stdin
+                            # runner inherits this status service's stdin
                             # handle, which on Windows pins conhost on
                             # parent-shell exit. Passing 'NUL' is rejected
                             # by Start-Process's path resolver, so we use
@@ -2011,7 +2104,7 @@ try {
                         } else {
                             # 'set -m' enables job control so the trailing & puts
                             # the runner in its OWN process group -- without it the
-                            # runner inherits this status server's group and stays
+                            # runner inherits this status service's group and stays
                             # wired to its terminal job. nohup plus stdio redirected
                             # off the tty let it outlive the caller cleanly.
                             & bash -c "set -m; cd '`$repoRoot' && nohup pwsh -NoProfile -File '`$runnerScript' </dev/null > '`$spawnOut' 2> '`$spawnErr' &" | Out-Null
@@ -2070,11 +2163,11 @@ try {
                 continue
             }
 
-            # --- REGION: /ca.crt -- caching-proxy CA for guest CA self-heal
-            # A guest whose seed was baked CA-less (the caching proxy was
+            # --- REGION: /ca.crt -- caching-proxy-service CA for guest CA self-heal
+            # A guest whose seed was baked CA-less (the caching-proxy service was
             # unreachable when the host built the seed) fetches this over the
             # RFC1918 plain-HTTP path and update-ca-certificates it, so bumped
-            # HTTPS validates. Resolve-CachingProxyCaCertPem live-reads the
+            # HTTPS validates. Resolve-CachingProxyServiceCaCertPem live-reads the
             # CURRENT cache first (never a stale cached CA) and only falls back
             # to the persisted last-good CA; 404 when neither resolves so the
             # guest degrades to a diagnosed rc=60 rather than a silent pass.
@@ -2082,7 +2175,7 @@ try {
             # stays deny-listed. See project_sslbump_ca_gating_durable_fix.
             if (`$path -eq 'ca.crt' -or `$path -eq 'ca.crt/') {
                 `$caRes = `$null
-                try { `$caRes = Resolve-CachingProxyCaCertPem } catch { `$caRes = `$null }
+                try { `$caRes = Resolve-CachingProxyServiceCaCertPem } catch { `$caRes = `$null }
                 if (`$caRes -and `$caRes.Pem) {
                     `$res.ContentType = 'application/x-x509-ca-cert'
                     `$res.Headers.Add('Cache-Control', 'no-store')
@@ -2091,7 +2184,7 @@ try {
                 } else {
                     `$res.StatusCode = 404
                     `$res.ContentType = 'application/json; charset=utf-8'
-                    `$body = [System.Text.Encoding]::UTF8.GetBytes('{"ok":false,"error":"no caching-proxy CA resolvable"}')
+                    `$body = [System.Text.Encoding]::UTF8.GetBytes('{"ok":false,"error":"no caching-proxy-service CA resolvable"}')
                 }
                 `$res.ContentLength64 = `$body.Length
                 # HEAD: advertise Content-Length but send no body -- HTTP.sys
@@ -2457,8 +2550,8 @@ try {
                     '*/transports.yml',
                     'test/status/extension/*',
                     'test/status/ssh/*',
-                    '*/yuruna-caching-proxy.yml',
-                    'test/status/runtime/yuruna-caching-proxy.yml',
+                    '*/yuruna-caching-proxy-service.yml',
+                    'test/status/runtime/yuruna-caching-proxy-service.yml',
                     '*.events.log',
                     '*-password.txt'
                 )
@@ -2486,8 +2579,8 @@ try {
                 `$root = `$statusDir
             }
             # Unified deny-list across non-yuruna-repo dispatches. The
-            # /runtime/ route serves runtime/yuruna-caching-proxy.yml
-            # (plaintext caching-proxy-admin password); the catch-all serves
+            # /runtime/ route serves runtime/yuruna-caching-proxy-service.yml
+            # (plaintext caching-proxy-service-admin password); the catch-all serves
             # status/extension/ (vault.yml, vault.lock, transports.yml,
             # events.log) and status/ssh/ (private SSH key). Block all
             # of those uniformly so URL probing never returns secrets.
@@ -2501,8 +2594,8 @@ try {
                     'extension/*',
                     'ssh/yuruna_ed25519',
                     'ssh/*_ed25519',
-                    '*/yuruna-caching-proxy.yml',
-                    'yuruna-caching-proxy.yml',
+                    '*/yuruna-caching-proxy-service.yml',
+                    'yuruna-caching-proxy-service.yml',
                     '*-password.txt'
                 )
                 `$denied = `$false
@@ -2610,7 +2703,7 @@ try {
                     default { 'application/octet-stream' }
                 }
                 # Cache policy by file type. The two top-level dashboards
-                # (index.html, test.config.html) carry a 60-second freshness
+                # (index.html, config.html) carry a 60-second freshness
                 # window with must-revalidate so a browser left open re-
                 # fetches on the next navigation/poll instead of serving a
                 # stale DOM that older 'no-store' headers paradoxically
@@ -2690,11 +2783,11 @@ try {
 # "The filename or extension is too long" which is obscure and easy to
 # misread as a path problem. -File sidesteps the size limit entirely:
 # pwsh reads the script from disk instead of its command line.
-# Reap the legacy generated server script (.status-server.ps1, distinct
+# Reap the legacy generated server script (.status-service.ps1, distinct
 # from today's .status-service.ps1) and its stdout log so an upgrade does not
 # leave a stale, misleading copy under the runtime dir that an inspector could
 # mistake for the live server. Runs before the current script is written below.
-Remove-Item (Join-Path $RuntimeDir '.status-server.ps1') -Force -ErrorAction SilentlyContinue
+Remove-Item (Join-Path $RuntimeDir '.status-service.ps1') -Force -ErrorAction SilentlyContinue
 Remove-Item (Join-Path $RuntimeDir 'server.out') -Force -ErrorAction SilentlyContinue
 
 $serverScriptFile = Join-Path $RuntimeDir ".status-service.ps1"
@@ -2704,9 +2797,9 @@ if ($IsWindows) {
     # Explicit stdio redirection on Windows is REQUIRED for outer-runner
     # liveness. Without -RedirectStandardOutput / -RedirectStandardError,
     # this grandchild inherits the parent's console handles. The chain
-    # is: Invoke-TestRunner.ps1 spawns modules/Invoke-TestInnerRunner.ps1 with
+    # is: Invoke-TestRunner.ps1 spawns modules/Invoke-TestRunnerInnerLoop.ps1 with
     # Start-Process -NoNewWindow (shared console); the inner here spawns
-    # the long-running status server which without explicit redirection
+    # the long-running status service which without explicit redirection
     # also inherits those shared handles. When the inner cycle ends and
     # the outer's WaitForExit() returns, the grandchild still holds the
     # console handles open -- which on Windows can keep the outer's
@@ -2747,7 +2840,7 @@ if ($IsWindows) {
         -PassThru
     Set-Content -Path $PidFile -Value $proc.Id
 } else {
-    # On macOS/Linux, detach the status server from the test-runner shell's
+    # On macOS/Linux, detach the status service from the test-runner shell's
     # terminal job. `bash -c` runs a NON-interactive shell, so job control is
     # off and a bare `&` leaves the backgrounded process in the caller's
     # process group: exiting that shell then lingers because its terminal job
@@ -2763,7 +2856,7 @@ if ($IsWindows) {
 }
 
 # --- REGION: Verify server started
-$serverReady = Wait-WithProgress -Activity "Status server: waiting for http://localhost:$Port/" `
+$serverReady = Wait-WithProgress -Activity "Status service: waiting for http://localhost:$Port/" `
     -TotalSeconds $script:StatusServiceReadyTimeoutSeconds -PollSeconds 1 -Test {
         try {
             $null = Invoke-WebRequest -Uri "http://localhost:$Port/status/" -TimeoutSec 2 -UseBasicParsing -ErrorAction Stop -Verbose:$false -Debug:$false
@@ -2771,13 +2864,13 @@ $serverReady = Wait-WithProgress -Activity "Status server: waiting for http://lo
         } catch { return $false }
     }
 if (-not $serverReady) {
-    Write-Warning "Status server process started but port $Port is not responding after $script:StatusServiceReadyTimeoutSeconds seconds."
+    Write-Warning "Status service process started but port $Port is not responding after $script:StatusServiceReadyTimeoutSeconds seconds."
     Write-Warning "Check the server error log: $(Join-Path $RuntimeDir 'server.err')"
 }
 
 # Persist the framework HEAD SHA the new server was launched against so a
 # subsequent Start-StatusService invocation (the per-cycle call from
-# Invoke-TestInnerRunner.ps1) can short-circuit the kill+relaunch when the
+# Invoke-TestRunnerInnerLoop.ps1) can short-circuit the kill+relaunch when the
 # code the running server already loaded is still current. Written AFTER
 # the readiness probe so a server that never came up does not advertise
 # itself as "already running on SHA X" -- the missing SHA file forces the
@@ -2801,7 +2894,7 @@ $ip = try {
 
 Write-Output ""
 $serverPid = (Get-Content $PidFile).Trim()
-Write-Output "Status server started (PID $serverPid, port $Port)."
+Write-Output "Status service started (PID $serverPid, port $Port)."
 Write-Output "  Local:  http://localhost:$Port/status/"
 if ($ip) {
     Write-Output "  Remote: http://${ip}:$Port/status/"
@@ -2813,7 +2906,7 @@ Write-Output ""
 # The server binds to http://*:$Port so the socket is on every interface, but a
 # host firewall silently DROPs inbound TCP on non-loopback interfaces without an
 # allow rule -- so the localhost probe above passes while a LAN browser (and the
-# pool aggregator) time out. Best-effort SELF-HEAL: ensure the allow rule when
+# pool-aggregator service) time out. Best-effort SELF-HEAL: ensure the allow rule when
 # this start is privileged (Windows admin / Linux root|sudo), else warn with the
 # durable-fix pointer only when we can positively determine it's blocked.
 # -NonInteractive so an unprivileged start never prompts and hangs; an

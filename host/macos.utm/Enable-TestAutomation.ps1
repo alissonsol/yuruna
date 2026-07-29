@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.28
+.VERSION 2026.07.29
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456754
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -78,12 +78,21 @@ $ErrorActionPreference = "Stop"
 # nothing and the operator can't tell what changed.
 $InformationPreference = 'Continue'
 
-# Shared bootstrap (Test.HostContract import + powershell-yaml +
+# Shared bootstrap (Test.HostContract import + sudo prime + powershell-yaml +
 # PSScriptAnalyzer install) lives in automation/Yuruna.HostSetup.psm1.
-# Rationale + ordering are documented there.
+# -SudoCacheReason keeps the sudo prompt EARLY (before the two PSGallery
+# installs, which on a freshly imaged Mac are a long silent wait) with a visible
+# reason banner so the operator knows WHAT will need elevation before they
+# consent. Set-MacHostConditionSet primes again below and is idempotent; when
+# invoked via install/macos.utm.sh (YURUNA_SUDO_PRIMED=1) both are silent no-ops.
 $RepoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 Import-Module (Join-Path $RepoRoot 'automation/Yuruna.HostSetup.psm1') -Force
-Initialize-HostSetupModule -RepoRoot $RepoRoot -BoundParameters $PSBoundParameters
+Initialize-HostSetupModule -RepoRoot $RepoRoot -BoundParameters $PSBoundParameters -SudoCacheReason @(
+    'pmset (display sleep, system sleep, power-nap, hibernation)',
+    'defaults write /Library/Preferences (auto-logout delay)',
+    'sysadminctl -screenLock off (Sonoma+ unified screen lock)',
+    'systemsetup -setusingnetworktime + sntp -sS (host clock discipline)'
+)
 
 Set-MacHostConditionSet @PSBoundParameters
 

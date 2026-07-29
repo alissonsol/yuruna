@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.28
+.VERSION 2026.07.29
 .GUID 423e9a21-5b84-4f63-9c12-8e4a1d2f6b90
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -22,7 +22,7 @@
     aggregator's advisory pool-degraded alerts through the existing notification
     extension.
 .DESCRIPTION
-    The pool aggregator (read-only, in the caching-proxy guest) computes the
+    The pool-aggregator service (read-only, in the caching-proxy-service guest) computes the
     quorum-degraded ALERT latch and exposes it as the yuruna_pool_alert_active gauge.
     It cannot deliver the alert itself (no pwsh, no notification transport, a
     root-owned + timer-transient NAS mount). So delivery is owned HERE, on the host
@@ -160,11 +160,11 @@ function Get-PoolAlertGaugeState {
     [OutputType([hashtable])]
     param(
         [Parameter(Mandatory)][string]$MetricsUrl,
-        [Parameter()][int]$TimeoutSec = 10
+        [Parameter()][int]$TimeoutSeconds = 10
     )
     foreach ($u in (Get-PoolMetricsCandidateUrl -MetricsUrl $MetricsUrl)) {
         try {
-            $iwrArgs = @{ Uri = $u; TimeoutSec = $TimeoutSec; UseBasicParsing = $true; ErrorAction = 'Stop' }
+            $iwrArgs = @{ Uri = $u; TimeoutSec = $TimeoutSeconds; UseBasicParsing = $true; ErrorAction = 'Stop' }
             if ($u -like 'https://*') { $iwrArgs['SkipCertificateCheck'] = $true }
             $resp = Invoke-WebRequest @iwrArgs -Verbose:$false
             if ($resp.StatusCode -eq 200) {
@@ -598,7 +598,7 @@ function Invoke-PoolNotifierCycle {
     param(
         [Parameter()][AllowNull()]$Config,
         [Parameter()][int]$MetricsPort = 9400,
-        [Parameter()][int]$HttpTimeoutSec = 10,
+        [Parameter()][int]$HttpTimeoutSeconds = 10,
         [Parameter()][int]$MaxMessages = 25
     )
     $summary = @{ ran = $false; ready = $false; enqueued = 0; delivered = 0; failed = 0; retried = 0; reason = '' }
@@ -630,16 +630,16 @@ function Invoke-PoolNotifierCycle {
         $null = Initialize-PoolNotifierSpool -SpoolRoot $spoolRoot -Confirm:$false
 
         if (-not $unreadable) {
-            # Resolve the aggregator's /metrics endpoint on the shared caching-proxy.
+            # Resolve the aggregator's /metrics endpoint on the shared caching-proxy-service.
             $ip = ''
-            if (Get-Command Read-CachingProxyState -ErrorAction SilentlyContinue) {
-                try { $st = Read-CachingProxyState; if ($st -and $st.ipAddress) { $ip = [string]$st.ipAddress } } catch { $null = $_ }
+            if (Get-Command Read-CachingProxyServiceState -ErrorAction SilentlyContinue) {
+                try { $st = Read-CachingProxyServiceState; if ($st -and $st.ipAddress) { $ip = [string]$st.ipAddress } } catch { $null = $_ }
             }
-            if ([string]::IsNullOrWhiteSpace($ip) -and $env:YURUNA_CACHING_PROXY_IP) { $ip = $env:YURUNA_CACHING_PROXY_IP.Trim() }
-            if ([string]::IsNullOrWhiteSpace($ip)) { $summary.reason = 'no caching-proxy IP (cannot reach aggregator)'; return $summary }
+            if ([string]::IsNullOrWhiteSpace($ip) -and $env:YURUNA_CACHING_PROXY_SERVICE_IP) { $ip = $env:YURUNA_CACHING_PROXY_SERVICE_IP.Trim() }
+            if ([string]::IsNullOrWhiteSpace($ip)) { $summary.reason = 'no caching-proxy-service IP (cannot reach aggregator)'; return $summary }
             $metricsUrl = "http://${ip}:$MetricsPort/metrics"
 
-            $gauge = Get-PoolAlertGaugeState -MetricsUrl $metricsUrl -TimeoutSec $HttpTimeoutSec
+            $gauge = Get-PoolAlertGaugeState -MetricsUrl $metricsUrl -TimeoutSec $HttpTimeoutSeconds
             if ($null -eq $gauge) { $summary.reason = "aggregator metrics unreachable ($metricsUrl)"; return $summary }
 
             $statePath = Join-Path $runtimeDir 'pool.notifier.state.json'
@@ -668,7 +668,7 @@ function Write-PoolNotifierSetupNotice {
         transport configured. Bounded + CI-safe (Write-Output / Write-Warning only -- no
         prompt, never throws). Prints an actionable notice only on a poolStorage-replicating
         host (a pool-services candidate) where the pool.alert transport is NOT yet set up, so
-        the operator on the caching-proxy + dashboards host does not silently skip it. No-op
+        the operator on the caching-proxy-service + dashboards host does not silently skip it. No-op
         when poolStorage is unconfigured (not a notifier host) or the transport is ready.
     #>
     [CmdletBinding()]
@@ -693,7 +693,7 @@ function Write-PoolNotifierSetupNotice {
         }
         Write-Warning @'
 Pool alerting is NOT configured on this host.
-If this is the host that runs the caching-proxy + dashboards, it self-elects as the pool
+If this is the host that runs the caching-proxy-service + dashboards, it self-elects as the pool
 alert notifier -- but only once the transport is set up. Add a pool.alert subscriber to
 test/status/extension/notification/transports.yml, for example:
 

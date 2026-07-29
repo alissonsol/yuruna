@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.07.28
+# Version: 2026.07.29
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 set -euo pipefail
@@ -32,7 +32,7 @@ esac
 # wrapped-apt teardown-hang trap class (apt blocks at end-of-transaction
 # under a timeout(1) parent). Force unbounded regardless of the image's
 # lib vintage; remove once no image predates the lib's unbounded default.
-export YURUNA_APT_STALL_TIMEOUT=0
+export YURUNA_APT_STALL_TIMEOUT_SECONDS=0
 
 echo ""
 echo -e "\e[1;36m==== Git ====\e[0m"

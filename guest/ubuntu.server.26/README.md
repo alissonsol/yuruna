@@ -27,7 +27,7 @@ Run `ubuntu.server.26.update.sh` first.
 | `openclaw` | [OpenClaw](../../docs/guest-workloads.md#openclaw): Git, Node.js, OpenClaw AI agent |
 | `postgresql` | [PostgreSQL](../../docs/guest-workloads.md#postgresql) from PGDG |
 | `k8s` | [k8s](../../docs/kubernetes.md#guest-side-prerequisites): Docker, Kubernetes, Helm, OpenTofu, cloud CLIs |
-| `stash-service` | [Stash Service](../../docs/stash-guide.md): Yuruna distributed storage backend |
+| `stash-service` | [stash service](../../docs/stash-guide.md): Yuruna distributed storage backend |
 
 ---
 
@@ -35,6 +35,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.28
+Last review: 2026.07.29
 
 Back to [Yuruna](../../README.md)

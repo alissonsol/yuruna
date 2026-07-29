@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.28
+.VERSION 2026.07.29
 .GUID 42b7c8d9-e0f1-4a23-9b45-6c7d8e9f0a12
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -32,7 +32,7 @@
     Deliberately narrow: only steps whose OUTPUT is byte-identical across the
     three platforms live here. Steps that merely look similar but diverge (the
     password/vault resolution honoring $env:YURUNA_GUEST_PASSWORD only on KVM,
-    the caching-proxy CA fetch with UTM's VZ-bridge path, the SSH-key load and
+    the caching-proxy-service CA fetch with UTM's VZ-bridge path, the SSH-key load and
     image auto-fetch that differ in import flags / error text, the host-IP
     resolution, and every VM-creation call) stay in the per-guest scripts:
     unifying them would change behavior on the Hyper-V and UTM platforms that the
@@ -45,7 +45,7 @@
 .DESCRIPTION
     Always emits `geoip: false` + a pinned `primary:` mirror (deterministic
     election; `primary:` not `sources_list:`, see
-    feedback_macos_utm_apt_block_resolute_curtin_trap.md). When a caching proxy
+    feedback_macos_utm_apt_block_resolute_curtin_trap.md). When a caching-proxy service
     is configured its `proxy:` line is appended to the `uri:` line with a leading
     newline + 4-space indent so it lands at the same YAML level; with no proxy
     the expansion is empty. -PrimaryUri is the one platform knob (Hyper-V pins
@@ -65,9 +65,9 @@ function New-AptProxyBlock {
     [OutputType([string])]
     param(
         [Parameter(Mandatory)][string]$PrimaryUri,
-        [Parameter()][AllowNull()][AllowEmptyString()][string]$CachingProxyUrl
+        [Parameter()][AllowNull()][AllowEmptyString()][string]$CachingProxyServiceUrl
     )
-    $AptProxyLine = if ($CachingProxyUrl) { "`n    proxy: $CachingProxyUrl" } else { "" }
+    $AptProxyLine = if ($CachingProxyServiceUrl) { "`n    proxy: $CachingProxyServiceUrl" } else { "" }
     # The closing "@ must stay on its own line at column 0; inlining $(...)"@
     # raises "The string is missing the terminator" (PowerShell here-string rule).
     return @"

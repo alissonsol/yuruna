@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.28
+.VERSION 2026.07.29
 .GUID 428c1a6d-4b29-4e07-9d51-7a2c8e0b5f31
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -20,7 +20,7 @@
 .SYNOPSIS
     Pester coverage for the per-pool testCycle override merge in Test.RunnerOuterLoop.psm1:
     Get-OuterPoolTestCycleOverride (pure extraction) and the override-WINS precedence in
-    Get-OuterAutoRemediation / Get-OuterStepTimeoutMinute (pool > test.config.yml > default).
+    Get-OuterAutoRemediation / Get-OuterStepTimeoutSeconds (pool > test.config.yml > default).
 #>
 
 $here = Split-Path -Parent $PSCommandPath
@@ -52,7 +52,7 @@ function New-TempConfig {
 # first It runs, so a path declared inside one reaches the assertion as $null. Fixtures
 # that write temp files go in BeforeAll/AfterAll instead (see below), which run in the
 # run phase and so are still standing when the It executes.
-$InnerScriptPath = 'C:\repo\test\modules\Invoke-TestInnerRunner.ps1'
+$InnerScriptPath = 'C:\repo\test\modules\Invoke-TestRunnerInnerLoop.ps1'
 
 Describe 'Test-OuterNoStatusServiceForwarded (embedded -NoStatusService detection)' {
     It 'is TRUE when -NoStatusService is forwarded (real New-InnerRunnerArgList shape)' {
@@ -112,10 +112,10 @@ Describe 'Get-OuterPoolTestCycleOverride (pure extraction)' {
         Assert-Equal -Expected 0 -Actual (Get-OuterPoolTestCycleOverride -Pool ([ordered]@{ config = [ordered]@{} })).Count -Because 'no testCycle -> empty'
     }
     It 'returns the testCycle map when present' {
-        $pool = [ordered]@{ config = [ordered]@{ testCycle = [ordered]@{ autoRemediationEnabled = $true; stepTimeoutMinutes = 12 } } }
+        $pool = [ordered]@{ config = [ordered]@{ testCycle = [ordered]@{ autoRemediation = [ordered]@{ enabled = $true }; stepTimeoutSeconds = 12 } } }
         $tc = Get-OuterPoolTestCycleOverride -Pool $pool
-        Assert-True  $tc['autoRemediationEnabled'] 'flag carried'
-        Assert-Equal -Expected 12 -Actual $tc['stepTimeoutMinutes'] -Because 'value carried'
+        Assert-True  $tc['autoRemediation']['enabled'] 'nested block carried'
+        Assert-Equal -Expected 12 -Actual $tc['stepTimeoutSeconds'] -Because 'value carried'
     }
 }
 
@@ -125,8 +125,8 @@ Describe 'Get-OuterAutoRemediation (pool override WINS over config > default)' {
     # existed -- the override precedence would silently resolve against defaults instead of
     # the authored file. BeforeAll/AfterAll run in the run phase, which keeps them alive.
     BeforeAll {
-        $script:CfgRemediationOn  = New-TempConfig "testCycle:`n  autoRemediationEnabled: true`n  autoRemediationMaxAttemptsPerCycle: 4`n"
-        $script:CfgRemediationOff = New-TempConfig "testCycle:`n  autoRemediationEnabled: false`n"
+        $script:CfgRemediationOn  = New-TempConfig "testCycle:`n  autoRemediation:`n    enabled: true`n    maxAttemptsPerCycle: 4`n"
+        $script:CfgRemediationOff = New-TempConfig "testCycle:`n  autoRemediation:`n    enabled: false`n"
     }
     AfterAll { Remove-Item -LiteralPath $script:CfgRemediationOn, $script:CfgRemediationOff -Force -ErrorAction SilentlyContinue }
 
@@ -141,12 +141,12 @@ Describe 'Get-OuterAutoRemediation (pool override WINS over config > default)' {
         Assert-Equal -Expected 2 -Actual $r.MaxAttempts -Because 'default maxAttempts'
     }
     It 'lets a pool override ENGAGE remediation over a config that is off' {
-        $r = Get-OuterAutoRemediation -ConfigPath $script:CfgRemediationOff -PoolTestCycleOverride @{ autoRemediationEnabled = $true; autoRemediationMaxAttemptsPerCycle = 3 }
+        $r = Get-OuterAutoRemediation -ConfigPath $script:CfgRemediationOff -PoolTestCycleOverride @{ autoRemediation = @{ enabled = $true; maxAttemptsPerCycle = 3 } }
         Assert-True  $r.Enabled 'override engages'
         Assert-Equal -Expected 3 -Actual $r.MaxAttempts -Because 'override maxAttempts wins'
     }
     It 'lets a pool override DISABLE remediation over a config that is on' {
-        $r = Get-OuterAutoRemediation -ConfigPath $script:CfgRemediationOn -PoolTestCycleOverride @{ autoRemediationEnabled = $false }
+        $r = Get-OuterAutoRemediation -ConfigPath $script:CfgRemediationOn -PoolTestCycleOverride @{ autoRemediation = @{ enabled = $false } }
         Assert-False $r.Enabled 'override disables'
     }
 }
@@ -193,7 +193,7 @@ Describe 'Get-OuterCycleSummaryLine (per-cycle console line + shareable transcri
     }
     It 'still names the cycle when there is no server to link to' {
         $saved = $env:YURUNA_STATUS_PUBLIC_URL
-        $cfgOff = New-TempConfig "statusService:`n  isEnabled: false`n"
+        $cfgOff = New-TempConfig "statusService:`n  enabled: false`n"
         try {
             Remove-Item Env:\YURUNA_STATUS_PUBLIC_URL -ErrorAction SilentlyContinue
             Set-Content -LiteralPath (Join-Path $script:SummaryDir 'status.json') -Value '{"cycle":7}' -Encoding utf8
@@ -237,12 +237,12 @@ Describe 'Get-OuterStatusBaseUrl (never localhost)' {
     }
     It 'yields no base URL when the status service is gated off' {
         $saved = $env:YURUNA_STATUS_PUBLIC_URL
-        $cfgOn = New-TempConfig "statusService:`n  isEnabled: true`n  port: 8080`n"
-        $cfgOff = New-TempConfig "statusService:`n  isEnabled: false`n"
+        $cfgOn = New-TempConfig "statusService:`n  enabled: true`n  port: 8080`n"
+        $cfgOff = New-TempConfig "statusService:`n  enabled: false`n"
         try {
             Remove-Item Env:\YURUNA_STATUS_PUBLIC_URL -ErrorAction SilentlyContinue
             Assert-Equal -Expected '' -Actual (Get-OuterStatusBaseUrl -ConfigPath $cfgOff) `
-                -Because 'statusService.isEnabled false means there is nothing to link to'
+                -Because 'statusService.enabled false means there is nothing to link to'
             $al = New-InnerRunnerArgList -ScriptPath $InnerScriptPath -Parameters ([ordered]@{ NoStatusService = ([switch]$true) })
             Assert-Equal -Expected '' -Actual (Get-OuterStatusBaseUrl -ConfigPath $cfgOn -ArgList $al) `
                 -Because 'a forwarded -NoStatusService means no server was started'
@@ -272,7 +272,7 @@ Describe 'Invoke-RunnerOuterLoop failure pause (auto-remediation trigger is reac
     # which throws inside the callee and leaves the gate below reading a null result --
     # the trigger then never fires and the only symptom is an error every poll tick.
     BeforeAll {
-        $script:CfgAutoRem   = New-TempConfig "testCycle:`n  autoRemediationEnabled: true`n"
+        $script:CfgAutoRem   = New-TempConfig "testCycle:`n  autoRemediation:`n    enabled: true`n"
         $script:PauseTempDir = Join-Path ([System.IO.Path]::GetTempPath()) ("ol-rt-" + [guid]::NewGuid().ToString('N'))
         New-Item -ItemType Directory -Path $script:PauseTempDir -Force | Out-Null
         Set-Content -LiteralPath (Join-Path $script:PauseTempDir 'last_failure.json') `
@@ -324,9 +324,9 @@ Describe 'Invoke-RunnerOuterLoop failure pause (auto-remediation trigger is reac
             NoGitPull                 = $true
             FailurePauseMaxSeconds    = 1
             FailureCommitPollSeconds  = 1
-            OuterPullErrorSleepSec    = 1
-            InnerSpawnErrorSleepSec   = 1
-            StepTimeoutMinutesDefault = 1
+            OuterPullErrorSleepSeconds    = 1
+            InnerSpawnErrorSleepSeconds   = 1
+            StepTimeoutSecondsDefault = 1
             WatchdogPollSeconds       = 1
         } 3>$null) -join "`n"
 
@@ -335,23 +335,23 @@ Describe 'Invoke-RunnerOuterLoop failure pause (auto-remediation trigger is reac
     }
 }
 
-Describe 'Get-OuterStepTimeoutMinute (pool override WINS over config > default)' {
+Describe 'Get-OuterStepTimeoutSeconds (pool override WINS over config > default)' {
     BeforeAll {
-        $script:CfgTimeout     = New-TempConfig "testCycle:`n  stepTimeoutMinutes: 20`n"
+        $script:CfgTimeout     = New-TempConfig "testCycle:`n  stepTimeoutSeconds: 20`n"
         $script:CfgTimeoutBare = New-TempConfig "testCycle: {}`n"
     }
     AfterAll { Remove-Item -LiteralPath $script:CfgTimeout, $script:CfgTimeoutBare -Force -ErrorAction SilentlyContinue }
 
     It 'reads the config value when there is no override' {
-        Assert-Equal -Expected 20 -Actual (Get-OuterStepTimeoutMinute -ConfigPath $script:CfgTimeout -DefaultMinutes 90) -Because 'config value'
+        Assert-Equal -Expected 20 -Actual (Get-OuterStepTimeoutSeconds -ConfigPath $script:CfgTimeout -DefaultSeconds 90) -Because 'config value'
     }
     It 'falls back to the default when the config omits the key' {
-        Assert-Equal -Expected 90 -Actual (Get-OuterStepTimeoutMinute -ConfigPath $script:CfgTimeoutBare -DefaultMinutes 90) -Because 'default'
+        Assert-Equal -Expected 90 -Actual (Get-OuterStepTimeoutSeconds -ConfigPath $script:CfgTimeoutBare -DefaultSeconds 90) -Because 'default'
     }
     It 'lets a pool override win over both config and default' {
-        Assert-Equal -Expected 7 -Actual (Get-OuterStepTimeoutMinute -ConfigPath $script:CfgTimeout -DefaultMinutes 90 -PoolTestCycleOverride @{ stepTimeoutMinutes = 7 }) -Because 'override wins'
+        Assert-Equal -Expected 7 -Actual (Get-OuterStepTimeoutSeconds -ConfigPath $script:CfgTimeout -DefaultSeconds 90 -PoolTestCycleOverride @{ stepTimeoutSeconds = 7 }) -Because 'override wins'
     }
     It 'ignores a non-positive override (keeps the config value)' {
-        Assert-Equal -Expected 20 -Actual (Get-OuterStepTimeoutMinute -ConfigPath $script:CfgTimeout -DefaultMinutes 90 -PoolTestCycleOverride @{ stepTimeoutMinutes = 0 }) -Because 'zero override ignored'
+        Assert-Equal -Expected 20 -Actual (Get-OuterStepTimeoutSeconds -ConfigPath $script:CfgTimeout -DefaultSeconds 90 -PoolTestCycleOverride @{ stepTimeoutSeconds = 0 }) -Because 'zero override ignored'
     }
 }

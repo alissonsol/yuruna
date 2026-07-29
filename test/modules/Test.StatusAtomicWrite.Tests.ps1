@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.28
+.VERSION 2026.07.29
 .GUID 42b1e7d4-9a3c-4f60-8b2e-5c1d0a9f3e26
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -18,11 +18,11 @@
 
 <#
 .SYNOPSIS
-    Guards that the detached status server publishes every shared-state file with a
+    Guards that the detached status service publishes every shared-state file with a
     gap-free atomic replace, so a concurrent reader never catches a half-written or
     momentarily-absent file.
 .DESCRIPTION
-    The status server here-string in Start-StatusService.ps1 writes several
+    The status service here-string in Start-StatusService.ps1 writes several
     read-by-others files (test.config.yml from the UI, perf checkpoints, status.json,
     streamed diagnostics). A write-.tmp-then-Move-Item -Force publish deletes the
     destination before renaming, so a reader that lands in the gap sees no file (or,

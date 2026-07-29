@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.28
+.VERSION 2026.07.29
 .GUID 425458ca-5060-4a2d-b2e3-2fb297ec265e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -18,7 +18,7 @@
 
 # Canonical log-level cascade. Why this lives in its own module: it is
 # the single source for the rank table + preference-cascade logic shared
-# by Invoke-TestInnerRunner.ps1, Test-Sequence.ps1, Invoke-Sequence.psm1,
+# by Invoke-TestRunnerInnerLoop.ps1, Invoke-TestSequence.ps1, Test.SequenceEngine.psm1,
 # and every host/<platform>/guest.<x>/{Get-Image,New-VM}.ps1 (28+
 # consumers). A new level (or a tweak to ProgressPreference) is a single
 # edit here instead of a hand edit in every copy.

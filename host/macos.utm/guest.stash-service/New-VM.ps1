@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.28
+.VERSION 2026.07.29
 .GUID 42f1b2c3-d4e5-4f67-8901-a2b3c4d5e681
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -18,7 +18,7 @@
 
 <#
 .SYNOPSIS
-    Builds the Yuruna Stash Service VM bundle for macOS UTM.
+    Builds the Yuruna stash service VM bundle for macOS UTM.
 
 .DESCRIPTION
     Creates a UTM .utm bundle (QEMU backend with -vnc) that boots the
@@ -123,7 +123,7 @@ if (-not $AdminPassword) { Write-Error "Get-Password returned empty for 'stash-a
 Write-Output "Password came from authentication mechanism: $_authActiveName"
 Write-Output "See configuration at: $(Resolve-ExtensionAreaDir -Area 'authentication')"
 
-# Host coordinates (status server, for the in-VM source fetch) + stash storage
+# Host coordinates (status service, for the in-VM source fetch) + stash storage
 # coordinates (the share), baked into the seed. Topology-aware host address:
 # an Ethernet default route -> bridged (host LAN IP, Get-BestHostIp); a Wi-Fi
 # default route -> UTM Shared NAT (VZ gateway, Get-GuestReachableHostIp).
@@ -132,7 +132,7 @@ Import-Module (Join-Path (Split-Path -Parent $ScriptDir) 'modules/Yuruna.Host.ps
 Import-Module (Join-Path $_repoRoot 'test/modules/Test.PoolStorage.psm1')  -Global -Force
 Import-Module (Join-Path $_repoRoot 'test/modules/Test.YurunaDir.psm1')    -Global -Force
 Import-Module (Join-Path $_repoRoot 'test/modules/Test.Config.psm1')       -Global -Force
-Import-Module (Join-Path $_repoRoot 'test/modules/Test.CachingProxy.psm1') -Global -Force
+Import-Module (Join-Path $_repoRoot 'test/modules/Test.CachingProxyService.psm1') -Global -Force
 if ($env:YURUNA_GUEST_REACHABLE_HOST_IP) {
     $YurunaHostIp = $env:YURUNA_GUEST_REACHABLE_HOST_IP
 } elseif (Test-MacUplinkNotBridgeable) {
@@ -149,9 +149,9 @@ if (Test-Path -LiteralPath $YurunaTestConfig) {
     if ($tc -and $tc.statusService -and $tc.statusService.port) { $YurunaHostPort = "$($tc.statusService.port)" }
 }
 $ystashNas = Get-YurunaStashSeedValue -Config $tc
-# Pool-aggregator base URL for the guest's presence beacon + remote-host
-# resolution; '' (no caching proxy known) leaves those features off in-guest.
-$aggregatorSeedUrl = Get-PoolAggregatorSeedUrl
+# Pool-aggregator service base URL for the guest's presence beacon + remote-host
+# resolution; '' (no caching-proxy service known) leaves those features off in-guest.
+$aggregatorSeedUrl = Get-PoolAggregatorServiceSeedUrl
 
 # Render user-data from the shared base + UTM overlay (host/vmconfig/
 # stash-service.*). New-CloudInitUserData resolves placeholders with literal
@@ -164,8 +164,8 @@ $UserData = New-CloudInitUserData `
     -Replacement @{
         SSH_AUTHORIZED_KEY_PLACEHOLDER = $SshAuthorizedKey
         PASSWORD_PLACEHOLDER           = $AdminPassword
-        YURUNA_HOST_IP_PLACEHOLDER     = $YurunaHostIp
-        YURUNA_HOST_PORT_PLACEHOLDER   = $YurunaHostPort
+        YURUNA_STATUS_SERVICE_IP_PLACEHOLDER     = $YurunaHostIp
+        YURUNA_STATUS_SERVICE_PORT_PLACEHOLDER   = $YurunaHostPort
         YSTASH_NAS_NETWORK_PATH_PLACEHOLDER  = $ystashNas.NetworkPath
         YSTASH_NAS_NETWORK_IP_PLACEHOLDER    = $ystashNas.NetworkIp
         YSTASH_NAS_NETWORK_USER_PLACEHOLDER  = $ystashNas.NetworkUser
@@ -217,7 +217,7 @@ if (-not $BridgeInterface) {
     Write-Warning "Could not resolve default-route interface; falling back to 'en0' for VZ bridge."
     $BridgeInterface = 'en0'
 }
-Write-Output "Bridge interface: $BridgeInterface (stash VM will request DHCP on this LAN)"
+Write-Output "Bridge interface: $BridgeInterface (stash-service VM will request DHCP on this LAN)"
 
 # 8 GB RAM, 4 vCPU. Sized for the SCP receive + SQLite metadata writer
 # + future in-VM UI.

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.28
+.VERSION 2026.07.29
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456820
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -21,18 +21,18 @@
 # [server/](server/); user guide: https://yuruna.link/stash-guide.
 # Get-StashServiceInfo is a status stub that
 # returns a uniform hashtable in the host-side cmdlet vocabulary; host-side
-# status probing (querying a running stash VM) is not wired yet, so the flags
+# status probing (querying a running stash-service VM) is not wired yet, so the flags
 # stay $false until that lands.
 #
 # Resolve-Host is the runtime stash-address discovery a sequence's `variables:`
 # block consumes via ${ext:stash-service.ResolveHost(<vm>)}, so the stash IP is
 # a discovered artifact instead of a hard-coded literal: the same live Get-VMIp
-# lookup the caching-proxy/edge discovery uses, then the address a cycle
+# lookup the caching-proxy-service/edge discovery uses, then the address a cycle
 # published in <runtime>/stash-host.txt, then whatever the framework's
 # Get-ExtensionHostAddress can find for the area -- the last of which is what
 # answers for a lab whose stash runs on another host entirely.
 #
-# Test-StashHost + Publish-StashHost are the writer half of that: a cycle's
+# Test-StashServiceHost + Publish-StashServiceHost are the writer half of that: a cycle's
 # warm-up resolves the stash ONCE, up front, confirms it answers /healthz, and
 # publishes the address. Doing it there rather than per sequence means a stash
 # that is unreachable stops the cycle before its long provisioning stages
@@ -90,7 +90,7 @@ function Get-StashHostPath {
     return (Join-Path -Path $runtimeDir -ChildPath 'stash-host.txt')
 }
 
-function Get-PublishedStashHost {
+function Get-PublishedStashServiceHost {
     <#
     .SYNOPSIS
         The stash address published for this cycle, or '' when nothing
@@ -99,7 +99,7 @@ function Get-PublishedStashHost {
         A lab whose stash is a fixed-address service rather than a VM on
         this host can never be answered by Get-VMIp, so the address is
         resolved once at the start of a cycle -- confirmed to answer
-        /healthz there -- and written by Publish-StashHost. Reading it makes
+        /healthz there -- and written by Publish-StashServiceHost. Reading it makes
         every later ${ext:stash-service.ResolveHost(<vm>)} expansion agree
         with the address that pre-flight accepted, at no discovery cost and
         without each sequence re-reporting an absent VM.
@@ -123,7 +123,7 @@ function Get-PublishedStashHost {
     }
 }
 
-function Test-StashHost {
+function Test-StashServiceHost {
     <#
     .SYNOPSIS
         Reachability probe for a stash service: GET http://<address>/healthz.
@@ -143,7 +143,7 @@ function Test-StashHost {
         attempt. See feedback_wifi-connect-timeout-tail.md.
 
         -NoProxy is deliberate: the stash sits on the lab LAN and the host
-        may have a caching proxy in its environment that would neither reach
+        may have a caching-proxy service in its environment that would neither reach
         it nor be meant to.
     .PARAMETER Address
         Host name or IP literal of the stash service.
@@ -175,15 +175,15 @@ function Test-StashHost {
         try {
             $resp = Invoke-WebRequest -Uri $url -NoProxy -TimeoutSec $TimeoutSeconds -ErrorAction Stop
             if ([int]$resp.StatusCode -eq 200) { return $true }
-            Write-Verbose "stash-service.TestStashHost: $url attempt $attempt returned HTTP $([int]$resp.StatusCode)."
+            Write-Verbose "stash-service.TestStashServiceHost: $url attempt $attempt returned HTTP $([int]$resp.StatusCode)."
         } catch {
-            Write-Verbose "stash-service.TestStashHost: $url attempt $attempt failed: $($_.Exception.Message)"
+            Write-Verbose "stash-service.TestStashServiceHost: $url attempt $attempt failed: $($_.Exception.Message)"
         }
     }
     return $false
 }
 
-function Publish-StashHost {
+function Publish-StashServiceHost {
     <#
     .SYNOPSIS
         Records the stash address this cycle resolved, for every later
@@ -217,7 +217,7 @@ function Publish-StashHost {
     return $value
 }
 
-function Get-DiscoveredStashHost {
+function Get-DiscoveredStashServiceHost {
     <#
     .SYNOPSIS
         The first stash address the framework can discover for this host, or ''
@@ -225,7 +225,7 @@ function Get-DiscoveredStashHost {
     .DESCRIPTION
         Thin, failure-tolerant wrapper over the framework's
         Get-ExtensionHostAddress so the stash resolver has one call to make and
-        every "nothing to ask" shape -- no framework module, no caching proxy,
+        every "nothing to ask" shape -- no framework module, no caching-proxy service,
         no aggregator, an aggregator that does not answer, an area nobody
         serves -- collapses to the same empty string rather than an error the
         caller must sort out.
@@ -272,10 +272,10 @@ function Resolve-Host {
         Three sources, nearest first:
 
         1. Live host-contract lookup (Get-VMIp) -- the same mechanism the
-           caching-proxy and edge VMs are discovered by -- so a stash VM on this
+           caching-proxy-service and edge VMs are discovered by -- so a stash-service VM on this
            host is always found at its current address, never a hard-coded
            literal.
-        2. The address published for this cycle (Get-PublishedStashHost): the
+        2. The address published for this cycle (Get-PublishedStashServiceHost): the
            one the pre-flight already proved answers /healthz, so a sequence
            agrees with the cycle instead of re-deriving it.
         3. Whatever the framework can discover for the area
@@ -290,7 +290,7 @@ function Resolve-Host {
         empty expansion falls back rather than failing the step.
     .PARAMETER VMName
         Stash VM name. Defaults to 'yuruna-stash-service' (the name
-        Start-StashVM.ps1 creates).
+        Start-StashServiceVM.ps1 creates).
     .OUTPUTS
         [string] address, or '' when it cannot be resolved.
     #>
@@ -306,12 +306,12 @@ function Resolve-Host {
         Write-Verbose "stash-service.ResolveHost: host contract has no Get-VMIp; cannot discover '$VMName'."
     }
     if ($ip) { return $ip }
-    $published = Get-PublishedStashHost
+    $published = Get-PublishedStashServiceHost
     if ($published) {
         Write-Verbose "stash-service.ResolveHost: using the address published for this cycle ($published)."
         return $published
     }
-    $discovered = Get-DiscoveredStashHost
+    $discovered = Get-DiscoveredStashServiceHost
     if ($discovered) {
         Write-Verbose "stash-service.ResolveHost: using the discovered address ($discovered)."
         return $discovered
@@ -320,4 +320,4 @@ function Resolve-Host {
     return ''
 }
 
-Export-ModuleMember -Function Get-StashServiceInfo, Resolve-Host, Test-StashHost, Publish-StashHost, Get-DiscoveredStashHost
+Export-ModuleMember -Function Get-StashServiceInfo, Resolve-Host, Test-StashServiceHost, Publish-StashServiceHost, Get-DiscoveredStashServiceHost

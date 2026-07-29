@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.28
+.VERSION 2026.07.29
 .GUID 42b4c5d6-e7f8-4a90-9b12-3c4d5e6f7081
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -93,7 +93,7 @@ Describe 'Inner loop resyncs config through the single Sync-RunnerStepConfig hoo
 
 Describe 'Sync-RunnerStepConfig surfaces a sustained config-reload outage once' {
     It 'seeds the sustained-failure counters on a fresh config state' {
-        $st = New-RunnerConfigState -CmdLineLogLevel $null -CycleDelayFallback 30
+        $st = New-RunnerConfigState -CmdLineLogLevel $null -CycleDelaySecondsFallback 30
         $st.ContainsKey('SyncFailedStreak')  | Should -Be $true
         $st.ContainsKey('SyncFailureWarned') | Should -Be $true
         $st.SyncFailedStreak  | Should -Be 0
@@ -102,7 +102,7 @@ Describe 'Sync-RunnerStepConfig surfaces a sustained config-reload outage once' 
     It 'stays silent below the threshold, warns once at it, and latches past it' {
         Mock -ModuleName Test.RunnerInnerLoop Sync-RunnerCycleConfig { 'failed' }
         Mock -ModuleName Test.RunnerInnerLoop Resolve-RunnerLogLevel { }
-        $st = New-RunnerConfigState -CmdLineLogLevel $null -CycleDelayFallback 30
+        $st = New-RunnerConfigState -CmdLineLogLevel $null -CycleDelaySecondsFallback 30
         # Sync-RunnerCycleConfig is mocked to a bare status and emits no warning of
         # its own, so any warning captured here is Sync-RunnerStepConfig's louder
         # one-shot -- a per-iteration warning COUNT is a structural discriminator
@@ -136,7 +136,7 @@ Describe 'Sync-RunnerStepConfig surfaces a sustained config-reload outage once' 
     It 'resets the streak and the one-shot latch on a resolved reload' {
         Mock -ModuleName Test.RunnerInnerLoop Sync-RunnerCycleConfig { 'resolved' }
         Mock -ModuleName Test.RunnerInnerLoop Resolve-RunnerLogLevel { }
-        $st = New-RunnerConfigState -CmdLineLogLevel $null -CycleDelayFallback 30
+        $st = New-RunnerConfigState -CmdLineLogLevel $null -CycleDelaySecondsFallback 30
         $st.SyncFailedStreak = 5; $st.SyncFailureWarned = $true
         Sync-RunnerStepConfig -State $st -ConfigPath 'x' -WarningAction SilentlyContinue
         $st.SyncFailedStreak  | Should -Be 0
@@ -145,7 +145,7 @@ Describe 'Sync-RunnerStepConfig surfaces a sustained config-reload outage once' 
     It 'resets the streak on a non-dictionary reload too (any non-failed result)' {
         Mock -ModuleName Test.RunnerInnerLoop Sync-RunnerCycleConfig { 'nondict' }
         Mock -ModuleName Test.RunnerInnerLoop Resolve-RunnerLogLevel { }
-        $st = New-RunnerConfigState -CmdLineLogLevel $null -CycleDelayFallback 30
+        $st = New-RunnerConfigState -CmdLineLogLevel $null -CycleDelaySecondsFallback 30
         $st.SyncFailedStreak = 4; $st.SyncFailureWarned = $true
         Sync-RunnerStepConfig -State $st -ConfigPath 'x' -WarningAction SilentlyContinue
         $st.SyncFailedStreak  | Should -Be 0

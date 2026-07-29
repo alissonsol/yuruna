@@ -20,8 +20,8 @@ import (
 	"sync"
 	"time"
 
-	"stash-server/internal/config"
-	"stash-server/internal/meta"
+	"stash-service/internal/config"
+	"stash-service/internal/meta"
 )
 
 // defaultPoolRefreshInterval is the cadence of the background rescan that

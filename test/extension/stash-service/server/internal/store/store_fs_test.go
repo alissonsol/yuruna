@@ -26,7 +26,7 @@ func TestNetworkMountFromMountinfo(t *testing.T) {
 		{"share mounted, nested target", mounted, "/mnt/ystash-nas/stash/42ab", true},
 		{"share mounted, exact mountpoint", mounted, "/mnt/ystash-nas", true},
 		{"share unmounted -> local fallback", unmounted, "/mnt/ystash-nas/stash/42ab", false},
-		{"unrelated path on root fs", mounted, "/var/lib/stash-server", false},
+		{"unrelated path on root fs", mounted, "/var/lib/stash-service", false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

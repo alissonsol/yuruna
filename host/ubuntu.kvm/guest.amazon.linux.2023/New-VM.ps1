@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.28
+.VERSION 2026.07.29
 .GUID 42a2b3c4-d5e6-4f78-9012-3a4b5c6d7e97
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -28,10 +28,10 @@
 
 param(
     [string]$VMName = "amazon-linux01",
-    # No -CachingProxyUrl: AL2023 does not template a dnf proxy into cloud-init
+    # No -CachingProxyServiceUrl: AL2023 does not template a dnf proxy into cloud-init
     # (the guest-side placeholder approach was abandoned as unreliable, see
     # feedback_dnf_proxy_via_cloud_init_placeholder), matching the Hyper-V/UTM
-    # AL2023 New-VM.ps1. Invoke-PerGuestNewVm only forwards -CachingProxyUrl to
+    # AL2023 New-VM.ps1. Invoke-PerGuestNewVm only forwards -CachingProxyServiceUrl to
     # scripts that declare it, so omitting it here is contract-safe.
     # Greppable test user added on top of ec2-user; force-expired by
     # cloud-init chpasswd default so the rotation flow runs.
@@ -117,7 +117,7 @@ $sshPub = Get-YurunaSshPublicKey
 if (-not $sshPub) { Write-Error "Get-YurunaSshPublicKey returned empty. Module path: $TestSshModule"; exit 1 }
 
 # Host coordinates + guest network are a topology-aware matched pair: the
-# guest attaches to the SAME libvirt network as the caching-proxy
+# guest attaches to the SAME libvirt network as the caching-proxy-service
 # (Get-ExternalNetwork: bridged 'yuruna-external' when defined, else NAT
 # 'default') and reaches the host at an address routable from that network.
 # A guest on the NAT 'default' net cannot reach a bridged cache's LAN IP,
@@ -170,8 +170,8 @@ $userData = New-CloudInitUserData `
         USERNAME_PLACEHOLDER           = $Username
         PLAINTEXT_PASSWORD_PLACEHOLDER = $plaintextPassword
         SSH_AUTHORIZED_KEY_PLACEHOLDER = $sshPub
-        YURUNA_HOST_IP_PLACEHOLDER     = $hostIp
-        YURUNA_HOST_PORT_PLACEHOLDER   = $hostPort
+        YURUNA_STATUS_SERVICE_IP_PLACEHOLDER     = $hostIp
+        YURUNA_STATUS_SERVICE_PORT_PLACEHOLDER   = $hostPort
     } -Confirm:$false
 $metaData = (Get-Content -Raw -LiteralPath $metaDataTemplate).
     Replace('INSTANCE_ID_PLACEHOLDER', $VMName).Replace('HOSTNAME_PLACEHOLDER', $GuestHostname)

@@ -8,6 +8,43 @@
 - Different install methods can shadow each other via PATH order.
 - For most cases, use `brew-doctor-fix.sh`. Occasionally you'll need manual steps like `brew uninstall powershell && brew install powershell`.
 
+## PowerShell, .NET, and nested `sudo pwsh`
+
+`install/macos.utm.sh` prefers the Homebrew **formula** for PowerShell, which is
+framework-dependent on brew's `dotnet` and locates its runtime through
+`DOTNET_ROOT`, exported by the wrapper on `PATH`. Any `pwsh` started without
+that environment — notably a nested `sudo pwsh`, whose `env_reset` strips it —
+fails to find `libhostfxr` and exits **131** before running a line of script.
+The error names .NET, never the caller, so it surfaces far from its cause (the
+first report was `New-LocalLabStorage.ps1` dying at step 5/8).
+
+Two things make this go away, and the installer does both:
+`/etc/dotnet/install_location_$(uname -m)` records the runtime location
+machine-wide, read regardless of who starts `pwsh` or with what environment; and
+`Get-SudoPwshArgumentList` (`automation/Yuruna.Common.psm1`) adds `-E` on macOS
+for every nested launch. To repair a host installed before that:
+
+```
+echo "$(brew --prefix dotnet)/libexec" | sudo tee /etc/dotnet/install_location_$(uname -m)
+```
+
+`-E` is macOS-only on purpose: Linux ships a self-contained PowerShell that
+needs nothing preserved, and a `NOSETENV` sudoers rule there rejects `-E`
+outright.
+
+## Do not run the harness scripts under `sudo`
+
+They are built to run unelevated and to elevate individual operations. Under
+`sudo` the failure is not (mainly) file ownership — it is that **root has no
+Aqua session**: `open -g -a UTM`, `utmctl`, and the `osascript` dialog watchdog
+are per-GUI-session, so a root run dies at "UTM did not register `<vm>`" long
+before anything mounts. Plain `sudo` also resets `HOME` to `/var/root`, so
+bundles, images, the harness SSH key and the vault land in root's home.
+
+Recovery: `sudo chown -R "$USER" ~/yuruna` (the whole tree — removing a
+directory needs write permission on its *parent*, and `guest.nosync` is shared
+by every builder), then re-run unelevated.
+
 ## Cleaning Up Old Files
 
 Run `Remove-OrphanedVMFiles.ps1`. It removes per-VM artifacts (bundles, ISOs, etc.) for any VM that no longer exists. Downloaded base images are explicitly KEPT so subsequent `Get-Image.ps1` runs don't re-download them; refresh a base image with the matching `Get-Image.ps1`.
@@ -201,6 +238,107 @@ on a setting that host cannot have would block a working desktop test
 host. A laptop that drifts back to 0 does list the key, so the gate
 still catches it.
 
+## Service VMs come back `suspended` after UTM is quit
+
+Symptom: `yuruna-caching-proxy-service` and `yuruna-stash-service` show
+`suspended` in the UTM library (`utmctl status` agrees), and every guest
+that consumes them fails — package installs time out against the proxy,
+the build cannot upload to the stash. Nothing resumes them; they sit
+there until someone presses play.
+
+Root cause: **quitting UTM saves the state of every VM still running.**
+UTM's termination handler returns `NSTerminateLater`, writes each running
+VM's RAM to disk, and only then lets the app exit. What was `started`
+before the quit is `suspended` after it. In the unified log the whole
+sequence is visible as a `Handling Quit AppleEvent` /
+`applicationShouldTerminate: NSTerminateLater` pair followed seconds
+later by `replyToApplicationShouldTerminate:YES` — the gap is the state
+being written.
+
+Two things quit UTM, and each has its own guard:
+
+1. **Closing the last window.** UTM's default is to terminate with it.
+   `Set-MacHostConditionSet` writes
+   `com.utmapp.UTM KeepRunningAfterLastWindowClosed = YES` so the app
+   stays resident instead, and `Assert-HostConditionSet` fails a host
+   where it drifts back off. UTM reads the key at launch, so a UTM
+   already running keeps its old behavior until it is next started.
+2. **The framework quitting it on purpose.** `Rename-VM` has to take UTM
+   down to edit its Registry plist (`utmctl` has no rename verb), and
+   `install/macos.utm.sh` has to take it down to upgrade the cask. The
+   rename path captures the running service VMs first and calls
+   `Resume-YurunaServiceVM` after the relaunch on every path out; the
+   installer refuses to quit at all while any service VM is running
+   (`is_service_vm_running`, which also preserves when `utmctl` cannot
+   be reached — Apple Events are denied over SSH, and reading that as
+   "nothing is running" would quit on exactly the unattended hosts that
+   can least afford it).
+
+Side effect worth knowing about: QEMU writes the saved state into the
+first qcow2 on its command line, which for these bundles is
+`Data/efi_vars.fd` — a 64 MiB UEFI variable store. Each suspend inflates
+it by roughly the VM's RAM, and resuming deletes the snapshot without
+shrinking the file, so a bundle that has been suspended a few times
+carries gigabytes of dead space:
+
+```
+qemu-img info -U ~/yuruna/guest.nosync/<vm>.utm/Data/efi_vars.fd
+# virtual size: 64 MiB   disk size: 7.55 GiB   <- leaked suspend state
+```
+
+Reclaim it with the VM stopped (never while it runs — QEMU holds a write
+lock, and `qemu-img info -U` bypasses that lock for *reading* only):
+
+```
+qemu-img convert -O qcow2 efi_vars.fd efi_vars.fd.new && mv efi_vars.fd.new efi_vars.fd
+```
+
+## A service VM answers, but the dashboard links to a dead address
+
+Symptom: the stash service is up and reachable at its real address, the
+Extension hosts row is present, and the deep-link off it goes nowhere.
+`runtime/stash-service.json` and `runtime/host.registration.json` disagree
+about `stashBaseUrl` / `extensionTargets`.
+
+Root cause is the lease store. macOS files every DHCP lease under the name
+the guest sent and never prunes, and a rebuilt guest presents a fresh client
+identity — systemd derives its DHCP DUID from a machine-id the rebuild
+regenerates — so it is issued a **new** address instead of its predecessor's.
+One name therefore accumulates one block per incarnation:
+
+```
+grep -c 'name=yuruna-stash-service' /var/db/dhcpd_leases     # 3, on a host rebuilt twice
+```
+
+`Get-VMIp` falls back to that file keyed on the guest name, and
+`Select-DhcpLeaseIpAddress` picks the largest `lease=` expiry among the
+matches. That is right once the live guest has taken its lease, and wrong for
+the seconds before it does — the only blocks bearing the name then belong to
+guests that no longer exist, and the address handed back parses, sits on-link,
+and is dead.
+
+Two things follow from that, and both are guarded:
+
+- **Advertising it.** `Update-StashServiceMarkerAddress` confirms a candidate
+  against `/healthz` before publishing it, and keeps polling while it does not
+  answer, so the boot-window reply cannot end a 180 s budget on its first tick.
+  A budget that expires with nothing confirmed still publishes the last address
+  reported — by then the stale window is long past, and refusing a
+  correct-but-slow-to-serve address would trade this bug for its opposite — and
+  warns that it is unconfirmed.
+- **The duplication itself.** `host/macos.utm/Remove-StaleDhcpLease.ps1`
+  collapses each name down to its live block. It keeps the largest-expiry block
+  of every name, every name carrying only one block, and any block whose
+  address still answers ARP or ping — so it is safe to run with guests up.
+  `-WhatIf` reports without changing anything; a timestamped backup is written
+  first, and a lease file that the DHCP server rewrote mid-run is left alone.
+
+Note that `extensionTargets` in `host.registration.json` is a snapshot taken
+when the registration was last written, and the runner writes it *before* it
+refreshes the marker (the refresh needs `Get-VMIp`, which is only wired later
+in startup). A corrected address therefore reaches the dashboard on the next
+cycle, not the current one.
+
 ## macOS guest install: embedded Swift VZMacOSInstaller helper
 
 The macOS 26 guest is restored by an embedded Swift helper
@@ -225,6 +363,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.29
+Last review: 2026.07.31
 
 Back to [Yuruna](../README.md)

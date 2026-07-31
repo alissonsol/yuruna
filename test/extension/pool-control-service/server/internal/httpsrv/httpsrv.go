@@ -49,6 +49,11 @@ type Options struct {
 	AggregatorURL string
 	HostID        string
 	IntentGitURL  string
+	// Passcode gates the operator board. Empty keeps the service exactly as it
+	// is today: open on the LAN. PublicRead lets the read-only board render
+	// without it (a wall display) while mutations stay gated regardless.
+	Passcode   string
+	PublicRead bool
 }
 
 // Server is the pool-control-service UI/API HTTP server.
@@ -56,6 +61,7 @@ type Server struct {
 	intent  IntentAPI
 	state   *state.Store
 	opts    Options
+	gate    *passcodeGate
 	httpSrv *http.Server
 	started time.Time
 }
@@ -63,6 +69,7 @@ type Server struct {
 // New builds a Server over the given intent API.
 func New(api IntentAPI, opts Options) *Server {
 	s := &Server{intent: api, state: opts.Store, opts: opts, started: time.Now()}
+	s.gate = newPasscodeGate(opts.Passcode, opts.PublicRead)
 	s.httpSrv = &http.Server{
 		Addr:              opts.Addr,
 		Handler:           s.routes(),

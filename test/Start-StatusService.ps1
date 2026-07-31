@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.29
+.VERSION 2026.07.31
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456740
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -612,6 +612,11 @@ Import-Module (Join-Path `$repoRoot 'test/modules/Test.SingleInstance.psm1') -Fo
 # detached server's here-string. Used by /control/guest-folders to list
 # guests under host/<short>/.
 `$serverHostType = '$detectedHost'
+# Baked in like `$serverHostType above: the detached server has its own runspace
+# and never inherits the parent's locals. /control/runner-status reads the live
+# watchdog bounds (testCycle.stepTimeoutSeconds / preambleTimeoutSeconds) from
+# here so its liveness verdict matches what the watchdog will actually enforce.
+`$serverConfigPath = '$configPath'
 # NOTE: deliberately NO self-exit on a stale server.heartbeat --
 # legitimate runner states outlast ANY threshold: a
 # prompt-for-confirmation pausing the runner for hours, or a single
@@ -1625,7 +1630,66 @@ try {
                 `$pidVal  = `$rs.RunnerPid
                 `$res.ContentType = 'application/json; charset=utf-8'
                 `$res.Headers.Add('Cache-Control', 'no-store')
-                `$payload = @{ running = `$running; pid = `$pidVal } | ConvertTo-Json -Compress
+                # --- REGION: liveness -------------------------------------
+                # "A runner process exists" is NOT "the runner is progressing".
+                # runner.heartbeat is written by a threadpool timer that keeps
+                # ticking through a wedged runspace, so a host blocked on an
+                # unanswerable prompt looked healthy here and the dashboard kept
+                # showing the previous cycle's green. runner.stepHeartbeat is
+                # written from the runspace itself, so its AGE is the real
+                # progress signal -- and this detached server is the only Yuruna
+                # process still live mid-cycle, so it is the only place that can
+                # compute it. Everything below is best-effort: a liveness probe
+                # must never be able to take the status service down.
+                `$hbAge = `$null; `$phaseVal = `$null; `$liveness = 'unknown'; `$lapsed = `$null
+                try {
+                    `$hbPath = Join-Path `$runtimeDir 'runner.stepHeartbeat'
+                    if (Test-Path -LiteralPath `$hbPath) {
+                        `$hbAge = [int]((Get-Date) - (Get-Item -LiteralPath `$hbPath).LastWriteTime).TotalSeconds
+                    }
+                    `$phasePath = Join-Path `$runtimeDir 'runner.phase'
+                    if (Test-Path -LiteralPath `$phasePath) {
+                        `$phaseVal = "`$(Get-Content -LiteralPath `$phasePath -Raw)".Trim()
+                    }
+                    `$lapsePath = Join-Path `$runtimeDir 'runner.watchdog.lapsed'
+                    if (Test-Path -LiteralPath `$lapsePath) {
+                        `$lapsed = "`$(Get-Content -LiteralPath `$lapsePath -Raw)".Trim()
+                    }
+                    # Same bound the watchdog applies: the tight preamble one
+                    # while runner.phase exists, the step budget otherwise. Read
+                    # fresh so an operator's config edit is reflected without
+                    # restarting this server.
+                    `$stepBound = 2700; `$preBound = 600
+                    try {
+                        `$cfgLive = Read-TestConfig -Path `$serverConfigPath -NoCache
+                        `$sv = Get-TestConfigValue -Config `$cfgLive -Path 'testCycle.stepTimeoutSeconds'
+                        `$pv = Get-TestConfigValue -Config `$cfgLive -Path 'testCycle.preambleTimeoutSeconds'
+                        `$tmp = 0
+                        if (`$null -ne `$sv -and [int]::TryParse("`$sv".Trim(), [ref]`$tmp) -and `$tmp -gt 0) { `$stepBound = `$tmp }
+                        `$tmp = 0
+                        if (`$null -ne `$pv -and [int]::TryParse("`$pv".Trim(), [ref]`$tmp) -and `$tmp -ge 0) { `$preBound = `$tmp }
+                    } catch { Write-Debug "runner-status: config read failed: `$(`$_.Exception.Message)" }
+                    `$bound = if (`$phaseVal -and `$preBound -gt 0 -and `$preBound -lt `$stepBound) { `$preBound } else { `$stepBound }
+                    # 'idle' is NOT 'ok': with no runner there is nothing to be
+                    # progressing, and reporting ok would reproduce the very
+                    # false-green this endpoint exists to remove.
+                    `$liveness = if (-not `$running)          { 'idle' }
+                                elseif (`$null -eq `$hbAge)   { 'unknown' }
+                                elseif (`$hbAge -gt `$bound)  { 'stalled' }
+                                elseif (`$hbAge -gt (`$bound / 2)) { 'slow' }
+                                else                          { 'ok' }
+                } catch {
+                    Write-ServerErr "runner-status liveness probe failed: `$(`$_.Exception.Message)"
+                }
+                `$payload = @{
+                    running                 = `$running
+                    pid                     = `$pidVal
+                    liveness                = `$liveness
+                    phase                   = `$phaseVal
+                    stepHeartbeatAgeSeconds = `$hbAge
+                    boundSeconds            = `$bound
+                    watchdogLapsed          = `$lapsed
+                } | ConvertTo-Json -Compress
                 `$body = [System.Text.Encoding]::UTF8.GetBytes(`$payload)
                 `$res.ContentLength64 = `$body.Length
                 `$res.OutputStream.Write(`$body, 0, `$body.Length)

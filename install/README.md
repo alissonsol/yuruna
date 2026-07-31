@@ -10,14 +10,74 @@ never auto-updates, see **Pin to a release** below.
 
 Enabling the host as a Yuruna test host (display sleep / screen lock /
 storage-pool tweaks) is intentionally NOT done automatically. Run
-`host/<platform>/Enable-TestAutomation.ps1` after install if you want this
-machine to act as a test host.
+[setup.ps1](setup.ps1) after install — see **Guided setup** below — or, for the
+host settings alone, `host/<platform>/Enable-TestAutomation.ps1`.
 
 | Host | Installer | Setup notes |
 |------|-----------|-------------|
 | macOS UTM | [macos.utm.sh](macos.utm.sh) | [macOS UTM ...](../host/macos.utm/README.md) |
 | Windows Hyper-V | [windows.hyper-v.ps1](windows.hyper-v.ps1) | [Windows Hyper-V ...](../host/windows.hyper-v/README.md) |
 | Ubuntu KVM/libvirt | [ubuntu.kvm.sh](ubuntu.kvm.sh) | [Ubuntu KVM/libvirt ...](../host/ubuntu.kvm/README.md) |
+
+## Guided setup
+
+The installer above puts packages and the repo on the machine. [setup.ps1](setup.ps1)
+takes it the rest of the way — to a working **Standalone host** or a working
+**Lab** — asking only what it cannot infer:
+
+```
+pwsh install/setup.ps1                    # interactive
+pwsh install/setup.ps1 -WhatIf            # print the ordered task list, change nothing
+pwsh install/setup.ps1 -AnswerFile a.yml  # unattended, same code path
+```
+
+| Mode | What it sets up |
+|------|-----------------|
+| **Standalone host** | One machine that runs tests by itself: host settings, storage, the caching proxy and the stash service. |
+| **Lab** | A beacon other machines join: shared storage, the caching proxy, the stash and pool-control services, this host enrolled, and a `default` pool. |
+
+Storage is one of the questions, not an assumption: **this machine** (local SMB
+shares, the default for standalone), **an existing NAS share** (mounted, never
+created — set up the share and `networkStorage.*` first), or **none**, which is
+standalone-only and skips shared storage and the stash service with it.
+
+It installs nothing and clones nothing — it orchestrates the scripts that already
+do each job. Storage is configured **before** the service VMs in both modes,
+because the stash service exits 1 without it and the caching proxy bakes storage
+into its guest seed at build time.
+
+Re-running is safe: each step detects what is already true and skips it, so a run
+interrupted halfway is resumed by running it again. On Windows the whole run
+elevates once, up front. A guided run ends by writing the answer file it used, so
+the next machine can be set up the same way.
+
+For what a lab is and how hosts join one, see [docs/lab-operator.md](../docs/lab-operator.md).
+
+### Putting a machine back
+
+[test/Disable-TestAutomation.ps1](../test/Disable-TestAutomation.ps1) restores the
+host settings `Enable-TestAutomation` changed, from the capture Enable wrote
+before it changed anything:
+
+```
+pwsh test/Disable-TestAutomation.ps1 -WhatIf        # show what would be restored
+pwsh test/Disable-TestAutomation.ps1
+pwsh test/Disable-TestAutomation.ps1 -StopServices  # also stop the service VMs
+```
+
+It reverses settings only. Packages, PSGallery modules, macOS TCC grants, the
+credential vault, cloned repos and images, and everything the storage
+questionnaire wrote are **reported, mostly with the command to run** rather than removed —
+tearing those down on a "disable settings" is a surprise. On a host enabled before
+the capture shipped, only what is provably ours is removed — the status-port
+firewall rule and the Yuruna ICMP rule on Windows, the `ufw` status-port rule on
+Ubuntu, and **nothing at all on macOS**, which adds no objects of its own. Every
+other setting is left alone and reported, because restoring a guessed default is
+still a change nobody asked for.
+
+It refuses to run while a test runner owns the host's runtime directory, and
+`-WhatIf` shows what it would restore without touching anything. Full breakdown
+in [docs/operator.md](../docs/operator.md#putting-the-machine-back).
 
 ## Remote one-liners
 
@@ -108,7 +168,7 @@ pass the tag directly: `-YurunaBranch 2026.06.20` /
 ## Verified install (signed release)
 
 > Available for published release **tags**. The signing artifacts
-> (`install.sha256.sig`, `install/keys/`) first ship in release `2026.07.29`;
+> (`install.sha256.sig`, `install/keys/`) first ship in release `2026.07.31`;
 > until that tag is cut, use the convenience one-liners above.
 
 A tagged release publishes, next to each installer:
@@ -128,7 +188,7 @@ SHA-256(DER public key) = 14fce044df5de1ebbac6fdeae8d4f87abac618393f06e32748b7ef
 **Windows Hyper-V** (PowerShell 5.1+; uses .NET, no extra tooling):
 
 ```
-$base='https://raw.githubusercontent.com/alissonsol/yuruna/refs/tags/2026.07.29'; $t=Join-Path $env:TEMP 'yuruna-install'; New-Item -ItemType Directory -Force $t|Out-Null
+$base='https://raw.githubusercontent.com/alissonsol/yuruna/refs/tags/2026.07.31'; $t=Join-Path $env:TEMP 'yuruna-install'; New-Item -ItemType Directory -Force $t|Out-Null
 'install/windows.hyper-v.ps1','install/install.sha256','install/install.sha256.sig','install/keys/yuruna-release-signing.pub.xml'|%{ irm "$base/$_" -OutFile (Join-Path $t (Split-Path $_ -Leaf)) }
 $k=New-Object System.Security.Cryptography.RSACryptoServiceProvider; $k.FromXmlString((Get-Content "$t\yuruna-release-signing.pub.xml" -Raw))
 if(-not $k.VerifyData([IO.File]::ReadAllBytes("$t\install.sha256"),'SHA256',[IO.File]::ReadAllBytes("$t\install.sha256.sig"))){throw 'SIGNATURE INVALID -- do not run'}
@@ -139,7 +199,7 @@ $h=(Get-FileHash "$t\windows.hyper-v.ps1" -Algorithm SHA256).Hash.ToLower(); if(
 **macOS UTM / Ubuntu KVM** (uses `openssl`, present on both):
 
 ```
-BASE='https://raw.githubusercontent.com/alissonsol/yuruna/refs/tags/2026.07.29'; S=install/macos.utm.sh   # or install/ubuntu.kvm.sh
+BASE='https://raw.githubusercontent.com/alissonsol/yuruna/refs/tags/2026.07.31'; S=install/macos.utm.sh   # or install/ubuntu.kvm.sh
 t=$(mktemp -d); for f in "$S" install/install.sha256 install/install.sha256.sig install/keys/yuruna-release-signing.pub.pem; do curl -fsSL "$BASE/$f" -o "$t/$(basename "$f")"; done
 openssl dgst -sha256 -verify "$t/yuruna-release-signing.pub.pem" -signature "$t/install.sha256.sig" "$t/install.sha256" || { echo 'SIGNATURE INVALID -- do not run'; exit 1; }
 grep -qF "$(sha256sum "$t/$(basename "$S")" | cut -d' ' -f1)" "$t/install.sha256" || { echo 'INSTALLER HASH MISMATCH -- do not run'; exit 1; }
@@ -173,6 +233,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.29
+Last review: 2026.07.31
 
 Back to [Yuruna](../README.md)

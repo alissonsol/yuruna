@@ -217,7 +217,7 @@ eviction-safe global-anchor pattern but is hand-rolled in
 - [Component registry login](authentication.md#component-registry-login) — `Register-CredentialProvider`
 - [Host-condition registry](host-condition-registry.md) — `Register-HostConditionProvider`
 
-Plus the [remediation dispatcher](remediation.md) (`Register-RecoveryHandler`,
+Plus the [remediation dispatcher](failure-schema.md#remediation-dispatcher) (`Register-RecoveryHandler`,
 failure-class to recommendation), and the file-based
 [Extensions API](extensions-api.md) under
 `test/extension/<area>/` for authentication, notification transports,
@@ -456,6 +456,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.29
+Last review: 2026.07.31
 
 Back to [Yuruna](../README.md)

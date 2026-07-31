@@ -1,0 +1,48 @@
+<!doctype html>
+<!--
+  LICENSEURI https://yuruna.link/license
+  Copyright (c) 2019-2026 by Alisson Sol et al.
+
+  Host-centric assignment. Lists EVERY host the aggregator knows -- not just pool
+  members -- so an operator can see why one was never auto-enrolled.
+-->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Pool-control service &mdash; Hosts</title>
+  <link rel="stylesheet" href="/assets/style.css">
+</head>
+<body>
+  <header class="app">
+    <span class="brand">Yuruna pool-control service</span>
+    <nav>
+      <a href="/">Board</a>
+      <a href="/advanced">Advanced</a>
+      <a href="/hosts" class="active">Hosts</a>
+      <a href="/pools">Pools</a>
+      <a href="/test-sets">Test sets</a>
+    </nav>
+  </header>
+  <main>
+    <h1>Hosts</h1>
+    <p class="muted">
+      Every host the aggregator knows. <strong>Control</strong> is the wire value:
+      <code>ready</code> holds this lab's token and its clock agrees;
+      <code>mismatch</code> holds a different token; <code>skew</code> is a clock problem;
+      <code>none</code> never enrolled. Only <code>ready</code> hosts are auto-enrolled.
+      Choosing a pool <em>moves</em> the host &mdash; a host belongs to at most one.
+    </p>
+    <div id="notice" class="notice"></div>
+    <div class="row"><button id="refresh">Refresh</button></div>
+    <table>
+      <thead>
+        <tr><th>Host ID</th><th>Control</th><th>Project access</th><th>Pool</th></tr>
+      </thead>
+      <tbody id="host-rows"></tbody>
+    </table>
+  </main>
+  <script src="/assets/common.js"></script>
+  <script src="/assets/hosts.js"></script>
+</body>
+</html>

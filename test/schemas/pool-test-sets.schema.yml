@@ -33,10 +33,48 @@ properties:
         name:
           type: string
           pattern: "^[a-z0-9][a-z0-9._-]*$"
-          description: Test-set name (the operator label; also the dashboard/UI display name).
+          description: >
+            Test-set name, and the SOLE key this library upserts and deletes on.
+            Discovered entries are therefore project-scoped by construction --
+            `<project-slug>.<setName>`, e.g. `amisad-dev.smoke` -- because every
+            project reports an implicit set called `all` and a bare name would
+            have one project's `all` silently overwrite another's, retargeting a
+            library row at an unrelated repo. Dots are already legal here, so
+            nothing about the key, the CLI or the UI changes.
         frameworkUrl:
           type: string
           description: The Yuruna framework repo URL a pooled host clones for the cycle.
         projectUrl:
           type: string
           description: The project repo URL a pooled host tests.
+        sequences:
+          type: array
+          description: >
+            PHASE A (permit-only): declared so every intent WRITER accepts a
+            document containing it before any writer emits it. Every admin write
+            re-validates the WHOLE document against the writing checkout's own
+            copy of this schema, and each entry is `additionalProperties:
+            false`, so a store written by a newer checkout would otherwise fail
+            validation on every older one.
+
+            Optional subset of the project's top-level sequences. Absent or
+            empty means the project's whole test.runner.yml.
+          items:
+            type: string
+        displayName:
+          type: string
+          description: >
+            Human-readable label for the operator board. The derived `name` is
+            built for uniqueness, which is the wrong property for something a
+            non-technical operator reads. Authored in the project's
+            test.runner.yml and carried here by discovery; the board falls back
+            to `name` when absent.
+        description:
+          type: string
+          description: One line shown under displayName on the operator board.
+        discovered:
+          type: boolean
+          description: >
+            True when this entry was learned from a host's self-report rather
+            than authored by an operator. Lets the UI distinguish the two and
+            lets a re-scan avoid clobbering hand-authored rows.

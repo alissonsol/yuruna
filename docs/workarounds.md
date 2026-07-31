@@ -218,6 +218,23 @@ because the surrounding `try` usually swallows the resolution error:
 
 Durable capture: `feedback_module_force_import_evicts_global`.
 
+## `utmctl start` exits 0 without starting the VM
+
+On a freshly-imported bundle, `utmctl start` can return 0 at the RPC layer
+while UTM is still finalizing bundle ingestion — the start request is
+silently dropped and the VM stays `stopped`. The exit code alone is
+therefore not evidence the VM is running, and a caller that trusts it
+advertises a service that does not exist and then blames whatever runs
+next (cloud-init, a daemon build, a NAS mount) for a guest that never
+booted.
+
+The fix is to verify the transition rather than the exit code: the host
+contract's `Start-VM` (`Start-UtmVM`) retries and parses `utmctl status`,
+and every service bring-up follows it with `Wait-VMRunning` before doing
+anything downstream. Do not hand-roll `open` + `utmctl start`; that path
+also skips the custom-QEMU-args dialog watchdog, without which UTM blocks
+on a modal and the bring-up cannot run unattended at all.
+
 ## Guest troubleshooting
 
 Per-guest-OS notes, for problems that surface inside a provisioned guest
@@ -299,6 +316,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.29
+Last review: 2026.07.31
 
 Back to [Yuruna](../README.md)

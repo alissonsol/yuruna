@@ -439,6 +439,25 @@ Common findings:
 - **The whole config won't load** — a Windows drive-letter `poolStorageLocalPath` must be
   **quoted** in YAML (`poolStorageLocalPath: 'w:'`, not `w:`); unquoted it breaks the entire
   `test.config.yml` parse. See the YAML-quoting note in [test-config.md](test-config.md).
+- **macOS: the mount is refused however correct the password is** — macOS keeps a
+  separate credential per authentication authority and `smbd` accepts only the
+  SMB-NT one, which `sysadminctl` never creates. Every other check passes on such
+  an account, including `dscl . -authonly`, which is why the credential looks
+  fine. Enable the hash type and re-set the password (only passwords set
+  *after* the change get an SMB-NT hash, so both commands are required):
+  `sudo pwpolicy -u yuruna-pool -sethashtypes SMB-NT on` then
+  `sudo sysadminctl -resetPasswordFor yuruna-pool -newPassword '<lab-vault password>'`.
+  `New-LocalLabStorage.ps1` does this itself and proves it with an `smbutil`
+  probe; this is for accounts created before that.
+- **In a guest: `cifs_mount failed w/return code = -111`** — not a credential
+  problem. `-111` is a refused TCP connection, so the guest *did* get an address
+  and dialled it: classically the share's server name resolving to something
+  host-local (`127.0.0.1` from a local-lab hosts alias), which inside a VM is the
+  guest's own loopback. A rejected credential is `mount error(13)` instead, and an
+  unresolvable name fails in `mount.cifs` before the kernel is involved. Check
+  from inside the guest with `getent hosts <server>` and `grep cifs /etc/fstab` —
+  the `ip=` option should name an address the guest can route to. The host-side
+  pre-flight passes in this case, because on the host the alias is correct.
 
 ## Security notes
 
@@ -476,6 +495,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.29
+Last review: 2026.07.31
 
 Back to [Yuruna](../README.md)

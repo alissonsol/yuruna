@@ -1,0 +1,40 @@
+<!doctype html>
+<!--
+  LICENSEURI https://yuruna.link/license
+  Copyright (c) 2019-2026 by Alisson Sol et al.
+
+  The expert entry point. The board took "/", so the pages that used to hang off
+  it are gathered here. Every one of them keeps its own URL, so an existing
+  bookmark still works -- except Assign, which WAS "/" and is now /assign.
+-->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Pool-control service &mdash; Advanced</title>
+  <link rel="stylesheet" href="/assets/style.css">
+</head>
+<body>
+  <header class="app">
+    <span class="brand">Yuruna pool-control service</span>
+    <nav>
+      <a href="/">Board</a>
+      <a href="/advanced" class="active">Advanced</a>
+    </nav>
+  </header>
+  <main>
+    <h1>Advanced</h1>
+    <p class="muted">
+      Pool administration. The <a href="/">board</a> covers the day-to-day job &mdash;
+      seeing how each pool is doing and giving one a ready-made test set.
+    </p>
+    <ul>
+      <li><a href="/assign">Assign</a> &mdash; assign a test-set to each pool (moved here from <code>/</code>).</li>
+      <li><a href="/hosts">Hosts</a> &mdash; every host the aggregator knows, its control state and project access; move a host between pools.</li>
+      <li><a href="/pools">Pools</a> &mdash; create pools, set desiredState (run/paused/drain), add and remove hosts.</li>
+      <li><a href="/test-sets">Test sets</a> &mdash; the named-triple library. GH_TOKEN is never stored here.</li>
+      <li><a href="/diagnostics">Diagnostics</a> &mdash; this daemon's own view of its dependencies.</li>
+    </ul>
+  </main>
+</body>
+</html>

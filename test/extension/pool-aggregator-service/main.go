@@ -57,6 +57,11 @@ const (
 	defaultRehydrate   = 7 * 24 * time.Hour // restore cycle counts from Loki on startup over this trailing window
 	probeTimeout       = 3 * time.Second    // LAN status probe (refused is instant; filtered times out)
 	pushTimeout        = 10 * time.Second
+	// poolStatsCacheTTL bounds how often /api/v1/pool-stats actually hits Loki.
+	// Sized against the board's 30s auto-refresh: several phones refreshing
+	// together collapse onto one query, and terminal cycle counts move far more
+	// slowly than this anyway.
+	poolStatsCacheTTL = 30 * time.Second
 	maxProbe           = 8          // bounded concurrent probes per tick
 	logTailBytes       = 512 * 1024 // bytes scanned from EOF for recent client IPs
 	// How long the per-cycle dedup set (seen/seenAt/counted, keyed hostId|cycleStartUtc)
@@ -353,11 +358,13 @@ func (hv *hostView) controlLabel() string {
 
 // announceView is one extension service's SELF-ANNOUNCED presence (POST
 // /announce): the service VM itself reports "hostId X actively runs area Y at
-// target Z", refreshed every beacon period. It complements the registration
-// path (activeExtensions, read through the owning host's status service): when
-// that server is down -- the state a host reboot routinely leaves behind --
-// the announce is the only live signal, and it keeps the dashboard's
-// Extension hosts row (and the /go/stash redirect) alive. Entries are reaped
+// target Z", refreshed every beacon period. Its target is derived from the
+// SOURCE address of the request, which makes it the strongest evidence the
+// aggregator has -- first-hand, and about the address the service is actually
+// reachable at. It therefore outranks the registration path (activeExtensions,
+// read through the owning host's status service) when the two disagree, and
+// carries the row on its own when that status server is down -- the state a
+// host reboot routinely leaves behind. See extensionSourceRank. Entries are reaped
 // after announceTtl without a refresh, or immediately on an active=false
 // goodbye. Serialized into /api/v1/pool-status (announcedExtensions);
 // sourceIP stays unexported so the snapshot exposes no requester address.
@@ -378,10 +385,10 @@ func announceKey(hostID, area string) string { return hostID + "|" + area }
 
 // poolStatusEntry is one host in the /api/v1/pool-status snapshot: the
 // hostView plus stashBaseUrl, the resolved stash-UI base the stash UI's
-// hostId->URL lookup reads. Resolved at
-// serialization time from the host's registration-advertised extensionTargets,
-// with the service's own announce as fallback, so the resolution survives a
-// host whose status service is down.
+// hostId->URL lookup reads. Resolved at serialization time through
+// extensionCandidatesLocked -- the same merge the dashboard cell and /go/stash
+// read, so the three cannot disagree -- which prefers the service's own live
+// announce and falls back to the host's registration.
 type poolStatusEntry struct {
 	*hostView
 	StashBaseURL string `json:"stashBaseUrl,omitempty"`
@@ -527,6 +534,19 @@ type poolState struct {
 	// the post-unlock prune below), never by the HTTP handlers, so it needs no
 	// lock -- unlike the fields above, which mu guards against handler reads.
 	eventCur map[string]*eventCursor // keyed by hostId
+	// statsCache memoizes /api/v1/pool-stats per range. Several operators
+	// pull-to-refreshing the board on phones must not turn into a Loki query
+	// storm: each entry is two range queries, and the underlying counts move
+	// only as fast as cycles finish. Guarded by its own mutex rather than mu so
+	// a slow Loki read never blocks the poll loop or /api/v1/pool-status.
+	statsMu    sync.Mutex
+	statsCache map[string]*poolStatsCacheEntry // range token -> memoized answer
+}
+
+// poolStatsCacheEntry is one memoized /api/v1/pool-stats answer.
+type poolStatsCacheEntry struct {
+	at      time.Time
+	payload []byte
 }
 
 func newPoolState(pool string, statusPort int) *poolState {
@@ -976,7 +996,7 @@ func fetchStatus(client *http.Client, base string) (*hostStatus, error) {
 // served by the status service at /yuruna-repo/VERSION -- the SAME source the
 // host's own status pages read for their header (their getHostInfo() fetches
 // yuruna-repo/VERSION via JS, so the version is not embedded in the HTML). A tiny
-// plain-text file (one CalVer line, e.g. "2026.07.29"), so it is lighter than any
+// plain-text file (one CalVer line, e.g. "2026.07.31"), so it is lighter than any
 // status HTML page and fetchable server-side without a JS engine. Returns
 // ("", err) on any failure; the caller keeps the prior version on a transient
 // miss (the version is stable across polls). The value is capped + first-line
@@ -1185,6 +1205,168 @@ type lokiStreamsResult struct {
 // strings.TrimSuffix build inline in each reader.
 func queryRangeURL(pushURL string) string {
 	return strings.TrimSuffix(pushURL, "push") + "query_range"
+}
+
+// instantQueryURL derives the Loki INSTANT query endpoint from the push
+// endpoint. Distinct from queryRangeURL because a metric query like
+// `sum by (hostId) (count_over_time(...))` evaluated once over a window is an
+// instant query returning a VECTOR, not a stream of log lines -- the same shape
+// the Grafana tiles use (their targets carry "instant": true).
+func instantQueryURL(pushURL string) string {
+	return strings.TrimSuffix(pushURL, "push") + "query"
+}
+
+// lokiVectorResult is the instant-query response envelope: one entry per label
+// combination, each with a single [unixSeconds, "value"] sample. Only the labels
+// the caller groups by are present in Metric.
+type lokiVectorResult struct {
+	Data struct {
+		Result []struct {
+			Metric map[string]string `json:"metric"`
+			Value  [2]any            `json:"value"`
+		} `json:"result"`
+	} `json:"data"`
+}
+
+// poolStatsRanges is the CLOSED set of windows /api/v1/pool-stats accepts.
+// The value is interpolated into LogQL, so it is never free-form input; and the
+// ceiling is 30d because Loki's retention_period is 720h -- a longer window
+// would silently return a partial answer that reads as a real number.
+var poolStatsRanges = map[string]bool{"1h": true, "24h": true, "7d": true, "30d": true}
+
+// countCyclesByHost runs one instant LogQL count for a terminal overallStatus
+// over the window, grouped by hostId, and returns hostId -> count.
+//
+// Deliberately LAB-WIDE ({pool=~".+"}) and grouped by HOST, not by pool: the
+// `pool` stream label is stamped at push time and falls back to the literal
+// "default" for a host the aggregator has not yet identified, so summing by that
+// label would silently fold unpooled hosts into the target pool's numbers. The
+// caller (the pool-control service) joins these per-host rows onto pools.yml
+// members[], which is the only authoritative statement of who is in which pool.
+func (s *poolState) countCyclesByHost(status, window string) (map[string]int64, error) {
+	out := map[string]int64{}
+	if s.lokiURL == "" || s.httpClient == nil {
+		return out, fmt.Errorf("loki not configured")
+	}
+	params := url.Values{}
+	params.Set("query", fmt.Sprintf(`sum by (hostId) (count_over_time({pool=~".+"} | json | overallStatus=%q [%s]))`, status, window))
+	ctx, cancel := context.WithTimeout(context.Background(), pushTimeout)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, instantQueryURL(s.lokiURL)+"?"+params.Encode(), nil)
+	if err != nil {
+		return out, err
+	}
+	resp, err := s.httpClient.Do(req)
+	if err != nil {
+		return out, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return out, fmt.Errorf("loki status %d", resp.StatusCode)
+	}
+	var vr lokiVectorResult
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 8<<20)).Decode(&vr); err != nil {
+		return out, err
+	}
+	for _, r := range vr.Data.Result {
+		hid := r.Metric["hostId"]
+		if hid == "" {
+			continue
+		}
+		// Loki renders the sample value as a string in the [ts, "value"] pair.
+		if sv, ok := r.Value[1].(string); ok {
+			if n, err := strconv.ParseInt(sv, 10, 64); err == nil {
+				out[hid] = n
+			}
+		}
+	}
+	return out, nil
+}
+
+// handlePoolStats serves per-host terminal-cycle counts over a preset window.
+//
+// It returns ONLY what Loki can answer. Pool membership lives in the intent
+// store, which this service has never read and deliberately does not: its sole
+// notion of a pool is the poolId a host self-advertises. The pool-control
+// service owns the join -- it reads members[] already -- so the board can render
+// a card for a pool whose hosts are all silent (0 reporting) instead of that
+// pool vanishing because no Loki stream mentioned it.
+//
+// Read-only and open, the same posture as /api/v1/pool-status.
+func (s *poolState) handlePoolStats(w http.ResponseWriter, r *http.Request) {
+	window := r.URL.Query().Get("range")
+	if window == "" {
+		window = "24h"
+	}
+	if !poolStatsRanges[window] {
+		http.Error(w, `{"error":"unsupported range; use 1h, 24h, 7d or 30d"}`, http.StatusBadRequest)
+		return
+	}
+
+	s.statsMu.Lock()
+	if e := s.statsCache[window]; e != nil && time.Since(e.at) < poolStatsCacheTTL {
+		payload := e.payload
+		s.statsMu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Cache-Control", "no-store")
+		_, _ = w.Write(payload)
+		return
+	}
+	s.statsMu.Unlock()
+
+	passed, errPass := s.countCyclesByHost("pass", window)
+	failed, errFail := s.countCyclesByHost("fail", window)
+	if errPass != nil && errFail != nil {
+		// Both legs failed: say so rather than serve zeros, which the board
+		// would render as a real "0 cycles" and an operator would read as
+		// "nothing ran" instead of "we could not tell".
+		http.Error(w, `{"error":"loki query failed"}`, http.StatusBadGateway)
+		return
+	}
+
+	type hostRow struct {
+		HostID string `json:"hostId"`
+		Passed int64  `json:"passed"`
+		Failed int64  `json:"failed"`
+	}
+	ids := map[string]bool{}
+	for id := range passed {
+		ids[id] = true
+	}
+	for id := range failed {
+		ids[id] = true
+	}
+	sorted := make([]string, 0, len(ids))
+	for id := range ids {
+		sorted = append(sorted, id)
+	}
+	sort.Strings(sorted)
+	rows := make([]hostRow, 0, len(sorted))
+	for _, id := range sorted {
+		rows = append(rows, hostRow{HostID: id, Passed: passed[id], Failed: failed[id]})
+	}
+
+	out := struct {
+		Range      string    `json:"range"`
+		ComputedAt string    `json:"computedAt"`
+		Hosts      []hostRow `json:"hosts"`
+	}{Range: window, ComputedAt: time.Now().UTC().Format(time.RFC3339), Hosts: rows}
+
+	payload, err := json.Marshal(out)
+	if err != nil {
+		http.Error(w, `{"error":"encode failed"}`, http.StatusInternalServerError)
+		return
+	}
+	s.statsMu.Lock()
+	if s.statsCache == nil {
+		s.statsCache = map[string]*poolStatsCacheEntry{}
+	}
+	s.statsCache[window] = &poolStatsCacheEntry{at: time.Now(), payload: payload}
+	s.statsMu.Unlock()
+
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "no-store")
+	_, _ = w.Write(payload)
 }
 
 // pushLoki POSTs one cycle-status transition to Loki. Labels are strictly
@@ -2307,18 +2489,15 @@ func (s *poolState) handlePoolStatus(w http.ResponseWriter, _ *http.Request) {
 		ids = append(ids, id)
 	}
 	sort.Strings(ids)
+	// Merge once for the whole snapshot, not once per host: the resolution is
+	// pool-wide, and rebuilding it inside the loop would be quadratic in hosts.
+	cands := s.extensionCandidatesLocked(time.Now())
 	for _, id := range ids {
 		hv := s.hosts[id]
-		// stashBaseUrl: the stash UI's hostId->URL lookup key
-		// Registration-advertised target first, the
-		// service's own announce as the fallback that survives a down status
-		// server on the owning host.
-		stash := hv.ExtensionTargets[stashArea]
-		if stash == "" {
-			if av := s.announce[announceKey(id, stashArea)]; av != nil {
-				stash = av.Target
-			}
-		}
+		// stashBaseUrl: the stash UI's hostId->URL lookup key, resolved through
+		// the same merge the dashboard cell and /go/stash use so the three
+		// cannot disagree.
+		stash := cands[announceKey(id, stashArea)].Target
 		out.Hosts = append(out.Hosts, poolStatusEntry{hostView: hv, StashBaseURL: stash})
 	}
 	annKeys := make([]string, 0, len(s.announce))
@@ -2343,6 +2522,13 @@ func (s *poolState) handlePoolStatus(w http.ResponseWriter, _ *http.Request) {
 	_, _ = w.Write(body)
 }
 
+// The two ways an area's address reaches the aggregator, as they appear in
+// extensionHostEntry.Source and in /api/v1/extension-hosts.
+const (
+	extSourceRegistration = "registration"
+	extSourceAnnounce     = "announce"
+)
+
 // extensionHostEntry is one resolved extension service in the
 // /api/v1/extension-hosts answer: where the pool currently believes an area is
 // served, and on whose word. Host is the bare address a consumer builds its own
@@ -2354,18 +2540,49 @@ type extensionHostEntry struct {
 	HostId         string `json:"hostId,omitempty"`
 	Source         string `json:"source"` // "registration" | "announce"
 	LastSeenUnixMs int64  `json:"lastSeenUnixMs,omitempty"`
+	// SupersededTarget is the address the OTHER source claimed for the same
+	// (hostId, area) when the two disagreed. Present only on a disagreement, so
+	// an operator looking at a link that works can still see what the losing
+	// source was advertising -- the whole diagnosis, without correlating two
+	// files across two machines.
+	SupersededTarget string `json:"supersededTarget,omitempty"`
+	// confirmed marks an announce this aggregator received itself, whose target
+	// was derived from the sender's own source address. False for a
+	// registration (a value the owning host computed and wrote to a file we
+	// read) and for an announce rehydrated out of Loki (history, not a live
+	// sender). Ranking, not serialization -- it is a property of how we learned
+	// the address, not of the service.
+	confirmed bool
 }
 
-// extensionSourceRank orders the two ways an area's address reaches the
-// aggregator. Registration first, matching /go/stash: the owning host resolves
-// the target live (Get-VMIp) every cycle and on bring-up, so it tracks a DHCP
-// change the moment the host notices, while an announce is only as fresh as the
-// service's last beacon.
-func extensionSourceRank(source string) int {
-	if source == "registration" {
+// extensionSourceRank orders the ways an area's address reaches the aggregator,
+// by the strength of the evidence behind it rather than by who sent it.
+//
+//	0  a live announce -- the service POSTed to us and the target was taken from
+//	   the source address of that request, so the aggregator has first-hand
+//	   evidence the service answers there
+//	1  a registration -- the owning host resolved an address and wrote it into a
+//	   file we read. Correct whenever nobody announces, but it is hearsay, and
+//	   it lags: the runner writes host.registration.json BEFORE it refreshes the
+//	   stash marker (the refresh needs Get-VMIp, wired later in startup), so
+//	   extensionTargets always carries the value from the previous refresh. A
+//	   service VM that is rebuilt onto a new DHCP address is therefore advertised
+//	   at its predecessor's address for a whole cycle.
+//	2  a rehydrated announce -- restored from the Loki feed after a collector
+//	   restart. It is a real observation, but a historical one, and until a live
+//	   beacon re-binds it the owning host's current word is worth more.
+//
+// A live announce is bounded by its beacon period (minutes) and reaped at TTL;
+// a lagging registration is bounded by the cycle, which can be hours.
+func extensionSourceRank(e extensionHostEntry) int {
+	switch {
+	case e.Source == extSourceAnnounce && e.confirmed:
 		return 0
+	case e.Source == extSourceRegistration:
+		return 1
+	default:
+		return 2
 	}
-	return 1
 }
 
 // betterExtensionCandidate reports whether a should replace b as an area's
@@ -2374,13 +2591,96 @@ func extensionSourceRank(source string) int {
 // consumer that re-asks gets a stable address rather than one that flaps between
 // equally valid hosts.
 func betterExtensionCandidate(a, b extensionHostEntry) bool {
-	if ra, rb := extensionSourceRank(a.Source), extensionSourceRank(b.Source); ra != rb {
+	if ra, rb := extensionSourceRank(a), extensionSourceRank(b); ra != rb {
 		return ra < rb
 	}
 	if a.LastSeenUnixMs != b.LastSeenUnixMs {
 		return a.LastSeenUnixMs > b.LastSeenUnixMs
 	}
 	return a.HostId < b.HostId
+}
+
+// extensionCandidatesLocked returns the pool's answer for each (hostId, area)
+// it knows about, keyed by announceKey. Caller holds s.mu.
+//
+// This is the ONE place the registration and announce sources are merged. Every
+// consumer -- the /metrics rows behind the dashboard's Extension hosts table,
+// /api/v1/extension-hosts, pool-status's stashBaseUrl, and the /go/stash
+// redirect -- reads it, because four hand-written copies of a precedence rule is
+// how a correction lands in one of them and not the others.
+//
+// Entries with no target are kept: a host that advertises an area with no
+// address still RUNS it, and the Extension hosts table says so with an
+// unlinked cell. Callers that need an address (area resolution, a redirect)
+// filter on Target themselves.
+//
+// A TTL-expired announce is skipped here rather than trusted until the next
+// poll reaps it: a consumer asking between polls must not be handed the address
+// of a service that stopped beaconing two TTLs ago.
+func (s *poolState) extensionCandidatesLocked(now time.Time) map[string]extensionHostEntry {
+	best := map[string]extensionHostEntry{}
+	consider := func(cand extensionHostEntry) {
+		if cand.Area == "" || cand.HostId == "" {
+			return
+		}
+		cand.Host = hostIPFromBaseURL(cand.Target)
+		key := announceKey(cand.HostId, cand.Area)
+		cur, ok := best[key]
+		if !ok {
+			best[key] = cand
+			return
+		}
+		winner, loser := cur, cand
+		if betterExtensionCandidate(cand, cur) {
+			winner, loser = cand, cur
+		}
+		// Record the disagreement on the winner. Two sources naming different
+		// addresses for one service is the signature of a host whose
+		// registration has fallen behind its service, and it is invisible
+		// otherwise -- the losing value simply vanishes and the dashboard shows
+		// a link that either works or does not, with nothing to say why.
+		if loser.Target != "" && loser.Target != winner.Target {
+			winner.SupersededTarget = loser.Target
+		}
+		best[key] = winner
+	}
+	for hostID, hv := range s.hosts {
+		if hv == nil {
+			continue
+		}
+		// ActiveExtensions is the presence list and ExtensionTargets the address
+		// map; they are written together but are separate fields, so take the
+		// union rather than assuming one implies the other.
+		seen := map[string]bool{}
+		for _, area := range hv.ActiveExtensions {
+			seen[area] = true
+		}
+		for area := range hv.ExtensionTargets {
+			seen[area] = true
+		}
+		for area := range seen {
+			consider(extensionHostEntry{
+				Area: area, Target: hv.ExtensionTargets[area], HostId: hostID,
+				Source: extSourceRegistration, LastSeenUnixMs: hv.LastSeenUnixMs,
+			})
+		}
+	}
+	for _, av := range s.announce {
+		if av == nil {
+			continue
+		}
+		if s.announceTtl > 0 && now.UnixMilli()-av.LastSeenUnixMs > s.announceTtl.Milliseconds() {
+			continue
+		}
+		consider(extensionHostEntry{
+			Area: av.Area, Target: av.Target, HostId: av.HostId,
+			Source: extSourceAnnounce, LastSeenUnixMs: av.LastSeenUnixMs,
+			// A rehydrated entry carries no source address: it came out of Loki,
+			// not off a live connection, so it is not first-hand evidence yet.
+			confirmed: av.sourceIP != "",
+		})
+	}
+	return best
 }
 
 // resolveExtensionHostsLocked returns the pool's current best address per
@@ -2394,44 +2694,28 @@ func betterExtensionCandidate(a, b extensionHostEntry) bool {
 // the caching-proxy-service address, which every host already needs, becomes enough to
 // find every other service the pool offers.
 //
-// A TTL-expired announce is skipped here rather than trusted until the next
-// poll reaps it: a consumer asking between polls must not be handed the address
-// of a service that stopped beaconing two TTLs ago.
+// An area is an ADDRESS question, so a candidate whose target does not yield a
+// host is dropped here -- presence without an address answers nothing.
 func (s *poolState) resolveExtensionHostsLocked(now time.Time) map[string]extensionHostEntry {
 	best := map[string]extensionHostEntry{}
-	consider := func(cand extensionHostEntry) {
-		if cand.Area == "" {
-			return
-		}
-		cand.Host = hostIPFromBaseURL(cand.Target)
+	for _, cand := range s.extensionCandidatesLocked(now) {
 		if cand.Host == "" {
-			return
+			continue
 		}
 		if cur, ok := best[cand.Area]; !ok || betterExtensionCandidate(cand, cur) {
 			best[cand.Area] = cand
 		}
 	}
-	for hostID, hv := range s.hosts {
-		if hv == nil {
-			continue
-		}
-		for area, target := range hv.ExtensionTargets {
-			consider(extensionHostEntry{Area: area, Target: target, HostId: hostID, Source: "registration"})
-		}
-	}
-	for _, av := range s.announce {
-		if av == nil {
-			continue
-		}
-		if s.announceTtl > 0 && now.UnixMilli()-av.LastSeenUnixMs > s.announceTtl.Milliseconds() {
-			continue
-		}
-		consider(extensionHostEntry{
-			Area: av.Area, Target: av.Target, HostId: av.HostId,
-			Source: "announce", LastSeenUnixMs: av.LastSeenUnixMs,
-		})
-	}
 	return best
+}
+
+// extensionTargetForLocked is the address the pool would send a consumer to for
+// one host's area, or "" when it knows none. Caller holds s.mu. The single
+// lookup behind /go/stash and pool-status's stashBaseUrl, so a redirect and the
+// stash UI's own hostId->URL map cannot disagree with each other or with the
+// dashboard cell.
+func (s *poolState) extensionTargetForLocked(hostID, area string, now time.Time) string {
+	return s.extensionCandidatesLocked(now)[announceKey(hostID, area)].Target
 }
 
 // handleExtensionHosts answers "where is area X served in this pool?".
@@ -3148,19 +3432,13 @@ func (s *poolState) handleGoStash(w http.ResponseWriter, r *http.Request) {
 	if area == "" {
 		area = stashArea
 	}
+	// One merged view for both sources: a live announce (first-hand -- the
+	// service reached us from that address) outranks the owning host's
+	// registration, which lags a cycle behind its own service; the registration
+	// answers whenever nothing is announcing, including when the service's
+	// status server is down and the announce is all there is.
 	s.mu.Lock()
-	target := ""
-	if hv := s.hosts[hostID]; hv != nil {
-		target = hv.ExtensionTargets[area] // nil map indexes to "" -- no panic
-	}
-	// Registration silent (the owning host's status service is down, or the host
-	// aged out of the view) -> the service's self-announced target still
-	// resolves the redirect; the service keeps announcing as long as it lives.
-	if target == "" {
-		if av := s.announce[announceKey(hostID, area)]; av != nil {
-			target = av.Target
-		}
-	}
+	target := s.extensionTargetForLocked(hostID, area, time.Now())
 	s.mu.Unlock()
 	if target == "" {
 		http.Error(w, "stash target not known to the pool", http.StatusNotFound)
@@ -3427,49 +3705,41 @@ func (s *poolState) handleMetrics(w http.ResponseWriter, _ *http.Request) {
 		// successful probe for a registration-sourced row, the last accepted
 		// hello for an announce-sourced one.
 		lastSeen int64
+		// superseded is the address the losing source claimed, "" when the two
+		// agreed or only one spoke. Drives the disagreement gauge.
+		superseded string
 	}
-	extRows := []extRow{}
-	covered := map[string]bool{}
-	for _, h := range ids {
-		hv := s.hosts[h]
-		if hv == nil {
-			continue
-		}
-		for _, area := range hv.ActiveExtensions {
-			if area == "" {
-				continue
-			}
-			extRows = append(extRows, extRow{host: h, area: area, baseURL: hv.BaseURL, target: hv.ExtensionTargets[area], lastSeen: hv.LastSeenUnixMs / 1000})
-			covered[announceKey(h, area)] = true
-		}
-	}
-	// Self-announced services (POST /announce) fill the rows the registration
-	// path cannot see right now -- e.g. the stash-service VM of a host whose status
-	// server is down. When both sources cover one (hostId, area), the
-	// registration row wins: it is the owning host's own advertisement and
-	// carries the host's status baseUrl. An announce-only row still resolves
-	// baseUrl from the view when the host is at least known (a stub or an
-	// unreachable entry); "" otherwise -- a host can run an extension service
-	// WITHOUT running cycles, and such a host has no status page at all, so
-	// /go/host would answer "host not known to the pool". That is why the
+	// Both sources merge in extensionCandidatesLocked, which every other
+	// consumer of this data reads too. When they cover the same (hostId, area)
+	// and disagree, a live announce wins: its target came off the source
+	// address of a request this process received, while the registration is a
+	// value the owning host wrote into a file a cycle ago. An announce-only row
+	// still resolves baseUrl from the view when the host is at least known (a
+	// stub or an unreachable entry); "" otherwise -- a host can run an extension
+	// service WITHOUT running cycles, and such a host has no status page at all,
+	// so /go/host would answer "host not known to the pool". That is why the
 	// dashboard leaves this table's Host ID cell as plain text and the Pool
 	// hosts table (whose rows all have a status page) is where a host is
 	// opened, with the control token. baseUrl stays exported as the answer to
 	// "does this extension host have a status page".
-	annKeys := make([]string, 0, len(s.announce))
-	for k := range s.announce {
-		if !covered[k] {
-			annKeys = append(annKeys, k)
-		}
+	extRows := []extRow{}
+	cands := s.extensionCandidatesLocked(time.Now())
+	candKeys := make([]string, 0, len(cands))
+	for k := range cands {
+		candKeys = append(candKeys, k)
 	}
-	sort.Strings(annKeys)
-	for _, k := range annKeys {
-		av := s.announce[k]
+	// Sorted so a scrape is byte-stable across polls holding the same facts.
+	sort.Strings(candKeys)
+	for _, k := range candKeys {
+		c := cands[k]
 		baseURL := ""
-		if hv := s.hosts[av.HostId]; hv != nil {
+		if hv := s.hosts[c.HostId]; hv != nil {
 			baseURL = hv.BaseURL
 		}
-		extRows = append(extRows, extRow{host: av.HostId, area: av.Area, baseURL: baseURL, target: av.Target, lastSeen: av.LastSeenUnixMs / 1000})
+		extRows = append(extRows, extRow{
+			host: c.HostId, area: c.Area, baseURL: baseURL, target: c.Target,
+			lastSeen: c.LastSeenUnixMs / 1000, superseded: c.SupersededTarget,
+		})
 	}
 	if len(extRows) > 0 {
 		b.WriteString("# HELP yuruna_pool_host_extension Per-host actively-running extension area (value always 1).\n# TYPE yuruna_pool_host_extension gauge\n")
@@ -3479,6 +3749,26 @@ func (s *poolState) handleMetrics(w http.ResponseWriter, _ *http.Request) {
 		b.WriteString("# HELP yuruna_pool_host_extension_last_seen_seconds Unix time this extension host was last confirmed (host probe or service announce).\n# TYPE yuruna_pool_host_extension_last_seen_seconds gauge\n")
 		for _, e := range extRows {
 			fmt.Fprintf(&b, "yuruna_pool_host_extension_last_seen_seconds{pool=%q,hostId=%q,area=%q} %d\n", s.poolFor(e.host), e.host, e.area, e.lastSeen)
+		}
+		// Disagreement: the two sources named different addresses for one
+		// service and the weaker one was dropped. Normally absent. Present
+		// means the owning host is advertising an address its own service is
+		// not using -- the link works (the stronger source won) but the host's
+		// registration is behind, which is worth seeing before it is the only
+		// source left. superseded rides as a label so the losing value is
+		// readable without correlating two files across two machines; it
+		// changes at most once per cycle and only while the two disagree.
+		stale := make([]extRow, 0, len(extRows))
+		for _, e := range extRows {
+			if e.superseded != "" {
+				stale = append(stale, e)
+			}
+		}
+		if len(stale) > 0 {
+			b.WriteString("# HELP yuruna_pool_extension_target_disagreement The registration and the service's announce name different addresses for this area; the weaker source was dropped (value always 1).\n# TYPE yuruna_pool_extension_target_disagreement gauge\n")
+			for _, e := range stale {
+				fmt.Fprintf(&b, "yuruna_pool_extension_target_disagreement{pool=%q,hostId=%q,area=%q,target=%q,superseded=%q} 1\n", s.poolFor(e.host), e.host, e.area, e.target, e.superseded)
+			}
 		}
 	}
 
@@ -3987,6 +4277,11 @@ func main() {
 	// knowing only the caching-proxy-service address it already has. Read-only and open,
 	// the same posture as /api/v1/pool-status.
 	mux.HandleFunc("/api/v1/extension-hosts", state.handleExtensionHosts)
+	// /api/v1/pool-stats: per-HOST terminal-cycle counts over a preset window,
+	// the numbers behind the pool-control board's cards. Per-host, not per-pool,
+	// because membership lives in the intent store this service never reads --
+	// the control service does the join. Read-only and open, like pool-status.
+	mux.HandleFunc("/api/v1/pool-stats", state.handlePoolStats)
 	// /go/cycle: dashboard timeline click -> 302 to the host's cycle-results folder,
 	// resolving the host's CURRENT IP live (so the link survives an IP change). Open
 	// (no auth): it only redirects to a host's already-open status service.

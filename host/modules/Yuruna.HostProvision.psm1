@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.29
+.VERSION 2026.07.31
 .GUID 42b8e6a4-3d17-4c92-8f05-6a1b9d2e7c40
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -261,20 +261,14 @@ function Test-TcpConnectWithin {
         [Parameter(Mandatory)][int]$Port,
         [Parameter(Mandatory)][int]$TimeoutMs
     )
-    $tcp = New-Object System.Net.Sockets.TcpClient
-    try {
-        $async = $tcp.BeginConnect($IpAddress, $Port, $null, $null)
-        if ($async.AsyncWaitHandle.WaitOne($TimeoutMs) -and $tcp.Connected) {
-            $tcp.EndConnect($async)
-            return $true
-        }
-        return $false
-    } catch {
-        Write-Verbose "TCP connect ${IpAddress}:${Port} failed: $($_.Exception.Message)"
-        return $false
-    } finally {
-        $tcp.Close()
+    # Thin bool wrapper over Test-TcpConnectOutcome: one socket implementation,
+    # so a caller that only needs yes/no cannot drift from one that needs to
+    # know refused-versus-timeout.
+    $result = Test-TcpConnectOutcome -IpAddress $IpAddress -Port $Port -TimeoutMs $TimeoutMs
+    if (-not $result.Reachable) {
+        Write-Verbose (Get-TcpOutcomeExplanation -Outcome $result -Endpoint "${IpAddress}:${Port}")
     }
+    return [bool]$result.Reachable
 }
 
 function Invoke-CachingProxyServiceAvailableProbe {
@@ -328,13 +322,19 @@ function Invoke-CachingProxyServiceAvailableProbe {
         # 1s cap false-negatives and the runner reports a healthy remote cache as
         # "did not answer." The cap is free for a fast cache (connect returns on
         # accept); it only delays the verdict for a genuinely-down one.
+        $lastOutcome = $null
         for ($attempt = 1; $attempt -le $ConnectAttempts; $attempt++) {
             if ($attempt -gt 1) { Start-Sleep -Milliseconds $ConnectBackoffMs }
-            if (Test-TcpConnectWithin -IpAddress $externIp -Port $httpPort -TimeoutMs 3000) {
+            $lastOutcome = Test-TcpConnectOutcome -IpAddress $externIp -Port $httpPort -TimeoutMs 3000
+            if ($lastOutcome.Reachable) {
                 return "http://$(if ($NoBracketHost) { $externIp } else { Format-IpUrlHost $externIp }):${httpPort}"
             }
         }
-        Write-Warning "YURUNA_CACHING_PROXY_SERVICE_IP=${externIp} set but ${externIp}:${httpPort} did not answer within 3s."
+        # Say which failure it was. "Did not answer" reads as a network problem
+        # and sends the operator to the uplink; a refusal in tens of ms is the
+        # cache VM answering that its proxy is not running -- a different search
+        # entirely, and the common one right after a cache rebuild.
+        Write-Warning "YURUNA_CACHING_PROXY_SERVICE_IP=${externIp} set but the cache did not accept: $(Get-TcpOutcomeExplanation -Outcome $lastOutcome -Endpoint "${externIp}:${httpPort}")"
         return $null
     }
 

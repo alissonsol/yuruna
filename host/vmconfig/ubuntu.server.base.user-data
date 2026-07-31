@@ -160,7 +160,7 @@ APT_PROXY_BLOCK_PLACEHOLDER
       ExecStartPre=-/usr/bin/cloud-init status --wait
       EOF
     # --- REGION: https://yuruna.link/vmconfig#yuruna-host-coordinates
-    # Baked host+repo coordinates a hand-run fetch-and-execute falls back to; the runner's per-step EXEC_FALLBACK_REPO/REF override these.
+    # Baked host+repo coordinates a hand-run fetch-and-execute falls back to; the runner's per-step E_FB_REPO/E_FB_REF override these.
     - mkdir -p /target/etc/yuruna
     - |
       cat > /target/etc/yuruna/host.env << 'EOF'

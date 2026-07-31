@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.29
+.VERSION 2026.07.31
 .GUID 42d15e27-b2c3-4d4e-9f50-6b7c8d9e0f1a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -165,22 +165,12 @@ function Assert-CachingProxyServiceStillReachable {
     $ip   = $matches[1]
     $port = [int]$matches[2]
 
-    $tcp = New-Object System.Net.Sockets.TcpClient
-    $reachable = $false
-    try {
-        $async = $tcp.BeginConnect($ip, $port, $null, $null)
-        # 3s cap, not 1s: a remote/cross-host cache (UTM/macOS squid over bridged
-        # networking) takes 600ms-1s+ to ACCEPT, so a 1s probe produced spurious
-        # per-step "Caching-proxy service LOST" warnings on a healthy remote proxy. The cap
-        # only matters when the port is slow/down; a fast cache returns on accept.
-        if ($async.AsyncWaitHandle.WaitOne(3000) -and $tcp.Connected) {
-            $reachable = $true
-        }
-    } catch {
-        Write-Verbose "Caching-proxy service probe to ${ip}:${port} threw: $($_.Exception.Message)"
-    } finally {
-        $tcp.Close()
-    }
+    # 3s cap, not 1s: a remote/cross-host cache (UTM/macOS squid over bridged
+    # networking) takes 600ms-1s+ to ACCEPT, so a 1s probe produced spurious
+    # per-step "Caching-proxy service LOST" warnings on a healthy remote proxy. The cap
+    # only matters when the port is slow/down; a fast cache returns on accept.
+    $result    = Test-TcpConnectOutcome -IpAddress $ip -Port $port -TimeoutMs 3000
+    $reachable = [bool]$result.Reachable
 
     if ($reachable) {
         if (-not $script:CachingProxyServiceLastReachable) {
@@ -188,11 +178,20 @@ function Assert-CachingProxyServiceStillReachable {
         }
     } else {
         if ($script:CachingProxyServiceLastReachable) {
-            Write-Warning "  Caching-proxy service LOST at ${GuestKey}/${StepName}: $ProxyUrl no longer answers (3s TCP probe)."
-            Write-Warning "    Common cause: host Wi-Fi roamed to a different SSID/subnet mid-cycle, or a remote/cross-host cache is briefly slow to accept."
+            Write-Warning "  Caching-proxy service LOST at ${GuestKey}/${StepName}: $(Get-TcpOutcomeExplanation -Outcome $result -Endpoint $ProxyUrl)"
+            # The two failures point in opposite directions, so they get
+            # opposite advice. A refusal is the cache VM itself answering that
+            # squid is not listening -- the shape a cache rebuilt mid-cycle
+            # leaves while its provisioning restarts the service -- and no
+            # amount of looking at the host network explains it.
+            if ($result.Outcome -eq 'refused') {
+                Write-Warning "    Common cause: the cache VM is up but squid is restarting -- a freshly rebuilt cache does this once while provisioning applies its ssl-bump config."
+            } else {
+                Write-Warning "    Common cause: host Wi-Fi roamed to a different SSID/subnet mid-cycle, or a remote/cross-host cache is briefly slow to accept."
+            }
             Write-Warning "    Guests configured at New-VM time with this URL will fall back to direct downloads."
         } else {
-            Write-Warning "  Caching-proxy service still unreachable at $GuestKey/$StepName ($ProxyUrl)."
+            Write-Warning "  Caching-proxy service still unreachable at $GuestKey/$StepName ($($result.Outcome), $($result.ElapsedMs) ms)."
         }
     }
     $script:CachingProxyServiceLastReachable = $reachable
@@ -1709,6 +1708,10 @@ do {
     # the project refresh + framework clone below use the pool's repos. GH_TOKEN is
     # deliberately NOT overridden -- it stays host-local (never travels in pool
     # intent). Unpooled hosts (no manifest / no testSet) are untouched.
+    # Cleared every cycle: a stale value would make an unpooled cycle probe (and
+    # possibly fail on) an assignment that no longer applies.
+    $script:PoolAssignedProjectUrl = $null
+    $script:PoolAssignedBy = $null
     if ($Config -is [System.Collections.IDictionary] -and $Config.repositories -is [System.Collections.IDictionary]) {
         $poolManifestForRepos = if (Get-Command Read-YurunaPoolManifest -ErrorAction SilentlyContinue) { Read-YurunaPoolManifest } else { $null }
         $poolTestSet = if ($poolManifestForRepos -is [System.Collections.IDictionary]) { $poolManifestForRepos['testSet'] } else { $null }
@@ -1717,6 +1720,85 @@ do {
             $Config.repositories['projectUrl']   = [string]$poolTestSet['projectUrl']
             Write-Information ("Pool '{0}' testSet '{1}': repositories overridden (framework={2}, project={3}); GH_TOKEN stays host-local." -f `
                 [string]$poolManifestForRepos['poolId'], [string]$poolTestSet['name'], [string]$poolTestSet['frameworkUrl'], [string]$poolTestSet['projectUrl']) -InformationAction Continue
+            $script:PoolAssignedProjectUrl = [string]$poolTestSet['projectUrl']
+            $script:PoolAssignedBy = [ordered]@{
+                poolId  = [string]$poolManifestForRepos['poolId']
+                testSet = [string]$poolTestSet['name']
+            }
+        }
+    }
+
+    # --- REGION: Assigned-project access probe ----------------------------
+    # A pool can hand this host a projectUrl its credential cannot read. Today
+    # that would surface only when the clone below fails, mid-cycle, as a
+    # generic bootstrap error -- and the person who MADE the assignment is not
+    # the person watching this host. Probe first, classify precisely, and
+    # publish the result so the pool-control board can name the blocked hosts.
+    #
+    # Runs only for a POOL-ASSIGNED url: a host's own projectUrl is already
+    # preflighted inside Update-ProjectClone, and duplicating that here would
+    # double every unpooled host's cycle-start network cost for nothing.
+    if ($script:PoolAssignedProjectUrl -and -not $NoProjectClone) {
+        $accessMarker = Join-Path $env:YURUNA_RUNTIME_DIR 'project.access.json'
+        $probe = Invoke-GitNetworkCommand -GitArgs @('ls-remote', '--exit-code', '--quiet', $script:PoolAssignedProjectUrl, 'HEAD') -TimeoutSeconds 30
+        # The auth/network split is load-bearing. An auth refusal is permanent
+        # and needs a human; a timeout is transient and the existing backoff is
+        # the right response. Conflating them would either page someone for a
+        # blip or burn remediation attempts on a permission problem.
+        $accessStatus = if ($probe.ExitCode -eq 0) { 'ok' }
+                        elseif (Test-GitRemoteAuthFailure -Output $probe.Output) { 'denied' }
+                        else { 'unreachable' }
+        $accessRecord = [ordered]@{
+            url        = $script:PoolAssignedProjectUrl
+            status     = $accessStatus
+            assignedBy = $script:PoolAssignedBy
+            checkedAt  = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
+            detail     = if ($accessStatus -eq 'ok') { '' } else { "$($probe.Output)".Trim() }
+        }
+        try {
+            [System.IO.File]::WriteAllText($accessMarker, ($accessRecord | ConvertTo-Json -Depth 6), [System.Text.UTF8Encoding]::new($false))
+        } catch { Write-Verbose "project.access.json write failed: $($_.Exception.Message)" }
+
+        if ($accessStatus -eq 'denied') {
+            # Fail the cycle hard, and do NOT fall back to this host's own
+            # project: a green cycle running something the pool did not assign
+            # would misreport the pool's coverage. project_access_denied routes
+            # to operator_intervention_required, so this does not consume
+            # auto-remediation attempts on a problem no retry can fix.
+            $accessMsg = @(
+                "The pool assigned a project this host cannot read."
+                "  Project: $($script:PoolAssignedProjectUrl)"
+                "  Assigned by: pool '$($script:PoolAssignedBy.poolId)', test-set '$($script:PoolAssignedBy.testSet)'"
+                "  git: $($accessRecord.detail)"
+                "  Fix (either): grant this host's GH_TOKEN access to that repo,"
+                "                or reassign the pool to a project every member can read."
+            ) -join [Environment]::NewLine
+            Write-Warning $accessMsg
+            Write-CycleInfraFailure -Stage 'ProjectAccess' -FailureClass 'project_access_denied' -GuestKey '(bootstrap)' -ErrorMessage $accessMsg -HostType $HostType
+            # Same exit shape as the ProjectClone failure below: the shared
+            # bootstrap gate carries the consecutive-failure counters across the
+            # single-cycle respawn and applies the notification thresholds, and
+            # `break` exits into the outer failure-pause. Not a code crash, so
+            # $ConsecutiveCrashes is untouched.
+            $OverallPassed = $false
+            $accessGate = @{
+                ConsecutiveFailures  = $ConsecutiveFailures
+                ConsecutiveSuccesses = $ConsecutiveSuccesses
+                AlertArmed           = $AlertArmed
+                FailuresBeforeAlert  = $FailuresBeforeAlert
+                SuccessesBeforeRearm = $SuccessesBeforeRearm
+            }
+            Invoke-RunnerBootstrapFailureGate -GatingState $accessGate -Stage 'ProjectAccess' `
+                -ErrorMessage $accessMsg -GitCommit $GitCommit -FailureClass 'project_access_denied' -HostType $HostType
+            $ConsecutiveFailures  = $accessGate.ConsecutiveFailures
+            $ConsecutiveSuccesses = $accessGate.ConsecutiveSuccesses
+            $AlertArmed           = $accessGate.AlertArmed
+            break
+        }
+        if ($accessStatus -eq 'unreachable') {
+            # Transient: let the clone below try and fail through the existing
+            # network path, which already has the right backoff.
+            Write-Warning "Assigned project '$($script:PoolAssignedProjectUrl)' did not answer (network); the clone below will retry through the normal path."
         }
     }
 
@@ -1852,6 +1934,10 @@ do {
     $script:CyclePlan = $null
     $plannerFatal     = $false
     $script:PoolCycle = $false
+    # Initialised HERE, not inside the try: the orchestration-list call further
+    # down reads it, and a throw before its in-try assignment would otherwise
+    # leave it undefined on that path.
+    $script:PoolSubset = @()
     try {
         # A pooled host has already had its repositories.frameworkUrl/projectUrl
         # redirected to the pool's testSet (the "Pooled repos override" region
@@ -1862,7 +1948,30 @@ do {
         # PlannerFatal, so the catch's banner aborts the cycle as before.
         $poolManifest = if (Get-Command Read-YurunaPoolManifest -ErrorAction SilentlyContinue) { Read-YurunaPoolManifest } else { $null }
         $script:PoolCycle = ($poolManifest -is [System.Collections.IDictionary]) -and ($poolManifest['testSet'] -is [System.Collections.IDictionary])
-        $script:CyclePlan = Resolve-CyclePlan -RepoRoot $RepoRoot -SequencesDir $SequencesDir -HostType $HostType
+        # --- REGION: pool test-set subset -------------------------------------
+        # !! GATED: this branch edits the runner's central plan resolution and
+        # !! MUST NOT MERGE without a live pool cycle proving it. See the design
+        # !! (dev-only/design/default-pool-auto-enrolment-and-test-sets.md 4.6).
+        #
+        # An assigned testSet may name a SUBSET of the project's top-level
+        # sequences. Absent or empty -> $script:PoolSubset stays empty and the
+        # call below is byte-for-byte the previous behaviour, which is what every
+        # unpooled host and every existing pool store gets.
+        $script:PoolSubset = @()
+        if ($script:PoolCycle) {
+            $script:PoolSubset = @(@($poolManifest['testSet']['sequences']) | ForEach-Object { "$_".Trim() } | Where-Object { $_ })
+        }
+        if ($script:PoolSubset.Count -gt 0) {
+            $setName = [string]$poolManifest['testSet']['name']
+            Write-Output "Pool test-set '$setName': running $($script:PoolSubset.Count) of the project's sequences ($($script:PoolSubset -join ', '))."
+            # Resolve-TestSetCyclePlan produces the identical entry shape and
+            # raises the same PlannerFatal, so the catch below and its
+            # plan_invalid routing are unchanged.
+            $script:CyclePlan = Resolve-TestSetCyclePlan -RepoRoot $RepoRoot -SequencesDir $SequencesDir -HostType $HostType `
+                -Sequences $script:PoolSubset -SetName $setName
+        } else {
+            $script:CyclePlan = Resolve-CyclePlan -RepoRoot $RepoRoot -SequencesDir $SequencesDir -HostType $HostType
+        }
     } catch {
         # PlannerFatal (currently: duplicate project sequence files with the
         # same name under different test/ folders) means the plan is
@@ -1920,7 +2029,14 @@ do {
         # 0, 1, or many alike -- which both fabricates an orchestration out of a
         # guest-only config (spurious orchestration-mix) and hides the
         # >1 case. Plain assignment preserves the real array (0/1/N).
-        try { $orchestrations = Get-CycleOrchestrationList -RepoRoot $RepoRoot -SequencesDir $SequencesDir -HostType $HostType }
+        # -Sequences threads the pool test-set subset through: this function
+        # otherwise re-reads the project's FULL sequences: list independently of
+        # the resolved plan, so a subset that excludes an orchestration
+        # top-level would still see it here and trip the orchestration-mix
+        # plan_invalid below for work this cycle was never going to run. Empty
+        # when unpooled or when the set names no subset, which is the previous
+        # behaviour.
+        try { $orchestrations = Get-CycleOrchestrationList -RepoRoot $RepoRoot -SequencesDir $SequencesDir -HostType $HostType -Sequences $script:PoolSubset }
         catch { Write-Warning "Could not resolve orchestration list: $($_.Exception.Message)" }
     }
     if ($orchestrations.Count -gt 0) {

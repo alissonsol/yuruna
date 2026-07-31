@@ -167,7 +167,7 @@ any registry without provider-supplied credentials.
 
 - [Host-condition registry](host-condition-registry.md) — same `New-YurunaRegistry` primitive, different domain.
 - [Host I/O registry](host-io.md) — the older, two-level registry that established the pattern.
-- [Remediation dispatcher](remediation.md) — calls `Repair-Credential` when a push fails with 401.
+- [Remediation dispatcher](failure-schema.md#remediation-dispatcher) — calls `Repair-Credential` when a push fails with 401.
 
 ## Test-harness vault — threat model
 
@@ -212,6 +212,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.29
+Last review: 2026.07.31
 
 Back to [Yuruna](../README.md)

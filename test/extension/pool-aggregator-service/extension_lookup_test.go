@@ -95,10 +95,11 @@ func TestExtensionHostsUnknownArea404(t *testing.T) {
 	}
 }
 
-// Registration wins over an announce for the same area: the owning host
-// re-resolves that target live every cycle, so it tracks a DHCP change sooner
-// than the next beacon would.
-func TestExtensionHostsRegistrationBeatsAnnounce(t *testing.T) {
+// A LIVE announce wins over the registration for the same area. Its target was
+// taken from the source address of a request this process received, so it is
+// first-hand evidence the service answers there; the registration is a value the
+// owning host wrote into a file, and it lags a cycle behind its own service.
+func TestExtensionHostsLiveAnnounceBeatsRegistration(t *testing.T) {
 	s := newPoolState("default", 8080)
 	hid := "422dd0cac87e4cc6831c3228f12ae689"
 	now := time.Now()
@@ -109,13 +110,43 @@ func TestExtensionHostsRegistrationBeatsAnnounce(t *testing.T) {
 	}
 	s.announce[announceKey(hid, stashArea)] = &announceView{
 		HostId: hid, Area: stashArea, Target: "http://10.0.0.5",
-		LastSeenUnixMs: now.UnixMilli(),
+		LastSeenUnixMs: now.UnixMilli(), sourceIP: "10.0.0.5",
+	}
+	entries := s.resolveExtensionHostsLocked(now)
+	if got := entries[stashArea].Host; got != "10.0.0.5" {
+		t.Errorf("host = %q, want the announced 10.0.0.5", got)
+	}
+	if got := entries[stashArea].Source; got != extSourceAnnounce {
+		t.Errorf("source = %q, want announce", got)
+	}
+	if got := entries[stashArea].SupersededTarget; got != "http://10.0.0.9" {
+		t.Errorf("supersededTarget = %q, want the dropped registration address", got)
+	}
+}
+
+// A REHYDRATED announce does not. Restored from the Loki feed after a collector
+// restart, it carries no source address: a real observation, but a historical
+// one, and until a live beacon re-binds it the owning host's current word is
+// worth more. Without this the first minutes after a restart would serve
+// whatever address the feed happened to retain.
+func TestExtensionHostsRehydratedAnnounceLosesToRegistration(t *testing.T) {
+	s := newPoolState("default", 8080)
+	hid := "422dd0cac87e4cc6831c3228f12ae689"
+	now := time.Now()
+	s.hosts[hid] = &hostView{
+		HostId:           hid,
+		ExtensionTargets: map[string]string{stashArea: "http://10.0.0.9"},
+		LastSeenUnixMs:   now.UnixMilli(),
+	}
+	s.announce[announceKey(hid, stashArea)] = &announceView{
+		HostId: hid, Area: stashArea, Target: "http://10.0.0.5",
+		LastSeenUnixMs: now.UnixMilli(), // sourceIP deliberately unset
 	}
 	entries := s.resolveExtensionHostsLocked(now)
 	if got := entries[stashArea].Host; got != "10.0.0.9" {
 		t.Errorf("host = %q, want the registration-advertised 10.0.0.9", got)
 	}
-	if got := entries[stashArea].Source; got != "registration" {
+	if got := entries[stashArea].Source; got != extSourceRegistration {
 		t.Errorf("source = %q, want registration", got)
 	}
 }

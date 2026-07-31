@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.29
+.VERSION 2026.07.31
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456760
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -178,32 +178,59 @@ if ($rc -ne 0) {
 # --- REGION: UTM register + start (Hyper-V/KVM already started in New-VM)
 # Hyper-V and KVM already started the VM inside New-VM.ps1 (Hyper-V\Start-VM and
 # virt-install --import respectively); only UTM needs registration + start here.
+# The host contract's Start-VM owns the whole UTM sequence -- VNC-display
+# arbitration, the custom-QEMU-args dialog watchdog (without which this bring-up
+# cannot run unattended, because UTM blocks on a modal), open, utmctl start, and
+# the exit-0-but-QEMU-died check. Hand-rolling it here got all four wrong.
 if ($HostType -eq 'host.macos.utm') {
     $UtmDir = "$HOME/yuruna/guest.nosync/$VMName.utm"
     if (-not (Test-Path $UtmDir)) {
         Write-Error "UTM bundle missing at $UtmDir after New-VM."
         exit 1
     }
-    & utmctl status $VMName 2>&1 | Out-Null
-    if ($LASTEXITCODE -ne 0) {
-        Write-Output "Registering bundle with UTM (open $UtmDir)..."
-        & /usr/bin/open $UtmDir
-        $waitDeadline = (Get-Date).AddSeconds(60)
-        while ((Get-Date) -lt $waitDeadline) {
-            & utmctl status $VMName 2>&1 | Out-Null
-            if ($LASTEXITCODE -eq 0) { break }
-            Start-Sleep -Seconds 2
-        }
-        & utmctl status $VMName 2>&1 | Out-Null
-        if ($LASTEXITCODE -ne 0) {
-            Write-Error "UTM did not register '$VMName' within 60s. Open UTM manually, accept the bundle, then re-run."
-            exit 1
-        }
+    Write-Output "Starting '$VMName'..."
+    $startResult = Start-VM -VMName $VMName -Confirm:$false
+    if (-not $startResult.success) {
+        Write-Error "Could not start '$VMName': $($startResult.errorMessage)"
+        exit 1
     }
-    Write-Output "Starting '$VMName' via utmctl..."
-    & utmctl start $VMName 2>&1 | Out-Null
-    if ($LASTEXITCODE -ne 0) {
-        Write-Warning "utmctl start '$VMName' returned non-zero -- check UTM."
+}
+
+# --- REGION: the VM must be RUNNING before anything is advertised
+# `utmctl start` can exit 0 while UTM silently drops the request, and Hyper-V/KVM
+# start the VM inside New-VM.ps1 without this script ever checking the result.
+# Without this gate the marker below advertises a stash service that does not
+# exist, this script prints "start: complete" over a stopped VM, and the next
+# failure names a layer -- cloud-init, the share -- that never ran.
+if (-not (Wait-VMRunning -VMName $VMName -TimeoutSeconds 120)) {
+    $observed = try { Get-VMState -VMName $VMName } catch { 'unknown' }
+    Write-Error "VM '$VMName' did not reach 'running' (state: $observed); the stash service was NOT started. Open the VM in the hypervisor UI and start it by hand to see why."
+    exit 1
+}
+
+# --- REGION: Shared NAT -> forward a host port so peers can still reach the VM
+# A Bridged VM takes a LAN lease and peers reach it at <vm-lan-ip>:22 directly.
+# vmnet cannot bridge a Wi-Fi uplink, so on a Wi-Fi host New-VM builds this VM on
+# UTM Shared NAT instead, where it is invisible to the LAN -- the host's own LAN
+# address is the only way in. The bundle is the source of truth for which mode
+# the VM is actually on: a host that has since moved between Wi-Fi and Ethernet
+# needs a rebuild, not a different guess here.
+# Host port 2222, not 22: the Mac's own sshd already owns 22.
+if ($HostType -eq 'host.macos.utm') {
+    $bundleMode = Get-UtmNetworkModeFromBundle -VMName $VMName
+    $uplinkMode = Resolve-UtmNetworkMode
+    if ($bundleMode -and $uplinkMode -and $bundleMode -ne $uplinkMode) {
+        Write-Warning "'$VMName' was built for '$bundleMode' networking but this host's uplink now wants '$uplinkMode' (Wi-Fi and Ethernet differ). The VM's baked addresses are for the old topology; re-run this script with -ForceRebuild to rebuild it."
+    }
+    if ($bundleMode -eq 'Shared') {
+        $stashVmIp = Get-VMIp -VMName $VMName
+        if ($stashVmIp) {
+            $mapped = Add-PortMap -VMIp $stashVmIp -Port @() -PortRemap @{ 2222 = 22 } -Confirm:$false
+            if ($mapped) { Write-Output "  Shared NAT: peers reach this stash service at $(Get-BestHostIp):2222 (forwarded to ${stashVmIp}:22), not at the VM's address." }
+            else { Write-Warning "Shared NAT: could not forward host port 2222 to ${stashVmIp}:22; this stash service is reachable from this host only." }
+        } else {
+            Write-Warning "Shared NAT: '$VMName' has no address yet, so no host port was forwarded; re-run once it has booted to publish it to the LAN."
+        }
     }
 }
 

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.29
+.VERSION 2026.07.31
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456725
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -493,6 +493,58 @@ function Write-HostRegistrationRecord {
                 }
             }
         } catch { Write-Verbose "activeExtensions (pool-control-service.json): $($_.Exception.Message)" }
+        # projectUrl / projectCommit / testSets: what this host's CURRENT project
+        # offers, so the pool-control service can build its library of assignable
+        # test sets without ever cloning a project itself -- the host already has
+        # the clone, and its GH_TOKEN never has to leave it.
+        #
+        # Read from runtime markers + the project clone that the cycle already
+        # produced; file I/O and one already-imported planner call only, matching
+        # this function's resolution policy. Every branch is best-effort: a
+        # project that cannot be read simply reports nothing, because a
+        # discovery nicety must never be able to fail a registration write.
+        #
+        # NOTE (ordering): this record is written in Phase 0, BEFORE the pooled
+        # repos override and the project clone refresh. So these three fields
+        # describe the project as of the PREVIOUS cycle's clone. That is
+        # acceptable for a discovery offer -- the set list changes only when a
+        # project commits -- but it is why the board can lag one cycle behind a
+        # brand-new assignment.
+        $projectUrl = $null; $projectCommit = $null; $projectTestSets = @()
+        try {
+            $projectDir = Join-Path (Split-Path -Parent $runtimeDir) 'project'
+            $repoRootForProject = Split-Path -Parent (Split-Path -Parent $runtimeDir)
+            if (Test-Path -LiteralPath (Join-Path $projectDir '.git')) {
+                $u = & git -C $projectDir config --get remote.origin.url 2>$null
+                if ($LASTEXITCODE -eq 0 -and $u) { $projectUrl = "$u".Trim() }
+                $c = & git -C $projectDir rev-parse --short HEAD 2>$null
+                if ($LASTEXITCODE -eq 0 -and $c) { $projectCommit = "$c".Trim() }
+            }
+            if (Get-Command Get-ProjectTestSet -ErrorAction SilentlyContinue) {
+                # -WarningAction SilentlyContinue: malformed optional labels are
+                # already warned about at cycle start; repeating them on every
+                # registration write would be noise.
+                $sets = Get-ProjectTestSet -RepoRoot $repoRootForProject -WarningAction SilentlyContinue
+                $projectTestSets = @(foreach ($s in $sets) {
+                    [ordered]@{
+                        name        = [string]$s['name']
+                        displayName = [string]$s['displayName']
+                        description = [string]$s['description']
+                        sequences   = @($s['sequences'])
+                    }
+                })
+            }
+        } catch { Write-Verbose "project test-set discovery: $($_.Exception.Message)" }
+        # projectAccess: the result of this host's last probe of a POOL-ASSIGNED
+        # projectUrl (Test.RunnerInnerLoop writes the marker). Absent on an
+        # unpooled host, or on a pooled host whose pool assigned nothing.
+        $projectAccess = $null
+        try {
+            $accessMarker = Join-Path $runtimeDir 'project.access.json'
+            if (Test-Path -LiteralPath $accessMarker) {
+                $projectAccess = Get-Content -Raw -LiteralPath $accessMarker | ConvertFrom-Json -ErrorAction Stop
+            }
+        } catch { Write-Verbose "projectAccess marker: $($_.Exception.Message)" }
         $record = [ordered]@{
             schemaVersion    = 1
             hostId           = [string]$global:__YurunaHostId
@@ -505,6 +557,10 @@ function Write-HostRegistrationRecord {
             capabilities     = $cap
             activeExtensions = $activeExtensions
             extensionTargets = $extensionTargets
+            projectUrl       = $projectUrl
+            projectCommit    = $projectCommit
+            testSets         = $projectTestSets
+            projectAccess    = $projectAccess
             runId           = [string]$global:__YurunaRunId
             pid             = $PID
             statusPort      = $statusPort

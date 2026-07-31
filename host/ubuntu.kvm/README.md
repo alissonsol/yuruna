@@ -34,7 +34,8 @@ sudo.
 Disabling display sleep / screen lock for unattended runs is a
 separate opt-in step — run
 [`Enable-TestAutomation.ps1`](Enable-TestAutomation.ps1) manually after
-install.
+install, or let `pwsh install/setup.ps1` do it as one step of a guided
+[standalone-host or lab setup](../../install/README.md#guided-setup).
 
 ## Architecture support
 
@@ -75,6 +76,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.29
+Last review: 2026.07.31
 
 Back to [Yuruna](../../README.md)

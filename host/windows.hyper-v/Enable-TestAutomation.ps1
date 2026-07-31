@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.29
+.VERSION 2026.07.31
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456755
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -59,7 +59,12 @@
 #>
 
 [CmdletBinding(SupportsShouldProcess)]
-param()
+param(
+    # Settings-only run: skip the interactive networkStorage questionnaire at the
+    # end. install/setup.ps1 configures storage itself, in its own order, and
+    # would otherwise ask the same questions twice.
+    [switch]$SkipPoolStorage
+)
 
 $ErrorActionPreference = "Stop"
 # Surface the module's action-taken messages (Set-WindowsHostConditionSet
@@ -75,14 +80,28 @@ $RepoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 Import-Module (Join-Path $RepoRoot 'automation/Yuruna.HostSetup.psm1') -Force
 Initialize-HostSetupModule -RepoRoot $RepoRoot -BoundParameters $PSBoundParameters
 
-Set-WindowsHostConditionSet @PSBoundParameters
+# --- REGION: pre-automation capture
+# BEFORE anything is changed: record what these knobs were, so
+# Disable-TestAutomation can put them back. Written once and never overwritten
+# -- a second Enable must not capture Enable's own values as the operator's.
+Import-Module (Join-Path $RepoRoot 'test/modules/Test.HostAutomationState.psm1') -Force -DisableNameChecking
+$capturePath = Save-HostAutomationState -Platform 'windows.hyper-v' -WhatIf:$WhatIfPreference
+if ($capturePath) { Write-Information "Captured prior host settings to $capturePath (Disable-TestAutomation restores from it)." }
+
+# -SkipPoolStorage is ours, not Set-WindowsHostConditionSet's; splatting it
+# through would fail parameter binding.
+$conditionArgs = @{}
+foreach ($k in $PSBoundParameters.Keys) { if ($k -ne 'SkipPoolStorage') { $conditionArgs[$k] = $PSBoundParameters[$k] } }
+Set-WindowsHostConditionSet @conditionArgs
 
 # --- REGION: networkStorage pool host-identity setup + reimage reclaim (interactive)
 # Offer to configure networkStorage pool (NAS replication) and, on a host with no local
 # pool identity, scan the NAS registry to reclaim a prior uuid after a reimage.
 # Self-skips cleanly when run non-interactively or under -WhatIf. The orchestrator
 # loads its own sibling dependencies (config/vault/mount). See docs/pool-storage.md.
-if (-not $WhatIfPreference) {
+if ($SkipPoolStorage) {
+    Write-Information 'Skipping the networkStorage questionnaire (-SkipPoolStorage).'
+} elseif (-not $WhatIfPreference) {
     Import-Module (Join-Path $RepoRoot 'test/modules/Test.HostIdentity.psm1') -Force
     Invoke-PoolStorageSetupAndReclaim -RepoRoot $RepoRoot
 }

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.29
+.VERSION 2026.07.31
 .GUID 42e5f6a7-b8c9-4d12-9345-6e7f8a9b0c1d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -259,12 +259,84 @@ function Get-OuterStepTimeoutSeconds {
     $cfg = Read-TestConfig -Path $ConfigPath -NoCache
     $v = Get-TestConfigValue -Config $cfg -Path 'testCycle.stepTimeoutSeconds'
     $result = $DefaultSeconds
+    # TryParse rather than a bare [int] cast: this is re-read on EVERY cycle, so
+    # a typo in a mid-run edit would throw from inside the cycle and take the
+    # outer runner down over a tuning knob -- a runner that stops without saying
+    # why, which is exactly what the watchdog work exists to prevent. Warn and
+    # keep the default instead.
     if ($null -ne $v) {
-        $i = [int]$v
-        if ($i -gt 0) { $result = $i }
+        $i = 0
+        if ([int]::TryParse("$v".Trim(), [ref]$i)) {
+            if ($i -gt 0) { $result = $i }
+        } else {
+            Write-Warning "testCycle.stepTimeoutSeconds is '$v', which is not a number -- using $DefaultSeconds s."
+        }
     }
-    if ($PoolTestCycleOverride.ContainsKey('stepTimeoutSeconds') -and ([int]$PoolTestCycleOverride['stepTimeoutSeconds'] -gt 0)) {
-        $result = [int]$PoolTestCycleOverride['stepTimeoutSeconds']
+    if ($PoolTestCycleOverride.ContainsKey('stepTimeoutSeconds')) {
+        $p = 0
+        if ([int]::TryParse("$($PoolTestCycleOverride['stepTimeoutSeconds'])".Trim(), [ref]$p) -and $p -gt 0) {
+            $result = $p
+        }
+    }
+    return $result
+}
+
+function Get-OuterPreambleTimeoutSeconds {
+    <#
+    .SYNOPSIS
+        Read testCycle.preambleTimeoutSeconds -- the tighter watchdog bound that
+        applies before the inner reaches its first sequence step -- with the same
+        per-cycle re-read and pool > config > default precedence as
+        Get-OuterStepTimeoutSeconds.
+    .DESCRIPTION
+        Nothing in the inner's preamble is legitimately slow, so this is set far
+        below stepTimeoutSeconds: a stall there is a wedged runner (an
+        unanswerable sudo / credential prompt on the inherited terminal being
+        the motivating case), and the full step budget is 45 minutes of a green
+        dashboard over a host that is doing nothing.
+
+        0 (or any non-positive value) opts out: Start-Watchdog then applies
+        stepTimeoutSeconds everywhere, which is exactly the pre-existing
+        behaviour. That is the escape hatch for a host whose preamble really is
+        slow, and it is why the knob defaults into effect rather than requiring
+        opt-in.
+    #>
+    [CmdletBinding()]
+    [OutputType([int])]
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseSingularNouns', '',
+        Justification = 'The plural is the unit, not a collection: a duration is named <name>Seconds so a bare number can never be read in the wrong unit (docs/design/naming.md). Singularizing to Second would read as one second.')]
+    param(
+        [Parameter(Mandatory)][string]$ConfigPath,
+        [Parameter(Mandatory)][int]$DefaultSeconds,
+        [Parameter()][hashtable]$PoolTestCycleOverride = @{}
+    )
+    # -NoCache for the same reason as Get-OuterStepTimeoutSeconds: an operator
+    # edit must take effect at the next spawn boundary, not whenever the
+    # mtime-keyed cache happens to notice.
+    $cfg = Read-TestConfig -Path $ConfigPath -NoCache
+    $v = Get-TestConfigValue -Config $cfg -Path 'testCycle.preambleTimeoutSeconds'
+    $result = $DefaultSeconds
+    # TryParse, not a [int] cast. This is re-read on EVERY cycle, so a typo in a
+    # mid-run edit of test.config.yml would otherwise throw from inside the cycle
+    # and take the outer runner down over a tuning knob -- the "stops without
+    # saying why" failure this bound exists to prevent. Warn and keep the
+    # default instead: the operator gets a loud, per-cycle line and the host
+    # keeps testing.
+    # -ge 0, not -gt 0: 0 is the meaningful "no tighter bound" opt-out, so it
+    # must be distinguishable from an absent key (which takes the default).
+    if ($null -ne $v) {
+        $i = 0
+        if ([int]::TryParse("$v".Trim(), [ref]$i)) {
+            if ($i -ge 0) { $result = $i }
+        } else {
+            Write-Warning "testCycle.preambleTimeoutSeconds is '$v', which is not a number -- using $DefaultSeconds s."
+        }
+    }
+    if ($PoolTestCycleOverride.ContainsKey('preambleTimeoutSeconds')) {
+        $p = 0
+        if ([int]::TryParse("$($PoolTestCycleOverride['preambleTimeoutSeconds'])".Trim(), [ref]$p) -and $p -ge 0) {
+            $result = $p
+        }
     }
     return $result
 }
@@ -786,11 +858,20 @@ function Invoke-RunnerOuterCycle {
         # sequence there is a multi-second window where a dashboard /
         # status-service reader sees stale cycle-N failure context
         # attached to cycle N+1. Pre-spawn deletion closes that window.
+        #
+        # runner.phase is wiped on the same principle as the two above. It
+        # selects the watchdog's TIGHT preamble bound, so a copy left behind by
+        # a killed inner would apply that bound to the next cycle's sequence
+        # steps and kill healthy long ones. The new inner re-creates it within
+        # its first second; until then its absence means the loose bound, which
+        # is the safe direction.
         $innerPidFile    = Join-Path $env:YURUNA_RUNTIME_DIR 'inner.pid'
         $stepHbFile      = Join-Path $env:YURUNA_RUNTIME_DIR 'runner.stepHeartbeat'
+        $phaseFile       = Join-Path $env:YURUNA_RUNTIME_DIR 'runner.phase'
         $lastFailureFile = Join-Path $env:YURUNA_LOG_DIR     'last_failure.json'
         Remove-Item -LiteralPath $innerPidFile    -Force -ErrorAction SilentlyContinue
         Remove-Item -LiteralPath $stepHbFile      -Force -ErrorAction SilentlyContinue
+        Remove-Item -LiteralPath $phaseFile       -Force -ErrorAction SilentlyContinue
         Remove-Item -LiteralPath $lastFailureFile -Force -ErrorAction SilentlyContinue
         # Post-wipe: if Remove-Item failed (locked file, transient
         # permission error, AV mid-scan, anything), the watchdog about
@@ -815,6 +896,15 @@ function Invoke-RunnerOuterCycle {
             Write-Warning "[outer cycle $cycle] inner.pid wipe failed and the file is still present; watchdog may target the stale PID."
             Write-OuterLog "[outer cycle $cycle] inner.pid wipe failed -- stale content survived Remove-Item"
         }
+        # Same class of problem for runner.phase, opposite consequence: a file
+        # that cannot be deleted here probably cannot be deleted by the inner's
+        # Clear-RunnerPhase either, which would leave the TIGHT preamble bound
+        # in force over the sequence and false-kill healthy long steps. Say so
+        # rather than let it read as a mysterious mid-cycle kill.
+        if (Test-Path -LiteralPath $phaseFile) {
+            Write-Warning "[outer cycle $cycle] runner.phase wipe failed and the file is still present; the tight preamble bound may be applied to sequence steps this cycle."
+            Write-OuterLog "[outer cycle $cycle] runner.phase wipe failed -- stale marker survived Remove-Item"
+        }
         # break-active.json: written by the `break` sequence action
         # when a cooperative breakpoint parks the cycle, removed on
         # resume. If the operator restarts only Invoke-TestRunner.ps1
@@ -831,8 +921,14 @@ function Invoke-RunnerOuterCycle {
         # operator can tighten / loosen the bound between cycles
         # without restarting the outer.
         $stepTimeoutSeconds = Get-OuterStepTimeoutSeconds -ConfigPath $State.ConfigPath -DefaultSeconds $State.StepTimeoutSecondsDefault -PoolTestCycleOverride $poolTC
-        Write-OuterLog "[outer cycle $cycle] watchdog: stepTimeoutSeconds=$stepTimeoutSeconds"
-        $watchdogJob = Start-Watchdog -StepTimeoutSeconds $stepTimeoutSeconds -RuntimeDir $env:YURUNA_RUNTIME_DIR -PollSeconds $State.WatchdogPollSeconds
+        # Resolve the default here rather than leaning on the State key: an
+        # older caller (or a unit test) that builds State without it would pass
+        # $null into a mandatory [int] and take the whole cycle down over a
+        # watchdog tuning knob.
+        $preambleDefault = if ($State.ContainsKey('PreambleTimeoutSecondsDefault')) { [int]$State.PreambleTimeoutSecondsDefault } else { 600 }
+        $preambleTimeoutSeconds = Get-OuterPreambleTimeoutSeconds -ConfigPath $State.ConfigPath -DefaultSeconds $preambleDefault -PoolTestCycleOverride $poolTC
+        Write-OuterLog "[outer cycle $cycle] watchdog: stepTimeoutSeconds=$stepTimeoutSeconds preambleTimeoutSeconds=$preambleTimeoutSeconds"
+        $watchdogJob = Start-Watchdog -StepTimeoutSeconds $stepTimeoutSeconds -RuntimeDir $env:YURUNA_RUNTIME_DIR -PollSeconds $State.WatchdogPollSeconds -PreambleTimeoutSeconds $preambleTimeoutSeconds
         # The watchdog lifetime -- the arm-state check, the in-cycle transition,
         # and the inner spawn -- runs inside try/finally so Stop-Watchdog ALWAYS
         # runs. A throw in the arm-check warn or in Set-RunnerState (between
@@ -867,6 +963,16 @@ function Invoke-RunnerOuterCycle {
                 # it inherits the flag; the finally below clears it from $env: the
                 # moment the inner returns so it can never leak into a later invocation.
                 $env:YURUNA_RUNNER_RELAUNCH = '1'
+                # Same lifetime, different contract: YURUNA_NONINTERACTIVE tells the
+                # child there is nobody at the console to answer a prompt. The spawn
+                # is the call operator, so the inner INHERITS this terminal -- any
+                # prompt it raises blocks the whole host until the watchdog kills it,
+                # with the dashboard still green. Elevation helpers (Initialize-Sudo-
+                # Cache) read this and decline to prompt; the inner widens it to git
+                # and Console.In at its own startup. Cleared in the finally for the
+                # same reason as the relaunch flag: a value left in $env: would make a
+                # later INTERACTIVE run in this shell silently refuse to prompt.
+                $env:YURUNA_NONINTERACTIVE = '1'
                 & $State.PwshExe @($State.ArgList)
                 $exitCode = $LASTEXITCODE
             } catch {
@@ -880,6 +986,7 @@ function Invoke-RunnerOuterCycle {
             # takeover, which would silently disable concurrency protection. The next
             # cycle re-sets it right before its own spawn.
             Remove-Item -LiteralPath 'Env:YURUNA_RUNNER_RELAUNCH' -ErrorAction SilentlyContinue
+            Remove-Item -LiteralPath 'Env:YURUNA_NONINTERACTIVE'  -ErrorAction SilentlyContinue
             # A watchdog job that ENDED in Failed crashed mid-cycle -- the
             # inner ran some or all of the cycle unguarded. The job object
             # is about to be removed, so this is the last chance to say so.
@@ -1583,7 +1690,7 @@ function Invoke-RunnerOuterLoop {
 }
 Export-ModuleMember -Function `
     Get-OuterCommitSha, Test-OuterNewCommitsAvailable, Invoke-OuterGitPull, Invoke-OuterNetworkGit, `
-    Get-OuterRemoteSha, Get-OuterConfigMtime, Get-OuterStepTimeoutSeconds, Get-OuterProjectUrl, `
+    Get-OuterRemoteSha, Get-OuterConfigMtime, Get-OuterStepTimeoutSeconds, Get-OuterPreambleTimeoutSeconds, Get-OuterProjectUrl, `
     Get-OuterPoolTestCycleOverride, Get-OuterAutoRemediation, Test-OuterNoStatusServiceForwarded, `
     Get-OuterStatusBaseUrl, Get-OuterCycleSummaryLine, `
     Sync-ForwardEnv, Write-OuterLog, `

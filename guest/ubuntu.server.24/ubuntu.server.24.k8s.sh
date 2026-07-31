@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.07.29
+# Version: 2026.07.31
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 set -euo pipefail
@@ -223,10 +223,30 @@ sudo apt-mark hold kubelet kubeadm kubectl
 sudo mkdir -p /etc/containerd
 containerd config default | sudo tee /etc/containerd/config.toml > /dev/null
 sudo sed -i 's/SystemdCgroup = false/SystemdCgroup = true/' /etc/containerd/config.toml
-sudo sed -i 's|^\(\s*config_path\s*=\s*\)""|\1"/etc/containerd/certs.d"|' /etc/containerd/config.toml
+# containerd omitted SystemdCgroup from the generated default once already
+# (containerd#12101, restored in 2.0.x/2.1.x/2.2.x by #12244). If it goes
+# missing again the substitution above matches nothing and containerd silently
+# runs cgroupfs against a systemd-driver kubelet, so assert instead of trusting.
+if ! grep -q 'SystemdCgroup = true' /etc/containerd/config.toml; then
+    echo "ERROR: containerd SystemdCgroup was not set to true; the cgroup driver would not match kubelet." >&2
+    exit 1
+fi
+# containerd 2.2 emits `config_path = '/etc/containerd/certs.d:/etc/docker/certs.d'`
+# -- single-quoted, non-empty, colon-joined -- so a pattern anchored on the 1.x
+# empty `""` matches nothing and leaves the default in place, which containerd
+# 2.2 then ignores anyway (containerd#12808). Both failures are silent: every
+# hosts.toml below goes inert and containerd pulls bypass zot entirely. Match
+# whatever value is there, write the single supported path, and assert the
+# result, so a future schema move fails HERE instead of going quiet again.
+sudo sed -i "s|^\(\s*config_path\s*=\s*\).*|\1'/etc/containerd/certs.d'|" /etc/containerd/config.toml
+if ! grep -qE "^\s*config_path\s*=\s*'/etc/containerd/certs.d'\s*$" /etc/containerd/config.toml; then
+    echo "ERROR: containerd registry config_path was not set to /etc/containerd/certs.d; pulls would bypass the cache." >&2
+    exit 1
+fi
 sudo mkdir -p /etc/containerd/certs.d/docker.io \
               /etc/containerd/certs.d/registry.k8s.io \
-              /etc/containerd/certs.d/public.ecr.aws
+              /etc/containerd/certs.d/public.ecr.aws \
+              /etc/containerd/certs.d/ghcr.io
 sudo tee /etc/containerd/certs.d/docker.io/hosts.toml > /dev/null <<HOSTSEOF
 server = "https://docker.io"
 
@@ -249,6 +269,31 @@ server = "https://public.ecr.aws"
 [host."http://${CACHE_HOST}:5000"]
   capabilities = ["pull", "resolve"]
 HOSTSEOF
+# Flannel's three images (flannel-cni-plugin + flannel, used by both init
+# containers and the daemon) live on ghcr.io. Without this entry containerd
+# bypasses zot and tunnels every flannel layer through squid's CONNECT port,
+# which is uncached: a stalled tunnel leaves kube-flannel-ds at Init:1/2 with
+# /etc/cni/net.d empty, so the node never leaves NotReady. zot's sync
+# extension already lists ghcr.io as an on-demand upstream.
+sudo tee /etc/containerd/certs.d/ghcr.io/hosts.toml > /dev/null <<HOSTSEOF
+server = "https://ghcr.io"
+
+[host."http://${CACHE_HOST}:5000"]
+  capabilities = ["pull", "resolve"]
+HOSTSEOF
+# Bound a stalled pull. containerd's default no-progress window is long
+# enough that a dead tunnel parks the pod at Init:n/m past every downstream
+# wait without ever handing kubelet an error to retry on -- the pull just
+# hangs, so no ImagePullBackOff is ever recorded. Capping it makes a stalled
+# pull fail fast and get retried inside the rollout window below. Applied
+# only when the key exists, so a containerd whose config schema moved it
+# does not get a bogus line appended.
+CONTAINERD_PULL_PROGRESS_TIMEOUT="120s"
+if grep -q 'image_pull_progress_timeout' /etc/containerd/config.toml; then
+    sudo sed -i "s|^\(\s*image_pull_progress_timeout\s*=\s*\).*|\1'${CONTAINERD_PULL_PROGRESS_TIMEOUT}'|" /etc/containerd/config.toml
+else
+    echo "Note: containerd config has no image_pull_progress_timeout key; leaving the built-in default in place"
+fi
 sudo systemctl enable containerd
 sudo systemctl restart containerd
 
@@ -364,10 +409,23 @@ sleep 15
 kubectl --kubeconfig="${REAL_HOME}/.kube/config" -n kube-flannel rollout status daemonset/kube-flannel-ds --timeout=180s \
     || echo "Note: Flannel rollout status check timed out — pods may still be starting"
 
-# Wait for the node to report Ready (networking must be up for this to succeed)
+# Wait for the node to report Ready (networking must be up for this to succeed).
+# Fatal, not a note: a NotReady node cannot schedule anything, so every
+# downstream step is already lost. Exiting non-zero makes the fetch-and-execute
+# wrapper print its NONZERO SCRIPT EXIT sentinel, which the sequence engine
+# fast-fails on -- so the run is attributed to THIS script in seconds instead
+# of surfacing minutes later as an unrelated workload/HTTP-probe timeout.
 echo "Waiting for node to be Ready..."
-kubectl --kubeconfig="${REAL_HOME}/.kube/config" wait --for=condition=ready node --all --timeout=180s \
-    || echo "Note: Node ready wait timed out — node may still be initializing"
+if ! kubectl --kubeconfig="${REAL_HOME}/.kube/config" wait --for=condition=ready node --all --timeout=180s; then
+    echo "ERROR: node did not reach Ready within 180s; the CNI plugin never initialized." >&2
+    # The three facts that identify the usual cause (a stalled flannel image
+    # pull) without needing a post-mortem diagnostic dump.
+    kubectl --kubeconfig="${REAL_HOME}/.kube/config" get nodes -o wide >&2 || true
+    kubectl --kubeconfig="${REAL_HOME}/.kube/config" -n kube-flannel get pods -o wide >&2 || true
+    echo "Contents of /etc/cni/net.d (empty means no CNI config was installed):" >&2
+    ls -A /etc/cni/net.d >&2 || true
+    exit 1
+fi
 
 # Remove control-plane taint for single-node cluster
 kubectl --kubeconfig="${REAL_HOME}/.kube/config" taint nodes --all node-role.kubernetes.io/control-plane- || true

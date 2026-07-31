@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.29
+.VERSION 2026.07.31
 .GUID 42e0a5c9-71b4-4d38-a6f2-90c3d5e81b47
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -177,3 +177,22 @@ Describe 'Merge-LocalLabStorageBackConnectionName' {
 }
 
 # Copyright (c) 2019-2026 by Alisson Sol et al.
+
+Describe 'Get-LocalLabStorageSmbAuthVerdict' {
+    It 'reports ok on exit 0' {
+        Assert-Equal 'ok' (Get-LocalLabStorageSmbAuthVerdict -ExitCode 0 -Output 'Share  Type')
+    }
+    It 'classifies a refused credential as auth' {
+        # The reported macOS failure: the account has no SMB-NT hash, so smbd
+        # refuses a password that every other authority accepts.
+        Assert-Equal 'auth' (Get-LocalLabStorageSmbAuthVerdict -ExitCode 1 -Output 'smbutil: server rejected the connection: Authentication error')
+    }
+    It 'classifies a refused connection as unreachable, not auth' {
+        # Reporting this as an authentication problem is the misdiagnosis the
+        # probe exists to prevent: nothing is wrong with the credential.
+        Assert-Equal 'unreachable' (Get-LocalLabStorageSmbAuthVerdict -ExitCode 1 -Output 'smbutil: could not connect: Connection refused')
+    }
+    It 'falls back to unknown rather than guessing' {
+        Assert-Equal 'unknown' (Get-LocalLabStorageSmbAuthVerdict -ExitCode 2 -Output 'something else entirely')
+    }
+}

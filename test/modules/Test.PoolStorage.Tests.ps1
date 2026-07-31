@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.29
+.VERSION 2026.07.31
 .GUID 42d6f9b2-0c4e-4a38-9b7d-2e3f4a5b6c7d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -268,6 +268,26 @@ Describe 'Test-PoolStorageHostResolvable (dead-alias guard)' {
         # positive case -- a name that DOES resolve -- is environment-dependent and
         # covered by the live mount integration path.)
         Assert-True (-not (Test-PoolStorageHostResolvable -ServerName 'no-such-host-yuruna-3f9c1a2b')) 'unresolvable -> false'
+    }
+}
+
+Describe 'Test-PoolStorageServerIsLocal (is this storage served by this machine?)' {
+    It 'returns false for an empty, whitespace, or null share path' {
+        Assert-True (-not (Test-PoolStorageServerIsLocal -NetworkPath '')) 'empty -> false'
+        Assert-True (-not (Test-PoolStorageServerIsLocal -NetworkPath '   ')) 'whitespace -> false'
+        Assert-True (-not (Test-PoolStorageServerIsLocal -NetworkPath $null)) 'null -> false'
+    }
+    It 'returns false for a name that cannot resolve (an unreachable NAS is not local storage)' {
+        Assert-True (-not (Test-PoolStorageServerIsLocal -NetworkPath '//no-such-host-yuruna-3f9c1a2b/work/yuruna.pool')) 'unresolvable -> false'
+    }
+    It 'recognizes a loopback-resolving alias, including the macOS user@ form' {
+        # 'localhost' is the one name every platform resolves to loopback and to
+        # nothing else, so it stands in for the host alias New-LocalLabStorage
+        # writes. A real ypool-nas is environment-dependent and belongs to the
+        # live mount integration path.
+        Assert-True (Test-PoolStorageServerIsLocal -NetworkPath '//localhost/yuruna.pool') 'unix form'
+        Assert-True (Test-PoolStorageServerIsLocal -NetworkPath '//yuruna-pool@localhost/yuruna.pool') 'user@ stripped'
+        Assert-True (Test-PoolStorageServerIsLocal -NetworkPath '\\localhost\yuruna.pool') 'windows UNC form'
     }
 }
 
@@ -584,5 +604,52 @@ Describe 'Remove-PoolStorageTree (retry-tolerant recursive delete)' {
             $null = Remove-PoolStorageTree -Path $root -WhatIf
             Assert-True (Test-Path -LiteralPath $root) '-WhatIf deletes nothing'
         } finally { Remove-Item -Recurse -Force -LiteralPath $root -ErrorAction SilentlyContinue }
+    }
+}
+
+Describe 'Test-PoolStorageRoutableAddress' {
+    It 'accepts a routable LAN address' {
+        Assert-True (Test-PoolStorageRoutableAddress -Address '192.168.7.20')
+    }
+    It 'accepts the UTM shared-NAT gateway' {
+        Assert-True (Test-PoolStorageRoutableAddress -Address '192.168.64.1')
+    }
+    It 'rejects loopback' {
+        # What a local-lab hosts-file alias resolves to on the host. Baking it
+        # into a guest sends the guest to its OWN loopback: cifs_mount -111.
+        Assert-Equal $false (Test-PoolStorageRoutableAddress -Address '127.0.0.1')
+    }
+    It 'rejects the whole 127/8 block, not just 127.0.0.1' {
+        Assert-Equal $false (Test-PoolStorageRoutableAddress -Address '127.1.2.3')
+    }
+    It 'rejects link-local' {
+        Assert-Equal $false (Test-PoolStorageRoutableAddress -Address '169.254.10.5')
+    }
+    It 'rejects empty and unparseable input' {
+        Assert-Equal $false (Test-PoolStorageRoutableAddress -Address '')
+        Assert-Equal $false (Test-PoolStorageRoutableAddress -Address 'ypool-nas')
+    }
+}
+
+Describe 'Select-PoolStorageSeedAddress' {
+    It 'keeps a routable resolved address (a real NAS) and ignores the fallback' {
+        Assert-Equal '10.0.0.9' (Select-PoolStorageSeedAddress -ResolvedAddress '10.0.0.9' -GuestReachableAddress '192.168.64.1')
+    }
+    It 'substitutes the guest-reachable host address when the name resolved to loopback' {
+        Assert-Equal '192.168.64.1' (Select-PoolStorageSeedAddress -ResolvedAddress '127.0.0.1' -GuestReachableAddress '192.168.64.1')
+    }
+    It 'substitutes when the name resolved to link-local' {
+        Assert-Equal '192.168.7.20' (Select-PoolStorageSeedAddress -ResolvedAddress '169.254.3.4' -GuestReachableAddress '192.168.7.20')
+    }
+    It 'returns empty when neither address is usable, so the guest falls back to name resolution' {
+        Assert-Equal '' (Select-PoolStorageSeedAddress -ResolvedAddress '127.0.0.1' -GuestReachableAddress '')
+    }
+    It 'never returns a loopback fallback either' {
+        # Both ends of the channel must apply the same rule; a fallback that is
+        # itself loopback is no better than the value it replaces.
+        Assert-Equal '' (Select-PoolStorageSeedAddress -ResolvedAddress '127.0.0.1' -GuestReachableAddress '127.0.0.1')
+    }
+    It 'uses the fallback when the name did not resolve at all' {
+        Assert-Equal '192.168.64.1' (Select-PoolStorageSeedAddress -ResolvedAddress '' -GuestReachableAddress '192.168.64.1')
     }
 }

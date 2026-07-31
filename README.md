@@ -21,6 +21,11 @@ installs dependencies, clones the framework to `~/git/yuruna`
 `test/test.config.yml` from its template. Reboot if the installer says
 RESTART REQUIRED, then run the commands below from the `yuruna` folder.
 
+> **Shortcut.** `pwsh install/setup.ps1` does A.2 and A.3 for you — and can set
+> up a whole lab — asking only what it cannot infer. See
+> [Guided setup](install/README.md#guided-setup). The steps below are the
+> by-hand path, and stay the reference when a step needs judgment or fails.
+
 **A.2 — Enable test automation.** Sleep, screen savers, and screen lock
 interrupt tests; this explicit opt-in turns them off. Elevated
 (Administrator PowerShell on Windows, `sudo` on macOS/Ubuntu):
@@ -101,4 +106,4 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.29
+Last review: 2026.07.31

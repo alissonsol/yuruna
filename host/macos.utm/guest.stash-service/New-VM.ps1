@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.29
+.VERSION 2026.07.31
 .GUID 42f1b2c3-d4e5-4f67-8901-a2b3c4d5e681
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -124,21 +124,21 @@ Write-Output "Password came from authentication mechanism: $_authActiveName"
 Write-Output "See configuration at: $(Resolve-ExtensionAreaDir -Area 'authentication')"
 
 # Host coordinates (status service, for the in-VM source fetch) + stash storage
-# coordinates (the share), baked into the seed. Topology-aware host address:
-# an Ethernet default route -> bridged (host LAN IP, Get-BestHostIp); a Wi-Fi
-# default route -> UTM Shared NAT (VZ gateway, Get-GuestReachableHostIp).
+# coordinates (the share), baked into the seed. The network mode and the host
+# address are a matched pair -- the address only works from the network the VM
+# lands on -- so Resolve-UtmNetworkMode decides once here and the config.plist
+# below is rendered from that same value.
 # $env:YURUNA_GUEST_REACHABLE_HOST_IP overrides.
 Import-Module (Join-Path (Split-Path -Parent $ScriptDir) 'modules/Yuruna.Host.psm1') -Force
 Import-Module (Join-Path $_repoRoot 'test/modules/Test.PoolStorage.psm1')  -Global -Force
 Import-Module (Join-Path $_repoRoot 'test/modules/Test.YurunaDir.psm1')    -Global -Force
 Import-Module (Join-Path $_repoRoot 'test/modules/Test.Config.psm1')       -Global -Force
 Import-Module (Join-Path $_repoRoot 'test/modules/Test.CachingProxyService.psm1') -Global -Force
+$NetworkMode = Resolve-UtmNetworkMode
 if ($env:YURUNA_GUEST_REACHABLE_HOST_IP) {
     $YurunaHostIp = $env:YURUNA_GUEST_REACHABLE_HOST_IP
-} elseif (Test-MacUplinkNotBridgeable) {
-    $YurunaHostIp = Get-GuestReachableHostIp   # Wi-Fi -> Shared NAT: VZ gateway
 } else {
-    $YurunaHostIp = Get-BestHostIp             # Ethernet -> bridged: host LAN IP
+    $YurunaHostIp = Get-GuestReachableHostIp -NetworkMode $NetworkMode
 }
 if (-not $YurunaHostIp) { $YurunaHostIp = '' }
 $YurunaHostPort = '8080'
@@ -148,9 +148,16 @@ if (Test-Path -LiteralPath $YurunaTestConfig) {
     try { $tc = Read-TestConfig -Path $YurunaTestConfig } catch { Write-Verbose "test.config.yml read: $($_.Exception.Message)" }
     if ($tc -and $tc.statusService -and $tc.statusService.port) { $YurunaHostPort = "$($tc.statusService.port)" }
 }
-$ystashNas = Get-YurunaStashSeedValue -Config $tc
+$ystashNas = Get-YurunaStashSeedValue -Config $tc -GuestReachableAddress $YurunaHostIp
 # Pool-aggregator service base URL for the guest's presence beacon + remote-host
 # resolution; '' (no caching-proxy service known) leaves those features off in-guest.
+# Wait for the aggregator BEFORE resolving: whatever is resolved here is baked
+# into the seed once and never re-resolved in-guest, so an empty value taken
+# while the aggregator is still compiling leaves the beacon permanently off --
+# the service serves correctly and simply never appears on the dashboard.
+# Returns $false (rather than throwing) when there is no proxy to wait for or
+# the budget expires; the seed then carries '' exactly as it did before.
+$null = Wait-YurunaAggregatorReady
 $aggregatorSeedUrl = Get-PoolAggregatorServiceSeedUrl
 
 # Render user-data from the shared base + UTM overlay (host/vmconfig/
@@ -217,7 +224,11 @@ if (-not $BridgeInterface) {
     Write-Warning "Could not resolve default-route interface; falling back to 'en0' for VZ bridge."
     $BridgeInterface = 'en0'
 }
-Write-Output "Bridge interface: $BridgeInterface (stash-service VM will request DHCP on this LAN)"
+if ($NetworkMode -eq 'Shared') {
+    Write-Output "Default route is Wi-Fi ($BridgeInterface) -- bridged can't get a LAN lease over Wi-Fi; building the stash-service VM on UTM Shared NAT. Start-StashServiceVM.ps1 will forward a host port to it for LAN access."
+} else {
+    Write-Output "Bridge interface: $BridgeInterface (stash-service VM will request DHCP on this LAN)"
+}
 
 # 8 GB RAM, 4 vCPU. Sized for the SCP receive + SQLite metadata writer
 # + future in-VM UI.
@@ -233,7 +244,7 @@ $PlistContent = (Get-Content -Raw $TemplatePath) `
     -replace '__VM_NAME__',            $VMName `
     -replace '__VM_UUID__',            $VmUuid `
     -replace '__MAC_ADDRESS__',        $MacAddress `
-    -replace '__BRIDGE_INTERFACE__',   $BridgeInterface `
+    -replace '__NETWORK_MODE__',       $NetworkMode `
     -replace '__DISK_IDENTIFIER__',    $DiskId `
     -replace '__DISK_IMAGE_NAME__',    'disk.qcow2' `
     -replace '__SEED_IDENTIFIER__',    $SeedId `
@@ -241,6 +252,15 @@ $PlistContent = (Get-Content -Raw $TemplatePath) `
     -replace '__VNC_DISPLAY__',        "$VncDisplay" `
     -replace '__CPU_COUNT__',          "$vmCores" `
     -replace '__MEMORY_SIZE__',        '8192'
+
+# Bridged mode needs the physical NIC name; Shared NAT carries no
+# BridgedInterface key (matches the sibling Shared templates), so drop the
+# key/value entirely in that mode.
+if ($NetworkMode -eq 'Shared') {
+    $PlistContent = $PlistContent -replace "(?m)^[ \t]*<key>BridgedInterface</key>\r?\n[ \t]*<string>__BRIDGE_INTERFACE__</string>\r?\n", ''
+} else {
+    $PlistContent = $PlistContent -replace '__BRIDGE_INTERFACE__', $BridgeInterface
+}
 
 Set-Content -Path "$UtmDir/config.plist" -Value $PlistContent
 
@@ -297,3 +317,13 @@ See https://yuruna.link/stash-guide.
 Write-Output ($guidance.
     Replace('__VM_NAME__', $VMName).
     Replace('__UTM_DIR__', $UtmDir))
+
+# --- REGION: hand root-run artifacts back to the operator
+# Guard only: the supported invocation is UNELEVATED (these scripts elevate the
+# individual operations that need it, and root has no Aqua session for open /
+# utmctl / osascript). But a run that did reach here as root left the bundle,
+# the base image, the seed and the harness key root-owned, and UTM -- running as
+# the operator -- could neither open this VM nor delete it on the next rebuild.
+# The whole ~/yuruna tree, not just this bundle: unlinking a directory needs
+# write permission on its parent, and guest.nosync is shared by every builder.
+[void](Restore-SudoUserOwnership -Path @("$HOME/yuruna", (Join-Path $_repoRoot 'test/status')) -Confirm:$false)

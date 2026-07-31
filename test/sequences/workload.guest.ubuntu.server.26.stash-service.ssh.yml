@@ -9,7 +9,7 @@
 # test-sets -- run it manually.
 
 # The deploy is the LAST step on purpose: ubuntu.server.26.stash-service.sh
-# disables the OS sshd and rebinds :22 to the Yuruna Stash daemon, any later
+# masks the OS sshd and rebinds :22 to the Yuruna Stash daemon, any later
 # sshExec/sshWaitReady would hit the stash protocol on :22, not OpenSSH, and
 # hang or false-fail.
 
@@ -37,4 +37,4 @@ workload:
   - action: sshFetchAndExecute
     command: "/usr/local/lib/yuruna/fetch-and-execute.sh guest/ubuntu.server.26/ubuntu.server.26.stash-service.sh"
     timeoutSeconds: 1800
-    description: "ubuntu.server.26.stash-service.sh (LAST step: disables OS sshd + rebinds :22 to the stash daemon on success)"
+    description: "ubuntu.server.26.stash-service.sh (LAST step: masks OS sshd + rebinds :22 to the stash daemon on success)"

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.29
+.VERSION 2026.07.31
 .GUID 42e5f6a7-b8c9-4d01-8234-5f6a7b8c9d0e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -206,33 +206,62 @@ NOTHING until this is fixed. If the password is stale, update it and rebuild:
 
     # --- REGION: UTM register + start (Hyper-V/KVM already started in New-VM)
     # Hyper-V and KVM already started the VM inside New-VM.ps1; only UTM needs
-    # registration + start here.
+    # registration + start here. The host contract's Start-VM owns the whole UTM
+    # sequence -- VNC-display arbitration, the custom-QEMU-args dialog watchdog
+    # (without which this bring-up cannot run unattended, because UTM blocks on a
+    # modal), open, utmctl start, and the exit-0-but-QEMU-died check.
     if ($HostType -eq 'host.macos.utm') {
         $UtmDir = "$HOME/yuruna/guest.nosync/$VMName.utm"
         if (-not (Test-Path $UtmDir)) {
             Write-Error "UTM bundle missing at $UtmDir after New-VM."
             exit $ExitFailure
         }
-        & utmctl status $VMName 2>&1 | Out-Null
-        if ($LASTEXITCODE -ne 0) {
-            Write-Information "Registering bundle with UTM (open $UtmDir)..." -InformationAction Continue
-            & /usr/bin/open $UtmDir
-            $waitDeadline = (Get-Date).AddSeconds(60)
-            while ((Get-Date) -lt $waitDeadline) {
-                & utmctl status $VMName 2>&1 | Out-Null
-                if ($LASTEXITCODE -eq 0) { break }
-                Start-Sleep -Seconds 2
-            }
-            & utmctl status $VMName 2>&1 | Out-Null
-            if ($LASTEXITCODE -ne 0) {
-                Write-Error "UTM did not register '$VMName' within 60s. Open UTM manually, accept the bundle, then re-run."
-                exit $ExitFailure
-            }
+        Write-Information "Starting '$VMName'..." -InformationAction Continue
+        $startResult = Start-VM -VMName $VMName -Confirm:$false
+        if (-not $startResult.success) {
+            Write-Error "Could not start '$VMName': $($startResult.errorMessage)"
+            exit $ExitFailure
         }
-        Write-Information "Starting '$VMName' via utmctl..." -InformationAction Continue
-        & utmctl start $VMName 2>&1 | Out-Null
-        if ($LASTEXITCODE -ne 0) {
-            Write-Warning "utmctl start '$VMName' returned non-zero -- check UTM."
+    }
+
+    # --- REGION: the VM must be RUNNING before the daemon is blamed for anything
+    # `utmctl start` can exit 0 while UTM silently drops the request, and Hyper-V/KVM
+    # start the VM inside New-VM.ps1 without this script ever checking the result.
+    # Without this gate the readiness probe below attributes a VM that never booted
+    # to cloud-init, the go build, or the NAS -- none of which ran -- and the host
+    # advertises a pool-control service that does not exist.
+    if (-not (Wait-VMRunning -VMName $VMName -TimeoutSeconds 120)) {
+        $observed = try { Get-VMState -VMName $VMName } catch { 'unknown' }
+        Write-Error "VM '$VMName' did not reach 'running' (state: $observed); the pool-control service was NOT started. Nothing in the guest -- cloud-init, the go build, the pool NAS mount -- has run yet. Open the VM in the hypervisor UI and start it by hand to see why."
+        exit $ExitFailure
+    }
+
+    # --- REGION: Shared NAT -> forward a host port so peers can still reach the UI
+    # A Bridged VM takes a LAN lease and peers reach the UI at <vm-lan-ip>:80.
+    # vmnet cannot bridge a Wi-Fi uplink, so on a Wi-Fi host New-VM builds this VM
+    # on UTM Shared NAT instead, where it is invisible to the LAN -- the host's own
+    # LAN address is the only way in. The bundle is the source of truth for which
+    # mode the VM is actually on: a host that has since moved between Wi-Fi and
+    # Ethernet needs a rebuild, not a different guess here.
+    if ($HostType -eq 'host.macos.utm') {
+        $bundleMode = Get-UtmNetworkModeFromBundle -VMName $VMName
+        $uplinkMode = Resolve-UtmNetworkMode
+        if ($bundleMode -and $uplinkMode -and $bundleMode -ne $uplinkMode) {
+            Write-Warning "'$VMName' was built for '$bundleMode' networking but this host's uplink now wants '$uplinkMode' (Wi-Fi and Ethernet differ). The VM's baked addresses are for the old topology; re-run this script with -ForceRebuild to rebuild it."
+        }
+        # Host port 8081, not 80: on a shared-services machine the caching-proxy
+        # already forwards host :80 (its CA-cert endpoint), and asking for the
+        # same port would attach to that forwarder -- publishing the CACHE at
+        # the URL this script then prints for the pool-control UI.
+        if ($bundleMode -eq 'Shared') {
+            $pcVmIp = try { Get-VMIp -VMName $VMName } catch { Write-Verbose "Get-VMIp: $($_.Exception.Message)"; $null }
+            if ($pcVmIp) {
+                $mapped = Add-PortMap -VMIp $pcVmIp -Port @() -PortRemap @{ 8081 = 80 } -Confirm:$false
+                if ($mapped) { Write-Information "  Shared NAT: peers reach the pool-control service UI at http://$(Get-BestHostIp):8081/ (forwarded to ${pcVmIp}:80), not at the VM's address." -InformationAction Continue }
+                else { Write-Warning "Shared NAT: could not forward host port 8081 to ${pcVmIp}:80; the pool-control service UI is reachable from this host only." }
+            } else {
+                Write-Warning "Shared NAT: '$VMName' has no address yet, so no host port was forwarded; re-run once it has booted to publish the UI to the LAN."
+            }
         }
     }
 
@@ -284,7 +313,11 @@ NOTHING until this is fixed. If the password is stale, update it and rebuild:
             Start-Sleep -Seconds 3
         }
     } else {
-        Write-Warning "Could not resolve the VM's IP via the host contract (Get-VMIp). New-VM reported the VM booted, so this is unusual; skipping the :80 probe and going straight to guest diagnostics."
+        # The VM is confirmed RUNNING by the state gate above, so this is a
+        # host-side address-discovery gap, not a VM that failed to start. On UTM
+        # a Bridged guest has no dhcpd lease and no guest agent, so this is the
+        # normal path there rather than an anomaly.
+        Write-Warning "Could not resolve the VM's IP via the host contract (Get-VMIp); the VM IS running, so this is address discovery, not a boot failure. Skipping the :80 probe and going straight to guest diagnostics."
     }
 
     # Publish the marker + refresh registration (mirrors Start-StashServiceVM's publish
@@ -295,9 +328,13 @@ NOTHING until this is fixed. If the password is stale, update it and rebuild:
     # bracketed for the URL authority. The registration refresh is best-effort
     # telemetry and must never fail the bring-up. Write-HostRegistrationRecord reads
     # $global:__YurunaHostId; Set-Variable -Scope Global keeps PSAvoidGlobalVars quiet.
+    # active tracks the READINESS VERDICT, not the fact that this script ran: a
+    # bring-up that ends at the failure exit below would otherwise advertise a
+    # pool-control service that is not serving, and the dashboard would deep-link
+    # operators to a dead UI.
     $poolControlServiceBaseUrl = if (-not $vmIp) { '' } elseif ($vmIp -match ':') { "http://[$vmIp]/" } else { "http://$vmIp/" }
     $marker = [ordered]@{
-        active       = $true
+        active       = $daemonReady
         vmName       = $VMName
         hostType     = $HostType
         startedAtUtc = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")

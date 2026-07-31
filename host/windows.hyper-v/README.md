@@ -21,7 +21,8 @@ enables **Microsoft-Hyper-V-All** via `dism.exe`; clones the repo to
 elevation requested once. Disabling display timeout and screen lock
 for unattended runs is a separate opt-in step — run
 [`Enable-TestAutomation.ps1`](Enable-TestAutomation.ps1) manually
-after install.
+after install, or let `pwsh install/setup.ps1` do it as one step of a
+guided [standalone-host or lab setup](../../install/README.md#guided-setup).
 
 Then follow [Hosts — ...](../README.md#install-one-liner-convention). On
 Windows: step 2's reboot only applies when Hyper-V was just enabled;
@@ -59,6 +60,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.29
+Last review: 2026.07.31
 
 Back to [Yuruna](../../README.md)

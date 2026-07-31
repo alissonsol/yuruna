@@ -39,6 +39,10 @@ func main() {
 	stateDir := flag.String("state-dir", "", "directory (under poolStorageNetworkPath/pool-control-service/) for the audit log + status.json; empty disables persistence")
 	monitorInterval := flag.Duration("monitor-interval", 60*time.Second, "how often to probe the intent + refresh status.json")
 	configPath := flag.String("config-file", "/etc/yuruna/pool-control-service.env", "env file re-read before each intent operation for POOL_CONTROL_INTENT_GIT_URL (empty pins the launch flag)")
+	passcode := flag.String("passcode", "", "shared passcode gating the operator board (empty leaves the service open on the LAN, as before)")
+	publicRead := flag.Bool("public-read", false, "let the read-only board render without the passcode (a wall display); mutations stay gated regardless")
+	autoEnrol := flag.Bool("auto-enrol", false, "enable the auto-enrolment sweep (adds lab-token-ready hosts to the target pool); OFF by default")
+	autoEnrolInterval := flag.Duration("auto-enrol-interval", 60*time.Second, "how often the auto-enrolment sweep runs when --auto-enrol is set")
 	flag.Parse()
 
 	log.SetFlags(log.LstdFlags | log.LUTC | log.Lmicroseconds)
@@ -52,6 +56,7 @@ func main() {
 		Addr: *httpAddr, Version: version, Store: store,
 		PwshPath: *pwshPath, RepoDir: *repoDir, StateDir: *stateDir,
 		AggregatorURL: *aggregatorURL, HostID: *hostID, IntentGitURL: *intentGitURL,
+		Passcode: *passcode, PublicRead: *publicRead,
 	})
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -59,6 +64,16 @@ func main() {
 
 	errCh := make(chan error, 1)
 	go func() { errCh <- ui.ListenAndServe(ctx) }()
+
+	// Auto-enrolment runs on its OWN ticker, started unconditionally here --
+	// deliberately NOT inside the store.Enabled() block below. That block is
+	// gated on --state-dir, which the host-side launcher never passes, so a
+	// sweep riding it would silently not exist on that deployment.
+	go ui.RunAutoEnrolment(ctx, httpsrv.AutoEnrolOptions{
+		Enabled:       *autoEnrol,
+		Interval:      *autoEnrolInterval,
+		AggregatorURL: *aggregatorURL,
+	})
 
 	// Continuous monitor: probe the intent store and refresh status.json (the
 	// heartbeat + intent-readable flag) under poolStorageNetworkPath so an operator (or a

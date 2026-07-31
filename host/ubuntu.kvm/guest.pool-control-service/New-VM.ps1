@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.29
+.VERSION 2026.07.31
 .GUID 42a2c3d4-e5f6-4b78-9012-c3d4e5f6a7b2
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -183,9 +183,16 @@ if (Test-Path -LiteralPath $YurunaTestConfig) {
     try { $tc = Read-TestConfig -Path $YurunaTestConfig } catch { Write-Verbose "test.config.yml read: $($_.Exception.Message)" }
     if ($tc -and $tc.statusService -and $tc.statusService.port) { $YurunaHostPort = "$($tc.statusService.port)" }
 }
-$poolNas = Get-YurunaPoolSeedValue -Config $tc
+$poolNas = Get-YurunaPoolSeedValue -Config $tc -GuestReachableAddress $YurunaHostIp
 # Pool-aggregator service base URL for the daemon's presence beacon + remote-host
 # resolution; '' (no caching-proxy service known) leaves those features off in-guest.
+# Wait for the aggregator BEFORE resolving: whatever is resolved here is baked
+# into the seed once and never re-resolved in-guest, so an empty value taken
+# while the aggregator is still compiling leaves the beacon permanently off --
+# the service serves correctly and simply never appears on the dashboard.
+# Returns $false (rather than throwing) when there is no proxy to wait for or
+# the budget expires; the seed then carries '' exactly as it did before.
+$null = Wait-YurunaAggregatorReady
 $aggregatorSeedUrl = Get-PoolAggregatorServiceSeedUrl
 # Writable pool-intent git url the daemon commits to; empty degrades the daemon
 # (read-only). An explicit test.config.yml pool.intentGitUrl wins; otherwise this

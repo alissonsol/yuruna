@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.29
+.VERSION 2026.07.31
 .GUID 42d4e5f6-a7b8-4c90-8123-4e5f6a7b8c9d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -64,7 +64,14 @@ try {
         $lib = Get-Content -Raw -LiteralPath $libPath | ConvertFrom-Yaml -Ordered
         if ($lib -is [System.Collections.IDictionary]) { $testSets = @($lib['testSets']) }
     }
-    Write-JsonResult ([ordered]@{ ok = $true; pools = @($doc['pools']); testSets = $testSets })
+    # autoEnrollment is projected alongside pools/testSets because this CLI is
+    # the ONLY read path the pool-control service has into intent. Without it
+    # the sweep cannot see `excluded[]` -- the list that stops it re-adding a
+    # host an operator deliberately removed -- and the operator and a 60-second
+    # timer would fight forever. Emitted as an empty object when absent so a
+    # consumer never has to distinguish "missing" from "unset".
+    $autoEnrollment = if ($doc -is [System.Collections.IDictionary] -and $doc['autoEnrollment']) { $doc['autoEnrollment'] } else { [ordered]@{} }
+    Write-JsonResult ([ordered]@{ ok = $true; pools = @($doc['pools']); testSets = $testSets; autoEnrollment = $autoEnrollment })
     exit $ExitOk
 } catch {
     Write-JsonResult ([ordered]@{ ok = $false; error = $_.Exception.Message })

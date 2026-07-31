@@ -204,7 +204,7 @@ in-file slice is a convenience.
 ## Related
 
 - [Watchdog protocol and module](watchdog.md) — the files-on-disk side plus the PowerShell contract for `Start-Watchdog`/`Stop-Watchdog`; the kill side that drives transitions into `fault`.
-- [Remediation dispatcher](remediation.md) — what runs *after* a `fault`.
+- [Remediation dispatcher](failure-schema.md#remediation-dispatcher) — what runs *after* a `fault`.
 
 ---
 
@@ -212,6 +212,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.29
+Last review: 2026.07.31
 
 Back to [Yuruna](../README.md)

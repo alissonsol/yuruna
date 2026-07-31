@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.29
+.VERSION 2026.07.31
 .GUID 42e2607c-3d4e-4f50-8a61-7c8d9e0f1a2b
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -523,7 +523,7 @@ Describe 'Cycle VM naming strategy (one naming prefix vs many sweep prefixes)' {
         InModuleScope Test.RunnerInnerLoop {
             $cfg = @{ vmStart = @{
                 testVmNamePrefix      = 'test-'
-                cleanupVmNamePrefixes = @('amisad-', 'test-', 'yuruna-')
+                cleanupVmNamePrefixes = @('amisad-', 'test-')
             } }
             $strategy = Resolve-CycleVmNamingStrategy -Config $cfg -IsPoolCycle $false -HostId ''
             if ($strategy.Prefix -isnot [string]) {
@@ -539,7 +539,7 @@ Describe 'Cycle VM naming strategy (one naming prefix vs many sweep prefixes)' {
         InModuleScope Test.RunnerInnerLoop {
             $cfg = @{ vmStart = @{
                 testVmNamePrefix      = 'test-'
-                cleanupVmNamePrefixes = @('amisad-', 'test-', 'yuruna-')
+                cleanupVmNamePrefixes = @('amisad-', 'test-')
             } }
             $strategy = Resolve-CycleVmNamingStrategy -Config $cfg -IsPoolCycle $false -HostId ''
             $map = New-CycleVmNameMap -GuestList @('ubuntu2404') -Prefix $strategy.Prefix -HostId $strategy.PoolHostId

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.29
+.VERSION 2026.07.31
 .GUID 42a1b2c3-d4e5-4f67-8901-bc012345672a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -62,8 +62,8 @@ $script:NonzeroScriptExitSentinel = 'NONZERO SCRIPT EXIT:'
 # fetched script, where it costs no keystrokes -- not to raise this number.
 #
 # AUTHORS: the budget is NOT the yml `text:` on its own. Get-FetchExecuteEnvPrefix
-# prepends ~280 characters of integrity envelope (two SHA-256 digests plus the
-# fallback repo and commit), so a 276-character `text:` is really a 557-character
+# prepends ~225 characters of integrity envelope (two SHA-256 digests plus the
+# fallback repo and commit), so a 276-character `text:` is really a ~500-character
 # send. Keeping `text:` near 120 characters leaves comfortable headroom.
 $script:FetchExecuteTypedCharWarn = 400
 
@@ -844,7 +844,7 @@ Register-SequenceAction -Name 'takeScreenshot' -HostIORequirement @() -OcrRequir
 function Get-FetchExecuteEnvPrefix {
     <#
     .SYNOPSIS
-        Build an "EXEC_SHA256=<hex> EXEC_RETRY_SHA256=<hex> " env prefix for a
+        Build an "E_SHA=<hex> E_RETRY_SHA=<hex> " env prefix for a
         fetch-and-execute.sh invocation so the guest can verify the fetched
         bytes before running them.
     .DESCRIPTION
@@ -859,7 +859,11 @@ function Get-FetchExecuteEnvPrefix {
         For any matched fetch-and-execute command it also sets
         EXEC_REQUIRE_SHA256=1, so if the target file cannot be hashed here (a
         served-root/working-tree drift or a bad path) the guest fails CLOSED
-        rather than running unverified. Returns '' only when the command is not
+        rather than running unverified. Every character of this prefix is an
+        individual key event on the console path, so the value-carrying names
+        are terse (E_SHA, E_RETRY_SHA, E_FB_REPO, E_FB_REF) and the fallback
+        commit is abbreviated; see the typed-envelope definition linked below.
+        Returns '' only when the command is not
         a fetch-and-execute invocation (or, defensively, when RepoRoot is unset
         -- a code regression, not a runtime state), preserving rollout-compat.
     #>
@@ -872,8 +876,15 @@ function Get-FetchExecuteEnvPrefix {
     # guest's rollout-compat path rather than break every guest at once.
     if ([string]::IsNullOrWhiteSpace($RepoRoot)) { return '' }
     # Matched a fetch-and-execute invocation on the automated path: ENFORCE. The
-    # guest refuses if it does not also receive a matching EXEC_SHA256, so a
+    # guest refuses if it does not also receive a matching E_SHA, so a
     # served-root/working-tree drift or a bad path fails closed, not open.
+    #
+    # --- REGION: https://yuruna.link/definition#defining-the-fetch-and-execute-typed-envelope
+    # This one name is NOT shortened, and that is the point: a guest imaged
+    # before the rename knows only the EXEC_* spellings, so it would ignore a
+    # short-named digest and run the bytes UNVERIFIED. Seeing this flag with no
+    # digest it recognizes, it refuses instead -- the rename fails closed on an
+    # old guest, loudly, rather than silently reopening the fetch-to-bash hole.
     $prefix = 'EXEC_REQUIRE_SHA256=1 '
     $rel = ($m.Groups[1].Value -split '\?', 2)[0]
     if ([string]::IsNullOrWhiteSpace($rel) -or $rel -match '\.\.[\\/]' -or [System.IO.Path]::IsPathRooted($rel)) {
@@ -885,12 +896,12 @@ function Get-FetchExecuteEnvPrefix {
         Write-Warning "fetch-and-execute integrity: '$rel' not found under the served repo root; the guest will refuse to run it (enforced, no digest). Fix the path or the served-root mapping."
         return $prefix
     }
-    $prefix += "EXEC_SHA256=$((Get-FileHash -LiteralPath $full -Algorithm SHA256).Hash.ToLower()) "
+    $prefix += "E_SHA=$((Get-FileHash -LiteralPath $full -Algorithm SHA256).Hash.ToLower()) "
     # fetch-and-execute.sh self-heals the retry lib over the same channel; give
     # the guest that digest too so its sudo-installed copy is verified as well.
     $retryLib = Join-Path $RepoRoot 'automation/yuruna-retry.sh'
     if (Test-Path -LiteralPath $retryLib -PathType Leaf) {
-        $prefix += "EXEC_RETRY_SHA256=$((Get-FileHash -LiteralPath $retryLib -Algorithm SHA256).Hash.ToLower()) "
+        $prefix += "E_RETRY_SHA=$((Get-FileHash -LiteralPath $retryLib -Algorithm SHA256).Hash.ToLower()) "
     }
 
     # Where the guest should fetch from if it cannot reach this host: THIS
@@ -905,7 +916,14 @@ function Get-FetchExecuteEnvPrefix {
     # cloud-init seed instead, which never leaves the VM.
     $source = Get-YurunaGitHubSource -RepoRoot $RepoRoot
     if ($source.Repo -and $source.Ref) {
-        $prefix += "EXEC_FALLBACK_REPO=$($source.Repo) EXEC_FALLBACK_REF=$($source.Ref) "
+        # 12 hex characters of the commit, not 40: both fallback routes
+        # (raw.githubusercontent.com/<repo>/<ref>/<path> and the Contents API's
+        # ?ref=) resolve an abbreviated sha, and 48 bits is far past ambiguity
+        # for any repository this framework serves. Saves 28 keystrokes per
+        # step on a console path that corrupts long sends. The digest, not the
+        # ref, is what actually pins the bytes.
+        $shortRef = $source.Ref.Substring(0, [math]::Min(12, $source.Ref.Length))
+        $prefix += "E_FB_REPO=$($source.Repo) E_FB_REF=$shortRef "
         # The digest covers the WORKING TREE copy, but the fallback fetches the
         # commit. When they differ, the fallback can only fetch bytes that fail
         # the integrity gate -- so if the host is also unreachable, the run dies

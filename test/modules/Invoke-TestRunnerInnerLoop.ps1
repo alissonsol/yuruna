@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.29
+.VERSION 2026.07.31
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456706
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -249,6 +249,48 @@ if (-not $innerPidWritten) {
 # HeartbeatError surfaces consecutive write failures (disk full / AV) for
 # diagnostics.
 Start-RunnerHeartbeat -Path $HeartbeatFile
+
+# === Unattended contract ===
+# The outer spawns this inner with the CALL OPERATOR, so the inner inherits the
+# launch terminal. Any prompt it raises therefore blocks the entire host until
+# the watchdog kills it -- and because runner.heartbeat is written by a
+# threadpool timer that keeps ticking through a blocked runspace, the dashboard
+# stays GREEN throughout. Neutralize every prompt this process can raise itself.
+#
+# NOT covered here, deliberately: `sudo` reads /dev/tty, NOT this process's
+# stdin, so redirecting or closing stdin does not stop a bare `sudo` in a host
+# driver from prompting. Those call sites move to `sudo -n` behind a shared
+# wrapper; until they do, the runner.phase bound below is what converts such a
+# stall into a fast, attributable kill instead of 45 minutes of green silence.
+#
+# YURUNA_NONINTERACTIVE is normally inherited from the outer; set it here too so
+# a direct-invoke inner (modules/Invoke-TestRunnerInnerLoop.ps1 run by hand) gets
+# the same contract rather than a different one that can hang.
+$env:YURUNA_NONINTERACTIVE = '1'
+# git: the network helpers in Test.HostGit already neutralize these per call,
+# but bare `& git` sites elsewhere inherit whatever the launch shell had.
+$env:GIT_TERMINAL_PROMPT = '0'
+$env:GIT_ASKPASS         = ''
+$env:SSH_ASKPASS         = ''
+$env:GCM_INTERACTIVE     = 'never'
+# ShouldProcess prompts: a cmdlet with ConfirmImpact High (or any -Confirm that
+# survived a refactor) would otherwise park the cycle on a confirmation nobody
+# can answer.
+$global:ConfirmPreference = 'None'
+# Read-Host / PromptForChoice read Console.In. Pointing it at the null reader
+# makes them return/throw immediately instead of blocking on the inherited
+# terminal. Best-effort: a host without a usable console still runs.
+try {
+    [System.Console]::SetIn([System.IO.TextReader]::Null)
+} catch {
+    Write-Verbose "Console.SetIn(TextReader.Null) unavailable (non-fatal): $($_.Exception.Message)"
+}
+
+# Enter the guarded preamble. Everything from here to the sequence handoff is
+# covered by the watchdog's tight testCycle.preambleTimeoutSeconds bound rather
+# than the 45-minute step budget; Write-RunnerPhase refreshes runner.stepHeartbeat
+# as it goes, so slow-but-progressing preamble work is not mistaken for a stall.
+Write-RunnerPhase -Phase 'bootstrap'
 # Note: $env:YURUNA_LOG_LEVEL is published by Resolve-LogLevel (here at
 # bootstrap) and by Resolve-RunnerLogLevel per step inside the cycle. Children
 # spawned from this runner inherit the value from the env block and apply the
@@ -322,6 +364,7 @@ Resolve-LogLevel
 $HostType = Get-HostType
 if (-not $HostType) { exit $ExitFailure }
 Write-Output "Host type: $HostType"
+Write-RunnerPhase -Phase 'host-detect'
 
 # Announce here, prompt at the port-map refresh below: on host.ubuntu.kvm that
 # refresh writes systemd forwarder units with sudo, and the operator should know
@@ -420,6 +463,10 @@ Import-Module (Join-Path $ModulesDir 'Test.CachingProxyService.psm1') -Global -F
 # source set the env var is untouched (local discovery below runs
 # unchanged); with sources set but :3128 unreachable on each, the env
 # var is cleared so the same local-discovery fallback applies.
+# The port-map refresh below is the one preamble step that shells out to sudo,
+# and it is where an unanswerable password prompt actually stalled a host.
+# Naming the phase puts 'caching-proxy-gate' in the watchdog's kill line.
+Write-RunnerPhase -Phase 'caching-proxy-gate'
 $envCacheIp    = if ($env:YURUNA_CACHING_PROXY_SERVICE_IP) { $env:YURUNA_CACHING_PROXY_SERVICE_IP.Trim() } else { '' }
 $configCacheIp = ''
 if ($Config.vmStart -is [System.Collections.IDictionary] -and $Config.vmStart.Contains('cachingProxyIp')) {
@@ -464,20 +511,18 @@ if (-not $cpPortLock.Acquired) {
     Write-Output "Caching-proxy service: a caching-proxy-service bring-up holds the lock -- deferring this cycle's port-map refresh to it."
 } else {
     try {
-# Prime ONCE, with reasons, only when this cycle will really shell out to sudo:
-# stale forwarder units to tear down, or a NAT-networked cache to forward. On
-# every other branch Add-PortMap / Remove-PortMap never call sudo, so a prime
-# here would prompt for nothing -- once per cycle, forever. Initialize-SudoCache
-# is idempotent, silent on a warm timestamp, a no-op as root and on Windows, and
-# returns false silently under YURUNA_SUDO_PRIMED=1.
-if ($HostType -eq 'host.ubuntu.kvm' -and (Get-Command Initialize-SudoCache -ErrorAction SilentlyContinue)) {
-    $cpUnitsPresent = @(Get-ChildItem -LiteralPath '/etc/systemd/system' -Filter 'yuruna-cacheproxy-*' -ErrorAction SilentlyContinue).Count -gt 0
-    if ($cpUnitsPresent -or ($cachingProxyUrl -and -not (Test-CacheVMOnExternalNetwork))) {
-        [void](Initialize-SudoCache -Reasons @(
-            'write/remove the yuruna-cacheproxy systemd forwarder units',
-            'systemctl daemon-reload + enable/disable them for this cycle'))
-    }
-}
+# There is deliberately NO sudo prime here any more. Elevation for an
+# unattended host is a launch-time concern (Assert-RunnerElevation, run once by
+# Invoke-TestRunner.ps1 before the loop) or an /etc/sudoers.d drop-in -- never
+# mid-cycle, where nobody is at the console to answer.
+#
+# The prime that used to sit here also gated on Test-CacheVMOnExternalNetwork,
+# which asks "is the LOCAL cache VM bridged?" and returns false BOTH for a
+# NAT'd local cache that needs forwarders AND for a host whose cache is a
+# different machine entirely. On the latter the prime fired every cycle and the
+# dispatch below then took the external branch, where Remove-PortMap finds no
+# units and issues no sudo at all: a password prompt, every cycle, for work that
+# never happened.
 if ($cachingProxyUrl) {
     $vmIp = if ($cachingProxyUrl -match '^http://([0-9.]+):') { $matches[1] } else { $null }
     $isExternal = [bool]$Env:YURUNA_CACHING_PROXY_SERVICE_IP
@@ -594,6 +639,7 @@ $combineMode = ($env:YURUNA_OCR_COMBINE -eq 'And') ? 'And' : 'Or'
 Write-Debug "OCR engines: $($activeEngines -join ', ') | combine: $combineMode"
 if (-not (Assert-TesseractInstalled)) { exit $ExitFailure }
 
+Write-RunnerPhase -Phase 'status-service'
 $startScript = Join-Path $TestRoot "Start-StatusService.ps1"
 # Startup: no -Restart -- Start-YurunaStatusServiceIfEnabled lets the server
 # compare-and-skip the relaunch when its in-memory code is still current (zero
@@ -631,6 +677,12 @@ $cycleState = @{
     CachingProxyServiceUrl=$cachingProxyUrl; StartScript=$startScript; StepHeartbeatFile=$StepHeartbeatFile
     ShutdownState=$script:ShutdownState; RunnerCfgState=$script:RunnerCfgState; Config=$script:Config
 }
+# Leave the guarded preamble. The cycle body contains work that is legitimately
+# long and unbounded -- the weekly base-image download most of all -- and from
+# its first step Invoke-Sequence takes over refreshing runner.stepHeartbeat.
+# Dropping runner.phase restores the full testCycle.stepTimeoutSeconds bound,
+# i.e. exactly the behaviour that shipped before the preamble bound existed.
+Clear-RunnerPhase
 Invoke-RunnerInnerCycle -State $cycleState
 $OverallPassed        = $cycleState.OverallPassed
 $FailedGuest          = $cycleState.FailedGuest

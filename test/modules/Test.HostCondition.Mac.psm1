@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.29
+.VERSION 2026.07.31
 .GUID 42d4a3b2-c1f0-4e89-5678-9a0b1c2d3e40
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -302,6 +302,19 @@ function Assert-ScreenLock {
         Write-Debug "App Nap check failed: $_"
     }
 
+    # 5b. UTM outlives its last window. Without this, closing the last
+    #     window terminates UTM, and UTM's termination path saves the
+    #     state of every running VM -- the service VMs the cycle depends
+    #     on come back `suspended` instead of running.
+    try {
+        $keepRunning = & defaults read com.utmapp.UTM KeepRunningAfterLastWindowClosed 2>$null
+        if ($LASTEXITCODE -ne 0 -or "$keepRunning".Trim() -ne '1') {
+            $issues += "UTM.app quits with its last window (com.utmapp.UTM KeepRunningAfterLastWindowClosed not set to 1); closing a VM window would suspend every running VM."
+        }
+    } catch {
+        Write-Debug "UTM last-window-closed check failed: $_"
+    }
+
     # 6. sysadminctl unified screen lock (Ventura+). Overrides legacy
     #    askForPassword* keys -- the machine can still lock even when
     #    every individual defaults key is "safe". Accepted "disabled"
@@ -409,6 +422,12 @@ function Initialize-SudoCache {
     pwsh process already cached), the function returns silently with no
     output and no prompt. Skipped entirely when running as root.
 
+    NEVER prompts when $env:YURUNA_NONINTERACTIVE is '1' (the test runner
+    sets it around every inner spawn): it returns $false silently instead.
+    On an unattended host a prompt blocks the inherited terminal with
+    nobody present to answer, so elevation there has to come from a
+    launch-time prime or an /etc/sudoers.d drop-in, never from here.
+
     Designed to be called at the very top of any PowerShell script /
     function that will make multiple sudo calls in a row.
 .PARAMETER Reasons
@@ -424,6 +443,8 @@ function Initialize-SudoCache {
         throw "Cannot proceed without sudo."
     }
 #>
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidUsingWriteHost', '',
+        Justification = 'The notice must reach the terminal the operator is watching, immediately above sudo''s own prompt. Every caller wraps this in [void](...), which discards the success stream -- so an information-stream notice is exactly what went missing and left operators facing an unexplained password prompt.')]
     [CmdletBinding()]
     [OutputType([bool])]
     param(
@@ -459,22 +480,45 @@ function Initialize-SudoCache {
     if ($env:YURUNA_SUDO_PRIMED -eq '1') {
         return $false
     }
+    # Unattended: nobody is at the console to type a password. The test runner
+    # spawns its inner with the call operator, so the inner inherits the launch
+    # terminal -- `sudo -v` here would print its prompt to that terminal and
+    # block the whole host until the watchdog killed it, with the status page
+    # still showing the previous cycle's green. Decline exactly as the
+    # wrapper-primed path does: return $false silently and let the caller
+    # either skip the elevated work or fail it with an actionable message.
+    # Elevation for an unattended host is a LAUNCH-time concern (or an
+    # /etc/sudoers.d drop-in), never a mid-cycle one.
+    if ($env:YURUNA_NONINTERACTIVE -eq '1') {
+        Write-Verbose 'Initialize-SudoCache: YURUNA_NONINTERACTIVE=1 -- declining to prompt for sudo.'
+        return $false
+    }
     # Cache cold AND no wrapper context: print the friendly notice, then prompt.
-    Write-Output ""
-    Write-Output "  +---------------------------------------------------------------+"
-    Write-Output "  | This script needs sudo for:                                   |"
+    #
+    # Write-Host, not Write-Output: every caller wraps this function as
+    # `[void](Initialize-SudoCache ...)`, and that cast discards the whole
+    # success stream -- so a Write-Output notice was swallowed and the operator
+    # saw a bare "[sudo] password for ..." with no explanation of what wanted it.
+    # Write-Host also keeps the [OutputType([bool])] contract honest: with the
+    # box on the success stream this function returned an ARRAY of box lines plus
+    # the bool, which is why `if (-not (Initialize-SudoCache ...))` in
+    # test/Test-Config.ps1 never fired on the cold path (a non-empty array is
+    # always truthy).
+    Write-Host ""
+    Write-Host "  +---------------------------------------------------------------+"
+    Write-Host "  | This script needs sudo for:                                   |"
     if ($Reasons.Count -gt 0) {
         foreach ($r in $Reasons) {
             $line = "    * $r"
             if ($line.Length -gt 63) { $line = $line.Substring(0, 60) + '...' }
-            Write-Output ("  | {0,-61} |" -f $line)
+            Write-Host ("  | {0,-61} |" -f $line)
         }
     } else {
-        Write-Output "  |     (host configuration commands)                             |"
+        Write-Host "  |     (host configuration commands)                             |"
     }
-    Write-Output "  | You will be prompted for your password ONCE, below.           |"
-    Write-Output "  +---------------------------------------------------------------+"
-    Write-Output ""
+    Write-Host "  | You will be prompted for your password ONCE, below.           |"
+    Write-Host "  +---------------------------------------------------------------+"
+    Write-Host ""
     & sudo -v
     return ($LASTEXITCODE -eq 0)
 }
@@ -617,8 +661,17 @@ function Set-MacHostConditionSet {
     # -- 3c. "Require password after sleep/screen saver begins" delay -----
     # Sonoma+ lock-screen pane. A very large delay prevents lock from
     # engaging even if something re-enables askForPassword.
-    [void](Confirm-MacDefaultWrite -DefaultsArgs @('com.apple.screensaver', 'askForPasswordDelay') -WriteType '-int' -WriteValue '2147483647' -ExpectRead '2147483647')
-    [void](Confirm-MacDefaultWrite -DefaultsArgs @('-currentHost', 'com.apple.screensaver', 'askForPasswordDelay') -WriteType '-int' -WriteValue '2147483647' -ExpectRead '2147483647')
+    # ShouldProcess-gated like every other write in this function: these two
+    # were the only ones that applied unconditionally, so a -WhatIf preview
+    # silently changed the host it was only supposed to describe.
+    foreach ($domainArgs in @(
+        @{ Args = @('com.apple.screensaver', 'askForPasswordDelay')               ; Label = 'user' }
+        @{ Args = @('-currentHost', 'com.apple.screensaver', 'askForPasswordDelay'); Label = 'currentHost' }
+    )) {
+        if ($PSCmdlet.ShouldProcess("Screen lock password delay [$($domainArgs.Label)]", 'Set to 2147483647 (effectively never)')) {
+            [void](Confirm-MacDefaultWrite -DefaultsArgs $domainArgs.Args -WriteType '-int' -WriteValue '2147483647' -ExpectRead '2147483647')
+        }
+    }
 
     # -- 3d. System sleep -> Never (requires sudo) -------------------------
     # Display-sleep alone isn't enough: system sleep -> display locks on
@@ -709,7 +762,7 @@ function Set-MacHostConditionSet {
         Write-Information "Hot corners: no dangerous bindings (screen-saver / sleep / lock) detected."
     }
 
-    # -- 3h. App Nap suppression for UTM.app ------------------------------
+    # -- 3h. UTM.app lifetime: App Nap + last-window-closed ---------------
     # macOS App Nap throttles background apps that haven't received
     # input. For UTM this can freeze the UI thread, stop updating the
     # window server, and drop the window from CGWindowListCopyWindowInfo
@@ -727,6 +780,29 @@ function Set-MacHostConditionSet {
         }
     } else {
         Write-Information "App Nap for UTM.app is already disabled."
+    }
+
+    # UTM's default is to terminate once its last window closes, and its
+    # termination path SAVES THE STATE of every VM still running rather
+    # than leaving them alone: they come back `suspended`, not `started`.
+    # The service VMs (caching proxy, stash, pool-control) are long-lived
+    # infrastructure that guests consume for the whole cycle, so closing a
+    # VM window -- or the library window -- silently takes the cycle's
+    # dependencies offline and every guest that needs the proxy or the
+    # stash then fails. Keeping the app resident removes the window-close
+    # route into that state. UTM reads this at launch, so a UTM already
+    # running keeps its old behaviour until it is next started.
+    $keepRunningState = & defaults read $utmBundleId KeepRunningAfterLastWindowClosed 2>$null
+    $keepRunningAlready = ($LASTEXITCODE -eq 0 -and "$keepRunningState".Trim() -eq '1')
+    if (-not $keepRunningAlready) {
+        if ($PSCmdlet.ShouldProcess("UTM.app ($utmBundleId)", "Keep running after last window closed (KeepRunningAfterLastWindowClosed = YES)")) {
+            Write-Information "Keeping UTM.app alive after its last window closes ($utmBundleId)..."
+            if (Confirm-MacDefaultWrite -DefaultsArgs @($utmBundleId, 'KeepRunningAfterLastWindowClosed') -WriteType '-bool' -WriteValue 'YES' -ExpectRead '1') {
+                $changed = $true
+            }
+        }
+    } else {
+        Write-Information "UTM.app already stays running after its last window closes."
     }
 
     # -- 3i. Clear any stuck ScreenSaverEngine ----------------------------
@@ -1208,4 +1284,4 @@ function Test-MacHostMinimum {
     return $ok
 }
 
-Export-ModuleMember -Function Assert-ScreenLock, Initialize-SudoCache, Set-MacHostConditionSet, Assert-Accessibility, Assert-ScreenRecording, Assert-MacHostConditionSet, Test-MacHostMinimum, Sync-MacHostClock
+Export-ModuleMember -Function Assert-ScreenLock, Initialize-SudoCache, Get-MacPmsetGuardList, Set-MacHostConditionSet, Assert-Accessibility, Assert-ScreenRecording, Assert-MacHostConditionSet, Test-MacHostMinimum, Sync-MacHostClock

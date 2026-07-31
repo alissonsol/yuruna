@@ -13,7 +13,11 @@ cross-cutting model every other doc builds on, or with
   here rather than repeat.
 - **[install.md](install.md)** — load-bearing rationale for the three bootstrap
   installers (Windows Hyper-V, Ubuntu KVM, macOS UTM): what each step does and
-  why it is ordered that way.
+  why it is ordered that way. The installers stop at packages and the clone;
+  [`install/setup.ps1`](../install/README.md#guided-setup) takes a machine from
+  there to a working standalone host or lab, and
+  [`test/Disable-TestAutomation.ps1`](operator.md#putting-the-machine-back)
+  puts it back.
 - **[operator.md](operator.md)** — bring-up runbook for a single test
   machine: OS baseline to a passing cycle, the test user, and the
   caching-proxy-service / stash-service VMs. Its [preflight
@@ -76,9 +80,9 @@ cross-cutting model every other doc builds on, or with
 
 - **[failure-schema.md](failure-schema.md)** — the `last_failure.json` record and
   the matching `step_failure` event, both produced from one builder so they
-  cannot drift.
-- **[remediation.md](remediation.md)** — how a `failureClass` token is routed to
-  an automatic remediation handler.
+  cannot drift, plus the
+  [remediation dispatcher](failure-schema.md#remediation-dispatcher) that routes
+  a `failureClass` token to a recovery recommendation.
 - **[host-condition-registry.md](host-condition-registry.md)** — the three-method
   contract each host platform implements to apply and verify host settings.
 - **[system-diagnostic.md](system-diagnostic.md)** — the read-only diagnostic
@@ -215,6 +219,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.29
+Last review: 2026.07.31
 
 Back to [Yuruna](../README.md)

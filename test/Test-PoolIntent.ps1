@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.29
+.VERSION 2026.07.31
 .GUID 42d7e8f9-a0b1-4c23-8d45-7e8f9a0b1234
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -83,6 +83,29 @@ if (Test-Path -LiteralPath $poolsPath) {
         }
         if ($dupes -eq 0) { Write-Information 'PASS  member-uniqueness: no host is in more than one pool.' -InformationAction Continue }
         else { $failures += $dupes }
+
+        # The auto-enrolment target pool must carry NO test-set. This is the
+        # AUTHORITATIVE check: the CLI refuses and the UI disables, but only
+        # this one catches a hand-edited file or a store written before the
+        # rule existed. It is a cross-field constraint (a pool named by ANOTHER
+        # field), which JSON Schema cannot express.
+        #
+        # A violation FAILS rather than being silently stripped: stripping it
+        # would change what a lab is running without anyone deciding to.
+        $targetPoolId = if ($poolsDoc['autoEnrollment']) { [string]$poolsDoc['autoEnrollment']['targetPoolId'] } else { '' }
+        if ($targetPoolId) {
+            $violations = 0
+            foreach ($p in @($poolsDoc['pools'])) {
+                if ($p -isnot [System.Collections.IDictionary]) { continue }
+                if ([string]$p['poolId'] -ne $targetPoolId) { continue }
+                if ($p['testSet']) {
+                    Write-Warning "FAIL  target-pool-no-testset: '$targetPoolId' is the auto-enrolment target pool and must not carry a testSet (it would repoint every auto-enrolled host). Remove it, or point autoEnrollment.targetPoolId at a different pool."
+                    $violations++
+                }
+            }
+            if ($violations -eq 0) { Write-Information "PASS  target-pool-no-testset: '$targetPoolId' carries no testSet." -InformationAction Continue }
+            else { $failures += $violations }
+        }
     } catch {
         Write-Warning "FAIL  member-uniqueness: could not parse pools.yml -- $($_.Exception.Message)"
         $failures++

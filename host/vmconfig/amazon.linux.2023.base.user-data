@@ -81,7 +81,7 @@ runcmd:
     NoDisplay=true
     DESKTOP
   # --- REGION: https://yuruna.link/vmconfig#yuruna-host-coordinates
-  # Baked host+repo coordinates a hand-run fetch-and-execute falls back to; the runner's per-step EXEC_FALLBACK_REPO/REF override these.
+  # Baked host+repo coordinates a hand-run fetch-and-execute falls back to; the runner's per-step E_FB_REPO/E_FB_REF override these.
   - mkdir -p /etc/yuruna
   - |
     cat > /etc/yuruna/host.env << 'EOF'

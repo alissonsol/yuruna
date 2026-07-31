@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.29
+.VERSION 2026.07.31
 .GUID 42a4b5c6-d7e8-4f90-8a12-4b5c6d7e8f90
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -73,6 +73,29 @@ if (-not $open.Ok) { Write-Error "Could not open the intent store ($($t.IntentGi
 $doc  = Read-YurunaPoolsDoc -IntentDir $t.IntentDir
 $pool = Get-YurunaPoolFromDoc -Doc $doc -PoolId $PoolId
 if (-not $pool) { Write-Error "Pool '$PoolId' not found. Create it first: ./New-Pool.ps1 -PoolId $PoolId"; exit $ExitFailure }
+
+# The auto-enrolment target pool can NEVER carry a test-set. Hosts arrive there
+# automatically, without anyone choosing it for them, so assigning a project
+# here would silently repoint every auto-enrolled host in the lab on its next
+# cycle -- the single largest blast radius in the whole pool layer.
+#
+# Bound to autoEnrollment.targetPoolId rather than the literal 'default', so
+# renaming the target carries the protection with it. This lives in code
+# because it is a cross-field constraint that JSON Schema cannot express;
+# Test-PoolIntent.ps1 re-checks it as the authoritative validator.
+$targetPoolId = if ($doc -is [System.Collections.IDictionary] -and $doc['autoEnrollment']) { [string]$doc['autoEnrollment']['targetPoolId'] } else { '' }
+if ($targetPoolId -and $PoolId -eq $targetPoolId) {
+    Write-Error @"
+'$PoolId' is the auto-enrolment target pool and cannot carry a test-set.
+  Hosts land there automatically and keep running their own projectUrl; assigning one
+  here would silently repoint every auto-enrolled host in the lab.
+  To give these hosts a project, create another pool and assign the hosts to it:
+    ./New-Pool.ps1 -PoolId <name>
+    ./Add-HostToPool.ps1 -PoolId <name> -HostId <hostId>
+    ./Set-PoolTestSet.ps1 -PoolId <name> -Name $Name -FrameworkUrl $FrameworkUrl -ProjectUrl $ProjectUrl
+"@
+    exit $ExitFailure
+}
 
 # Exactly one test-set per pool: set (replace) it. Drop any legacy testSets[].
 $action = if ($pool.Contains('testSet') -and $pool['testSet']) { 'update' } else { 'set' }

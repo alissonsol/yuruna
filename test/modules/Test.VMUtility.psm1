@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.29
+.VERSION 2026.07.31
 .GUID 42a2b3c4-d5e6-4f78-9012-3a4b5c6d7e92
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -367,6 +367,42 @@ function Remove-GuestVMQuietly {
     }
 }
 
+function Get-StashServiceProbeCommand {
+    <#
+    .SYNOPSIS
+        The stash-service /healthz reachability probe (Test-StashServiceHost),
+        imported on demand, or $null when the extension is not on disk.
+    .DESCRIPTION
+        Update-StashServiceMarkerAddress has to tell "this address IS the stash
+        VM" from "this address merely parses", and the extension already owns
+        that judgement -- HTTP :80 answering /healthz is the same gate the cycle
+        pre-flight and the guest workloads apply. Borrowing it keeps one
+        definition of what reachable means instead of a second, subtly
+        different probe here.
+
+        Resolved by name first so a session that already loaded the extension
+        keeps its copy. The on-demand import is deliberately NOT -Global: only
+        this module calls the probe, and a -Force import into the global scope
+        would evict a caller's binding (feedback_module_force_import_evicts_global).
+    .OUTPUTS
+        [System.Management.Automation.CommandInfo] or $null.
+    #>
+    [CmdletBinding()]
+    [OutputType([System.Management.Automation.CommandInfo])]
+    param()
+    $cmd = Get-Command Test-StashServiceHost -ErrorAction SilentlyContinue
+    if ($cmd) { return $cmd }
+    # test/modules/ -> test/extension/stash-service/default.psm1
+    $module = Join-Path (Split-Path -Parent $PSScriptRoot) 'extension' -AdditionalChildPath 'stash-service', 'default.psm1'
+    if (-not (Test-Path -LiteralPath $module)) { return $null }
+    try { Import-Module $module -Force -DisableNameChecking -Verbose:$false }
+    catch {
+        Write-Verbose "Get-StashServiceProbeCommand: loading '$module' failed: $($_.Exception.Message)"
+        return $null
+    }
+    return (Get-Command Test-StashServiceHost -ErrorAction SilentlyContinue)
+}
+
 function Update-StashServiceMarkerAddress {
     <#
     .SYNOPSIS
@@ -386,6 +422,12 @@ function Update-StashServiceMarkerAddress {
         The marker is rewritten only when the URL changes, atomic temp+rename so a
         polling aggregator never reads a torn file. Format-IpUrlHost brackets an
         IPv6 literal for the URL authority.
+
+        An address is confirmed against /healthz before it is published, because
+        a rebuilt VM's first seconds are exactly when the discovery layer can
+        return a dead predecessor's lease (see the poll loop). A budget that runs
+        out with nothing confirmed still publishes the last address reported, and
+        warns.
     .OUTPUTS
         System.String -- the resolved stash base URL, or $null when unresolved.
     #>
@@ -409,15 +451,58 @@ function Update-StashServiceMarkerAddress {
         if ([string]::IsNullOrWhiteSpace($VMName)) { return $null }
         if (-not (Get-Command Get-VMIp -ErrorAction SilentlyContinue)) { return $null }
 
-        $ip = $null
-        $deadline = (Get-Date).AddSeconds([Math]::Max(0, $TimeoutSeconds))
-        while (-not $ip) {
+        # A candidate address has to be PROVEN before it is advertised. For the
+        # first seconds of a freshly built VM's life the guest has not completed
+        # DHCP, and macOS files every lease under the name the guest sends and
+        # never prunes -- so the lease file still holds blocks filed under this
+        # VM's name by the incarnations it replaced. Get-VMIp then hands back a
+        # dead predecessor's address that is syntactically perfect, on-link, and
+        # indistinguishable from a good answer. Taking the first non-empty reply
+        # spends the whole poll budget on its first tick and publishes the
+        # previous incarnation, which the dashboard's deep-link then points at
+        # for the rest of the cycle.
+        #
+        # /healthz answering is what separates the two, so the poll keeps going
+        # until a candidate proves it is a stash service. The real address shows
+        # up within seconds of its lease being issued.
+        $probe = Get-StashServiceProbeCommand
+        if (-not $probe) {
+            Write-Verbose 'Update-StashServiceMarkerAddress: no stash-service probe available; publishing the first address Get-VMIp reports without confirming it.'
+        }
+        $ip            = $null
+        $lastCandidate = $null
+        $deadline      = (Get-Date).AddSeconds([Math]::Max(0, $TimeoutSeconds))
+        while ($true) {
             $candidate = $null
             try { $candidate = [string](Get-VMIp -VMName $VMName) }
             catch { Write-Verbose "Update-StashServiceMarkerAddress: Get-VMIp '$VMName' failed: $($_.Exception.Message)" }
-            if ($candidate -and (Test-IpAddress $candidate)) { $ip = $candidate }
-            elseif ((Get-Date) -ge $deadline) { break }
-            else { Start-Sleep -Seconds 3 }
+            if ($candidate -and (Test-IpAddress $candidate)) {
+                $lastCandidate = $candidate
+                if (-not $probe) { $ip = $candidate; break }
+                # Two short attempts, not one wide one: this loop is already the
+                # outer retry, and a generous per-probe deadline would spend the
+                # entire budget confirming a single dead predecessor. The second
+                # attempt absorbs the connect-latency tail a first packet pays
+                # (feedback_wifi-connect-timeout-tail.md).
+                if (& $probe -Address $candidate -Attempts 2 -TimeoutSeconds 3 -BackoffMs 250) {
+                    $ip = $candidate
+                    break
+                }
+                Write-Verbose "Update-StashServiceMarkerAddress: '$candidate' did not answer /healthz; still waiting for '$VMName'."
+            }
+            if ((Get-Date) -ge $deadline) { break }
+            Start-Sleep -Seconds 3
+        }
+        # Budget gone with nothing confirmed: fall back to the last address
+        # Get-VMIp reported rather than publishing nothing. By this point the
+        # stale-lease window is long past, so the candidate is the current VM's
+        # address whose daemon is merely slower than the budget -- dropping a
+        # correct address because the service had not finished starting would
+        # trade this bug for the opposite one. Unconfirmed, so it is said out
+        # loud.
+        if (-not $ip -and $lastCandidate) {
+            Write-Warning "Update-StashServiceMarkerAddress: '$VMName' reports $lastCandidate but nothing answered http://$(Format-IpUrlHost $lastCandidate)/healthz within the ${TimeoutSeconds}s budget. Advertising it unconfirmed -- if the dashboard's stash link is dead, this address is the reason."
+            $ip = $lastCandidate
         }
         if (-not $ip) { return $null }
 

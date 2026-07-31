@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.29
+.VERSION 2026.07.31
 .GUID 42ab19c1-07c0-4d84-be69-80c4f1c780a8
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -144,6 +144,11 @@ function Initialize-YurunaEntryPointModuleSet {
             'Test.SingleInstance.psm1', 'Test.HostContract.psm1', 'Test.YurunaDir.psm1',
             'Test.Config.psm1', 'Test.InnerSpawn.psm1',
             'Test.ConfigPreflight.psm1', 'Test.Capability.psm1',
+            # Test.RunnerElevation: the launch-time sudo contract the outer
+            # asserts before its first spawn. Outer-only on purpose -- the
+            # inner must never re-open the question mid-cycle, where there is
+            # nobody to answer. Leaf; resolves sudo/id at call time.
+            'Test.RunnerElevation.psm1',
             # Boot-time recovery sweep + atomic state-file helper + runner
             # state machine. Order matters: Test.EventSchema before
             # Test.Log so Send-CycleEventSafely validates emits at module

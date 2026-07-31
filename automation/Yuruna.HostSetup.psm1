@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.29
+.VERSION 2026.07.31
 .GUID 42a7b8c9-d0e1-4f23-9456-78a9b0c1d2e3
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -37,6 +37,42 @@
     every caller to know about Initialize-SudoCache.
 #>
 
+function Select-HostSetupForwardParameter {
+    <#
+    .SYNOPSIS
+        The subset of a caller's bound parameters that a target command can
+        actually bind.
+    .DESCRIPTION
+        A caller hands over its whole $PSBoundParameters, which carries its OWN
+        parameters as well as the common ones -- the platform scripts declare
+        -SkipPoolStorage, and the install helpers have never heard of it.
+        Splatting the lot is a terminating "a parameter cannot be found that
+        matches parameter name" that kills host setup before a single setting is
+        applied, and the failure names an install helper the operator never
+        called.
+
+        Filtering against the target's own parameter metadata, rather than a
+        list of names to drop kept here, keeps this correct when either side
+        gains a parameter. -WhatIf and -Confirm still pass through: a
+        ShouldProcess-supporting target declares them.
+    .OUTPUTS
+        System.Collections.Hashtable
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param(
+        [hashtable]$BoundParameters = @{},
+        [Parameter(Mandatory)][string]$CommandName
+    )
+    $forwarded = @{}
+    $target = Get-Command -Name $CommandName -ErrorAction SilentlyContinue
+    if (-not $target) { return $forwarded }
+    foreach ($name in $BoundParameters.Keys) {
+        if ($target.Parameters.ContainsKey($name)) { $forwarded[$name] = $BoundParameters[$name] }
+    }
+    return $forwarded
+}
+
 function Initialize-HostSetupModule {
     <#
     .SYNOPSIS
@@ -48,9 +84,11 @@ function Initialize-HostSetupModule {
         every Enable-TestAutomation.ps1 lives at
         host/<short>/Enable-TestAutomation.ps1.
     .PARAMETER BoundParameters
-        Caller's $PSBoundParameters. Forwarded to Install-* helpers so
+        Caller's $PSBoundParameters. Forwarded to the Install-* helpers so
         -WhatIf reaches the install step (otherwise -WhatIf on the entry
         point script wouldn't suppress the actual Install-Module call).
+        Only the parameters a helper can bind are passed on -- see
+        Select-HostSetupForwardParameter.
     .PARAMETER SudoCacheReason
         When set, Initialize-SudoCache runs after the contract import and
         before the install pair. The reasons list shows in the prompt
@@ -95,8 +133,10 @@ function Initialize-HostSetupModule {
     # GuestOS runs with an empty sequence list and is recorded as
     # "skipped" with no log trace. PSScriptAnalyzer is the pre-commit
     # lint gate so the same enable step bootstraps both runtime and CI.
-    [void](Install-PowerShellYamlIfMissing @BoundParameters)
-    [void](Install-PSScriptAnalyzerIfMissing @BoundParameters)
+    $yamlArgs = Select-HostSetupForwardParameter -BoundParameters $BoundParameters -CommandName 'Install-PowerShellYamlIfMissing'
+    [void](Install-PowerShellYamlIfMissing @yamlArgs)
+    $analyzerArgs = Select-HostSetupForwardParameter -BoundParameters $BoundParameters -CommandName 'Install-PSScriptAnalyzerIfMissing'
+    [void](Install-PSScriptAnalyzerIfMissing @analyzerArgs)
 }
 
-Export-ModuleMember -Function Initialize-HostSetupModule
+Export-ModuleMember -Function Initialize-HostSetupModule, Select-HostSetupForwardParameter

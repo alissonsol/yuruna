@@ -68,72 +68,132 @@ write_files:
     owner: root:root
     content: |
       YURUNA_AGGREGATOR_URL='YURUNA_AGGREGATOR_URL_PLACEHOLDER'
+  # The bring-up, as a script driven by the unit below rather than as inline
+  # runcmd steps. runcmd is a PER-INSTANCE cloud-init module and this seed's
+  # instance-id is a constant, so runcmd gets exactly ONE attempt in the life of
+  # the VM: a bring-up interrupted partway -- the VM stopped while cloud-init is
+  # still compiling the daemon -- is never retried. Every later boot skips it,
+  # cloud-init still reports "status: done, errors: []", and the VM stays
+  # permanently half-built with no daemon, no unit, and nothing naming the cause.
+  # Driven by systemd instead, an interrupted bring-up simply finishes next boot.
+  - path: /usr/local/lib/yuruna/stash-bringup.sh
+    permissions: '0755'
+    owner: root:root
+    content: |
+      #!/bin/bash
+      # Yuruna stash service bring-up. Idempotent by construction and safe to re-run:
+      # it is the ONLY thing that installs the daemon, and it is driven by a systemd
+      # unit rather than by cloud-init's runcmd. See the unit for why.
+      #
+      # Each stage sets +e and reports rather than aborting, so a stage that cannot
+      # finish (an unreachable share, a host status service that is down) leaves the
+      # later stages free to do what they still can.
+
+      # --- REGION: https://yuruna.link/vmconfig#stash-nas-cifs-mount-options
+      # 1) Mount the stash share, persistent via fstab.
+      set +e
+      ENVF=/etc/yuruna/ystash-nas.env
+      NETPATH=$(sed -nE "s/^YSTASH_NAS_NETWORK_PATH='(.*)'\$/\1/p" "$ENVF" 2>/dev/null | head -n1)
+      NETIP=$(sed -nE "s/^YSTASH_NAS_NETWORK_IP='(.*)'\$/\1/p" "$ENVF" 2>/dev/null | head -n1)
+      HOST_ID=$(sed -nE "s/^YSTASH_NAS_HOST_ID='(.*)'\$/\1/p" "$ENVF" 2>/dev/null | head -n1)
+      MOUNT=$(sed -nE "s/^YSTASH_NAS_MOUNT='(.*)'\$/\1/p" "$ENVF" 2>/dev/null | head -n1); MOUNT=${MOUNT:-/mnt/ystash-nas}
+      if [ -n "$NETPATH" ] && [ -n "$HOST_ID" ]; then
+        mkdir -p "$MOUNT"
+        SVC_UID=$(id -u stash-admin); SVC_GID=$(id -g stash-admin)
+        # Open modes and the absent iocharset are load-bearing; see the topic above.
+        OPTS="credentials=/etc/yuruna/ystash-nas.cifs.cred,vers=3.0,uid=$SVC_UID,gid=$SVC_GID,file_mode=0666,dir_mode=0777,noperm,nofail,_netdev"
+        # ip= lets cifs connect when the guest can't resolve a bare NetBIOS name.
+        [ -n "$NETIP" ] && OPTS="$OPTS,ip=$NETIP"
+        if ! grep -q " $MOUNT cifs " /etc/fstab 2>/dev/null; then
+          printf '%s %s cifs %s 0 0\n' "$NETPATH" "$MOUNT" "$OPTS" >> /etc/fstab
+        fi
+        systemctl daemon-reload
+        mountpoint -q "$MOUNT" || timeout 60 mount "$MOUNT" || true
+        if mountpoint -q "$MOUNT"; then
+          # No chown: with 0777/0666 the tree is already pool-accessible, and a
+          # chown on a mode-mapped cifs mount can re-impose an owner-only ACL.
+          mkdir -p "$MOUNT/stash/$HOST_ID"
+          echo "yuruna stash: stash share mounted at $MOUNT; StashFolder $MOUNT/stash/$HOST_ID"
+        else
+          echo "yuruna stash: share '$NETPATH' did not mount at $MOUNT; the daemon will buffer locally until it does." >&2
+        fi
+      else
+        echo "yuruna stash: stash storage not configured in the seed; the daemon will use local fallback storage." >&2
+      fi
+
+      # 2) Fetch the framework from the host status service (resolution as in automation/
+      #    fetch-and-execute.sh / update.sh; coordinates sed-read, NOT sourced), falling
+      #    back to a github clone when the host is unreachable so a bring-up works off-LAN.
+      set +e
+      HF=/etc/yuruna/host.env
+      YR_HOST=$(sed -nE 's/^YURUNA_STATUS_SERVICE_IP=(.*)$/\1/p' "$HF" 2>/dev/null | head -n1)
+      YR_PORT=$(sed -nE 's/^YURUNA_STATUS_SERVICE_PORT=(.*)$/\1/p' "$HF" 2>/dev/null | head -n1)
+      DEST=/home/stash-admin/yuruna
+      mkdir -p "$DEST"
+      OK=0
+      if [ -n "$YR_HOST" ] && [ -n "$YR_PORT" ] && wget -q --no-proxy --tries=1 --timeout=5 -O /dev/null "http://$YR_HOST:$YR_PORT/livecheck"; then
+        if wget --no-proxy -qO- "http://$YR_HOST:$YR_PORT/yuruna-archive.tar.gz" | tar -xz -C "$DEST"; then
+          OK=1; echo "yuruna stash: framework extracted from host http://$YR_HOST:$YR_PORT"
+        fi
+      fi
+      if [ "$OK" -eq 0 ]; then
+        echo "yuruna stash: host status service unreachable; cloning the public github mirror." >&2
+        rm -rf "$DEST"
+        git clone --depth 1 https://github.com/alissonsol/yuruna "$DEST" && OK=1
+      fi
+      chown -R stash-admin:stash-admin "$DEST" 2>/dev/null || true
+      [ "$OK" -eq 1 ] || echo "yuruna stash: could not obtain the framework source; run the bring-up manually." >&2
+
+      # 3) Build + launch the daemon (the script provisions VM-local dirs,
+      #    writes the systemd unit, and starts it).
+      set +e
+      SCRIPT=/home/stash-admin/yuruna/guest/ubuntu.server.26/ubuntu.server.26.stash-service.sh
+      if [ -f "$SCRIPT" ]; then
+        bash "$SCRIPT" || echo "yuruna stash: bring-up script exited non-zero; see cloud-init-output.log." >&2
+      else
+        echo "yuruna stash: bring-up script not found at $SCRIPT (framework not fetched?)." >&2
+      fi
+
+      # The unit's ConditionPathExists gate reads this: present means converged, absent
+      # means the next boot tries again.
+      if [ -x /usr/local/bin/stash-service ]; then
+        echo "yuruna stash: bring-up complete; /usr/local/bin/stash-service is installed."
+        exit 0
+      fi
+      echo "yuruna stash: bring-up did NOT install /usr/local/bin/stash-service; the next boot will retry." >&2
+      exit 1
+
+  - path: /etc/systemd/system/yuruna-stash-bringup.service
+    permissions: '0644'
+    owner: root:root
+    content: |
+      [Unit]
+      Description=Yuruna stash service bring-up (idempotent; converges a half-built VM)
+      Documentation=https://yuruna.link/stash-guide
+      Wants=network-online.target
+      After=network-online.target cloud-init.service
+      # The whole point of the unit: once the daemon is installed this skips
+      # instantly, so a healthy boot pays nothing and only a VM that still needs
+      # work does any.
+      ConditionPathExists=!/usr/local/bin/stash-service
+
+      [Service]
+      Type=oneshot
+      ExecStart=/usr/local/lib/yuruna/stash-bringup.sh
+      # The first run compiles the Go daemon. systemd's default 90s start timeout
+      # would kill it partway through and leave exactly the half-built VM this unit
+      # exists to converge.
+      TimeoutStartSec=1800
+      StandardOutput=journal
+      StandardError=journal
+
+      [Install]
+      WantedBy=multi-user.target
 runcmd:
   # --- REGION: https://yuruna.link/vmconfig#host-agent-runs-first
   # 0) Host-side guest agent FIRST, so host discovery never waits on the steps below.
   # === YURUNA_OVERLAY_RUNCMD_HOST_AGENT ===
-  # --- REGION: https://yuruna.link/vmconfig#stash-nas-cifs-mount-options
-  # 1) Mount the stash share, persistent via fstab.
-  - |
-    set +e
-    ENVF=/etc/yuruna/ystash-nas.env
-    NETPATH=$(sed -nE "s/^YSTASH_NAS_NETWORK_PATH='(.*)'\$/\1/p" "$ENVF" 2>/dev/null | head -n1)
-    NETIP=$(sed -nE "s/^YSTASH_NAS_NETWORK_IP='(.*)'\$/\1/p" "$ENVF" 2>/dev/null | head -n1)
-    HOST_ID=$(sed -nE "s/^YSTASH_NAS_HOST_ID='(.*)'\$/\1/p" "$ENVF" 2>/dev/null | head -n1)
-    MOUNT=$(sed -nE "s/^YSTASH_NAS_MOUNT='(.*)'\$/\1/p" "$ENVF" 2>/dev/null | head -n1); MOUNT=${MOUNT:-/mnt/ystash-nas}
-    if [ -n "$NETPATH" ] && [ -n "$HOST_ID" ]; then
-      mkdir -p "$MOUNT"
-      SVC_UID=$(id -u stash-admin); SVC_GID=$(id -g stash-admin)
-      # Open modes and the absent iocharset are load-bearing; see the topic above.
-      OPTS="credentials=/etc/yuruna/ystash-nas.cifs.cred,vers=3.0,uid=$SVC_UID,gid=$SVC_GID,file_mode=0666,dir_mode=0777,noperm,nofail,_netdev"
-      # ip= lets cifs connect when the guest can't resolve a bare NetBIOS name.
-      [ -n "$NETIP" ] && OPTS="$OPTS,ip=$NETIP"
-      if ! grep -q " $MOUNT cifs " /etc/fstab 2>/dev/null; then
-        printf '%s %s cifs %s 0 0\n' "$NETPATH" "$MOUNT" "$OPTS" >> /etc/fstab
-      fi
-      systemctl daemon-reload
-      mountpoint -q "$MOUNT" || timeout 60 mount "$MOUNT" || true
-      if mountpoint -q "$MOUNT"; then
-        # No chown: with 0777/0666 the tree is already pool-accessible, and a
-        # chown on a mode-mapped cifs mount can re-impose an owner-only ACL.
-        mkdir -p "$MOUNT/stash/$HOST_ID"
-        echo "yuruna stash: stash share mounted at $MOUNT; StashFolder $MOUNT/stash/$HOST_ID"
-      else
-        echo "yuruna stash: share '$NETPATH' did not mount at $MOUNT; the daemon will buffer locally until it does." >&2
-      fi
-    else
-      echo "yuruna stash: stash storage not configured in the seed; the daemon will use local fallback storage." >&2
-    fi
-  # 2) Fetch the framework from the host status service (resolution as in automation/
-  #    fetch-and-execute.sh / update.sh; coordinates sed-read, NOT sourced), falling
-  #    back to a github clone when the host is unreachable so a bring-up works off-LAN.
-  - |
-    set +e
-    HF=/etc/yuruna/host.env
-    YR_HOST=$(sed -nE 's/^YURUNA_STATUS_SERVICE_IP=(.*)$/\1/p' "$HF" 2>/dev/null | head -n1)
-    YR_PORT=$(sed -nE 's/^YURUNA_STATUS_SERVICE_PORT=(.*)$/\1/p' "$HF" 2>/dev/null | head -n1)
-    DEST=/home/stash-admin/yuruna
-    mkdir -p "$DEST"
-    OK=0
-    if [ -n "$YR_HOST" ] && [ -n "$YR_PORT" ] && wget -q --no-proxy --tries=1 --timeout=5 -O /dev/null "http://$YR_HOST:$YR_PORT/livecheck"; then
-      if wget --no-proxy -qO- "http://$YR_HOST:$YR_PORT/yuruna-archive.tar.gz" | tar -xz -C "$DEST"; then
-        OK=1; echo "yuruna stash: framework extracted from host http://$YR_HOST:$YR_PORT"
-      fi
-    fi
-    if [ "$OK" -eq 0 ]; then
-      echo "yuruna stash: host status service unreachable; cloning the public github mirror." >&2
-      rm -rf "$DEST"
-      git clone --depth 1 https://github.com/alissonsol/yuruna "$DEST" && OK=1
-    fi
-    chown -R stash-admin:stash-admin "$DEST" 2>/dev/null || true
-    [ "$OK" -eq 1 ] || echo "yuruna stash: could not obtain the framework source; run the bring-up manually." >&2
-  # 3) Build + launch the daemon (the script provisions VM-local dirs,
-  #    writes the systemd unit, and starts it).
-  - |
-    set +e
-    SCRIPT=/home/stash-admin/yuruna/guest/ubuntu.server.26/ubuntu.server.26.stash-service.sh
-    if [ -f "$SCRIPT" ]; then
-      bash "$SCRIPT" || echo "yuruna stash: bring-up script exited non-zero; see cloud-init-output.log." >&2
-    else
-      echo "yuruna stash: bring-up script not found at $SCRIPT (framework not fetched?)." >&2
-    fi
+  # 1) Hand the bring-up to systemd. `enable` is what survives a boot that dies
+  #    mid-build; `--now` runs this first attempt without waiting for a reboot.
+  - systemctl daemon-reload
+  - systemctl enable --now yuruna-stash-bringup.service

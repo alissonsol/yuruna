@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.29
+.VERSION 2026.07.31
 .GUID 42c7a1b9-3d4e-4f80-9a21-5b6c7d8e9f01
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -364,6 +364,17 @@ function Invoke-OrchestrationSequence {
     if (($envCacheIp -or $configCacheIp) -and (Get-Command Resolve-CachingProxyServiceEndpoint -ErrorAction SilentlyContinue)) {
         $endpoint = Resolve-CachingProxyServiceEndpoint -EnvIp $envCacheIp -ConfigIp $configCacheIp
         foreach ($line in $endpoint.Lines) { Write-OrchestratorLine $line }
+        # The probe above proves the port answered ONCE; this is the moment the
+        # cycle commits to that address for every guest it is about to build, so
+        # confirm it stays up first. A cache VM rebuilt shortly before the run is
+        # still provisioning, and the restart that applies its ssl-bump config
+        # lands after the ports have already opened -- a cycle that probed in the
+        # gap pins the address, then reports the cache lost for the next several
+        # steps while the guests it seeded fall back to direct downloads.
+        if ($endpoint.EffectiveIp -and (Get-Command Wait-CachingProxyServiceSettled -ErrorAction SilentlyContinue)) {
+            $settle = Wait-CachingProxyServiceSettled -CacheIp $endpoint.EffectiveIp -Port $endpoint.HttpPort
+            foreach ($line in $settle.Lines) { Write-OrchestratorLine $line }
+        }
         $env:YURUNA_CACHING_PROXY_SERVICE_IP = $endpoint.EffectiveIp
     }
     $cachingProxyUrl = Test-CachingProxyServiceAvailable

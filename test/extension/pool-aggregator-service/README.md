@@ -79,14 +79,31 @@ Every `-interval` (default 30s) it:
    service announces ITSELF: the stash service POSTs `{hostId, area, targetPort}` at
    startup, every beacon period (default 15 min), and `active:false` at shutdown. The advertised URL is derived from the announce's SOURCE
    address (an announcer can only advertise itself — the same trust squid-log
-   discovery extends to any LAN client), the row's `baseUrl` fills from the host view
-   when the host is known, and a registration row for the same `(hostId, area)` wins.
+   discovery extends to any LAN client), and the row's `baseUrl` fills from the host
+   view when the host is known.
    Entries reap after `-announce-ttl` (default 45m, two missed beacons) or on a
    goodbye; every accepted announce is pushed to Loki (`{pool,hostId,src=announce}`)
    so a collector restart restores live rows instantly instead of waiting a period.
-   Announce-fed targets also back `/go/stash` and pool-status `stashBaseUrl` when the
-   registration has nothing. Open-by-design write route (no bearer): telemetry-only,
+   Open-by-design write route (no bearer): telemetry-only,
    tightly validated, bounded, self-identity-bound; `-announce-ttl 0` disables it.
+5c-i. **Which source wins.** Both sources merge in ONE place
+   (`extensionCandidatesLocked`), read by the `/metrics` rows, `/api/v1/extension-hosts`,
+   pool-status `stashBaseUrl`, and `/go/stash` alike — a precedence rule written out
+   four times is how a correction lands in one of them and not the others. The order
+   is by strength of evidence, not by who sent it:
+   **live announce** (the target came off the source address of a request this process
+   received — first-hand proof the service answers there) → **registration** (a value
+   the owning host computed and wrote to a file; correct when nobody announces, but it
+   lags: the runner writes `host.registration.json` *before* it refreshes the stash
+   marker, because the refresh needs `Get-VMIp`, so `extensionTargets` always carries
+   the previous refresh's value and a service VM rebuilt onto a new DHCP address is
+   advertised at its predecessor's for a whole cycle) → **rehydrated announce**
+   (restored from Loki after a collector restart: a real observation, but a historical
+   one, so the host's current word outranks it until a live beacon re-binds it).
+   When two sources name different addresses the loser rides on
+   `yuruna_pool_extension_target_disagreement{hostId,area,target,superseded}` and in the
+   `supersededTarget` field of `/api/v1/extension-hosts` — normally absent; present means
+   a host's registration has fallen behind its own service.
 5d. **Answers "where is area X served?" (`GET /api/v1/extension-hosts`).** The
    registration + announce records above are also the pool's answer to a host that
    NEEDS a service it does not run. Such a host cannot find the stash service (or
@@ -197,9 +214,24 @@ Every `-interval` (default 30s) it:
 
 The pool view is rendered by **Grafana** (`grafana-pool-dashboard.json`, uid
 `yuruna-pool`) over Prometheus + Loki: a five-tile summary row (**Hosts
-reachable** · **Hosts total** · **Failing now** · **Failed cycles** ·
-**Collector**), a **Lab token** stat beside the **Extension hosts** table
-(the 6-char lab connection token — point 9), a **per-host table** (control ·
+total** · **Success%** · **Failed cycles** · **Total cycles** ·
+**Lab token**), where **Total cycles** is the per-host table's Pass + Fail
+columns summed over the selected time range and **Success%** is
+`100 * Pass / (Pass + Fail)` over that same Loki transition log, to two
+decimals — `n/a` when the range holds no terminal cycle, so an idle pool
+cannot read as healthy. (`yuruna_pool_hosts_reachable` and
+`yuruna_pool_host_status` are still exported for alerting; they simply no
+longer have their own tiles.) That last tile carries TWO signals in one place:
+normally the 6-char lab connection token (point 9) on blue, but red **Collector
+down** — linked to [the fix](#when-the-lab-token-tile-reads-collector-down) —
+whenever `yuruna_pool_collector_up` is absent from the scrape. The collector
+exports that gauge as a constant `1`, so its disappearance *is* the outage, and
+`absent()` turns that into the tile's second query; exactly one of the two ever
+returns a series, so the tile always shows one value. Folding them together
+costs nothing (a collector that cannot report cannot mint a token either) and
+buys the summary row a fifth tile that says something on a healthy pool.
+`yuruna_pool_collector_up` is still exported for alerting. Then the **Extension
+hosts** table, a **per-host table** (control ·
 type · framework version · last cycle · status · last seen · pass/fail, with
 deep-links to each host's own status page and cycle folder), a **host × time state-timeline**, and a collapsed **drill-down**
 row (incidents · **failures by class & severity** · recent step failures · full
@@ -258,10 +290,10 @@ unaffected (graceful degradation).
   `yuruna-fit-pool-dashboard.timer`, every 5min) recomputes those heights from
   the live host count and rewrites the provisioned copy in place, so a table
   sized for today's pool neither scrolls when a host joins nor shows dead
-  whitespace when one leaves. The script also keeps the **Lab token** stat
-  (id `18`, beside the 20-unit-wide Extension hosts table) in step with that
-  table's row and height. Changing the panel **ids** (`7`, `6`, `17`, `18`) or
-  adding a fourth per-host panel means updating that script.
+  whitespace when one leaves. The summary tiles across the top -- **Lab token**
+  (id `18`) included -- are a fixed 4 units tall and the re-stack starts below
+  them. Changing the panel **ids** (`7`, `6`, `17`) or adding a fourth per-host
+  panel means updating that script.
 
 ## Flags
 
@@ -290,7 +322,7 @@ the leaf is absent.
 | `/api/v1/extension-hosts[?area=<slug>]` | GET | none | where the pool currently sees each extension area served. With `?area=` one entry (`area`, `host`, `target`, `hostId`, `source`, `lastSeenUnixMs`) and **404** when no live host serves it; without it every area at once. Registration beats announce, then freshest, then lowest hostId; a TTL-expired announce is skipped at read time. The lookup a host uses to find the stash / pool-control service knowing only the caching-proxy-service address |
 | `/go/cycle?host=<hostId>&t=<epochMs>` | GET | none | dashboard timeline click → 302 to that host's cycle-results folder. Resolves the host's **current** IP from the live view (so the link survives a host IP change) and the cycle covering `t` (current cycle in-memory, else the host's `/log/` listing, else the Loki transition feed); degrades to the host's status root when the folder can't be resolved |
 | `/go/host?host=<hostId>` | GET | none | dashboard timeline click → 302 to that host's status-page **root**. Same `host` uuid → **current** IP resolution as `/go/cycle` (survives a host IP change), but always lands on the status page rather than a cycle folder — the IP-free state-timeline rows can't carry the IP, so the link resolves it here |
-| `/go/stash?host=<hostId>&area=<area>` | GET | none | 302 to that host's extension-service UI (default `area=stash-service`, the stash-service VM), resolved from the URL the host **advertised** in `extensionTargets` (refreshed each cycle / on `Start-StashServiceVM` via `Get-VMIp`). For IP-free, hostId-only consumers — the dashboard table itself links directly via the `target` label. Unknown host/target → 404 |
+| `/go/stash?host=<hostId>&area=<area>` | GET | none | 302 to that host's extension-service UI (default `area=stash-service`, the stash-service VM), resolved through the same source merge as the dashboard cell — the service's own live announce first, the host's `extensionTargets` when nothing is announcing (see 5c-i). For IP-free, hostId-only consumers — the dashboard table itself links directly via the `target` label. Unknown host/target → 404 |
 | `/api/v1/lab-token` | POST | none (per-IP throttled) | lab-token exchange: body `{"labToken":"<6 chars>"}` → `200 {"ok":true,"v":1,"salt":…,"nonce":…,"ciphertext":…,"tag":…}` — redeems the dashboard's **Lab token** code for the shared lab-auth-token, sealed under that code so only the redeemer can open it (called by `test/Set-LabToken.ps1`). `400` malformed, `403` unknown/expired code, `429` per-IP throttle, `503` disabled (`-lab-token-rotate 0`). Every attempt audited (aggregator log + Loki, `src="lab-token"`) |
 | `/ingest` | POST | Bearer | runner-side push of NDJSON events (supplements pull); the bearer is the shared lab-auth-token (`-auth-token-file`). `503` when the proxy holds no token — a failure state, since the proxy build mints one |
 | `/api/v1/forget-host?hostId=<42-hex>` | POST | Bearer | operator eviction: drop one hostId from the in-memory view NOW (all per-host maps → gone from the next `/metrics` scrape) instead of waiting out the configured host TTL (`-host-ttl`). Same token as `/ingest`; 503 when no token, 400 on a malformed id. JSON `{forgotten, hostId, wasPresent}`. A still-reachable host is re-discovered on the next poll — stop/drain it first. Called by `test/Remove-PoolHost.ps1` |
@@ -333,6 +365,51 @@ curl -sk https://localhost:9400/metrics            # -> yuruna_pool_* lines
 # Prometheus target pool-aggregator-service UP; Loki has {pool,hostId,cycleStartUtc} streams;
 # Grafana 'Yuruna hosts' dashboard renders the 24h cross-host view.
 ```
+
+### When the Lab token tile reads Collector down
+
+The dashboard's last summary tile turns red and reads **Collector down** when
+Prometheus has no `yuruna_pool_collector_up` sample. The collector exports that
+gauge as a constant `1`, and Prometheus stales a target's series on the first
+failed scrape, so the tile means one thing: *this proxy's
+`pool-aggregator-service` is not answering.* Nothing on the pool is broken by
+it — the collector is read-only, so every runner keeps testing (the same
+graceful degradation as killing the daemon on purpose) — but no lab token can
+be minted, no host can enrol, and every other panel on the board is frozen at
+its last scrape.
+
+Fix it on the proxy VM (`ssh caching-proxy-service-admin@<proxy-ip>`, or
+`ssh -p 8022 caching-proxy-service-admin@<host-lan-ip>` from off-host):
+
+```
+systemctl status pool-aggregator-service
+journalctl -u pool-aggregator-service -n 50 --no-pager
+systemctl restart pool-aggregator-service          # if it is simply stopped
+curl -sk https://localhost:9400/metrics | grep yuruna_pool_collector_up   # -> 1
+```
+
+Three causes account for nearly all of it:
+
+- **Crash loop on an unknown flag.** A flag added to `ExecStart` that this
+  binary does not know makes it exit immediately, and `Restart=on-failure`
+  turns that into a loop (`journalctl` shows the same `flag provided but not
+  defined` line repeating). Check the flag against the binary
+  (`pool-aggregator-service -h`) before adding it, and re-provision the proxy
+  when the binary predates the flag.
+- **The binary was never installed.** The cloud-init build is deliberately
+  soft-fail: if the deploying host's status server was unreachable at boot and
+  the GitHub fallback had no source, the dashboard still deployed but the
+  collector did not. `ls /usr/local/bin/pool-aggregator-service` and
+  `grep pool-aggregator /var/log/cloud-init-output.log` say so; the fix is a
+  proxy rebuild from a host whose status service is running.
+- **The service is up but the scrape is not.** Check the
+  `pool-aggregator-service` target in Prometheus
+  (`curl -s 'http://127.0.0.1:9090/api/v1/targets' | grep -A3 pool-aggregator`).
+  The job scrapes `https://localhost:9400` with `insecure_skip_verify`, so a
+  missing or rotated TLS leaf is not the cause; a changed port is.
+
+The tile clears itself: the token returns on the next 15s scrape plus the
+dashboard's 30s refresh, with no Grafana or dashboard action.
 
 ## MVP limits
 

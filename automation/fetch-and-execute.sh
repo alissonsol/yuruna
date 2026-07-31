@@ -1,7 +1,19 @@
 #!/bin/bash
-# Version: 2026.07.29
+# Version: 2026.07.31
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
+
+# --- REGION: https://yuruna.link/definition#defining-the-fetch-and-execute-typed-envelope
+# The host prepends a small env "envelope" to the command it TYPES into this
+# guest (VM console or SSH): E_SHA / E_RETRY_SHA carry the sha256 of the payload
+# and of the retry lib, E_FB_REPO / E_FB_REF carry the GitHub fallback repo and
+# an abbreviated commit. The names are terse because every character of that
+# line is an individual key event on the console path, where long sends have
+# corrupted mid-flight. EXEC_REQUIRE_SHA256 deliberately keeps its long name: a
+# guest imaged before the rename still recognizes it and refuses to run bytes it
+# has no digest for, so meeting an old guest fails CLOSED instead of silently
+# running unverified code. The legacy EXEC_* spellings are still read below, so
+# a guest built from this commit also works under an older host.
 
 # --- REGION: https://yuruna.link/definition#defining-fetch-and-execute-base-url-resolution
 # Two fetch sources, tried in order: the host status service, then GitHub. The
@@ -20,8 +32,8 @@ resolve_fetch_source() {
     fi
     # Typed values win: they describe the commit the host is serving right now,
     # while host.env holds whatever was current when this VM was provisioned.
-    GH_REPO="${EXEC_FALLBACK_REPO:-${YURUNA_GITHUB_REPO:-}}"
-    GH_REF="${EXEC_FALLBACK_REF:-${YURUNA_GITHUB_REF:-}}"
+    GH_REPO="${E_FB_REPO:-${EXEC_FALLBACK_REPO:-${YURUNA_GITHUB_REPO:-}}}"
+    GH_REF="${E_FB_REF:-${EXEC_FALLBACK_REF:-${YURUNA_GITHUB_REF:-}}}"
 
     # EXEC_BASE_URL is the operator's manual override (CONTRIBUTING documents it
     # pointing at a raw GitHub URL for a work-in-progress branch). Classify it by
@@ -143,7 +155,7 @@ verify_sha256() {
             >&2 echo "!! integrity: host requires a digest (EXEC_REQUIRE_SHA256=1) but none was supplied for $_vf_label -- refusing"
             return 1
         fi
-        >&2 echo "!! integrity: no host digest for $_vf_label -- running UNVERIFIED (set EXEC_SHA256 to enforce)"
+        >&2 echo "!! integrity: no host digest for $_vf_label -- running UNVERIFIED (set E_SHA to enforce)"
         return 0
     fi
     _vf_actual="$(sha256sum "$_vf_file" 2>/dev/null | awk '{print $1}')"
@@ -200,7 +212,7 @@ if [ "$FETCH_SOURCE" = 'github' ] && { [ -z "$GH_REPO" ] || [ -z "$GH_REF" ]; };
     echo "!! NO FETCH SOURCE"
     echo "!!   The host status service is unreachable and no GitHub fallback was"
     echo "!!   supplied, so there is nowhere to fetch this file from."
-    echo "!!   Wanted: EXEC_FALLBACK_REPO + EXEC_FALLBACK_REF (typed by the host),"
+    echo "!!   Wanted: E_FB_REPO + E_FB_REF (typed by the host),"
     echo "!!           or YURUNA_GITHUB_REPO + YURUNA_GITHUB_REF in /etc/yuruna/host.env."
     echo "!!   Refusing to guess at another repository."
     echo ""
@@ -274,11 +286,12 @@ echo "  bytes: $byte_count"
 # during the ~3s type-to-fetch window, and that narrow race should self-heal; a
 # genuine man-in-the-middle cannot produce matching bytes on the retry. Refuse
 # in every other case (mismatch after retry, or an enforced-but-absent digest).
-if verify_sha256 "$fetch_tmp" "${EXEC_SHA256:-}" "$FILE_PATH"; then
+EXPECTED_SHA="${E_SHA:-${EXEC_SHA256:-}}"
+if verify_sha256 "$fetch_tmp" "$EXPECTED_SHA" "$FILE_PATH"; then
     :
-elif [ -n "${EXEC_SHA256:-}" ] \
+elif [ -n "$EXPECTED_SHA" ] \
      && wget "${WGET_FETCH_FLAGS[@]}" -qO "$fetch_tmp" "$FULL_URL" 2>/dev/null \
-     && verify_sha256 "$fetch_tmp" "${EXEC_SHA256:-}" "$FILE_PATH"; then
+     && verify_sha256 "$fetch_tmp" "$EXPECTED_SHA" "$FILE_PATH"; then
     echo "  integrity: verified on re-fetch (absorbed a concurrent-edit race)"
 else
     rm -f "$fetch_tmp" 2>/dev/null || true
@@ -307,7 +320,7 @@ if [ ! -r "$YURUNA_RETRY_LIB" ]; then
     if [ -n "$lib_tmp" ] \
          && wget "${WGET_FETCH_FLAGS[@]}" -qO "$lib_tmp" "$(build_fetch_url 'automation/yuruna-retry.sh')" 2>/dev/null \
          && [ -s "$lib_tmp" ] \
-         && verify_sha256 "$lib_tmp" "${EXEC_RETRY_SHA256:-}" "automation/yuruna-retry.sh"; then
+         && verify_sha256 "$lib_tmp" "${E_RETRY_SHA:-${EXEC_RETRY_SHA256:-}}" "automation/yuruna-retry.sh"; then
         sudo mkdir -p "$YURUNA_LIB_DIR" 2>/dev/null
         if sudo cp "$lib_tmp" "$YURUNA_RETRY_LIB" 2>/dev/null; then
             sudo chmod 0644 "$YURUNA_RETRY_LIB"

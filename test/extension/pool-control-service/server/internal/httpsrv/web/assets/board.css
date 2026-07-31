@@ -1,0 +1,108 @@
+/* LICENSEURI https://yuruna.link/license
+   Copyright (c) 2019-2026 by Alisson Sol et al.
+
+   Operator board. Phone first: one column, >=44px targets, no horizontal
+   scroll at 320px. Honours the device's light/dark preference. */
+
+.board { margin: 0; padding: 0 0 3rem; }
+
+.board-top {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 1rem; padding: 0.9rem 1rem;
+  border-bottom: 1px solid var(--line, #d0d7de);
+  position: sticky; top: 0; z-index: 2;
+  background: var(--bg, #fff);
+}
+.board-top .brand { font-weight: 600; font-size: 1.05rem; }
+.advanced-link { font-size: 0.9rem; text-decoration: none; opacity: 0.75; }
+.advanced-link:hover { opacity: 1; text-decoration: underline; }
+
+/* Period selector: sticky so it stays reachable while scrolling a long list. */
+.periods {
+  display: flex; gap: 0.5rem; padding: 0.75rem 1rem;
+  position: sticky; top: 3.1rem; z-index: 1;
+  background: var(--bg, #fff);
+}
+.periods button {
+  flex: 1 1 0; min-height: 44px; border-radius: 10px;
+  border: 1px solid var(--line, #d0d7de); background: transparent;
+  font-size: 1rem; cursor: pointer;
+}
+.periods button.on { background: var(--accent, #0969da); color: #fff; border-color: transparent; }
+
+.stats-banner {
+  margin: 0 1rem 0.75rem; padding: 0.6rem 0.8rem; border-radius: 8px;
+  background: #fff4e5; color: #7a4b00; font-size: 0.9rem;
+}
+
+/* One card per pool. */
+.card {
+  margin: 0 1rem 1rem; padding: 1rem;
+  border: 1px solid var(--line, #d0d7de); border-radius: 14px;
+}
+.card h2 { margin: 0; font-size: 1.15rem; }
+.card .hosts { margin: 0.15rem 0 0.9rem; font-size: 0.9rem; opacity: 0.75; }
+
+/* The hero number. */
+.hero { text-align: center; padding: 0.4rem 0 0.9rem; }
+.hero .pct { font-size: 2.6rem; font-weight: 700; line-height: 1.1; display: block; }
+.hero .lbl { font-size: 0.85rem; letter-spacing: 0.04em; text-transform: uppercase; opacity: 0.7; }
+.hero.good .pct { color: #1a7f37; }
+.hero.warn .pct { color: #9a6700; }
+.hero.bad  .pct { color: #cf222e; }
+.hero.none .pct { color: inherit; opacity: 0.45; }
+
+.counts { display: flex; gap: 0.75rem; text-align: center; margin-bottom: 0.9rem; }
+.counts div { flex: 1 1 0; }
+.counts .n { display: block; font-size: 1.25rem; font-weight: 600; }
+.counts .k { font-size: 0.8rem; opacity: 0.7; }
+
+.assigned { font-size: 0.95rem; margin: 0 0 0.6rem; }
+.assigned .none { opacity: 0.6; }
+
+.card select {
+  width: 100%; min-height: 44px; font-size: 1rem; padding: 0 0.6rem;
+  border-radius: 10px; border: 1px solid var(--line, #d0d7de);
+  background: var(--bg, #fff); color: inherit;
+}
+.card .locked { font-size: 0.9rem; opacity: 0.7; margin: 0; }
+.card .blocked {
+  margin: 0.6rem 0 0; padding: 0.5rem 0.7rem; border-radius: 8px;
+  background: #ffebe9; color: #82071e; font-size: 0.85rem;
+}
+
+/* Passcode prompt. */
+.login { max-width: 22rem; margin: 4rem auto; padding: 0 1.25rem; text-align: center; }
+.login h1 { font-size: 1.2rem; margin-bottom: 1rem; }
+.login form { display: flex; flex-direction: column; gap: 0.6rem; }
+.login input, .login button { min-height: 44px; font-size: 1rem; border-radius: 10px; padding: 0 0.7rem; }
+.login input { border: 1px solid var(--line, #d0d7de); background: var(--bg, #fff); color: inherit; }
+.login-error { color: #cf222e; font-size: 0.9rem; }
+
+/* Confirmation sheet: bottom-anchored on a phone, where thumbs are. */
+.sheet { position: fixed; inset: 0; background: rgba(0,0,0,0.45); display: flex; align-items: flex-end; z-index: 10; }
+.sheet-box { width: 100%; background: var(--bg, #fff); border-radius: 16px 16px 0 0; padding: 1.25rem; }
+.sheet-box h2 { margin: 0 0 0.6rem; font-size: 1.1rem; }
+.sheet-box p { margin: 0 0 1.1rem; line-height: 1.45; }
+.sheet-actions { display: flex; gap: 0.75rem; }
+.sheet-actions button { flex: 1 1 0; min-height: 46px; font-size: 1rem; border-radius: 10px; cursor: pointer; }
+.sheet-actions .ghost { background: transparent; border: 1px solid var(--line, #d0d7de); color: inherit; }
+
+@media (min-width: 46rem) {
+  .sheet { align-items: center; justify-content: center; }
+  .sheet-box { max-width: 26rem; border-radius: 16px; }
+  #cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(20rem, 1fr)); gap: 0 0.25rem; }
+}
+
+@media (prefers-color-scheme: dark) {
+  .board, .board-top, .periods, .login input, .card select, .sheet-box { --bg: #0d1117; }
+  .board { background: #0d1117; color: #e6edf3; }
+  .board-top, .periods { background: #0d1117; }
+  .card, .periods button, .login input, .card select, .sheet-actions .ghost { border-color: #30363d; }
+  .sheet-box { background: #161b22; }
+  .stats-banner { background: #341a00; color: #f0b72f; }
+  .card .blocked { background: #3c1618; color: #ff9492; }
+  .hero.good .pct { color: #3fb950; }
+  .hero.warn .pct { color: #d29922; }
+  .hero.bad  .pct { color: #f85149; }
+}

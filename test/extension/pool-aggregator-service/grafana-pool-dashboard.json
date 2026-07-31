@@ -3,7 +3,7 @@
   "title": "Yuruna hosts",
   "tags": ["yuruna", "pool"],
   "schemaVersion": 39,
-  "version": 7,
+  "version": 9,
   "editable": true,
   "refresh": "30s",
   "timezone": "utc",
@@ -13,8 +13,8 @@
       {
         "name": "pool",
         "type": "constant",
-        "query": "default",
-        "current": { "text": "default", "value": "default" },
+        "query": ".+",
+        "current": { "text": ".+", "value": ".+" },
         "hide": 2
       },
       {
@@ -28,24 +28,11 @@
   },
   "panels": [
     {
-      "id": 1,
-      "type": "stat",
-      "title": "Hosts reachable",
-      "description": "Pool hosts that answered their own status service (/runtime/status.json) on the most recent poll. Driven by yuruna_pool_hosts_reachable from the pool-aggregator-service.",
-      "gridPos": { "h": 4, "w": 5, "x": 0, "y": 0 },
-      "datasource": { "type": "prometheus", "uid": "yuruna-prometheus" },
-      "targets": [
-        { "refId": "A", "expr": "sum(yuruna_pool_hosts_reachable) or vector(0)", "instant": true, "datasource": { "type": "prometheus", "uid": "yuruna-prometheus" } }
-      ],
-      "options": { "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "colorMode": "value", "graphMode": "none", "textMode": "value" },
-      "fieldConfig": { "defaults": { "color": { "mode": "fixed", "fixedColor": "green" } }, "overrides": [] }
-    },
-    {
       "id": 2,
       "type": "stat",
       "title": "Hosts total",
       "description": "Distinct pool hosts seen within the aggregator's host TTL (24h by default, -host-ttl), keyed on the stable hostId (reachable or not). Driven by yuruna_pool_hosts_total from the pool-aggregator-service.",
-      "gridPos": { "h": 4, "w": 5, "x": 5, "y": 0 },
+      "gridPos": { "h": 4, "w": 5, "x": 0, "y": 0 },
       "datasource": { "type": "prometheus", "uid": "yuruna-prometheus" },
       "targets": [
         { "refId": "A", "expr": "sum(yuruna_pool_hosts_total) or vector(0)", "instant": true, "datasource": { "type": "prometheus", "uid": "yuruna-prometheus" } }
@@ -54,53 +41,67 @@
       "fieldConfig": { "defaults": {}, "overrides": [] }
     },
     {
-      "id": 3,
+      "id": 19,
       "type": "stat",
-      "title": "Failing now",
-      "description": "Hosts whose current cycle status is 'fail' right now (yuruna_pool_host_status == 3). Green when zero; red when one or more hosts are failing.",
-      "gridPos": { "h": 4, "w": 5, "x": 10, "y": 0 },
-      "datasource": { "type": "prometheus", "uid": "yuruna-prometheus" },
+      "title": "Success%",
+      "description": "Share of terminal cycles across the whole LAB that finished 'pass', within the dashboard's selected time range (top-right): 100 * Pass / (Pass + Fail) over the same Loki transition log the table's Pass and Fail columns are counted from, so this tile and those columns can never disagree. The numerator carries the table's per-host zero baseline, so a pool where every cycle failed reads 0.00% rather than going blank. With NO terminal cycle in range the whole expression is empty and the tile shows 'n/a' -- deliberately not 100%, so an idle or freshly built pool cannot read as healthy. Red below 95%, amber below 100%, green at exactly 100%.",
+      "gridPos": { "h": 4, "w": 5, "x": 5, "y": 0 },
+      "datasource": { "type": "loki", "uid": "yuruna-loki" },
       "targets": [
-        { "refId": "A", "expr": "count(yuruna_pool_host_status{pool=~\"$pool\"} == 3) or vector(0)", "instant": true, "datasource": { "type": "prometheus", "uid": "yuruna-prometheus" } }
+        { "refId": "A", "expr": "100 * ((sum(count_over_time({pool=~\".+\"} | json | overallStatus=\"pass\" [$__range])) or (sum(count_over_time({pool=~\".+\"} | json | overallStatus=~\"pass|fail\" [$__range])) * 0)) / sum(count_over_time({pool=~\".+\"} | json | overallStatus=~\"pass|fail\" [$__range])))", "instant": true, "datasource": { "type": "loki", "uid": "yuruna-loki" } }
       ],
       "options": { "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "colorMode": "background", "graphMode": "none", "textMode": "value" },
-      "fieldConfig": { "defaults": { "thresholds": { "mode": "absolute", "steps": [ { "color": "green", "value": null }, { "color": "red", "value": 1 } ] } }, "overrides": [] }
+      "fieldConfig": { "defaults": { "unit": "percent", "decimals": 2, "min": 0, "max": 100, "noValue": "n/a", "thresholds": { "mode": "absolute", "steps": [ { "color": "red", "value": null }, { "color": "orange", "value": 95 }, { "color": "green", "value": 100 } ] } }, "overrides": [] }
     },
     {
       "id": 4,
       "type": "stat",
       "title": "Failed cycles",
-      "description": "Cycles that finished 'fail' across the whole pool within the dashboard's selected time range (top-right) -- the sum of the table's Fail column. Counted from the Loki transition log (exact; reaches back to Loki retention, unlike a Prometheus counter window). Green when zero; red when any.",
-      "gridPos": { "h": 4, "w": 5, "x": 15, "y": 0 },
+      "description": "Cycles that finished 'fail' across the whole LAB within the dashboard's selected time range (top-right) -- the sum of the table's Fail column. Counted from the Loki transition log (exact; reaches back to Loki retention, unlike a Prometheus counter window). Green when zero; red when any.",
+      "gridPos": { "h": 4, "w": 5, "x": 10, "y": 0 },
       "datasource": { "type": "loki", "uid": "yuruna-loki" },
       "targets": [
-        { "refId": "A", "expr": "sum(count_over_time({pool=~\"$pool\"} | json | overallStatus=\"fail\" [$__range]))", "instant": true, "datasource": { "type": "loki", "uid": "yuruna-loki" } }
+        { "refId": "A", "expr": "sum(count_over_time({pool=~\".+\"} | json | overallStatus=\"fail\" [$__range]))", "instant": true, "datasource": { "type": "loki", "uid": "yuruna-loki" } }
       ],
       "options": { "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "colorMode": "background", "graphMode": "none", "textMode": "value" },
       "fieldConfig": { "defaults": { "decimals": 0, "noValue": "0", "thresholds": { "mode": "absolute", "steps": [ { "color": "green", "value": null }, { "color": "red", "value": 1 } ] } }, "overrides": [] }
     },
     {
-      "id": 5,
+      "id": 20,
       "type": "stat",
-      "title": "Collector",
-      "description": "Health of the pool-aggregator-service itself -- the service on this proxy that polls every host and feeds this whole dashboard. Shows ONE value: 'up' (green) = it is running and reporting; 'down' (red) = it is not reporting, so every other panel here may be stale. Driven by yuruna_pool_collector_up.",
+      "title": "Total cycles",
+      "description": "Terminal cycles across the whole LAB within the dashboard's selected time range (top-right) -- the sum of the table's Pass AND Fail columns, i.e. the denominator behind Success%. Counted from the Loki transition log (exact; reaches back to Loki retention, unlike a Prometheus counter window). Only pass and fail are counted: a cycle still running has no terminal status yet and is not in scope. This dashboard is LAB-WIDE: the pool filter is a match-all, so these numbers cover every pool. Per-pool figures live on the pool-control board, which joins the same counts onto pools.yml members[].",
+      "gridPos": { "h": 4, "w": 5, "x": 15, "y": 0 },
+      "datasource": { "type": "loki", "uid": "yuruna-loki" },
+      "targets": [
+        { "refId": "A", "expr": "sum(count_over_time({pool=~\".+\"} | json | overallStatus=~\"pass|fail\" [$__range]))", "instant": true, "datasource": { "type": "loki", "uid": "yuruna-loki" } }
+      ],
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "colorMode": "none", "graphMode": "none", "textMode": "value" },
+      "fieldConfig": { "defaults": { "decimals": 0, "noValue": "0" }, "overrides": [] }
+    },
+    {
+      "id": 18,
+      "type": "stat",
+      "title": "Lab token",
+      "description": "The lab connection token AND the collector's health, in one tile. Blue = the 6-character code a joining host redeems for the shared lab-auth-token (pwsh test/Set-LabToken.ps1 -LabToken <code>). It rotates every minute (aggregator -lab-token-rotate); a displayed code stays redeemable for about three, so read it right before enrolling. Driven by yuruna_pool_lab_token (the code rides as the 'token' label). Red 'Collector down' = the pool-aggregator-service -- the service on this proxy that polls every host and feeds this whole dashboard -- has stopped reporting: no code can be minted, and every other panel here may be stale. The tile links to the fix. Detected as absent(yuruna_pool_collector_up): the collector exports that gauge as a constant 1, so its disappearance from a scrape IS the outage, and exactly one of the two queries ever returns a series. Grey 'off' = the collector is up but the exchange is disabled: the aggregator holds no lab-auth-token, or rotation is off (-lab-token-rotate 0).",
       "gridPos": { "h": 4, "w": 4, "x": 20, "y": 0 },
       "datasource": { "type": "prometheus", "uid": "yuruna-prometheus" },
       "targets": [
-        { "refId": "A", "expr": "sum(yuruna_pool_collector_up) or vector(0)", "instant": true, "datasource": { "type": "prometheus", "uid": "yuruna-prometheus" } }
+        { "refId": "A", "expr": "yuruna_pool_lab_token{pool=~\".+\"}", "instant": true, "legendFormat": "{{token}}", "datasource": { "type": "prometheus", "uid": "yuruna-prometheus" } },
+        { "refId": "B", "expr": "absent(yuruna_pool_collector_up) * 0", "instant": true, "legendFormat": "Collector down", "datasource": { "type": "prometheus", "uid": "yuruna-prometheus" } }
       ],
-      "options": { "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "colorMode": "background", "graphMode": "none", "textMode": "value" },
-      "fieldConfig": { "defaults": { "mappings": [ { "type": "value", "options": { "0": { "text": "down", "color": "red", "index": 0 }, "1": { "text": "up", "color": "green", "index": 1 } } } ] }, "overrides": [] }
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "colorMode": "background", "graphMode": "none", "textMode": "name" },
+      "fieldConfig": { "defaults": { "color": { "mode": "thresholds" }, "noValue": "off", "thresholds": { "mode": "absolute", "steps": [ { "color": "#6b7280", "value": null }, { "color": "red", "value": 0 }, { "color": "blue", "value": 1 } ] }, "links": [ { "title": "Collector down -- how to fix", "url": "https://yuruna.link/collector-down", "targetBlank": true } ] }, "overrides": [] }
     },
     {
       "id": 17,
       "type": "table",
       "title": "Extension hosts",
       "description": "Hosts running an extension function, learned from each host's registration record (activeExtensions) -- the same opaque Host ID namespace as the Pool hosts table, so a host that both runs cycles and hosts a stash service shows the same Host ID in both. No ystash-nas mount or config service: a host self-reports the service it runs and the aggregator already polls its registration. Driven by yuruna_pool_host_extension. Host ID is plain text here, deliberately: a host can run an extension service without running cycles, and such a host has no status page for the /go/host redirect to resolve -- it would answer 'host not known to the pool'. Open a host from the Pool hosts table instead: its rows are exactly the hosts that have a status page, and that Host ID link carries the short-lived control token. Extension names the function (e.g. Stash service) and links to that service's UI -- the stash-service VM -- via the aggregator's /go/stash redirect (resolved to the host-advertised address server-side). Panel height tracks the extension-host count (yuruna-fit-pool-dashboard.timer) -- gridPos.h below is only the pre-collector default.",
-      "gridPos": { "h": 4, "w": 20, "x": 0, "y": 22 },
+      "gridPos": { "h": 4, "w": 24, "x": 0, "y": 22 },
       "datasource": { "type": "prometheus", "uid": "yuruna-prometheus" },
       "targets": [
-        { "refId": "A", "expr": "yuruna_pool_host_extension{pool=~\"$pool\"}", "instant": true, "format": "table", "datasource": { "type": "prometheus", "uid": "yuruna-prometheus" } }
+        { "refId": "A", "expr": "yuruna_pool_host_extension{pool=~\".+\"}", "instant": true, "format": "table", "datasource": { "type": "prometheus", "uid": "yuruna-prometheus" } }
       ],
       "transformations": [
         {
@@ -138,19 +139,6 @@
       "options": { "showHeader": true, "cellHeight": "sm", "footer": { "show": false }, "sortBy": [ { "displayName": "Host ID", "desc": false } ] }
     },
     {
-      "id": 18,
-      "type": "stat",
-      "title": "Lab token",
-      "description": "Lab connection token: the 6-character code a joining host redeems for the shared lab-auth-token (pwsh test/Set-LabToken.ps1 -LabToken <code>). Rotates every minute (aggregator -lab-token-rotate); a displayed code stays redeemable for about three, so read it right before enrolling. Driven by yuruna_pool_lab_token (the code rides as the 'token' label). 'off' means the exchange is disabled: the aggregator holds no lab-auth-token, or rotation is off.",
-      "gridPos": { "h": 4, "w": 4, "x": 20, "y": 22 },
-      "datasource": { "type": "prometheus", "uid": "yuruna-prometheus" },
-      "targets": [
-        { "refId": "A", "expr": "yuruna_pool_lab_token{pool=~\"$pool\"}", "instant": true, "legendFormat": "{{token}}", "datasource": { "type": "prometheus", "uid": "yuruna-prometheus" } }
-      ],
-      "options": { "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "colorMode": "value", "graphMode": "none", "textMode": "name" },
-      "fieldConfig": { "defaults": { "color": { "mode": "fixed", "fixedColor": "blue" }, "noValue": "off" }, "overrides": [] }
-    },
-    {
       "id": 6,
       "type": "table",
       "title": "Pool hosts",
@@ -158,10 +146,10 @@
       "gridPos": { "h": 9, "w": 24, "x": 0, "y": 13 },
       "datasource": { "type": "datasource", "uid": "-- Mixed --" },
       "targets": [
-        { "refId": "A", "expr": "yuruna_pool_host_info{pool=~\"$pool\"}", "instant": true, "format": "table", "datasource": { "type": "prometheus", "uid": "yuruna-prometheus" } },
-        { "refId": "B", "expr": "time() - yuruna_pool_host_last_seen_seconds{pool=~\"$pool\"}", "instant": true, "format": "table", "datasource": { "type": "prometheus", "uid": "yuruna-prometheus" } },
-        { "refId": "C", "expr": "sum by (pool, hostId) (count_over_time({pool=~\"$pool\"} | json | overallStatus=\"pass\" [$__range])) or (sum by (pool, hostId) (count_over_time({pool=~\"$pool\"} | json | overallStatus=~\"pass|fail\" [$__range])) * 0)", "instant": true, "format": "table", "datasource": { "type": "loki", "uid": "yuruna-loki" } },
-        { "refId": "D", "expr": "sum by (pool, hostId) (count_over_time({pool=~\"$pool\"} | json | overallStatus=\"fail\" [$__range])) or (sum by (pool, hostId) (count_over_time({pool=~\"$pool\"} | json | overallStatus=~\"pass|fail\" [$__range])) * 0)", "instant": true, "format": "table", "datasource": { "type": "loki", "uid": "yuruna-loki" } }
+        { "refId": "A", "expr": "yuruna_pool_host_info{pool=~\".+\"}", "instant": true, "format": "table", "datasource": { "type": "prometheus", "uid": "yuruna-prometheus" } },
+        { "refId": "B", "expr": "time() - yuruna_pool_host_last_seen_seconds{pool=~\".+\"}", "instant": true, "format": "table", "datasource": { "type": "prometheus", "uid": "yuruna-prometheus" } },
+        { "refId": "C", "expr": "sum by (pool, hostId) (count_over_time({pool=~\".+\"} | json | overallStatus=\"pass\" [$__range])) or (sum by (pool, hostId) (count_over_time({pool=~\".+\"} | json | overallStatus=~\"pass|fail\" [$__range])) * 0)", "instant": true, "format": "table", "datasource": { "type": "loki", "uid": "yuruna-loki" } },
+        { "refId": "D", "expr": "sum by (pool, hostId) (count_over_time({pool=~\".+\"} | json | overallStatus=\"fail\" [$__range])) or (sum by (pool, hostId) (count_over_time({pool=~\".+\"} | json | overallStatus=~\"pass|fail\" [$__range])) * 0)", "instant": true, "format": "table", "datasource": { "type": "loki", "uid": "yuruna-loki" } }
       ],
       "transformations": [
         { "id": "merge", "options": {} },

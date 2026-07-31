@@ -474,6 +474,35 @@ network it was derived for — so each driver resolves the two together:
   (Default Switch = the `172.x` NAT gateway; External vSwitch = the
   host's LAN IP).
 
+The same rule governs a **third** address, and it is the one that gets
+missed: the `networkStorage` server (`ypool-nas` / `ystash-nas`). That
+name is resolved on the HOST, so on a host running local lab storage it
+resolves to the loopback address — correct for the host's own mount,
+and meaningless inside a guest, which would dial its own loopback and
+fail with `cifs_mount -111`. It must be derived for the guest's
+network like the other two, not inherited from the host's resolver:
+`Get-YurunaPoolSeedValue` / `Get-YurunaStashSeedValue`
+(`test/modules/Test.PoolStorage.psm1`) substitute the guest-reachable
+host address whenever the resolved one is loopback or link-local, and
+the caching-proxy's `yuruna-config-fetch.sh` does the equivalent in the
+guest for the address the config service hands it at runtime.
+
+On **macos.utm** the mode itself is now resolved once per build by
+`Resolve-UtmNetworkMode` and rendered into the bundle's
+`config.plist` (`__NETWORK_MODE__`), so the plist and the baked
+addresses cannot disagree. Before that, only the caching-proxy plist
+was parameterized: the stash and pool-control plists hardcoded
+`Bridged` while their `New-VM.ps1` still branched on
+`Test-MacUplinkNotBridgeable` — on a Wi-Fi host that produced a VM
+bridged onto an uplink vmnet cannot bridge (no DHCP lease, ever) with
+the VZ gateway baked in as the host address. Both are now Shared on
+Wi-Fi, with `Add-PortMap` publishing them to the LAN through the host.
+Both host ports are remapped, and neither choice is arbitrary: stash
+takes `:2222` because the Mac's own sshd owns `:22`, and pool-control
+takes `:8081` because the caching-proxy already forwards `:80` for its
+CA-cert endpoint — reusing it would publish the cache at the URL the
+pool-control bring-up prints.
+
 ## Registry rate limits disguised as 400
 
 ### Defining registry rate limit 400
@@ -593,6 +622,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.29
+Last review: 2026.07.31
 
 Back to [Yuruna](../README.md)

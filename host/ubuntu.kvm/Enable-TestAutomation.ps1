@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.29
+.VERSION 2026.07.31
 .GUID 42a2b3c4-d5e6-4f78-9012-3a4b5c6d7e93
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -43,7 +43,12 @@
 #>
 
 [CmdletBinding(SupportsShouldProcess)]
-param()
+param(
+    # Settings-only run: skip the interactive networkStorage questionnaire at the
+    # end. install/setup.ps1 configures storage itself, in its own order, and
+    # would otherwise ask the same questions twice.
+    [switch]$SkipPoolStorage
+)
 
 $ErrorActionPreference = "Stop"
 
@@ -134,6 +139,14 @@ function Invoke-Step {
         Write-Output "WhatIf: $Description"
     }
 }
+
+# --- REGION: pre-automation capture
+# BEFORE anything is changed: record what these knobs were, so
+# Disable-TestAutomation can put them back. Written once and never overwritten
+# -- a second Enable must not capture Enable's own values as the operator's.
+Import-Module (Join-Path $RepoRoot 'test/modules/Test.HostAutomationState.psm1') -Force -DisableNameChecking
+$capturePath = Save-HostAutomationState -Platform 'ubuntu.kvm' -WhatIf:$WhatIfPreference
+if ($capturePath) { Write-Output "Captured prior host settings to $capturePath (Disable-TestAutomation restores from it)." }
 
 # --- REGION: host package prerequisites
 # Establish the ONE fact that explains a whole class of downstream symptoms
@@ -448,7 +461,9 @@ foreach ($grp in @('libvirt','kvm')) {
 # loads its own sibling dependencies (config/vault/mount); sudo is primed above so
 # the privileged fingerprint read + mount work without a second prompt. The
 # host fingerprint read is included in the -SudoCacheReason banner above.
-if (-not $WhatIfPreference) {
+if ($SkipPoolStorage) {
+    Write-Output 'Skipping the networkStorage questionnaire (-SkipPoolStorage).'
+} elseif (-not $WhatIfPreference) {
     Import-Module (Join-Path $RepoRoot 'test/modules/Test.HostIdentity.psm1') -Force
     Invoke-PoolStorageSetupAndReclaim -RepoRoot $RepoRoot
 }

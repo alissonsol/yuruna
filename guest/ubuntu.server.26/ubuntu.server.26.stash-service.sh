@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.07.29
+# Version: 2026.07.31
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 #
@@ -206,11 +206,27 @@ sudo install -m 0755 -o root -g root "$BUILD_DIR/stash-service" /usr/local/bin/s
 sudo setcap 'cap_net_bind_service=+ep' /usr/local/bin/stash-service
 
 # §4.2 mandates the custom daemon binds :22, so the OS sshd has to go.
-# `disable --now` is idempotent.
+#
+# MASK, not disable. `disable` only removes the unit's own [Install] symlinks,
+# which leaves it startable by anything that pulls it in by name -- and stock
+# Ubuntu's cloud-init-network.service carries `Wants=sshd.service`. So a
+# disabled sshd comes back on EVERY boot after this one, takes :22 before the
+# daemon is up, and the daemon dies on `bind: address already in use`. It never
+# reaches its :80 listener either, so systemd restart-loops a stash service that
+# answers on no port at all -- while the build that created the VM looked
+# perfect, because there the disable ran after cloud-init had already finished.
+# A masked unit is symlinked to /dev/null and cannot be started by anything.
+#
+# Nothing later needs OpenSSH: the deploy is deliberately the last step of the
+# bring-up, because afterwards :22 speaks the stash SCP/SFTP protocol.
 echo ""
-echo -e "\e[1;36m==== Disabling OS sshd to free port 22 ====\e[0m"
-sudo systemctl disable --now ssh.service 2>/dev/null || true
-sudo systemctl disable --now ssh.socket  2>/dev/null || true
+echo -e "\e[1;36m==== Masking OS sshd to free port 22 ====\e[0m"
+sudo systemctl mask --now ssh.service 2>/dev/null || true
+sudo systemctl mask --now ssh.socket  2>/dev/null || true
+# The alias cloud-init actually names. Masking the target unit normally covers
+# it too, but masking the alias as well costs nothing and does not depend on
+# how the distribution wires the alias.
+sudo systemctl mask --now sshd.service 2>/dev/null || true
 
 # --- REGION: VM-local dirs (metadata index + offline buffer), owned by the user
 echo ""

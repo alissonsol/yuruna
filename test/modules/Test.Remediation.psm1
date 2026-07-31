@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.29
+.VERSION 2026.07.31
 .GUID 42d6f5e4-b3a2-4c91-8076-2e3f4a5b6c92
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -612,6 +612,32 @@ function Register-BuiltinRecoveryHandler {
                 'Inspect the framework + project repo working trees for divergence or local edits',
                 'Verify the git remote credentials / token are still valid',
                 'Reconcile the repo, then re-run the cycle'
+            )
+        }
+    }
+
+    Register-RecoveryHandler -FailureClass 'elevation_required' -Handler {
+        param([hashtable]$c)
+        return @{
+            Recommendation = 'operator_intervention_required'
+            Rationale      = "elevation_required on $($c.Context.vmName): a command needed sudo and no operator was present to supply a password. sudo reads the password from /dev/tty, so this cannot be answered by the runner, by a retry, or from a remote session -- and a host in this state would otherwise stall mid-cycle while the dashboard still showed the last cycle green. Fixing it needs console access, exactly like a network fault does."
+            Actions        = @(
+                'On the console, install the runner drop-in: the failure message carries the exact /etc/sudoers.d/yuruna-runner rule',
+                'Validate it with visudo -cf before relying on it -- an invalid drop-in breaks sudo for every command',
+                'Re-launch test/Invoke-TestRunner.ps1; its startup elevation gate confirms the host before the first cycle'
+            )
+        }
+    }
+
+    Register-RecoveryHandler -FailureClass 'project_access_denied' -Handler {
+        param([hashtable]$c)
+        return @{
+            Recommendation = 'operator_intervention_required'
+            Rationale      = "project_access_denied on $($c.Context.vmName): the pool assigned this host a projectUrl its git credential cannot read (private repo, or a token without access). No retry can succeed -- the credential is host-local and the assignment was made elsewhere -- so this never enters the backoff. Distinct from bootstrap_sync, where the host's OWN project failed to clone: here the fix belongs to whoever assigned the pool's test-set."
+            Actions        = @(
+                "Grant this host's GH_TOKEN read access to the assigned projectUrl",
+                'Or reassign the pool to a test-set whose project every member can read',
+                'The pool-control board flags the pool and lists the blocked hosts'
             )
         }
     }

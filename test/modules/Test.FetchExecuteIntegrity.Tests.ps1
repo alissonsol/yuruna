@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.29
+.VERSION 2026.07.31
 .GUID 424f932a-5ed9-4dec-8a02-8f7c8aa9234b
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -25,9 +25,11 @@
     Two halves of one control:
       * Host side -- Get-FetchExecuteEnvPrefix (Test.SequenceHandler.psm1) must
         prepend EXEC_REQUIRE_SHA256=1 for any fetch-and-execute command, add an
-        EXEC_SHA256 that equals Get-FileHash of the served file, strip a ?query,
+        E_SHA that equals Get-FileHash of the served file, strip a ?query,
         and fail CLOSED (require flag, no digest) for a traversal/absolute/
         missing path so a served-root drift cannot silently run unverified code.
+        The envelope is also typed one key event per character into the guest
+        console, so its length is itself a guarded property.
       * Guest side -- verify_sha256 (automation/fetch-and-execute.sh) must return
         0 on a match, 1 on a mismatch, 0 on an empty digest without the require
         flag (rollout-compat), and 1 on an empty digest WITH the require flag.
@@ -65,15 +67,34 @@ $sampleFull = Join-Path $repoRoot $sample
 $sampleHash = (Get-FileHash -LiteralPath $sampleFull -Algorithm SHA256).Hash.ToLower()
 
 Describe 'Get-FetchExecuteEnvPrefix (host-side digest injection)' {
-    It 'prepends the require flag + an EXEC_SHA256 equal to Get-FileHash, plus the retry digest' {
+    It 'prepends the require flag + an E_SHA equal to Get-FileHash, plus the retry digest' {
         $p = Get-FetchExecuteEnvPrefix -CommandLine "/usr/local/lib/yuruna/fetch-and-execute.sh $sample" -RepoRoot $repoRoot
-        Assert-True ($p -match 'EXEC_REQUIRE_SHA256=1 ')            'require flag present'
-        Assert-True ($p -match "EXEC_SHA256=$sampleHash ")          'digest equals Get-FileHash'
-        Assert-True ($p -match 'EXEC_RETRY_SHA256=[0-9a-f]{64} ')   'retry-lib digest present'
+        Assert-True ($p -match 'EXEC_REQUIRE_SHA256=1 ')       'require flag present'
+        Assert-True ($p -match "E_SHA=$sampleHash ")           'digest equals Get-FileHash'
+        Assert-True ($p -match 'E_RETRY_SHA=[0-9a-f]{64} ')    'retry-lib digest present'
     }
     It 'strips a ?query before hashing' {
         $p = Get-FetchExecuteEnvPrefix -CommandLine "fetch-and-execute.sh $sample`?nocache=9" -RepoRoot $repoRoot
-        Assert-True ($p -match "EXEC_SHA256=$sampleHash ") 'query stripped, digest still correct'
+        Assert-True ($p -match "E_SHA=$sampleHash ") 'query stripped, digest still correct'
+    }
+
+    # The value-carrying names were shortened to buy console keystrokes, but
+    # EXEC_REQUIRE_SHA256 was deliberately left long: it is the only token a
+    # guest imaged BEFORE the rename still recognizes. Seeing it with no digest
+    # it understands, such a guest refuses; shorten it and the same guest would
+    # instead run the fetched bytes unverified. This test is the tripwire.
+    It 'keeps EXEC_REQUIRE_SHA256 unshortened so a pre-rename guest fails closed' {
+        $p = Get-FetchExecuteEnvPrefix -CommandLine "fetch-and-execute.sh $sample" -RepoRoot $repoRoot -WarningAction SilentlyContinue
+        Assert-True ($p.StartsWith('EXEC_REQUIRE_SHA256=1 ')) 'the legacy require flag leads the envelope'
+    }
+
+    # The envelope is TYPED into the guest console one key event per character
+    # and shares a ~400-character budget with the step's own command (see
+    # $script:FetchExecuteTypedCharWarn). Growing it silently eats the headroom
+    # every sequence author is spending, so the ceiling is asserted here.
+    It 'stays inside its share of the typed-character budget' {
+        $p = Get-FetchExecuteEnvPrefix -CommandLine "fetch-and-execute.sh $sample" -RepoRoot $repoRoot -WarningAction SilentlyContinue
+        Assert-True ($p.Length -le 240) "envelope is $($p.Length) characters; budget is 240"
     }
     It 'fails closed (require, no digest) for a traversal path' {
         $p = Get-FetchExecuteEnvPrefix -CommandLine 'fetch-and-execute.sh ../../etc/passwd' -RepoRoot $repoRoot -WarningAction SilentlyContinue
@@ -101,10 +122,13 @@ Describe 'Get-FetchExecuteEnvPrefix (host-side digest injection)' {
     It 'pins the fallback to this repo at an exact commit (never a branch)' {
         $p = Get-FetchExecuteEnvPrefix -CommandLine "fetch-and-execute.sh $sample" -RepoRoot $repoRoot -WarningAction SilentlyContinue
         $expectedRepo = (Get-YurunaGitHubSource -RepoRoot $repoRoot).Repo
-        $expectedRef  = (& git -C $repoRoot rev-parse HEAD).Trim()
-        Assert-True ($p -match "EXEC_FALLBACK_REPO=$([regex]::Escape($expectedRepo)) ") 'fallback names this repository'
-        Assert-True ($p -match "EXEC_FALLBACK_REF=$expectedRef ")                       'fallback pins HEAD, not a branch'
-        Assert-True ($p -notmatch 'refs/heads|/main/|/master/')                         'no moving-branch ref'
+        # Abbreviated to 12 hex characters to save keystrokes; still a commit,
+        # which is the property that matters -- a branch would move off the
+        # bytes the digest above was taken from.
+        $expectedRef  = (& git -C $repoRoot rev-parse HEAD).Trim().Substring(0, 12)
+        Assert-True ($p -match "E_FB_REPO=$([regex]::Escape($expectedRepo)) ") 'fallback names this repository'
+        Assert-True ($p -match "E_FB_REF=$expectedRef ")                       'fallback pins HEAD, not a branch'
+        Assert-True ($p -notmatch 'refs/heads|/main/|/master/')                'no moving-branch ref'
     }
 
     # The typed command line is rendered on the VM console, which the host
@@ -163,5 +187,46 @@ echo "$m $x $e $r"
         # is captured.
         $out = ($script | & $bash.Source 2>$null | Select-Object -Last 1 | Out-String).Trim()
         Assert-Equal -Actual $out -Expected '0 1 0 1' -Because "verify_sha256 rc[match mismatch empty require]=$out"
+    }
+}
+
+Describe 'envelope name compatibility (guest side)' {
+    # The host types the short names, but a guest built from THIS commit can
+    # still meet an older host that types EXEC_*, and a hand-run guest has only
+    # the host.env values. All three levels must resolve, newest first, or the
+    # pairing breaks on a name mismatch rather than on anything real. (The
+    # opposite direction -- an old guest under a new host -- is what the
+    # unshortened EXEC_REQUIRE_SHA256 above keeps fail-closed.)
+    It 'resolves E_FB_REPO/REF first, then EXEC_FALLBACK_*, then host.env' {
+        $bash = Get-Command bash -ErrorAction SilentlyContinue
+        if (-not $bash) { Assert-True $true 'bash unavailable -- skipping shell check'; return }
+        # resolve_fetch_source sources /etc/yuruna/host.env when present, which
+        # would supply its own YURUNA_GITHUB_* and mask the third level. That
+        # file is a guest artifact; a machine that has one is not a test host.
+        if (Test-Path -LiteralPath '/etc/yuruna/host.env') { Assert-True $true 'guest-shaped machine -- skipping'; return }
+        $fae = Get-Content -Raw -LiteralPath $faePath
+        $fn  = [regex]::Match($fae, '(?ms)^resolve_fetch_source\(\)\s*\{.*?^\}')
+        Assert-True $fn.Success 'resolve_fetch_source found in fetch-and-execute.sh'
+        $driver = @'
+
+E_FB_REPO=short/repo; EXEC_FALLBACK_REPO=legacy/repo; YURUNA_GITHUB_REPO=baked/repo
+E_FB_REF=aaa;         EXEC_FALLBACK_REF=bbb;          YURUNA_GITHUB_REF=ccc
+resolve_fetch_source; printf '%s:%s ' "$GH_REPO" "$GH_REF"
+unset E_FB_REPO E_FB_REF
+resolve_fetch_source; printf '%s:%s ' "$GH_REPO" "$GH_REF"
+unset EXEC_FALLBACK_REPO EXEC_FALLBACK_REF
+resolve_fetch_source; printf '%s:%s\n' "$GH_REPO" "$GH_REF"
+'@
+        $script = $fn.Value + "`n" + $driver
+        $out = ($script | & $bash.Source 2>$null | Select-Object -Last 1 | Out-String).Trim()
+        Assert-Equal -Actual $out -Expected 'short/repo:aaa legacy/repo:bbb baked/repo:ccc' -Because "fallback name precedence, got '$out'"
+    }
+
+    # The two digests are read at file scope, not inside an extractable
+    # function, so these are asserted against the source.
+    It 'reads both digest spellings, short name first' {
+        $fae = Get-Content -Raw -LiteralPath $faePath
+        Assert-True ($fae -match '\$\{E_SHA:-\$\{EXEC_SHA256:-\}\}')             'payload digest accepts both spellings'
+        Assert-True ($fae -match '\$\{E_RETRY_SHA:-\$\{EXEC_RETRY_SHA256:-\}\}') 'retry-lib digest accepts both spellings'
     }
 }

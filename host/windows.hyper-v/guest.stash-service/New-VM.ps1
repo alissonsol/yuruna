@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.29
+.VERSION 2026.07.31
 .GUID 42f1b2c3-d4e5-4f67-8901-a2b3c4d5e680
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -176,9 +176,16 @@ if (Test-Path -LiteralPath $YurunaTestConfig) {
     try { $tc = Read-TestConfig -Path $YurunaTestConfig } catch { Write-Verbose "test.config.yml read: $($_.Exception.Message)" }
     if ($tc -and $tc.statusService -and $tc.statusService.port) { $YurunaHostPort = "$($tc.statusService.port)" }
 }
-$ystashNas = Get-YurunaStashSeedValue -Config $tc
+$ystashNas = Get-YurunaStashSeedValue -Config $tc -GuestReachableAddress $YurunaHostIp
 # Pool-aggregator service base URL for the guest's presence beacon + remote-host
 # resolution; '' (no caching-proxy service known) leaves those features off in-guest.
+# Wait for the aggregator BEFORE resolving: whatever is resolved here is baked
+# into the seed once and never re-resolved in-guest, so an empty value taken
+# while the aggregator is still compiling leaves the beacon permanently off --
+# the service serves correctly and simply never appears on the dashboard.
+# Returns $false (rather than throwing) when there is no proxy to wait for or
+# the budget expires; the seed then carries '' exactly as it did before.
+$null = Wait-YurunaAggregatorReady
 $aggregatorSeedUrl = Get-PoolAggregatorServiceSeedUrl
 
 # Render user-data from the shared base + Hyper-V overlay (host/vmconfig/
@@ -310,7 +317,7 @@ Accessing the VM for debugging:
     exit 1
 }
 
-# Single-candidate pick: dock has no listening port to validate against
+# Single-candidate pick: the stash service has no listening port to validate against
 # in v1, so the first non-loopback candidate IP is authoritative. When
 # ARP returned multiple candidates, the operator can verify reachability
 # with `ssh stash-admin@<ip>` -- the harness key is already authorized.

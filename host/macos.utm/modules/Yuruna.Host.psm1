@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.29
+.VERSION 2026.07.31
 .GUID 42a2b3c4-d5e6-4f78-9012-3a4b5c6d7e91
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -1021,11 +1021,13 @@ function Test-UtmctlResponsive {
     On macOS 26, every vmnet-shared VM observed instead shares ONE bridge
     (bridge100 / 192.168.64.1) and all guests route to each other directly
     -- so the split does not occur there. The guard stays for older hosts
-    where it still can, but two VM names never trip the refusal:
-      * the caching-proxy-service VM ('yuruna-caching-proxy-service') -- infrastructure
-        meant to run alongside cycles. Test guests consume its squid and,
-        on the shared bridge, reach it directly at its 192.168.64.x IP, so
-        a running cache is a dependency, not an offender.
+    where it still can, but these names never trip the refusal:
+      * the service VMs (Get-YurunaServiceVmName) -- infrastructure meant to run
+        alongside cycles, and consumed BY them. Test guests take squid from the
+        caching proxy and, on the shared bridge, reach it directly at its
+        192.168.64.x IP; the build uploads to the stash service; the intent store
+        is served by pool-control. A running service is a dependency, not an
+        offender, and refusing over one blocks the cycle on something it needs.
       * $ExceptVmName -- the dev-loop case where Invoke-TestSequence is re-invoked
         against a VM the operator left running for inspection.
 
@@ -1049,9 +1051,12 @@ function Assert-NoConcurrentUtmVm {
         Write-Warning "Assert-NoConcurrentUtmVm: utmctl is not responding (UTM.app likely unresponsive under host memory pressure); cannot verify no other VM is running -- proceeding WITHOUT the single-VM guarantee for this cycle."
         return $true
     }
-    # The caching-proxy-service VM is infrastructure designed to coexist with test
-    # cycles; never let it count as a concurrent offender (see .DESCRIPTION).
-    $alwaysAllow = @('yuruna-caching-proxy-service')
+    # The service VMs are infrastructure designed to coexist with test cycles;
+    # never let one count as a concurrent offender (see .DESCRIPTION). Shared with
+    # Stop-ConcurrentVM's exemption list, because a name exempt from one guard and
+    # not the other is worse than being absent from both: the first guard stops
+    # the service, and the second still refuses the cycle over it.
+    $alwaysAllow = @(Get-YurunaServiceVmName)
     $running = @(Get-RunningVmName | Where-Object { $alwaysAllow -notcontains $_ })
     if ($ExceptVmName) {
         $running = @($running | Where-Object { $_ -ne $ExceptVmName })
@@ -1069,7 +1074,7 @@ function Assert-NoConcurrentUtmVm {
     Write-Warning " before re-running this cycle:"
     foreach ($vm in $running) { Write-Warning "   utmctl stop '$vm'" }
     Write-Warning ""
-    Write-Warning " (The 'yuruna-caching-proxy-service' cache VM is always allowed to coexist.)"
+    Write-Warning " (The service VMs -- $($alwaysAllow -join ', ') -- are always allowed to coexist.)"
     if ($ExceptVmName) {
         Write-Warning " (Also excluding the cycle's target VM '$ExceptVmName'.)"
     }
@@ -1369,6 +1374,34 @@ function Get-VncDisplayFromBundle {
         Write-Debug "Get-VncDisplayFromBundle: could not read $configPath`: $($_.Exception.Message)"
     }
     return -1
+}
+
+<#
+.SYNOPSIS
+    Return the network mode recorded in a VM bundle's config.plist
+    ('Bridged' / 'Shared'), or '' when the bundle or the key is absent.
+.DESCRIPTION
+    The mode is fixed when the bundle is BUILT, and the guest's seed carries
+    addresses derived for it, so what the bundle says -- not what this host's
+    uplink would choose today -- is what the running VM is actually on. A
+    caller compares the two to detect a host that has moved between Wi-Fi and
+    Ethernet since the VM was created, and decides whether to forward host
+    ports (Shared) or expect a LAN address (Bridged).
+#>
+function Get-UtmNetworkModeFromBundle {
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([Parameter(Mandatory)][string]$VMName)
+    $configPath = "$HOME/yuruna/guest.nosync/$VMName.utm/config.plist"
+    if (-not (Test-Path -LiteralPath $configPath)) { return '' }
+    try {
+        $json = & plutil -convert json -o - $configPath 2>$null | ConvertFrom-Json
+        $mode = "$(@($json.Network)[0].Mode)".Trim()
+        if ($mode) { return $mode }
+    } catch {
+        Write-Debug "Get-UtmNetworkModeFromBundle: could not read $configPath`: $($_.Exception.Message)"
+    }
+    return ''
 }
 
 <#
@@ -2063,6 +2096,85 @@ function Get-VMState {
 
 <#
 .SYNOPSIS
+    Bring the named service VMs back to `started` after UTM.app has been
+    quit and relaunched. Returns the names that did NOT come back.
+
+.DESCRIPTION
+    UTM saves the state of every running VM on its way out, so a VM that
+    was `started` before UTM was quit is `suspended` when UTM returns --
+    and it stays that way, because nothing resumes it automatically. For
+    the service VMs that is not a cosmetic difference: guests take their
+    packages through the caching proxy, the build uploads to the stash
+    service, and the intent store is served by pool-control, so every one
+    of those consumers fails for as long as the service sits suspended.
+
+    `utmctl start` is also the resume verb -- on a suspended VM it
+    restores the saved state instead of cold-booting -- so a caller can
+    restore the pre-quit set without having to know whether UTM chose to
+    suspend or to fully stop each one.
+
+    Best-effort by design. A caller reaches this only after its own work
+    is done, and a service that refuses to come back is something for the
+    operator to see, not a reason to report that work as failed.
+
+.PARAMETER VMName
+    Names captured (while UTM was still up) as `started`. Empty is fine.
+
+.PARAMETER TimeoutSeconds
+    Per-VM budget for re-registration and, separately, for the resume to
+    reach `started`.
+
+.OUTPUTS
+    [string[]] the names that did not return to `started`; empty on full
+    success. Callers must normalize with `@(...)`.
+#>
+function Resume-YurunaServiceVM {
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([string[]])]
+    param(
+        [string[]]$VMName,
+        [int]$TimeoutSeconds = 90
+    )
+    $names = @($VMName | Where-Object { $_ })
+    if ($names.Count -eq 0) { return }
+    $failed = New-Object System.Collections.Generic.List[string]
+    foreach ($name in $names) {
+        if (-not $PSCmdlet.ShouldProcess($name, 'Resume service VM after UTM relaunch')) { continue }
+        # UTM ingests its library asynchronously after launch, and utmctl
+        # cannot address a VM until that finishes -- an immediate start
+        # would be answered with "not found" and silently dropped.
+        $registerDeadline = (Get-Date).AddSeconds($TimeoutSeconds)
+        $state = 'absent'
+        while ((Get-Date) -lt $registerDeadline) {
+            $state = Get-VMState -VMName $name
+            if ($state -ne 'absent') { break }
+            Start-Sleep -Milliseconds 500
+        }
+        if ($state -eq 'absent') {
+            Write-Warning "Resume-YurunaServiceVM: '$name' did not re-register with UTM within $TimeoutSeconds s; resume it by hand (utmctl start '$name')."
+            [void]$failed.Add($name)
+            continue
+        }
+        if ($state -eq 'running') { continue }
+        & utmctl start $name 2>&1 | Out-Null
+        $resumeDeadline = (Get-Date).AddSeconds($TimeoutSeconds)
+        $resumed = $false
+        while ((Get-Date) -lt $resumeDeadline) {
+            Start-Sleep -Seconds 1
+            if ((Get-VMState -VMName $name) -eq 'running') { $resumed = $true; break }
+        }
+        if ($resumed) {
+            Write-Verbose "Resume-YurunaServiceVM: '$name' is running again."
+        } else {
+            Write-Warning "Resume-YurunaServiceVM: '$name' did not return to 'started' within $TimeoutSeconds s; every guest that consumes it will fail until it is resumed by hand (utmctl start '$name')."
+            [void]$failed.Add($name)
+        }
+    }
+    return $failed.ToArray()
+}
+
+<#
+.SYNOPSIS
     Rename a stopped UTM VM by editing its .utm bundle and UTM's Registry
     plist while UTM.app is quit.
 .DESCRIPTION
@@ -2084,6 +2196,14 @@ function Get-VMState {
          `~/Library/Containers/com.utmapp.UTM/Data/Library/Preferences/com.utmapp.UTM.plist`.
       5. killall cfprefsd so UTM re-reads our edited plist on relaunch.
       6. `open -a UTM` and poll utmctl until the new name surfaces.
+      7. Resume the service VMs that step 1 took down (see below).
+
+    Step 1 is not free for the rest of the host. UTM saves the state of
+    every VM still running as it terminates, so any service VM that was up
+    -- the caching proxy, the stash service, pool-control -- returns as
+    `suspended` and stays there. Guests consume those services for the
+    whole cycle, so the running set is captured before the quit and
+    resumed after the relaunch, on every path out of this function.
 
     The Package.Bookmark blob is left untouched: macOS file bookmarks
     resolve via catalog inode + volume UUID, so a directory rename within
@@ -2145,6 +2265,14 @@ function Rename-VM {
         return $false
     }
 
+    # Quitting UTM is collateral damage for every OTHER VM that happens to
+    # be running: UTM saves their state on the way out and they come back
+    # suspended, not started. The service VMs are the ones that matter --
+    # a cycle consumes them from beginning to end -- so record which are up
+    # now, while UTM can still be asked, and resume them on every path out
+    # of here.
+    $serviceVmToResume = @(@(Get-RunningVmName) | Where-Object { (Get-YurunaServiceVmName) -contains $_ })
+
     # Quit UTM so cfprefsd flushes the Registry to disk before our edits.
     & osascript -e 'tell application "UTM" to quit' 2>&1 | Out-Null
     $deadline = (Get-Date).AddSeconds(30)
@@ -2167,6 +2295,7 @@ function Rename-VM {
     } catch {
         Write-Warning "Rename-VM: bundle rename '$srcBundle' -> '$dstBundle' failed: $($_.Exception.Message)."
         & open -a UTM 2>$null | Out-Null
+        [void](Resume-YurunaServiceVM -VMName $serviceVmToResume -Confirm:$false)
         return $false
     }
 
@@ -2177,6 +2306,7 @@ function Rename-VM {
         try { Rename-Item -LiteralPath $dstBundle -NewName "$VMName.utm" -ErrorAction Stop }
         catch { Write-Debug "Rename-VM revert: bundle rename back failed: $_" }
         & open -a UTM 2>$null | Out-Null
+        [void](Resume-YurunaServiceVM -VMName $serviceVmToResume -Confirm:$false)
         return $false
     }
 
@@ -2193,6 +2323,7 @@ function Rename-VM {
         catch { Write-Debug "Rename-VM revert: bundle rename back failed: $_" }
         & killall cfprefsd 2>$null | Out-Null
         & open -a UTM 2>$null | Out-Null
+        [void](Resume-YurunaServiceVM -VMName $serviceVmToResume -Confirm:$false)
         return $false
     }
 
@@ -2224,10 +2355,16 @@ function Rename-VM {
     & open -a UTM 2>$null | Out-Null
 
     $deadline = (Get-Date).AddSeconds(30)
+    $surfaced = $false
     while ((Get-Date) -lt $deadline) {
-        if ((Get-VMState -VMName $NewName) -ne 'absent') { return $true }
+        if ((Get-VMState -VMName $NewName) -ne 'absent') { $surfaced = $true; break }
         Start-Sleep -Milliseconds 500
     }
+    # Resume regardless of whether the rename surfaced: the services were
+    # taken down by the quit above either way, and leaving them suspended
+    # to report a rename failure would trade one broken thing for several.
+    [void](Resume-YurunaServiceVM -VMName $serviceVmToResume -Confirm:$false)
+    if ($surfaced) { return $true }
     Write-Warning "Rename-VM: UTM relaunch did not surface '$NewName' within timeout."
     return $false
 }
@@ -3048,31 +3185,130 @@ function Get-BestHostIp {
 
 <#
 .SYNOPSIS
-    Returns the host IP a UTM Apple Virtualization guest reaches the host at.
+    Hands artifacts written by a root-run build back to the operator who
+    invoked sudo. Returns $true when ownership was restored. No-op off macOS,
+    when not running as root, or when sudo did not name an invoking user.
 
 .DESCRIPTION
-    On Apple Virtualization shared NAT (the default UTM networking mode for
-    this repo), guests always reach the host at 192.168.64.1 -- that is the
-    VZ gateway IP set by the framework, not configurable per VM.
+    A UTM bundle created under sudo is root-owned, and UTM.app runs as the
+    operator -- it cannot open, start, or later delete such a bundle. The
+    parents matter as much as the bundle: removing a directory needs write
+    permission on the directory ABOVE it, and ~/yuruna/guest.nosync is shared by
+    every macOS builder, so one root-run build blocks every later rebuild.
+    Restoring the whole tree is therefore the fix; restoring the bundle alone
+    repairs this run and breaks the next.
 
-    Bridged networking (not the repo default) would route guests via the
-    host's LAN IP instead. If/when that mode is added, this helper needs a
-    mode-detection branch.
+    This is a GUARD, not a licence to run these scripts under sudo: root has no
+    Aqua session, so `open`, `utmctl` and the osascript dialog watchdog fail
+    before ownership is ever reached. The supported invocation is unelevated --
+    the scripts request sudo per operation.
+#>
+function Restore-SudoUserOwnership {
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([bool])]
+    param([Parameter(Mandatory)][string[]]$Path)
+    if (-not $IsMacOS) { return $false }
+    $sudoUser = "$env:SUDO_USER".Trim()
+    if (-not $sudoUser -or $sudoUser -eq 'root') { return $false }
+    $isRoot = $false
+    try { $isRoot = ((& '/usr/bin/id' -u) -eq '0') } catch { Write-Verbose "id -u check failed: $($_.Exception.Message)" }
+    if (-not $isRoot) { return $false }
+
+    # Plain `sudo` (without -E) resets HOME to /var/root, so a build launched
+    # that way put every artifact in root's home, where chown cannot help --
+    # the operator cannot traverse into it. Say so instead of silently
+    # "succeeding" on a tree they will never see.
+    $sudoUserHome = "$(& '/usr/bin/dscl' . -read "/Users/$sudoUser" NFSHomeDirectory 2>$null)" -replace '^NFSHomeDirectory:\s*', ''
+    $sudoUserHome = $sudoUserHome.Trim()
+    if ($sudoUserHome -and $HOME -and -not $HOME.StartsWith($sudoUserHome)) {
+        Write-Warning "This build ran as root with HOME=$HOME, so its artifacts are in root's home, not $sudoUserHome. UTM (running as $sudoUser) cannot reach them. Re-run WITHOUT sudo -- these scripts elevate the individual operations that need it."
+    }
+
+    $restored = $false
+    foreach ($p in $Path) {
+        if (-not $p -or -not (Test-Path -LiteralPath $p)) { continue }
+        if (-not $PSCmdlet.ShouldProcess($p, "Restore ownership to '$sudoUser'")) { continue }
+        & /usr/sbin/chown -R "$sudoUser" $p 2>$null
+        if ($LASTEXITCODE -eq 0) { $restored = $true }
+        else { Write-Warning "Could not restore ownership of '$p' to '$sudoUser'; run: sudo chown -R $sudoUser '$p'" }
+    }
+    if ($restored) { Write-Information -MessageData "  Restored ownership of the build artifacts to '$sudoUser' (they were created as root)." -InformationAction Continue }
+    return $restored
+}
+
+<#
+.SYNOPSIS
+    Returns the network mode a UTM service VM must be built with on this host:
+    'Bridged' on an Ethernet default route, 'Shared' on a Wi-Fi one.
+
+.DESCRIPTION
+    The mode and the address a guest reaches the host at are a matched pair --
+    the address only works from the network it was derived for -- so both are
+    resolved from this one verdict. Bridged is preferred: the VM takes a LAN
+    DHCP lease and peers reach its services at <vm-lan-ip> directly. vmnet
+    cannot bridge a Wi-Fi uplink (the AP drops frames from the VM's
+    locally-administered MAC), so a Wi-Fi default route falls back to UTM
+    Shared NAT and the caller forwards host ports for LAN reach.
+
+    USB Ethernet bridges fine here (it is plain wired Ethernet to vmnet),
+    unlike Hyper-V -- so a dongle turns a Wi-Fi laptop into the Bridged case.
+
+.OUTPUTS
+    [string] 'Bridged' or 'Shared'.
+#>
+function Resolve-UtmNetworkMode {
+    [CmdletBinding()]
+    [OutputType([string])]
+    param()
+    if (Test-MacUplinkNotBridgeable) { return 'Shared' }
+    return 'Bridged'
+}
+
+<#
+.SYNOPSIS
+    Returns the host IP a UTM guest reaches the host at, for the network mode
+    that guest is attached to.
+
+.DESCRIPTION
+    On Apple Virtualization shared NAT -- the mode every install guest uses,
+    and the default here -- guests always reach the host at 192.168.64.1, the
+    VZ gateway IP set by the framework and not configurable per VM.
+
+    A Bridged guest sits on the LAN instead and cannot reach that gateway at
+    all, so it reaches the host at the host's own LAN address. Callers that
+    build Bridged VMs (the service VMs, via Resolve-UtmNetworkMode) must pass
+    -NetworkMode Bridged or they bake an address the guest cannot route to.
+    Returns $null when Bridged is asked for and the host has no LAN address:
+    there is no correct answer to fall back to, and an empty value makes the
+    caller degrade honestly rather than bake the wrong gateway.
 
 .PARAMETER SwitchName
     Accepted for cross-host contract parity (Hyper-V uses it to choose
     Default Switch vs. External vSwitch); unused on macOS.
 
+.PARAMETER NetworkMode
+    The mode the consuming guest is attached to. Defaults to 'Shared', which
+    is what every caller that does not build a Bridged VM wants.
+
 .OUTPUTS
-    [string] '192.168.64.1' -- the VZ gateway address.
+    [string] the VZ gateway address, the host's LAN IPv4, or $null.
 #>
 function Get-GuestReachableHostIp {
     [CmdletBinding()]
     [OutputType([string])]
-    param([string]$SwitchName)
+    param(
+        [string]$SwitchName,
+        [ValidateSet('Shared', 'Bridged')][string]$NetworkMode = 'Shared'
+    )
     # macOS has no Default Switch / External vSwitch concepts; SwitchName
-    # is accepted for cross-host parity and the answer is the VZ gateway.
-    if ($SwitchName) { Write-Debug "Get-GuestReachableHostIp on host.macos.utm: -SwitchName '$SwitchName' ignored; VMnet shared gateway is implied." }
+    # is accepted for cross-host parity and the mode decides the answer.
+    if ($SwitchName) { Write-Debug "Get-GuestReachableHostIp on host.macos.utm: -SwitchName '$SwitchName' ignored; the network mode selects the address." }
+    if ($NetworkMode -eq 'Bridged') {
+        $lanIp = Get-BestHostIp
+        if ($lanIp) { return $lanIp }
+        Write-Warning "Get-GuestReachableHostIp: -NetworkMode Bridged but this host has no default-route IPv4; a bridged guest has no address to reach it at."
+        return $null
+    }
     return '192.168.64.1'
 }
 
@@ -3318,7 +3554,7 @@ Export-ModuleMember -Function `
     Wait-VMIp, Get-VMIp, Get-VMMac, Resolve-UtmGuestIpByMac, `
     Get-ExternalNetwork, New-ExternalNetwork, Test-CacheVMOnExternalNetwork, `
     Add-PortMap, Remove-PortMap, Get-BestHostIp, Get-GuestReachableHostIp, `
-    Test-CachingProxyServiceAvailable, Get-CachingProxyServiceVmIp, Get-HostLanPrefix, Test-MacUplinkNotBridgeable, `
+    Test-CachingProxyServiceAvailable, Get-CachingProxyServiceVmIp, Get-HostLanPrefix, Test-MacUplinkNotBridgeable, Resolve-UtmNetworkMode, `
     Set-HostProxy, Clear-HostProxy, Remove-HostProxy, Get-HostProxyBackupPath, Assert-Virtualization, `
     `
     Remove-UtmBundleWithRetry, Invoke-EntitledSwift, `
@@ -3327,10 +3563,11 @@ Export-ModuleMember -Function `
     Save-CachedHttpUri, `
     Stop-UtmDialogWatchdog, Start-UtmDialogWatchdog, `
     Confirm-UtmVMCreated, Remove-UtmTestVM, Start-UtmVM, Stop-UtmVM, Confirm-UtmVMStarted, Wait-UtmVMPoweredOff, Restart-UtmConsole, `
-    Get-RunningVmName, Test-UtmctlResponsive, Assert-NoConcurrentUtmVm, `
+    Get-RunningVmName, Test-UtmctlResponsive, Assert-NoConcurrentUtmVm, Resume-YurunaServiceVM, `
     Get-MacProxyMarkerPath, Test-MacProxyIsYurunaManaged, Get-MacActiveNetworkService, Read-MacProxyState, `
     Invoke-MacElevationIfNeeded, Invoke-MacNetworksetup, `
     Set-MacHostProxy, Restore-MacHostProxy, Disable-MacHostProxy, Remove-MacHostProxy, `
+    Get-UtmNetworkModeFromBundle, Restore-SudoUserOwnership, `
     Get-VncDisplayForVm, Get-VncPortForVm, Get-VncDisplayFromBundle, Set-VncDisplayInBundle, Test-VncPortFree, Find-FreeVncDisplay, Get-ClaimedVncDisplay, Get-VncScreenshot, Get-UtmScreenshot, Get-UtmWindowScreenshot
 
 # Contract-coverage assertion: warns at load time if the export block

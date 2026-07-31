@@ -1153,18 +1153,21 @@ firewall rule. Without elevation the portproxy/firewall calls are
 skipped with a warning and the cache stays reachable only from guests
 on the Default Switch.
 
-**macOS UTM** (sudo required to bind `:80`):
+**macOS UTM** — run it **unelevated**:
 
 ```
 cd ~/git/yuruna/test
-sudo -E pwsh ./Start-CachingProxyServiceVM.ps1
+pwsh ./Start-CachingProxyServiceVM.ps1
 ```
 
-`sudo -E` preserves `$HOME` so state files land in
-`~/yuruna/image/caching-proxy-service/`, not `/var/root/...`. Without sudo the script
-still runs — `:3128`, `:3129`, `:3000` forwarders launch unprivileged,
-but `:80` is skipped with a warning and the remote CA-cert download is
-unavailable.
+Binding `:80` needs root, and the script asks for it itself (one
+`sudo` prompt, scoped to that forwarder). Do **not** run the whole
+script under `sudo`: root has no GUI login session, so registering the
+bundle with UTM, `utmctl`, and the dialog watchdog all fail, and every
+artifact lands root-owned where UTM cannot open it. Declining the
+prompt is fine — `:3128`, `:3129` and `:3000` still launch
+unprivileged; only `:80` is skipped, with a warning, and the remote
+CA-cert download is then unavailable.
 
 Remote clients point at `http://<host-lan-ip>:3128` (apt) or
 `http://<host-lan-ip>/yuruna-squid-ca.crt` (CA).
@@ -1580,6 +1583,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.29
+Last review: 2026.07.31
 
 Back to [Yuruna](../README.md)

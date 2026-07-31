@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.29
+.VERSION 2026.07.31
 .GUID 42c1f7a4-8e05-49bd-9d36-3f7ab2c48e91
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -46,28 +46,34 @@
     the same code as a lab with a NAS -- and moving to real hardware later
     changes the alias and nothing else.
 
-    Steps, in order:
+    The storage root is resolved first (prompted, with the platform's convention
+    offered as the default: /srv/yuruna on Ubuntu, /Users/Shared/yuruna on macOS,
+    <drive>\Shares\yuruna on Windows -- the first fixed drive that is not the
+    system drive). The eight numbered steps then run in this order:
 
-      1. Storage root. Prompted, with the platform's convention offered as the
-         default: /srv/yuruna (Ubuntu), /Users/Shared/yuruna (macOS), or
-         <drive>\Shares\yuruna (Windows, on the first fixed drive that is not
-         the system drive).
-      2. Folders, lab vault, and pool-intent repository, by calling New-Lab.ps1.
+      1. Folders, lab vault, and pool-intent repository, by calling New-Lab.ps1.
          The two share passwords are the ones it generates; a lab that already
          exists keeps the passwords it has, so a re-run does not rotate the
          credentials the lab's other machines are using.
+      2. SMB server. Started (Windows), enabled (macOS File Sharing), or
+         installed and configured (Ubuntu: samba + cifs-utils). Before the
+         accounts so step 4 can publish and probe in the same run.
       3. Storage accounts. One local account per tier, each scoped to its own
          share: not an administrator, no interactive shell, and on Ubuntu the
          OS password stays locked (the SMB credential lives in Samba's passdb).
-      4. SMB server. Started (Windows), enabled (macOS File Sharing), or
-         installed and configured (Ubuntu: samba + cifs-utils).
-      5. Shares. One per tier, each granting only that tier's account.
-      6. Loopback. Host aliases for both server names, plus, on Windows, the
+         On macOS the SMB-NT hash type is enabled and the password re-set, which
+         is the only thing that makes the account usable over SMB at all.
+      4. Shares. One per tier, each granting only that tier's account; on macOS
+         each credential is then proved against the running SMB server.
+      5. Loopback. Host aliases for both server names, plus, on Windows, the
          NTLM loopback exemption and EnableLinkedConnections.
-      7. Vault. Each password is mapped to a vaultKey in users.yml and stored,
+      6. Vault. Each password is mapped to a vaultKey in users.yml and stored,
          so the harness never auto-generates a password the share would reject.
-      8. Mount. Both shares, at the platform's conventional mount points.
-      9. Config. The six networkStorage keys in test/test.config.yml.
+      7. Config. The six networkStorage keys in test/test.config.yml.
+      8. Mount. Both shares, at the platform's conventional mount points --
+         after the config, so what mounts is what the runner will later read.
+         A share already standing at one of those points is unmounted first,
+         so what is mounted is what step 5's alias now resolves to.
 
     Account names are deliberately NOT parameters -- they are the two script
     variables below. They have to agree with the accounts on a NAS if this lab
@@ -197,6 +203,38 @@ function Confirm-Step {
     return ($answer.Trim() -match '^(y|yes)$')
 }
 
+# --- REGION: Step progress
+# Almost every second this script spends is inside a native tool that prints
+# nothing until it is finished: `sysadminctl -addUser`, `pwpolicy`, `apt-get
+# install`, a nested `sudo pwsh` for the hosts file, and two SMB mounts each
+# bounded by a multi-second timeout. Announcing the work BEFORE it starts, and
+# timing it, is what separates a slow step from a hung one for the operator
+# watching it -- the same reason the module's own OS calls narrate themselves.
+$Script:StepTimer = [System.Diagnostics.Stopwatch]::new()
+
+function Complete-LabStorageStep {
+    [CmdletBinding()]
+    param()
+    if (-not $Script:StepTimer.IsRunning) { return }
+    $Script:StepTimer.Stop()
+    # Only a slow step reports its time: on a fast one the line is noise, on a
+    # slow one it answers "which part took all that".
+    $seconds = $Script:StepTimer.Elapsed.TotalSeconds
+    if ($seconds -ge 2) { Write-Information ("      ({0:N0}s)" -f $seconds) }
+}
+
+function Write-LabStorageStep {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][int]$Number,
+        [Parameter(Mandatory)][string]$Title
+    )
+    Complete-LabStorageStep
+    Write-Information ""
+    Write-Information "[$Number/8] $Title"
+    $Script:StepTimer.Restart()
+}
+
 # --- REGION: Elevation -- Windows arm
 # Windows refuses rather than prompting, so checking first costs the operator
 # nothing: a session that cannot do the work should not be asked to confirm it
@@ -324,8 +362,7 @@ Write-Information ""
 # Delegated to New-Lab so the folder layout, the vault schema, and the seeded
 # intent repository have exactly one implementation. Its generated passwords
 # become the two share credentials below.
-Write-Information ""
-Write-Information "[1/8] Lab storage folders, lab vault, and pool-intent repository"
+Write-LabStorageStep -Number 1 -Title 'Lab storage folders, lab vault, and pool-intent repository'
 $newLab = Join-Path $PSScriptRoot 'New-Lab.ps1'
 if (-not (Test-Path -LiteralPath $newLab)) { throw "New-Lab.ps1 not found at $newLab." }
 if ($WhatIfPreference) {
@@ -351,17 +388,15 @@ if (-not $WhatIfPreference) {
 }
 
 # --- REGION: Step 2 -- SMB server
-# Before the accounts: on macOS a local account's SMB authentication authority
-# is materialized when its password is set, so an account created while the
-# server was off authenticates everywhere except over SMB.
-Write-Information ""
-Write-Information "[2/8] SMB server"
+# Before the accounts so the shares below can be published and the credentials
+# probed in this same run. It does NOT give an account its SMB credential --
+# only the pwpolicy call in step 3 does that.
+Write-LabStorageStep -Number 2 -Title 'SMB server'
 $serverState = Enable-LocalLabStorageServer
 Write-Information "      $serverState"
 
 # --- REGION: Step 3 -- storage accounts
-Write-Information ""
-Write-Information "[3/8] Storage accounts"
+Write-LabStorageStep -Number 3 -Title 'Storage accounts'
 foreach ($t in $tiers) {
     $pw = [string]$labPassword[$t.Account]
     if ($WhatIfPreference -and [string]::IsNullOrEmpty($pw)) { $pw = '<generated by New-Lab>' }
@@ -370,23 +405,65 @@ foreach ($t in $tiers) {
 }
 
 # --- REGION: Step 4 -- shares
-Write-Information ""
-Write-Information "[4/8] SMB shares"
+Write-LabStorageStep -Number 4 -Title 'SMB shares'
 if ($WhatIfPreference) {
     # The folders are New-Lab's output, which a dry run never produced, so
     # checking their permissions here would only report their absence.
     foreach ($t in $tiers) { Write-Information "      What if: would grant '$($t.Account)' write access to $($t.FolderPath)." }
 } else {
-    foreach ($t in $tiers) { $null = Set-LocalLabStorageFolderAccess -Tier $t }
+    foreach ($t in $tiers) {
+        Write-Information "      granting '$($t.Account)' write access to $($t.FolderPath)..."
+        $null = Set-LocalLabStorageFolderAccess -Tier $t
+    }
 }
 $shareState = New-LocalLabStorageShare -Tier $tiers
 foreach ($t in $tiers) {
     Write-Information "      $($t.ShareName): $($shareState[$t.ShareName]) -> $($t.FolderPath)"
 }
 
+# Prove each credential authenticates OVER SMB, now that there is a server AND a
+# sharepoint to authenticate against. macOS keeps a separate credential per
+# authentication authority, so an account can pass every local check and still be
+# refused by smbd; catching that here names the cause, where the same failure at
+# step 8 reads only as a mount that will not mount.
+if ($Platform -eq 'macos' -and -not $WhatIfPreference) {
+    foreach ($t in $tiers) {
+        Write-Information "      $($t.Account): proving the credential against the SMB server..."
+        $verdict = Test-LocalLabStorageSmbAuth -Account $t.Account -Password ([string]$labPassword[$t.Account])
+        if ($verdict -eq 'auth') {
+            # A refusal HERE is the real thing: the account exists, the password is
+            # the vault's, and the sharepoint it authenticates against was
+            # published above. That is the only point in the run where deleting
+            # the account is justified, so it is the only place that does it.
+            Write-Information "      $($t.Account): refused by the SMB server; rebuilding the account and retrying..."
+            if (Reset-LocalLabStorageAccount -Name $t.Account -Password ([string]$labPassword[$t.Account]) `
+                    -Description "Yuruna $($t.Kind) storage" -Confirm:$false) {
+                # The folder grant is per-account and the account is a new one.
+                $null = Set-LocalLabStorageFolderAccess -Tier $t
+                $verdict = Test-LocalLabStorageSmbAuth -Account $t.Account -Password ([string]$labPassword[$t.Account])
+            }
+        }
+        switch ($verdict) {
+            'ok'          { Write-Information "      $($t.Account): authenticates over SMB" }
+            'auth'        {
+                # Step 3 writes the credential, verifies it, and rebuilds the
+                # account when it cannot -- so reaching here means the account has
+                # the record and smbd still refuses it, which is not something the
+                # operator can fix by repeating what this script already did.
+                # Stop rather than continue: the mount at step 8 would fail with
+                # "No such file or directory", a message about a missing share for
+                # a credential that was never accepted.
+                throw ("'$($t.Account)' carries a password record but the SMB server still refuses it, so the $($t.Kind) share cannot be mounted. " +
+                       "The account and its password are in $labVault.")
+            }
+            'unreachable' { Write-Warning "Could not reach the SMB server on this machine to verify '$($t.Account)'. File Sharing may not have finished starting; re-run this script (it is idempotent) before debugging the mount." }
+            default       { Write-Verbose "SMB auth probe for '$($t.Account)': $verdict" }
+        }
+    }
+}
+
 # --- REGION: Step 5 -- loopback reachability
-Write-Information ""
-Write-Information "[5/8] Loopback reachability"
+Write-LabStorageStep -Number 5 -Title 'Loopback reachability'
 $aliasCount = Set-LocalLabStorageHostAlias -RepoRoot $paths.RepoRoot -Name @($PoolServer, $StashServer)
 Write-Information "      hosts file: $aliasCount alias(es) mapped to the loopback address"
 if ($Platform -eq 'windows') {
@@ -403,11 +480,11 @@ if ($Platform -eq 'windows') {
 # A non-empty vaultKey is what takes Get-Password off the auto-generate path.
 # Without it a missing entry silently mints a random password, and every mount
 # fails against a share that never had that credential.
-Write-Information ""
-Write-Information "[6/8] Vault"
+Write-LabStorageStep -Number 6 -Title 'Vault'
 if ($WhatIfPreference) {
     foreach ($t in $tiers) { Write-Information "      What if: would map '$($t.Account)' to vaultKey '$($t.VaultKey)' and store its password." }
 } else {
+    Write-Information "      opening the vault..."
     Initialize-VaultConnection
     foreach ($t in $tiers) {
         $changed = Set-UserVaultKey -LogicalUser $t.Account -VaultKey $t.VaultKey -Confirm:$false
@@ -422,8 +499,7 @@ if ($WhatIfPreference) {
 # from the in-memory tiers: what mounts is then exactly what the runner will
 # later read, and a value that does not survive the round trip fails here
 # instead of on the first unattended cycle.
-Write-Information ""
-Write-Information "[7/8] test.config.yml"
+Write-LabStorageStep -Number 7 -Title 'test.config.yml'
 $configPath = $paths.ConfigPath
 if (-not (Test-Path -LiteralPath $configPath) -and -not $WhatIfPreference) {
     # Seed from the template so the write EXTENDS a complete config instead of
@@ -454,8 +530,7 @@ if ($wrote) {
 # readers, which is also what applies the '~' expansion the macOS mount point
 # needs -- passed through unexpanded, mount_smbfs would create a directory
 # literally named '~' and the mount check would never match it again.
-Write-Information ""
-Write-Information "[8/8] Mount"
+Write-LabStorageStep -Number 8 -Title 'Mount'
 if ($IsLinux) {
     # The cifs mount runs `sudo -n`, which never prompts; without the drop-in it
     # fails and the runner buffers locally instead of archiving.
@@ -480,6 +555,32 @@ if ($WhatIfPreference -or -not $wrote) {
             Write-Warning "The $($t.Kind) tier did not resolve back out of $configPath; skipping its mount."
             continue
         }
+        # Clear what would otherwise serve this mount from the wrong place. Two
+        # kinds, and the second is the one that is invisible: an SMB client keeps
+        # ONE session per server name and reuses it, so while any share from the
+        # old NAS is still mounted under 'ypool-nas', a mount of the repointed
+        # 'ypool-nas' is answered by the OLD session -- it looks for our share on
+        # the NAS, does not find it, and mount_smbfs says "No such file or
+        # directory". Step 5 repointing the alias does not undo that; only
+        # dropping the session does, and the session goes when its mounts do.
+        $superseded = @(Get-PoolStorageSupersededMount -Config $cfg)
+        $blocked = $false
+        foreach ($old in $superseded) {
+            $note = if ($old.Reason -eq 'server-session') { "holds the '$($t.Server)' session" } else { 'stands on our mount point' }
+            Write-Information "      unmounting $($old.MountPoint) [$($old.Remote)] -- $note..."
+            if (-not (Dismount-PoolStoragePoint -MountPoint $old.MountPoint)) {
+                # Reported as a failed tier rather than warned about: with the old
+                # session still up, the mount below would either fail or -- worse --
+                # succeed against the previous server, and "ready" over one of
+                # those is the false green this whole step exists to prevent.
+                Write-Warning ("Could not unmount $($old.MountPoint) [$($old.Remote)], so the $($t.Kind) tier was left alone: " +
+                    "until it goes, '$($t.Server)' keeps resolving to the server that mount was made against.")
+                $blocked = $true
+                break
+            }
+        }
+        if ($blocked) { continue }
+        Write-Information "      mounting $($cfg.NetworkPath) at $($cfg.LocalPath) as '$($t.Account)'..."
         $ok = Connect-YurunaPoolStorage -Config $cfg
         $mounted[$t.Kind] = $ok
         Write-Information "      $($cfg.NetworkPath) at $($cfg.LocalPath): $(if ($ok) { 'mounted' } else { 'FAILED' })"
@@ -487,6 +588,7 @@ if ($WhatIfPreference -or -not $wrote) {
 }
 
 # --- REGION: Summary
+Complete-LabStorageStep
 $failed = @($tiers | Where-Object { -not $mounted[$_.Kind] })
 Write-Information ""
 Write-Information "=================================================================="

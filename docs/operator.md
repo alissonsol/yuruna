@@ -5,7 +5,9 @@ baseline to a passing test cycle, plus the two service VMs a standalone
 machine benefits from (caching-proxy service, stash service).
 
 [Section A: Quickstart](#section-a-quickstart) is the complete command
-sequence — run it top to bottom. [Section B: Deep dive](#section-b-deep-dive)
+sequence — run it top to bottom, or let
+[A.0](#a0-shortcut-the-standalone-setup-script) run its middle
+(A.3–A.7) for you. [Section B: Deep dive](#section-b-deep-dive)
 explains each step: what the command does, why the order matters, and
 where the details live. Every quickstart step links its deep-dive
 counterpart; read that when a step needs judgment or fails.
@@ -26,6 +28,132 @@ activated and updated, network access to github.com
 ([B.1](#b1-operating-system-baseline-assumed)–[B.2](#b2-preflight-dependencies)).
 "Elevated" means an Administrator PowerShell on Windows, `sudo` on
 macOS / Ubuntu.
+
+### A.0 Shortcut: the standalone setup script
+
+**Do [A.1](#a1-install-the-framework) and [A.2](#a2-create-the-test-user)
+first.** `install/setup.ps1` installs nothing and clones nothing: it runs
+*after* the OS bootstrapper (`install/windows.hyper-v.ps1`,
+`install/macos.utm.sh`, `install/ubuntu.kvm.sh`) has put the
+dependencies and the clone in place, and it does not create the test
+user. Its preflight step fails the run if `powershell-yaml` is missing
+and tells you to run the bootstrapper. Then, signed in as the test
+account and from the framework folder:
+
+```
+pwsh install/setup.ps1
+```
+
+It asks what it cannot infer — standalone or lab, whether this machine
+should have its host settings configured, where pool and stash storage
+lives (and for a NAS, the path and the account) — then runs the steps
+below in order. It needs pwsh 7. On Windows it relaunches itself
+elevated when it is not already, once, up front. It also has a lab mode
+(`setup.type: lab`), which is not this guide's path — see the
+[Lab operator guide](lab-operator.md).
+
+Preview the ordered task list first; nothing is changed, no step's work
+runs, no elevation is needed, and the answers file is not written (the
+questions are still asked):
+
+```
+pwsh install/setup.ps1 -WhatIf
+```
+
+A normal run without `-AnswerFile` saves what you answered to
+`install/setup.answers.standalone.yml`. Feed that back to repeat the run
+without prompts — every question `setup.ps1` asks returns its answer-file
+value instead of stalling on a `Read-Host`. One key has to be there for a
+`storage.kind: local` run: `storage.localRoot`, because the storage script
+`setup.ps1` calls asks where the shares should live and would otherwise
+hang waiting for someone to type it. Leave it out and the run stops and
+names the key rather than blocking:
+
+```
+pwsh install/setup.ps1 -AnswerFile install/setup.answers.standalone.yml
+```
+
+`-AnswerFile` is the only parameter the script declares; `-WhatIf` and
+`-Confirm` come from `SupportsShouldProcess`. The standalone keys it
+reads (anything else in the file is ignored):
+
+```yaml
+setup:
+  type: standalone       # standalone | lab
+  runTests: true         # false = this machine only hosts services
+  projectUrl: ''         # '' keeps whatever test.config.yml has;
+                         # omit the key for the script's built-in default
+storage:
+  kind: local            # local | nas | none ('none' is standalone-only)
+  localRoot: '/srv'      # kind: local -- required unattended (see above)
+  networkPath: '//ypool-nas/work/yuruna.pool'   # kind: nas only; required
+  networkUser: 'yuruna-pool'                    # kind: nas only
+  onFailure: stop        # stop | local -- if a NAS mount fails
+```
+
+`storage.localRoot` is where the local shares are created — e.g. `/srv`
+on Ubuntu, `/Users/Shared/yuruna` on macOS, `D:\Shares\yuruna` on
+Windows. Interactively the storage script suggests one, so the key is
+only required when nobody is there to accept the suggestion.
+
+**What it covers, step by step:**
+
+| Quickstart step | Does `setup.ps1` do it? |
+| --------------- | ----------------------- |
+| [A.1](#a1-install-the-framework) install the framework | No — bootstrapper, by hand, first |
+| [A.2](#a2-create-the-test-user) create the test user | No — `New-LocalTestUser.ps1`, by hand, first |
+| [A.3](#a3-enable-test-automation) enable test automation | Yes — runs `Enable-TestAutomation -SkipPoolStorage`, unless `runTests: false` |
+| [A.4](#a4-configure-and-validate) configure and validate | Partly — creates or refreshes `test/test.config.yml` from the template and ends on the `Test-Config` gate; the edits in between are still yours |
+| [A.5](#a5-create-pool-and-stash-storage) pool and stash storage | Yes for `kind: local` — runs `New-LocalLabStorage`. For `kind: nas` it only **mounts** what `networkStorage.*` already names |
+| [A.6](#a6-start-the-caching-proxy-service) caching-proxy service | Yes — stops and removes any existing one first, builds the VM, waits for the pool-aggregator service, then writes `vmStart.cachingProxyIp` |
+| [A.7](#a7-start-the-stash-service) stash service | Yes — same stop-then-build — unless storage was skipped |
+| [A.8](#a8-run-one-test-cycle) one test cycle | No |
+| [A.9](#a9-run-continuous-cycles) continuous cycles | No — the closing message points you at `pwsh test/Invoke-TestRunner.ps1` |
+
+It also creates the image, VM, log and runtime folders, which the
+by-hand path gets as a side effect of the scripts above. `setup.ps1`
+*itself* edits exactly two keys in `test.config.yml`, both by a
+line-level replacement that preserves the file's comments: `projectUrl`
+(from `setup.projectUrl`, when you supply one) and
+`vmStart.cachingProxyIp`. The scripts it runs write more — answering
+`local` to the storage question runs `New-LocalLabStorage.ps1`, which
+writes the six `networkStorage.*` keys and both vault entries
+([A.5](#a5-create-pool-and-stash-storage)). Nothing on this path touches
+`guestSequence` or `GH_TOKEN`.
+
+Every step runs in a child `pwsh`, and a step that can tell it is
+already done — the config file already there, pool storage already
+mounted, `cachingProxyIp` already matching — is skipped, so re-running
+is safe.
+
+**The service VMs are the exception: every run rebuilds them.** Each
+start is preceded by its own `Stop-…ServiceVM.ps1`, so the caching-proxy
+service — and the stash and pool-control services, when this run is the
+one that starts them — is stopped and removed before the new one is
+built. That is what makes a re-run able to *apply* a change: left alone,
+a healthy proxy is adopted in seconds and keeps the base image, seed and
+baked configuration you re-ran to replace. It is also what keeps a start
+from failing over a VM the last run left registered but whose files are
+gone. Budget for it — rebuilding the proxy is roughly 15 minutes — and
+note that a run only removes a service it is going to rebuild, so a
+standalone re-run on a machine that was once a lab leaves that lab's
+pool-control service running.
+
+Five failures end the run: preflight, the config file, the
+caching-proxy service, the aggregator wait, and a NAS that cannot be
+mounted when `storage.onFailure` is `stop` (the default, and the one an
+unattended run hits — interactively it offers local shares instead).
+
+Anything else that fails is warned about, recorded in the closing Failed
+list, and the run continues. **A run with a non-empty Failed list says
+so and exits non-zero** — including when the `Test-Config` gate is what
+failed — so a caller reading only the exit code is not told a broken
+host is ready. Read the Failed list, fix what it names, and re-run.
+
+**The steps below stay the by-hand path.** Read them when a step needs
+judgment, when `setup.ps1` reports a failure and you have to finish that
+step yourself, or when you are repairing a host rather than building
+one.
 
 ### A.1 Install the framework
 
@@ -83,6 +211,11 @@ pwsh test/Enable-TestAutomation.ps1
 On Windows, sign out and back in if it reports display-scaling
 changes.
 
+*Run for you by [A.0](#a0-shortcut-the-standalone-setup-script) — as
+`Enable-TestAutomation -SkipPoolStorage`, so it does not duplicate
+[A.5](#a5-create-pool-and-stash-storage) — unless you answer that this
+machine only hosts services.*
+
 ### A.4 Configure and validate
 
 Edit `test/test.config.yml` — at minimum `repositories.projectUrl`
@@ -94,6 +227,12 @@ pwsh test/Test-Config.ps1
 ```
 
 Fix every FAIL before moving on.
+
+*[A.0](#a0-shortcut-the-standalone-setup-script) creates the file from
+the template and runs this validation as its last step, but the editing
+in between is still yours: it writes `projectUrl` only when you give it
+one, and never touches `guestSequence`, `GH_TOKEN`, or the
+`networkStorage.*` keys.*
 
 ### A.5 Create pool and stash storage
 
@@ -113,6 +252,12 @@ It asks only where storage should live, suggesting `/srv/yuruna`
 paragraph below about filling them in does not apply. It calls
 `New-Lab` for you, so the lab exists too. Add `-EnableReplication` to
 archive finished cycles to the pool share.
+
+*[A.0](#a0-shortcut-the-standalone-setup-script) runs this command for
+you when you answer `local`. Answer `nas` and it only mounts the share
+`networkStorage.*` already names — the NAS half of this step, below,
+stays by hand. Answer `none` and it skips shared storage and, with it,
+the stash service.*
 
 Adding **another lab** to that machine later needs only `New-Lab`,
 with no `-Root`: it reuses the folders, the storage root, and the share
@@ -152,7 +297,8 @@ share passwords in the host vault — steps in
 
 ### A.6 Start the caching-proxy service
 
-Elevated on Windows, `sudo -E` on macOS
+Elevated on Windows, unelevated on macOS — it requests `sudo` for the
+one step that needs it
 ([B.8](#b8-start-the-caching-proxy-service--dashboards)):
 
 ```
@@ -163,6 +309,11 @@ Set `vmStart.cachingProxyIp` in `test.config.yml` to the proxy VM's
 IP so cycles find it, then re-run `pwsh test/Test-Config.ps1` to
 validate the A.5–A.6 config edits.
 
+*[A.0](#a0-shortcut-the-standalone-setup-script) does all of that: it
+starts the VM, waits up to 15 minutes for the pool-aggregator service to
+answer, writes `vmStart.cachingProxyIp` itself, and revalidates at the
+end.*
+
 ### A.7 Start the stash service
 
 Elevated on Windows ([B.9](#b9-start-the-stash-service)):
@@ -170,6 +321,10 @@ Elevated on Windows ([B.9](#b9-start-the-stash-service)):
 ```
 pwsh test/Start-StashServiceVM.ps1
 ```
+
+*Run for you by [A.0](#a0-shortcut-the-standalone-setup-script), unless
+storage was skipped — the stash service exits 1 without configured
+storage, so the script skips it and says so in its closing report.*
 
 ### A.8 Run one test cycle
 
@@ -339,7 +494,8 @@ sleep, screen saver, screen lock, display scaling (Windows), TCC
 grants (macOS). Elevated (Administrator / sudo); idempotent; supports
 `-WhatIf`. On Windows, sign out and back in if it reports display-scaling
 changes — OCR needs 100% scaling. Details are owned by
-`host/<platform>/Enable-TestAutomation.ps1`.
+`host/<platform>/Enable-TestAutomation.ps1`. To undo it, see
+[Putting the machine back](#putting-the-machine-back).
 
 ### B.6 Configure and validate
 
@@ -444,7 +600,7 @@ pwsh test/Start-CachingProxyServiceVM.ps1
 
 Builds the `yuruna-caching-proxy-service` VM and exposes ports 80 (CA cert),
 3128/3129 (Squid), 3000 (Grafana), 9302 (metrics). Elevated on Windows;
-macOS needs `sudo -E`. Set `vmStart.cachingProxyIp` in
+unelevated on macOS. Set `vmStart.cachingProxyIp` in
 `test.config.yml` to the proxy's IP so cycles find it. The cache VM
 survives framework reinstalls. Details: [caching.md](caching.md#caching-proxy-service--test-harness-operator-reference).
 
@@ -485,6 +641,72 @@ status dashboard at `http://<host>:8080/` — no separate
 
 ---
 
+## Putting the machine back
+
+```
+pwsh test/Disable-TestAutomation.ps1
+```
+
+The reverse of [B.5](#b5-enable-test-automation). It is a host-neutral
+redirector: it forwards whatever you pass to
+`host/<platform>/Disable-TestAutomation.ps1`, which takes `-StopServices`
+and `-WhatIf`. On Windows the per-host script requires
+Administrator and does **not** self-elevate — start an elevated
+PowerShell yourself, or it stops with that message; macOS and Ubuntu
+prime `sudo` once. It refuses to run while another test runner owns the
+runtime directory.
+
+Its closing report distinguishes three things, and the difference
+matters:
+
+- **Restored.** Host settings are put back from
+  `status/runtime/host.pre-automation.json`, the snapshot
+  `Enable-TestAutomation` wrote once before it changed anything: display
+  sleep and screen lock (AC and battery separately), the inactivity
+  timeout, and display / text scaling on Windows; `pmset`, the
+  screensaver and screen-lock settings, hot corners, auto-logout and
+  network time on macOS; the five GNOME power, session and screensaver
+  keys, `timedatectl set-ntp`, and the `libvirtd` / `virtlogd` enabled
+  state on Ubuntu. A knob the capture shows was *unset* before
+  automation is removed where it can be, not written back as a zero. **No capture, no restore**
+  — an uncaptured knob is listed under "Left as it is" instead, and on
+  macOS a run with no capture changes nothing at all. The capture file
+  is deliberately kept so the command can be re-run; delete it yourself
+  once the host is where you want it.
+- **Removed outright.** Only what is provably the framework's own, by
+  name: on Windows the status-port firewall rule and the rule
+  `Yuruna: Allow ICMPv4 Echo Request`; on Ubuntu the `ufw` allow rule
+  for the status port, plus `libvirt` / `kvm` group membership and the
+  `libvirt-qemu` ACL on `$HOME` — those last two only when the capture
+  proves `Enable-TestAutomation` added them. macOS removes nothing.
+- **Only reported.** The closing
+  `NOT reversed (deliberately)` list names what it will not touch, most
+  of them with the command to do it yourself: packages and PSGallery
+  modules, the credential vault (never removed automatically — it holds
+  credentials that are painful to recreate), the
+  clones, VM images and run history under `~/yuruna`, and the
+  `networkStorage.*` configuration, the vaulted credential and any
+  mounts (with the exact `Dismount-PoolStoragePoint` line for this
+  host). Windows adds Hyper-V, `vmms` and W32Time — the bootstrapper
+  enabled those, not `Enable-TestAutomation`. macOS adds the
+  Accessibility and Screen Recording (TCC) grants and the UTM Dock
+  assignment. Ubuntu adds the libvirt default network, any guests
+  defined here, and a pool-storage sudoers drop-in.
+
+The service VMs from [A.6](#a6-start-the-caching-proxy-service) and
+[A.7](#a7-start-the-stash-service) stay up unless you pass
+`-StopServices`, which stops the caching-proxy, stash and pool-control
+service VMs — restoring host settings and tearing down services are
+different intentions. `-WhatIf` shows what would be restored, restores
+nothing, and still prints both lists.
+
+It refuses to run at all while a test runner owns this host's runtime
+directory, naming the live PID — restoring screen lock and display sleep
+underneath a running cycle would blank capture mid-run for a reason
+nothing in the transcript would explain. Stop the runner first.
+
+---
+
 ## VM administrator accounts
 
 Each service VM is seeded with its own administrator, and each password
@@ -521,6 +743,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.29
+Last review: 2026.07.31
 
 Back to [Yuruna](../README.md)

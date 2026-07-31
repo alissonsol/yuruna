@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.29
+.VERSION 2026.07.31
 .GUID 42c5e8a1-9b3d-4f27-8a6c-1d2e3f4a5b6c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -275,6 +275,70 @@ function ConvertFrom-PoolStorageMountLine {
 
 <#
 .SYNOPSIS
+Returns the mounts that must be torn down before OUR share can be mounted where we want it: anything standing on LocalPath, and anything else held against the SAME SERVER NAME. Each result carries a Reason. Pure + testable.
+.DESCRIPTION
+The server-name half is the one that is not obvious. An SMB client keeps ONE session per server name and reuses it for every later mount of that name -- so once a name has been dialled, the hosts file no longer decides where it goes. Repoint 'ypool-nas' from a NAS to this machine while a share from the old NAS is still mounted under that name, and the new mount is served by the OLD session: it looks for our share on the NAS, does not find it, and mount_smbfs reports "No such file or directory". Every visible detail -- alias, share path, account, mount point -- is correct while that happens, which is why the message is so hard to read backwards.
+
+The mount-point half is ordinary: whatever is standing there has to go, whether or not it is ours, because the share path a mount point carried before is not the one being asked for now.
+#>
+function Find-PoolStorageSupersededMount {
+    [CmdletBinding()]
+    [OutputType([object[]])]
+    param(
+        [Parameter()][AllowNull()][string[]]$MountLines,
+        [Parameter(Mandatory)][string]$LocalPath,
+        [Parameter(Mandatory)][string]$NetworkPath
+    )
+    $out = [System.Collections.Generic.List[pscustomobject]]::new()
+    if (-not $MountLines) { return $out.ToArray() }
+    $wantHost = Get-PoolStorageServerName -NetworkPath $NetworkPath
+    $wantBare = Get-PoolStorageBareShare -Path $NetworkPath -TrimTrailing
+    foreach ($line in $MountLines) {
+        $parsed = ConvertFrom-PoolStorageMountLine -MountLine ([string]$line)
+        if (-not $parsed) { continue }
+        $reason = ''
+        if ($parsed.MountPoint -eq $LocalPath) {
+            # Already exactly what we want, at the point we want it: leave it be,
+            # so a converged re-run does not churn a healthy mount.
+            if ($parsed.RemoteBare -ieq $wantBare) { continue }
+            $reason = 'mount-point'
+        } elseif ($wantHost -and $parsed.HostName -and ($parsed.HostName -ieq $wantHost)) {
+            $reason = 'server-session'
+        }
+        if (-not $reason) { continue }
+        $out.Add([pscustomobject]@{ MountPoint = $parsed.MountPoint; Remote = $parsed.Remote; Reason = $reason })
+    }
+    return $out.ToArray()
+}
+
+<#
+.SYNOPSIS
+OS-aware wrapper over Find-PoolStorageSupersededMount: lists the live mounts and returns the ones that must be cleared before Config's share can be mounted. Best-effort; never throws.
+#>
+function Get-PoolStorageSupersededMount {
+    [CmdletBinding()]
+    [OutputType([object[]])]
+    param([Parameter(Mandatory)][pscustomobject]$Config)
+    try {
+        $lines = @()
+        if ($IsWindows) {
+            $r = Invoke-PoolStorageBoundedScript -TimeoutSeconds $script:PoolStorageSmbCmdletTimeoutSeconds -ScriptBlock {
+                Get-SmbMapping -ErrorAction SilentlyContinue | ForEach-Object { "$($_.RemotePath) on $($_.LocalPath)" }
+            }
+            if (-not $r.TimedOut -and $r.Result) { $lines = @($r.Result | ForEach-Object { [string]$_ }) }
+        } else {
+            $mountExe = (Get-Command -CommandType Application -Name 'mount' -ErrorAction SilentlyContinue | Select-Object -First 1).Source
+            if ($mountExe) { $lines = @(& $mountExe 2>$null | ForEach-Object { [string]$_ }) }
+        }
+        return (Find-PoolStorageSupersededMount -MountLines $lines -LocalPath $Config.LocalPath -NetworkPath $Config.NetworkPath)
+    } catch {
+        Write-Verbose "Get-PoolStorageSupersededMount: $($_.Exception.Message)"
+        return @()
+    }
+}
+
+<#
+.SYNOPSIS
 Returns the mounts that would BLOCK a fresh mount of OUR share -- the same server-relative 'share/sub' path mounted at a DIFFERENT point than LocalPath -- anchored on the host-relative 'share/sub' (tolerating a different or dead host alias) because macOS mount_smbfs refuses a second mount of a share it already holds with a misleading "File exists"; each result carries HostMatches so the caller can tell our exact host from a look-alike. Pure + testable.
 #>
 function Find-PoolStorageConflictingMount {
@@ -340,10 +404,10 @@ function Get-PoolStorageConflictingMount {
     }
 }
 
-# Dismount-PoolStoragePoint unmounts ONE mount point, cross-platform: diskutil
-# (force) on macOS because a busy SMB mount refuses a plain umount with "Resource
-# busy"; sudo -n umount on Linux (never prompt, mirroring the mount path); and
-# Remove-SmbMapping on Windows. Bounded + best-effort; returns $true on success.
+<#
+.SYNOPSIS
+Unmounts ONE mount point, cross-platform: diskutil (force) on macOS because a busy SMB mount refuses a plain umount with "Resource busy"; sudo -n umount on Linux (never prompt, mirroring the mount path); and Remove-SmbMapping on Windows. Bounded + best-effort; returns $true on success.
+#>
 function Dismount-PoolStoragePoint {
     [CmdletBinding()]
     [OutputType([bool])]
@@ -964,6 +1028,32 @@ function Get-PoolStorageServerName {
     param([Parameter(Mandatory)][string]$NetworkPath)
     $bare = Get-PoolStorageBareShare -Path $NetworkPath -WithoutUser
     return (($bare -split '/', 2)[0]).Trim()
+}
+
+<#
+.SYNOPSIS
+Returns $true when the server in a share path resolves to loopback ONLY -- the share is served by THIS machine. A name that resolves to nothing, to a routable address, or to a mix is not local. Best-effort: any resolver error => $false.
+.DESCRIPTION
+A lab whose storage lives on this machine and a lab backed by a NAS carry IDENTICAL networkStorage values: same share path, same account, same mount point. The host alias is the ONLY difference between them, so "is this storage local?" cannot be answered from test.config.yml -- it is a resolver question, and this is where it is asked. Callers that must not mistake a NAS-backed machine for a self-hosting one (a storage step deciding whether its work is already done) gate on this rather than on the config or on a live mount, either of which looks the same both ways.
+#>
+function Test-PoolStorageServerIsLocal {
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param([Parameter()][AllowEmptyString()][string]$NetworkPath)
+    if ([string]::IsNullOrWhiteSpace($NetworkPath)) { return $false }
+    $server = Get-PoolStorageServerName -NetworkPath $NetworkPath
+    if ([string]::IsNullOrWhiteSpace($server)) { return $false }
+    try {
+        $addresses = @([System.Net.Dns]::GetHostAddresses($server))
+        if ($addresses.Count -eq 0) { return $false }
+        foreach ($address in $addresses) {
+            if (-not [System.Net.IPAddress]::IsLoopback($address)) { return $false }
+        }
+        return $true
+    } catch {
+        Write-Verbose "Test-PoolStorageServerIsLocal($server): $($_.Exception.Message)"
+        return $false
+    }
 }
 
 <#
@@ -1620,12 +1710,50 @@ function Get-PoolStorageHealthWarning {
 
 <#
 .SYNOPSIS
+True when an address is one a GUEST could dial. Rejects empty, unparseable, loopback, and IPv4 link-local (169.254/16). Pure.
+#>
+function Test-PoolStorageRoutableAddress {
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param([Parameter()][AllowNull()][AllowEmptyString()][string]$Address)
+    if ([string]::IsNullOrWhiteSpace($Address)) { return $false }
+    $parsed = [System.Net.IPAddress]::Any
+    if (-not [System.Net.IPAddress]::TryParse($Address.Trim(), [ref]$parsed)) { return $false }
+    if ([System.Net.IPAddress]::IsLoopback($parsed)) { return $false }
+    return ($Address.Trim() -notmatch '^169\.254\.')
+}
+
+<#
+.SYNOPSIS
+Picks the NAS address to bake into a guest seed: the host-resolved one when a guest could dial it, else the guest-reachable host address, else '' (the guest falls back to name resolution). Pure: takes both addresses, returns one.
+.DESCRIPTION
+The storage server name is resolved on the HOST, where it may be an alias New-LocalLabStorage pointed at the loopback address -- correct for the host's own mount, meaningless inside a VM, where it dials the guest's own loopback and the cifs mount fails with -111. The host that is serving the share IS the storage server in that configuration, so the address the guest already uses to reach this host is the right substitute; it is the same topology-aware value (bridged -> host LAN IP, shared NAT -> the hypervisor gateway) the caller baked as the status-service address, so the seed cannot disagree with the network the guest was built for.
+#>
+function Select-PoolStorageSeedAddress {
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        [Parameter()][AllowNull()][AllowEmptyString()][string]$ResolvedAddress,
+        [Parameter()][AllowNull()][AllowEmptyString()][string]$GuestReachableAddress
+    )
+    if (Test-PoolStorageRoutableAddress -Address $ResolvedAddress) { return $ResolvedAddress.Trim() }
+    if (Test-PoolStorageRoutableAddress -Address $GuestReachableAddress) { return $GuestReachableAddress.Trim() }
+    return ''
+}
+
+<#
+.SYNOPSIS
 Resolves the STASH storage coordinates the stash-service VM's cloud-init seed needs -- the share UNC (unix form), the stashStorageNetworkUser, its vault password, and this host's id -- read from the ISOLATED networkStorage stash* keys (Get-YurunaStashStorageConfig), not the pool keys. Returns empty strings when unavailable so a caller bakes blanks (the guest then uses local fallback); the fail-fast gate lives in Start-StashServiceVM, not here. Get-YurunaHostId and Get-Password must be loaded in the caller's session.
+.PARAMETER GuestReachableAddress
+The address this host is reachable at FROM the guest being built. Substituted when the share's server name resolves to an address no guest could dial (loopback / link-local), which is what a local-lab hosts-file alias resolves to.
 #>
 function Get-YurunaStashSeedValue {
     [CmdletBinding()]
     [OutputType([hashtable])]
-    param([Parameter()][AllowNull()]$Config)
+    param(
+        [Parameter()][AllowNull()]$Config,
+        [Parameter()][AllowNull()][AllowEmptyString()][string]$GuestReachableAddress
+    )
     $out = @{ NetworkPath = ''; NetworkIp = ''; NetworkUser = ''; Password = ''; HostId = '' }
     try { $out.HostId = [string](Get-YurunaHostId) } catch { Write-Verbose "stash seed hostId: $($_.Exception.Message)" }
     if (-not $out.HostId) { $out.HostId = 'unknown-host' }
@@ -1654,14 +1782,22 @@ function Get-YurunaStashSeedValue {
     # 'wserver', so the guest's cifs mount uses ip=<this> and skips name
     # resolution entirely. Empty when unresolvable -> guest falls back to
     # name resolution (and buffers if that fails).
+    $resolved = ''
     try {
         $server = Get-PoolStorageServerName -NetworkPath $cfg.NetworkPath
         if ($server) {
             $ip = [System.Net.Dns]::GetHostAddresses($server) |
                 Where-Object { $_.AddressFamily -eq 'InterNetwork' } | Select-Object -First 1
-            if ($ip) { $out.NetworkIp = $ip.IPAddressToString }
+            if ($ip) { $resolved = $ip.IPAddressToString }
         }
     } catch { Write-Verbose "stash seed ip resolve: $($_.Exception.Message)" }
+    $out.NetworkIp = Select-PoolStorageSeedAddress -ResolvedAddress $resolved -GuestReachableAddress $GuestReachableAddress
+    if ($resolved -and $out.NetworkIp -eq $resolved) { return $out }
+    if ($resolved -and $out.NetworkIp) {
+        Write-Information "stash seed: '$server' resolves to $resolved on this host, which no guest can dial; baking $($out.NetworkIp) (this host, as the guest reaches it) instead." -InformationAction Continue
+    } elseif ($resolved) {
+        Write-Warning "stash seed: '$server' resolves to $resolved, which no guest can dial, and no guest-reachable host address was supplied. The stash VM will try to resolve '$server' itself and its mount will fail. See docs/pool-storage.md."
+    }
     return $out
 }
 
@@ -1672,7 +1808,10 @@ Resolves the POOL storage coordinates the pool-control-service VM's cloud-init s
 function Get-YurunaPoolSeedValue {
     [CmdletBinding()]
     [OutputType([hashtable])]
-    param([Parameter()][AllowNull()]$Config)
+    param(
+        [Parameter()][AllowNull()]$Config,
+        [Parameter()][AllowNull()][AllowEmptyString()][string]$GuestReachableAddress
+    )
     $out = @{ NetworkPath = ''; NetworkIp = ''; NetworkUser = ''; Password = ''; HostId = '' }
     try { $out.HostId = [string](Get-YurunaHostId) } catch { Write-Verbose "pool seed hostId: $($_.Exception.Message)" }
     if (-not $out.HostId) { $out.HostId = 'unknown-host' }
@@ -1700,14 +1839,22 @@ function Get-YurunaPoolSeedValue {
     # works). A Linux guest often cannot resolve a bare NetBIOS name like
     # 'wserver', so the guest's cifs mount can use ip=<this> and skip name
     # resolution. Empty when unresolvable -> guest falls back to name resolution.
+    $resolved = ''
     try {
         $server = Get-PoolStorageServerName -NetworkPath $cfg.NetworkPath
         if ($server) {
             $ip = [System.Net.Dns]::GetHostAddresses($server) |
                 Where-Object { $_.AddressFamily -eq 'InterNetwork' } | Select-Object -First 1
-            if ($ip) { $out.NetworkIp = $ip.IPAddressToString }
+            if ($ip) { $resolved = $ip.IPAddressToString }
         }
     } catch { Write-Verbose "pool seed ip resolve: $($_.Exception.Message)" }
+    $out.NetworkIp = Select-PoolStorageSeedAddress -ResolvedAddress $resolved -GuestReachableAddress $GuestReachableAddress
+    if ($resolved -and $out.NetworkIp -eq $resolved) { return $out }
+    if ($resolved -and $out.NetworkIp) {
+        Write-Information "pool seed: '$server' resolves to $resolved on this host, which no guest can dial; baking $($out.NetworkIp) (this host, as the guest reaches it) instead." -InformationAction Continue
+    } elseif ($resolved) {
+        Write-Warning "pool seed: '$server' resolves to $resolved, which no guest can dial, and no guest-reachable host address was supplied. The pool-control VM will try to resolve '$server' itself and its mount will fail with cifs_mount -111. See docs/pool-storage.md."
+    }
     return $out
 }
 
@@ -1761,8 +1908,10 @@ function Remove-PoolStorageTree {
 
 Export-ModuleMember -Function `
     Get-PoolStorageUncPath, Test-PoolStorageMountMatch, Get-PoolStorageServerName, `
+    Test-PoolStorageServerIsLocal, `
     ConvertFrom-PoolStorageMountLine, Find-PoolStorageConflictingMount, `
-    Get-PoolStorageConflictingMount, Clear-PoolStorageConflictingMount, `
+    Get-PoolStorageConflictingMount, Clear-PoolStorageConflictingMount, Dismount-PoolStoragePoint, `
+    Find-PoolStorageSupersededMount, Get-PoolStorageSupersededMount, `
     Get-YurunaPoolStorageConfig, Get-YurunaStashStorageConfig, Test-YurunaPoolStorageMounted, Connect-YurunaPoolStorage, `
     Get-PoolStorageLinuxSudoHint, Get-PoolStorageSudoSpec, Set-PoolStorageSudoers, `
     Get-PoolStorageSudoCommandPath, Test-PoolStorageSudoReady, Test-PoolStorageCifsHelper, `
@@ -1775,4 +1924,5 @@ Export-ModuleMember -Function `
     Get-PoolStorageHostFolderPath, Initialize-PoolStorageHostFolder, `
     Get-PoolStorageDrainOrder, Get-PoolStorageHealthWarning, `
     Invoke-PoolStorageDrain, Get-YurunaStashSeedValue, Get-YurunaPoolSeedValue, `
+    Test-PoolStorageRoutableAddress, Select-PoolStorageSeedAddress, `
     Remove-PoolStorageTree

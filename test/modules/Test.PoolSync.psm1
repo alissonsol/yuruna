@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.29
+.VERSION 2026.07.31
 .GUID 42b1c2d3-e4f5-4a67-8b90-1c2d3e4f5a6b
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -356,11 +356,28 @@ function Write-YurunaPoolManifest {
     #>
     [CmdletBinding(SupportsShouldProcess)]
     [OutputType([bool])]
-    param([Parameter()][AllowNull()]$Pool)
+    param(
+        [Parameter()][AllowNull()]$Pool,
+        # autoEnrollment.targetPoolId from the intent doc, when the store
+        # declares one. Supplied by the caller because only it has read the
+        # document; empty on every store that has not opted into auto-enrolment,
+        # which makes the guard below inert -- exactly today's behaviour.
+        [Parameter()][AllowEmptyString()][string]$AutoEnrolTargetPoolId = ''
+    )
     $runtimeDir = $env:YURUNA_RUNTIME_DIR
     if ([string]::IsNullOrWhiteSpace($runtimeDir)) { return $false }
     $path = Join-Path $runtimeDir 'pool.manifest.json'
     $testSet = if ($Pool -is [System.Collections.IDictionary]) { $Pool['testSet'] } else { $null }
+    # Defence in depth for the target-pool rule. Test-PoolIntent and
+    # Set-PoolTestSet both refuse a testSet on the auto-enrolment target pool,
+    # but neither runs on this host: a hand-edited store, or one written before
+    # the rule existed, would otherwise reach here and repoint the host. Ignore
+    # it loudly rather than obey it -- a host that lands in the target pool
+    # automatically must keep running its own project.
+    if ($testSet -and $AutoEnrolTargetPoolId -and ([string]$Pool['poolId'] -eq $AutoEnrolTargetPoolId)) {
+        Write-Warning "Pool '$($Pool['poolId'])' is the auto-enrolment target pool and must not carry a testSet; ignoring it and keeping this host's own repositories. Fix the intent store (Test-PoolIntent.ps1 reports this)."
+        $testSet = $null
+    }
     $hasTriple = ($testSet -is [System.Collections.IDictionary]) -and $testSet.Contains('frameworkUrl') -and $testSet.Contains('projectUrl')
     if (-not $hasTriple) {
         if ((Test-Path -LiteralPath $path) -and $PSCmdlet.ShouldProcess($path, 'Remove stale pool manifest')) {
@@ -377,9 +394,21 @@ function Write-YurunaPoolManifest {
             frameworkUrl = [string]$testSet['frameworkUrl']
             projectUrl   = [string]$testSet['projectUrl']
         }
+        # `sequences` is the optional subset of the assigned project's top-level
+        # sequences (Phase A schema field). It is carried ONLY when non-empty:
+        # the inner runner treats an absent/empty key as "run the whole
+        # test.runner.yml", which is the pre-existing behaviour every store
+        # relies on, and an omitted key keeps this manifest byte-identical to
+        # what older runners already parse.
+        #
+        # The manifest is the ONLY channel into the fresh inner-runner process,
+        # so a field missing here can never reach the planner no matter what the
+        # intent says.
         config      = if ($Pool['config'] -is [System.Collections.IDictionary]) { $Pool['config'] } else { @{} }
         writtenAtUtc = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
     }
+    $subset = @(@($testSet['sequences']) | ForEach-Object { "$_".Trim() } | Where-Object { $_ })
+    if ($subset.Count -gt 0) { $manifest.testSet['sequences'] = $subset }
     if (Get-Command Write-YurunaStateFileJson -ErrorAction SilentlyContinue) {
         return [bool](Write-YurunaStateFileJson -Path $path -InputObject $manifest -Depth 8 -Confirm:$false)
     }
@@ -490,7 +519,11 @@ function Sync-YurunaPoolIntent {
     $null = Write-YurunaPoolState -PoolId $poolId -PoolGuid $poolGuid -DesiredState $state -IntentOk:$pullOk -Gating $gating -Confirm:$false
     # Publish (or clear, when this host is unpooled / the pool has no
     # test-sets) the resolved test-set assignment for the inner runner.
-    $null = Write-YurunaPoolManifest -Pool $pool -Confirm:$false
+    # The target-pool id is read from the same parsed document so the manifest
+    # writer can refuse a testSet on it (defence in depth -- neither the admin
+    # CLI nor Test-PoolIntent runs on this host).
+    $autoTarget = if (($intent -is [System.Collections.IDictionary]) -and $intent['autoEnrollment']) { [string]$intent['autoEnrollment']['targetPoolId'] } else { '' }
+    $null = Write-YurunaPoolManifest -Pool $pool -AutoEnrolTargetPoolId $autoTarget -Confirm:$false
     return $pool
 }
 

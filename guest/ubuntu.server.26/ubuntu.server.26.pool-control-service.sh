@@ -62,6 +62,7 @@ INTENT_GIT_URL="$(sed -n 's/^YURUNA_POOL_INTENT_GIT_URL=//p' /etc/yuruna/pool.en
 # Pool NAS mount (CIFS) -> state dir. NAS host/share/cred come from pool.env,
 # matching Test.PoolStorage's networkStorage.poolStorageNetworkPath contract.
 POOL_NAS_UNC="$(sed -n 's/^YURUNA_POOL_NETWORK_PATH=//p' /etc/yuruna/pool.env 2>/dev/null | head -1 || true)"
+POOL_NAS_IP="$(sed -n 's/^YURUNA_POOL_NETWORK_IP=//p' /etc/yuruna/pool.env 2>/dev/null | head -1 || true)"
 POOL_NAS_USER="$(sed -n 's/^YURUNA_POOL_NETWORK_USER=//p' /etc/yuruna/pool.env 2>/dev/null | head -1 || true)"
 MOUNT=/mnt/yuruna-pool
 STATE_DIR="$MOUNT/pool-control-service"
@@ -238,6 +239,11 @@ if [[ -n "$POOL_NAS_UNC" ]]; then
   # folder the VM creates to the single creator and the host could not read
   # the audit log back. nofail/_netdev keep a NAS outage from wedging boot.
   MOUNT_OPTS="credentials=/etc/yuruna/pool-nas.cifs.cred,vers=3.0,uid=$(id -u "$SERVICE_USER"),gid=$(id -g "$SERVICE_USER"),file_mode=0666,dir_mode=0777,noperm,nofail,_netdev"
+  # ip= lets cifs connect when the guest cannot resolve the share's server name
+  # -- a bare NetBIOS name, or a host-side alias that only the host resolves.
+  # Baked by Get-YurunaPoolSeedValue, which never emits an address a guest
+  # cannot dial. Same option, same reason, as the stash guest's mount.
+  [ -n "$POOL_NAS_IP" ] && MOUNT_OPTS="$MOUNT_OPTS,ip=$POOL_NAS_IP"
   # Persist via fstab so the state dir survives a VM reboot and systemd
   # exposes a .mount unit the daemon can order After=.
   if ! grep -q " $MOUNT cifs " /etc/fstab 2>/dev/null; then

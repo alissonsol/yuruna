@@ -26,6 +26,7 @@ every host:
 
 ```
 pwsh test/Enable-TestAutomation.ps1                        # prepare this host for unattended runs
+pwsh test/Disable-TestAutomation.ps1                       # ... and put those host settings back
 pwsh test/Sync-HostConfiguration.ps1 -ReferenceHost <host> # copy another pool host's test.config.yml
 pwsh test/Remove-OrphanedVMFiles.ps1                       # delete files left by VMs that are already gone
 ```
@@ -150,6 +151,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.29
+Last review: 2026.07.31
 
 Back to [Yuruna](../README.md)

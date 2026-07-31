@@ -115,9 +115,16 @@ func TestAnnounceGoodbyeIdentityBound(t *testing.T) {
 	}
 }
 
-// When BOTH sources cover one (hostId, area), the registration row wins and
-// exactly one row is emitted.
-func TestAnnounceRegistrationRowWins(t *testing.T) {
+// When BOTH sources cover one (hostId, area), exactly one row is emitted and it
+// carries the LIVE announce's target.
+//
+// The registration is the owning host's advertisement, but the runner writes
+// host.registration.json before it refreshes the stash marker, so
+// extensionTargets carries the previous refresh's value -- a service VM rebuilt
+// onto a new DHCP address is advertised at its predecessor's address for a whole
+// cycle. The announce's target came off the source address of a request this
+// process received, so it is first-hand evidence the service answers there.
+func TestAnnounceLiveAnnounceBeatsStaleRegistration(t *testing.T) {
 	s := newPoolState("default", 8080)
 	s.hosts[testHostID] = &hostView{
 		HostId:           testHostID,
@@ -132,10 +139,57 @@ func TestAnnounceRegistrationRowWins(t *testing.T) {
 	s.handleMetrics(m, httptest.NewRequest("GET", "/metrics", nil))
 	body := m.Body.String()
 	if got := strings.Count(body, "yuruna_pool_host_extension{"); got != 1 {
-		t.Errorf("emitted %d extension rows, want exactly 1 (registration wins)", got)
+		t.Errorf("emitted %d extension rows, want exactly 1 for one (hostId, area)", got)
 	}
-	if !strings.Contains(body, "target=\"http://10.0.0.5\"") {
-		t.Errorf("winning row must carry the registration target, got:\n%s", body)
+	if !strings.Contains(body, "target=\"http://10.0.0.7\"") {
+		t.Errorf("winning row must carry the announced target, got:\n%s", body)
+	}
+	// The row still belongs to the host, so its status page link survives.
+	if !strings.Contains(body, "baseUrl=\"http://10.0.0.1:8080\"") {
+		t.Errorf("winning row lost the host baseUrl, got:\n%s", body)
+	}
+}
+
+// A disagreement is reported, not just resolved: the address the losing source
+// claimed rides on its own gauge so an operator can see that a host's
+// registration has fallen behind its service before it is the only source left.
+func TestAnnounceDisagreementIsReported(t *testing.T) {
+	s := newPoolState("default", 8080)
+	s.hosts[testHostID] = &hostView{
+		HostId:           testHostID,
+		ActiveExtensions: []string{"stash-service"},
+		ExtensionTargets: map[string]string{"stash-service": "http://10.0.0.5"},
+		LastSeenUnixMs:   time.Now().UnixMilli(),
+	}
+	postAnnounce(s, "10.0.0.7:5555", fmt.Sprintf(`{"hostId":%q,"targetPort":80}`, testHostID))
+
+	m := httptest.NewRecorder()
+	s.handleMetrics(m, httptest.NewRequest("GET", "/metrics", nil))
+	body := m.Body.String()
+	if !strings.Contains(body, "yuruna_pool_extension_target_disagreement{") {
+		t.Fatalf("no disagreement gauge emitted, got:\n%s", body)
+	}
+	if !strings.Contains(body, "superseded=\"http://10.0.0.5\"") {
+		t.Errorf("the disagreement gauge must name the dropped address, got:\n%s", body)
+	}
+}
+
+// Two sources that AGREE are not a disagreement -- the gauge must stay absent so
+// its presence keeps meaning something.
+func TestAnnounceNoDisagreementWhenSourcesAgree(t *testing.T) {
+	s := newPoolState("default", 8080)
+	s.hosts[testHostID] = &hostView{
+		HostId:           testHostID,
+		ActiveExtensions: []string{"stash-service"},
+		ExtensionTargets: map[string]string{"stash-service": "http://10.0.0.7"},
+		LastSeenUnixMs:   time.Now().UnixMilli(),
+	}
+	postAnnounce(s, "10.0.0.7:5555", fmt.Sprintf(`{"hostId":%q,"targetPort":80}`, testHostID))
+
+	m := httptest.NewRecorder()
+	s.handleMetrics(m, httptest.NewRequest("GET", "/metrics", nil))
+	if body := m.Body.String(); strings.Contains(body, "yuruna_pool_extension_target_disagreement{") {
+		t.Errorf("disagreement gauge emitted for two sources that agree, got:\n%s", body)
 	}
 }
 

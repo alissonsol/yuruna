@@ -64,9 +64,9 @@ base URL for `curl`-style fetches in this priority order:
 3. **GitHub, same repository, pinned commit** — the final fallback.
 
 **The fallback is not a fixed public URL.** It is built from a repo slug
-and an exact commit supplied by the host: `EXEC_FALLBACK_REPO` /
-`EXEC_FALLBACK_REF`, typed into the guest console alongside `EXEC_SHA256`
-(see the integrity gate), or `YURUNA_GITHUB_REPO` / `YURUNA_GITHUB_REF`
+and an exact commit supplied by the host: `E_FB_REPO` / `E_FB_REF`, typed
+into the guest console alongside `E_SHA` (see "typed envelope" below), or
+`YURUNA_GITHUB_REPO` / `YURUNA_GITHUB_REF`
 baked into `host.env` at New-VM time. The typed pair wins, because it
 names the commit the host is serving *now* rather than whenever this VM
 was provisioned.
@@ -145,6 +145,70 @@ defensively so future HEAD-RST regressions in any handler don't
 silently push every guest back to GitHub.
 
 Source: [`automation/fetch-and-execute.sh`](../automation/fetch-and-execute.sh).
+
+### Defining the fetch-and-execute typed envelope
+
+Before typing a `fetch-and-execute.sh <path>` command into a guest, the
+host prepends a short block of environment assignments to it — the
+*typed envelope*. `Get-FetchExecuteEnvPrefix`
+(`test/modules/Test.SequenceHandler.psm1`) builds it, and both
+`fetchAndExecute` (VM console) and `sshFetchAndExecute` (SSH) send it.
+
+| Macro | Carries | Guest behavior |
+|---|---|---|
+| `EXEC_REQUIRE_SHA256=1` | "a digest is mandatory for this call" | With no digest it recognizes, the guest **refuses** rather than running unverified bytes. |
+| `E_SHA` | sha256 of the payload script, lowercase hex | Verified before a single byte reaches `bash`; one re-fetch on mismatch, then exit 3. |
+| `E_RETRY_SHA` | sha256 of `automation/yuruna-retry.sh` | Gates the `sudo`-installed self-heal copy of the retry lib through the same check. |
+| `E_FB_REPO` | `owner/repo` for the GitHub fallback | Used only when the host status service is unreachable. |
+| `E_FB_REF` | commit for that fallback, abbreviated to 12 hex characters | Pins the fallback to a commit, never a branch. |
+
+**Naming standard.** `E_` marks a value that is *typed*, per step, into a
+guest; `_SHA` is a lowercase-hex sha256; `FB` is the GitHub fallback pair.
+Names are this terse for one reason: on the console path each character is
+an individual key event, and sends past roughly 400 characters have
+corrupted mid-flight (see `$script:FetchExecuteTypedCharWarn`). Values that
+are *baked* rather than typed — `YURUNA_GITHUB_REPO`, `YURUNA_GITHUB_REF`,
+`YURUNA_STATUS_SERVICE_IP` in `host.env` — cost no keystrokes and keep
+their long, self-describing names. Operator-facing overrides
+(`EXEC_BASE_URL`, `EXEC_QUERY_PARAMS`, `EXEC_PROFILE`) are typed by hand,
+not by the harness, and likewise stay long.
+
+**Budget.** With a 20-character repo slug the envelope is 223 characters:
+
+```
+EXEC_REQUIRE_SHA256=1     22
+E_SHA=<64 hex>            71
+E_RETRY_SHA=<64 hex>      77
+E_FB_REPO=<owner/repo>    31
+E_FB_REF=<12 hex>         22
+```
+
+The step's own `text:` is added on top of that, against a ~400-character
+warning threshold — so a sequence author has roughly 175 characters to
+spend. The long spellings cost 281, which left a 129-character command
+(a `fetch-and-execute.sh` invocation with a deep repo path) over the line.
+
+**Two compatibility rules, both deliberate:**
+
+- `EXEC_REQUIRE_SHA256` is **not** shortened. A guest imaged before the
+  rename knows only the `EXEC_*` spellings; it would ignore `E_SHA`
+  entirely and run the fetched bytes unverified. Seeing this flag with no
+  digest it understands, it refuses instead. The rename therefore fails
+  *closed* on an old guest — a loud, diagnosable failure that a rebuild
+  fixes — rather than silently reopening the fetch-to-`bash` hole.
+- The guest reads `${E_SHA:-${EXEC_SHA256:-…}}`, and the same pattern for
+  the other three, so a *new* guest still works under an *old* host.
+
+**Why not shorter still.** Base64 digests would save another 40
+characters but cost a hex↔base64 conversion in the guest and make the
+digest un-greppable against `sha256sum` output in a console log. Folding
+all five into one packed variable saves a little more and makes the OCR'd
+console line unreadable to the operator debugging it. Neither is worth it:
+the remaining lever is the step's `text:`, and a long one is a signal that
+work belongs inside the fetched script.
+
+Sources: [`automation/fetch-and-execute.sh`](../automation/fetch-and-execute.sh),
+[`test/modules/Test.SequenceHandler.psm1`](../test/modules/Test.SequenceHandler.psm1).
 
 ### Defining fetch-and-execute host-unreachable warning
 
@@ -461,14 +525,33 @@ The guest's `ubuntu.server.24.k8s.sh` reconfigures containerd to:
    only `docker pull` via dockerd benefits from the `daemon.json`
    `registry-mirrors` set above.
 
-`config_path = "/etc/containerd/certs.d"` is the modern containerd
+`config_path = '/etc/containerd/certs.d'` is the modern containerd
 v1.7+ mechanism: drop a `hosts.toml` per upstream registry to rewrite
-the pull host. We register `docker.io` and `registry.k8s.io` (the
-`kubeadm` pre-pull set lives on `registry.k8s.io`). zot's sync
-extension is configured (caching-proxy-service `user-data`) to mirror both
-upstreams plus `quay.io` / `ghcr.io` / `gcr.io`, so any future
+the pull host. We register `docker.io`, `registry.k8s.io` (the
+`kubeadm` pre-pull set), `public.ecr.aws`, and `ghcr.io` (flannel).
+zot's sync extension is configured (caching-proxy-service `user-data`)
+to mirror those upstreams plus `quay.io` / `gcr.io`, so any future
 workload pulling from those will also flow through cache on the first
 hit.
+
+**Set `config_path` by matching whatever value is there, not the empty
+`""`.** containerd 1.x generated `config_path = ""`; containerd 2.2
+generates `config_path = '/etc/containerd/certs.d:/etc/docker/certs.d'`
+— single-quoted, non-empty, and colon-joined, which containerd 2.2
+itself then ignores ([containerd#12808][ctd12808]). A substitution
+anchored on `""` matches nothing there and says nothing about it, so
+every `hosts.toml` goes inert and containerd pulls bypass zot while
+dockerd's `daemon.json` mirror keeps working — which is what makes the
+breakage so quiet. The same applies to `SystemdCgroup`, which
+containerd dropped from the generated default once already
+([containerd#12101][ctd12101]). Both substitutions are followed by a
+`grep` post-condition that exits non-zero, so the next schema change
+fails at the edit instead of surfacing later as a flannel image pull
+that hangs at `Init:0/2` with `/etc/cni/net.d` empty and the node
+`NotReady`.
+
+[ctd12808]: https://github.com/containerd/containerd/issues/12808
+[ctd12101]: https://github.com/containerd/containerd/issues/12101
 
 Source:
 [`guest/ubuntu.server.24/ubuntu.server.24.k8s.sh`](../guest/ubuntu.server.24/ubuntu.server.24.k8s.sh).
@@ -1878,6 +1961,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.29
+Last review: 2026.07.31
 
 Back to [Yuruna](../README.md)

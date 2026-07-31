@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.29
+.VERSION 2026.07.31
 .GUID 42d4e5f6-a7b8-4c91-9234-5d6e7f8a9b0c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -36,6 +36,25 @@
     each step iteration from the runspace thread itself, so it goes
     stale iff that thread is genuinely wedged. See
     feedback_threadpool_heartbeat_watchdog_blind.md for the trap class.
+
+    Two bounds, selected by runner.phase (Write-RunnerPhase /
+    Clear-RunnerPhase in Test.RunnerHeartbeat.psm1):
+
+      runner.phase PRESENT -> PreambleTimeoutSeconds. The inner is still
+        in its preamble (bootstrap, host detection, the caching-proxy
+        gate and its port-map refresh, status-service start). None of
+        that is legitimately slow, so the tight bound applies.
+      runner.phase ABSENT  -> StepTimeoutSeconds, unchanged. Either the
+        inner cleared it for a legitimately long stretch (the weekly
+        base-image download) or the sequence has taken over.
+
+    Why the split: the inner SEEDS runner.stepHeartbeat at startup, so
+    before this the preamble was nominally guarded but effectively
+    unguarded -- a preamble stall (the motivating case: a bare `sudo`
+    prompting on the inherited terminal with nobody present) burned the
+    full step budget while the dashboard still showed the previous
+    cycle's green. Absence of runner.phase reproduces the old behaviour
+    exactly, so the looser bound is always the failure direction.
 #>
 
 function Get-WatchdogInnerIdentityScript {
@@ -82,6 +101,13 @@ function Start-Watchdog {
         outer.log.
     .PARAMETER PollSeconds
         Sleep between heartbeat-staleness checks (typical: 30).
+    .PARAMETER PreambleTimeoutSeconds
+        Tighter bound applied while runner.phase exists -- i.e. before the
+        inner reaches its first sequence step. Defaults to 600 so an existing
+        caller that has not been updated still gets the protection. Values <= 0
+        disable the tighter bound (StepTimeoutSeconds everywhere), which is the
+        pre-existing behaviour and the documented escape hatch for a host whose
+        preamble is genuinely slow.
     #>
     [CmdletBinding(SupportsShouldProcess)]
     [OutputType([System.Management.Automation.Job])]
@@ -89,14 +115,21 @@ function Start-Watchdog {
     # the parameter IS read via $using:PollSeconds inside the Start-Job
     # scriptblock below, but PSSA's static analysis doesn't follow $using:
     # references back to the enclosing function's param block.
+    # PreambleTimeoutSeconds needs no such suppression -- it is read directly
+    # here (the collapse rule below), so PSSA sees the use.
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', 'PollSeconds')]
     param(
         [Parameter(Mandatory)][int]$StepTimeoutSeconds,
         [Parameter(Mandatory)][string]$RuntimeDir,
-        [Parameter(Mandatory)][int]$PollSeconds
+        [Parameter(Mandatory)][int]$PollSeconds,
+        [Parameter()][int]$PreambleTimeoutSeconds = 600
     )
-    if (-not $PSCmdlet.ShouldProcess("watchdog job for $RuntimeDir (threshold ${StepTimeoutSeconds}s)", 'Start-Job')) { return $null }
+    if (-not $PSCmdlet.ShouldProcess("watchdog job for $RuntimeDir (threshold ${StepTimeoutSeconds}s, preamble ${PreambleTimeoutSeconds}s)", 'Start-Job')) { return $null }
     $thresholdSeconds = $StepTimeoutSeconds
+    # A preamble bound at or above the step bound buys nothing and a
+    # non-positive one is the documented opt-out; both collapse to "no tighter
+    # bound" so the job body has a single rule to apply.
+    $preambleSeconds  = if ($PreambleTimeoutSeconds -gt 0 -and $PreambleTimeoutSeconds -lt $StepTimeoutSeconds) { $PreambleTimeoutSeconds } else { $StepTimeoutSeconds }
     # The identity predicate is captured as source text and rebuilt inside the job
     # (a separate-process Start-Job cannot see this module's functions), so the
     # tests and the watchdog exercise one definition.
@@ -109,10 +142,12 @@ function Start-Watchdog {
     return Start-Job -Name 'yurunaWatchdog' -ScriptBlock {
         $runtimeDir   = $using:RuntimeDir
         $thresholdSeconds = $using:thresholdSeconds
+        $preambleSeconds  = $using:preambleSeconds
         $pollSeconds      = $using:PollSeconds
         # Rebuild the shared identity predicate in this separate-process job.
         $sameInner    = [scriptblock]::Create($using:innerIdentityScript)
         $stepHbFile = Join-Path $runtimeDir 'runner.stepHeartbeat'
+        $phaseFile  = Join-Path $runtimeDir 'runner.phase'
         $pidFile    = Join-Path $runtimeDir 'inner.pid'
         $outerLog   = Join-Path $runtimeDir 'outer.log'
         # Any early exit below leaves the cycle running UNGUARDED, and the
@@ -176,7 +211,7 @@ function Start-Watchdog {
             }
             return $true
         }
-        Add-Content -LiteralPath $outerLog -Value "$((Get-Date).ToString('o')) [watchdog] armed: innerPid=$innerPid startUtc=$innerStartUtc thresholdSeconds=$thresholdSeconds pollSeconds=$pollSeconds signal=runner.stepHeartbeat"
+        Add-Content -LiteralPath $outerLog -Value "$((Get-Date).ToString('o')) [watchdog] armed: innerPid=$innerPid startUtc=$innerStartUtc thresholdSeconds=$thresholdSeconds preambleSeconds=$preambleSeconds pollSeconds=$pollSeconds signal=runner.stepHeartbeat"
         # Arm timestamp: when no step heartbeat has been published yet, staleness is aged from
         # here so a hang BEFORE the first step write is still detected (not ignored forever).
         $armedAt = Get-Date
@@ -189,6 +224,19 @@ function Start-Watchdog {
                 Add-Content -LiteralPath $outerLog -Value "$((Get-Date).ToString('o')) [watchdog] inner pid $innerPid no longer matches the armed identity (exited or PID reused; confirmed); watchdog disarming."
                 return
             }
+            # Pick the bound BEFORE reading the age, and read the phase every
+            # poll rather than caching it: the inner clears runner.phase the
+            # moment a legitimately long stretch begins, and a cached "still in
+            # preamble" would kill it mid-download.
+            $phase = $null
+            try {
+                if (Test-Path -LiteralPath $phaseFile) { $phase = "$(Get-Content -LiteralPath $phaseFile -Raw)".Trim() }
+            } catch {
+                # Unreadable phase marker -> fall through to the looser bound.
+                # Guessing "preamble" here would kill a healthy long phase.
+                $phase = $null
+            }
+            $effectiveThreshold = if ($phase) { $preambleSeconds } else { $thresholdSeconds }
             try {
                 if (Test-Path $stepHbFile) {
                     $age = ((Get-Date) - (Get-Item -LiteralPath $stepHbFile).LastWriteTime).TotalSeconds
@@ -203,12 +251,17 @@ function Start-Watchdog {
                 # is a silent unguarded cycle. Treat as not-stale this poll.
                 continue
             }
-            if ($age -gt $thresholdSeconds) {
+            if ($age -gt $effectiveThreshold) {
                 # Re-verify identity immediately before the kill: between the disarm
                 # check above and here the inner could have exited and its PID been
                 # reused, and killing the wrong process is worse than a missed kill.
                 if (& $sameInner $innerPid $innerStartUtc) {
-                    Add-Content -LiteralPath $outerLog -Value "$((Get-Date).ToString('o')) [watchdog] step heartbeat stale $([int]$age)s > ${thresholdSeconds}s; killing inner PID $innerPid and its descendants"
+                    # Name the phase in the kill line: "stale in preamble phase
+                    # 'caching-proxy-gate'" points straight at the wedged work,
+                    # where a bare step-timeout message sends the operator
+                    # hunting through a cycle that never reached step 1.
+                    $whereMsg = if ($phase) { "preamble phase '$phase' (bound ${preambleSeconds}s)" } else { "bound ${thresholdSeconds}s" }
+                    Add-Content -LiteralPath $outerLog -Value "$((Get-Date).ToString('o')) [watchdog] step heartbeat stale $([int]$age)s > $whereMsg; killing inner PID $innerPid and its descendants"
                     # Kill the whole tree, not just the inner pwsh: a wedged
                     # step usually has live children (console capture, OCR,
                     # ssh) that would otherwise orphan, keep handles open,
@@ -251,7 +304,7 @@ function Start-Watchdog {
                 # Identity probe failed transiently while the heartbeat is
                 # stale: neither kill (might not be our process) nor disarm
                 # (might still be our wedged inner). Keep polling.
-                Add-Content -LiteralPath $outerLog -Value "$((Get-Date).ToString('o')) [watchdog] step heartbeat stale $([int]$age)s but identity probe is transiently failing; retrying next poll."
+                Add-Content -LiteralPath $outerLog -Value "$((Get-Date).ToString('o')) [watchdog] step heartbeat stale $([int]$age)s (bound ${effectiveThreshold}s$(if ($phase) { ", preamble phase '$phase'" })) but identity probe is transiently failing; retrying next poll."
             }
         }
     }

@@ -36,7 +36,7 @@ an unwired backend rather than failing mid-step. The same pattern
 recurs across the workspace: [SequenceAction](handler-schema.md)
 (verb registry), [Component registry login](authentication.md#component-registry-login)
 and [Host-condition registry](host-condition-registry.md) (provider
-matrices), [Remediation dispatcher](remediation.md) (failure-class
+matrices), [Remediation dispatcher](failure-schema.md#remediation-dispatcher) (failure-class
 handlers). Four of the five share the
 [`New-YurunaRegistry`](../test/modules/Test.Registry.psm1) primitive
 and surface through `Get-YurunaRegistryDirectory` for autonomous
@@ -192,6 +192,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.29
+Last review: 2026.07.31
 
 Back to [Yuruna](../README.md)

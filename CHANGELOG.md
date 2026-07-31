@@ -4,6 +4,24 @@ Yuruna uses [Calendar Versioning](https://calver.org/): `YYYY.MM.DD`.
 Tags are cut from the `main` branch; entries below summarize each
 tagged release.
 
+## 2026.07.31
+
+- **Sequence steps get their console keystrokes back.** The integrity envelope
+  shrank from 281 to 223 characters, returning 58 of the ~400 a VM console
+  carries intact. **Needs a guest rebuild:** older VMs refuse the digest rather
+  than run unverified code. See
+  [definition.md](docs/definition.md#defining-the-fetch-and-execute-typed-envelope).
+- **Kubernetes guests pull container images through the cache again.** On
+  containerd 2.2 the `certs.d` edit matched nothing, so images bypassed the
+  caching-proxy zot, hanging flannel and leaving nodes `NotReady`. It now
+  matches, and fails loudly if the shape changes. See
+  [definition.md](docs/definition.md#defining-containerd-hoststoml-cache-mirror).
+- **Also in this release.** `pwsh install/setup.ps1` takes a standalone host or
+  a lab beacon from clone to running, asking only what it cannot infer. The
+  dashboard's **Lab token** tile now turns red when the collector stops
+  reporting. See
+  [operator.md](docs/operator.md#a0-shortcut-the-standalone-setup-script).
+
 ## 2026.07.29
 
 - **The dashboard says which hosts you can drive, before you click.** A
@@ -267,6 +285,6 @@ LICENSEURI <https://yuruna.link/license>
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.29
+Last review: 2026.07.31
 
 Back to [Yuruna](README.md)

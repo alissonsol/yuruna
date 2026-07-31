@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.29
+.VERSION 2026.07.31
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456701
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -32,6 +32,12 @@
 # session on every facade load. Keeping the self-heal only in the sibling
 # also covers the callers that import Test.HostDetection directly without
 # going through this facade.
+# Yuruna.Common carries Get-YurunaServiceVmName, which Stop-ConcurrentVM's
+# exemption list resolves at parameter-binding time. Imported here rather than
+# relied on from a host driver's -Global import: the default has to bind even
+# when the caller reached this facade without loading a driver.
+Import-Module (Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) 'automation/Yuruna.Common.psm1') -Global -Force -DisableNameChecking
+
 $siblingModules = @(
     'Test.HostDetection.psm1',
     'Test.HostCondition.psm1',
@@ -68,8 +74,21 @@ function Stop-ConcurrentVM {
         Host-neutral: enumeration and lifecycle both go through the host
         contract, so this behaves the same on UTM, Hyper-V and libvirt.
     .PARAMETER AlwaysAllow
-        VM names that may keep running. The caching-proxy service is infrastructure
-        the guests consume, not a competitor for the host.
+        VM names that may keep running. The service VMs are infrastructure the
+        cycle CONSUMES, not competitors for the host: the caching proxy serves
+        every guest install, the stash service receives the build's binaries, and
+        the pool-control service serves the intent store. Stopping one at cycle
+        start does not free the host for the cycle, it removes something the
+        cycle is about to require -- the stash service in particular fails the
+        very first orchestration step, which refuses to provision when nothing
+        answers /healthz.
+
+        A service VM stopped this way is also stopped WITHOUT its marker being
+        cleared (Stop-StashServiceVM.ps1 owns that), so the dashboard keeps
+        advertising a service that is no longer running.
+
+        The defaults are the three shipped service VM names. An operator who
+        renames one with -VMName passes the new name here.
     .PARAMETER ExceptVmName
         A VM to leave alone -- the dev loop where an operator re-runs a
         sequence against a guest they left up on purpose.
@@ -82,7 +101,7 @@ function Stop-ConcurrentVM {
     [CmdletBinding(SupportsShouldProcess)]
     [OutputType([bool])]
     param(
-        [string[]]$AlwaysAllow = @('yuruna-caching-proxy-service'),
+        [string[]]$AlwaysAllow = (Get-YurunaServiceVmName),
         [string]$ExceptVmName
     )
     if (-not (Get-Command Get-VMName -ErrorAction SilentlyContinue)) {

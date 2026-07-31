@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.29
+.VERSION 2026.07.31
 .GUID 4288bcbc-ede3-4dda-bb77-b9782c7615ad
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -151,6 +151,159 @@ function Test-IsAdministrator {
     if (-not $IsWindows) { return $false }
     $id = [Security.Principal.WindowsIdentity]::GetCurrent()
     return ([Security.Principal.WindowsPrincipal]$id).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+}
+
+function Get-PwshApplicationPath {
+<#
+.SYNOPSIS
+    Absolute path of the pwsh EXECUTABLE to hand another program, or 'pwsh'
+    when it cannot be resolved from PATH.
+.DESCRIPTION
+    Deliberately resolved through PATH (Get-Command -CommandType Application)
+    rather than [Environment]::ProcessPath. On a Homebrew PowerShell those are
+    different files: PATH finds brew's wrapper, which exports DOTNET_ROOT before
+    exec'ing the runtime, while ProcessPath is the libexec apphost the wrapper
+    exec'd -- launching THAT directly is how a nested pwsh ends up unable to
+    find libhostfxr. Never use ProcessPath to re-launch pwsh.
+#>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param()
+    $resolved = Get-Command -Name 'pwsh' -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($resolved -and $resolved.Source) { return $resolved.Source }
+    return 'pwsh'
+}
+
+function Get-SudoPwshArgumentList {
+<#
+.SYNOPSIS
+    Builds the argument vector for running a PowerShell script under sudo:
+    @([-n] [-E] <pwsh> -NoProfile -File <script> <script args...>). Pure apart
+    from the PATH lookup for pwsh.
+.DESCRIPTION
+    Two things have to be right or the child never reaches the script.
+
+    The environment. macOS PowerShell installed from the Homebrew FORMULA is
+    framework-dependent on brew's dotnet and finds its runtime through
+    DOTNET_ROOT, exported by the wrapper on PATH. sudo's env_reset drops that
+    variable, so the child starts, fails to locate libhostfxr, and exits 131 --
+    before reading a line of the script, and with an error that names .NET
+    rather than the caller. -E preserves it.
+
+    -E is macOS-only on purpose. Linux ships a self-contained
+    /opt/microsoft/powershell/7 that needs nothing preserved, and a sudoers rule
+    carrying NOSETENV there REJECTS -E outright -- so adding it unconditionally
+    would break the hosts that work today. The durable machine-wide fix on macOS
+    is /etc/dotnet/install_location_<arch>; install/macos.utm.sh writes it.
+
+    The interpreter. Passed as an absolute path from Get-PwshApplicationPath so
+    the child is the same PowerShell the caller is using.
+.PARAMETER ScriptPath
+    Script for pwsh to run with -File.
+.PARAMETER ScriptArgument
+    Arguments appended after the script path.
+.PARAMETER NonInteractive
+    Adds sudo -n, so a cold sudo timestamp fails immediately instead of blocking
+    on a password prompt no one is watching.
+#>
+    [CmdletBinding()]
+    [OutputType([string[]])]
+    param(
+        [Parameter(Mandatory)][string]$ScriptPath,
+        [string[]]$ScriptArgument = @(),
+        [switch]$NonInteractive
+    )
+    $sudoOption = @()
+    if ($NonInteractive) { $sudoOption += '-n' }
+    if ($IsMacOS)        { $sudoOption += '-E' }
+    return [string[]]@($sudoOption + @((Get-PwshApplicationPath), '-NoProfile', '-File', $ScriptPath) + $ScriptArgument)
+}
+
+function Invoke-YurunaSudo {
+<#
+.SYNOPSIS
+    Run one command under sudo, adding -n on the unattended path so a cold sudo
+    timestamp fails immediately instead of blocking on a password prompt.
+.DESCRIPTION
+    THE PROBLEM THIS SOLVES. The test runner spawns its inner cycle with the
+    call operator, so the inner inherits the launch terminal. sudo reads the
+    password from /dev/tty, NOT from stdin -- redirecting or closing stdin does
+    nothing. A bare `& sudo ...` anywhere in the cycle therefore parks the whole
+    host on a prompt nobody is present to answer, while runner.heartbeat (a
+    threadpool timer) keeps ticking and the dashboard keeps showing the last
+    cycle's green. Passing -n turns that indefinite stall into an immediate,
+    attributable failure.
+
+    WHEN -n IS ADDED. Whenever $env:YURUNA_NONINTERACTIVE is '1' -- set by the
+    outer runner around every inner spawn, and by the inner on itself. An
+    operator running a host script by hand has no such variable, keeps the
+    interactive behaviour, and can still be prompted once, which is correct:
+    they are watching.
+
+    WHEN IT THROWS. If sudo reports that it needs a password (or a terminal, or
+    that the account may not run the command), that is not a transient error:
+    every later elevated call this cycle fails the same way, and the host needs
+    hands on it. Throwing once, with the exact /etc/sudoers.d rule to install,
+    beats twenty silent no-ops that leave the cycle "green but wrong". Pass
+    -TolerateBlocked for a caller that genuinely wants to continue degraded.
+.PARAMETER Argument
+    The command and its arguments, e.g. @('systemctl','daemon-reload').
+.PARAMETER InputText
+    Text piped to the command's stdin. This is how root-owned files get written
+    across the codebase (`$body | sudo tee /etc/...`), and it is why the stdin
+    of the child cannot simply be closed: tee needs it for the payload, while
+    sudo takes the password from /dev/tty regardless.
+.PARAMETER TolerateBlocked
+    Return the result instead of throwing when sudo says it needs a password.
+.OUTPUTS
+    [hashtable] @{ ExitCode; Output; Blocked }.
+#>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param(
+        [Parameter(Mandatory)][string[]]$Argument,
+        [string]$InputText,
+        [switch]$TolerateBlocked
+    )
+    $unattended = ($env:YURUNA_NONINTERACTIVE -eq '1')
+    $sudoArgs = @()
+    if ($unattended) { $sudoArgs += '-n' }
+    $sudoArgs += $Argument
+
+    $raw = if ($PSBoundParameters.ContainsKey('InputText')) {
+        $InputText | & sudo @sudoArgs 2>&1
+    } else {
+        & sudo @sudoArgs 2>&1
+    }
+    $rc  = $LASTEXITCODE
+    $out = (@($raw) | ForEach-Object { "$_" }) -join "`n"
+
+    # sudo's own refusal signatures. Matched on text because the exit code is 1
+    # for "wrong password", "no tty", and "not permitted" alike -- and also for
+    # plenty of ordinary command failures we must NOT misreport as an elevation
+    # problem.
+    $blocked = ($rc -ne 0) -and ($out -match 'a password is required|a terminal is required|no tty present|may not run|is not in the sudoers file')
+    $result = @{ ExitCode = $rc; Output = $out; Blocked = $blocked }
+    if (-not $blocked) { return $result }
+
+    $cmd  = @($Argument)[0]
+    $who  = try { "$(& '/usr/bin/id' -un 2>$null)".Trim() } catch { "$($env:USER)".Trim() }
+    $full = (Get-Command -CommandType Application -Name (Split-Path -Leaf "$cmd") -ErrorAction SilentlyContinue | Select-Object -First 1).Source
+    if (-not $full) { $full = $cmd }
+    $msg = @(
+        "Elevation required and no operator is present: sudo refused '$cmd'."
+        "  Account: $who"
+        "  sudo:    $($out.Trim())"
+        '  This cannot be repaired remotely -- it needs onsite/console access:'
+        "    echo '$who ALL=(root) NOPASSWD: $full' | sudo tee /etc/sudoers.d/yuruna-runner >/dev/null"
+        '    sudo chmod 0440 /etc/sudoers.d/yuruna-runner && sudo visudo -cf /etc/sudoers.d/yuruna-runner'
+    ) -join [Environment]::NewLine
+
+    if ($TolerateBlocked) {
+        Write-Warning $msg
+        return $result
+    }
+    throw $msg
 }
 
 function Get-CachingProxyServicePort {
@@ -611,6 +764,121 @@ function Get-HostIpv4Subnet {
     return , ([pscustomobject[]]$result)
 }
 
+function Test-TcpConnectOutcome {
+<#
+.SYNOPSIS
+    Connect to $IpAddress:$Port within $TimeoutMs and report WHAT happened, not
+    merely whether it worked.
+.DESCRIPTION
+    A failed TCP connect carries two opposite diagnoses and a bool cannot hold
+    either of them:
+
+      * 'refused' -- the peer sent an RST. The host is up and the path to it
+        works; nothing is listening on that port. A service is down, restarting,
+        or was never started. It comes back in milliseconds.
+      * 'timeout' -- nothing answered before the deadline. Now the PATH is the
+        suspect: a peer that vanished, a bridge that stopped forwarding, an
+        uplink that roamed, or a peer too loaded to accept.
+
+    Collapsing those into "did not answer within Ns" sends the reader hunting
+    through the network for a fault that is entirely inside the peer, and throws
+    away the tell that distinguishes them -- the elapsed time. Tens of
+    milliseconds against a 3000 ms budget is not a timeout, it is a refusal.
+
+    ElapsedMs is returned for exactly that reason: a caller that prints it makes
+    the distinction legible even to a reader who does not know these outcomes
+    exist.
+.PARAMETER TimeoutMs
+    Deadline for the connect. Bounds only the 'timeout' verdict; a refusal
+    returns as fast as the peer answers.
+.OUTPUTS
+    [hashtable] @{
+        Outcome   = 'reachable' | 'refused' | 'timeout' | 'unreachable' | 'error'
+        Reachable = [bool] Outcome -eq 'reachable'
+        ElapsedMs = [int]
+        Detail    = socket error text, '' when there was none
+    }
+#>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param(
+        [Parameter(Mandatory)][string]$IpAddress,
+        [Parameter(Mandatory)][int]$Port,
+        [int]$TimeoutMs = 3000
+    )
+    $sw      = [System.Diagnostics.Stopwatch]::StartNew()
+    $tcp     = New-Object System.Net.Sockets.TcpClient
+    $outcome = 'timeout'
+    $detail  = ''
+    try {
+        $async = $tcp.BeginConnect($IpAddress, $Port, $null, $null)
+        if ($async.AsyncWaitHandle.WaitOne($TimeoutMs)) {
+            # The wait completing means the operation FINISHED, not that it
+            # succeeded -- a refusal completes it just as much as a connect
+            # does. EndConnect is what surfaces which, and calling it is also
+            # what releases the async operation instead of abandoning it.
+            try {
+                $tcp.EndConnect($async)
+                $outcome = if ($tcp.Connected) { 'reachable' } else { 'refused' }
+            } catch {
+                $detail = $_.Exception.Message
+                # The SocketException can arrive wrapped; walk to it rather
+                # than matching on message text, which is localized.
+                $ex = $_.Exception
+                while ($ex -and -not ($ex -is [System.Net.Sockets.SocketException])) { $ex = $ex.InnerException }
+                switch ("$(if ($ex) { $ex.SocketErrorCode })") {
+                    'ConnectionRefused'  { $outcome = 'refused' }
+                    'HostUnreachable'    { $outcome = 'unreachable' }
+                    'NetworkUnreachable' { $outcome = 'unreachable' }
+                    'HostDown'           { $outcome = 'unreachable' }
+                    'TimedOut'           { $outcome = 'timeout' }
+                    default              { $outcome = 'error' }
+                }
+            }
+        }
+    } catch {
+        $detail  = $_.Exception.Message
+        $outcome = 'error'
+    } finally {
+        $tcp.Close()
+        $sw.Stop()
+    }
+    return @{
+        Outcome   = $outcome
+        Reachable = ($outcome -eq 'reachable')
+        ElapsedMs = [int]$sw.ElapsedMilliseconds
+        Detail    = $detail
+    }
+}
+
+function Get-TcpOutcomeExplanation {
+<#
+.SYNOPSIS
+    One sentence saying what a Test-TcpConnectOutcome result means and where to
+    go looking. Shared so every caller phrases the same finding the same way.
+.PARAMETER Outcome
+    A Test-TcpConnectOutcome hashtable.
+.PARAMETER Endpoint
+    How to name the target in the sentence, e.g. "192.168.64.4:3128".
+.OUTPUTS
+    [string]
+#>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        [Parameter(Mandatory)][hashtable]$Outcome,
+        [Parameter(Mandatory)][string]$Endpoint
+    )
+    $ms = [int]$Outcome.ElapsedMs
+    switch ([string]$Outcome.Outcome) {
+        'reachable'   { return "$Endpoint accepted in ${ms} ms." }
+        'refused'     { return "$Endpoint REFUSED the connection in ${ms} ms -- the host answered, so the network path is fine and nothing is listening on that port. The service is down, restarting, or was never started." }
+        'timeout'     { return "$Endpoint did not answer within ${ms} ms -- nothing responded at all, so the path is the suspect: the peer is gone, a bridge stopped forwarding, the uplink roamed, or the peer is too loaded to accept." }
+        'unreachable' { return "$Endpoint is unreachable after ${ms} ms -- the network rejected the route before any peer was contacted (no interface, no route, or a host that is down)." }
+        default       { return "$Endpoint could not be probed after ${ms} ms: $($Outcome.Detail)" }
+    }
+}
+
 function Get-Ipv4OnLinkVerdict {
 <#
 .SYNOPSIS
@@ -747,6 +1015,143 @@ function Select-DhcpLeaseIpAddress {
     return $null
 }
 
+function Select-StaleDhcpLeaseBlock {
+<#
+.SYNOPSIS
+    Pick the lease blocks in macOS `/var/db/dhcpd_leases` that a name lookup
+    could mistake for a live guest, and that provably are not one.
+.DESCRIPTION
+    macOS files each lease under the name the guest sent and never prunes, so
+    a VM name that is rebuilt accumulates one block per incarnation. Only the
+    newest is real; the rest are indistinguishable from it to a name lookup
+    except by expiry, which is the whole reason Select-DhcpLeaseIpAddress has
+    to guess at all. During the seconds a freshly built guest has not yet
+    taken its lease, that guess necessarily lands on a predecessor.
+
+    Removing the predecessors removes the guess. What is selected:
+
+      * only names carrying MORE than one block -- a name with a single block
+        is the only answer a lookup can give for it, right or wrong, and
+        deleting it changes nothing except to lose history;
+      * never the largest-expiry block of a name, which is the live guest by
+        the same rule Select-DhcpLeaseIpAddress selects it by;
+      * never a block whose address is confirmed to be in use, whatever the
+        expiry says. -InUseVerdict is the caller's reachability test, and it
+        is the veto: an address that answers belongs to something running, and
+        an expiry-based heuristic does not get to overrule an observation.
+        Its 'unknown' is not a veto -- a probe that could not be run proves
+        nothing, and treating that as in-use would select nothing on a host
+        where probing is unavailable.
+
+    Blocks with no parseable name, address, or expiry are left alone: they
+    cannot be shown stale, and this is a file the DHCP server owns.
+.PARAMETER LeaseText
+    Full text of the lease file.
+.PARAMETER Name
+    Restrict to these guest names. Empty (the default) considers every name.
+.PARAMETER InUseVerdict
+    Scriptblock taking one IPv4 string, returning 'inuse' | 'free' | 'unknown'.
+    Defaults to treating everything as 'unknown' -- a caller that wants the
+    veto passes a real probe.
+.OUTPUTS
+    Zero or more [pscustomobject] @{ Name; IpAddress; LeaseExpiry; Text },
+    newest-expiry first within each name. Callers must normalize with @().
+#>
+    [CmdletBinding()]
+    [OutputType([pscustomobject[]])]
+    param(
+        [Parameter(Mandatory)][AllowEmptyString()][AllowNull()][string]$LeaseText,
+        [string[]]$Name = @(),
+        [scriptblock]$InUseVerdict
+    )
+    if ([string]::IsNullOrWhiteSpace($LeaseText)) { return }
+    if (-not $InUseVerdict) { $InUseVerdict = { 'unknown' } }
+    $wanted = @($Name | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+
+    $parsed = New-Object System.Collections.Generic.List[pscustomobject]
+    foreach ($b in [regex]::Matches($LeaseText, '\{[^}]*\}')) {
+        $text = $b.Value
+        if ($text -notmatch '(?m)^\s*name=(.+?)\s*$') { continue }
+        $blockName = [string]$Matches[1]
+        if ($wanted.Count -gt 0 -and $wanted -notcontains $blockName) { continue }
+        if ($text -notmatch '(?m)^\s*ip_address=(\d+\.\d+\.\d+\.\d+)\s*$') { continue }
+        $ip = [string]$Matches[1]
+        if (-not (Test-Ipv4Address $ip)) { continue }
+        if ($text -notmatch '(?m)^\s*lease=0x([0-9a-fA-F]+)\s*$') { continue }
+        [void]$parsed.Add([pscustomobject]@{
+            Name        = $blockName
+            IpAddress   = $ip
+            LeaseExpiry = [Convert]::ToInt64($Matches[1], 16)
+            Text        = $text
+        })
+    }
+
+    foreach ($group in ($parsed | Group-Object -Property Name)) {
+        if ($group.Count -le 1) { continue }
+        # Sort once and drop the head: the largest expiry is the live guest,
+        # by the same rule the resolver picks it. Ties keep both -- two blocks
+        # with one expiry cannot be told apart, so neither is provably stale.
+        $ordered = @($group.Group | Sort-Object -Property LeaseExpiry -Descending)
+        $keepExpiry = $ordered[0].LeaseExpiry
+        foreach ($block in $ordered) {
+            if ($block.LeaseExpiry -eq $keepExpiry) { continue }
+            $verdict = 'unknown'
+            try { $verdict = [string](& $InUseVerdict $block.IpAddress) }
+            catch { Write-Debug "Select-StaleDhcpLeaseBlock: the in-use probe for $($block.IpAddress) failed: $_" }
+            if ($verdict -eq 'inuse') {
+                Write-Debug "Select-StaleDhcpLeaseBlock: keeping $($block.IpAddress) for '$($block.Name)' -- it answers, so the expiry is not the whole story."
+                continue
+            }
+            $block
+        }
+    }
+}
+
+function Remove-DhcpLeaseBlockText {
+<#
+.SYNOPSIS
+    Return `$LeaseText` with the given blocks removed, or the text unchanged
+    when none of them are present.
+.DESCRIPTION
+    Works on the exact block strings Select-StaleDhcpLeaseBlock captured, so
+    the caller never re-parses and cannot drift from what it decided to
+    remove. A block that is no longer found is skipped rather than treated as
+    an error: the DHCP server rewrites this file whenever a lease moves, and
+    a block that vanished under us is already gone.
+
+    Only whole `{ ... }` blocks and the newline that follows them are cut, so
+    the surviving text stays exactly the shape the DHCP server wrote.
+.PARAMETER LeaseText
+    Full text of the lease file.
+.PARAMETER Block
+    Objects carrying a .Text property holding the verbatim block.
+.OUTPUTS
+    [string] the resulting file text.
+#>
+    [CmdletBinding()]
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+        Justification = 'Pure string transform: returns new text and touches nothing. The caller that writes the lease file is the one carrying ShouldProcess.')]
+    [OutputType([string])]
+    param(
+        [Parameter(Mandatory)][AllowEmptyString()][AllowNull()][string]$LeaseText,
+        [Parameter(Mandatory)][AllowEmptyCollection()][object[]]$Block
+    )
+    $text = [string]$LeaseText
+    foreach ($b in @($Block)) {
+        $blockText = [string]$b.Text
+        if ([string]::IsNullOrEmpty($blockText)) { continue }
+        $index = $text.IndexOf($blockText, [System.StringComparison]::Ordinal)
+        if ($index -lt 0) { continue }
+        $end = $index + $blockText.Length
+        # Take the block's trailing newline with it so removals do not leave a
+        # growing run of blank lines behind.
+        if ($end -lt $text.Length -and $text[$end] -eq "`r") { $end++ }
+        if ($end -lt $text.Length -and $text[$end] -eq "`n") { $end++ }
+        $text = $text.Remove($index, $end - $index)
+    }
+    return $text
+}
+
 function Get-UtmGuestSeedHostname {
 <#
 .SYNOPSIS
@@ -848,6 +1253,33 @@ function ConvertTo-MemoryStartupBytes {
     return $bytes
 }
 
+function Get-YurunaServiceVmName {
+<#
+.SYNOPSIS
+    The VM names that host this framework's SERVICES, as opposed to the guests a
+    cycle creates and destroys.
+.DESCRIPTION
+    Concurrency guards exist to keep leftover TEST guests from competing with a
+    cycle. These three are the opposite kind of VM: the cycle consumes them. The
+    caching proxy serves every guest install, the stash service receives the
+    build's binaries, and the pool-control service serves the intent store.
+    Stopping one at cycle start -- or refusing to start because one is running --
+    does not free the host, it removes something the cycle is about to require.
+
+    There is one definition because there is more than one guard, and a name
+    present in one list and missing from the other produces the worst outcome of
+    the two: a service stopped by the first guard, then a refusal from the second
+    because it is somehow still running. Callers that let an operator rename a
+    service VM pass the new name explicitly.
+.OUTPUTS
+    System.String[]
+#>
+    [CmdletBinding()]
+    [OutputType([string[]])]
+    param()
+    return [string[]]@('yuruna-caching-proxy-service', 'yuruna-stash-service', 'yuruna-pool-control-service')
+}
+
 function Select-NameByPrefix {
 <#
 .SYNOPSIS
@@ -894,4 +1326,4 @@ function Select-NameByPrefix {
     return $matched.ToArray()
 }
 
-Export-ModuleMember -Function New-YurunaTimestampedBackup, Get-HostProxyBackupPath, ConvertTo-ProxyHostPort, Get-PortMapStatePath, Test-IsAdministrator, Get-CachingProxyServicePort, Test-Ipv4Address, Test-Ipv6Address, Format-IpUrlHost, Test-IpAddress, ConvertTo-Sha512CryptHash, ConvertTo-YurunaMacAddress, ConvertTo-Ipv4UInt32, Get-HostIpv4Subnet, Get-Ipv4OnLinkVerdict, Select-DhcpLeaseIpAddress, Get-UtmGuestSeedHostname, ConvertTo-MemoryStartupBytes, Select-NameByPrefix
+Export-ModuleMember -Function New-YurunaTimestampedBackup, Get-HostProxyBackupPath, ConvertTo-ProxyHostPort, Get-PortMapStatePath, Test-IsAdministrator, Get-PwshApplicationPath, Get-SudoPwshArgumentList, Invoke-YurunaSudo, Get-CachingProxyServicePort, Test-Ipv4Address, Test-Ipv6Address, Format-IpUrlHost, Test-IpAddress, ConvertTo-Sha512CryptHash, ConvertTo-YurunaMacAddress, ConvertTo-Ipv4UInt32, Get-HostIpv4Subnet, Get-Ipv4OnLinkVerdict, Test-TcpConnectOutcome, Get-TcpOutcomeExplanation, Select-DhcpLeaseIpAddress, Select-StaleDhcpLeaseBlock, Remove-DhcpLeaseBlockText, Get-UtmGuestSeedHostname, ConvertTo-MemoryStartupBytes, Select-NameByPrefix, Get-YurunaServiceVmName

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.29
+.VERSION 2026.07.31
 .GUID 42f1b2c3-d4e5-4f67-8901-a2b3c4d5e6f9
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -184,14 +184,13 @@ Write-Output "See configuration at: $(Resolve-ExtensionAreaDir -Area 'authentica
 $PasswordFile = Get-CachingProxyServiceStatePath
 
 # --- REGION: https://yuruna.link/network#cache-vm-seed-host-binding
-# macOS: NetworkMode pair -- Wi-Fi -> Shared NAT (VZ gateway 192.168.64.1), Ethernet -> bridged (host LAN IP); Test-MacUplinkNotBridgeable is idempotent (called again below).
+# macOS: NetworkMode pair -- Wi-Fi -> Shared NAT (VZ gateway 192.168.64.1), Ethernet -> bridged (host LAN IP). Resolved once here and reused for the plist below, so the mode and the address can never disagree.
 Import-Module (Join-Path $_repoRootForExt 'host/macos.utm/modules/Yuruna.Host.psm1') -Force
+$NetworkMode = Resolve-UtmNetworkMode
 if ($env:YURUNA_GUEST_REACHABLE_HOST_IP) {
     $YurunaHostIp = $env:YURUNA_GUEST_REACHABLE_HOST_IP
-} elseif (Test-MacUplinkNotBridgeable) {
-    $YurunaHostIp = Get-GuestReachableHostIp   # Wi-Fi -> Shared NAT: VZ gateway
 } else {
-    $YurunaHostIp = Get-BestHostIp             # Ethernet -> bridged: host LAN IP
+    $YurunaHostIp = Get-GuestReachableHostIp -NetworkMode $NetworkMode
 }
 if (-not $YurunaHostIp) { $YurunaHostIp = '' }
 $YurunaHostPort = '8080'
@@ -396,11 +395,9 @@ if (-not $BridgeInterface) {
 # UTM guests reach it directly, and Start-CachingProxyServiceVM.ps1 exposes it to
 # the wider LAN via host port-forwarders. Ethernet keeps bridged (LAN-
 # direct, real client IPs).
-if (Test-MacUplinkNotBridgeable) {
-    $NetworkMode = 'Shared'
+if ($NetworkMode -eq 'Shared') {
     Write-Output "Default route is Wi-Fi ($BridgeInterface) -- bridged can't get a LAN lease over Wi-Fi; building the cache on UTM Shared NAT. Start-CachingProxyServiceVM.ps1 will forward host ports to it for LAN access."
 } else {
-    $NetworkMode = 'Bridged'
     Write-Output "Bridge interface: $BridgeInterface (cache VM will request DHCP on this LAN)"
 }
 
@@ -525,3 +522,13 @@ Write-Output ($guidance.
     Replace('__UTM_DIR__', $UtmDir).
     Replace('__PASSWORD__', $AdminPassword).
     Replace('__PASSWORD_FILE__', $PasswordFile))
+
+# --- REGION: hand root-run artifacts back to the operator
+# Guard only: the supported invocation is UNELEVATED (these scripts elevate the
+# individual operations that need it, and root has no Aqua session for open /
+# utmctl / osascript). But a run that did reach here as root left the bundle,
+# the base image, the seed and the harness key root-owned, and UTM -- running as
+# the operator -- could neither open this VM nor delete it on the next rebuild.
+# The whole ~/yuruna tree, not just this bundle: unlinking a directory needs
+# write permission on its parent, and guest.nosync is shared by every builder.
+[void](Restore-SudoUserOwnership -Path @("$HOME/yuruna", (Join-Path $_repoRootForExt 'test/status')) -Confirm:$false)

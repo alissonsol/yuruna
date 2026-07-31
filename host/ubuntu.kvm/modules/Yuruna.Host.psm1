@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.29
+.VERSION 2026.07.31
 .GUID 42a2b3c4-d5e6-4f78-9012-3a4b5c6d7e8f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -2544,10 +2544,12 @@ After=$base.socket
 [Service]
 ExecStart=$proxyd ${VMIp}:$vmPort
 "@
-        $socketBody  | & sudo tee "/etc/systemd/system/$base.socket"  > $null 2>&1
-        $okSocket = ($LASTEXITCODE -eq 0)
-        $serviceBody | & sudo tee "/etc/systemd/system/$base.service" > $null 2>&1
-        $okService = ($LASTEXITCODE -eq 0)
+        # Invoke-YurunaSudo adds -n on the runner's unattended path and throws
+        # with the sudoers rule to install if sudo wants a password there, so a
+        # misconfigured host fails fast and legibly instead of stalling the
+        # cycle on a prompt read from the inherited terminal.
+        $okSocket  = (Invoke-YurunaSudo -Argument @('tee', "/etc/systemd/system/$base.socket")  -InputText $socketBody).ExitCode  -eq 0
+        $okService = (Invoke-YurunaSudo -Argument @('tee', "/etc/systemd/system/$base.service") -InputText $serviceBody).ExitCode -eq 0
         if ($okSocket -and $okService) {
             $written++
         } else {
@@ -2559,12 +2561,13 @@ ExecStart=$proxyd ${VMIp}:$vmPort
         return $false
     }
 
-    & sudo systemctl daemon-reload 2>&1 | ForEach-Object { Write-Verbose "$_" }
+    Write-Verbose "$((Invoke-YurunaSudo -Argument @('systemctl', 'daemon-reload')).Output)"
     $up = 0
     foreach ($m in $mappings) {
         $sock = "yuruna-cacheproxy-p$($m.HostPort).socket"
-        & sudo systemctl enable --now $sock 2>&1 | ForEach-Object { Write-Verbose "$_" }
-        if ($LASTEXITCODE -eq 0) {
+        $enable = Invoke-YurunaSudo -Argument @('systemctl', 'enable', '--now', $sock)
+        Write-Verbose "$($enable.Output)"
+        if ($enable.ExitCode -eq 0) {
             Write-Information "  Forwarder listening: 0.0.0.0:$($m.HostPort) -> ${VMIp}:$($m.VMPort)"
             $up++
         } else {
@@ -2589,16 +2592,20 @@ function Remove-PortMap {
     # Current mechanism: systemd socket-proxy units. Disable+stop the
     # .socket (drops it from sockets.target and closes the listener),
     # stop the .service, delete the unit files, reload systemd.
+    # Invoke-YurunaSudo, not a bare `& sudo`: on the runner's unattended path it
+    # adds -n so a cold timestamp fails immediately instead of parking the whole
+    # host on a password prompt read from /dev/tty that nobody will answer, and
+    # it throws with the exact sudoers rule to install when that happens.
     $units = @(Get-ChildItem -LiteralPath '/etc/systemd/system' -Filter 'yuruna-cacheproxy-*' -ErrorAction SilentlyContinue)
     if ($units.Count -gt 0) {
         foreach ($u in ($units | Where-Object { $_.Name -like '*.socket' })) {
-            & sudo systemctl disable --now $u.Name 2>&1 | Out-Null
+            [void](Invoke-YurunaSudo -Argument @('systemctl', 'disable', '--now', $u.Name))
         }
         foreach ($u in ($units | Where-Object { $_.Name -like '*.service' })) {
-            & sudo systemctl stop $u.Name 2>&1 | Out-Null
+            [void](Invoke-YurunaSudo -Argument @('systemctl', 'stop', $u.Name))
         }
-        & sudo rm -f @($units | ForEach-Object { $_.FullName }) 2>&1 | Out-Null
-        & sudo systemctl daemon-reload 2>&1 | Out-Null
+        [void](Invoke-YurunaSudo -Argument (@('rm', '-f') + @($units | ForEach-Object { $_.FullName })))
+        [void](Invoke-YurunaSudo -Argument @('systemctl', 'daemon-reload'))
     }
 
     # Legacy pwsh Start-Process forwarders (pre-systemd mechanism): kill
@@ -2711,8 +2718,8 @@ function Resolve-GuestHostBinding {
       2. State file (Read-CachingProxyServiceState).ipAddress -- the cache VM's
          IP recorded by Start-CachingProxyServiceVM.ps1 (our own VM).
 
-    No libvirt enumeration, no loopback-forwarder fallback. Get-Caching-
-    ProxyVMIp still exposes the recorded IP for direct callers that need
+    No libvirt enumeration, no loopback-forwarder fallback.
+    Get-CachingProxyServiceVmIp still exposes the recorded IP for direct callers that need
     it, and falls back to a live libvirt query for the by-name VM, but
     that fallback is no longer part of the discovery contract surfaced
     through Test-CachingProxyServiceAvailable. LAN-wide cache discovery is a

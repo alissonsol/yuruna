@@ -143,8 +143,16 @@
 		<key>UsbSharing</key>
 		<false/>
 	</dict>
-	<!-- Bridged QEMU networking: the pool-control-service VM gets a real LAN IP via the
-	     LAN's DHCP, so peers reach its UI at <vm-lan-ip>:80 directly. -->
+	<!-- Network mode is chosen by New-VM.ps1 via __NETWORK_MODE__, from
+	     Resolve-UtmNetworkMode. 'Bridged' (an Ethernet default route) gives the
+	     pool-control-service VM a real LAN IP via the LAN's DHCP, so peers reach
+	     its UI at <vm-lan-ip>:80 directly. vmnet cannot bridge a Wi-Fi uplink
+	     (the AP drops frames from the VM's locally-administered MAC, so the VM
+	     never gets a lease), so a Wi-Fi default route builds on UTM Shared NAT
+	     (192.168.64.x) instead, New-VM.ps1 drops the BridgedInterface key in that
+	     mode, and Start-PoolControlServiceVM.ps1 forwards a host port to the VM
+	     so peers reach the UI at <host-lan-ip> instead.
+	     NOTE: no double-hyphen anywhere in this comment; plutil rejects it. -->
 	<key>Network</key>
 	<array>
 		<dict>
@@ -155,7 +163,7 @@
 			<key>MacAddress</key>
 			<string>__MAC_ADDRESS__</string>
 			<key>Mode</key>
-			<string>Bridged</string>
+			<string>__NETWORK_MODE__</string>
 			<key>BridgedInterface</key>
 			<string>__BRIDGE_INTERFACE__</string>
 			<key>PortForward</key>

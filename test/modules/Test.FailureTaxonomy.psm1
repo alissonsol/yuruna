@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.29
+.VERSION 2026.07.31
 .GUID 42b7e3c5-9a14-4d28-8f63-1e0a2b4c6d80
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -30,7 +30,17 @@ $script:FailureClassEnum = @(
     'host_io_blocked', 'pattern_matched_failure', 'retry_exhausted',
     'snapshot_restore_failed', 'script_error', 'wait_timeout',
     'extension_error', 'instrumentation_failure', 'provisioning_failure',
-    'bootstrap_sync', 'plan_invalid', 'unknown'
+    # elevation_required: the host asked for a sudo password with no operator
+    # present. Its own class because it is the one failure that is provably
+    # unfixable from anywhere but the console -- retrying it, on this cycle or
+    # any later one, can only reproduce it, so remediation must route it
+    # straight to operator_intervention_required rather than burn the backoff.
+    # project_access_denied: a POOL assigned this host a projectUrl its
+    # credential cannot read. Distinct from bootstrap_sync (this host's own
+    # project failing to clone) because the fix belongs to a different person --
+    # the pool admin who made the assignment, not the host owner -- and distinct
+    # from network_timeout because no retry can ever succeed.
+    'bootstrap_sync', 'plan_invalid', 'elevation_required', 'project_access_denied', 'unknown'
 )
 $script:SeverityEnum = @('hard', 'soft', 'unknown')
 

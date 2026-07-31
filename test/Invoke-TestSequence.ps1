@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.29
+.VERSION 2026.07.31
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456708
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -552,6 +552,14 @@ if ($Config.vmStart -is [System.Collections.IDictionary] -and $Config.vmStart.Co
 if (($envCacheIp -or $configCacheIp) -and (Get-Command Resolve-CachingProxyServiceEndpoint -ErrorAction SilentlyContinue)) {
     $endpoint = Resolve-CachingProxyServiceEndpoint -EnvIp $envCacheIp -ConfigIp $configCacheIp
     foreach ($line in $endpoint.Lines) { Write-Output $line }
+    # Committing to this address for the guests below -- confirm it stays up
+    # rather than trusting the single accept the probe saw. See the same call in
+    # Test.Orchestrator: a cache rebuilt just before the run restarts squid once
+    # while provisioning finishes, well after its ports first open.
+    if ($endpoint.EffectiveIp -and (Get-Command Wait-CachingProxyServiceSettled -ErrorAction SilentlyContinue)) {
+        $settle = Wait-CachingProxyServiceSettled -CacheIp $endpoint.EffectiveIp -Port $endpoint.HttpPort
+        foreach ($line in $settle.Lines) { Write-Output $line }
+    }
     $env:YURUNA_CACHING_PROXY_SERVICE_IP = $endpoint.EffectiveIp
 }
 

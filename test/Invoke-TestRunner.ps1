@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.29
+.VERSION 2026.07.31
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456707
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -83,6 +83,11 @@ $script:FailureCommitPollSeconds  = 5 * 60    # check origin every 5 min
 $script:OuterPullErrorSleepSeconds    = 30        # short pause if outer's own git pull errors
 $script:InnerSpawnErrorSleepSeconds   = 30        # short pause if Start-Process itself fails
 $script:StepTimeoutSecondsDefault = 2700        # watchdog: kill inner when heartbeat older than this
+# Tighter bound while the inner is still in its preamble (runner.phase present):
+# nothing before the first sequence step is legitimately slow, so a stall there
+# is a wedged runner, not long work. testCycle.preambleTimeoutSeconds overrides;
+# 0 opts out (stepTimeoutSeconds everywhere, the pre-existing behaviour).
+$script:PreambleTimeoutSecondsDefault = 600
 $script:WatchdogPollSeconds       = 30        # how often the watchdog re-checks the heartbeat file
 
 # --- REGION: https://yuruna.link/memory#why-yuruna-env-vars-are-snapshotted-and-re-asserted-across-inner-spawns
@@ -293,6 +298,8 @@ Write-Output "  Inner:        $InnerScript"
 Write-Output "  Backoff cap:  $($script:FailurePauseMaxSeconds / 60) min"
 Write-Output "  Commit poll:  $($script:FailureCommitPollSeconds / 60) min"
 Write-Output "  Step timeout: $(Get-OuterStepTimeoutSeconds -ConfigPath $ConfigPath -DefaultSeconds $script:StepTimeoutSecondsDefault) s (testCycle.stepTimeoutSeconds; default $($script:StepTimeoutSecondsDefault))"
+$script:PreambleBanner = Get-OuterPreambleTimeoutSeconds -ConfigPath $ConfigPath -DefaultSeconds $script:PreambleTimeoutSecondsDefault
+Write-Output "  Preamble:     $(if ($script:PreambleBanner -gt 0) { "$script:PreambleBanner s" } else { 'off (step timeout applies)' }) (testCycle.preambleTimeoutSeconds; default $($script:PreambleTimeoutSecondsDefault))"
 Write-Output "  Stop:         Ctrl+C"
 if ($script:ForwardEnvSnapshot.Count -gt 0) {
     Write-Output "  Forwarded env to inner:"
@@ -314,6 +321,26 @@ if (-not (Get-Module -ListAvailable -Name powershell-yaml -ErrorAction SilentlyC
     Write-OuterLog "[outer startup] $yamlMissing"
     Write-Warning $yamlMissing
     exit (Get-EntryPointExitCode -Outcome Failure)
+}
+
+# === Elevation gate =========================================================
+# Resolve elevation ONCE, here, while an operator is still at the console --
+# the only moment a password can be answered. Every cycle after this runs in a
+# fresh pwsh with a cold sudo timestamp, and the inner inherits this terminal,
+# so a prompt raised mid-cycle would park the host with the dashboard still
+# green. Assert-RunnerElevation returns $false only after printing the exact
+# /etc/sudoers.d commands to run; refusing to start is the correct outcome
+# because a host that needs a password typed needs hands on it, exactly like a
+# host with a broken network. No-op on Windows/macOS and when already covered
+# by a drop-in, in which case nothing prints and nothing prompts.
+# Get-Command-guarded so a runner whose framework clone predates the module
+# degrades to the previous behaviour rather than failing to launch.
+$elevationHostType = Get-HostType
+if ($elevationHostType -and (Get-Command Assert-RunnerElevation -ErrorAction SilentlyContinue)) {
+    if (-not (Assert-RunnerElevation -HostType $elevationHostType)) {
+        Write-OuterLog "[outer startup] refused to start: elevation required on $elevationHostType and no operator present to grant it."
+        exit (Get-EntryPointExitCode -Outcome Failure)
+    }
 }
 
 # === Pre-cycle config gate ==================================================
@@ -355,6 +382,7 @@ Invoke-RunnerOuterLoop -State @{
     OuterPullErrorSleepSeconds    = $script:OuterPullErrorSleepSeconds
     InnerSpawnErrorSleepSeconds   = $script:InnerSpawnErrorSleepSeconds
     StepTimeoutSecondsDefault = $script:StepTimeoutSecondsDefault
+    PreambleTimeoutSecondsDefault = $script:PreambleTimeoutSecondsDefault
     WatchdogPollSeconds       = $script:WatchdogPollSeconds
 }
 

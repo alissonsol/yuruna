@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.29
+.VERSION 2026.07.31
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456821
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -434,6 +434,94 @@ function Invoke-CachingProxyServiceProbe {
     }
 }
 
+function Wait-CachingProxyServiceSettled {
+    <#
+    .SYNOPSIS
+        Wait until the cache's HTTP proxy port has accepted $RequiredConsecutive
+        times in a row, or the budget expires. Returns the verdict plus console
+        lines for the caller to print verbatim.
+    .DESCRIPTION
+        One successful probe says the port answered ONCE. That is not the same
+        as the cache being ready, and the gap between them is not theoretical: a
+        cache VM rebuilt shortly before a cycle starts is still provisioning, and
+        squid restarts once when the build applies its ssl-bump configuration
+        against the freshly minted CA. A cycle that probes in the moment before
+        that restart pins the address as accepted, then spends its next steps
+        reporting the cache as lost -- and every guest created in that window is
+        seeded with a proxy URL that refuses, so it silently downloads direct.
+
+        Consecutive successes are what separates "up" from "up just then". The
+        restart window is tens of seconds, far wider than the spacing here, so a
+        restart in progress misses every probe instead of slipping between two.
+
+        This never fails the caller. A cache that will not settle inside the
+        budget is still handed back: it answered at least once, guests degrade to
+        direct downloads on their own, and stalling a cycle over its cache is
+        worse than running the cycle without one. The verdict rides in the
+        returned lines so the operator sees why the cycle went ahead anyway.
+    .PARAMETER RequiredConsecutive
+        Successes in a row before the cache is called settled.
+    .PARAMETER IntervalSeconds
+        Spacing between probes. Small on purpose -- it only has to be small
+        relative to a restart, and it is charged to every cycle.
+    .PARAMETER TimeoutSeconds
+        Total budget. Generous relative to a service restart, because the
+        alternative to waiting is a whole cycle of direct downloads.
+    .OUTPUTS
+        [hashtable] @{ Settled = [bool]; Consecutive = [int]; Lines = [string[]] }
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param(
+        [Parameter(Mandatory)][string]$CacheIp,
+        [Parameter(Mandatory)][int]$Port,
+        [int]$RequiredConsecutive = 3,
+        [int]$IntervalSeconds = 2,
+        [int]$TimeoutSeconds = 120
+    )
+    $lines       = [System.Collections.Generic.List[string]]::new()
+    $consecutive = 0
+    $probes      = 0
+    $lastReason  = ''
+    $announced   = $false
+    # Wall-clock deadline, not an iteration count: each probe costs its own
+    # latency on top of the interval (feedback_iter_counter_wallclock_trap).
+    $deadline = (Get-Date).AddSeconds([Math]::Max(0, $TimeoutSeconds))
+    $classify = Get-Command Test-TcpConnectOutcome -ErrorAction SilentlyContinue
+    while ($true) {
+        if ($probes -gt 0) { Start-Sleep -Seconds $IntervalSeconds }
+        $probes++
+        if ($classify) {
+            $outcome = & $classify -IpAddress $CacheIp -Port $Port -TimeoutMs 3000
+            $ok = [bool]$outcome.Reachable
+            if (-not $ok) { $lastReason = "$($outcome.Outcome) after $($outcome.ElapsedMs) ms" }
+        } else {
+            $ok = Test-TcpPortReachable -TargetHost $CacheIp -Port $Port -Attempts 1 -TimeoutMs 3000
+            if (-not $ok) { $lastReason = 'no connect' }
+        }
+        if ($ok) {
+            $consecutive++
+            if ($consecutive -ge $RequiredConsecutive) { break }
+        } else {
+            $consecutive = 0
+            if (-not $announced) {
+                # Said once, on the first miss: the operator needs to know the
+                # cycle is deliberately paused here, not stalled.
+                $lines.Add("  Cache at ${CacheIp}:${Port} is not settled yet ($lastReason) -- waiting up to ${TimeoutSeconds}s for it to stay up. A cache rebuilt just before this cycle restarts squid once while provisioning finishes.")
+                $announced = $true
+            }
+        }
+        if ((Get-Date) -ge $deadline) { break }
+    }
+    $settled = ($consecutive -ge $RequiredConsecutive)
+    if ($settled -and $announced) {
+        $lines.Add("  Cache settled after $probes probe(s); continuing.")
+    } elseif (-not $settled) {
+        $lines.Add("  Cache at ${CacheIp}:${Port} never accepted $RequiredConsecutive probes in a row within ${TimeoutSeconds}s (last: $lastReason). Proceeding anyway -- guests fall back to direct downloads whenever it refuses.")
+    }
+    return @{ Settled = $settled; Consecutive = $consecutive; Lines = $lines.ToArray() }
+}
+
 function Resolve-CachingProxyServiceEndpoint {
     <#
     .SYNOPSIS
@@ -484,7 +572,10 @@ function Resolve-CachingProxyServiceEndpoint {
     $envIpTrim    = if ($EnvIp)    { $EnvIp.Trim() }    else { '' }
     $configIpTrim = if ($ConfigIp) { $ConfigIp.Trim() } else { '' }
     $lines = [System.Collections.Generic.List[string]]::new()
-    $result = @{ EffectiveIp = ''; Probed = $false; Lines = @() }
+    # HttpPort rides back so a caller that wants to re-probe the accepted cache
+    # uses the port this resolution actually tested, instead of looking it up
+    # again and risking a different answer.
+    $result = @{ EffectiveIp = ''; Probed = $false; Lines = @(); HttpPort = (Get-CachingProxyServicePort -Scheme http) }
     if (-not $envIpTrim -and -not $configIpTrim) { return $result }
 
     $result.Probed = $true
@@ -505,6 +596,7 @@ function Resolve-CachingProxyServiceEndpoint {
         $lines.Add("  Summary: $($probe.PassCount) PASS, $($probe.WarnCount) WARN, $($probe.FailCount) FAIL")
         if ($probe.HttpProxyReachable) {
             $effectiveCacheIp = $cand.Ip
+            $result.HttpPort  = $probe.HttpPort
             if ($probe.Success) {
                 $lines.Add("Caching-proxy service at $($cand.Ip) ACCEPTED (full probe suite passed).")
             } else {
@@ -517,6 +609,71 @@ function Resolve-CachingProxyServiceEndpoint {
     $result.EffectiveIp = $effectiveCacheIp
     $result.Lines = $lines.ToArray()
     return $result
+}
+
+function Get-PoolAggregatorServiceClaim {
+<#
+.SYNOPSIS
+    The deduped, ordered list of addresses that might be running the caching-proxy
+    service, each with the source that claimed it. Never throws.
+.DESCRIPTION
+    Split out so "is there any proxy to talk to at all?" can be answered without
+    probing. Wait-YurunaAggregatorReady needs exactly that distinction: an empty
+    list means this host runs no proxy, and there is nothing to wait for -- waiting
+    the full budget there would stall every standalone host that legitimately has
+    no aggregator.
+
+    An address carrying a quote or whitespace is dropped: the value lands inside a
+    single-quoted env line in a guest seed, and the next claim still gets its turn
+    rather than the seed being corrupted.
+.OUTPUTS
+    [System.Collections.Generic.List[hashtable]] of @{ Address; Source }.
+#>
+    [CmdletBinding()]
+    [OutputType([System.Collections.Generic.List[hashtable]])]
+    param()
+
+    $stateIp = ''
+    try {
+        $state = Read-CachingProxyServiceState
+        if ($state -and $state.ipAddress) { $stateIp = [string]$state.ipAddress }
+    } catch { $null = $_ }
+
+    $configIp = ''
+    try {
+        $configPath = $env:YURUNA_CONFIG_PATH
+        if ([string]::IsNullOrWhiteSpace($configPath)) {
+            $configPath = Join-Path (Split-Path -Parent $PSScriptRoot) 'test.config.yml'
+        }
+        if (Test-Path -LiteralPath $configPath) {
+            if (-not (Get-Command Read-TestConfig -ErrorAction SilentlyContinue)) {
+                Import-Module (Join-Path $PSScriptRoot 'Test.Config.psm1') -Global -Force -DisableNameChecking -Verbose:$false
+            }
+            $cfg = Read-TestConfig -Path $configPath
+            if ($cfg.vmStart -is [System.Collections.IDictionary] -and $cfg.vmStart.Contains('cachingProxyIp')) {
+                $configIp = "$($cfg.vmStart.cachingProxyIp)".Trim()
+            }
+        }
+    } catch { Write-Verbose "Get-PoolAggregatorServiceClaim: reading vmStart.cachingProxyIp failed: $($_.Exception.Message)" }
+
+    # Deduped: the same address commonly appears in two claims at once, and
+    # every distinct one costs a round trip to disprove.
+    $claims = [System.Collections.Generic.List[hashtable]]::new()
+    $seen   = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+    foreach ($claim in @(
+        @{ Address = $stateIp;                          Source = 'caching-proxy-service state'          }
+        @{ Address = "$($env:YURUNA_CACHING_PROXY_SERVICE_IP)"; Source = '$env:YURUNA_CACHING_PROXY_SERVICE_IP' }
+        @{ Address = $configIp;                         Source = 'vmStart.cachingProxyIp'       }
+    )) {
+        $address = "$($claim.Address)".Trim()
+        if ([string]::IsNullOrWhiteSpace($address)) { continue }
+        if ($address -match "['\s]") { continue }
+        if (-not $seen.Add($address)) { continue }
+        $claims.Add(@{ Address = $address; Source = $claim.Source })
+    }
+    # Comma: PowerShell would otherwise unroll a 1-item list to a bare hashtable
+    # and a 0-item list to $null, and every caller reads .Count.
+    return ,$claims
 }
 
 function Get-PoolAggregatorServiceSeedUrl {
@@ -587,44 +744,7 @@ function Get-PoolAggregatorServiceSeedUrl {
     # service ports, and the one guest seeds beacon to.
     $aggregatorPort = 9400
 
-    $stateIp = ''
-    try {
-        $state = Read-CachingProxyServiceState
-        if ($state -and $state.ipAddress) { $stateIp = [string]$state.ipAddress }
-    } catch { $null = $_ }
-
-    $configIp = ''
-    try {
-        $configPath = $env:YURUNA_CONFIG_PATH
-        if ([string]::IsNullOrWhiteSpace($configPath)) {
-            $configPath = Join-Path (Split-Path -Parent $PSScriptRoot) 'test.config.yml'
-        }
-        if (Test-Path -LiteralPath $configPath) {
-            if (-not (Get-Command Read-TestConfig -ErrorAction SilentlyContinue)) {
-                Import-Module (Join-Path $PSScriptRoot 'Test.Config.psm1') -Global -Force -DisableNameChecking -Verbose:$false
-            }
-            $cfg = Read-TestConfig -Path $configPath
-            if ($cfg.vmStart -is [System.Collections.IDictionary] -and $cfg.vmStart.Contains('cachingProxyIp')) {
-                $configIp = "$($cfg.vmStart.cachingProxyIp)".Trim()
-            }
-        }
-    } catch { Write-Verbose "Get-PoolAggregatorServiceSeedUrl: reading vmStart.cachingProxyIp failed: $($_.Exception.Message)" }
-
-    # Deduped: the same address commonly appears in two claims at once, and
-    # every distinct one costs a round trip to disprove.
-    $claims = [System.Collections.Generic.List[hashtable]]::new()
-    $seen   = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
-    foreach ($claim in @(
-        @{ Address = $stateIp;                          Source = 'caching-proxy-service state'          }
-        @{ Address = "$($env:YURUNA_CACHING_PROXY_SERVICE_IP)"; Source = '$env:YURUNA_CACHING_PROXY_SERVICE_IP' }
-        @{ Address = $configIp;                         Source = 'vmStart.cachingProxyIp'       }
-    )) {
-        $address = "$($claim.Address)".Trim()
-        if ([string]::IsNullOrWhiteSpace($address)) { continue }
-        if ($address -match "['\s]") { continue }
-        if (-not $seen.Add($address)) { continue }
-        $claims.Add(@{ Address = $address; Source = $claim.Source })
-    }
+    $claims = Get-PoolAggregatorServiceClaim
     if ($claims.Count -eq 0) { return '' }
 
     # Repeat calls inside one process -- a render that emits several guests, a
@@ -698,6 +818,166 @@ function Get-PoolAggregatorServiceSeedUrl {
     $url = "https://${urlHost}:${aggregatorPort}"
     $script:PoolAggregatorServiceUrlMemo = @{ Key = $claimKey; Url = $url; ExpiresUtc = [datetime]::UtcNow.AddSeconds(60) }
     return $url
+}
+
+function Wait-YurunaAggregatorReady {
+<#
+.SYNOPSIS
+    Blocks until the pool-aggregator service is serving AND its base URL resolves,
+    or a timeout expires. Returns $true/$false; never throws.
+.DESCRIPTION
+    Gates every caller that is about to BAKE the aggregator URL into a guest seed.
+
+    Get-PoolAggregatorServiceSeedUrl is probe-and-discard by design: asked before
+    :9400 answers, it returns '' -- correctly, since a dead address must never be
+    baked in. But the seed then carries an empty URL, and both guests' presence
+    beacons refuse to start without one (Enabled() requires a non-empty
+    AggregatorURL; Run() returns immediately). The beacons retry their FIRST hello
+    forever, so a late-but-present aggregator self-heals -- an empty URL is never
+    re-resolved. The failure is therefore permanent, and silent: the VM is healthy,
+    the service serves, and only the dashboard row is missing.
+
+    The window is routine rather than rare. The aggregator is compiled from source
+    inside the proxy guest and enabled near the end of runcmd, while
+    Start-CachingProxyServiceVM reports success on a probe suite that does not
+    include :9400 -- so "the proxy is ready" is regularly true minutes before the
+    aggregator exists, which is exactly when an operator starts the next VM.
+
+    Two conditions, in order:
+
+      1. GET <base>/healthz answers 2xx. That route is open and unauthenticated by
+         design (alongside /metrics and /api/v1/pool-status), so no credential is
+         needed. It is strictly stronger than a TCP connect: a hypervisor
+         port-forward accepts the connection whether or not the guest is listening
+         behind it, which would make a port probe pass minutes early.
+      2. Get-PoolAggregatorServiceSeedUrl returns non-empty -- the exact value the
+         caller is about to bake, so the gate tests the real precondition rather
+         than a proxy for it.
+
+    A delay would not do: too short on a slow host, wasted on a fast one, and still
+    silently wrong when it guessed. This signal is exact, and the only place machine
+    speed matters is the timeout.
+.PARAMETER ProxyAddress
+    Address to poll. Omitted (the default), the resolver's own claim resolution
+    supplies it -- which is what the New-VM callers need, holding no address of
+    their own. TLS verification is off for this probe: the leaf is the proxy's
+    self-signed CA, and this is a liveness check, matching the beacon's posture.
+.PARAMETER TimeoutSeconds
+    Total budget. The default 15 minutes covers a slow in-guest Go build with
+    margin; that build, not the caller, is what bounds the wait.
+.PARAMETER PollSeconds
+    Gap between attempts.
+.OUTPUTS
+    [bool] $true when the aggregator is ready to be baked into a seed.
+#>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param(
+        [string]$ProxyAddress = '',
+        [int]$TimeoutSeconds = 900,
+        [int]$PollSeconds = 5
+    )
+
+    $aggregatorPort = 9400
+    # An explicit -TimeoutSeconds always wins; the env var is for the call sites
+    # that pass none (the six New-VM renderers), matching the tuning knob
+    # Start-PoolControlServiceVM already offers for its own :80 wait. A
+    # non-numeric or negative value is ignored rather than fatal: this runs in
+    # front of VM creation and must not fail on a typo'd variable.
+    if (-not $PSBoundParameters.ContainsKey('TimeoutSeconds') -and $env:YURUNA_AGGREGATOR_READY_TIMEOUT_SECONDS) {
+        $parsed = 0
+        if ([int]::TryParse($env:YURUNA_AGGREGATOR_READY_TIMEOUT_SECONDS, [ref]$parsed) -and $parsed -ge 0) { $TimeoutSeconds = $parsed }
+        else { Write-Warning "YURUNA_AGGREGATOR_READY_TIMEOUT_SECONDS ('$($env:YURUNA_AGGREGATOR_READY_TIMEOUT_SECONDS)') is not a non-negative integer; using $TimeoutSeconds s." }
+    }
+    if ($TimeoutSeconds -lt 0) { $TimeoutSeconds = 0 }
+    if ($PollSeconds -lt 1) { $PollSeconds = 1 }
+
+    # Nothing claims to run a proxy: this host has no aggregator, and there is
+    # nothing to wait for. Returning at once keeps a standalone host -- which
+    # legitimately seeds an empty URL and leaves the beacon off -- from stalling
+    # for the whole budget on every VM it creates.
+    if (-not $ProxyAddress -and (Get-PoolAggregatorServiceClaim).Count -eq 0) {
+        Write-Verbose 'Wait-YurunaAggregatorReady: no caching-proxy service is configured on this host; not waiting.'
+        return $false
+    }
+
+    # https first, then plain http: a proxy provisioned before the aggregator's
+    # TLS leaf existed serves this route in the clear, and the beacon downgrades
+    # the same way. Trying only https would strand exactly those hosts.
+    $healthzOk = {
+        param([string]$BaseUrl)
+        foreach ($candidate in @($BaseUrl, ($BaseUrl -replace '^https://', 'http://')) | Select-Object -Unique) {
+            try {
+                $response = Invoke-WebRequest -Uri "$($candidate.TrimEnd('/'))/healthz" -TimeoutSec 5 `
+                    -SkipCertificateCheck -SkipHttpErrorCheck -ErrorAction Stop
+                if ([int]$response.StatusCode -ge 200 -and [int]$response.StatusCode -lt 300) { return $true }
+                Write-Verbose "Wait-YurunaAggregatorReady: $candidate/healthz answered $($response.StatusCode)."
+            } catch {
+                Write-Verbose "Wait-YurunaAggregatorReady: $candidate/healthz did not answer: $($_.Exception.Message)"
+            }
+        }
+        return $false
+    }
+
+    $startedUtc  = [datetime]::UtcNow
+    $deadlineUtc = $startedUtc.AddSeconds($TimeoutSeconds)
+    $lastReport  = $startedUtc
+    $announced   = $false
+
+    while ($true) {
+        # Resolved every round, not once: before the aggregator answers this is ''
+        # by design, and the whole point of waiting is that it stops being ''.
+        # Only a SUCCESSFUL resolution is memoised, so re-asking is not defeated
+        # by a cached failure.
+        $baseUrl = if ($ProxyAddress) {
+            $urlHost = if (Get-Command Format-IpUrlHost -ErrorAction SilentlyContinue) { Format-IpUrlHost $ProxyAddress } else { $ProxyAddress }
+            "https://${urlHost}:${aggregatorPort}"
+        } else {
+            Get-PoolAggregatorServiceSeedUrl
+        }
+
+        if ($baseUrl -and (& $healthzOk $baseUrl)) {
+            # healthz answering is not sufficient when an explicit address was
+            # given: the resolver picks from its OWN claims (service state, env,
+            # vmStart.cachingProxyIp), so it can still come back empty for an
+            # aggregator that is plainly serving. Report that precisely -- it is a
+            # configuration gap, and no amount of further waiting fixes it.
+            $seedUrl = Get-PoolAggregatorServiceSeedUrl
+            if ($seedUrl) {
+                $elapsed = [int]([datetime]::UtcNow - $startedUtc).TotalSeconds
+                Write-Information "pool-aggregator service is ready at $seedUrl (waited ${elapsed}s)." -InformationAction Continue
+                return $true
+            }
+            if ($ProxyAddress) {
+                Write-Warning ("Wait-YurunaAggregatorReady: the aggregator at $baseUrl answered /healthz, but no configured claim " +
+                    "resolves to it, so the seed URL is still empty. Set vmStart.cachingProxyIp (or " +
+                    "`$env:YURUNA_CACHING_PROXY_SERVICE_IP) to $ProxyAddress and retry.")
+                return $false
+            }
+        }
+
+        $remainingMs = [int][Math]::Floor(($deadlineUtc - [datetime]::UtcNow).TotalMilliseconds)
+        if ($remainingMs -le 0) { break }
+
+        if (-not $announced) {
+            $where = if ($ProxyAddress) { "$ProxyAddress" } else { 'the configured caching-proxy service' }
+            Write-Information "Waiting for the pool-aggregator service on ${where}:$aggregatorPort (up to $TimeoutSeconds s; it is compiled inside the proxy guest, so a first build is slow) ..." -InformationAction Continue
+            $announced = $true
+        }
+        # Every 30 s, so a long wait reads as work rather than as a hang.
+        if (([datetime]::UtcNow - $lastReport).TotalSeconds -ge 30) {
+            $mins = [Math]::Round(([datetime]::UtcNow - $startedUtc).TotalMinutes, 1)
+            Write-Information "  ... still waiting for the pool-aggregator service ($mins min elapsed)." -InformationAction Continue
+            $lastReport = [datetime]::UtcNow
+        }
+        Start-Sleep -Milliseconds ([Math]::Min($PollSeconds * 1000, $remainingMs))
+    }
+
+    Write-Warning ("Wait-YurunaAggregatorReady: the pool-aggregator service did not become ready within $TimeoutSeconds s. " +
+        "Creating a dependent VM now bakes an EMPTY aggregator URL into its seed, which never re-resolves -- the service " +
+        "would run but never appear on the dashboard. Check it inside the caching-proxy VM with " +
+        "'journalctl -u pool-aggregator-service -n 50', then retry.")
+    return $false
 }
 
 function Get-PoolIntentSeedUrl {
@@ -1010,4 +1290,4 @@ function Resolve-CachingProxyServiceCaCertPem {
     return @{ Pem = ''; Source = 'none' }
 }
 
-Export-ModuleMember -Function Get-CachingProxyServiceStatePath, Read-CachingProxyServiceState, Save-CachingProxyServiceState, Test-TcpPortReachable, Invoke-CachingProxyServiceProbe, Resolve-CachingProxyServiceEndpoint, Get-PoolAggregatorServiceSeedUrl, Get-PoolIntentSeedUrl, Sync-PoolIntentAliasOnProxy, Test-CachingProxyServiceCaPem, Get-CachingProxyServiceCaCertBase64, Resolve-CachingProxyServiceCaCertPem
+Export-ModuleMember -Function Get-CachingProxyServiceStatePath, Read-CachingProxyServiceState, Save-CachingProxyServiceState, Test-TcpPortReachable, Invoke-CachingProxyServiceProbe, Wait-CachingProxyServiceSettled, Resolve-CachingProxyServiceEndpoint, Get-PoolAggregatorServiceSeedUrl, Wait-YurunaAggregatorReady, Get-PoolIntentSeedUrl, Sync-PoolIntentAliasOnProxy, Test-CachingProxyServiceCaPem, Get-CachingProxyServiceCaCertBase64, Resolve-CachingProxyServiceCaCertPem

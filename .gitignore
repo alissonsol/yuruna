@@ -366,6 +366,12 @@ test/test.config.yml.backup
 # before rewriting it, so it holds the same real credentials the live file does.
 test/test.config.yml.pre-renaming
 
+# What THIS operator answered setup.ps1, rewritten at the same path on every
+# guided run. It describes one machine -- its project path, its NAS host name
+# and share account -- and is carried to the next machine by hand, so it is an
+# operator artifact rather than repository source.
+install/setup.answers.*.yml
+
 # Project tree (cloned per cycle from test.config.yml's repositories.projectUrl)
 project/
 

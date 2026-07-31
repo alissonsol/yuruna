@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.29
+.VERSION 2026.07.31
 .GUID 42a1b2c3-d4e5-4f67-8901-bc012345677a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -81,6 +81,108 @@ function Get-CycleConfig {
         throw "Runner config has no 'sequences' entries: $path"
     }
     return $cfg
+}
+
+<#
+.SYNOPSIS
+    The named test sets a project offers, read from its test.runner.yml.
+.DESCRIPTION
+    A project may group its top-level sequences into named sets:
+
+        sequences:                     # always present; becomes the set "all"
+          - ch01.website.example.no-break
+          - workload.guest.windows.11
+
+        testSets:                      # optional
+          - name: smoke
+            displayName: Quick smoke test
+            description: Fastest signal, ~8 min
+            sequences: [ ch01.website.example.no-break ]
+
+    A file with only `sequences:` is unchanged in meaning and yields exactly one
+    set, `all` -- so no existing project has to be edited.
+
+    The grouping lives in the PROJECT rather than in pool intent so that a set
+    and the sequences it names move in one commit; a list held centrally rots
+    silently the moment the project renames a sequence.
+
+    NEVER THROWS on malformed set definitions. This runs inside a live cycle to
+    publish what the host offers, and a typo in an optional label must not be
+    able to fail a test run: bad entries are skipped with a warning and the
+    remaining sets are returned. A missing/empty test.runner.yml still throws
+    from Get-CycleConfig, because that genuinely means there is no work.
+
+    Sequence names are NOT resolved here. A set naming a sequence that does not
+    exist surfaces at plan time as PlannerFatal -> plan_invalid, which is the
+    one authority for that error; duplicating the check here would risk the two
+    disagreeing.
+.OUTPUTS
+    [hashtable[]] ordered @{ name; displayName; description; sequences }.
+    `all` is always first.
+#>
+function Get-ProjectTestSet {
+    [CmdletBinding()]
+    [OutputType([hashtable[]], [object[]])]
+    param([Parameter(Mandatory)][string]$RepoRoot)
+
+    $cfg = Get-CycleConfig -RepoRoot $RepoRoot
+    $namePattern = '^[a-z0-9][a-z0-9._-]*$'
+    $sets = New-Object System.Collections.Generic.List[Object]
+    $seen = New-Object System.Collections.Generic.HashSet[string]
+
+    # The implicit set. `all` is reserved for it: a project that declares its
+    # own `all` would otherwise silently shadow the whole-project set that pool
+    # assignment falls back to.
+    $allSeqs = @($cfg.sequences | ForEach-Object { ([string]$_) -replace '\.(ya?ml|json)$','' } | Where-Object { $_ })
+    [void]$seen.Add('all')
+    [void]$sets.Add([ordered]@{
+        name        = 'all'
+        displayName = 'All sequences'
+        description = ''
+        sequences   = $allSeqs
+    })
+
+    if (-not $cfg.Contains('testSets')) { return ,@($sets.ToArray()) }
+
+    foreach ($raw in @($cfg['testSets'])) {
+        if ($raw -isnot [System.Collections.IDictionary]) {
+            Write-Warning "test.runner.yml: skipping a testSets entry that is not a mapping."
+            continue
+        }
+        $name = "$($raw['name'])".Trim()
+        if (-not $name) {
+            Write-Warning "test.runner.yml: skipping a testSets entry with no 'name'."
+            continue
+        }
+        if ($name -eq 'all') {
+            Write-Warning "test.runner.yml: 'all' is reserved for the implicit whole-project set; skipping the declared set named 'all'."
+            continue
+        }
+        # -cnotmatch, not -notmatch: PowerShell's -match is case-INSENSITIVE by
+        # default, so a name like 'BadName' would pass here and then be rejected
+        # by the JSON Schema pattern (which is case-sensitive) when the library
+        # entry is written -- a failure surfacing far from its cause.
+        if ($name -cnotmatch $namePattern) {
+            Write-Warning "test.runner.yml: skipping testSet '$name' -- names must match $namePattern (lower-case)."
+            continue
+        }
+        if (-not $seen.Add($name)) {
+            Write-Warning "test.runner.yml: duplicate testSet '$name'; keeping the first."
+            continue
+        }
+        $seqs = @(@($raw['sequences']) | ForEach-Object { ([string]$_) -replace '\.(ya?ml|json)$','' } | Where-Object { $_ })
+        if ($seqs.Count -eq 0) {
+            Write-Warning "test.runner.yml: skipping testSet '$name' -- it lists no sequences."
+            continue
+        }
+        [void]$sets.Add([ordered]@{
+            name        = $name
+            displayName = "$($raw['displayName'])".Trim()
+            description = "$($raw['description'])".Trim()
+            sequences   = $seqs
+        })
+    }
+    return ,@($sets.ToArray())
 }
 
 # Internal helper: $true when a parsed sequence is an orchestration sequence
@@ -339,11 +441,19 @@ function Get-CycleOrchestrationList {
     param(
         [Parameter(Mandatory)][string]$RepoRoot,
         [Parameter(Mandatory)][string]$SequencesDir,
-        [string]$HostType
+        [string]$HostType,
+        # Optional pool test-set subset. When supplied, only these top-levels are
+        # considered -- WITHOUT it this function re-reads the project's FULL
+        # `sequences:` list independently of the plan, so a subset that excludes
+        # an orchestration top-level would still find it here and trip the
+        # orchestration-mix plan_invalid for a cycle that was never going to run
+        # it. Absent/empty preserves the whole-file behaviour exactly.
+        [AllowNull()][AllowEmptyCollection()][string[]]$Sequences
     )
     $cycleCfg = Get-CycleConfig -RepoRoot $RepoRoot
+    $source = if ($null -ne $Sequences -and @($Sequences).Count -gt 0) { $Sequences } else { $cycleCfg.sequences }
     $list = New-Object System.Collections.Generic.List[Object]
-    foreach ($raw in $cycleCfg.sequences) {
+    foreach ($raw in $source) {
         $name = ([string]$raw) -replace '\.(ya?ml|json)$',''
         $path = Resolve-SequencePath -SequencesDir $SequencesDir -Name $name -HostType $HostType -RepoRoot $RepoRoot
         if (-not $path) { continue }
@@ -681,4 +791,4 @@ function Resolve-NamedSequenceChain {
     }
 }
 
-Export-ModuleMember -Function Get-CycleConfigPath, Get-CycleConfig, Resolve-CyclePlan, Get-CycleOrchestrationList, Resolve-TestSetCyclePlan, Get-CyclePlanGuestList, Get-CyclePlanSequenceList, Get-CyclePlanSequencesForGuest, Resolve-NamedSequenceChain
+Export-ModuleMember -Function Get-CycleConfigPath, Get-CycleConfig, Get-ProjectTestSet, Resolve-CyclePlan, Get-CycleOrchestrationList, Resolve-TestSetCyclePlan, Get-CyclePlanGuestList, Get-CyclePlanSequenceList, Get-CyclePlanSequencesForGuest, Resolve-NamedSequenceChain

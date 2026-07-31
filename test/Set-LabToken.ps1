@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.29
+.VERSION 2026.07.31
 .GUID 42b7c3f8-9a1d-4e62-8c05-6d4f2a1b9e37
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -78,7 +78,11 @@ param(
     [Parameter(Mandatory, Position = 0)][string]$LabToken,
     [Parameter()][string]$CachingProxyService,
     [switch]$BounceStatusService,
-    [switch]$NonInteractive
+    [switch]$NonInteractive,
+    # Skip seeding pool.enabled / pool.intentGitUrl into test.config.yml.
+    # Enrolment is the natural moment to do it -- the operator is present and has
+    # just named the proxy -- but a host that must stay standalone can opt out.
+    [switch]$NoPoolConfig
 )
 
 $ErrorActionPreference = 'Stop'
@@ -209,6 +213,55 @@ if ($provision.ok -and $proxyAddress -and ($addressSource -in @('parameter', 'pr
         }
     } catch {
         Write-Warning "Could not persist vmStart.cachingProxyIp ($($_.Exception.Message)); the token is stored, but later runs must pass -CachingProxyService again."
+    }
+}
+
+# --- REGION: Seed the pool intent store binding
+# A host that has just enrolled its lab token is a host the operator intends to
+# manage from the lab. The intent store it should pull from is served by the very
+# proxy they just named, so bind it now: enrolment is the one moment an operator
+# is present, authenticated, and has already supplied the address.
+#
+# Runs for EVERY resolved address, not only an operator-supplied one -- a host
+# whose cachingProxyIp was already in config still needs the pool binding, and
+# that is the common case on a re-enrolment.
+#
+# Idempotent and non-destructive: an existing non-empty intentGitUrl is left
+# exactly as it is, so an operator pointing a host at a different intent store is
+# never overwritten. Best-effort throughout -- the token is already stored, and
+# failing to seed an optional binding must not fail the enrolment.
+if ($provision.ok -and $proxyAddress -and -not $NoPoolConfig) {
+    $configPath = Join-Path $PSScriptRoot 'test.config.yml'
+    try {
+        Import-Module powershell-yaml -ErrorAction Stop
+        Import-Module (Join-Path $PSScriptRoot 'modules/Test.StateFile.psm1')  -Global -Force -DisableNameChecking
+        Import-Module (Join-Path $PSScriptRoot 'modules/Test.ConfigSync.psm1') -Force -DisableNameChecking
+        if (-not (Test-Path -LiteralPath $configPath)) {
+            Write-Warning "test.config.yml not found; pool.intentGitUrl was not seeded. Re-run after Sync-HostConfiguration.ps1 to join the lab pool."
+        } else {
+            $cfg = Get-Content -Raw -LiteralPath $configPath | ConvertFrom-Yaml -Ordered
+            if ($null -eq $cfg) { $cfg = [ordered]@{} }
+            if (-not ($cfg['pool'] -is [System.Collections.IDictionary])) { $cfg['pool'] = [ordered]@{} }
+            $existingUrl = "$($cfg['pool']['intentGitUrl'])".Trim()
+            if ($existingUrl) {
+                Write-Information "pool.intentGitUrl already set ($existingUrl); leaving it unchanged." -InformationAction Continue
+            } else {
+                # The READ-ONLY http url. The writable path (a file:// or local
+                # path to the bare repo) is for admin commands run ON the proxy;
+                # a runner must never hold a writable remote.
+                $intentUrl = "http://$proxyAddress/pool-intent.git"
+                $cfg['pool']['intentGitUrl'] = $intentUrl
+                # enabled goes WITH the url: intentGitUrl alone is inert, so
+                # seeding one without the other would look configured and do
+                # nothing.
+                $cfg['pool']['enabled'] = $true
+                $yaml = (ConvertTo-SortedConfig $cfg) | ConvertTo-Yaml
+                $null = Write-YurunaStateFile -Path $configPath -Content $yaml -Confirm:$false
+                Write-Information "Joined the lab pool: pool.enabled = true, pool.intentGitUrl = $intentUrl. This host now pulls pool intent read-only each cycle." -InformationAction Continue
+            }
+        }
+    } catch {
+        Write-Warning "Could not seed pool.intentGitUrl ($($_.Exception.Message)); the token is stored. Set pool.enabled/pool.intentGitUrl by hand to join the pool."
     }
 }
 

@@ -1,7 +1,7 @@
 #!/bin/bash
 # Yuruna macOS UTM bootstrap installer.
 # LICENSEURI https://yuruna.link/license
-# Version: 2026.07.29  Copyright (c) 2019-2026 by Alisson Sol et al.
+# Version: 2026.07.31  Copyright (c) 2019-2026 by Alisson Sol et al.
 # --- REGION: https://yuruna.link/install/explained
 # One-liner: /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/install/macos.utm.sh)"
 
@@ -305,7 +305,7 @@ quit_mac_app() {
 # --- REGION: https://yuruna.link/install/explained#stop-running-yuruna-processes-before-updating
 # Stop the runner/inner/status-service and WAIT before the checkout rename.
 # VMs (the yuruna-caching-proxy-service cache, a UTM domain) are never touched here;
-# UTM quit is gated separately on PRESERVE_SQUID_CACHE.
+# UTM quit is gated separately on PRESERVE_SERVICE_VM.
 stop_yuruna_processes() {
   local runtime_dir="${YURUNA_RUNTIME_DIR:-$YURUNA_DIR/test/status/runtime}"
   local -a target_pids=()
@@ -422,52 +422,65 @@ stop_yuruna_processes() {
   warn "  some Yuruna service PIDs did not exit; re-run the installer if the repo update reports the checkout is busy."
 }
 
-# --- REGION: Preserve yuruna-caching-proxy-service if running
-SQUID_CACHE_DETECT_REASON=""
-is_squid_cache_running() {
+# --- REGION: Preserve the service VMs if any is running
+# Quitting UTM is never confined to the VM the installer cares about: UTM
+# saves the state of EVERY running VM on its way out, and they come back
+# suspended rather than started. That makes any running service VM -- the
+# caching proxy, the stash service, pool-control -- a reason not to quit,
+# not just the proxy whose spool would also be at risk from the
+# orphaned-bundle sweep.
+SERVICE_VM_DETECT_REASON=""
+YURUNA_SERVICE_VM_NAME=(yuruna-caching-proxy-service yuruna-stash-service yuruna-pool-control-service)
+
+is_service_vm_running() {
   local state_file="$YURUNA_DIR/test/status/runtime/yuruna-caching-proxy-service.yml"
   if [[ -f "$state_file" ]] && command -v nc >/dev/null 2>&1; then
     local cache_ip
     cache_ip=$(grep -E '^ipAddress:' "$state_file" 2>/dev/null | head -1 \
                  | sed -E "s/^ipAddress:[[:space:]]*//; s/[\"' ]//g")
     if [[ -n "$cache_ip" ]] && nc -G 2 -z "$cache_ip" 3128 >/dev/null 2>&1; then
-      SQUID_CACHE_DETECT_REASON="squid answers at ${cache_ip}:3128"
+      SERVICE_VM_DETECT_REASON="squid answers at ${cache_ip}:3128"
       return 0
     fi
   fi
 
-  command -v utmctl >/dev/null 2>&1 || { SQUID_CACHE_DETECT_REASON=""; return 1; }
-  local status
-  status=$(utmctl status yuruna-caching-proxy-service 2>&1 || true)
-  case "$status" in
-    started|paused|suspended)
-      SQUID_CACHE_DETECT_REASON="utmctl reports the cache VM '$status'"
-      return 0 ;;
-    *OSStatus*|*"-1743"*|*"Apple Event"*|*"does not work from SSH"*)
-      SQUID_CACHE_DETECT_REASON="utmctl could not reach UTM (Apple Events denied) -- cannot confirm cache state; preserving out of caution"
-      return 0 ;;
-    stopped|*"not found"*|"")
-      SQUID_CACHE_DETECT_REASON=""
-      return 1 ;;
-    *)
-      SQUID_CACHE_DETECT_REASON="utmctl status returned an unrecognized result ('$status'); preserving out of caution"
-      return 0 ;;
-  esac
+  command -v utmctl >/dev/null 2>&1 || { SERVICE_VM_DETECT_REASON=""; return 1; }
+  local vm status
+  for vm in "${YURUNA_SERVICE_VM_NAME[@]}"; do
+    status=$(utmctl status "$vm" 2>&1 || true)
+    case "$status" in
+      started|paused|suspended)
+        SERVICE_VM_DETECT_REASON="utmctl reports $vm '$status'"
+        return 0 ;;
+      *OSStatus*|*"-1743"*|*"Apple Event"*|*"does not work from SSH"*)
+        SERVICE_VM_DETECT_REASON="utmctl could not reach UTM (Apple Events denied) -- cannot confirm service VM state; preserving out of caution"
+        return 0 ;;
+      stopped|*"not found"*|"")
+        ;;
+      *)
+        SERVICE_VM_DETECT_REASON="utmctl status for $vm returned an unrecognized result ('$status'); preserving out of caution"
+        return 0 ;;
+    esac
+  done
+  SERVICE_VM_DETECT_REASON=""
+  return 1
 }
 
-PRESERVE_SQUID_CACHE=0
-if is_squid_cache_running; then
-  warn "yuruna-caching-proxy-service cache VM is running (or its state is uncertain): $SQUID_CACHE_DETECT_REASON."
-  warn "  Skipping UTM quit + UTM cask upgrade for this run so the cache VM and its"
-  warn "  multi-GB squid spool are NOT torn down (a quit-UTM window would let the"
-  warn "  orphaned-bundle sweep delete it). To upgrade UTM later: stop the cache"
-  warn "  (pwsh test/Stop-CachingProxyServiceVM.ps1) or quit UTM manually, then re-run this installer."
-  PRESERVE_SQUID_CACHE=1
+PRESERVE_SERVICE_VM=0
+if is_service_vm_running; then
+  warn "A Yuruna service VM is running (or its state is uncertain): $SERVICE_VM_DETECT_REASON."
+  warn "  Skipping UTM quit + UTM cask upgrade for this run. Quitting UTM would suspend"
+  warn "  every running service VM -- guests that consume the caching proxy, the stash"
+  warn "  service or pool-control then fail -- and it would also let the orphaned-bundle"
+  warn "  sweep delete the cache VM's multi-GB squid spool. To upgrade UTM later: stop"
+  warn "  the services (pwsh test/Stop-CachingProxyServiceVM.ps1, test/Stop-StashServiceVM.ps1)"
+  warn "  or quit UTM manually, then re-run this installer."
+  PRESERVE_SERVICE_VM=1
 fi
 
 log "Stopping anything that would block a repo update (runner + status service; VMs preserved)"
 stop_yuruna_processes
-if [[ $PRESERVE_SQUID_CACHE -eq 0 ]]; then
+if [[ $PRESERVE_SERVICE_VM -eq 0 ]]; then
   quit_mac_app "UTM"
 fi
 
@@ -508,8 +521,8 @@ brew_ensure_formula openssl
 brew_ensure_formula gh
 
 log "Installing / upgrading required casks"
-if [[ ${PRESERVE_SQUID_CACHE:-0} -eq 1 ]]; then
-  log "  skipping UTM cask upgrade -- caching-proxy-service running, UTM cannot be quit"
+if [[ ${PRESERVE_SERVICE_VM:-0} -eq 1 ]]; then
+  log "  skipping UTM cask upgrade -- a service VM is running, UTM cannot be quit"
 else
   brew_ensure_cask utm "/Applications/UTM.app"
 fi
@@ -517,6 +530,25 @@ fi
 if ! command -v pwsh >/dev/null 2>&1; then
   log "  installing PowerShell (cask fallback)"
   brew install --cask powershell
+fi
+
+# --- REGION: .NET runtime location for a framework-dependent PowerShell
+# The Homebrew powershell FORMULA depends on brew's dotnet and finds its runtime
+# through DOTNET_ROOT, exported by the wrapper on PATH. Any pwsh started WITHOUT
+# that environment -- notably a nested `sudo pwsh`, whose env_reset strips it --
+# then fails to locate libhostfxr and exits 131 before running a line of script.
+# /etc/dotnet/install_location_<arch> is the runtime's own machine-wide fallback,
+# read no matter who starts pwsh or with what environment, so writing it once
+# here removes the whole class instead of guarding each call site. Harmless for a
+# cask/.pkg PowerShell, which is self-contained and never consults it.
+if command -v pwsh >/dev/null 2>&1 && dotnet_libexec="$(brew --prefix dotnet 2>/dev/null)/libexec" \
+   && [[ -d "$dotnet_libexec" ]]; then
+  dotnet_location_file="/etc/dotnet/install_location_$(uname -m)"
+  if [[ "$(cat "$dotnet_location_file" 2>/dev/null)" != "$dotnet_libexec" ]]; then
+    log "Recording the .NET runtime location at $dotnet_location_file"
+    sudo mkdir -p /etc/dotnet
+    printf '%s\n' "$dotnet_libexec" | sudo tee "$dotnet_location_file" >/dev/null
+  fi
 fi
 
 log "Running brew cleanup"

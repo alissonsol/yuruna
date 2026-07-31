@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.29
+.VERSION 2026.07.31
 .GUID 42d7f3b9-5c1e-4a80-9e2d-7f8a9b0c1d2e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -57,6 +57,8 @@ Import-Module (Join-Path $PSScriptRoot 'Test.ConfigSync.psm1')    -Force -Disabl
 # converter and the mount path from ever disagreeing on what a share path means.
 Import-Module (Join-Path $PSScriptRoot 'Test.PoolStorage.psm1')   -Force -DisableNameChecking
 Import-Module (Join-Path $PSScriptRoot 'Test.HostDetection.psm1') -Force -DisableNameChecking
+# Get-SudoPwshArgumentList (the nested-sudo argument vector) lives here.
+Import-Module (Join-Path -Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) -ChildPath 'automation' -AdditionalChildPath 'Yuruna.Common.psm1') -Global -Force -DisableNameChecking
 
 # One version string binds the HMAC proof, the HKDF key derivation, and the
 # envelope shape together: bumping it invalidates every older client/server
@@ -801,9 +803,13 @@ function Invoke-ConfigSyncHostAlias {
     }
     try {
         if ($needsSudo) {
-            $sudoArgs = @()
-            if ($NonInteractive) { $sudoArgs += '-n' }   # never block on a sudo password prompt
-            & sudo @sudoArgs pwsh -NoProfile -File $aliasScript -ComputerName $Name -IPAddress $IPAddress
+            # -n (never block on a password prompt) and, on macOS, -E: a Homebrew
+            # PowerShell cannot start under sudo's stripped environment and exits
+            # 131 before reading the script. See Get-SudoPwshArgumentList.
+            $sudoArgs = Get-SudoPwshArgumentList -ScriptPath $aliasScript `
+                -ScriptArgument @('-ComputerName', $Name, '-IPAddress', $IPAddress) `
+                -NonInteractive:$NonInteractive
+            & sudo @sudoArgs
             if ($LASTEXITCODE -ne 0) {
                 Write-Warning "sudo Set-HostAlias for '$Name' exited $LASTEXITCODE; add '$IPAddress  $Name' to /etc/hosts manually."
                 return $false

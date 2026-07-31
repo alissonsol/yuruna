@@ -33,6 +33,48 @@ properties:
     description: All pools defined for this LAN. One file holds every pool.
     items: { $ref: "#/$defs/pool" }
 
+  autoEnrollment:
+    type: object
+    description: >
+      PHASE A (permit-only): declared here so every intent WRITER accepts a
+      document containing it before any writer emits it. Every admin write
+      re-validates the WHOLE document against the writing checkout's own copy of
+      this schema, and this file is `additionalProperties: false` at the root --
+      so a store written by a newer checkout would otherwise fail validation on
+      every older one, breaking pool administration LAN-wide. Ship this schema
+      everywhere first; only then start writing the block.
+
+      Policy for the sweep that adds lab-token-enrolled hosts to a pool
+      automatically. A host is a candidate only when the aggregator reports
+      `control: ready` for it AND it belongs to no pool at all, so the
+      "a host is in at most one pool" invariant holds by construction.
+    additionalProperties: false
+    properties:
+      enabled:
+        type: boolean
+        description: >
+          Master switch for the auto-enrolment sweep across this LAN. Default
+          false: the feature ships off and is turned on deliberately.
+      targetPoolId:
+        type: string
+        pattern: "^[a-z0-9][a-z0-9-]{0,62}$"
+        description: >
+          The pool auto-enrolled hosts land in (conventionally `default`). This
+          pool is FORBIDDEN from carrying a testSet -- hosts arrive here without
+          anyone choosing it for them, so a test-set here would silently repoint
+          every auto-enrolled host in the lab. Enforced in code
+          (Test-PoolIntent.ps1 / Set-PoolTestSet.ps1), because a cross-field
+          constraint of this shape is not expressible in JSON Schema.
+      excluded:
+        type: array
+        description: >
+          Hosts an operator removed from the target pool by hand. The sweep
+          never re-adds these. Without it, removing a host and the 60-second
+          sweep would fight forever and the UI would look broken.
+        items:
+          type: string
+          pattern: "^42[0-9a-fA-F]{30}$"
+
 $defs:
 
   pool:
@@ -86,13 +128,30 @@ $defs:
           name:
             type: string
             pattern: "^[a-z0-9][a-z0-9._-]*$"
-            description: Test-set name (operator label; also the dashboard/UI display name).
+            description: >
+              Test-set name. Discovered entries are project-scoped by
+              construction -- `<project-slug>.<setName>` -- because this name is
+              the SOLE key the library upserts and deletes on, and every project
+              reports an implicit set called `all`; a bare name would have one
+              project's `all` overwrite every other's.
           frameworkUrl:
             type: string
             description: The Yuruna framework repo URL each pooled host clones for the cycle.
           projectUrl:
             type: string
             description: The project repo URL each pooled host tests (its test.runner.yml drives the cycle).
+          sequences:
+            type: array
+            description: >
+              PHASE A (permit-only): see the note on `autoEnrollment`.
+
+              Optional subset of the assigned project's top-level sequences to
+              run. ABSENT or EMPTY means run the project's whole
+              test.runner.yml, which is the behaviour every existing store
+              relies on -- so an older runner that ignores this field runs a
+              safe superset rather than nothing.
+            items:
+              type: string
 
       config:
         type: object

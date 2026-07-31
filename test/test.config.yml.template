@@ -58,6 +58,17 @@ testCycle:
   recentDisplayCount: 30
   stopOnFailure: false
   stepTimeoutSeconds: 2700
+  # Tighter watchdog bound for the runner's PREAMBLE -- process start through
+  # host detection, the caching-proxy gate and its port-map refresh, and the
+  # status-service start, i.e. everything before the first sequence step. None
+  # of it is legitimately slow, so a stall there means the runner is wedged
+  # (a sudo or credential prompt on the inherited terminal with nobody present
+  # is the case this exists for) and waiting out stepTimeoutSeconds means 45
+  # minutes of a green dashboard over a host doing nothing.
+  # Set to 0 to opt out: stepTimeoutSeconds then applies everywhere, which is
+  # the behaviour from before this knob existed. Raise it instead if a host
+  # has a genuinely slow preamble.
+  preambleTimeoutSeconds: 600
   # Warm-resume checkpointing: on an eligible transient workload failure
   # (network_timeout / wait_timeout / instrumentation_failure / host_io_blocked),
   # re-run the failed sequence from its last-good step on the same live VM

@@ -110,7 +110,7 @@ sequenceDiagram
     participant Proxy as caching-proxy service (squid)
     participant Upstream as GitHub / mirrors
 
-    Harness->>Guest: type cmd + EXEC_SHA256, EXEC_FALLBACK_REPO/REF
+    Harness->>Guest: type cmd + E_SHA, E_FB_REPO/REF
     Guest->>HostEnv: source (HOST_IP/PORT, GITHUB_REPO/REF, ...)
     Guest->>StatusSrv: GET /livecheck (--no-proxy)
     alt host reachable
@@ -126,14 +126,16 @@ sequenceDiagram
 ```
 
 **The digest gate is the point of this flow.** The fetched bytes are never
-handed to `bash` until `verify_sha256` matches them against `EXEC_SHA256`.
+handed to `bash` until `verify_sha256` matches them against `E_SHA`.
 That digest arrives *out of band*: `Test.SequenceHandler.psm1` regex-matches
 `fetch-and-execute.sh <path>` on the command line it is about to type and
-prepends `EXEC_REQUIRE_SHA256=1`, `EXEC_SHA256=<Get-FileHash SHA256>`,
-`EXEC_RETRY_SHA256` and `EXEC_FALLBACK_REPO/REF` — over the SSH or console
+prepends `EXEC_REQUIRE_SHA256=1`, `E_SHA=<Get-FileHash SHA256>`,
+`E_RETRY_SHA` and `E_FB_REPO/REF` — over the SSH or console
 channel, never over the HTTP the bytes came from. A missing digest under
 `EXEC_REQUIRE_SHA256=1` fails closed; a mismatch triggers exactly one re-fetch
-and re-verify (absorbing a concurrent-edit race) and otherwise exits 3.
+and re-verify (absorbing a concurrent-edit race) and otherwise exits 3. The
+short names are a keystroke budget, not a style choice — see
+[the typed envelope](../definition.md#defining-the-fetch-and-execute-typed-envelope).
 
 Proxy routing is the opposite of what it looks like. `--no-proxy` is set
 **only** for the host route, so `/livecheck`, `/yuruna-repo/` and the
@@ -142,7 +144,7 @@ inherits the guest-wide `http_proxy`/`https_proxy` that cloud-init writes into
 `/etc/environment`, `/etc/profile.d/yuruna-proxy.sh` and
 `/etc/systemd/system.conf.d/yuruna-proxy.conf` — `github.com` is not in
 `no_proxy`. The fallback is also conditional: with no pinned repo and ref
-(from `EXEC_FALLBACK_REPO/REF` or `host.env`) the script prints
+(from `E_FB_REPO/REF` or `host.env`) the script prints
 `NO FETCH SOURCE` and exits 2. When `GH_TOKEN` is set the fallback uses the
 `api.github.com` Contents API with the token in a 0600 `mktemp` wgetrc via
 `--config`, never a header; otherwise `raw.githubusercontent.com`. An
@@ -187,4 +189,4 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.29
+Last review: 2026.07.31

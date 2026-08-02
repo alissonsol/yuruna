@@ -81,16 +81,50 @@ Every `-interval` (default 30s) it:
    address (an announcer can only advertise itself — the same trust squid-log
    discovery extends to any LAN client), and the row's `baseUrl` fills from the host
    view when the host is known.
-   Entries reap after `-announce-ttl` (default 45m, two missed beacons) or on a
-   goodbye; every accepted announce is pushed to Loki (`{pool,hostId,src=announce}`)
+   Entries reap after `-announce-ttl` (default 45m, two missed beacons), on a
+   goodbye, or when the address stops answering the pool's own probe (point
+   5c-ii); every accepted announce is pushed to Loki (`{pool,hostId,src=announce}`)
    so a collector restart restores live rows instantly instead of waiting a period.
    Open-by-design write route (no bearer): telemetry-only,
    tightly validated, bounded, self-identity-bound; `-announce-ttl 0` disables it.
+5c-ii. **Confirms every advertised address before publishing it.** No address
+   reaches a consumer until THIS aggregator has reached it at `<target>/healthz` —
+   the same gate the host-side pre-flight and the guest workloads apply, asked
+   from where the consumers sit. A host can only see its own machine: a service
+   VM that came up on a hypervisor-private network (the macOS shared vmnet, a
+   Hyper-V Default Switch, libvirt's `virbr0`) answers its host and nobody else,
+   so the host confirms it in good faith, registers it, and every other member
+   then spends a whole cycle's timeout budget on an address it cannot route to.
+   Addresses that are wrong on their face (loopback, link-local, multicast,
+   anything that is not an `http(s)` URL) are refused without a probe — an
+   announce naming one is rejected outright (`400`).
+   Each poll re-confirms every advertised address (bounded, concurrent). A
+   confirmed address that goes quiet is carried for **5 minutes**
+   (`extensionHealthGrace`) so a service restart or a DHCP renewal does not empty
+   the panel, and is then dropped: the announce entry is deleted (a service that
+   stopped answering has gone away as far as the pool can tell — the same
+   conclusion its goodbye carries), while a registration-sourced address is
+   *suppressed* instead, because its owning host re-asserts it every poll and
+   only that host can retract it (`Stop-StashServiceVM` clears the marker).
+   A suppressed entry keeps its place in `/api/v1/extension-hosts`'s `services`
+   list with `suppressed`, `suppressedTarget` and `suppressReason`, and exports
+   `yuruna_pool_extension_unreachable{hostId,area,target,reason}`, but is kept
+   OUT of `yuruna_pool_host_extension` — the **Extension hosts** panel lists
+   services a member can use, and one the pool refuses to resolve is not one.
+   A newly announced address is confirmed by the announce handler itself, so a
+   service that just came up is resolvable at once rather than at the next poll.
+   The grace and the probe path are **code constants**, not flags: where a lab's
+   services answer is not an operator preference, and a per-pool override would
+   let one host's misconfiguration be configured away instead of fixed.
 5c-i. **Which source wins.** Both sources merge in ONE place
    (`extensionCandidatesLocked`), read by the `/metrics` rows, `/api/v1/extension-hosts`,
    pool-status `stashBaseUrl`, and `/go/stash` alike — a precedence rule written out
    four times is how a correction lands in one of them and not the others. The order
-   is by strength of evidence, not by who sent it:
+   puts **usability first** — an address this aggregator has reached beats one it
+   has not, whoever named it, because ranking evidence is how to choose between two
+   addresses that could both work, not a reason to prefer a better-sourced one that
+   demonstrably does not. Among usable candidates the order is by strength of
+   evidence, not by who sent it:
    **live announce** (the target came off the source address of a request this process
    received — first-hand proof the service answers there) → **registration** (a value
    the owning host computed and wrote to a file; correct when nobody announces, but it
@@ -119,14 +153,20 @@ Every `-interval` (default 30s) it:
 
    `?area=<slug>` returns one area (`404` when the pool knows no live host for it,
    so a caller can tell "not there" from "here it is"); no query returns every
-   area. Each entry carries `host` (the bare address callers compose probes and
-   scp targets from), `target` (the advertised base URL), `hostId`, `source`
-   (`registration` | `announce`) and `lastSeenUnixMs`. Registration wins over an
-   announce — the owning host re-resolves that target live each cycle, so it tracks
-   a DHCP change sooner than the next beacon — then freshest, then lowest hostId,
-   so the answer is deterministic and a consumer that re-asks is not walked between
-   equally valid hosts. A TTL-expired announce is skipped at read time rather than
-   trusted until the next poll reaps it. Read-only and unauthenticated, the same
+   area under `areas`, plus a `services` array carrying EVERY `(hostId, area)` the
+   pool knows — including the ones it refuses (point 5c-ii). One area has one
+   answer, so a second host advertising the same area at an address nobody can
+   reach would otherwise be invisible until a cycle needed it; `services` is what
+   `Test-Config.ps1` reads to report it before a cycle starts instead of after it
+   fails. Each entry carries `host` (the bare address callers compose probes and
+   scp targets from), `target` (the advertised base URL, blank when suppressed),
+   `hostId`, `source` (`registration` | `announce`), `lastSeenUnixMs`, and the
+   health fields `healthy` / `lastOkUnixMs` / `lastError` / `suppressed` /
+   `suppressedTarget` / `suppressReason`. The ordering is point 5c-i's: usable
+   first, then live announce over registration over rehydrated announce, then
+   freshest, then lowest hostId — deterministic, so a consumer that re-asks is not
+   walked between equally valid hosts. A TTL-expired announce is skipped at read
+   time rather than trusted until the next poll reaps it. Read-only and unauthenticated, the same
    posture as `/api/v1/pool-status`: it discloses service coordinates to a caller
    already on the LAN those services listen on, and every consumer proves the
    address independently (the stash pre-flight demands `/healthz`) before using it.
@@ -319,14 +359,14 @@ the leaf is absent.
 | `/healthz` | GET | none | `ok` liveness |
 | `/metrics` | GET | none | Prometheus text (`yuruna_pool_*`) — scraped by the local Prometheus |
 | `/api/v1/pool-status` | GET | none | JSON snapshot of every discovered host's last poll |
-| `/api/v1/extension-hosts[?area=<slug>]` | GET | none | where the pool currently sees each extension area served. With `?area=` one entry (`area`, `host`, `target`, `hostId`, `source`, `lastSeenUnixMs`) and **404** when no live host serves it; without it every area at once. Registration beats announce, then freshest, then lowest hostId; a TTL-expired announce is skipped at read time. The lookup a host uses to find the stash / pool-control service knowing only the caching-proxy-service address |
+| `/api/v1/extension-hosts[?area=<slug>]` | GET | none | where the pool currently sees each extension area served. With `?area=` one entry (`area`, `host`, `target`, `hostId`, `source`, `lastSeenUnixMs`, plus the health fields) and **404** when no live host serves it; without it every area (`areas`) plus every known registration (`services`), including the ones the pool refuses. Only addresses the aggregator has itself reached are answered (point 5c-ii); usable first, then live announce over registration over rehydrated announce, then freshest, then lowest hostId; a TTL-expired announce is skipped at read time. The lookup a host uses to find the stash / pool-control service knowing only the caching-proxy-service address |
 | `/go/cycle?host=<hostId>&t=<epochMs>` | GET | none | dashboard timeline click → 302 to that host's cycle-results folder. Resolves the host's **current** IP from the live view (so the link survives a host IP change) and the cycle covering `t` (current cycle in-memory, else the host's `/log/` listing, else the Loki transition feed); degrades to the host's status root when the folder can't be resolved |
 | `/go/host?host=<hostId>` | GET | none | dashboard timeline click → 302 to that host's status-page **root**. Same `host` uuid → **current** IP resolution as `/go/cycle` (survives a host IP change), but always lands on the status page rather than a cycle folder — the IP-free state-timeline rows can't carry the IP, so the link resolves it here |
 | `/go/stash?host=<hostId>&area=<area>` | GET | none | 302 to that host's extension-service UI (default `area=stash-service`, the stash-service VM), resolved through the same source merge as the dashboard cell — the service's own live announce first, the host's `extensionTargets` when nothing is announcing (see 5c-i). For IP-free, hostId-only consumers — the dashboard table itself links directly via the `target` label. Unknown host/target → 404 |
 | `/api/v1/lab-token` | POST | none (per-IP throttled) | lab-token exchange: body `{"labToken":"<6 chars>"}` → `200 {"ok":true,"v":1,"salt":…,"nonce":…,"ciphertext":…,"tag":…}` — redeems the dashboard's **Lab token** code for the shared lab-auth-token, sealed under that code so only the redeemer can open it (called by `test/Set-LabToken.ps1`). `400` malformed, `403` unknown/expired code, `429` per-IP throttle, `503` disabled (`-lab-token-rotate 0`). Every attempt audited (aggregator log + Loki, `src="lab-token"`) |
 | `/ingest` | POST | Bearer | runner-side push of NDJSON events (supplements pull); the bearer is the shared lab-auth-token (`-auth-token-file`). `503` when the proxy holds no token — a failure state, since the proxy build mints one |
 | `/api/v1/forget-host?hostId=<42-hex>` | POST | Bearer | operator eviction: drop one hostId from the in-memory view NOW (all per-host maps → gone from the next `/metrics` scrape) instead of waiting out the configured host TTL (`-host-ttl`). Same token as `/ingest`; 503 when no token, 400 on a malformed id. JSON `{forgotten, hostId, wasPresent}`. A still-reachable host is re-discovered on the next poll — stop/drain it first. Called by `test/Remove-PoolHost.ps1` |
-| `/announce` | POST | none (self-identity-bound) | extension-presence beacon (stash service et al., point 5c): the advertised URL derives from / must match the sender's address, so an announcer can only advertise itself; telemetry-only, bounded, disabled (503) when `-announce-ttl` is `0` |
+| `/announce` | POST | none (self-identity-bound) | extension-presence beacon (stash service et al., point 5c): the advertised URL derives from / must match the sender's address, so an announcer can only advertise itself, and must be an address the pool could route to (`400` for loopback/link-local/multicast/non-URL); the handler confirms a newly announced address against `/healthz` before it is resolvable (point 5c-ii). Telemetry-only, bounded, disabled (503) when `-announce-ttl` is `0` |
 
 ## Deploy + verify
 

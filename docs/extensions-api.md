@@ -114,7 +114,7 @@ The answer is a **list, nearest first**, and may be empty:
 |---|---|---|
 | 1 | `$env:YURUNA_EXTENSION_HOST_<AREA>` — area upper-cased, non-alphanumerics → `_` (e.g. `YURUNA_EXTENSION_HOST_STASH_SERVICE`) | an operator who states an address; it is meant, so nothing discovered outranks it |
 | 2 | Host contract `Get-VMIp` on `yuruna-<area>` (override with `-VMName`, `''` skips it) | a service VM running on **this** host, at its current address across rebuilds |
-| 3 | The pool — the aggregator's [`/api/v1/extension-hosts`](../test/extension/pool-aggregator-service/README.md#endpoints-9400), read through `Get-PoolExtensionHost` | a service running on **another** host, from its own registration/announce record |
+| 3 | The pool — the aggregator's [`/api/v1/extension-hosts`](../test/extension/pool-aggregator-service/README.md#endpoints-9400), read through `Get-PoolExtensionHost` | a service running on **another** host, from its own registration/announce record — and only at an address the aggregator has itself reached (see [below](#only-an-address-the-pool-has-reached-is-answered)) |
 
 Since the aggregator lives in the caching-proxy-service VM, knowing the proxy
 address — which every host needs anyway, to reach the cache at all — is
@@ -142,6 +142,39 @@ rather than failing it.
 The stash extension's `Resolve-Host` (what
 `${ext:stash-service.ResolveHost(<vm>)}` expands to) consults it last,
 after the local VM and the address the cycle's pre-flight already verified.
+
+### Only an address the pool has reached is answered
+
+Source 3 answers with an address **the aggregator has itself confirmed** at
+`<target>/healthz`, and re-confirms every poll. The reason is the one class
+of wrong answer a consumer cannot defend against: an address that is real
+on the host that advertised it and unreachable everywhere else.
+
+A host runs two kinds of guest network — the LAN it shares with every other
+machine, and a hypervisor-private one only it can see (the macOS shared
+vmnet, a Hyper-V Default Switch, libvirt's `virbr0`). Both look identical
+from that host: an RFC 1918 address on a live interface, answering
+`/healthz`. So a stash VM that came up on the private one is confirmed in
+good faith, registered pool-wide, and then every OTHER host resolves it and
+spends its whole timeout budget on a machine it cannot route to — after
+which the cycle stops, having built nothing.
+
+Two checks close it, at the two places that can each see one half:
+
+- the **owning host** refuses to advertise an address off its own
+  pool-facing network (`Update-StashServiceMarkerAddress`, judged by
+  `Get-Ipv4PoolSegmentVerdict`), so the address never enters
+  `host.registration.json`. It only *refuses*, never insists: an
+  undeterminable segment permits, and the service stays usable locally;
+- the **aggregator** refuses any address it cannot reach itself, whichever
+  source named it, and drops a confirmed one that stays silent for 5
+  minutes. It sits where the consumers sit, so its probe is the only check
+  that speaks for the pool rather than for one host.
+
+`Test-Config.ps1`'s *Extension services (pool registry)* section reports
+what the pool currently holds — including a registration it has refused, and
+one it still advertises that this host cannot reach — so the whole class is
+visible before a cycle starts rather than after one fails.
 
 ## Why `@(Get-ActiveExtensionName)` wrap
 
@@ -206,12 +239,19 @@ Containment instead:
 
 1. **Self-identity binding** — the advertised service URL is derived from
    (or must match) the connection's source IP, so an announcer can only
-   advertise itself.
+   advertise itself, and must be an address the pool could route to at all
+   (loopback, link-local, multicast and non-URL values are rejected `400`).
 2. **Telemetry-only** — paints a dashboard row and redirect target; no
    control plane, host probing, or cycle accounting.
 3. **Bounded** — tiny body cap, strict hostId/area charsets, at most
    `maxAnnounce` entries, TTL reap.
 4. **Goodbyes only remove an entry the same source owns.**
+5. **Confirmed before it is answered** — the handler probes a newly
+   announced address at `/healthz` (see
+   [above](#only-an-address-the-pool-has-reached-is-answered)), and the poll
+   re-confirms it; an entry that stays unanswered for 5 minutes is removed
+   as if it had said goodbye. An announce is a claim to be checked, not a
+   fact to be republished.
 
 `-announce-ttl 0` disables the route.
 

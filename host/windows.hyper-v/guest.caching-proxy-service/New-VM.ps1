@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.31
+.VERSION 2026.08.02
 .GUID 42f1b2c3-d4e5-4f67-8901-a2b3c4d5e6f8
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -90,9 +90,11 @@ if (-not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdent
 if (-not (Assert-HyperVEnabled)) { exit 1 }
 
 # --- REGION: Seek the base image
+# One VHDX backs every extension service on this host; this VM grows its own
+# copy below (host/modules/Yuruna.Image.psm1).
+Import-Module -Name (Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) "modules/Yuruna.Image.psm1") -Force
 $downloadDir = (Get-VMHost).VirtualHardDiskPath
-$baseImageName = "host.windows.hyper-v.guest.caching-proxy-service"
-$baseImageFile = Join-Path $downloadDir "$baseImageName.vhdx"
+$baseImageFile = (Get-UbuntuExtensionImageInfo -HostType 'windows.hyper-v').BaseImageFile
 
 # Auto-run Get-Image.ps1 once if the base image is missing; recheck and
 # only error out when it's still missing afterward.
@@ -148,6 +150,18 @@ if (-not (Test-Path -Path $vmDir)) {
 $vhdxFile = Join-Path $vmDir "$VMName.vhdx"
 Write-Output "Creating VHDX for '$VMName' by copying base image..."
 Copy-Item -Path $baseImageFile -Destination $vhdxFile -Force
+
+# --- REGION: Grow the per-VM disk to 512 GB
+# Dynamic VHDX, so 512 GB is the nominal size only -- the file grows as the
+# guest writes. Sized for squid's `cache_dir ufs /var/spool/squid 393216`
+# (= 384 GB) + ~128 GB OS/logs/headroom, and the `maximum_object_size 65 GB`
+# directive in host/vmconfig/caching-proxy-service.base.user-data that lets
+# the proxy cache multi-GB blobs end-to-end instead of bypassing them.
+# An undersized cache disk fills after the first prewarm, so this is fatal.
+if (-not (Expand-ExtensionVmDisk -Path $vhdxFile -SizeBytes 512GB -Format 'vhdx')) {
+    Write-Error "Could not resize '$vhdxFile' to 512 GB; refusing to build the cache VM on base-capacity disk."
+    exit 1
+}
 
 # --- REGION: Generate cloud-init seed ISO
 # meta-data is shared under host/vmconfig/ (byte-identical across all 3 host platforms).

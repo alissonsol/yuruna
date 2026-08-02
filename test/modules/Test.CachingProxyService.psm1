@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.31
+.VERSION 2026.08.02
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456821
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -989,7 +989,12 @@ function Get-PoolIntentSeedUrl {
     writable location:
 
       1. An explicit networkStorage/pool `intentGitUrl` in test.config.yml. The
-         operator said what they want; nothing overrides it.
+         operator said what they want; nothing overrides it -- with one
+         exception. The read-only proxy route (`http://<host>/pool-intent.git`)
+         is what Set-LabToken seeds into that same key so RUNNERS can pull
+         intent. It is not a request for this daemon to be read-only, and
+         honoring it here would give the service a store every push fails
+         against, so it yields to option 2 whenever the writable mount exists.
       2. The bare repo on the pool NAS, addressed by its GUEST mount path. The
          pool-control-service VM and the caching-proxy-service both mount that share read-write,
          so it is the one place the daemon can push to without a new credential
@@ -1017,13 +1022,28 @@ function Get-PoolIntentSeedUrl {
         $Config,
         [string]$GuestPoolMount = '/mnt/yuruna-pool'
     )
+    $configured = ''
     if ($Config -and $Config.pool -and -not [string]::IsNullOrWhiteSpace([string]$Config.pool.intentGitUrl)) {
-        return ([string]$Config.pool.intentGitUrl).Trim()
+        $configured = ([string]$Config.pool.intentGitUrl).Trim()
     }
     # Pool storage configured => the guest will mount it and can host the store.
     $hasPoolStorage = $false
     if ($Config -and $Config.networkStorage -and -not [string]::IsNullOrWhiteSpace([string]$Config.networkStorage.poolStorageNetworkPath)) {
         $hasPoolStorage = $true
+    }
+    if ($configured) {
+        # One exception to "the operator said what they want": the read-only
+        # http route that Set-LabToken seeds for RUNNERS. It is the right value
+        # for a host that only pulls intent, and the wrong one here -- this
+        # daemon COMMITS, and every push to an apache Alias fails. When the
+        # writable pool mount exists, use it; the seeded value is a runner
+        # binding that happens to live in the same config key, not a choice to
+        # make this service read-only.
+        if ($hasPoolStorage -and $configured -match '^https?://[^/]+/pool-intent\.git$') {
+            Write-Verbose "Get-PoolIntentSeedUrl: pool.intentGitUrl ($configured) is the read-only proxy route; the pool-control service needs a writable store, using the pool mount instead."
+        } else {
+            return $configured
+        }
     }
     if ($hasPoolStorage) {
         return ("{0}/pool-intent.git" -f $GuestPoolMount.TrimEnd('/'))

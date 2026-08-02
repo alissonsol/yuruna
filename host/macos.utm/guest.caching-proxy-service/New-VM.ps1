@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.31
+.VERSION 2026.08.02
 .GUID 42f1b2c3-d4e5-4f67-8901-a2b3c4d5e6f9
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -93,10 +93,12 @@ if (-not (Test-Path $utmPlist)) {
 }
 
 # --- REGION: Seek the base image
+# One cloud image backs every extension service on this host; this VM grows
+# its own copy below (host/modules/Yuruna.Image.psm1).
 # Auto-run Get-Image.ps1 once if the base image is missing; recheck and
 # only error out when it's still missing afterward.
-$baseImageName = "host.macos.utm.guest.caching-proxy-service"
-$baseImageFile = Join-Path $downloadDir "$baseImageName.qcow2"
+Import-Module -Name (Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) 'modules/Yuruna.Image.psm1') -Force
+$baseImageFile = (Get-UbuntuExtensionImageInfo -HostType 'macos.utm').BaseImageFile
 if (-not (Test-Path $baseImageFile)) {
     $getImageScript = Join-Path $PSScriptRoot 'Get-Image.ps1'
     if (Test-Path -LiteralPath $getImageScript) {
@@ -130,12 +132,11 @@ New-Item -ItemType Directory -Force -Path $DataDir | Out-Null
 # VZEFIVariableStore step required (that was the AVF-only path).
 
 # --- REGION: Copy base image -> per-VM disk
-# Copy the pre-built qcow2 cloud image into the bundle as the boot disk.
-# Get-Image.ps1 already produced a qcow2 resized to 512 GB; no conversion
-# here. qcow2 (not raw) is deliberate: UTM's QEMU backend boots it
+# Copy the pre-built qcow2 cloud image into the bundle as the boot disk; no
+# conversion here. qcow2 (not raw) is deliberate: UTM's QEMU backend boots it
 # directly and it sidesteps the macOS F_PUNCHHOLE-alignment EINVAL a raw
 # disk hits under UTM's discard=unmap,detect-zeroes=unmap -- see
-# Get-Image.ps1 and feedback_macos-qemu-punchhole-alignment.md.
+# feedback_macos-qemu-punchhole-alignment.md.
 $DiskImage = "$DataDir/disk.qcow2"
 Write-Output "Copying cloud image into bundle as disk.qcow2 (APFS clone)..."
 # `/bin/cp -c` triggers APFS clone (O(1), sparse-preserving). Falls back
@@ -145,6 +146,21 @@ Write-Output "Copying cloud image into bundle as disk.qcow2 (APFS clone)..."
 if ($LASTEXITCODE -ne 0) {
     Write-Warning "/bin/cp -c (APFS clone) failed; falling back to Copy-Item."
     Copy-Item -Path $baseImageFile -Destination $DiskImage
+}
+
+# --- REGION: Grow the per-VM disk to 512 GB
+# 512 GB is the APPARENT size (qcow2 grows on demand: actual consumption is
+# only what the guest writes). Sized for squid's `cache_dir ufs
+# /var/spool/squid 393216` (= 384 GB) + ~128 GB OS/logs/headroom, and the
+# `maximum_object_size 65 GB` directive in
+# host/vmconfig/caching-proxy-service.base.user-data that lets the proxy cache
+# files like the macOS install image (~18 GB) and other multi-GB blobs
+# end-to-end instead of bypassing them direct to CDN.
+if (-not (Expand-ExtensionVmDisk -Path $DiskImage -SizeBytes 512GB -Format 'qcow2')) {
+    Write-Warning "Resize failed -- continuing with original size."
+    Write-Warning "The cache VM will only have the base cloud-image capacity (~2.5 GB)"
+    Write-Warning "which fills up after 1-2 installs. Resize manually with:"
+    Write-Warning "  qemu-img resize -f qcow2 '$DiskImage' 512G"
 }
 
 # --- REGION: Generate cloud-init seed ISO

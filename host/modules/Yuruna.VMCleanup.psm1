@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.31
+.VERSION 2026.08.02
 .GUID 42b8c9d0-e1f2-4a34-9567-89b0c1d2e3f4
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -124,6 +124,13 @@ function Resolve-BaseImageName {
         even when no VM currently references them. KVM doesn't use this
         -- its base images live outside the per-VM tree -- so this helper
         is only called by the Hyper-V and UTM scripts.
+
+        The list also carries base images that no single guest folder owns:
+        the extension services share one image, so its name cannot be
+        derived from a `guest.*` folder. Without it the Hyper-V sweep --
+        which classifies every unclaimed file under VirtualHardDiskPath as
+        orphaned -- would delete the shared image out from under all three
+        services.
     .PARAMETER HostScriptDir
         Absolute path to the directory holding the Remove-OrphanedVMFiles.ps1
         script (e.g. `c:\git\yuruna\host\windows.hyper-v`). The leaf becomes
@@ -142,6 +149,10 @@ function Resolve-BaseImageName {
     foreach ($g in $guestDirs) {
         $names.Add("$hostFolder.$($g.Name)")
     }
+    # Shared base image behind every extension service; stem kept in lockstep
+    # with Get-UbuntuExtensionImageInfo (host/modules/Yuruna.Image.psm1).
+    Import-Module (Join-Path $PSScriptRoot 'Yuruna.Image.psm1') -Force -DisableNameChecking
+    $names.Add((Get-UbuntuExtensionImageBaseName -HostType (Split-Path -Leaf $HostScriptDir)))
     return @{ HostFolder = $hostFolder; BaseImageNames = $names.ToArray() }
 }
 

@@ -36,6 +36,10 @@ func TestAnnounceCreatesExtensionRow(t *testing.T) {
 	if rec.Code/100 != 2 {
 		t.Fatalf("announce status = %d, want 2xx", rec.Code)
 	}
+	// The announce says the service exists; the pool's own probe is what makes
+	// its address usable. In a live collector the handler takes that probe
+	// itself -- here the verdict is seeded, since these tests have no client.
+	seedExtensionHealth(s, testHostID, stashArea, "http://10.0.0.7")
 	m := httptest.NewRecorder()
 	s.handleMetrics(m, httptest.NewRequest("GET", "/metrics", nil))
 	// The target derives from the SOURCE address (port 80 -> no port suffix);
@@ -134,6 +138,7 @@ func TestAnnounceLiveAnnounceBeatsStaleRegistration(t *testing.T) {
 		LastSeenUnixMs:   time.Now().UnixMilli(),
 	}
 	postAnnounce(s, "10.0.0.7:5555", fmt.Sprintf(`{"hostId":%q,"targetPort":80}`, testHostID))
+	seedExtensionHealth(s, testHostID, stashArea, "http://10.0.0.7")
 
 	m := httptest.NewRecorder()
 	s.handleMetrics(m, httptest.NewRequest("GET", "/metrics", nil))
@@ -162,6 +167,7 @@ func TestAnnounceDisagreementIsReported(t *testing.T) {
 		LastSeenUnixMs:   time.Now().UnixMilli(),
 	}
 	postAnnounce(s, "10.0.0.7:5555", fmt.Sprintf(`{"hostId":%q,"targetPort":80}`, testHostID))
+	seedExtensionHealth(s, testHostID, stashArea, "http://10.0.0.7")
 
 	m := httptest.NewRecorder()
 	s.handleMetrics(m, httptest.NewRequest("GET", "/metrics", nil))
@@ -185,6 +191,7 @@ func TestAnnounceNoDisagreementWhenSourcesAgree(t *testing.T) {
 		LastSeenUnixMs:   time.Now().UnixMilli(),
 	}
 	postAnnounce(s, "10.0.0.7:5555", fmt.Sprintf(`{"hostId":%q,"targetPort":80}`, testHostID))
+	seedExtensionHealth(s, testHostID, stashArea, "http://10.0.0.7")
 
 	m := httptest.NewRecorder()
 	s.handleMetrics(m, httptest.NewRequest("GET", "/metrics", nil))
@@ -273,6 +280,7 @@ func TestApplyAnnounceLines(t *testing.T) {
 func TestGoStashFallsBackToAnnounce(t *testing.T) {
 	s := newPoolState("default", 8080)
 	postAnnounce(s, "10.0.0.7:5555", fmt.Sprintf(`{"hostId":%q,"targetPort":80}`, testHostID))
+	seedExtensionHealth(s, testHostID, stashArea, "http://10.0.0.7")
 	rec := httptest.NewRecorder()
 	s.handleGoStash(rec, httptest.NewRequest("GET", "/go/stash?host="+testHostID, nil))
 	if rec.Code != 302 {
@@ -293,6 +301,8 @@ func TestPoolStatusStashBaseURL(t *testing.T) {
 	}
 	s.hosts[testHostID] = &hostView{HostId: testHostID} // in view, no registration target
 	postAnnounce(s, "10.0.0.7:5555", fmt.Sprintf(`{"hostId":%q,"targetPort":80}`, testHostID))
+	seedExtensionHealth(s, "reghost11", stashArea, "http://10.0.0.5")
+	seedExtensionHealth(s, testHostID, stashArea, "http://10.0.0.7")
 
 	rec := httptest.NewRecorder()
 	s.handlePoolStatus(rec, httptest.NewRequest("GET", "/api/v1/pool-status", nil))

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.31
+.VERSION 2026.08.02
 .GUID 42f4c810-93a7-4b62-a15e-7d0c2be64f18
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -30,7 +30,7 @@
     What it creates under -Root:
       <Root>/yuruna.pool          cycle-output replication + the intent repository
       <Root>/yuruna.stash         the stash service's own durable store
-      <Root>/yuruna.pool/<name>.intent.git
+      <Root>/yuruna.pool/pool-intent.git
                                   bare pool-intent repository, seeded schema-valid.
                                   pool-control service serves this over git:// and that URL
                                   becomes the lab's intentGitUrl.
@@ -177,7 +177,21 @@ foreach ($p in @($Root, $poolPath, $stashPath)) {
 }
 
 # --- REGION: pool-intent repository
-$intentPath = Join-Path $poolPath "$Name.intent.git"
+# 'pool-intent.git' is the name every consumer already resolves to and cannot
+# discover: the apache Alias the caching proxy publishes, the guest mount path
+# the pool-control service commits to, and the writable path setup.ps1 hands
+# New-Pool. A lab-name-derived name would be reachable by none of them, so the
+# store would exist and nothing would ever open it. The lab name does not need
+# to be in the name -- each lab owns its own -Root, so the pool folder is
+# already lab-scoped.
+$intentPath = Join-Path $poolPath 'pool-intent.git'
+# Adopt a store created under the older lab-name-derived name rather than
+# leaving its seeded history orphaned beside a fresh empty repo.
+$legacyIntentPath = Join-Path $poolPath "$Name.intent.git"
+if ((Test-Path -LiteralPath $legacyIntentPath) -and -not (Test-Path -LiteralPath $intentPath)) {
+    Move-Item -LiteralPath $legacyIntentPath -Destination $intentPath
+    Write-Output "[2/3] adopted the existing pool-intent store: $legacyIntentPath -> $intentPath"
+}
 $store = New-YurunaPoolIntentStore -Path $intentPath -Confirm:$false
 if ($store.Created) {
     Write-Output "[2/3] pool-intent store seeded at $intentPath"

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.31
+.VERSION 2026.08.02
 .GUID 42c8e4f6-b2d3-4a91-9e45-7f6a8b9c0d12
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -64,6 +64,35 @@ Describe 'Get-PoolIntentSeedUrl resolution order' {
         It 'trims surrounding whitespace so the seed env line stays parseable' {
             $cfg = @{ pool = @{ intentGitUrl = '  http://proxy/pool-intent.git  ' } }
             Assert-Equal -Expected 'http://proxy/pool-intent.git' -Actual (Get-PoolIntentSeedUrl -Config $cfg)
+        }
+    }
+
+    Context 'the read-only proxy route yields to the writable pool mount' {
+        # Set-LabToken seeds http://<proxy>/pool-intent.git into this same key so
+        # RUNNERS can pull. The daemon COMMITS, and apache serves that route
+        # through a plain Alias, so honoring it here hands the service a store
+        # every push fails against -- and it stays wrong after the proxy's DHCP
+        # address moves, because nothing re-resolves a non-empty value.
+        It 'prefers the pool mount over a seeded http route' {
+            $cfg = @{
+                pool           = @{ intentGitUrl = 'http://192.168.64.4/pool-intent.git' }
+                networkStorage = @{ poolStorageNetworkPath = '\\ypool-nas\work\yuruna.pool' }
+            }
+            Assert-Equal -Expected '/mnt/yuruna-pool/pool-intent.git' -Actual (Get-PoolIntentSeedUrl -Config $cfg) `
+                -Because 'a read-only route cannot serve a daemon that pushes'
+        }
+        It 'keeps the http route when there is no pool storage to prefer' {
+            $cfg = @{ pool = @{ intentGitUrl = 'http://192.168.64.4/pool-intent.git' } }
+            Assert-Equal -Expected 'http://192.168.64.4/pool-intent.git' -Actual (Get-PoolIntentSeedUrl -Config $cfg) `
+                -Because 'a read-only store still beats no store at all'
+        }
+        It 'does not touch an operator url that merely uses http' {
+            $cfg = @{
+                pool           = @{ intentGitUrl = 'http://git.example.com/team/intent.git' }
+                networkStorage = @{ poolStorageNetworkPath = '\\ypool-nas\work\yuruna.pool' }
+            }
+            Assert-Equal -Expected 'http://git.example.com/team/intent.git' -Actual (Get-PoolIntentSeedUrl -Config $cfg) `
+                -Because 'only the exact seeded shape yields'
         }
     }
 

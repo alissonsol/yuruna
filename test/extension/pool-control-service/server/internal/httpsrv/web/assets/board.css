@@ -80,6 +80,9 @@
 .login-error { color: #cf222e; font-size: 0.9rem; }
 
 /* Confirmation sheet: bottom-anchored on a phone, where thumbs are. */
+/* `display:flex` here would beat the user-agent `[hidden] { display: none }`,
+   which is why style.css carries the `!important` [hidden] guard: without it
+   this full-viewport overlay renders on load and swallows every tap. */
 .sheet { position: fixed; inset: 0; background: rgba(0,0,0,0.45); display: flex; align-items: flex-end; z-index: 10; }
 .sheet-box { width: 100%; background: var(--bg, #fff); border-radius: 16px 16px 0 0; padding: 1.25rem; }
 .sheet-box h2 { margin: 0 0 0.6rem; font-size: 1.1rem; }

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.31
+.VERSION 2026.08.02
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456742
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -178,25 +178,29 @@ if ($IsMacOS -or $IsLinux) {
 }
 
 if ($IsMacOS) {
-    $HostDir      = Join-Path $RepoRoot 'host/macos.utm/guest.caching-proxy-service'
-    $downloadDir  = Join-Path $HOME 'yuruna/image/caching-proxy-service'
-    $ImageFile    = Join-Path $downloadDir 'host.macos.utm.guest.caching-proxy-service.qcow2'
-    $UtmDir       = "$HOME/yuruna/guest.nosync/$VMName.utm"
+    $HostType = 'macos.utm'
+    $UtmDir   = "$HOME/yuruna/guest.nosync/$VMName.utm"
 } elseif ($IsWindows) {
-    $HostDir      = Join-Path $RepoRoot 'host/windows.hyper-v/guest.caching-proxy-service'
-    # (Get-VMHost) loads the Hyper-V module on first use; fails cleanly if
-    # Hyper-V isn't installed -- the underlying New-VM.ps1 has the same
-    # dependency, so surfacing it here keeps the error close to the user.
-    $downloadDir  = (Get-VMHost).VirtualHardDiskPath
-    $ImageFile    = Join-Path $downloadDir 'host.windows.hyper-v.guest.caching-proxy-service.vhdx'
+    $HostType = 'windows.hyper-v'
 } elseif ($IsLinux) {
-    $HostDir      = Join-Path $RepoRoot 'host/ubuntu.kvm/guest.caching-proxy-service'
-    # libvirt-qemu boots qcow2 natively; matches the Get-Image.ps1 +
-    # New-VM.ps1 output path for the KVM cache.
-    $downloadDir  = Join-Path $HOME 'yuruna/image/caching-proxy-service'
-    $ImageFile    = Join-Path $downloadDir 'host.ubuntu.kvm.guest.caching-proxy-service.qcow2'
+    $HostType = 'ubuntu.kvm'
 } else {
     Write-Error "Unsupported host. Start-CachingProxyServiceVM.ps1 runs on macOS (UTM), Windows (Hyper-V), or Linux (KVM/libvirt)."
+    exit 1
+}
+$HostDir = Join-Path $RepoRoot "host/$HostType/guest.caching-proxy-service"
+
+# The cache VM boots the base image every extension service on this host
+# shares; resolve it from the same helper Get-Image.ps1 and New-VM.ps1 use so
+# the artifact check below can never test a path they don't write. On Hyper-V
+# the resolver reads (Get-VMHost).VirtualHardDiskPath, which loads the Hyper-V
+# module on first use -- the underlying New-VM.ps1 has the same dependency, so
+# surfacing that failure here keeps the error close to the user.
+Import-Module (Join-Path $RepoRoot 'host/modules/Yuruna.Image.psm1') -Force
+try {
+    $ImageFile = (Get-UbuntuExtensionImageInfo -HostType $HostType).BaseImageFile
+} catch {
+    Write-Error $_.Exception.Message
     exit 1
 }
 

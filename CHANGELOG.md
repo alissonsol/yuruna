@@ -4,6 +4,22 @@ Yuruna uses [Calendar Versioning](https://calver.org/): `YYYY.MM.DD`.
 Tags are cut from the `main` branch; entries below summarize each
 tagged release.
 
+## 2026.08.02
+
+- **A setup run leaves a record.** `install/setup.ps1` now writes
+  `test/status/log/setup.<yyyy.MM.dd.HH.mm>.log` — every question and where its
+  answer came from, every step, child command line, and exit code. The elevated
+  Windows relaunch continues the same file. See
+  [install/README.md](install/README.md#guided-setup).
+
+- **Also in this release.** The pool advertises only stash addresses it has
+  itself reached, dropping ones unanswered for 5 minutes; `Test-Config.ps1`
+  gained an *Extension services (pool registry)* section. **Needs a
+  caching-proxy service rebuild.** See
+  [extensions-api.md](docs/extensions-api.md#only-an-address-the-pool-has-reached-is-answered)
+  and
+  [test-config.md](docs/test-config.md#extension-services-pool-registry--where-this-hosts-stash-actually-is).
+
 ## 2026.07.31
 
 - **Sequence steps get their console keystrokes back.** The integrity envelope
@@ -285,6 +301,6 @@ LICENSEURI <https://yuruna.link/license>
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.31
+Last review: 2026.08.02
 
 Back to [Yuruna](README.md)

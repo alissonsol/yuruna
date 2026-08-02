@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.31
+.VERSION 2026.08.02
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456709
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -1441,6 +1441,133 @@ if (-not (Test-Path $poolMod)) {
             } else {
                 Write-Warn "networkStorage stash: could not ensure the target folder '$($stashCfg.NetworkPath)' -- $($mk.error). Start-StashServiceVM will buffer locally until this is fixed."
                 if ($mk.error -match 'mount') { Show-LinuxSudoHintOnce }
+            }
+        }
+    }
+}
+
+# -- Section 9c2: extension services registered with the pool -----------------
+# The stash storage checks above prove this host could BUILD a stash service.
+# This one asks the opposite question, and the one a cycle actually depends on:
+# which stash service will this host be sent to, and does it answer?
+#
+# A cycle resolves that address from the pool, so an unreachable registration
+# stops the cycle in its warm-up -- after the config check said everything was
+# fine. Two hosts advertising the same area is normal (each may run its own);
+# an advertised address that nothing answers is not, and it is invisible from
+# this host until the moment a cycle needs it.
+#
+# Advisory throughout. This gate refuses to START the runner loop on a FAIL, so
+# a service on another machine being down would wedge a lab that could otherwise
+# keep cycling and recover; and whether a stash is needed at all is the
+# project's business, not the framework's. Visibility is the goal: the operator
+# reads this before a cycle spends its budget discovering the same thing.
+
+Write-Section "Extension services (pool registry)"
+
+$aggregatorMod = Join-Path $ExtensionRoot 'pool-aggregator-service/default.psm1'
+$cachingProxyMod = Join-Path $ModulesDir 'Test.CachingProxyService.psm1'
+if (-not (Test-Path $aggregatorMod)) {
+    Write-Info "pool-aggregator-service extension not found at ${aggregatorMod}; the pool registry check is skipped."
+} else {
+    Import-Module $aggregatorMod -Global -Force -DisableNameChecking
+    if (Test-Path $cachingProxyMod) { Import-Module $cachingProxyMod -Global -Force -DisableNameChecking }
+    # Test-StashServiceHost is the same /healthz gate the cycle pre-flight and
+    # the guest workloads apply; borrowing it keeps one definition of reachable.
+    $stashExtensionMod = Join-Path $ExtensionRoot 'stash-service/default.psm1'
+    if (Test-Path $stashExtensionMod) { Import-Module $stashExtensionMod -Global -Force -DisableNameChecking }
+    $aggregatorBase = ''
+    if (Get-Command Get-PoolAggregatorServiceSeedUrl -ErrorAction SilentlyContinue) {
+        try { $aggregatorBase = [string](Get-PoolAggregatorServiceSeedUrl) } catch { $aggregatorBase = '' }
+    }
+    if ([string]::IsNullOrWhiteSpace($aggregatorBase)) {
+        Write-Info "No caching-proxy service address is known, so there is no pool aggregator to ask -- this host resolves extension services locally (or by pin) only."
+    } else {
+        $registry = $null
+        try {
+            $registryResponse = Invoke-WebRequest -Uri "$($aggregatorBase.TrimEnd('/'))/api/v1/extension-hosts" `
+                -TimeoutSec 8 -SkipCertificateCheck -SkipHttpErrorCheck -ErrorAction Stop
+            if ([int]$registryResponse.StatusCode -eq 200) {
+                $registry = $registryResponse.Content | ConvertFrom-Json
+            } else {
+                Write-Warn "pool registry: the aggregator at $aggregatorBase answered HTTP $([int]$registryResponse.StatusCode) for /api/v1/extension-hosts -- extension-service discovery is degraded for this host."
+            }
+        } catch {
+            Write-Warn "pool registry: could not reach the aggregator at $aggregatorBase ($($_.Exception.Message)) -- this host cannot discover a stash service it does not run itself."
+        }
+        if ($registry) {
+            # services carries every (hostId, area) the pool knows, including the
+            # ones it has refused; older aggregators answer with areas only, and
+            # then only the resolvable entries can be reported.
+            $services = @()
+            if ($registry.PSObject.Properties.Name -contains 'services' -and $registry.services) {
+                $services = @($registry.services)
+            } elseif ($registry.PSObject.Properties.Name -contains 'areas' -and $registry.areas) {
+                $services = @($registry.areas.PSObject.Properties | ForEach-Object { $_.Value })
+                Write-Info "pool registry: this aggregator predates the per-service listing; only the areas it resolves are reported. Rebuild the caching-proxy service VM to see refused registrations here."
+            }
+            $stashServices = @($services | Where-Object { [string]$_.area -eq 'stash-service' })
+            if ($stashServices.Count -eq 0) {
+                Write-Info "pool registry: the pool reports no stash service. A cycle that needs one will stop in its warm-up -- start one (Start-StashServiceVM.ps1) or join a pool that runs one."
+            } else {
+                Write-Info ("pool registry: {0} stash service registration(s) known to the pool at {1}." -f $stashServices.Count, $aggregatorBase)
+                $stashReachableCount = 0
+                foreach ($service in $stashServices) {
+                    # The pool's own verdict comes first: it refuses an address
+                    # it cannot reach, and says why.
+                    $advertised = [string]$service.target
+                    if ([string]::IsNullOrWhiteSpace($advertised)) { $advertised = [string]$service.suppressedTarget }
+                    $who = "hostId $([string]$service.hostId)"
+                    if ([bool]$service.suppressed) {
+                        Write-Warn ("pool registry: the stash service advertised by {0} at '{1}' is REFUSED by the pool -- {2}. It is not handed to any cycle. A private-network address (macOS shared vmnet, Hyper-V Default Switch, libvirt virbr0) is reachable only from its own host: rebuild that stash VM on a bridged interface." -f $who, $advertised, [string]$service.suppressReason)
+                        continue
+                    }
+                    if ([string]::IsNullOrWhiteSpace($advertised)) {
+                        Write-Info "pool registry: $who reports a stash service with no address yet (starting, or its host has not resolved the VM's IP)."
+                        continue
+                    }
+                    # Probe from HERE too: the pool answering for an address only
+                    # says the aggregator can reach it, and this host is the one
+                    # that has to. 'host' is the bare address the aggregator
+                    # already parsed out; an older one that does not send it
+                    # leaves the URL to parse here, and a value that will not
+                    # parse is skipped rather than thrown out of the section.
+                    $stashAddress = [string]$service.host
+                    if ([string]::IsNullOrWhiteSpace($stashAddress)) {
+                        $parsed = $null
+                        if ([uri]::TryCreate($advertised, [System.UriKind]::Absolute, [ref]$parsed)) { $stashAddress = $parsed.Host }
+                    }
+                    if ([string]::IsNullOrWhiteSpace($stashAddress)) {
+                        Write-Warn "pool registry: $who advertises a stash service at '$advertised', which is not an address this host can probe."
+                        continue
+                    }
+                    $stashAnswers = $false
+                    if (Get-Command Test-StashServiceHost -ErrorAction SilentlyContinue) {
+                        $stashAnswers = Test-StashServiceHost -Address $stashAddress -Attempts 2 -TimeoutSeconds 4 -BackoffMs 250
+                    } else {
+                        $stashAnswers = Test-TcpReachable -HostName $stashAddress -Port 80 -TimeoutMs 4000
+                    }
+                    if ($stashAnswers) {
+                        $stashReachableCount++
+                        Write-Pass ("pool registry: stash service at $advertised ($who, via $([string]$service.source)) answers from this host.")
+                    } else {
+                        Write-Warn ("pool registry: the stash service at $advertised ($who) does NOT answer /healthz from this host, though the pool still advertises it. A cycle handed this address will stop in its warm-up -- check that stash VM, or this host's route to it.")
+                    }
+                }
+                if ($stashReachableCount -eq 0) {
+                    # Advisory, not a gate. This gate REFUSES TO START the runner
+                    # loop on a FAIL, and whether a stash is needed at all is the
+                    # project's business, not the framework's -- so a service on
+                    # another machine being down must not wedge a lab that would
+                    # otherwise keep cycling and recover on its own.
+                    Write-Warn "pool registry: NO registered stash service answers from this host. A project that uploads build output to the stash has nowhere to put it, and its cycle will stop before the provisioning stages. Start a stash service (Start-StashServiceVM.ps1), fix the one the pool advertises, or pin an address with `$env:YURUNA_STASH_SERVICE_HOST."
+                }
+            }
+            # Other areas are reported too, but only as a refusal: nothing in a
+            # cycle's critical path resolves them, so an unreachable one is
+            # information rather than a warning.
+            foreach ($service in @($services | Where-Object { [string]$_.area -ne 'stash-service' -and [bool]$_.suppressed })) {
+                Write-Info ("pool registry: the {0} advertised by hostId {1} at '{2}' is refused by the pool -- {3}." -f [string]$service.area, [string]$service.hostId, [string]$service.suppressedTarget, [string]$service.suppressReason)
             }
         }
     }

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.31
+.VERSION 2026.08.02
 .GUID 42e5f6a7-b8c9-4d01-8234-5f6a7b8c9d0e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -295,6 +295,16 @@ NOTHING until this is fixed. If the password is stale, update it and rebuild:
         $readyDeadline = (Get-Date).AddSeconds($readyTimeoutSeconds)
         $probeStart    = Get-Date
         $nextTick      = 30
+        # Two very different faults look identical from out here -- a daemon
+        # still building in-guest, and a daemon that has been serving for
+        # minutes on an address this host cannot reach. Waiting helps the first
+        # and can never help the second, so once the guest is far enough along
+        # to answer SSH, ask IT whether anything is listening. Deferred to
+        # $reachabilityCheckAfterSeconds because sshd is not up instantly and an
+        # early no-answer would prove nothing.
+        $reachabilityCheckAfterSeconds = 120
+        $reachabilityChecked = $false
+        $listeningButUnreachable = $false
         while ((Get-Date) -lt $readyDeadline) {
             $tcp = [System.Net.Sockets.TcpClient]::new()
             try {
@@ -310,7 +320,44 @@ NOTHING until this is fixed. If the password is stale, update it and rebuild:
                 Write-Information ("  [{0:D2}m{1:D2}s / {2}m] still waiting for the daemon on :80..." -f [int][math]::Floor($elapsed / 60), ($elapsed % 60), $readyTimeoutMinutes) -InformationAction Continue
                 $nextTick += 30
             }
+            if (-not $reachabilityChecked -and $elapsed -ge $reachabilityCheckAfterSeconds -and
+                (Get-Command Invoke-GuestSsh -ErrorAction SilentlyContinue)) {
+                $inGuest = $null
+                try {
+                    $inGuest = Invoke-GuestSsh -VMName $VMName -GuestKey 'guest.pool-control-service' `
+                        -User 'pool-control-service-admin' -TimeoutSeconds 30 `
+                        -Command 'ss -ltn 2>/dev/null | grep -qE "(^|[^0-9]):80\b" && echo YURUNA_LISTENING || echo YURUNA_NOT_LISTENING'
+                } catch { Write-Verbose "pool-control-service in-guest listener probe: $($_.Exception.Message)" }
+                # Only a completed answer settles anything. SSH that did not
+                # connect means the guest is still coming up, so leave the check
+                # unmade and let a later pass ask again.
+                if ($inGuest -and "$($inGuest.output)" -match 'YURUNA_(NOT_)?LISTENING') {
+                    $reachabilityChecked = $true
+                    if ("$($inGuest.output)" -match 'YURUNA_LISTENING') {
+                        $listeningButUnreachable = $true
+                        break
+                    }
+                    Write-Information "  (reachable over SSH; the daemon has not bound :80 in-guest yet -- still building)" -InformationAction Continue
+                }
+            }
             Start-Sleep -Seconds 3
+        }
+        if ($listeningButUnreachable) {
+            $waited = [int]((Get-Date) - $probeStart).TotalSeconds
+            Write-Warning @"
+The pool-control-service daemon IS serving on :80 inside the guest, but this host
+cannot open a connection to ${vmIp}:80 (gave up after ${waited}s; SSH to the same
+guest works, so the VM is up and the daemon is running).
+
+Waiting longer cannot fix this -- the daemon is already up. What is broken is the
+path from this host to ${vmIp}:80:
+  * $vmIp may not be this VM's current address. A stale DHCP lease resolves to
+    whichever guest holds that address now; check the guest console's own
+    "eth0: <ip>" line against $vmIp.
+  * The guest firewall may be dropping :80 from outside (ufw).
+  * On UTM Shared NAT, the host reaches the guest through the 192.168.64.0/24
+    gateway only -- a bridged-mode address is not routable from here.
+"@
         }
     } else {
         # The VM is confirmed RUNNING by the state gate above, so this is a

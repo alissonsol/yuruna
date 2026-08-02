@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.31
+.VERSION 2026.08.02
 .GUID 426d4f21-8a35-49be-b7e0-3d18f52a9c6b
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -50,6 +50,14 @@
     the last run left registered. Budget for it: rebuilding the proxy is roughly
     15 minutes.
 
+    LOGGED. Every run writes test/status/log/setup.<yyyy.MM.dd.HH.mm>.log: each
+    question, the answer taken and where it came from, each step and its outcome,
+    each child script's command line and exit code, and the closing report. A
+    setup run is long and mostly unattended in the middle, so by the time anyone
+    asks what it did the console is usually gone. The output of the child scripts
+    themselves stays on the console -- see Invoke-RepoScript for why capturing it
+    would make their prompts invisible.
+
     WINDOWS RUNS ELEVATED. Enable-TestAutomation and all three Start-*VM scripts
     independently refuse without Administrator, so the whole run is elevated
     once, up front, rather than failing four steps in. The Stop-*VM scripts need
@@ -91,8 +99,14 @@
     quietly becoming beacon-local when the operator asked for a NAS is the kind
     of divergence nobody notices until the beacon is a single point of failure.
     An interactive run offers the choice instead of taking it.
+.PARAMETER LogPath
+    Continue an existing run log instead of opening a new one. The Windows
+    elevated relaunch passes it to itself so one file holds the whole run; there
+    is no reason to set it by hand.
 .PARAMETER WhatIf
-    Print the ordered task list and stop, changing nothing.
+    Print the ordered task list and stop, changing nothing -- except the run log,
+    which a preview writes like any other run. What the preview would do is
+    exactly what is worth keeping.
 .EXAMPLE
     pwsh install/setup.ps1
 .EXAMPLE
@@ -103,7 +117,8 @@
 
 [CmdletBinding(SupportsShouldProcess)]
 param(
-    [string]$AnswerFile = ''
+    [string]$AnswerFile = '',
+    [string]$LogPath = ''
 )
 
 $ErrorActionPreference = 'Stop'
@@ -124,6 +139,163 @@ $ConfigPath = Join-Path $TestRoot 'test.config.yml'
 # wins per-run, and '' there keeps whatever test.config.yml already has.
 $DefaultProjectUrl = 'https://github.com/alissonsol/yuruna-project'
 
+# --- REGION: run log
+# Every question asked, every answer taken and every message printed also lands
+# in test/status/log/setup.<yyyy.MM.dd.HH.mm>.log. A setup run is long, mostly
+# unattended in the middle, and the interesting part is usually gone from the
+# scrollback by the time anyone looks -- so the record outlives the console.
+#
+# What is NOT here: the output of the repo scripts this one starts. They inherit
+# this terminal by design (see Invoke-RepoScript) and capturing them would make
+# their prompts invisible. The log records each one's command line and exit code
+# instead, which is what says WHICH child a run died in.
+$Script:LogFile = ''
+
+function Write-SetupLogLine {
+<#
+.SYNOPSIS
+    Append one timestamped record to the run log. A no-op when there is no log.
+#>
+    param(
+        [Parameter(Mandatory)][string]$Level,
+        [string]$Message = ''
+    )
+    if (-not $Script:LogFile) { return }
+    $stamp = (Get-Date).ToString('HH:mm:ss')
+    $lines = @(foreach ($line in ($Message -split "`r?`n")) { ('{0} {1,-6} {2}' -f $stamp, $Level, $line).TrimEnd() })
+    try {
+        # -WhatIf:$false twice over: Add-Content supports ShouldProcess, and a
+        # preview run still keeps a log -- without it the preview would narrate
+        # "What if: Add Content" for every line and record none of them.
+        Add-Content -LiteralPath $Script:LogFile -Value $lines -Encoding utf8 -WhatIf:$false
+    } catch {
+        # The log is a record of the run, never a reason to end one. Say so once,
+        # then continue console-only rather than failing on every later line.
+        $Script:LogFile = ''
+        Write-Warning "Setup log could not be written ($($_.Exception.Message)); the rest of this run is console-only."
+    }
+}
+
+function Write-SetupMessage {
+    param([Parameter(Position = 0)][AllowEmptyString()][string]$Message = '')
+    Write-Information $Message
+    Write-SetupLogLine -Level 'INFO' -Message $Message
+}
+
+function Write-SetupWarning {
+    param([Parameter(Position = 0)][AllowEmptyString()][string]$Message = '')
+    Write-Warning $Message
+    Write-SetupLogLine -Level 'WARN' -Message $Message
+}
+
+function Write-SetupVerbose {
+    param([Parameter(Position = 0)][AllowEmptyString()][string]$Message = '')
+    Write-Verbose $Message
+    Write-SetupLogLine -Level 'NOTE' -Message $Message
+}
+
+function Write-SetupError {
+<#
+.SYNOPSIS
+    Report a fatal condition to the console and the log. Does not itself end the
+    run -- every call site follows it with Exit-Setup.
+.DESCRIPTION
+    -ErrorAction Continue, deliberately. $ErrorActionPreference is 'Stop' here,
+    which makes a plain Write-Error terminating: the closing report and the exit
+    code that follow it would never run, and the log would end on the failure
+    with no record of what the run had managed first.
+#>
+    param([Parameter(Position = 0, Mandatory)][string]$Message)
+    Write-SetupLogLine -Level 'FAIL' -Message $Message
+    Write-Error $Message -ErrorAction Continue
+}
+
+function Initialize-SetupLog {
+<#
+.SYNOPSIS
+    Open the run log and write its header. Appends when the file already exists.
+.PARAMETER Path
+    An existing log to continue writing to. This is how the Windows elevated
+    relaunch keeps ONE file for the whole run: the unelevated parent opens the
+    log, then hands the path down. Empty means "start a new one".
+.DESCRIPTION
+    Minute precision in the generated name, matching the timestamps elsewhere
+    under status/log. Two runs started inside the same minute share a file and
+    each writes its own header, which reads better than two half-records under
+    names that differ by a second.
+#>
+    param([string]$Path = '')
+    $target = $Path
+    if (-not $target) {
+        $target = Join-Path (Join-Path $TestRoot 'status/log') ('setup.{0}.log' -f (Get-Date).ToString('yyyy.MM.dd.HH.mm'))
+    }
+    try {
+        $parent = Split-Path -Parent $target
+        if ($parent -and -not (Test-Path -LiteralPath $parent)) {
+            New-Item -ItemType Directory -Force -Path $parent -WhatIf:$false | Out-Null
+        }
+        $elevated = ''
+        if ($IsWindows) {
+            $principal = New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())
+            $elevated = if ($principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) { ' (elevated)' } else { ' (not elevated)' }
+        }
+        $header = @(
+            ''
+            '=================== yuruna setup run ==================='
+            ('started     : {0}' -f (Get-Date).ToString('yyyy-MM-dd HH:mm:ss K'))
+            ('script      : {0}' -f $PSCommandPath)
+            ('repo        : {0}' -f $RepoRoot)
+            ('answer file : {0}' -f $(if ($AnswerFile) { $AnswerFile } else { '(none -- interactive run)' }))
+            ('user        : {0}{1}' -f [Environment]::UserName, $elevated)
+            ('machine     : {0}' -f [Environment]::MachineName)
+            ('pwsh        : {0} on {1}' -f $PSVersionTable.PSVersion, [Environment]::OSVersion.VersionString)
+            $(if ($WhatIfPreference) { 'mode        : -WhatIf preview -- nothing will be changed' })
+            '========================================================'
+        ) | Where-Object { $null -ne $_ }
+        Add-Content -LiteralPath $target -Value $header -Encoding utf8 -WhatIf:$false
+        $Script:LogFile = $target
+    } catch {
+        $Script:LogFile = ''
+        Write-Warning "Setup log could not be opened at $target ($($_.Exception.Message)); this run is console-only."
+    }
+}
+
+function Exit-Setup {
+<#
+.SYNOPSIS
+    End the run, recording the exit code as the log's last line.
+.DESCRIPTION
+    Every exit goes through here. A log whose final line is whatever happened to
+    print last cannot be told apart from a log cut short by a kill or a reboot.
+#>
+    param([int]$Code = 0)
+    Write-SetupLogLine -Level 'END' -Message "setup.ps1 exiting $Code"
+    exit $Code
+}
+
+function Add-SetupDecision {
+<#
+.SYNOPSIS
+    Record one resolved answer and where it came from.
+.DESCRIPTION
+    The source matters as much as the value. "storage.kind = local" says what the
+    run did; "(answer file)" versus "(default -- not asked)" says whether anyone
+    chose it, which is the question asked of a log after a machine turns out to
+    be set up differently than expected.
+#>
+    param(
+        [Parameter(Mandatory)][string]$Name,
+        $Value,
+        [Parameter(Mandatory)][string]$Source
+    )
+    $text = if ($Value -is [bool]) { $Value.ToString().ToLowerInvariant() }
+            elseif ($null -eq $Value -or "$Value" -eq '') { "''" }
+            else { "$Value" }
+    Write-SetupLogLine -Level 'ANSWER' -Message ('{0} = {1}  ({2})' -f $Name, $text, $Source)
+}
+
+Initialize-SetupLog -Path $LogPath
+
 # --- REGION: task bookkeeping
 # Every step lands in one of three buckets, and the closing report prints all
 # three. "Skipped" is the one that matters: a setup that silently declines to do
@@ -138,6 +310,26 @@ function Add-PlannedStep {
     param([Parameter(Mandatory)][string]$Description)
     $Script:StepNo++
     $Script:Plan.Add(("{0,2}. {1}" -f $Script:StepNo, $Description))
+}
+
+function Add-SkippedStep {
+<#
+.SYNOPSIS
+    Record something this run deliberately did not do.
+.DESCRIPTION
+    Logged where it is decided, not only in the closing report: "the stash
+    service was skipped" answers a different question depending on whether it
+    came before or after the storage step failed.
+.PARAMETER Quiet
+    The caller has already printed its own line; only log.
+#>
+    param(
+        [Parameter(Mandatory)][string]$Description,
+        [switch]$Quiet
+    )
+    $Script:Skipped.Add($Description)
+    if (-not $Quiet) { Write-Information "  [skip] $Description" }
+    Write-SetupLogLine -Level 'SKIP' -Message $Description
 }
 
 function Invoke-SetupStep {
@@ -165,28 +357,36 @@ function Invoke-SetupStep {
         $done = $false
         try { $done = [bool](& $AlreadyDone) } catch { $done = $false }
         if ($done) {
+            # Write-Information plus an explicit log level, rather than
+            # Write-SetupMessage: step boundaries are what a log is scanned for,
+            # and a level of their own is what makes them filterable. Routing the
+            # same text through both would only duplicate it.
             Write-Information "  [skip] $Name -- already done."
-            $Script:Skipped.Add("$Name (already done)")
+            Add-SkippedStep -Description "$Name (already done)" -Quiet
             return $true
         }
     }
 
-    Write-Information ''
+    Write-SetupMessage ''
     Write-Information "==> $Name"
+    Write-SetupLogLine -Level 'STEP' -Message $Name
     try {
         & $Action
         $Script:Done.Add($Name)
+        Write-SetupLogLine -Level 'DONE' -Message $Name
         return $true
     } catch {
         $message = $_.Exception.Message
         if ($Critical) {
             $Script:Failed.Add("$Name -- $message")
-            Write-Error "$Name failed: $message"
+            # Report BEFORE the error: this is the last thing the run will do, and
+            # the list of what did succeed is what the next attempt starts from.
             Write-SetupReport
-            exit 1
+            Write-SetupError "$Name failed: $message"
+            Exit-Setup 1
         }
         $Script:Failed.Add("$Name -- $message")
-        Write-Warning "$Name failed: $message"
+        Write-SetupWarning "$Name failed: $message"
         return $false
     }
 }
@@ -225,7 +425,12 @@ function Invoke-RepoScript {
         [switch]$TolerateFailure
     )
     if (-not (Test-Path -LiteralPath $Path)) { throw "script not found: $Path" }
-    Write-Information "    $([IO.Path]::GetFileName($Path)) $($Arguments -join ' ')"
+    $leaf = [IO.Path]::GetFileName($Path)
+    Write-SetupMessage "    $leaf $($Arguments -join ' ')"
+    # The child's own output never reaches the log -- it is written straight to
+    # this console -- so its command line and exit code are what tie a run's
+    # failure to the script it happened in.
+    Write-SetupLogLine -Level 'EXEC' -Message "$Path $($Arguments -join ' ')"
     $startInfo = [System.Diagnostics.ProcessStartInfo]::new()
     $startInfo.FileName = Get-CurrentPwshPath
     # UseShellExecute stays false: on .NET it is what makes the child inherit
@@ -243,8 +448,9 @@ function Invoke-RepoScript {
     } finally {
         if ($process) { $process.Dispose() }
     }
+    Write-SetupLogLine -Level 'EXIT' -Message "$leaf exited $code"
     if ($code -ne 0 -and -not $TolerateFailure) {
-        throw "$([IO.Path]::GetFileName($Path)) exited $code"
+        throw "$leaf exited $code"
     }
     return $code
 }
@@ -402,27 +608,40 @@ function Read-Choice {
     Never prompts on an unattended run: with an answer file the value is already
     known, and a Read-Host here is exactly the stall that makes a remote setup
     hang with nobody present to answer it.
+
+    Every outcome is logged with how it was reached -- typed, taken by pressing
+    Enter, or never asked. A log that records only the value cannot answer the
+    question actually asked of it later: did anyone choose this?
 #>
     param(
         [Parameter(Mandatory)][string]$Question,
         [Parameter(Mandatory)][hashtable[]]$Option,
         [Parameter(Mandatory)]$Default
     )
-    if ($Script:Unattended) { return $Default }
-    Write-Information ''
-    Write-Information $Question
+    $label = { param($Value) ($Option | Where-Object { $_.Value -eq $Value } | Select-Object -First 1).Label }
+    if ($Script:Unattended) {
+        Write-SetupLogLine -Level 'ASK' -Message "$Question -- not asked (unattended)"
+        Write-SetupLogLine -Level 'ANSWER' -Message "$Default -- $(& $label $Default) (unattended default)"
+        return $Default
+    }
+    Write-SetupMessage ''
+    Write-SetupMessage $Question
     for ($i = 0; $i -lt $Option.Count; $i++) {
         $marker = if ($Option[$i].Value -eq $Default) { ' (default)' } else { '' }
-        Write-Information ("  [{0}] {1}{2}" -f ($i + 1), $Option[$i].Label, $marker)
+        Write-SetupMessage ("  [{0}] {1}{2}" -f ($i + 1), $Option[$i].Label, $marker)
     }
     while ($true) {
         $answer = (Read-Host 'Choice').Trim()
-        if (-not $answer) { return $Default }
+        if (-not $answer) {
+            Write-SetupLogLine -Level 'ANSWER' -Message "$Default -- $(& $label $Default) (Enter: default)"
+            return $Default
+        }
         $n = 0
         if ([int]::TryParse($answer, [ref]$n) -and $n -ge 1 -and $n -le $Option.Count) {
+            Write-SetupLogLine -Level 'ANSWER' -Message "$($Option[$n - 1].Value) -- $($Option[$n - 1].Label) (typed: $answer)"
             return $Option[$n - 1].Value
         }
-        Write-Information "  Enter a number between 1 and $($Option.Count)."
+        Write-SetupMessage "  Enter a number between 1 and $($Option.Count)."
     }
 }
 
@@ -431,31 +650,44 @@ function Read-Text {
         [Parameter(Mandatory)][string]$Question,
         [string]$Default = ''
     )
-    if ($Script:Unattended) { return $Default }
+    if ($Script:Unattended) {
+        Write-SetupLogLine -Level 'ASK' -Message "$Question -- not asked (unattended)"
+        Write-SetupLogLine -Level 'ANSWER' -Message "$Default (unattended default)"
+        return $Default
+    }
     $suffix = if ($Default) { " [$Default]" } else { '' }
+    Write-SetupLogLine -Level 'ASK' -Message "$Question$suffix"
     $answer = (Read-Host "$Question$suffix").Trim()
-    if (-not $answer) { return $Default }
+    if (-not $answer) {
+        Write-SetupLogLine -Level 'ANSWER' -Message "$(if ($Default) { $Default } else { "''" }) (Enter: default)"
+        return $Default
+    }
+    Write-SetupLogLine -Level 'ANSWER' -Message "$answer (typed)"
     return $answer
 }
 
 function Write-SetupReport {
-    Write-Information ''
-    Write-Information '================ Yuruna setup ================'
+    Write-SetupMessage ''
+    Write-SetupMessage '================ Yuruna setup ================'
     if ($Script:Done.Count -gt 0) {
-        Write-Information 'Done:'
-        foreach ($d in $Script:Done) { Write-Information "  - $d" }
+        Write-SetupMessage 'Done:'
+        foreach ($d in $Script:Done) { Write-SetupMessage "  - $d" }
     }
     if ($Script:Skipped.Count -gt 0) {
-        Write-Information ''
-        Write-Information 'Skipped:'
-        foreach ($s in $Script:Skipped) { Write-Information "  - $s" }
+        Write-SetupMessage ''
+        Write-SetupMessage 'Skipped:'
+        foreach ($s in $Script:Skipped) { Write-SetupMessage "  - $s" }
     }
     if ($Script:Failed.Count -gt 0) {
-        Write-Information ''
-        Write-Information 'Failed:'
-        foreach ($f in $Script:Failed) { Write-Information "  - $f" }
+        Write-SetupMessage ''
+        Write-SetupMessage 'Failed:'
+        foreach ($f in $Script:Failed) { Write-SetupMessage "  - $f" }
     }
-    Write-Information '=============================================='
+    Write-SetupMessage '=============================================='
+    # Named on the console, not only in the file: the operator who needs the log
+    # is the one whose run just failed, and they should not have to know where
+    # this script keeps it.
+    if ($Script:LogFile) { Write-SetupMessage "Log: $Script:LogFile" }
 }
 
 # --- REGION: preflight
@@ -466,14 +698,45 @@ Import-Module (Join-Path $RepoRoot 'automation/Yuruna.HostRedirect.psm1') -Force
 Import-Module (Join-Path $RepoRoot 'test/modules/Test.HostDetection.psm1') -Force -DisableNameChecking
 $HostType = Get-HostType
 if (-not $HostType) {
-    Write-Error 'Host type could not be determined. Only macOS (UTM), Windows (Hyper-V) and Linux (KVM/libvirt) are supported.'
-    exit 1
+    Write-SetupError 'Host type could not be determined. Only macOS (UTM), Windows (Hyper-V) and Linux (KVM/libvirt) are supported.'
+    Exit-Setup 1
 }
 $HostFolderName = (Get-HostFolder $HostType) -replace '^host[/\\]', ''
 
-Write-Information ''
-Write-Information "Yuruna setup -- $HostFolderName"
-Write-Information "Repo: $RepoRoot"
+Write-SetupMessage ''
+Write-SetupMessage "Yuruna setup -- $HostFolderName"
+Write-SetupMessage "Repo: $RepoRoot"
+if ($Script:LogFile) { Write-SetupMessage "Log:  $Script:LogFile" }
+
+# macOS / Linux: refuse to run as root, BEFORE anything is written. These
+# scripts elevate the individual operations that need it (networksetup, the
+# SMB server, /etc/hosts), so a whole-run `sudo` buys nothing and breaks the
+# result: every artifact lands under root's home (/var/root on macOS) instead
+# of the operator's, where the hypervisor -- running as the operator -- cannot
+# reach it. The per-VM builders detect this and hand ownership back, but only
+# AFTER the image, the bundle and the mounts have gone to the wrong place. It
+# also puts the SMB mount points under /var, which macOS reports back through
+# its /private symlink and no longer matches what was asked for.
+if (-not $IsWindows) {
+    $uid = $null
+    try { $uid = (& id -u 2>$null) } catch { Write-SetupVerbose "id -u probe: $($_.Exception.Message)" }
+    if ("$uid".Trim() -eq '0') {
+        $asUser = if ($env:SUDO_USER) { $env:SUDO_USER } else { 'your own account' }
+        Write-SetupError @"
+Refusing to run as root.
+
+Yuruna setup elevates the individual operations that need it and prompts for
+your password when it does. Running the WHOLE script under sudo puts every
+artifact in root's home (HOME=$env:HOME) -- base images, VM bundles and the
+storage mounts -- where the hypervisor, which runs as $asUser, cannot reach
+them.
+
+Re-run without sudo:
+    pwsh install/setup.ps1
+"@
+        Exit-Setup 1
+    }
+}
 
 # Windows: elevate ONCE, up front. Enable-TestAutomation and all three Start-*VM
 # scripts each refuse without Administrator, so a non-elevated run would get
@@ -487,22 +750,31 @@ if ($IsWindows) {
             # relaunching here would be worse than useless: Start-Process itself
             # honours -WhatIf, so the elevated run would never start and this
             # script would exit 0 as though the preview had succeeded.
-            Write-Warning 'Not running as Administrator. This preview needs no elevation, but the real run does -- it will relaunch elevated.'
+            Write-SetupWarning 'Not running as Administrator. This preview needs no elevation, but the real run does -- it will relaunch elevated.'
         } else {
-            Write-Information ''
-            Write-Information 'This setup needs Administrator: host settings, the firewall rules and'
-            Write-Information 'every Hyper-V VM operation require it. Relaunching elevated...'
+            Write-SetupMessage ''
+            Write-SetupMessage 'This setup needs Administrator: host settings, the firewall rules and'
+            Write-SetupMessage 'every Hyper-V VM operation require it. Relaunching elevated...'
             $relaunchArgs = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $PSCommandPath)
             if ($AnswerFile) { $relaunchArgs += @('-AnswerFile', (Resolve-Path -LiteralPath $AnswerFile).Path) }
+            # The elevated run continues THIS log rather than opening one of its
+            # own. Everything worth reading happens after the elevation, so two
+            # files would mean a near-empty one under the time the operator
+            # remembers starting and the real record under a name they do not.
+            # Handed down as an argument, not an environment variable: the
+            # RunAs process is created by the AppInfo service, and the parent's
+            # environment does not reliably survive that.
+            if ($Script:LogFile) { $relaunchArgs += @('-LogPath', $Script:LogFile) }
             try {
                 # -Confirm:$false so an ambient $ConfirmPreference cannot turn the
                 # relaunch into a prompt that the elevated child never sees.
                 $proc = Start-Process -FilePath (Get-CurrentPwshPath) -ArgumentList $relaunchArgs -Verb RunAs -PassThru -Wait -Confirm:$false
                 if (-not $proc) { throw 'the elevated process did not start' }
-                exit ([int]$proc.ExitCode)
+                Write-SetupLogLine -Level 'NOTE' -Message 'the elevated run''s record is the block above, in this same file'
+                Exit-Setup ([int]$proc.ExitCode)
             } catch {
-                Write-Error "Could not relaunch elevated ($($_.Exception.Message)). Start an Administrator PowerShell and run: pwsh $PSCommandPath"
-                exit 1
+                Write-SetupError "Could not relaunch elevated ($($_.Exception.Message)). Start an Administrator PowerShell and run: pwsh $PSCommandPath"
+                Exit-Setup 1
             }
         }
     }
@@ -513,8 +785,8 @@ $Script:Unattended = [bool]$AnswerFile
 $answers = $null
 if ($AnswerFile) {
     if (-not (Test-Path -LiteralPath $AnswerFile)) {
-        Write-Error "Answer file not found: $AnswerFile"
-        exit 1
+        Write-SetupError "Answer file not found: $AnswerFile"
+        Exit-Setup 1
     }
     Import-YamlModule
     $answers = Get-Content -LiteralPath $AnswerFile -Raw | ConvertFrom-Yaml -Ordered
@@ -535,7 +807,23 @@ function Get-Answer {
     return $node
 }
 
+function Get-DecisionSource {
+<#
+.SYNOPSIS
+    How a resolved answer was arrived at, for the log.
+.DESCRIPTION
+    Three outcomes and they are not interchangeable: the operator supplied it,
+    the operator was asked, or nobody chose it and the script's own default
+    stood. The last one is the one worth being able to find later.
+#>
+    param([Parameter(Mandatory)][bool]$FromAnswerFile)
+    if ($FromAnswerFile) { return 'answer file' }
+    if ($Script:Unattended) { return 'default -- absent from the answer file' }
+    return 'asked'
+}
+
 $setupType = Get-Answer 'setup.type'
+$setupTypeSource = Get-DecisionSource -FromAnswerFile ([bool]$setupType)
 if (-not $setupType) {
     $setupType = Read-Choice -Question 'What are you setting up?' -Default 'standalone' -Option @(
         @{ Label = 'Standalone host -- one machine that runs tests by itself'; Value = 'standalone' }
@@ -543,12 +831,13 @@ if (-not $setupType) {
     )
 }
 if ($setupType -notin @('standalone', 'lab')) {
-    Write-Error "setup.type must be 'standalone' or 'lab' (got '$setupType')."
-    exit 1
+    Write-SetupError "setup.type must be 'standalone' or 'lab' (got '$setupType')."
+    Exit-Setup 1
 }
 $isLab = ($setupType -eq 'lab')
 
 $runTestsAnswer = Get-Answer 'setup.runTests'
+$runTestsSource = Get-DecisionSource -FromAnswerFile ($null -ne $runTestsAnswer)
 $runTests = if ($null -ne $runTestsAnswer) { [bool]$runTestsAnswer } else {
     (Read-Choice -Question 'Should this machine run tests itself?' -Default $true -Option @(
         @{ Label = 'Yes -- configure host settings (display sleep, screen lock, firewall)'; Value = $true }
@@ -557,9 +846,11 @@ $runTests = if ($null -ne $runTestsAnswer) { [bool]$runTestsAnswer } else {
 }
 
 $projectUrl = Get-Answer 'setup.projectUrl'
+$projectUrlSource = if ($null -ne $projectUrl) { 'answer file' } else { 'script default -- never asked' }
 if ($null -eq $projectUrl) { $projectUrl = $DefaultProjectUrl }
 
 $storageKind = Get-Answer 'storage.kind'
+$storageKindSource = Get-DecisionSource -FromAnswerFile ([bool]$storageKind)
 if (-not $storageKind) {
     $storageOptions = @(
         @{ Label = 'This machine -- stand up local SMB shares here (New-LocalLabStorage)'; Value = 'local' }
@@ -572,46 +863,79 @@ if (-not $storageKind) {
         -Default $(if ($isLab) { 'nas' } else { 'local' }) -Option $storageOptions
 }
 if ($storageKind -notin @('local', 'nas', 'none')) {
-    Write-Error "storage.kind must be 'local', 'nas' or 'none' (got '$storageKind')."
-    exit 1
+    Write-SetupError "storage.kind must be 'local', 'nas' or 'none' (got '$storageKind')."
+    Exit-Setup 1
 }
 if ($isLab -and $storageKind -eq 'none') {
-    Write-Error "storage.kind 'none' is not valid for a lab: the stash service and the pool intent store both need shared storage."
-    exit 1
+    Write-SetupError "storage.kind 'none' is not valid for a lab: the stash service and the pool intent store both need shared storage."
+    Exit-Setup 1
 }
 
 $storageNetworkPath = [string](Get-Answer 'storage.networkPath')
 $storageNetworkUser = [string](Get-Answer 'storage.networkUser')
+# Captured before the prompts below, which overwrite the values with what the
+# operator types -- after them there is no telling the two sources apart.
+$storageNetworkFromFile = [bool]$storageNetworkPath
 if ($storageKind -eq 'nas') {
     if (-not $storageNetworkPath) { $storageNetworkPath = Read-Text -Question 'NAS share for the pool (e.g. //ypool-nas/work/yuruna.pool)' }
     if (-not $storageNetworkUser) { $storageNetworkUser = Read-Text -Question 'NAS account' -Default 'yuruna-pool' }
     if (-not $storageNetworkPath -or -not $storageNetworkUser) {
-        Write-Error "storage.kind 'nas' needs both storage.networkPath and storage.networkUser."
-        exit 1
+        Write-SetupError "storage.kind 'nas' needs both storage.networkPath and storage.networkUser."
+        Exit-Setup 1
     }
 }
 # Where local shares live. Only consulted for storage.kind = local (including the
 # NAS fallback); interactively New-LocalLabStorage asks and suggests a default.
 $storageLocalRoot = [string](Get-Answer 'storage.localRoot')
 $storageOnFailure = [string](Get-Answer 'storage.onFailure')
+$storageOnFailureSource = if ($storageOnFailure) { 'answer file' } else { 'default -- never asked' }
 if (-not $storageOnFailure) { $storageOnFailure = 'stop' }
 if ($storageOnFailure -notin @('stop', 'local')) {
-    Write-Error "storage.onFailure must be 'stop' or 'local' (got '$storageOnFailure')."
-    exit 1
+    Write-SetupError "storage.onFailure must be 'stop' or 'local' (got '$storageOnFailure')."
+    Exit-Setup 1
 }
 
 $labName = ''
+$labNameSource = ''
 $createDefaultPool = $false
+$createDefaultPoolSource = ''
 if ($isLab) {
     $labName = [string](Get-Answer 'lab.name')
+    $labNameSource = Get-DecisionSource -FromAnswerFile ([bool]$labName)
     if (-not $labName) { $labName = Read-Text -Question 'Lab beacon name' -Default ([Environment]::MachineName.ToLowerInvariant()) }
     $poolAnswer = Get-Answer 'lab.createDefaultPool'
+    $createDefaultPoolSource = Get-DecisionSource -FromAnswerFile ($null -ne $poolAnswer)
     $createDefaultPool = if ($null -ne $poolAnswer) { [bool]$poolAnswer } else {
         (Read-Choice -Question "Create the 'default' pool?" -Default $true -Option @(
             @{ Label = 'Yes'; Value = $true }
             @{ Label = 'No'; Value = $false }
         ))
     }
+}
+
+# The resolved questionnaire, in one block, before any of it is acted on. The
+# inline ANSWER lines above record each exchange as it happened; this records
+# what the run is about to DO, which is what a later reader compares the machine
+# against.
+Write-SetupLogLine -Level 'PLAN' -Message 'Resolved answers:'
+Add-SetupDecision -Name 'setup.type'              -Value $setupType          -Source $setupTypeSource
+Add-SetupDecision -Name 'setup.runTests'          -Value $runTests           -Source $runTestsSource
+Add-SetupDecision -Name 'setup.projectUrl'        -Value $projectUrl         -Source $projectUrlSource
+Add-SetupDecision -Name 'storage.kind'            -Value $storageKind        -Source $storageKindSource
+$localRootSource = if ($storageLocalRoot) { 'answer file' }
+                   elseif ($storageKind -eq 'local') { 'not set -- New-LocalLabStorage will ask' }
+                   else { "not needed -- storage.kind is '$storageKind'" }
+# 'asked' is a claim, and it is only true where the questions are reachable: the
+# NAS pair is never put to an operator who chose local or no storage at all.
+$networkSource = if ($storageKind -ne 'nas') { "not asked -- storage.kind is '$storageKind'" }
+                 else { Get-DecisionSource -FromAnswerFile $storageNetworkFromFile }
+Add-SetupDecision -Name 'storage.localRoot'       -Value $storageLocalRoot   -Source $localRootSource
+Add-SetupDecision -Name 'storage.networkPath'     -Value $storageNetworkPath -Source $networkSource
+Add-SetupDecision -Name 'storage.networkUser'     -Value $storageNetworkUser -Source $networkSource
+Add-SetupDecision -Name 'storage.onFailure'       -Value $storageOnFailure   -Source $storageOnFailureSource
+if ($isLab) {
+    Add-SetupDecision -Name 'lab.name'              -Value $labName           -Source $labNameSource
+    Add-SetupDecision -Name 'lab.createDefaultPool' -Value $createDefaultPool -Source $createDefaultPoolSource
 }
 
 # --- REGION: 1. preflight checks
@@ -623,10 +947,10 @@ if ($isLab) {
     try {
         $drive = Get-PSDrive -Name (Split-Path -Qualifier $home_).TrimEnd(':') -ErrorAction SilentlyContinue
         if ($drive -and $drive.Free -and $drive.Free -lt 40GB) {
-            Write-Warning "Only $([Math]::Round($drive.Free / 1GB, 1)) GB free on $($drive.Name): -- VM images need roughly 40 GB. Continuing."
+            Write-SetupWarning "Only $([Math]::Round($drive.Free / 1GB, 1)) GB free on $($drive.Name): -- VM images need roughly 40 GB. Continuing."
         }
-    } catch { Write-Verbose "disk headroom check: $($_.Exception.Message)" }
-    Write-Information "    host type: $HostType"
+    } catch { Write-SetupVerbose "disk headroom check: $($_.Exception.Message)" }
+    Write-SetupMessage "    host type: $HostType"
 })
 
 # --- REGION: 2. config
@@ -660,7 +984,7 @@ if ($isLab) {
         }
         if (-not $hit) { throw "no projectUrl key found in $ConfigPath to set" }
         Set-Content -LiteralPath $ConfigPath -Value $lines
-        Write-Information "    projectUrl -> $projectUrl"
+        Write-SetupMessage "    projectUrl -> $projectUrl"
     }
 })
 
@@ -686,13 +1010,13 @@ if ($runTests) {
         [void](Invoke-RepoScript -Path (Join-Path $TestRoot 'Enable-TestAutomation.ps1') -Arguments @('-SkipPoolStorage'))
     })
 } else {
-    $Script:Skipped.Add('Host settings (this machine was declared services-only)')
+    Add-SkippedStep -Description 'Host settings (this machine was declared services-only)'
 }
 
 # --- REGION: 5. storage
 $storageConfigured = $false
 if ($storageKind -eq 'none') {
-    $Script:Skipped.Add('Shared storage, and with it the stash service (storage.kind = none)')
+    Add-SkippedStep -Description 'Shared storage, and with it the stash service (storage.kind = none)'
 } elseif ($storageKind -eq 'local') {
     $ok = Invoke-SetupStep -Name 'Stand up local pool and stash shares (New-LocalLabStorage)' -AlreadyDone {
         Import-Module (Join-Path $TestRoot 'modules/Test.PoolStorage.psm1') -Force -DisableNameChecking
@@ -749,9 +1073,9 @@ if ($storageKind -eq 'none') {
             $storageConfigured = $ok
             $storageKind = 'local'
         } else {
-            Write-Error "Storage is not configured and storage.onFailure is 'stop'. Nothing further will run."
             Write-SetupReport
-            exit 1
+            Write-SetupError "Storage is not configured and storage.onFailure is 'stop'. Nothing further will run."
+            Exit-Setup 1
         }
     } else {
         $storageConfigured = $true
@@ -790,7 +1114,7 @@ if (-not $isLab -and $storageKind -eq 'local') {
         Import-Module (Join-Path $TestRoot 'modules/Test.LocalLabStorage.psm1') -Force -DisableNameChecking
         $names = @($tiers | ForEach-Object { $_.Name })
         $written = Set-LocalLabStorageHostAlias -RepoRoot $RepoRoot -Name $names
-        Write-Information "    $written of $($names.Count) alias(es) rewritten: $($names -join ', ')"
+        Write-SetupMessage "    $written of $($names.Count) alias(es) rewritten: $($names -join ', ')"
     })
 } elseif (-not $isLab) {
     # storage.kind nas / none. The right address is the operator's NAS, which this
@@ -819,7 +1143,7 @@ if (-not $WhatIfPreference) {
     try {
         $state = Read-CachingProxyServiceState
         if ($state -and $state.ipAddress) { $proxyIp = [string]$state.ipAddress }
-    } catch { Write-Verbose "proxy state read: $($_.Exception.Message)" }
+    } catch { Write-SetupVerbose "proxy state read: $($_.Exception.Message)" }
 }
 
 # --- REGION: 6b. aggregator readiness
@@ -842,7 +1166,7 @@ if ($storageConfigured) {
         [void](Invoke-RepoScript -Path (Join-Path $TestRoot 'Start-StashServiceVM.ps1'))
     })
 } else {
-    $Script:Skipped.Add('Stash service (it exits 1 without configured storage)')
+    Add-SkippedStep -Description 'Stash service (it exits 1 without configured storage)'
 }
 
 # --- REGION: 8. bind config to the local proxy
@@ -862,7 +1186,7 @@ if ($storageConfigured) {
     }
     if (-not $hit) { throw "no vmStart.cachingProxyIp key found in $ConfigPath to set" }
     Set-Content -LiteralPath $ConfigPath -Value $lines
-    Write-Information "    cachingProxyIp -> $proxyIp"
+    Write-SetupMessage "    cachingProxyIp -> $proxyIp"
 })
 
 # --- REGION: 9. validate
@@ -895,7 +1219,7 @@ if ($isLab) {
                     $code = $Matches[1]
                     break
                 }
-            } catch { Write-Verbose "metrics read over ${scheme}: $($_.Exception.Message)" }
+            } catch { Write-SetupVerbose "metrics read over ${scheme}: $($_.Exception.Message)" }
         }
         if (-not $code) { throw "could not read the lab token from ${proxyIp}:9400/metrics; the dashboard's 'Lab token' tile shows it, and 'pwsh test/Set-LabToken.ps1 -LabToken <code> -CachingProxyService $proxyIp -BounceStatusService' finishes this step" }
         [void](Invoke-RepoScript -Path (Join-Path $TestRoot 'Set-LabToken.ps1') `
@@ -922,18 +1246,19 @@ if ($isLab) {
             [void](Invoke-RepoScript -Path (Join-Path $TestRoot 'Test-PoolIntent.ps1') -Arguments @('-IntentGitUrl', $intentGitUrl))
         })
     } else {
-        $Script:Skipped.Add("The 'default' pool (not requested)")
+        Add-SkippedStep -Description "The 'default' pool (not requested)"
     }
 }
 
 # --- REGION: -WhatIf stops here
 if ($WhatIfPreference) {
-    Write-Information ''
-    Write-Information "Planned tasks for a $setupType setup on $HostFolderName :"
-    foreach ($p in $Script:Plan) { Write-Information "  $p" }
-    Write-Information ''
-    Write-Information 'Nothing was changed (-WhatIf).'
-    exit 0
+    Write-SetupMessage ''
+    Write-SetupMessage "Planned tasks for a $setupType setup on $HostFolderName :"
+    foreach ($p in $Script:Plan) { Write-SetupMessage "  $p" }
+    Write-SetupMessage ''
+    Write-SetupMessage 'Nothing was changed (-WhatIf).'
+    if ($Script:LogFile) { Write-SetupMessage "Log: $Script:LogFile" }
+    Exit-Setup 0
 }
 
 # --- REGION: write the answer file this run used
@@ -947,10 +1272,10 @@ if (-not $AnswerFile) {
         if ($isLab) { $doc['lab'] = [ordered]@{ name = $labName; createDefaultPool = $createDefaultPool } }
         Import-YamlModule
         ConvertTo-Yaml $doc | Set-Content -LiteralPath $answerOut -Encoding utf8
-        Write-Information ''
-        Write-Information "Answers written to $answerOut -- pass it with -AnswerFile to set up the next machine the same way."
+        Write-SetupMessage ''
+        Write-SetupMessage "Answers written to $answerOut -- pass it with -AnswerFile to set up the next machine the same way."
     } catch {
-        Write-Verbose "could not write the answer file: $($_.Exception.Message)"
+        Write-SetupVerbose "could not write the answer file: $($_.Exception.Message)"
     }
 }
 
@@ -963,47 +1288,47 @@ Write-SetupReport
 # would never learn otherwise. So the banner and the exit code both tell the
 # truth, and the run still reports everything it DID manage.
 $hadFailures = ($Script:Failed.Count -gt 0)
-Write-Information ''
+Write-SetupMessage ''
 if ($hadFailures) {
-    Write-Warning "$($Script:Failed.Count) step(s) failed -- this machine is NOT fully set up. The Failed list above names each one."
-    Write-Information 'Fix what it names and re-run this script: completed steps detect themselves and are skipped.'
+    Write-SetupWarning "$($Script:Failed.Count) step(s) failed -- this machine is NOT fully set up. The Failed list above names each one."
+    Write-SetupMessage 'Fix what it names and re-run this script: completed steps detect themselves and are skipped.'
 }
 
 if ($isLab) {
-    Write-Information $(if ($hadFailures) { "Lab `"$labName`" is INCOMPLETE -- see the failures above." } else { "Lab `"$labName`" is ready. This machine is the lab beacon." })
+    Write-SetupMessage $(if ($hadFailures) { "Lab `"$labName`" is INCOMPLETE -- see the failures above." } else { "Lab `"$labName`" is ready. This machine is the lab beacon." })
     if ($proxyIp) {
-        Write-Information ''
-        Write-Information 'To join another machine: read the Lab token tile on the dashboard'
-        Write-Information "  http://${proxyIp}:3000"
-        Write-Information 'then run THERE (the code rotates every minute, so read it at the time):'
-        Write-Information "  pwsh test/Set-LabToken.ps1 -CachingProxyService $proxyIp -LabToken <code from the tile>"
+        Write-SetupMessage ''
+        Write-SetupMessage 'To join another machine: read the Lab token tile on the dashboard'
+        Write-SetupMessage "  http://${proxyIp}:3000"
+        Write-SetupMessage 'then run THERE (the code rotates every minute, so read it at the time):'
+        Write-SetupMessage "  pwsh test/Set-LabToken.ps1 -CachingProxyService $proxyIp -LabToken <code from the tile>"
     }
     if ($storageKind -eq 'local') {
-        Write-Information ''
-        Write-Information 'This lab uses LOCAL shares on this machine. That is a real lab others can join,'
-        Write-Information 'with two consequences worth knowing:'
-        Write-Information '  - this machine is now the single point of failure for the pool storage;'
-        Write-Information "  - 'ypool-nas' and 'ystash-nas' map to loopback here, so each joining host needs"
-        Write-Information '    a hosts-file entry pointing those names at this machine, plus the share credential.'
-        Write-Information 'Moving to a NAS later is a re-run of the storage step, not a rebuild.'
+        Write-SetupMessage ''
+        Write-SetupMessage 'This lab uses LOCAL shares on this machine. That is a real lab others can join,'
+        Write-SetupMessage 'with two consequences worth knowing:'
+        Write-SetupMessage '  - this machine is now the single point of failure for the pool storage;'
+        Write-SetupMessage "  - 'ypool-nas' and 'ystash-nas' map to loopback here, so each joining host needs"
+        Write-SetupMessage '    a hosts-file entry pointing those names at this machine, plus the share credential.'
+        Write-SetupMessage 'Moving to a NAS later is a re-run of the storage step, not a rebuild.'
     }
-    Write-Information ''
-    Write-Information 'The auto-enrolment sweep is NOT on. Two steps turn it on when you want it:'
-    Write-Information '  1. add autoEnrollment: { enabled: true, targetPoolId: default } to pools.yml in the intent store'
-    Write-Information '  2. start the pool-control daemon with --auto-enrol'
-    Write-Information "Until (1) is written, the 'target pool carries no test-set' guard is not armed for"
-    Write-Information "a pool merely NAMED default -- the guard binds to autoEnrollment.targetPoolId."
+    Write-SetupMessage ''
+    Write-SetupMessage 'The auto-enrolment sweep is NOT on. Two steps turn it on when you want it:'
+    Write-SetupMessage '  1. add autoEnrollment: { enabled: true, targetPoolId: default } to pools.yml in the intent store'
+    Write-SetupMessage '  2. start the pool-control daemon with --auto-enrol'
+    Write-SetupMessage "Until (1) is written, the 'target pool carries no test-set' guard is not armed for"
+    Write-SetupMessage "a pool merely NAMED default -- the guard binds to autoEnrollment.targetPoolId."
 } else {
-    Write-Information $(if ($hadFailures) { 'Standalone host is INCOMPLETE -- see the failures above.' } else { 'Standalone host is ready.' })
+    Write-SetupMessage $(if ($hadFailures) { 'Standalone host is INCOMPLETE -- see the failures above.' } else { 'Standalone host is ready.' })
     if (-not $hadFailures) {
-        Write-Information ''
-        Write-Information 'Next:'
-        Write-Information '  pwsh test/Invoke-TestRunner.ps1'
+        Write-SetupMessage ''
+        Write-SetupMessage 'Next:'
+        Write-SetupMessage '  pwsh test/Invoke-TestRunner.ps1'
     }
 }
-Write-Information ''
+Write-SetupMessage ''
 
 # The config gate is deliberately non-critical -- a validation failure should not
 # throw away a proxy VM that came up correctly -- but it must not be reported as
 # success either.
-exit $(if ($hadFailures) { 1 } else { 0 })
+Exit-Setup $(if ($hadFailures) { 1 } else { 0 })

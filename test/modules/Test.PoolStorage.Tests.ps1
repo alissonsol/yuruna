@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.31
+.VERSION 2026.08.02
 .GUID 42d6f9b2-0c4e-4a38-9b7d-2e3f4a5b6c7d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -118,6 +118,55 @@ Describe 'ConvertFrom-PoolStorageMountLine (mount-line parser)' {
         Assert-Null (ConvertFrom-PoolStorageMountLine -MountLine 'garbage line') 'no separator'
         Assert-Null (ConvertFrom-PoolStorageMountLine -MountLine '') 'empty'
         Assert-Null (ConvertFrom-PoolStorageMountLine -MountLine $null) 'null'
+    }
+}
+
+Describe 'Get-PoolStorageComparableMountPoint (macOS /private fold)' {
+    It 'folds the /private prefix macOS reports for /var, /tmp and /etc' {
+        Assert-Equal -Expected '/var/root/Shares/x' -Actual (Get-PoolStorageComparableMountPoint -Path '/private/var/root/Shares/x') -Because 'var'
+        Assert-Equal -Expected '/tmp/x'             -Actual (Get-PoolStorageComparableMountPoint -Path '/private/tmp/x')             -Because 'tmp'
+        Assert-Equal -Expected '/etc/x'             -Actual (Get-PoolStorageComparableMountPoint -Path '/private/etc/x')             -Because 'etc'
+    }
+    It 'leaves a path that merely starts with /private alone' {
+        Assert-Equal -Expected '/private/data/x' -Actual (Get-PoolStorageComparableMountPoint -Path '/private/data/x') -Because 'not one of the symlinked roots'
+        Assert-Equal -Expected '/privateer/x'    -Actual (Get-PoolStorageComparableMountPoint -Path '/privateer/x')    -Because 'prefix must be a whole segment'
+    }
+    It 'drops a trailing slash but never reduces the root to empty' {
+        Assert-Equal -Expected '/mnt/x' -Actual (Get-PoolStorageComparableMountPoint -Path '/mnt/x/') -Because 'trailing slash'
+        Assert-Equal -Expected '/'      -Actual (Get-PoolStorageComparableMountPoint -Path '/')      -Because 'root stays root'
+        Assert-Equal -Expected ''       -Actual (Get-PoolStorageComparableMountPoint -Path $null)    -Because 'null'
+    }
+}
+
+Describe 'Test-PoolStorageMountMatch (live-mount detection)' {
+    It 'matches a macOS mount reported through /private against the path we asked for' {
+        # The root-run case: LocalPath resolves under /var/root, macOS answers
+        # /private/var/root. A string compare here reads "not mounted", the
+        # remount fails EEXIST, and the caller blames the credential.
+        $l = '//yuruna-stash@ystash-nas/yuruna.stash on /private/var/root/Shares/ystash-nas (smbfs, nodev, nosuid)'
+        Assert-True (Test-PoolStorageMountMatch -MountLines @($l) -LocalPath '/var/root/Shares/ystash-nas' -NetworkPath '//ystash-nas/yuruna.stash') 'mounted'
+    }
+    It 'still refuses a different share at the same point' {
+        $l = '//yuruna-pool@ypool-nas/yuruna.pool on /private/var/root/Shares/ystash-nas (smbfs)'
+        Assert-True (-not (Test-PoolStorageMountMatch -MountLines @($l) -LocalPath '/var/root/Shares/ystash-nas' -NetworkPath '//ystash-nas/yuruna.stash')) 'other share'
+    }
+    It 'still refuses our share at a different point' {
+        $l = '//yuruna-stash@ystash-nas/yuruna.stash on /Users/u/Shares/ystash-nas (smbfs)'
+        Assert-True (-not (Test-PoolStorageMountMatch -MountLines @($l) -LocalPath '/var/root/Shares/ystash-nas' -NetworkPath '//ystash-nas/yuruna.stash')) 'other point'
+    }
+}
+
+Describe 'Get-PoolStorageProcessErrorDetail (credential redaction)' {
+    It 'redacts the password mount_smbfs echoes back from the URL it was handed' {
+        $raw = 'mount_smbfs: mount error: //yuruna-stash:A%26%5E-Zd5%3D%25wQ@ystash-nas/yuruna.stash: File exists'
+        $out = Get-PoolStorageProcessErrorDetail -StdErr $raw
+        Assert-True ($out -notmatch 'A%26%5E') 'password gone'
+        Assert-True ($out -match '//yuruna-stash:\*\*\*@ystash-nas/yuruna\.stash') 'user + share still readable'
+        Assert-True ($out -match 'File exists') 'diagnosis preserved'
+    }
+    It 'leaves a message with no credential untouched' {
+        $out = Get-PoolStorageProcessErrorDetail -StdErr 'mount_smbfs: server connection failed: No route to host'
+        Assert-Equal -Expected ': mount_smbfs: server connection failed: No route to host' -Actual $out -Because 'unchanged'
     }
 }
 

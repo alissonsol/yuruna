@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.31
+.VERSION 2026.08.02
 .GUID 42f4e5f6-a7b8-4c9d-0123-4e5f6a7b8c9d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -102,9 +102,10 @@ if (Get-Command -Name 'setfacl' -ErrorAction SilentlyContinue) {
 }
 
 # --- REGION: Seek the base image
-$downloadDir   = "$HOME/yuruna/image/caching-proxy-service"
-$baseImageName = "host.ubuntu.kvm.guest.caching-proxy-service"
-$baseImageFile = Join-Path $downloadDir "$baseImageName.qcow2"
+# One cloud image backs every extension service on this host; this VM grows
+# its own copy below (host/modules/Yuruna.Image.psm1).
+Import-Module -Name (Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) 'modules/Yuruna.Image.psm1') -Force
+$baseImageFile = (Get-UbuntuExtensionImageInfo -HostType 'ubuntu.kvm').BaseImageFile
 
 # Auto-run Get-Image.ps1 once if the base image is missing; recheck and
 # only error out when it's still missing afterward.
@@ -184,12 +185,27 @@ if ($stillDefined) {
 if (Test-Path -LiteralPath $diskImg) { Remove-Item -Force -LiteralPath $diskImg }
 Write-Output "Copying base image to per-VM disk (sparse copy)..."
 # `cp --sparse=always` preserves qcow2 hole semantics on ext4/btrfs/xfs.
-# The cloud image is mostly empty; cp WITHOUT --sparse=always would
-# fully allocate ~512 GB on disk after the prior Get-Image resize.
+# The cloud image is mostly empty; cp WITHOUT --sparse=always would fully
+# allocate every hole in it.
 & /bin/cp --sparse=always -- $baseImageFile $diskImg
 if ($LASTEXITCODE -ne 0) {
     Write-Error "cp --sparse=always failed copying $baseImageFile -> $diskImg"
     exit 1
+}
+
+# --- REGION: Grow the per-VM disk to 512 GB
+# 512 GB is the APPARENT size (qcow2 is dynamic; actual consumption stays
+# low until squid starts caching). Sized for squid's `cache_dir ufs
+# /var/spool/squid 393216 16 256` (= 384 GB) + ~128 GB OS/logs/headroom.
+# The `maximum_object_size 65 GB` directive in
+# host/vmconfig/caching-proxy-service.base.user-data lets the proxy cache
+# files like the macOS install image (~18 GB) and other multi-GB blobs
+# end-to-end instead of bypassing them direct to CDN.
+if (-not (Expand-ExtensionVmDisk -Path $diskImg -SizeBytes 512GB -Format 'qcow2')) {
+    Write-Warning "Resize failed -- continuing with original size."
+    Write-Warning "The cache VM will only have the base cloud-image capacity (~3.5 GB)"
+    Write-Warning "which fills up after the first prewarm. Resize manually with:"
+    Write-Warning "  qemu-img resize -f qcow2 '$diskImg' 512G"
 }
 
 # --- REGION: Yuruna harness SSH key

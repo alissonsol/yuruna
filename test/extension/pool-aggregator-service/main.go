@@ -93,6 +93,32 @@ const (
 	defaultAnnounceTtl = 45 * time.Minute
 	maxAnnounce        = 512     // distinct (hostId,area) announce entries kept in memory
 	maxAnnounceBody    = 4 << 10 // bytes read from one announce POST
+	// Extension-target health. NO address is advertised to the pool until this
+	// aggregator has itself reached it at <target>/healthz, and every advertised
+	// address is re-confirmed each poll.
+	//
+	// The registration path carries an address the OWNING host resolved, and a
+	// host can only see its own machine: a service VM that came up on a
+	// hypervisor-private network (the macOS shared vmnet, a Hyper-V Default
+	// Switch, libvirt's virbr0) answers its host and nothing else, so the host
+	// confirms it in good faith and every other member of the pool then spends
+	// its timeout budget on an address that cannot be routed to. The aggregator
+	// sits where the consumers sit, so its own probe is the only check that
+	// speaks for the pool rather than for one host.
+	//
+	// A confirmed target that goes quiet is kept for extensionHealthGrace -- a
+	// service restart, a lost packet or a DHCP renewal must not empty the panel
+	// -- and is then dropped: the announce entry is deleted (a service that
+	// stopped answering has gone away as far as the pool can tell, the same
+	// conclusion its goodbye carries) and a registration-sourced address stops
+	// being published.
+	//
+	// Code-only knobs by design: where a lab's services answer is not an
+	// operator preference, and a per-pool override would let one host's
+	// misconfiguration be configured away instead of fixed.
+	extensionHealthPath  = "/healthz"
+	extensionHealthGrace = 5 * time.Minute
+	maxExtensionProbe    = 8 // bounded concurrent health probes per poll
 	// stashArea is the extension area of the stash service -- the default for
 	// /go/stash and the area whose target rides as pool-status stashBaseUrl.
 	stashArea = "stash-service"
@@ -383,6 +409,24 @@ type announceView struct {
 // announceKey is the s.announce map key: one entry per (hostId, area).
 func announceKey(hostID, area string) string { return hostID + "|" + area }
 
+// extHealthView is this aggregator's own verdict on one advertised extension
+// address: has THIS process reached <target>/healthz, and when did that last
+// work. Keyed by announceKey(hostId, area) in s.extHealth, and reset whenever
+// the advertised address changes -- a verdict belongs to an address, not to a
+// service.
+//
+// Confirmed separates "never reached" from "reached, then lost", which are
+// opposite situations: a never-confirmed address is refused outright (this is
+// what keeps a host-private address out of the pool), while a confirmed one is
+// carried through extensionHealthGrace of failures before it is dropped.
+type extHealthView struct {
+	Target          string
+	Confirmed       bool  // /healthz answered for this exact target at least once
+	LastOkUnixMs    int64 // last successful probe (0 = never)
+	FirstFailUnixMs int64 // start of the current failure streak (0 = not failing)
+	LastError       string
+}
+
 // poolStatusEntry is one host in the /api/v1/pool-status snapshot: the
 // hostView plus stashBaseUrl, the resolved stash-UI base the stash UI's
 // hostId->URL lookup reads. Resolved at serialization time through
@@ -512,6 +556,7 @@ type poolState struct {
 	poolGate     map[string]*poolGateState // pool -> advisory degraded/alert latch
 	announce     map[string]*announceView  // hostId|area -> self-announced extension presence
 	announceTtl  time.Duration             // reap an announce entry not refreshed within this window (0 disables /announce)
+	extHealth    map[string]*extHealthView // hostId|area -> this aggregator's own reachability verdict on the advertised address
 	hostTtl      time.Duration             // drop a hostId from the view this long after last contact
 	last         time.Time
 	// Push-ingest: the shared bearer token gating POST /ingest (empty ->
@@ -558,8 +603,9 @@ func newPoolState(pool string, statusPort int) *poolState {
 		failWindow: map[string][]failRec{}, incident: map[string]*incidentState{},
 		gating: map[string]gatingPolicy{}, poolGate: map[string]*poolGateState{},
 		announce: map[string]*announceView{}, announceTtl: defaultAnnounceTtl,
-		hostTtl:  defaultHostTtl,
-		labFails: map[string][]time.Time{}, labExchange: map[string]int64{},
+		extHealth: map[string]*extHealthView{},
+		hostTtl:   defaultHostTtl,
+		labFails:  map[string][]time.Time{}, labExchange: map[string]int64{},
 		eventCur: map[string]*eventCursor{},
 	}
 }
@@ -923,6 +969,13 @@ func (s *poolState) pollOnce(client *http.Client, squidLog, lokiURL string, now 
 	s.last = now
 	s.mu.Unlock()
 
+	// Confirm every advertised extension address from the POOL's vantage point,
+	// and drop the ones that have stayed silent past the grace. Runs after the
+	// unlock and takes the lock itself: each probe costs up to probeTimeout
+	// against an address that may be black-holed, which is exactly the case this
+	// exists to catch, and the handlers must stay answerable meanwhile.
+	s.refreshExtensionHealth(client, now)
+
 	// Tail each reachable host's current-cycle NDJSON events into Loki.
 	// eventCur is only touched here (single poll goroutine), so no lock needed.
 	for _, hid := range deleted {
@@ -996,7 +1049,7 @@ func fetchStatus(client *http.Client, base string) (*hostStatus, error) {
 // served by the status service at /yuruna-repo/VERSION -- the SAME source the
 // host's own status pages read for their header (their getHostInfo() fetches
 // yuruna-repo/VERSION via JS, so the version is not embedded in the HTML). A tiny
-// plain-text file (one CalVer line, e.g. "2026.07.31"), so it is lighter than any
+// plain-text file (one CalVer line, e.g. "2026.08.02"), so it is lighter than any
 // status HTML page and fetchable server-side without a JS engine. Returns
 // ("", err) on any failure; the caller keeps the prior version on a transient
 // miss (the version is stable across polls). The value is capped + first-line
@@ -2546,6 +2599,23 @@ type extensionHostEntry struct {
 	// source was advertising -- the whole diagnosis, without correlating two
 	// files across two machines.
 	SupersededTarget string `json:"supersededTarget,omitempty"`
+	// Suppressed marks an entry the pool KNOWS ABOUT but refuses to hand out:
+	// the address it advertises is one this aggregator has never reached, or one
+	// it has stopped reaching for longer than extensionHealthGrace. Target and
+	// Host are blank on a suppressed entry -- nothing may resolve through it --
+	// while SuppressedTarget keeps the refused address and SuppressReason says
+	// why, because an operator staring at a host that "runs a stash service" the
+	// pool will not use needs the address and the reason in the same place.
+	Suppressed       bool   `json:"suppressed,omitempty"`
+	SuppressedTarget string `json:"suppressedTarget,omitempty"`
+	SuppressReason   string `json:"suppressReason,omitempty"`
+	// Healthy is whether the LAST probe of this address succeeded, and
+	// LastOkUnixMs when one last did. A published entry with Healthy false is
+	// inside its grace: confirmed once, currently not answering -- and LastError
+	// is what the current failure streak reports.
+	Healthy      bool   `json:"healthy,omitempty"`
+	LastOkUnixMs int64  `json:"lastOkUnixMs,omitempty"`
+	LastError    string `json:"lastError,omitempty"`
 	// confirmed marks an announce this aggregator received itself, whose target
 	// was derived from the sender's own source address. False for a
 	// registration (a value the owning host computed and wrote to a file we
@@ -2553,6 +2623,184 @@ type extensionHostEntry struct {
 	// sender). Ranking, not serialization -- it is a property of how we learned
 	// the address, not of the service.
 	confirmed bool
+}
+
+// advertised is the address this entry's source named, suppressed or not: what
+// to probe, and what to report as refused.
+func (e extensionHostEntry) advertised() string {
+	if e.Suppressed {
+		return e.SuppressedTarget
+	}
+	return e.Target
+}
+
+// extensionTargetProblem reports why an advertised extension address can never
+// be a pool service address, or "" when it is at least plausible. The cheap half
+// of the registration check -- the reachability probe is the other half -- and it
+// catches the values that are wrong on their face: anything that is not an
+// http(s) URL, and any address no other machine could route to. A host that
+// resolved 127.0.0.1 for its service is advertising, to every consumer, that
+// consumer's own machine.
+//
+// A name is not judged here: the probe is the only thing that can say whether it
+// resolves to something the pool can reach.
+func extensionTargetProblem(target string) string {
+	t := strings.TrimSpace(target)
+	if t == "" {
+		return "" // presence without an address -- nothing to check
+	}
+	u, err := url.Parse(t)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Hostname() == "" {
+		return "not an http(s) URL"
+	}
+	ip := net.ParseIP(u.Hostname())
+	if ip == nil {
+		return ""
+	}
+	switch {
+	case ip.IsUnspecified():
+		return "unspecified address"
+	case ip.IsLoopback():
+		return "loopback address (reachable only from the host that advertised it)"
+	case ip.IsLinkLocalUnicast(), ip.IsLinkLocalMulticast():
+		return "link-local address"
+	case ip.IsMulticast():
+		return "multicast address"
+	case ip.Equal(net.IPv4bcast):
+		return "broadcast address"
+	}
+	return ""
+}
+
+// probeExtensionTarget confirms an advertised address answers as a service: GET
+// <target>/healthz, 200. The same gate the host-side pre-flight
+// (Test-StashServiceHost) and the guest workloads apply, asked from the POOL's
+// vantage point -- which is the whole point, since a host confirming its own VM
+// proves only that the host can reach it.
+func probeExtensionTarget(client *http.Client, target string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), probeTimeout)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, strings.TrimRight(target, "/")+extensionHealthPath, nil)
+	if err != nil {
+		return err
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4096))
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("%s answered HTTP %d", extensionHealthPath, resp.StatusCode)
+	}
+	return nil
+}
+
+// applyExtensionProbeLocked records one probe verdict against (key, target). A verdict
+// for a DIFFERENT address than the one now recorded starts a fresh record: an
+// address that changed has to earn its own confirmation. Caller holds s.mu.
+func (s *poolState) applyExtensionProbeLocked(key, target string, probeErr error, now time.Time) {
+	h := s.extHealth[key]
+	if h == nil || h.Target != target {
+		h = &extHealthView{Target: target}
+		s.extHealth[key] = h
+	}
+	if probeErr == nil {
+		h.Confirmed, h.LastOkUnixMs, h.FirstFailUnixMs, h.LastError = true, now.UnixMilli(), 0, ""
+		return
+	}
+	if h.FirstFailUnixMs == 0 {
+		h.FirstFailUnixMs = now.UnixMilli()
+	}
+	h.LastError = probeErr.Error()
+}
+
+// confirmExtensionTarget probes one address and records the verdict, unless the
+// pool already has a verdict for that exact address. Called from the announce
+// handler so a service that just came up is resolvable immediately instead of
+// after the next poll -- and, for the same reason, is NOT re-run on the steady
+// re-announces of an address already confirmed. Takes s.mu itself; the probe
+// runs unlocked.
+func (s *poolState) confirmExtensionTarget(client *http.Client, key, target string, now time.Time) {
+	if client == nil || target == "" || extensionTargetProblem(target) != "" {
+		return
+	}
+	s.mu.Lock()
+	h := s.extHealth[key]
+	known := h != nil && h.Target == target
+	s.mu.Unlock()
+	if known {
+		return
+	}
+	err := probeExtensionTarget(client, target)
+	s.mu.Lock()
+	s.applyExtensionProbeLocked(key, target, err, now)
+	s.mu.Unlock()
+}
+
+// refreshExtensionHealth re-confirms every advertised extension address and
+// drops the ones that have stayed silent past extensionHealthGrace. Runs once
+// per poll: the address list is snapshotted under the lock, the probes run
+// unlocked and concurrently (a black-holed address costs probeTimeout each), and
+// the verdicts are applied under the lock again.
+//
+// Only the ANNOUNCE side can be deleted here. A registration-sourced address is
+// re-asserted by its owning host on every poll, so deleting it would achieve
+// nothing; it is suppressed instead (see extensionCandidatesLocked) until that
+// host retracts it -- which Stop-StashServiceVM does by clearing the marker.
+func (s *poolState) refreshExtensionHealth(client *http.Client, now time.Time) {
+	if client == nil {
+		return
+	}
+	type probeTarget struct{ key, target string }
+	var targets []probeTarget
+	s.mu.Lock()
+	live := map[string]bool{}
+	for key, cand := range s.extensionCandidatesLocked(now) {
+		live[key] = true
+		raw := cand.advertised()
+		if raw == "" || extensionTargetProblem(raw) != "" {
+			continue
+		}
+		targets = append(targets, probeTarget{key: key, target: raw})
+	}
+	// Forget verdicts about services the pool no longer lists at all, so the map
+	// tracks the live set rather than growing with every service that ever ran.
+	for key := range s.extHealth {
+		if !live[key] {
+			delete(s.extHealth, key)
+		}
+	}
+	s.mu.Unlock()
+
+	errs := make([]error, len(targets))
+	sem := make(chan struct{}, maxExtensionProbe)
+	var wg sync.WaitGroup
+	for i, t := range targets {
+		wg.Add(1)
+		go func(i int, t probeTarget) {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+			errs[i] = probeExtensionTarget(client, t.target)
+		}(i, t)
+	}
+	wg.Wait()
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i, t := range targets {
+		s.applyExtensionProbeLocked(t.key, t.target, errs[i], now)
+	}
+	for key, h := range s.extHealth {
+		if h.FirstFailUnixMs == 0 || now.UnixMilli()-h.FirstFailUnixMs <= extensionHealthGrace.Milliseconds() {
+			continue
+		}
+		if av := s.announce[key]; av != nil && av.Target == h.Target {
+			log.Printf("extension %s: dropping the self-announced address %s -- unanswered for %s (%s)", key, h.Target, extensionHealthGrace, h.LastError)
+			delete(s.announce, key)
+		}
+	}
 }
 
 // extensionSourceRank orders the ways an area's address reaches the aggregator,
@@ -2586,11 +2834,19 @@ func extensionSourceRank(e extensionHostEntry) int {
 }
 
 // betterExtensionCandidate reports whether a should replace b as an area's
-// answer. Deterministic all the way down -- source, then recency, then hostId --
-// so two aggregator instances holding the same facts answer identically and a
-// consumer that re-asks gets a stable address rather than one that flaps between
-// equally valid hosts.
+// answer. Deterministic all the way down -- usable, then source, then recency,
+// then hostId -- so two aggregator instances holding the same facts answer
+// identically and a consumer that re-asks gets a stable address rather than one
+// that flaps between equally valid hosts.
+//
+// Usability comes FIRST, ahead of the source ranking: an address this aggregator
+// has reached beats one it has not, whoever named it. Ranking evidence is how to
+// choose between two addresses that could both work; it is not a reason to
+// prefer a better-sourced address that demonstrably does not.
 func betterExtensionCandidate(a, b extensionHostEntry) bool {
+	if a.Suppressed != b.Suppressed {
+		return !a.Suppressed
+	}
 	if ra, rb := extensionSourceRank(a), extensionSourceRank(b); ra != rb {
 		return ra < rb
 	}
@@ -2598,6 +2854,44 @@ func betterExtensionCandidate(a, b extensionHostEntry) bool {
 		return a.LastSeenUnixMs > b.LastSeenUnixMs
 	}
 	return a.HostId < b.HostId
+}
+
+// applyExtensionHealthLocked decides whether one candidate's address may be
+// handed out, and records why when it may not. Caller holds s.mu.
+//
+// The rule is the same for both sources and has no exceptions: the pool
+// advertises an address only after THIS aggregator has reached it. A structural
+// impossibility (loopback, link-local, not a URL) is refused outright; anything
+// else waits for its first successful probe, which lands within one poll of the
+// address being learned -- or immediately, for an announce, since the handler
+// confirms a newly announced address before it answers.
+//
+// Once confirmed, an address survives extensionHealthGrace of silence before it
+// is refused again, so a service restart or a dropped packet does not empty the
+// panel and stall every cycle that needs the service.
+func (s *poolState) applyExtensionHealthLocked(e *extensionHostEntry, now time.Time) {
+	if e.Target == "" {
+		return // presence without an address: nothing to judge, nothing to hand out
+	}
+	suppress := func(reason string) {
+		e.Suppressed, e.SuppressedTarget, e.SuppressReason, e.Target = true, e.Target, reason, ""
+	}
+	if why := extensionTargetProblem(e.Target); why != "" {
+		suppress(why)
+		return
+	}
+	h := s.extHealth[announceKey(e.HostId, e.Area)]
+	switch {
+	case h == nil || h.Target != e.Target:
+		suppress("not yet confirmed by the pool")
+	case !h.Confirmed:
+		suppress("never answered " + extensionHealthPath + " from the pool: " + h.LastError)
+	case h.FirstFailUnixMs != 0 && now.UnixMilli()-h.FirstFailUnixMs > extensionHealthGrace.Milliseconds():
+		e.LastOkUnixMs = h.LastOkUnixMs
+		suppress("unanswered for more than " + extensionHealthGrace.String() + ": " + h.LastError)
+	default:
+		e.Healthy, e.LastOkUnixMs, e.LastError = h.FirstFailUnixMs == 0, h.LastOkUnixMs, h.LastError
+	}
 }
 
 // extensionCandidatesLocked returns the pool's answer for each (hostId, area)
@@ -2614,6 +2908,12 @@ func betterExtensionCandidate(a, b extensionHostEntry) bool {
 // unlinked cell. Callers that need an address (area resolution, a redirect)
 // filter on Target themselves.
 //
+// Entries whose address the pool cannot reach are kept too, but SUPPRESSED --
+// Target blanked, the refused address and the reason carried alongside. They
+// answer nothing and link nowhere, while an operator can still see that a host
+// claims a service the pool will not use, which is the one thing a silent drop
+// would hide.
+//
 // A TTL-expired announce is skipped here rather than trusted until the next
 // poll reaps it: a consumer asking between polls must not be handed the address
 // of a service that stopped beaconing two TTLs ago.
@@ -2623,6 +2923,7 @@ func (s *poolState) extensionCandidatesLocked(now time.Time) map[string]extensio
 		if cand.Area == "" || cand.HostId == "" {
 			return
 		}
+		s.applyExtensionHealthLocked(&cand, now)
 		cand.Host = hostIPFromBaseURL(cand.Target)
 		key := announceKey(cand.HostId, cand.Area)
 		cur, ok := best[key]
@@ -2638,9 +2939,10 @@ func (s *poolState) extensionCandidatesLocked(now time.Time) map[string]extensio
 		// addresses for one service is the signature of a host whose
 		// registration has fallen behind its service, and it is invisible
 		// otherwise -- the losing value simply vanishes and the dashboard shows
-		// a link that either works or does not, with nothing to say why.
-		if loser.Target != "" && loser.Target != winner.Target {
-			winner.SupersededTarget = loser.Target
+		// a link that either works or does not, with nothing to say why. Compared
+		// on the ADVERTISED addresses so a suppressed loser is still named.
+		if la, wa := loser.advertised(), winner.advertised(); la != "" && la != wa {
+			winner.SupersededTarget = la
 		}
 		best[key] = winner
 	}
@@ -2730,8 +3032,10 @@ func (s *poolState) extensionTargetForLocked(hostID, area string, now time.Time)
 // addresses to a caller that is already on the LAN those services listen on.
 func (s *poolState) handleExtensionHosts(w http.ResponseWriter, r *http.Request) {
 	area := strings.TrimSpace(r.URL.Query().Get("area"))
+	now := time.Now()
 	s.mu.Lock()
-	entries := s.resolveExtensionHostsLocked(time.Now())
+	entries := s.resolveExtensionHostsLocked(now)
+	cands := s.extensionCandidatesLocked(now)
 	pool := s.pool
 	s.mu.Unlock()
 
@@ -2744,10 +3048,26 @@ func (s *poolState) handleExtensionHosts(w http.ResponseWriter, r *http.Request)
 		}
 		payload = entry
 	} else {
+		// services lists EVERY (hostId, area) the pool knows, including the
+		// suppressed ones areas cannot show -- one area has one answer, and a
+		// second host advertising the same area at an address nobody can reach
+		// would otherwise be invisible right up until a cycle needs it. This is
+		// what Test-Config reads to report "two stash services registered, one
+		// unreachable" before a cycle starts rather than after it fails.
+		keys := make([]string, 0, len(cands))
+		for k := range cands {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		services := make([]extensionHostEntry, 0, len(keys))
+		for _, k := range keys {
+			services = append(services, cands[k])
+		}
 		payload = struct {
-			Pool  string                        `json:"pool"`
-			Areas map[string]extensionHostEntry `json:"areas"`
-		}{Pool: pool, Areas: entries}
+			Pool     string                        `json:"pool"`
+			Areas    map[string]extensionHostEntry `json:"areas"`
+			Services []extensionHostEntry          `json:"services"`
+		}{Pool: pool, Areas: entries, Services: services}
 	}
 	body, err := json.Marshal(payload)
 	if err != nil {
@@ -2807,6 +3127,13 @@ func (s *poolState) forgetHost(hid string) bool {
 	for k := range s.announce {
 		if strings.HasPrefix(k, prefix) {
 			delete(s.announce, k)
+		}
+	}
+	// extHealth is keyed the same way; a forgotten host's service must not leave
+	// a verdict behind that would pre-confirm an address if the host returns.
+	for k := range s.extHealth {
+		if strings.HasPrefix(k, prefix) {
+			delete(s.extHealth, k)
 		}
 	}
 	return present
@@ -3708,6 +4035,15 @@ func (s *poolState) handleMetrics(w http.ResponseWriter, _ *http.Request) {
 		// superseded is the address the losing source claimed, "" when the two
 		// agreed or only one spoke. Drives the disagreement gauge.
 		superseded string
+		// suppressed rows carry an address the pool could not reach. They are
+		// kept OUT of host_extension -- the panel lists services a member can
+		// actually use, and a row the pool refuses to resolve is not one -- and
+		// exported as extension_unreachable instead, with the refused address
+		// and the reason, so the misconfiguration is visible rather than merely
+		// absent.
+		suppressed bool
+		refused    string
+		reason     string
 	}
 	// Both sources merge in extensionCandidatesLocked, which every other
 	// consumer of this data reads too. When they cover the same (hostId, area)
@@ -3739,8 +4075,31 @@ func (s *poolState) handleMetrics(w http.ResponseWriter, _ *http.Request) {
 		extRows = append(extRows, extRow{
 			host: c.HostId, area: c.Area, baseURL: baseURL, target: c.Target,
 			lastSeen: c.LastSeenUnixMs / 1000, superseded: c.SupersededTarget,
+			suppressed: c.Suppressed, refused: c.SuppressedTarget, reason: c.SuppressReason,
 		})
 	}
+	// The unreachable rows are exported even when every usable row is gone: a
+	// pool whose only advertised stash cannot be reached must not scrape as a
+	// pool with no stash at all.
+	unreachable := make([]extRow, 0, len(extRows))
+	for _, e := range extRows {
+		if e.suppressed {
+			unreachable = append(unreachable, e)
+		}
+	}
+	if len(unreachable) > 0 {
+		b.WriteString("# HELP yuruna_pool_extension_unreachable An advertised extension address the pool could not reach; it is refused for resolution (value always 1).\n# TYPE yuruna_pool_extension_unreachable gauge\n")
+		for _, e := range unreachable {
+			fmt.Fprintf(&b, "yuruna_pool_extension_unreachable{pool=%q,hostId=%q,area=%q,target=%q,reason=%q} 1\n", s.poolFor(e.host), e.host, e.area, e.refused, e.reason)
+		}
+	}
+	usable := make([]extRow, 0, len(extRows))
+	for _, e := range extRows {
+		if !e.suppressed {
+			usable = append(usable, e)
+		}
+	}
+	extRows = usable
 	if len(extRows) > 0 {
 		b.WriteString("# HELP yuruna_pool_host_extension Per-host actively-running extension area (value always 1).\n# TYPE yuruna_pool_host_extension gauge\n")
 		for _, e := range extRows {
@@ -4132,6 +4491,13 @@ func (s *poolState) handleAnnounce(w http.ResponseWriter, r *http.Request) {
 	case a.TargetPort > 0 && a.TargetPort < 65536:
 		target = "http://" + net.JoinHostPort(srcIP, strconv.Itoa(a.TargetPort))
 	}
+	// The address still has to be one the pool could route to. A sender behind a
+	// NAT that rewrites the source address, or a proxy header this handler ever
+	// learns to trust, is how a loopback or link-local value would arrive here.
+	if why := extensionTargetProblem(target); why != "" {
+		http.Error(w, "invalid target address: "+why, http.StatusBadRequest)
+		return
+	}
 	active := a.Active == nil || *a.Active
 	key := announceKey(a.HostId, a.Area)
 	s.mu.Lock()
@@ -4161,6 +4527,16 @@ func (s *poolState) handleAnnounce(w http.ResponseWriter, r *http.Request) {
 	if !accepted {
 		http.Error(w, "too many announced extensions", http.StatusTooManyRequests)
 		return
+	}
+	// Confirm a NEWLY announced address right here rather than at the next poll:
+	// a service that just came up is then resolvable immediately, which is what
+	// a lab bringing up its stash and its cycles together depends on. Costs one
+	// bounded probe, and only on an address this aggregator has no verdict for --
+	// the steady 15-minute re-announces of a known address skip it. The address
+	// is the sender's own (bound above), so this can only ever probe back at the
+	// caller: an open route cannot be turned into a scan of the LAN.
+	if active {
+		s.confirmExtensionTarget(s.httpClient, key, target, time.Now().UTC())
 	}
 	// Push after the unlock so a slow Loki never stalls the handler; goodbyes
 	// are pushed too so the latest line decides restart state.

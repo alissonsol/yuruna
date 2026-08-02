@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.31
+.VERSION 2026.08.02
 .GUID 42c5e8a1-9b3d-4f27-8a6c-1d2e3f4a5b6c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -123,6 +123,14 @@ function Get-PoolStorageProcessErrorDetail {
     $t = "$StdErr".Trim()
     if ([string]::IsNullOrWhiteSpace($t)) { return '' }
     $one = (($t -split '\r?\n' | Where-Object { $_.Trim() }) -join '; ').Trim()
+    # mount_smbfs echoes back the WHOLE //user:password@server/share URL it was
+    # handed, so its diagnostics carry the live SMB password -- and these lines
+    # are surfaced to the console, into setup transcripts, and into logs
+    # operators paste when asking for help. Redact the credential field before
+    # anything can see it; the user and the share stay visible because they are
+    # what makes the message diagnosable. The password never appears in the URL
+    # unencoded, so this also catches the percent-encoded form.
+    $one = [System.Text.RegularExpressions.Regex]::Replace($one, '(//[^/:@\s]+):[^@\s]*@', '$1:***@')
     if ($one.Length -gt 400) { $one = $one.Substring(0, 400) + '...' }
     return ": $one"
 }
@@ -216,7 +224,31 @@ function Get-PoolStorageUncPath {
 
 <#
 .SYNOPSIS
-Pure, testable core of the non-Windows mount check: returns $true only when a `mount` output line shows OUR share at OUR exact mount point, anchoring both the mount point (exact equality) and the server/share (case-insensitive compare after normalizing scheme, leading slashes, optional 'user@', and trailing slash) so a different share at the same point is never mistaken for a live mount.
+Canonicalizes a mount point for comparison: drops a macOS '/private' prefix and any trailing slash, so the path a caller asked for and the path `mount` reports back compare equal. Pure + testable.
+.DESCRIPTION
+On macOS /var, /tmp and /etc are symlinks into /private, and the kernel reports
+mounts through the resolved path: ask for a mount at /var/root/Shares/ypool-nas
+and `mount` answers '/private/var/root/Shares/ypool-nas'. A plain string compare
+then reads "not mounted" for a share that IS mounted, and the remount attempt
+fails with mount_smbfs's misleading "File exists" -- which the caller reports as
+a credential failure, sending the operator to reset a password that was correct.
+Only the three documented /private roots are folded, so a genuine directory
+literally named /private/... elsewhere is left alone.
+#>
+function Get-PoolStorageComparableMountPoint {
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([Parameter()][AllowNull()][AllowEmptyString()][string]$Path)
+    $p = "$Path".Trim()
+    if ([string]::IsNullOrEmpty($p)) { return '' }
+    if ($p -match '^/private/(var|tmp|etc)(/|$)') { $p = $p.Substring('/private'.Length) }
+    if ($p.Length -gt 1) { $p = $p.TrimEnd('/') }
+    return $p
+}
+
+<#
+.SYNOPSIS
+Pure, testable core of the non-Windows mount check: returns $true only when a `mount` output line shows OUR share at OUR mount point, anchoring both the mount point (exact equality after Get-PoolStorageComparableMountPoint folds the macOS /private prefix) and the server/share (case-insensitive compare after normalizing scheme, leading slashes, optional 'user@', and trailing slash) so a different share at the same point is never mistaken for a live mount.
 #>
 function Test-PoolStorageMountMatch {
     [CmdletBinding()]
@@ -228,12 +260,13 @@ function Test-PoolStorageMountMatch {
     )
     if (-not $MountLines) { return $false }
     $wantShare = Get-PoolStorageBareShare -Path $NetworkPath -TrimTrailing   # 'server/share'
+    $wantPoint = Get-PoolStorageComparableMountPoint -Path $LocalPath
     foreach ($line in $MountLines) {
         # Parse each line with the one general mount-line parser so a format quirk
         # fixed there cannot silently diverge from the live-mount detection here.
         $parsed = ConvertFrom-PoolStorageMountLine -MountLine ([string]$line)
         if (-not $parsed) { continue }
-        if ($parsed.MountPoint -ne $LocalPath) { continue }
+        if ((Get-PoolStorageComparableMountPoint -Path $parsed.MountPoint) -ne $wantPoint) { continue }
         if ($parsed.RemoteBare -ieq $wantShare) { return $true }
     }
     return $false
@@ -293,11 +326,12 @@ function Find-PoolStorageSupersededMount {
     if (-not $MountLines) { return $out.ToArray() }
     $wantHost = Get-PoolStorageServerName -NetworkPath $NetworkPath
     $wantBare = Get-PoolStorageBareShare -Path $NetworkPath -TrimTrailing
+    $wantPoint = Get-PoolStorageComparableMountPoint -Path $LocalPath
     foreach ($line in $MountLines) {
         $parsed = ConvertFrom-PoolStorageMountLine -MountLine ([string]$line)
         if (-not $parsed) { continue }
         $reason = ''
-        if ($parsed.MountPoint -eq $LocalPath) {
+        if ((Get-PoolStorageComparableMountPoint -Path $parsed.MountPoint) -eq $wantPoint) {
             # Already exactly what we want, at the point we want it: leave it be,
             # so a converged re-run does not churn a healthy mount.
             if ($parsed.RemoteBare -ieq $wantBare) { continue }
@@ -360,12 +394,15 @@ function Find-PoolStorageConflictingMount {
     $wantHost     = $wantBare.Substring(0, $slash)
     $wantShareSub = $wantBare.Substring($slash + 1)
     if ([string]::IsNullOrWhiteSpace($wantShareSub)) { return $out.ToArray() }
+    $wantPoint = Get-PoolStorageComparableMountPoint -Path $LocalPath
     foreach ($line in $MountLines) {
         $p = ConvertFrom-PoolStorageMountLine -MountLine $line
         if (-not $p) { continue }
         if ([string]::IsNullOrWhiteSpace($p.ShareSub)) { continue }
         if ($p.ShareSub -ine $wantShareSub) { continue }
-        if ($p.MountPoint -eq $LocalPath) { continue }    # our own point, not a blocker
+        # Our own point, not a blocker (compared through the /private fold, or a
+        # macOS mount of OUR path would look like someone else's).
+        if ((Get-PoolStorageComparableMountPoint -Path $p.MountPoint) -eq $wantPoint) { continue }
         $out.Add([pscustomobject]@{
             Remote      = $p.Remote
             MountPoint  = $p.MountPoint
@@ -1908,6 +1945,7 @@ function Remove-PoolStorageTree {
 
 Export-ModuleMember -Function `
     Get-PoolStorageUncPath, Test-PoolStorageMountMatch, Get-PoolStorageServerName, `
+    Get-PoolStorageComparableMountPoint, Get-PoolStorageProcessErrorDetail, `
     Test-PoolStorageServerIsLocal, `
     ConvertFrom-PoolStorageMountLine, Find-PoolStorageConflictingMount, `
     Get-PoolStorageConflictingMount, Clear-PoolStorageConflictingMount, Dismount-PoolStoragePoint, `

@@ -275,6 +275,37 @@ starting**) instead of replication silently never happening. See
 characters: `a-z A-Z 0-9` and `! @ # $ % ^ & * ( ) - _ = +`; avoid quotes,
 backslash, and YAML/shell separators (``: , < > | ; ~ ` ``).
 
+### Extension services (pool registry) — where THIS host's stash actually is
+
+The `stash*` keys above say this host could build a stash service. A cycle
+depends on a different question: which stash service will this host be **sent
+to**, and does it answer? That address comes from the pool, so a registration
+nobody can reach stops the cycle in its warm-up — after a config check that
+reported everything fine.
+
+`Test-Config.ps1`'s **Extension services (pool registry)** section asks the
+aggregator (`/api/v1/extension-hosts`) for every stash service the pool knows,
+and probes each from this host:
+
+- a registration the **pool itself refuses** (an address it cannot reach — the
+  usual cause is a stash VM on a hypervisor-private network: the macOS shared
+  vmnet, a Hyper-V Default Switch, libvirt's `virbr0`) is reported as a WARN
+  naming the refused address and the reason. Fix it by rebuilding that stash VM
+  on a **bridged** interface;
+- a registration the pool still advertises but **this host** cannot reach is a
+  WARN too: the pool can route to it and this host cannot, so check this host's
+  route rather than that VM;
+- **no** stash service answering at all is a WARN naming that consequence — a
+  project that uploads build output has nowhere to put it, and its cycle stops
+  before the provisioning stages. Advisory rather than a gate failure on
+  purpose: a FAIL here refuses to start the runner loop, and a service on
+  another machine being down must not wedge a lab that would otherwise keep
+  cycling and recover.
+
+Several hosts each running their own stash service is normal and reports as
+several PASS lines. A host with no caching-proxy service has no aggregator to
+ask; the section says so and skips.
+
 ## pool — optional multi-host pool intent (default-off)
 
 Joins this host to a **pool**: it PULLs the slow-changing pool intent (membership
@@ -340,6 +371,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.31
+Last review: 2026.08.02
 
 Back to [Yuruna](../README.md)

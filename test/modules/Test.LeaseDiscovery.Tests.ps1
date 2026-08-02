@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.31
+.VERSION 2026.08.02
 .GUID 42f1c7d5-6b28-4a19-8c40-7d2e5a9b1c63
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -137,6 +137,23 @@ Describe 'Get-Ipv4OnLinkVerdict' {
         Assert-Equal 'onlink'  (Get-Ipv4OnLinkVerdict -IpAddress '10.8.9.5'   -Subnet $wide)
         Assert-Equal 'onlink'  (Get-Ipv4OnLinkVerdict -IpAddress '10.8.15.254' -Subnet $wide)
         Assert-Equal 'offlink' (Get-Ipv4OnLinkVerdict -IpAddress '10.8.16.1'  -Subnet $wide)
+    }
+
+    It 'tells a pool-facing address from a host-private one' {
+        # The distinction on-link cannot make. On a macOS UTM host BOTH the LAN
+        # and the vmnet bridge are on-link, so a guest at 192.168.64.x looks
+        # exactly as reachable as one on the LAN -- while only the LAN one is
+        # reachable from any other host. The pool-facing segment is the LAN.
+        $lan = [pscustomobject]@{
+            Address = '192.168.7.101'; AddressValue = (ConvertTo-Ipv4UInt32 '192.168.7.101')
+            MaskValue = [uint32]4294967040; NetworkValue = (ConvertTo-Ipv4UInt32 '192.168.7.0'); PrefixLength = 24
+        }
+        Assert-Equal 'onsegment'  (Get-Ipv4PoolSegmentVerdict -Address '192.168.7.217' -Segment $lan)
+        Assert-Equal 'offsegment' (Get-Ipv4PoolSegmentVerdict -Address '192.168.64.13' -Segment $lan)
+        # Same tri-state discipline as the on-link verdict: only 'offsegment'
+        # is actionable, and an unresolved segment refuses nothing.
+        Assert-Equal 'unknown' (Get-Ipv4PoolSegmentVerdict -Address '192.168.64.13' -Segment $null)
+        Assert-Equal 'unknown' (Get-Ipv4PoolSegmentVerdict -Address 'not-an-ip'     -Segment $lan)
     }
 
     It 'converts addresses without an endianness flip' {

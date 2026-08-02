@@ -71,6 +71,7 @@ func TestExtensionMetricFromActiveExtensions(t *testing.T) {
 		ExtensionTargets: map[string]string{"stash-service": "http://10.0.0.5"},
 		LastSeenUnixMs:   time.Now().UnixMilli(),
 	}
+	seedExtensionHealth(s, hid, stashArea, "http://10.0.0.5")
 
 	rec := httptest.NewRecorder()
 	s.handleMetrics(rec, httptest.NewRequest("GET", "/metrics", nil))
@@ -110,6 +111,7 @@ func TestGoStashRedirectsToAdvertisedTarget(t *testing.T) {
 		ExtensionTargets: map[string]string{"stash-service": "http://10.0.0.5"},
 		LastSeenUnixMs:   time.Now().UnixMilli(),
 	}
+	seedExtensionHealth(s, hid, stashArea, "http://10.0.0.5")
 	rec := httptest.NewRecorder()
 	s.handleGoStash(rec, httptest.NewRequest("GET", "/go/stash?host="+hid+"&pool=default", nil))
 	if rec.Code != http.StatusFound {

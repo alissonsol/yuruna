@@ -14,6 +14,14 @@ users:
     sudo: ALL=(ALL) NOPASSWD:ALL
     shell: /bin/bash
     lock_passwd: false
+    # Paired with lock_passwd. cloud-init checks for a password IN THIS BLOCK
+    # when asked not to lock the account; the chpasswd stanza below runs in a
+    # later module and does not satisfy that check, so without this every boot
+    # records "Not unlocking password ... no 'passwd' provided" as a recoverable
+    # error and reports `extended_status: degraded` -- which then greets anyone
+    # reading the guest diagnostics for an unrelated fault. Same value chpasswd
+    # applies, so the effective credential is unchanged.
+    plain_text_passwd: PASSWORD_PLACEHOLDER
     ssh_authorized_keys:
       - SSH_AUTHORIZED_KEY_PLACEHOLDER
 chpasswd:

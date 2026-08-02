@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.31
+.VERSION 2026.08.02
 .GUID 42f1b2c3-d4e5-4f67-8901-a2b3c4d5e681
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -51,6 +51,8 @@ $GuestDir = "$HOME/yuruna/guest.nosync"
 New-Item -ItemType Directory -Force -Path $GuestDir | Out-Null
 $UtmDir = "$GuestDir/$VMName.utm"
 $DataDir = "$UtmDir/Data"
+# Per-service scratch dir (cloud-init seed staging). The base image itself is
+# shared with the other extension services and lives elsewhere.
 $downloadDir = "$HOME/yuruna/image/stash-service"
 
 $utmPlist = "/Applications/UTM.app/Contents/Info.plist"
@@ -60,8 +62,10 @@ if (-not (Test-Path $utmPlist)) {
 }
 
 # --- REGION: Seek the base image
-$baseImageName = "host.macos.utm.guest.stash-service"
-$baseImageFile = Join-Path $downloadDir "$baseImageName.qcow2"
+# One cloud image backs every extension service on this host; this VM grows
+# its own copy below (host/modules/Yuruna.Image.psm1).
+Import-Module -Name (Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) 'modules/Yuruna.Image.psm1') -Force
+$baseImageFile = (Get-UbuntuExtensionImageInfo -HostType 'macos.utm').BaseImageFile
 if (-not (Test-Path $baseImageFile)) {
     $getImageScript = Join-Path $PSScriptRoot 'Get-Image.ps1'
     if (Test-Path -LiteralPath $getImageScript) {
@@ -93,7 +97,7 @@ New-Item -ItemType Directory -Force -Path $DataDir | Out-Null
 # Copy the pre-built qcow2 cloud image into the bundle as the boot disk.
 # qcow2 (not raw) is deliberate: UTM's QEMU backend boots it directly and
 # it sidesteps the macOS F_PUNCHHOLE-alignment EINVAL a raw disk hits
-# under UTM's discard=unmap,detect-zeroes=unmap -- see Get-Image.ps1 and
+# under UTM's discard=unmap,detect-zeroes=unmap -- see
 # feedback_macos-qemu-punchhole-alignment.md.
 $DiskImage = "$DataDir/disk.qcow2"
 Write-Output "Copying cloud image into bundle as disk.qcow2 (APFS clone)..."
@@ -101,6 +105,14 @@ Write-Output "Copying cloud image into bundle as disk.qcow2 (APFS clone)..."
 if ($LASTEXITCODE -ne 0) {
     Write-Warning "/bin/cp -c (APFS clone) failed; falling back to Copy-Item."
     Copy-Item -Path $baseImageFile -Destination $DiskImage
+}
+
+# --- REGION: Grow the per-VM disk to 256 GB
+# Apparent size only: qcow2 grows on write, so the host gives up nothing
+# until the stash daemon actually stores that much.
+if (-not (Expand-ExtensionVmDisk -Path $DiskImage -SizeBytes 256GB -Format 'qcow2')) {
+    Write-Warning "Resize failed -- continuing with the base cloud-image capacity."
+    Write-Warning "Resize manually with: qemu-img resize -f qcow2 '$DiskImage' 256G"
 }
 
 # --- REGION: Generate cloud-init seed ISO

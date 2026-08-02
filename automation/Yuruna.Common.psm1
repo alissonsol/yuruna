@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.31
+.VERSION 2026.08.02
 .GUID 4288bcbc-ede3-4dda-bb77-b9782c7615ad
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -930,6 +930,152 @@ function Get-Ipv4OnLinkVerdict {
     return 'offlink'
 }
 
+function Get-PoolFacingIpv4Segment {
+<#
+.SYNOPSIS
+    The IPv4 network this host reaches the rest of the lab over, or $null
+    when it cannot be determined.
+.DESCRIPTION
+    A host runs two kinds of guest network: the LAN it shares with every
+    other machine, and a hypervisor-private one only it can see (the macOS
+    shared vmnet, a Hyper-V Default Switch, libvirt's virbr0). Both look
+    identical from the host -- an RFC 1918 address on a live interface,
+    answering probes -- so a service VM on the private one is confirmed by
+    its own host and then unreachable for everyone else.
+
+    Telling them apart needs the routing table, not the address: the
+    network carrying the route OFF this machine is the one other machines
+    are on. A UDP socket "connected" to an address that is not local
+    performs exactly that route lookup and nothing else -- UDP connect
+    sends no packet -- and its local endpoint is the address the kernel
+    would source from. The interface owning that address supplies the
+    mask.
+
+    Returns $null on any inconclusive step (no route, no matching
+    interface, no mask available). Callers MUST treat $null as "unknown"
+    and permit, never as "nothing is on the segment" -- the same tri-state
+    discipline as Get-Ipv4OnLinkVerdict.
+.PARAMETER ReferenceAddress
+    An address to resolve the route toward. Defaults to a documentation
+    address (RFC 5737 TEST-NET-1), which is unallocated and therefore
+    guaranteed to resolve through the DEFAULT route rather than a local
+    one; nothing is ever sent to it. Pass a real lab address (the caching
+    proxy) when the pool is reached over a route other than the default.
+.OUTPUTS
+    [pscustomobject] with Address, AddressValue, MaskValue, NetworkValue,
+    PrefixLength -- the same shape Get-HostIpv4Subnet emits -- or $null.
+#>
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param([string]$ReferenceAddress = '192.0.2.1')
+
+    $local = $null
+    $socket = $null
+    try {
+        $reference = $null
+        if (-not [System.Net.IPAddress]::TryParse($ReferenceAddress, [ref]$reference)) { return $null }
+        if ($reference.AddressFamily -ne [System.Net.Sockets.AddressFamily]::InterNetwork) { return $null }
+        $socket = [System.Net.Sockets.Socket]::new(
+            [System.Net.Sockets.AddressFamily]::InterNetwork,
+            [System.Net.Sockets.SocketType]::Dgram,
+            [System.Net.Sockets.ProtocolType]::Udp)
+        # Port 9 (discard). Connect on a datagram socket only binds the local
+        # end to the route's source address; no datagram is sent.
+        $socket.Connect($reference, 9)
+        $endpoint = [System.Net.IPEndPoint]$socket.LocalEndPoint
+        if ($endpoint) { $local = $endpoint.Address.ToString() }
+    } catch {
+        Write-Debug "Get-PoolFacingIpv4Segment: route lookup toward '$ReferenceAddress' failed: $($_.Exception.Message)"
+        return $null
+    } finally {
+        if ($socket) { $socket.Dispose() }
+    }
+    if (-not (Test-Ipv4Address $local)) { return $null }
+
+    $addrVal = ConvertTo-Ipv4UInt32 $local
+    if ($null -eq $addrVal) { return $null }
+    try {
+        foreach ($nic in [System.Net.NetworkInformation.NetworkInterface]::GetAllNetworkInterfaces()) {
+            foreach ($unicast in $nic.GetIPProperties().UnicastAddresses) {
+                if ($unicast.Address.AddressFamily -ne [System.Net.Sockets.AddressFamily]::InterNetwork) { continue }
+                if ($unicast.Address.ToString() -ne $local) { continue }
+                # IPv4Mask is not implemented on every platform/interface; a
+                # missing or zero mask would make every address compare as
+                # on-segment, so it is treated as unknown instead.
+                $maskVal = ConvertTo-Ipv4UInt32 ([string]$unicast.IPv4Mask)
+                if ($null -eq $maskVal -or $maskVal -eq [uint32]0) { continue }
+                $prefix = 0
+                for ($bit = 31; $bit -ge 0; $bit--) {
+                    if (($maskVal -shr $bit) -band [uint32]1) { $prefix++ } else { break }
+                }
+                return [pscustomobject]@{
+                    Address      = $local
+                    AddressValue = $addrVal
+                    MaskValue    = $maskVal
+                    NetworkValue = [uint32]($addrVal -band $maskVal)
+                    PrefixLength = $prefix
+                }
+            }
+        }
+    } catch {
+        Write-Debug "Get-PoolFacingIpv4Segment: interface enumeration failed: $($_.Exception.Message)"
+    }
+    # macOS fallback: .NET's enumeration is the portable path, but the mask it
+    # reports is not available on every platform/interface. Get-HostIpv4Subnet
+    # reads the same interfaces out of ifconfig, where the mask always is.
+    foreach ($subnet in (Get-HostIpv4Subnet)) {
+        if ($subnet.Address -ne $local) { continue }
+        return $subnet
+    }
+    return $null
+}
+
+function Get-Ipv4PoolSegmentVerdict {
+<#
+.SYNOPSIS
+    Decide whether an IPv4 address is one the REST OF THE LAB could reach,
+    or one that exists only inside this host.
+.DESCRIPTION
+    Returns one of three values:
+      'onsegment'  -- the address shares this host's pool-facing network;
+      'offsegment' -- the pool-facing network is known and the address is
+                      not on it (the signature of a guest sitting on a
+                      hypervisor-private network: the macOS shared vmnet,
+                      a Hyper-V Default Switch, libvirt's virbr0);
+      'unknown'    -- the pool-facing network could not be determined, or
+                      the address is unparseable.
+
+    The tri-state is deliberate, and callers must act ONLY on 'offsegment'.
+    An address on another routed subnet of a larger lab is 'offsegment'
+    here as well, so this is a reason to stop ADVERTISING an address to
+    other hosts -- something only its own host can be wrong about -- never
+    a reason to stop using it locally, and never the last word: a service
+    that is genuinely reachable still registers through its own announce,
+    which the pool confirms by probing it.
+.PARAMETER Address
+    The candidate IPv4 address.
+.PARAMETER Segment
+    Pre-resolved pool-facing segment from Get-PoolFacingIpv4Segment.
+    Supplied by callers testing several addresses against one answer, and
+    by tests that need a fixed one.
+.OUTPUTS
+    [string] 'onsegment' | 'offsegment' | 'unknown'
+#>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        [Parameter(Mandatory, Position = 0)][AllowEmptyString()][AllowNull()][string]$Address,
+        [pscustomobject]$Segment
+    )
+    $candidate = ConvertTo-Ipv4UInt32 $Address
+    if ($null -eq $candidate) { return 'unknown' }
+    $seg = $Segment
+    if (-not $PSBoundParameters.ContainsKey('Segment')) { $seg = Get-PoolFacingIpv4Segment }
+    if (-not $seg) { return 'unknown' }
+    if (([uint32]($candidate -band $seg.MaskValue)) -eq $seg.NetworkValue) { return 'onsegment' }
+    return 'offsegment'
+}
+
 function Select-DhcpLeaseIpAddress {
 <#
 .SYNOPSIS
@@ -1326,4 +1472,4 @@ function Select-NameByPrefix {
     return $matched.ToArray()
 }
 
-Export-ModuleMember -Function New-YurunaTimestampedBackup, Get-HostProxyBackupPath, ConvertTo-ProxyHostPort, Get-PortMapStatePath, Test-IsAdministrator, Get-PwshApplicationPath, Get-SudoPwshArgumentList, Invoke-YurunaSudo, Get-CachingProxyServicePort, Test-Ipv4Address, Test-Ipv6Address, Format-IpUrlHost, Test-IpAddress, ConvertTo-Sha512CryptHash, ConvertTo-YurunaMacAddress, ConvertTo-Ipv4UInt32, Get-HostIpv4Subnet, Get-Ipv4OnLinkVerdict, Test-TcpConnectOutcome, Get-TcpOutcomeExplanation, Select-DhcpLeaseIpAddress, Select-StaleDhcpLeaseBlock, Remove-DhcpLeaseBlockText, Get-UtmGuestSeedHostname, ConvertTo-MemoryStartupBytes, Select-NameByPrefix, Get-YurunaServiceVmName
+Export-ModuleMember -Function New-YurunaTimestampedBackup, Get-HostProxyBackupPath, ConvertTo-ProxyHostPort, Get-PortMapStatePath, Test-IsAdministrator, Get-PwshApplicationPath, Get-SudoPwshArgumentList, Invoke-YurunaSudo, Get-CachingProxyServicePort, Test-Ipv4Address, Test-Ipv6Address, Format-IpUrlHost, Test-IpAddress, ConvertTo-Sha512CryptHash, ConvertTo-YurunaMacAddress, ConvertTo-Ipv4UInt32, Get-HostIpv4Subnet, Get-Ipv4OnLinkVerdict, Get-PoolFacingIpv4Segment, Get-Ipv4PoolSegmentVerdict, Test-TcpConnectOutcome, Get-TcpOutcomeExplanation, Select-DhcpLeaseIpAddress, Select-StaleDhcpLeaseBlock, Remove-DhcpLeaseBlockText, Get-UtmGuestSeedHostname, ConvertTo-MemoryStartupBytes, Select-NameByPrefix, Get-YurunaServiceVmName

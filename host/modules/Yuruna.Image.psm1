@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.31
+.VERSION 2026.08.02
 .GUID 42de9c8b-f7a6-4b34-9182-3c4d5e6f7ab7
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -234,6 +234,15 @@ function Save-ImageWithChecksum {
         the hash. A definitively bad/foreign signature is treated like a
         mismatch (subject to -OnMismatch); gpg/keyserver/signature-absent
         degrades to a warning and proceeds on the hash.
+    .PARAMETER RetryBudgetSeconds
+        Wall-clock budget for retrying a FAILED transfer. These images are
+        hundreds of MB and routinely travel through a squid cache that was
+        itself provisioned minutes earlier, so a mid-stream truncation
+        ("The response ended prematurely, with at least N additional bytes
+        expected") is a transient event, not a reason to abort a bring-up. Each
+        retry restarts from zero -- neither Save-CachedHttpUri nor
+        Invoke-WebRequest resumes -- so the partial file is removed between
+        attempts. 0 disables retrying.
     .OUTPUTS
         [bool] $true when the download landed successfully (regardless
         of checksum outcome under WarnAndContinue); $false when the
@@ -250,7 +259,8 @@ function Save-ImageWithChecksum {
         [string]$ChecksumPattern = $script:DefaultChecksumPattern,
         [ValidateSet('WarnAndContinue','WarnAndDelete','Throw')]
         [string]$OnMismatch = 'WarnAndContinue',
-        [switch]$VerifyUbuntuSignature
+        [switch]$VerifyUbuntuSignature,
+        [int]$RetryBudgetSeconds = 600
     )
     if (-not $PSCmdlet.ShouldProcess($DestPath, "Download $SourceUrl with checksum policy $OnMismatch")) { return $true }
     $destDir = Split-Path -Parent $DestPath
@@ -258,14 +268,29 @@ function Save-ImageWithChecksum {
         New-Item -ItemType Directory -Path $destDir -Force -ErrorAction Stop | Out-Null
     }
     Write-Information "Downloading $SourceUrl -> $DestPath" -InformationAction Continue
-    try {
+    # A resumed transfer is not available on either path, so every attempt must
+    # start from an absent destination: a truncated file left in place would
+    # otherwise be appended to or mistaken for a complete one.
+    $fetch = {
+        Remove-Item -LiteralPath $DestPath -Force -ErrorAction SilentlyContinue
         if (Get-Command -Name Save-CachedHttpUri -ErrorAction SilentlyContinue) {
             Save-CachedHttpUri -Uri $SourceUrl -OutFile $DestPath
         } else {
             Invoke-WebRequest -Uri $SourceUrl -OutFile $DestPath -ErrorAction Stop
         }
+    }
+    try {
+        # Invoke-DownloadWithRetry arrives with the host driver's global import of
+        # Yuruna.HostDownload; resolve it by name so a caller that has not loaded a
+        # driver still gets the single-attempt behavior rather than an error.
+        if ($RetryBudgetSeconds -gt 0 -and (Get-Command -Name Invoke-DownloadWithRetry -ErrorAction SilentlyContinue)) {
+            Invoke-DownloadWithRetry -Download $fetch -TimeoutSeconds $RetryBudgetSeconds
+        } else {
+            & $fetch
+        }
     } catch {
         Write-Warning "Save-ImageWithChecksum: download failed for $SourceUrl : $($_.Exception.Message)"
+        Remove-Item -LiteralPath $DestPath -Force -ErrorAction SilentlyContinue
         return $false
     }
     if (-not (Test-Path -LiteralPath $DestPath)) {
@@ -331,6 +356,26 @@ function Save-ImageWithChecksum {
     }
 }
 
+function Resolve-QemuImgCommand {
+    <#
+    .SYNOPSIS
+        Path to qemu-img, or $null when it isn't installed.
+    .DESCRIPTION
+        PATH first, then the two Windows installer locations: the QEMU
+        installer does not add itself to PATH, so a Windows host with QEMU
+        properly installed still fails a bare Get-Command probe.
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param()
+    $cmd = Get-Command qemu-img -ErrorAction SilentlyContinue
+    if ($cmd) { return $cmd.Source }
+    foreach ($c in @("$env:ProgramFiles\qemu\qemu-img.exe", "${env:ProgramFiles(x86)}\qemu\qemu-img.exe")) {
+        if (Test-Path $c) { return $c }
+    }
+    return $null
+}
+
 function Convert-Qcow2ToVhdx {
     <#
     .SYNOPSIS
@@ -346,6 +391,13 @@ function Convert-Qcow2ToVhdx {
         cleans up the partial DestPath and returns $false. Native qemu-img
         output is captured (never emitted) so it cannot pollute the [bool]
         return.
+    .PARAMETER SizeBytes
+        Target nominal size. Omit (or pass 0) to convert only and leave the
+        VHDX at the cloud image's native capacity -- what a shared base image
+        wants, because each consumer grows its OWN copy to the size that VM
+        needs. Growing a per-VM copy is safe; a shared base pre-grown to the
+        largest consumer would force the smaller ones to SHRINK, which
+        Hyper-V refuses while the guest partition still spans the disk.
     .OUTPUTS
         [bool] $true when the convert succeeded (DestPath is a usable VHDX),
         $false when qemu-img is missing or the convert failed.
@@ -355,14 +407,9 @@ function Convert-Qcow2ToVhdx {
     param(
         [Parameter(Mandatory)][string]$SourcePath,
         [Parameter(Mandatory)][string]$DestPath,
-        [Parameter(Mandatory)][long]$SizeBytes
+        [long]$SizeBytes = 0
     )
-    $qemuImg = Get-Command qemu-img -ErrorAction SilentlyContinue
-    if (-not $qemuImg) {
-        foreach ($c in @("$env:ProgramFiles\qemu\qemu-img.exe", "${env:ProgramFiles(x86)}\qemu\qemu-img.exe")) {
-            if (Test-Path $c) { $qemuImg = $c; break }
-        }
-    }
+    $qemuImg = Resolve-QemuImgCommand
     if (-not $qemuImg) {
         Write-Warning "qemu-img not found. Install QEMU for Windows (winget install SoftwareFreedomConservancy.QEMU) or add qemu-img to PATH."
         return $false
@@ -378,6 +425,10 @@ function Convert-Qcow2ToVhdx {
     # Clear the NTFS sparse flag qemu-img leaves set, else Resize-VHD fails
     # with 0xC03A001A. See feedback_qemu_img_vhdx_sparse.md.
     & fsutil sparse setflag $DestPath 0 2>&1 | Out-Null
+    if ($SizeBytes -le 0) {
+        Write-Information "  convert-only: VHDX left at the cloud image's native capacity." -InformationAction Continue
+        return $true
+    }
     # See https://yuruna.link/memory#why-cache-vhdx-uses-resize-vhd-instead-of-qemu-img-resize
     $sizeGb = [math]::Round($SizeBytes / 1GB)
     Write-Information "Resizing VHDX to ${sizeGb}GB..." -InformationAction Continue
@@ -403,4 +454,302 @@ function Convert-Qcow2ToVhdx {
     return $resized
 }
 
-Export-ModuleMember -Function Save-ImageWithChecksum, Get-ImageChecksumLine, Convert-Qcow2ToVhdx, Test-PublishedChecksumSignature
+# --- REGION: Shared extension-service base image
+# The stash, pool-control and caching-proxy service VMs all boot the SAME
+# Ubuntu server cloud image: same release, same arch, same publisher URL.
+# They differ only in cloud-init and in how large their disk needs to be.
+# One artifact per host type serves all of them -- a per-service copy would
+# be byte-identical, costing an extra download and an extra full-size disk
+# each. The nominal size is NOT baked in here (see Expand-ExtensionVmDisk):
+# every consumer grows its own per-VM copy instead.
+#
+# Deliberately NOT the guest.ubuntu.server.26 image: that one is the
+# live-server INSTALLER ISO driven by subiquity autoinstall, while these
+# services boot a pre-built cloud rootfs directly with no install pass.
+#
+# Ubuntu 26.04 LTS (Resolute Raccoon). A current LTS keeps these long-lived
+# service VMs inside the supported-LTS window, so the `unattended-upgrades`
+# their user-data enables keeps pulling security patches rather than going
+# EOL mid-cycle. It also has to stay recent enough that the distro Go
+# toolchain satisfies the stash / pool-control daemons' go.mod directive.
+# The stem carries the release number too, so a codename bump moves both --
+# and the changed stem gives the new release a fresh artifact rather than
+# silently overwriting the one running VMs were built from.
+$script:UbuntuExtensionImageCodename = 'resolute'
+$script:UbuntuExtensionImageStem     = 'ubuntu.extension.26'
+
+function Get-UbuntuExtensionImageBaseName {
+    <#
+    .SYNOPSIS
+        On-disk stem of the shared extension-service base image for a host
+        type, with no filesystem or hypervisor lookup.
+    .DESCRIPTION
+        Split out from Get-UbuntuExtensionImageInfo for callers that only need
+        the name -- notably the orphan sweeps, which run this before they have
+        established that the hypervisor is even usable.
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        [Parameter(Mandatory)][string]$HostType
+    )
+    return "host.$HostType.$script:UbuntuExtensionImageStem"
+}
+
+function Get-UbuntuExtensionImageInfo {
+    <#
+    .SYNOPSIS
+        Resolve where the shared extension-service base image lives for a host
+        type, and which publisher URL fills it.
+    .DESCRIPTION
+        Single source of truth for the release codename, the guest
+        architecture, the on-disk stem and the artifact format, so the
+        service Get-Image.ps1 and New-VM.ps1 scripts can never disagree about
+        which file they are producing and consuming.
+    .PARAMETER HostType
+        Host folder name under host/ -- also the middle segment of the base
+        image stem, matching the "host.<host-type>.*" convention every other
+        base image on disk already follows.
+    .OUTPUTS
+        [hashtable] HostType, Arch, SourceUrl, ChecksumUrl, DownloadDir,
+        BaseImageName, BaseImageFile, OriginFile, Format.
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param(
+        [Parameter(Mandatory)]
+        [ValidateSet('macos.utm', 'ubuntu.kvm', 'windows.hyper-v')]
+        [string]$HostType
+    )
+    switch ($HostType) {
+        'macos.utm' {
+            # UTM runs on Apple Silicon via Apple Virtualization / HVF.
+            $arch   = 'arm64'
+            # --- REGION: https://yuruna.link/vmconfig#macos-utm-qcow2-punchhole-alignment
+            # Stays qcow2: a raw disk trips the macOS F_PUNCHHOLE 4 KiB-alignment
+            # EINVAL under UTM's discard=unmap.
+            $format = 'qcow2'
+            $dir    = Join-Path $HOME "yuruna/image/$script:UbuntuExtensionImageStem"
+        }
+        'ubuntu.kvm' {
+            $machine = (& uname -m).Trim()
+            switch ($machine) {
+                'x86_64'  { $arch = 'amd64' }
+                'aarch64' { $arch = 'arm64' }
+                default   { throw "Unsupported architecture for the extension-service base image: $machine" }
+            }
+            # libvirt-qemu boots qcow2 natively; no conversion needed.
+            $format = 'qcow2'
+            $dir    = Join-Path $HOME "yuruna/image/$script:UbuntuExtensionImageStem"
+        }
+        'windows.hyper-v' {
+            $arch   = 'amd64'
+            # Hyper-V boots VHDX, and it expects guest disks under the host's
+            # own VirtualHardDiskPath (which the operator may have relocated).
+            $format = 'vhdx'
+            $dir    = (Get-VMHost -ErrorAction SilentlyContinue).VirtualHardDiskPath
+            if (-not $dir) {
+                throw "Could not read the Hyper-V VirtualHardDiskPath: Get-VMHost failed. Hyper-V may not be installed, or this session is not elevated."
+            }
+            if (-not (Test-Path -LiteralPath $dir)) {
+                throw "The Hyper-V default VHDX folder does not exist: $dir"
+            }
+        }
+    }
+    $codename = $script:UbuntuExtensionImageCodename
+    $sourceUrl = "https://cloud-images.ubuntu.com/$codename/current/$codename-server-cloudimg-$arch.img"
+    $baseImageName = Get-UbuntuExtensionImageBaseName -HostType $HostType
+    return @{
+        HostType      = $HostType
+        Arch          = $arch
+        SourceUrl     = $sourceUrl
+        ChecksumUrl   = "$($sourceUrl.Substring(0, $sourceUrl.LastIndexOf('/')))/SHA256SUMS"
+        DownloadDir   = $dir
+        BaseImageName = $baseImageName
+        BaseImageFile = Join-Path $dir "$baseImageName.$format"
+        OriginFile    = Join-Path $dir "$baseImageName.txt"
+        Format        = $format
+    }
+}
+
+function Save-UbuntuExtensionImage {
+    <#
+    .SYNOPSIS
+        Download (and on Hyper-V convert) the shared extension-service base
+        image described by Get-UbuntuExtensionImageInfo.
+    .DESCRIPTION
+        Full resolve-skip-download-verify-promote pipeline:
+          * skip-if-same-source guard on the 4-line sentinel, so the second
+            and third service asking for the image cost one HEAD request
+          * SHA-256 + pinned-key GPG verification of the publisher checksum
+          * previous artifact preserved as <stem>.previous.<ext>
+          * sentinel rewritten with the DOWNLOAD size (not the converted
+            artifact's), which is what the guard compares next run
+
+        Requires the caller to have imported its host's Yuruna.Host.psm1
+        first: Test-DownloadAlreadyCurrent / Write-ImageSentinel arrive
+        through that driver's global import of Yuruna.HostDownload, and the
+        driver's cache-injecting Save-CachedHttpUri wrapper is what routes
+        the download through the squid cache. Resolving them by name here
+        rather than importing Yuruna.HostDownload directly is deliberate:
+        a module-scope import would shadow that wrapper with the shared
+        implementation and silently bypass the cache.
+    .PARAMETER MinimumBytes
+        Floor for the "did we get an error page instead of an image" check.
+    .OUTPUTS
+        [bool] $true when BaseImageFile is present and current.
+    #>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param(
+        [Parameter(Mandatory)][hashtable]$Image,
+        [long]$MinimumBytes = 100MB
+    )
+    foreach ($dependency in @('Test-DownloadAlreadyCurrent', 'Write-ImageSentinel')) {
+        if (-not (Get-Command -Name $dependency -ErrorAction SilentlyContinue)) {
+            Write-Error "Save-UbuntuExtensionImage: $dependency is not available. Import the host driver (host/<host-type>/modules/Yuruna.Host.psm1) before calling."
+            return $false
+        }
+    }
+
+    New-Item -ItemType Directory -Force -Path $Image.DownloadDir | Out-Null
+
+    # --- REGION: https://yuruna.link/guest-image-setup#skip-if-same-source-guard
+    if (Test-DownloadAlreadyCurrent -SourceUrl $Image.SourceUrl -BaseImageFile $Image.BaseImageFile -OriginFile $Image.OriginFile -Verbose:($VerbosePreference -ne 'SilentlyContinue')) {
+        $skipLines = @(Get-Content -LiteralPath $Image.OriginFile -ErrorAction SilentlyContinue)
+        $msg = @(
+            "Skipping download: source URL + size + Last-Modified all match the prior run for $($Image.BaseImageFile)."
+            "  Sentinel: $($Image.OriginFile)"
+            "    filename     : $($skipLines[0])"
+            "    source URL   : $($skipLines[1])"
+            "    byte count   : $($skipLines[2])"
+            "    last-modified: $($skipLines[3])"
+            "  To force a re-download, delete or rename: $($Image.BaseImageFile)"
+        ) -join [Environment]::NewLine
+        Write-Information $msg -InformationAction Continue
+        Write-Output $msg
+        return $true
+    }
+
+    # --- REGION: Download the cloud image
+    # PID-suffixed staging names: every extension service resolves to this
+    # one artifact, so two service builds running at once would otherwise
+    # interleave writes into a single partial file.
+    $downloadFile = Join-Path $Image.DownloadDir "$($Image.BaseImageName).downloading.$PID.img"
+    Remove-Item -LiteralPath $downloadFile -Force -ErrorAction SilentlyContinue
+    $sourceBaseName = $Image.SourceUrl.Substring($Image.SourceUrl.LastIndexOf('/') + 1)
+    $downloaded = Save-ImageWithChecksum `
+        -SourceUrl   $Image.SourceUrl `
+        -DestPath    $downloadFile `
+        -ChecksumUrl $Image.ChecksumUrl `
+        -ChecksumTargetFileName $sourceBaseName `
+        -OnMismatch  'WarnAndDelete' `
+        -VerifyUbuntuSignature `
+        -Confirm:$false
+    if (-not $downloaded) {
+        Write-Error "Download failed for $($Image.SourceUrl)"
+        return $false
+    }
+    # Capture the HTTP-download size BEFORE any conversion: the artifact at
+    # BaseImageFile is the converted file, not the bytes the guard compares
+    # against the publisher's Content-Length next run.
+    $downloadedSize = (Get-Item -LiteralPath $downloadFile).Length
+    if ($downloadedSize -lt $MinimumBytes) {
+        Write-Error "Downloaded file is suspiciously small ($([math]::Round($downloadedSize / 1MB, 1)) MB). Expected ~600 MB."
+        Remove-Item -LiteralPath $downloadFile -Force -ErrorAction SilentlyContinue
+        return $false
+    }
+
+    # --- REGION: Stage the final artifact
+    # Left at the cloud image's native capacity on purpose; each New-VM.ps1
+    # grows its own copy (Expand-ExtensionVmDisk) to the size that service needs.
+    $stagedFile = Join-Path $Image.DownloadDir "$($Image.BaseImageName).staging.$PID.$($Image.Format)"
+    Remove-Item -LiteralPath $stagedFile -Force -ErrorAction SilentlyContinue
+    if ($Image.Format -eq 'vhdx') {
+        # --- REGION: Convert qcow2 to VHDX
+        # Convert-Qcow2ToVhdx owns qemu-img discovery and the NTFS sparse-flag
+        # clear (feedback_qemu_img_vhdx_sparse.md), so the trap fix lives once.
+        if (-not (Convert-Qcow2ToVhdx -SourcePath $downloadFile -DestPath $stagedFile)) {
+            Write-Error "qcow2 to VHDX conversion failed for the download"
+            Remove-Item -LiteralPath $downloadFile -Force -ErrorAction SilentlyContinue
+            return $false
+        }
+        Remove-Item -LiteralPath $downloadFile -Force -ErrorAction SilentlyContinue
+    } else {
+        # The cloud image already IS qcow2; the .img extension is the
+        # publisher's naming, not a different format.
+        Move-Item -LiteralPath $downloadFile -Destination $stagedFile
+    }
+
+    # --- REGION: Preserve previous and finalize
+    $previousFile = Join-Path $Image.DownloadDir "$($Image.BaseImageName).previous.$($Image.Format)"
+    Remove-Item -LiteralPath $previousFile -Force -ErrorAction SilentlyContinue
+    if (Test-Path -LiteralPath $Image.BaseImageFile) {
+        Move-Item -LiteralPath $Image.BaseImageFile -Destination $previousFile
+        Write-Output "Previous image preserved as: $previousFile"
+    }
+    Move-Item -LiteralPath $stagedFile -Destination $Image.BaseImageFile
+
+    # --- REGION: https://yuruna.link/guest-image-setup#skip-if-same-source-guard
+    Write-ImageSentinel -SourceUrl $Image.SourceUrl -OriginFile $Image.OriginFile -SizeBytes $downloadedSize -Confirm:$false
+    Write-Output "Recorded source filename, URL, byte count, and Last-Modified to: $($Image.OriginFile)"
+    Write-Output "Download complete: $($Image.BaseImageFile)"
+    return $true
+}
+
+function Expand-ExtensionVmDisk {
+    <#
+    .SYNOPSIS
+        Grow a per-VM copy of the shared extension-service base image to the
+        nominal size that service needs.
+    .DESCRIPTION
+        The base image stays at the cloud image's native capacity so one
+        artifact can serve services with different disk budgets; growth
+        happens here, on the copy, before first boot -- cloud-init's growpart
+        then expands the root partition into it exactly as it did when the
+        base image itself carried the size.
+
+        qcow2 and dynamic VHDX both grow as metadata, so this is fast and
+        consumes no additional disk until the guest writes.
+    .OUTPUTS
+        [bool] $true when the disk reached the requested size.
+    #>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param(
+        [Parameter(Mandatory)][string]$Path,
+        [Parameter(Mandatory)][long]$SizeBytes,
+        [ValidateSet('qcow2', 'vhdx')][string]$Format = 'qcow2'
+    )
+    $sizeGb = [math]::Round($SizeBytes / 1GB)
+    Write-Output "Resizing $Format disk to ${sizeGb}GB..."
+    if ($Format -eq 'vhdx') {
+        # Copying a VHDX can carry the NTFS sparse attribute along, and
+        # Resize-VHD refuses a sparse file with 0xC03A001A.
+        # See feedback_qemu_img_vhdx_sparse.md.
+        & fsutil sparse setflag $Path 0 2>&1 | Out-Null
+        # See https://yuruna.link/memory#why-cache-vhdx-uses-resize-vhd-instead-of-qemu-img-resize
+        try {
+            Resize-VHD -Path $Path -SizeBytes $SizeBytes -ErrorAction Stop
+            return $true
+        } catch {
+            Write-Warning "Resize-VHD failed: $($_.Exception.Message); falling back to qemu-img resize."
+        }
+    }
+    $qemuImg = Resolve-QemuImgCommand
+    if (-not $qemuImg) {
+        Write-Warning "qemu-img not found; cannot resize $Path."
+        return $false
+    }
+    $resizeArgs = @('resize')
+    if ($Format -eq 'qcow2') { $resizeArgs += @('-f', 'qcow2') }
+    $resizeOut = & $qemuImg @resizeArgs $Path "${sizeGb}G" 2>&1
+    if ($LASTEXITCODE -ne 0) {
+        Write-Warning "qemu-img resize failed: $resizeOut"
+        return $false
+    }
+    return $true
+}
+
+Export-ModuleMember -Function Save-ImageWithChecksum, Get-ImageChecksumLine, Convert-Qcow2ToVhdx, Test-PublishedChecksumSignature, `
+    Resolve-QemuImgCommand, Get-UbuntuExtensionImageBaseName, Get-UbuntuExtensionImageInfo, Save-UbuntuExtensionImage, Expand-ExtensionVmDisk

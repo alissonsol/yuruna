@@ -4,6 +4,7 @@
 package httpsrv
 
 import (
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -107,12 +108,24 @@ type boardOffer struct {
 	Sequences    []string `json:"sequences"`
 }
 
-// getJSON fetches and decodes one JSON document under a bounded timeout.
+// aggregatorClient builds the client used for every aggregator call.
 //
-// Transport posture is the daemon's existing one: this is the same trusted-LAN
-// stance the beacon already takes, on a service that itself serves plain HTTP.
-// There is no CA-pinned client here to reuse, and the payload is read-only cycle
-// counts. Pinning is the documented upgrade path, not a silent assumption.
+// The aggregator's :9400 answers BOTH protocols on the one port and the seeded
+// base URL is https, presenting a leaf from the pool CA -- which is in no guest
+// trust store, so a default-transport client fails the handshake with
+// "certificate signed by unknown authority" and the board's numbers grey out
+// permanently. Transport posture is therefore the daemon's existing one: the
+// same trusted-LAN stance the beacon already takes, on a service that itself
+// serves plain HTTP. The payload is read-only cycle counts. Pinning the pool CA
+// is the documented upgrade path, not a silent assumption.
+func aggregatorClient() *http.Client {
+	return &http.Client{
+		Timeout:   15 * time.Second,
+		Transport: &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true, MinVersion: tls.VersionTLS12}},
+	}
+}
+
+// getJSON fetches and decodes one JSON document under a bounded timeout.
 func getJSON(ctx interface{ Done() <-chan struct{} }, client *http.Client, rawURL string, out any) error {
 	req, err := http.NewRequest(http.MethodGet, rawURL, nil)
 	if err != nil {
@@ -229,7 +242,7 @@ func (s *Server) handleBoard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	client := &http.Client{Timeout: 15 * time.Second}
+	client := aggregatorClient()
 	base := strings.TrimSuffix(s.opts.AggregatorURL, "/")
 
 	// Stats are best-effort. A dead aggregator greys the NUMBERS; it must never
@@ -419,7 +432,7 @@ func (s *Server) handleHosts(w http.ResponseWriter, r *http.Request) {
 	}
 	sort.Strings(pools)
 
-	client := &http.Client{Timeout: 15 * time.Second}
+	client := aggregatorClient()
 	base := strings.TrimSuffix(s.opts.AggregatorURL, "/")
 	var status aggPoolStatus
 	statusErr := ""

@@ -2,6 +2,12 @@
 /* Copyright (c) 2019-2026 by Alisson Sol et al. */
 :root { --fg:#1b1f23; --muted:#6a737d; --line:#e1e4e8; --accent:#2b6cb0; --bg:#fff; --err:#b00020; --ok:#1a7f37; }
 * { box-sizing: border-box; }
+/* Every page toggles visibility with the `hidden` ATTRIBUTE. A class rule that
+   sets `display:` on the same element outranks the user-agent
+   `[hidden] { display: none }` on specificity, so `el.hidden = true` becomes a
+   silent no-op -- and for an overlay, an undismissable one. Keep this ahead of
+   every layout rule so the attribute always wins. */
+[hidden] { display: none !important; }
 body { font: 14px/1.5 -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; color: var(--fg); background: var(--bg); margin: 0; }
 /* Space flex children with margins, not `gap` (flex gap is Safari/iOS 14.5+ only). */
 header.app { display: flex; flex-wrap: wrap; align-items: center; padding: .75rem 1.25rem; border-bottom: 1px solid var(--line); }

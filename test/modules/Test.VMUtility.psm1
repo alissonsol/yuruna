@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.31
+.VERSION 2026.08.02
 .GUID 42a2b3c4-d5e6-4f78-9012-3a4b5c6d7e92
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -428,6 +428,17 @@ function Update-StashServiceMarkerAddress {
         return a dead predecessor's lease (see the poll loop). A budget that runs
         out with nothing confirmed still publishes the last address reported, and
         warns.
+
+        Answering /healthz HERE is not enough to advertise an address to the
+        POOL. A stash VM that came up on a hypervisor-private network -- the
+        macOS shared vmnet, a Hyper-V Default Switch, libvirt's virbr0 -- answers
+        its own host perfectly and no one else, so this marker is where a
+        host-only address would otherwise become every other host's stash
+        address, through host.registration.json. An address off this host's
+        pool-facing segment is therefore refused, and one previously published is
+        retracted. The service is left running and locally usable; only the claim
+        to the pool is withdrawn, and the daemon's own announce still registers
+        it if it is genuinely reachable (the pool confirms that by probing).
     .OUTPUTS
         System.String -- the resolved stash base URL, or $null when unresolved.
     #>
@@ -438,7 +449,11 @@ function Update-StashServiceMarkerAddress {
     param(
         [string]$RuntimeDir = $env:YURUNA_RUNTIME_DIR,
         [string]$VMName,
-        [int]$TimeoutSeconds = 0
+        [int]$TimeoutSeconds = 0,
+        # Pre-resolved pool-facing segment (Get-PoolFacingIpv4Segment). Passed by
+        # tests so the verdict does not depend on the network the suite runs on;
+        # resolved live otherwise.
+        [pscustomobject]$PoolSegment
     )
     try {
         if ([string]::IsNullOrWhiteSpace($RuntimeDir)) { return $null }
@@ -505,6 +520,32 @@ function Update-StashServiceMarkerAddress {
             $ip = $lastCandidate
         }
         if (-not $ip) { return $null }
+
+        # Only 'offsegment' refuses. 'unknown' (no route resolved, no mask
+        # available) proves nothing and must not withdraw a working service, and
+        # a lab whose stash genuinely lives on another routed subnet keeps its
+        # pool registration through the daemon's own announce.
+        $segment = if ($PSBoundParameters.ContainsKey('PoolSegment')) { $PoolSegment } else { Get-PoolFacingIpv4Segment }
+        $poolVerdict = Get-Ipv4PoolSegmentVerdict -Address $ip -Segment $segment
+        if ($poolVerdict -eq 'offsegment') {
+            Write-Warning ("Update-StashServiceMarkerAddress: '$VMName' answers at $ip, which is NOT on this host's pool-facing network" +
+                $(if ($segment) { " ($($segment.Address)/$($segment.PrefixLength))" } else { '' }) +
+                ". That address is reachable from this host only -- a stash VM on a hypervisor-private network (macOS shared vmnet, Hyper-V Default Switch, libvirt virbr0) -- so it is NOT advertised to the pool; other hosts would resolve it and time out. Rebuild the stash VM on a bridged interface to serve the pool. The service stays usable from this host.")
+            # Retract an address published before the VM moved onto (or was
+            # rebuilt on) the private network: leaving it in place would keep
+            # feeding the pool an address it cannot reach.
+            if (-not [string]::IsNullOrWhiteSpace([string]$marker.stashBaseUrl)) {
+                $record = [ordered]@{}
+                foreach ($prop in $marker.PSObject.Properties) {
+                    if ($prop.Name -eq 'stashBaseUrl') { continue }
+                    $record[$prop.Name] = $prop.Value
+                }
+                $tmp = "$markerPath.tmp"
+                [System.IO.File]::WriteAllText($tmp, ($record | ConvertTo-Json), [System.Text.UTF8Encoding]::new($false))
+                Move-Item -LiteralPath $tmp -Destination $markerPath -Force -ErrorAction Stop
+            }
+            return $null
+        }
 
         $url = "http://$(Format-IpUrlHost $ip)"
         if ([string]$marker.stashBaseUrl -eq $url) { return $url }

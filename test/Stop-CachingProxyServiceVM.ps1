@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.31
+.VERSION 2026.08.02
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456743
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -181,7 +181,7 @@ if ($IsMacOS) {
     # from UTM's registry (with a delete retry + wait-for-stopped poll the
     # raw utmctl sequence lacked), and removes the .utm bundle under
     # $HOME/yuruna/guest.nosync. The base image lives in a separate
-    # download dir ($HOME/yuruna/image/caching-proxy-service) and is untouched.
+    # download dir and is untouched.
     if ((Get-VMState -VMName $VMName) -ne 'absent') {
         Write-Output "  VM registered with UTM -- stopping and deleting..."
         [void](Remove-VM -VMName $VMName -Confirm:$false)
@@ -189,8 +189,11 @@ if ($IsMacOS) {
         Write-Output "  No VM registered with UTM."
     }
 
+    # Shared across every extension service on this host, so deleting it makes
+    # the next stash / pool-control build re-download too.
+    Import-Module (Join-Path $RepoRoot 'host/modules/Yuruna.Image.psm1') -Force
     Write-Output ""
-    Write-Output "Base image kept at: $HOME/yuruna/image/caching-proxy-service/"
+    Write-Output "Base image kept at: $((Get-UbuntuExtensionImageInfo -HostType 'macos.utm').BaseImageFile)"
     Write-Output "  (delete manually if you want the next Start-CachingProxyServiceVM.ps1"
     Write-Output "   to re-download a fresh cloud image)."
 } elseif ($IsWindows) {
@@ -227,16 +230,18 @@ if ($IsMacOS) {
         Write-Output "  No VM disk directory found at $vmDir."
     }
 
+    # Shared across every extension service on this host, so deleting it makes
+    # the next stash / pool-control build re-download too.
+    Import-Module (Join-Path $RepoRoot 'host/modules/Yuruna.Image.psm1') -Force
     Write-Output ""
-    Write-Output "Base image kept at: $downloadDir\host.windows.hyper-v.guest.caching-proxy-service.vhdx"
+    Write-Output "Base image kept at: $((Get-UbuntuExtensionImageInfo -HostType 'windows.hyper-v').BaseImageFile)"
     Write-Output "  (delete manually if you want the next Start-CachingProxyServiceVM.ps1"
     Write-Output "   to re-download a fresh cloud image)."
 } elseif ($IsLinux) {
     Write-Output ""
     Write-Output "== Stop + delete '$VMName' (Linux/KVM/libvirt) =="
 
-    $RepoRoot    = Split-Path -Parent $PSScriptRoot
-    $downloadDir = Join-Path $HOME 'yuruna/image/caching-proxy-service'
+    $RepoRoot = Split-Path -Parent $PSScriptRoot
 
     # Tear down any pwsh-based host port forwarders Start-CachingProxyServiceVM.ps1
     # set up on the NAT 'default' fallback. On a bridged 'yuruna-external'
@@ -258,7 +263,7 @@ if ($IsMacOS) {
     # undefine --nvram (NVRAM removal is required or undefine leaves the
     # domain def in place) and deletes the per-VM artifact directory under
     # ~/yuruna/vms/<name>. The base image lives in a separate download dir
-    # (~/yuruna/image/caching-proxy-service) and is untouched.
+    # and is untouched.
     if ((Get-VMState -VMName $VMName) -ne 'absent') {
         Write-Output "  VM registered with libvirt -- destroying and undefining..."
         [void](Remove-VM -VMName $VMName -Confirm:$false)
@@ -266,8 +271,11 @@ if ($IsMacOS) {
         Write-Output "  No VM registered with libvirt."
     }
 
+    # Shared across every extension service on this host, so deleting it makes
+    # the next stash / pool-control build re-download too.
+    Import-Module (Join-Path $RepoRoot 'host/modules/Yuruna.Image.psm1') -Force
     Write-Output ""
-    Write-Output "Base image kept at: $downloadDir/host.ubuntu.kvm.guest.caching-proxy-service.qcow2"
+    Write-Output "Base image kept at: $((Get-UbuntuExtensionImageInfo -HostType 'ubuntu.kvm').BaseImageFile)"
     Write-Output "  (delete manually if you want the next Start-CachingProxyServiceVM.ps1"
     Write-Output "   to re-download a fresh cloud image)."
 } else {

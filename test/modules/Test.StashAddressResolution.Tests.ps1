@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.31
+.VERSION 2026.08.02
 .GUID 42b6a17d-3c48-4e90-9f2b-5d81c4e73a06
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -146,6 +146,33 @@ function Set-StashDiscovery {
     }
 }
 
+function New-PoolSegment {
+    <#
+    .SYNOPSIS
+        A fixed pool-facing segment for the marker refresh to judge against, in
+        the shape Get-PoolFacingIpv4Segment returns. Fixed rather than live so a
+        case's verdict does not depend on the network the suite happens to run
+        on -- the 192.168.64.x addresses these cases use are a real lab's LAN on
+        one machine and a hypervisor-private vmnet on the next.
+    #>
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+        Justification = 'Test fixture: builds an in-memory descriptor; changes nothing.')]
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param([Parameter(Mandatory)][string]$Address, [int]$PrefixLength = 24)
+    $addrVal = ConvertTo-Ipv4UInt32 $Address
+    # Built by arithmetic rather than by shifting a hex literal: PowerShell reads
+    # 0xFFFFFFFF as a signed [int] (-1), which overflows every unsigned cast.
+    $maskVal = [uint32][uint64](([Math]::Pow(2, $PrefixLength) - 1) * [Math]::Pow(2, 32 - $PrefixLength))
+    return [pscustomobject]@{
+        Address      = $Address
+        AddressValue = $addrVal
+        MaskValue    = $maskVal
+        NetworkValue = [uint32]($addrVal -band $maskVal)
+        PrefixLength = $PrefixLength
+    }
+}
+
 function Get-StashDiscoveryCallCount {
     <#
     .SYNOPSIS
@@ -170,7 +197,7 @@ Describe 'An address is confirmed before it is advertised' {
         # budget on tick one and advertises an address nothing answers.
         Set-StashDiscovery -IpAnswer @('192.168.64.11', '192.168.64.11', '192.168.64.5') -Healthy @('192.168.64.5')
         $dir = New-MarkerDir
-        $url = Update-StashServiceMarkerAddress -RuntimeDir $dir -TimeoutSeconds 60
+        $url = Update-StashServiceMarkerAddress -RuntimeDir $dir -TimeoutSeconds 60 -PoolSegment (New-PoolSegment '192.168.64.1')
         Assert-Equal -Expected 'http://192.168.64.5' -Actual $url -Because 'the confirmed address is the one returned'
         Assert-Equal -Expected 'http://192.168.64.5' -Actual (Get-MarkerUrl $dir) -Because 'and the one written to the marker'
         Assert-True ((Get-StashDiscoveryCallCount) -gt 1) 'the poll did not stop on the first reply'
@@ -182,7 +209,7 @@ Describe 'An address is confirmed before it is advertised' {
         # the budget. Dropping it would trade this bug for the opposite one.
         Set-StashDiscovery -IpAnswer @('192.168.64.5') -Healthy @()
         $dir = New-MarkerDir
-        $url = Update-StashServiceMarkerAddress -RuntimeDir $dir -TimeoutSeconds 0 -WarningVariable warned -WarningAction SilentlyContinue
+        $url = Update-StashServiceMarkerAddress -RuntimeDir $dir -TimeoutSeconds 0 -PoolSegment (New-PoolSegment '192.168.64.1') -WarningVariable warned -WarningAction SilentlyContinue
         Assert-Equal -Expected 'http://192.168.64.5' -Actual $url -Because 'a correct address is not thrown away'
         Assert-True ($warned.Count -gt 0) 'and publishing it unconfirmed is said out loud'
     }
@@ -207,6 +234,47 @@ Describe 'An address is confirmed before it is advertised' {
         $dir = New-MarkerDir
         Assert-True ($null -eq (Update-StashServiceMarkerAddress -RuntimeDir $dir -TimeoutSeconds 0)) 'nothing resolved'
         Assert-True ([string]::IsNullOrEmpty((Get-MarkerUrl $dir))) 'and nothing was written'
+    }
+}
+
+Describe 'Only an address the rest of the lab can reach is advertised' {
+
+    It 'refuses an address that exists only inside this host' {
+        # A stash VM on a hypervisor-private network (macOS shared vmnet,
+        # Hyper-V Default Switch, libvirt virbr0) answers its own host and
+        # nobody else. Advertising it puts that address in
+        # host.registration.json, where every other host resolves it and spends
+        # its whole timeout budget on a machine it cannot route to.
+        Set-StashDiscovery -IpAnswer @('192.168.64.5') -Healthy @('192.168.64.5')
+        $dir = New-MarkerDir
+        $url = Update-StashServiceMarkerAddress -RuntimeDir $dir -PoolSegment (New-PoolSegment '192.168.7.101') `
+            -WarningVariable warned -WarningAction SilentlyContinue
+        Assert-True ($null -eq $url) 'a host-private address is not published'
+        Assert-True ([string]::IsNullOrEmpty((Get-MarkerUrl $dir))) 'and never reaches the marker the registration reads'
+        Assert-True ($warned.Count -gt 0) 'and the host is told why its stash is not in the pool'
+    }
+
+    It 'retracts an address published before the VM moved off the segment' {
+        # A rebuild can land the VM on the private network with the previous,
+        # routable address already advertised. Leaving it in place would keep
+        # feeding the pool an address it cannot reach.
+        Set-StashDiscovery -IpAnswer @('192.168.64.5') -Healthy @('192.168.64.5')
+        $dir = New-MarkerDir -Json '{"active":true,"vmName":"yuruna-stash-service","stashBaseUrl":"http://192.168.7.217"}'
+        $null = Update-StashServiceMarkerAddress -RuntimeDir $dir -PoolSegment (New-PoolSegment '192.168.7.101') `
+            -WarningAction SilentlyContinue
+        Assert-True ([string]::IsNullOrEmpty((Get-MarkerUrl $dir))) 'the stale advertisement is withdrawn'
+        $kept = Get-Content -Raw -LiteralPath (Join-Path $dir 'stash-service.json') | ConvertFrom-Json
+        Assert-Equal -Expected 'yuruna-stash-service' -Actual $kept.vmName -Because 'and the rest of the marker survives'
+    }
+
+    It 'publishes when the pool-facing segment cannot be determined' {
+        # 'unknown' proves nothing. Reading it as a refusal would withdraw a
+        # working stash from the pool on any host whose routing table this
+        # cannot read.
+        Set-StashDiscovery -IpAnswer @('192.168.64.5') -Healthy @('192.168.64.5')
+        $dir = New-MarkerDir
+        $url = Update-StashServiceMarkerAddress -RuntimeDir $dir -PoolSegment $null
+        Assert-Equal -Expected 'http://192.168.64.5' -Actual $url -Because 'an undetermined segment does not refuse'
     }
 }
 

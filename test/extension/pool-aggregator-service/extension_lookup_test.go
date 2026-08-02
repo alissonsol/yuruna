@@ -29,6 +29,8 @@ func TestExtensionHostsResolvesStashAndPoolControlService(t *testing.T) {
 		HostId: hid, Area: poolControlServiceArea, Target: "http://192.168.7.88",
 		LastSeenUnixMs: now.UnixMilli(),
 	}
+	seedExtensionHealth(s, hid, stashArea, "http://192.168.7.227")
+	seedExtensionHealth(s, hid, poolControlServiceArea, "http://192.168.7.88")
 
 	rec := httptest.NewRecorder()
 	s.handleExtensionHosts(rec, httptest.NewRequest("GET", "/api/v1/extension-hosts", nil))
@@ -69,6 +71,7 @@ func TestExtensionHostsSingleArea(t *testing.T) {
 		HostId: hid, Area: stashArea, Target: "http://192.168.7.227",
 		LastSeenUnixMs: time.Now().UnixMilli(),
 	}
+	seedExtensionHealth(s, hid, stashArea, "http://192.168.7.227")
 	rec := httptest.NewRecorder()
 	s.handleExtensionHosts(rec, httptest.NewRequest("GET", "/api/v1/extension-hosts?area="+stashArea, nil))
 	if rec.Code != http.StatusOK {
@@ -112,6 +115,9 @@ func TestExtensionHostsLiveAnnounceBeatsRegistration(t *testing.T) {
 		HostId: hid, Area: stashArea, Target: "http://10.0.0.5",
 		LastSeenUnixMs: now.UnixMilli(), sourceIP: "10.0.0.5",
 	}
+	// Both sources name a reachable address; the ranking is what decides, which
+	// is the point of this case.
+	seedExtensionHealth(s, hid, stashArea, "http://10.0.0.5")
 	entries := s.resolveExtensionHostsLocked(now)
 	if got := entries[stashArea].Host; got != "10.0.0.5" {
 		t.Errorf("host = %q, want the announced 10.0.0.5", got)
@@ -142,6 +148,7 @@ func TestExtensionHostsRehydratedAnnounceLosesToRegistration(t *testing.T) {
 		HostId: hid, Area: stashArea, Target: "http://10.0.0.5",
 		LastSeenUnixMs: now.UnixMilli(), // sourceIP deliberately unset
 	}
+	seedExtensionHealth(s, hid, stashArea, "http://10.0.0.9")
 	entries := s.resolveExtensionHostsLocked(now)
 	if got := entries[stashArea].Host; got != "10.0.0.9" {
 		t.Errorf("host = %q, want the registration-advertised 10.0.0.9", got)
@@ -184,6 +191,8 @@ func TestExtensionHostsPicksDeterministically(t *testing.T) {
 		HostId: newer, Area: stashArea, Target: "http://10.0.0.6",
 		LastSeenUnixMs: now.UnixMilli(),
 	}
+	seedExtensionHealth(s, older, stashArea, "http://10.0.0.5")
+	seedExtensionHealth(s, newer, stashArea, "http://10.0.0.6")
 	for i := 0; i < 5; i++ {
 		if got := s.resolveExtensionHostsLocked(now)[stashArea].Host; got != "10.0.0.6" {
 			t.Fatalf("attempt %d: host = %q, want the freshest 10.0.0.6", i, got)

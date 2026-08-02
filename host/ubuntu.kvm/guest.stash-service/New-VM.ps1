@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.31
+.VERSION 2026.08.02
 .GUID 42f4e5f6-a7b8-4c9d-0123-4e5f6a7b8c81
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -63,9 +63,10 @@ if (Get-Command -Name 'setfacl' -ErrorAction SilentlyContinue) {
 }
 
 # --- REGION: Seek the base image
-$downloadDir   = "$HOME/yuruna/image/stash-service"
-$baseImageName = "host.ubuntu.kvm.guest.stash-service"
-$baseImageFile = Join-Path $downloadDir "$baseImageName.qcow2"
+# One cloud image backs every extension service on this host; this VM grows
+# its own copy below (host/modules/Yuruna.Image.psm1).
+Import-Module -Name (Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) 'modules/Yuruna.Image.psm1') -Force
+$baseImageFile = (Get-UbuntuExtensionImageInfo -HostType 'ubuntu.kvm').BaseImageFile
 
 if (-not (Test-Path -LiteralPath $baseImageFile)) {
     $getImageScript = Join-Path $PSScriptRoot 'Get-Image.ps1'
@@ -122,6 +123,14 @@ Write-Output "Copying base image to per-VM disk (sparse copy)..."
 if ($LASTEXITCODE -ne 0) {
     Write-Error "cp --sparse=always failed copying $baseImageFile -> $diskImg"
     exit 1
+}
+
+# --- REGION: Grow the per-VM disk to 256 GB
+# Apparent size only: qcow2 grows on write, so the host gives up nothing
+# until the stash daemon actually stores that much.
+if (-not (Expand-ExtensionVmDisk -Path $diskImg -SizeBytes 256GB -Format 'qcow2')) {
+    Write-Warning "Resize failed -- continuing with the base cloud-image capacity."
+    Write-Warning "Resize manually with: qemu-img resize -f qcow2 '$diskImg' 256G"
 }
 
 # --- REGION: Yuruna harness SSH key + vault password

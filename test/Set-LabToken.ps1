@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.07.31
+.VERSION 2026.08.02
 .GUID 42b7c3f8-9a1d-4e62-8c05-6d4f2a1b9e37
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -243,13 +243,28 @@ if ($provision.ok -and $proxyAddress -and -not $NoPoolConfig) {
             if ($null -eq $cfg) { $cfg = [ordered]@{} }
             if (-not ($cfg['pool'] -is [System.Collections.IDictionary])) { $cfg['pool'] = [ordered]@{} }
             $existingUrl = "$($cfg['pool']['intentGitUrl'])".Trim()
-            if ($existingUrl) {
+            # The READ-ONLY http url. The writable path (a file:// or local
+            # path to the bare repo) is for admin commands run ON the proxy;
+            # a runner must never hold a writable remote.
+            $intentUrl = "http://$proxyAddress/pool-intent.git"
+            # An existing value is normally the operator's and is never touched.
+            # The exception is a value THIS block wrote on an earlier run: the
+            # proxy is addressed by a DHCP lease, so its address moves, and a
+            # url pinned to the address it held last time points at nothing --
+            # or worse, at whatever guest now holds that lease. That is not an
+            # operator decision to preserve, and left alone it never self-heals:
+            # every later run sees a non-empty value and skips. Recognize only
+            # the exact shape this block emits (scheme, host, repo name), so
+            # anything the operator actually chose still wins.
+            $isOwnStaleSeed = $existingUrl -and
+                              ($existingUrl -ne $intentUrl) -and
+                              ($existingUrl -match '^http://[^/]+/pool-intent\.git$')
+            if ($existingUrl -and -not $isOwnStaleSeed) {
                 Write-Information "pool.intentGitUrl already set ($existingUrl); leaving it unchanged." -InformationAction Continue
             } else {
-                # The READ-ONLY http url. The writable path (a file:// or local
-                # path to the bare repo) is for admin commands run ON the proxy;
-                # a runner must never hold a writable remote.
-                $intentUrl = "http://$proxyAddress/pool-intent.git"
+                if ($isOwnStaleSeed) {
+                    Write-Information "pool.intentGitUrl pointed at a previous caching-proxy address ($existingUrl); re-pointing it at $intentUrl." -InformationAction Continue
+                }
                 $cfg['pool']['intentGitUrl'] = $intentUrl
                 # enabled goes WITH the url: intentGitUrl alone is inert, so
                 # seeding one without the other would look configured and do

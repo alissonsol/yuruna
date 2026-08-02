@@ -7,7 +7,6 @@ import (
 	"context"
 	"encoding/json"
 	"log"
-	"net/http"
 	"strings"
 	"time"
 )
@@ -84,7 +83,7 @@ func (s *Server) sweepOnce(ctx context.Context, aggregatorURL string) {
 			Control string `json:"control"`
 		} `json:"hosts"`
 	}
-	client := &http.Client{Timeout: 15 * time.Second}
+	client := aggregatorClient()
 	if err := getJSON(ctx, client, base+"/api/v1/pool-status", &status); err != nil {
 		log.Printf("auto-enrolment: aggregator unreachable (%v); skipping this tick", err)
 		return

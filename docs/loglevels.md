@@ -28,7 +28,7 @@ except Debug.
 
 1. **Command-line override** — `-logLevel Verbose` on
    `Invoke-TestRunner.ps1` / `Invoke-TestRunnerInnerLoop.ps1` /
-   `Invoke-TestSequence.ps1`.
+   `Invoke-TestSequence.ps1` / `install/setup.ps1`.
 2. **`logLevel:` in `test.config.yml`** — hot-reloadable; the inner
    runner re-resolves on every `Sync-RuntimeConfig`, so an operator can
    edit the YAML mid-cycle and the next step picks up the new value.
@@ -40,9 +40,9 @@ The default differs by entry point. The three-phase scripts
 (`Set-Resource.ps1` / `Set-Component.ps1` / `Set-Workload.ps1`),
 `Test-Configuration.ps1` and `Invoke-Clear.ps1` default to `Error` —
 they are run interactively, where anything above an error is noise.
-Only the test runner (`Invoke-TestRunner.ps1`) defaults to
-`Information`, because its transcript is the record of an unattended
-cycle.
+Only the test runner (`Invoke-TestRunner.ps1`) and `install/setup.ps1`
+default to `Information`, because their transcripts are the record of a
+long run nobody watched all of.
 
 The cmdline override wins over a hot-reload — once you start a runner
 at `Information`, a config edit to `Warning` will not promote it. Stop
@@ -64,6 +64,33 @@ if (Test-Path $_logLevelMod) { Import-Module $_logLevelMod -Global -Force; Use-L
 This three-line idiom keeps each
 `host/<platform>/guest.<x>/{Get-Image,New-VM}.ps1` from carrying an
 11-line copy-paste rank table.
+
+### A setup run is the deepest chain of it
+
+`install/setup.ps1` resolves the level, then starts a dozen repo scripts,
+each in its own pwsh, and some of those start the per-guest builders:
+
+```
+setup.ps1 -logLevel Debug
+  └─ test/Start-CachingProxyServiceVM.ps1        Use-LogLevelFromEnv
+       └─ host/<platform>/guest.<x>/New-VM.ps1   Use-LogLevelFromEnv
+```
+
+Nothing is passed on the command line down that chain — the environment
+variable is inherited at each hop, so every script that calls
+`Use-LogLevelFromEnv` lands on the level the operator asked for. The one
+hop it does NOT survive is the Windows elevated relaunch: `-Verb RunAs`
+builds the process through the AppInfo service, which does not carry the
+parent's environment, so `setup.ps1` hands the resolved level to its own
+elevated copy as an argument. `Test.SetupLogLevel.Tests.ps1` guards both
+halves.
+
+A script started this way applies the level AFTER its own preference
+assignments, and re-reads `$InformationPreference` from the global the
+cascade writes where it also assigns that variable at script scope — a
+script-scoped assignment shadows the global for the rest of the file, so
+without the re-read `-logLevel Error` would quiet every child but not the
+lines of the script that set it.
 
 ## Why `$ErrorActionPreference` stays at `Continue`
 
@@ -90,6 +117,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.02
+Last review: 2026.08.03
 
 Back to [Yuruna](../README.md)

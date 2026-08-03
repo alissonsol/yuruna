@@ -29,6 +29,7 @@ takes it the rest of the way — to a working **Standalone host** or a working
 pwsh install/setup.ps1                    # interactive
 pwsh install/setup.ps1 -WhatIf            # print the ordered task list, change nothing
 pwsh install/setup.ps1 -AnswerFile a.yml  # unattended, same code path
+pwsh install/setup.ps1 -logLevel Debug    # everything the run and its children can say
 ```
 
 | Mode | What it sets up |
@@ -58,6 +59,14 @@ command line and exit code, and the closing report. The setup itself names the
 file at the start and at the end. The child scripts keep printing to the console
 rather than the log, so their prompts stay visible; on Windows the elevated
 relaunch continues the same file.
+
+The log gets that whatever `-logLevel` says — the level decides how much of it
+also reaches the terminal, and how much the child scripts say there. It is the
+[shared cascade](../docs/loglevels.md): `Error` through `Debug`, taken from
+`logLevel:` in `test/test.config.yml` when the switch is omitted, and passed down
+to every script the run starts — including the per-guest image and VM builders —
+so `-logLevel Debug` is the setting for a bring-up that failed somewhere inside
+a child.
 
 For what a lab is and how hosts join one, see [docs/lab-operator.md](../docs/lab-operator.md).
 
@@ -176,7 +185,7 @@ pass the tag directly: `-YurunaBranch 2026.06.20` /
 ## Verified install (signed release)
 
 > Available for published release **tags**. The signing artifacts
-> (`install.sha256.sig`, `install/keys/`) first ship in release `2026.08.02`;
+> (`install.sha256.sig`, `install/keys/`) first ship in release `2026.08.03`;
 > until that tag is cut, use the convenience one-liners above.
 
 A tagged release publishes, next to each installer:
@@ -196,7 +205,7 @@ SHA-256(DER public key) = 14fce044df5de1ebbac6fdeae8d4f87abac618393f06e32748b7ef
 **Windows Hyper-V** (PowerShell 5.1+; uses .NET, no extra tooling):
 
 ```
-$base='https://raw.githubusercontent.com/alissonsol/yuruna/refs/tags/2026.08.02'; $t=Join-Path $env:TEMP 'yuruna-install'; New-Item -ItemType Directory -Force $t|Out-Null
+$base='https://raw.githubusercontent.com/alissonsol/yuruna/refs/tags/2026.08.03'; $t=Join-Path $env:TEMP 'yuruna-install'; New-Item -ItemType Directory -Force $t|Out-Null
 'install/windows.hyper-v.ps1','install/install.sha256','install/install.sha256.sig','install/keys/yuruna-release-signing.pub.xml'|%{ irm "$base/$_" -OutFile (Join-Path $t (Split-Path $_ -Leaf)) }
 $k=New-Object System.Security.Cryptography.RSACryptoServiceProvider; $k.FromXmlString((Get-Content "$t\yuruna-release-signing.pub.xml" -Raw))
 if(-not $k.VerifyData([IO.File]::ReadAllBytes("$t\install.sha256"),'SHA256',[IO.File]::ReadAllBytes("$t\install.sha256.sig"))){throw 'SIGNATURE INVALID -- do not run'}
@@ -207,7 +216,7 @@ $h=(Get-FileHash "$t\windows.hyper-v.ps1" -Algorithm SHA256).Hash.ToLower(); if(
 **macOS UTM / Ubuntu KVM** (uses `openssl`, present on both):
 
 ```
-BASE='https://raw.githubusercontent.com/alissonsol/yuruna/refs/tags/2026.08.02'; S=install/macos.utm.sh   # or install/ubuntu.kvm.sh
+BASE='https://raw.githubusercontent.com/alissonsol/yuruna/refs/tags/2026.08.03'; S=install/macos.utm.sh   # or install/ubuntu.kvm.sh
 t=$(mktemp -d); for f in "$S" install/install.sha256 install/install.sha256.sig install/keys/yuruna-release-signing.pub.pem; do curl -fsSL "$BASE/$f" -o "$t/$(basename "$f")"; done
 openssl dgst -sha256 -verify "$t/yuruna-release-signing.pub.pem" -signature "$t/install.sha256.sig" "$t/install.sha256" || { echo 'SIGNATURE INVALID -- do not run'; exit 1; }
 grep -qF "$(sha256sum "$t/$(basename "$S")" | cut -d' ' -f1)" "$t/install.sha256" || { echo 'INSTALLER HASH MISMATCH -- do not run'; exit 1; }
@@ -241,6 +250,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.02
+Last review: 2026.08.03
 
 Back to [Yuruna](../README.md)

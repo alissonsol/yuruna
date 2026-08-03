@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.02
+.VERSION 2026.08.03
 .GUID 42d9e0f1-a2b3-4c45-d678-9e0f1a2b3c47
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -327,8 +327,26 @@ $AptProxyBlock = @"
 # by topology: Default Switch = 172.x.x.x gateway; External = LAN IP).
 $switchName = Get-OrCreateYurunaExternalSwitch
 if (-not $switchName) {
-    Write-Verbose "External vSwitch unavailable -- falling back to 'Default Switch'."
     $switchName = 'Default Switch'
+    if (-not (Get-VMSwitch -Name $switchName -ErrorAction SilentlyContinue)) {
+        # The Default Switch ships only with Windows client SKUs and an
+        # operator can delete it. New-VM throws on a switch name that
+        # resolves to nothing, so an unchecked fallback turns a degraded
+        # network into a failed provision; any switch that exists still
+        # creates and boots the VM. Rank non-External switches first: this
+        # path is normally reached because the host uplink is one Hyper-V
+        # refuses to carry a bridged guest MAC over, so a guest attached to
+        # an External switch there comes up with no carrier at all, while an
+        # Internal/NAT switch still gives it a working address.
+        $substituteSwitch = @(Get-VMSwitch -ErrorAction SilentlyContinue) |
+            Sort-Object @{ Expression = { $_.SwitchType -eq 'External' } }, Name |
+            Select-Object -First 1
+        if ($substituteSwitch) {
+            $switchName = $substituteSwitch.Name
+            Write-Warning "This host has no 'Default Switch'. Attaching to vSwitch '$switchName' instead so VM creation still succeeds."
+        }
+    }
+    Write-Information "External vSwitch unavailable -- the VM is attached to '$switchName' (NAT + DHCP). It gets no LAN-bridged address: the host answers only at that switch's gateway address, and anything on the LAN reaches the guest only through a host port-forwarder."
 }
 
 # Yuruna host (status service) IP+port baked into the seed for the dev

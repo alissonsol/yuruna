@@ -291,21 +291,57 @@ systemd-networkd DHCP client. The file is `source`d by
 `network_diag` prints a connectivity diagnostic for the guest:
 per-interface addresses, IPv4 and IPv6-default routes, and the
 `/etc/resolv.conf` nameservers. It then walks the real (non-loopback,
-non-virtual) interfaces and flags any that are carrier-up yet hold no
-global IPv4 address.
+non-virtual) interfaces and classifies each one.
 
-That "carrier up, no IPv4" state is the signal worth surfacing. A
-carrier-up interface with neither a static address nor a DHCP lease
-usually means **DHCP pool exhaustion**: on a bridged hypervisor the
-guest competes with every other LAN client for the router's finite lease
-pool, and a fast-booting guest that loses the lease race comes up with
-only an IPv6 SLAAC address and no IPv4. IPv6-via-RA needs no DHCP server,
-so its presence does not clear the flag. Other causes the banner names:
-the DHCP server is down, a VLAN/cabling fault, or the link is not
-forwarding yet.
+**Link down.** An interface whose `operstate` is not `up` and whose
+`carrier` does not read `1` is reported, not skipped. Reading
+`/sys/class/net/<if>/carrier` on a down interface returns `EINVAL`, so
+the value comes back empty and the report names both raw values
+(`operstate=down,carrier=none`). A down link never reaches DHCP at all,
+so lease-pool questions do not apply to it — the causes are host-side:
+the virtual switch this vNIC is attached to has no live uplink, the
+cable is out, or the port is administratively down. This is the loudest
+verdict and is printed first, because it is the true cause whenever it
+is present.
+
+**Carrier up, no IPv4.** A carrier-up interface with neither a static
+address nor a DHCP lease usually means **DHCP pool exhaustion**: on a
+bridged hypervisor the guest competes with every other LAN client for
+the router's finite lease pool, and a fast-booting guest that loses the
+lease race comes up with only an IPv6 SLAAC address and no IPv4.
+IPv6-via-RA needs no DHCP server, so its presence does not clear the
+flag. Other causes the banner names: the DHCP server is down, a
+VLAN/cabling fault, or the link is not forwarding yet.
+
+**All clear** is claimed only when at least one interface was actually
+examined and every one of them holds an IPv4 address. A walk that
+examined nothing prints "no non-loopback interface is carrier-up"
+instead — that is a finding, not a pass. The distinction is
+load-bearing: "all carrier-up interfaces hold an IPv4 address" is
+vacuously true on a guest whose only interface is DOWN, and this
+diagnostic is the sole artifact such a guest can still produce. Both
+post-mortem routes (SSH into the guest, and the host status service)
+need exactly the network it does not have, so the console capture is
+the only record and its correctness carries disproportionate weight.
+
+Output is bounded: the link-down verdict reports the total count and
+names only the first few interfaces, so the block stays a fixed number
+of lines however many interfaces exist. That matters because the
+diagnostic is
+printed immediately before the `NONZERO SCRIPT EXIT:` marker the host's
+OCR watches for, and an unbounded block can push the marker off the
+captured frame — turning a classified failure into an unclassified
+timeout. For the same reason no message in this file may contain the
+words "fetch" or "execute": they fuzzy-match the echoed command line
+and would close a healthy run's OCR wait early.
 
 `fetch-and-execute.sh` sources the library so a failing guest step can
 attach this diagnostic to its failure output.
+
+`YURUNA_NET_SYSFS` overrides the sysfs root the walk reads (default
+`/sys/class/net`) so the function can be driven against a fixture tree
+in tests; production behavior with the variable unset is unchanged. It
+covers only the sysfs reads — the `ip` invocations are genuinely live.
 
 ### Defining network release
 
@@ -474,6 +510,30 @@ network it was derived for — so each driver resolves the two together:
   (Default Switch = the `172.x` NAT gateway; External vSwitch = the
   host's LAN IP).
 
+The matched pair is what makes the Hyper-V address sources
+**switch-qualified** rather than best-effort.
+`Wait-ExternalSwitchHostIpv4` prefers the `vEthernet (<switch>)`
+address; its fallback source — the adapter carrying the host's IPv4
+default route — is accepted only when that adapter belongs to the same
+topology as the guest, i.e. it *is* `vEthernet (<switch>)`, or it is
+the switch's own bound physical NIC (the `-AllowManagementOS:$false`
+shape, where the host legitimately keeps its address on the bridged NIC
+and the guest lands on that same L2 segment). A default-route address
+on any other segment is not a degraded answer, it is a wrong one, and
+it is wrong in a way the guest can only discover after its seed has
+been burned: the address resolves on the host, so nothing on the host
+side fails, while the guest dials an address it holds no route to. An
+unqualified match is rejected and the wait falls through to its
+deadline rather than returning.
+
+Returning nothing is the correct answer here, and callers are built for
+it: every seed builder flattens a `$null` to an empty string and the
+guest falls back to GitHub. When the management vNIC is confirmed
+absent — no `Get-VMNetworkAdapter -ManagementOS -SwitchName` result at
+all — the wait gives up on the first iteration instead of polling for
+an adapter that cannot appear; the poll is reserved for the transient
+it was written for, an adapter that exists but has not finished DHCP.
+
 The same rule governs a **third** address, and it is the one that gets
 missed: the `networkStorage` server (`ypool-nas` / `ystash-nas`). That
 name is resolved on the HOST, so on a host running local lab storage it
@@ -584,16 +644,207 @@ Ethernet adapters both refuse to carry that MAC — so when
 never bridges: it returns `$null` and the caller falls back to the
 built-in Default Switch (NAT + DHCP).
 
-The divert supersedes any already-present External switch: a stale one
-bound to a non-bridgeable uplink has a dead port (its vEthernet sits at
-APIPA) and would strand guests with eth0 DOWN. Cache export to the LAN
-then rides host port-forwarders (`Test-CacheVmOnYurunaExternalSwitch`
--> `$false` -> `netsh portproxy`), exactly as macOS does over Wi-Fi.
+The divert supersedes an already-present External switch only when that
+switch is the one the check actually looked at.
+`Test-WindowsUplinkNotBridgeable` resolves the NIC behind the host's
+IPv4 **default route** (following a `vEthernet (<switch>)` back to the
+switch's physical NIC when the route rides one), so it answers "is the
+uplink the host is currently reachable through bridgeable?" — not "is
+every External switch on this host bridgeable?". On a host whose
+default route rides a wired NIC the divert correctly reports `$false`
+and control reaches the reuse branch, even when the switch about to be
+reused is bound to a Wi-Fi/USB adapter, to a NIC that no longer exists,
+or to nothing at all. A stale switch on a non-bridgeable uplink has a
+dead port (its vEthernet sits at APIPA) and would strand guests with
+eth0 DOWN; catching that is the reuse validation below, not this
+divert. When either path declines to bridge, cache export to the LAN
+rides host port-forwarders (`Test-CacheVmOnYurunaExternalSwitch` ->
+`$false` -> `netsh portproxy`), exactly as macOS does over Wi-Fi.
 
 The divert logs Verbose, not Warning: on a Wi-Fi/USB-uplink host this
 is the permanent steady state, not an anomaly, and it is re-evaluated
 once per VM creation — a warning would repeat the same line for every
 guest of every cycle without ever asking the operator to do anything.
+That severity policy is specific to the divert and does **not** carry
+over to the reuse validation below: a wired host whose External switch
+lost its uplink is an anomaly an operator has to act on, so it warns.
+
+## Why a reused External vSwitch is validated before it is handed out
+
+A Hyper-V vSwitch object outlives its uplink binding across a host
+reboot. `Get-VMSwitch -Name 'Yuruna-External'` can return a switch with
+`SwitchType 'External'` and `AllowManagementOS $true` while the bridge
+behind it forwards nothing — the `vEthernet (Yuruna-External)` adapter
+is gone, the host's IPv4 sits directly on the bare physical NIC, and
+every guest attached to that switch boots with eth0 DOWN. The object's
+survival is therefore not evidence that the bridge works, and reusing a
+switch on the strength of its existence hands every guest of every
+subsequent cycle a dead port. `Get-OrCreateYurunaExternalSwitch`
+classifies a switch before it returns its name.
+
+**The verdicts.** `Test-YurunaExternalSwitchUplink` is driver-private
+to
+[`host/windows.hyper-v/modules/Yuruna.Host.psm1`](../host/windows.hyper-v/modules/Yuruna.Host.psm1)
+(callers outside that module resolve it through `Get-Command` and treat
+its absence as `unknown`). It returns exactly one string:
+
+| Verdict | Meaning | Treated as |
+|---|---|---|
+| `healthy` | switch is External, bound to an adapter that is Up, and its management-OS vNIC holds a usable IPv4 | OK |
+| `unknown` | not evaluable: non-Windows, a probe cmdlet missing, a throw, no switch record, or an ambiguous binding | OK |
+| `not-external` | the name is taken by an Internal/Private switch | degraded |
+| `uplink-missing` | the switch carries no adapter binding at all | degraded |
+| `uplink-down` | the bound adapter is present but its `Status` is not `Up` | degraded |
+| `management-os-detached` | `AllowManagementOS` is `$true` but the switch has no management-OS vNIC | degraded |
+| `management-os-unaddressed` | the management-OS vNIC exists but holds no usable IPv4 (APIPA / no lease) | degraded |
+
+**Fail-open is a hard rule.** Anything the classifier cannot evaluate
+yields `unknown`, never a degraded verdict — a switch bound to a
+Switch Embedded Team, an operator-renamed management vNIC, a host with
+no `Get-VMSwitch` cmdlet. A false degraded verdict would demote a whole
+healthy fleet to NAT; a false `healthy` costs one cycle of the failure
+this validation exists to catch. Only positively-established faults
+degrade.
+
+`management-os-unaddressed` exists so the classifier and
+`Wait-ExternalSwitchHostIpv4` cannot disagree: a switch whose vEthernet
+sits at APIPA forwards nothing AND yields no seed address, so calling
+it healthy would attach the guest to a dead bridge *and* bake an empty
+host IP into its seed — strictly worse for diagnosis than declining the
+switch.
+
+**What a degraded verdict does.** The switch name is not returned. Both
+reuse branches return `$null`, which the seven `guest.*/New-VM.ps1`
+scripts already map to the built-in `Default Switch` (NAT + DHCP) —
+the same fully-working topology every Wi-Fi host runs on every cycle.
+Guests get no bridged LAN address, reach the host at the Default Switch
+NAT gateway, and any LAN-facing service rides host port-forwarders.
+Nothing is repaired and nothing is deleted: the switch object, and the
+long-lived caching-proxy / stash / pool-control service VMs still
+attached to it, are left exactly as they are.
+
+Two bounds on that substitution:
+
+- `Default Switch` ships only with Windows client SKUs and an operator
+  can delete it, so the fallback name is checked before it is used.
+  `New-VM` throws on a switch name that resolves to nothing, which
+  would turn a degraded network into a failed provision for every
+  guest; when the Default Switch is absent the scripts warn and attach
+  to whatever vSwitch the host does have (non-External first, then by
+  name). Non-External ranks first because this path is normally reached
+  on a host whose uplink Hyper-V refuses to bridge, and an External
+  switch there hands the guest a vNIC with no carrier at all, while an
+  Internal or NAT switch still yields a working address. A bridge with
+  no carrier still creates and boots a VM, which is strictly better
+  than not creating one.
+- With several External switches present, the healthy ones are ranked
+  deterministically (the one whose bound NIC carries the IPv4 default
+  route first, then by name) instead of taken in enumeration order. If
+  External switches exist but none is healthy, the function declines
+  rather than creating another one: Hyper-V allows one External switch
+  per physical NIC, so a blind create tears the original down and
+  disconnects every VM on it.
+
+**What the runner does.** A degraded host is a *running* host. The
+cycle-start host-network gate classifies every External switch, warns
+naming the switch, the verdict and the remedy, and lets the cycle run;
+guests land on Default Switch NAT and the cycle passes. The gate
+refuses a cycle only on total loss — no viable External path AND no
+Default Switch address — the one state in which every guest is
+guaranteed to fail identically. Escalation goes through the runner's
+existing consecutive-failure notification gate (`AlertArmed` /
+`FailuresBeforeAlert` / `SuccessesBeforeRearm`), so a host that stays
+degraded alerts once per streak rather than once per cycle. A guest
+failure that coincides with a degraded host verdict is filed as
+`host_network_degraded`, a class deliberately kept out of the
+fast-retry and warm-resume allow-lists (retrying cannot fix a switch
+with no carrier) and exempt from per-guest quarantine streaks (a host
+fault produces the identical class on every network-touching guest, so
+counting it would quarantine them all and leave a green dashboard over
+a dead uplink).
+
+**There is no automatic repair, deliberately.** Every remedy below
+reconfigures a live vSwitch on a machine that is usually headless and
+unattended, and the failure mode of getting it wrong is that the host
+loses its own management path with nothing left running to restore it.
+Yuruna detects and degrades; an operator repairs.
+
+### Diagnosing the switch by hand
+
+Read-only, safe to run at any time (substitute the switch name):
+
+```powershell
+Get-VMSwitch -Name 'Yuruna-External' |
+    Format-List Name, SwitchType, AllowManagementOS,
+                NetAdapterInterfaceDescription, NetAdapterInterfaceDescriptions
+Get-VMNetworkAdapter -ManagementOS -SwitchName 'Yuruna-External'
+Get-NetAdapter | Format-Table Name, InterfaceDescription, Status, LinkSpeed
+Get-NetIPAddress -AddressFamily IPv4 |
+    Format-Table InterfaceAlias, IPAddress, PrefixOrigin
+Get-NetRoute -AddressFamily IPv4 -DestinationPrefix '0.0.0.0/0' |
+    Format-Table InterfaceAlias, NextHop, RouteMetric
+Get-VM | Get-VMNetworkAdapter | Where-Object SwitchName -eq 'Yuruna-External'
+```
+
+The fingerprint of the object-outlives-its-binding state is: the switch
+lists `SwitchType External` and `AllowManagementOS True`,
+`Get-VMNetworkAdapter -ManagementOS -SwitchName` returns nothing, and
+the host's IPv4 plus default route sit on a bare physical NIC
+(`Ethernet`) rather than on a `vEthernet (…)` alias.
+
+### Repairing the switch by hand
+
+Run these **at the host console**, never over an SSH/RDP session that
+rides the adapter being reconfigured.
+
+- `management-os-detached` / `management-os-unaddressed` — recreate the
+  management vNIC. Setting a property to the value it already holds is
+  a no-op, so toggle it:
+
+  ```powershell
+  Set-VMSwitch -Name 'Yuruna-External' -AllowManagementOS $false
+  Set-VMSwitch -Name 'Yuruna-External' -AllowManagementOS $true
+  ```
+
+  The two halves carry very different risk. The `$false` step is inert
+  in this state — there is no management vNIC left to remove, which is
+  what the verdict says. The `$true` step is the one that re-plumbs the
+  host's IP stack onto a new adapter, so it is the one to have console
+  access for; see what a rebind costs, below.
+
+- `uplink-missing` / `uplink-down` — check the cable and the switch
+  port first (`uplink-down` is often physical). Then rebind to the live
+  NIC:
+
+  ```powershell
+  Set-VMSwitch -Name 'Yuruna-External' -NetAdapterName 'Ethernet' -AllowManagementOS $true
+  ```
+
+- `not-external` — the preferred name is held by an Internal/Private
+  switch. Confirm nothing is attached to it (the `Get-VM |
+  Get-VMNetworkAdapter` line above), then remove it and let the next
+  cycle create the External switch:
+
+  ```powershell
+  Remove-VMSwitch -Name 'Yuruna-External' -Force
+  ```
+
+  Removal is never automatic: nothing in the harness calls
+  `Connect-VMNetworkAdapter`, so deleting a switch strands the vNICs of
+  the long-lived service VMs with no code path back — they have to be
+  reattached by hand.
+
+**What a rebind costs.** Any command that binds a physical NIC into a
+vSwitch (or removes one that is bound) re-plumbs the host's IP stack:
+Windows strips the address off the physical adapter and moves it onto a
+`vEthernet (<switch>)` adapter that carries a fresh Hyper-V-pool MAC.
+A DHCP reservation or firewall-profile classification keyed to the old
+MAC no longer matches, **so the host can come back on a different
+address — or, if the new adapter gets no lease at all, on none**. The
+NIC also drops for a few seconds while the binding changes. On a
+single-NIC host that adapter is the only management path, which is
+precisely why this is an operator action with eyes on the console and
+not something the runner does on its own.
 
 ## KVM host bridge netplan: identity pins
 
@@ -622,6 +873,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.02
+Last review: 2026.08.03
 
 Back to [Yuruna](../README.md)

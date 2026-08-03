@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.02
+.VERSION 2026.08.03
 .GUID 42c1f7a4-8e05-49bd-9d36-3f7ab2c48e91
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -135,6 +135,16 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $InformationPreference = 'Continue'
+
+# Honor the caller's logLevel, published as $env:YURUNA_LOG_LEVEL by whatever
+# entry point started this script (install/setup.ps1, a runner cycle). After the
+# line above on purpose: an explicit level is the operator's choice and replaces
+# this script's own default. $InformationPreference is then re-read from the
+# global the cascade writes, because the script-scoped assignment above shadows
+# it for the rest of this file. See docs/loglevels.md.
+Import-Module (Join-Path $PSScriptRoot 'modules/Test.LogLevel.psm1') -Global -Force -DisableNameChecking
+Use-LogLevelFromEnv
+$InformationPreference = $global:InformationPreference
 # The elevation gate reads sudo's exit code rather than catching an exception,
 # and the per-OS steps probe the host with commands whose non-zero exit is the
 # answer, not a failure. Pinned so an ambient preference (a profile, a wrapping

@@ -67,7 +67,7 @@ GitHub credentials this run doesn't have.
 
 ### Release pinning + signed integrity
 
-`VERSION` (bare CalVer, e.g. `2026.08.02`) is the source of truth for releases.
+`VERSION` (bare CalVer, e.g. `2026.08.03`) is the source of truth for releases.
 At release time `tools/Update-YurunaReleasePins.ps1` regenerates
 `install/install.sha256`, signs it (`install/install.sha256.sig`, RSA-4096),
 runs the ASCII/no-BOM gate as a hard precondition, and bumps the one tag still
@@ -417,6 +417,29 @@ set, so `virsh` fails with "Permission denied" on
 `sg libvirt -c '<cmd>'` runs a subshell with libvirt as an effective
 supplementary group, which works the instant `/etc/group` has the
 membership — no re-login required.
+
+### Root-artifact sweep — what a sudo run leaves behind
+
+The entry points refuse to run as root, but refusing only stops the NEXT
+root run — it does nothing about the machine a PREVIOUS one already
+changed, and that state is silent, durable, and reads as somebody else's
+bug. `install/setup.ps1` therefore sweeps for it through
+[`test/modules/Test.RootArtifact.psm1`](../test/modules/Test.RootArtifact.psm1).
+
+| Artifact | How it misleads |
+|---|---|
+| Files under `test/status` owned by root | The directories stay operator-writable, so creating a NEW file still works and only an overwrite of an existing one fails — surfacing as a permission error from whatever code happened to touch it first, naming a runtime json file rather than the sudo run that made it. |
+| A status or config service still listening as root | Its socket is invisible to an unprivileged `lsof`, so the port reads as "free but unreservable" and every later bring-up refuses on a port nothing appears to hold. |
+| Base images and VM bundles under root's home | The hypervisor runs as the operator and cannot reach them, so they are pure waste — tens of GB of it. |
+| SMB mounts of the pool/stash shares under root's home | On macOS a second mount of a share the kernel already holds is refused with "File exists", which the mount path reports as a credential failure. |
+
+Detection never prompts and never elevates: everything is either readable
+unprivileged or probed with `sudo -n`, which fails rather than asking. Only
+`Clear-YurunaRootArtifact` elevates, and only per class, after consent.
+
+Unix-only by construction. Windows setup runs elevated on purpose, and an
+elevated Windows run writes files the operator's account can still modify,
+so there is no equivalent trap to sweep.
 
 ### Enable-TestAutomation.ps1 is NOT auto-run
 
@@ -918,6 +941,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.02
+Last review: 2026.08.03
 
 Back to [Yuruna](../README.md)

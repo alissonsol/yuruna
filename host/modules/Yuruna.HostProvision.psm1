@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.02
+.VERSION 2026.08.03
 .GUID 42b8e6a4-3d17-4c92-8f05-6a1b9d2e7c40
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -362,7 +362,37 @@ function Invoke-CachingProxyServiceAvailableProbe {
             return "http://$(if ($NoBracketHost) { $stateIp } else { Format-IpUrlHost $stateIp }):${httpPort}"
         }
     }
-    Write-Warning "Test-CachingProxyServiceAvailable: state.ipAddress=${stateIp} did not answer :${httpPort} within 1500 ms; treating cache as unavailable. Verify with '$($VerifyHint -f $stateIp, $httpPort)'; if it answers, the cache is running and the next runner cycle will pick it up. If not, re-run Start-CachingProxyServiceVM.ps1 (the VM may have restarted with a new DHCP lease)."
+    # Name the CAUSE when the host can be asked for it. "Re-run
+    # Start-CachingProxyServiceVM.ps1 (a new DHCP lease)" is the right guess only
+    # when the VM is actually up; after a host reboot the VM is registered and
+    # powered OFF, and that is fixed by starting it -- seconds, and the warm squid
+    # cache survives -- not by the ~15-minute rebuild the generic hint sends the
+    # operator to. Every host driver implements Get-VMState, and it is resolved by
+    # name so a caller without a driver loaded just gets the generic text.
+    $cause = " If not, re-run Start-CachingProxyServiceVM.ps1 (the VM may have restarted with a new DHCP lease)."
+    if (Get-Command Get-VMState -ErrorAction SilentlyContinue) {
+        $cacheVmName = 'yuruna-caching-proxy-service'
+        if (Get-Command Get-YurunaServiceVmRoster -ErrorAction SilentlyContinue) {
+            $entry = @(Get-YurunaServiceVmRoster -Key 'caching-proxy')
+            if ($entry.Count -gt 0 -and $entry[0].VMName) { $cacheVmName = [string]$entry[0].VMName }
+        }
+        $vmState = ''
+        try { $vmState = [string](Get-VMState -VMName $cacheVmName) } catch {
+            Write-Verbose "Test-CachingProxyServiceAvailable: Get-VMState('$cacheVmName'): $($_.Exception.Message)"
+        }
+        switch ($vmState) {
+            'stopped' {
+                $cause = " CAUSE: VM '$cacheVmName' is registered but POWERED OFF -- the signature of a host reboot, which leaves every service VM registered and stopped. Start it rather than rebuilding (a rebuild costs ~15 min and discards the warm cache): the next runner cycle starts it automatically, or run 'Start-CachingProxyServiceVM.ps1' now."
+            }
+            'absent' {
+                $cause = " CAUSE: no VM named '$cacheVmName' is registered on this host, so the recorded address belongs to a cache that no longer exists here. Run Start-CachingProxyServiceVM.ps1 to build one, or point at a remote cache with `$Env:YURUNA_CACHING_PROXY_SERVICE_IP."
+            }
+            'running' {
+                $cause = " CAUSE: VM '$cacheVmName' IS running, so this is an address or networking problem rather than a stopped service -- the recorded address is most likely stale (a new DHCP lease). Re-run Start-CachingProxyServiceVM.ps1 to re-record it."
+            }
+        }
+    }
+    Write-Warning "Test-CachingProxyServiceAvailable: state.ipAddress=${stateIp} did not answer :${httpPort} within 1500 ms; treating cache as unavailable. Verify with '$($VerifyHint -f $stateIp, $httpPort)'; if it answers, the cache is running and the next runner cycle will pick it up.$cause"
     return $null
 }
 

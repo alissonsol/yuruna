@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.02
+.VERSION 2026.08.03
 .GUID 42b7c3f8-9a1d-4e62-8c05-6d4f2a1b9e37
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -87,6 +87,16 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $InformationPreference = 'Continue'
+
+# Honor the caller's logLevel, published as $env:YURUNA_LOG_LEVEL by whatever
+# entry point started this script (install/setup.ps1, a runner cycle). After the
+# line above on purpose: an explicit level is the operator's choice and replaces
+# this script's own default. $InformationPreference is then re-read from the
+# global the cascade writes, because the script-scoped assignment above shadows
+# it for the rest of this file. See docs/loglevels.md.
+Import-Module (Join-Path $PSScriptRoot 'modules/Test.LogLevel.psm1') -Global -Force -DisableNameChecking
+Use-LogLevelFromEnv
+$InformationPreference = $global:InformationPreference
 
 $elapsed = [System.Diagnostics.Stopwatch]::StartNew()
 

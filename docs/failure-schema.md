@@ -372,7 +372,7 @@ validator that gates the cycle event stream.
 
 - [Handler schema](handler-schema.md) — where the class / severity / recovery vocabulary is declared.
 - [Test harness](test-harness.md) — overall architecture.
-- [Watchdog and heartbeat protocol](watchdog.md) — the kill side of self-healing.
+- [Watchdog and heartbeat protocol](runner-outer-loop.md#watchdog-and-heartbeat-protocol) — the kill side of self-healing.
 - [Runner state machine](runner-outer-loop.md#runner-state-machine) — the lifecycle that surfaces a fault transition.
 - [Per-step perf log](test-perf.md) — the `step_end` rows this shares a join shape with.
 
@@ -382,6 +382,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.02
+Last review: 2026.08.03
 
 Back to [Yuruna](../README.md)

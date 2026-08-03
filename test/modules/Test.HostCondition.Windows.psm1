@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.02
+.VERSION 2026.08.03
 .GUID 42e5b4c3-d2a1-4f9a-6789-0b1c2d3e4f51
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -21,7 +21,8 @@
 # (Hyper-V service, display timeout, inactivity lock, host clock, firewall
 # rules for ICMPv4 + the status-service TCP port, and -- when
 # YURUNA_VIRTUAL_DISPLAY is set -- display/text scale = 100% so HiDPI
-# doesn't defeat OCR on VM screenshots). Loaded by the
+# doesn't defeat OCR on VM screenshots), plus the report-only guest-network
+# probe the facade dispatches through its NetworkHealth slot. Loaded by the
 # Test.HostCondition.psm1 facade; callers continue to import the facade
 # and resolve these names through its Export-ModuleMember. See
 # Test.HostCondition.psm1 for the per-platform split rationale.
@@ -1547,6 +1548,193 @@ function Assert-WindowsHostConditionSet {
     return $true
 }
 
+function Get-WindowsUplinkVerdictRemedy {
+    <#
+    .SYNOPSIS
+    One sentence of operator remedy for an External-vSwitch uplink verdict.
+    .DESCRIPTION
+    Each verdict names a different physical or configuration fault, and the
+    action that clears one does nothing for the others -- so the report carries
+    the matching remedy rather than a single generic "check the network". Kept
+    beside the probe so a new verdict cannot ship without its remedy.
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        [Parameter(Mandatory)][string]$Verdict,
+        [Parameter(Mandatory)][string]$SwitchName
+    )
+    switch ($Verdict) {
+        'not-external' {
+            return "Remedy: '$SwitchName' is an Internal/Private switch, which has no path to the LAN. Recreate it as External against a wired NIC, or point the guests at a switch that is."
+        }
+        'uplink-missing' {
+            return "Remedy: '$SwitchName' carries no adapter binding. From a console, bind it to a wired NIC: Set-VMSwitch -Name '$SwitchName' -NetAdapterName <adapter>."
+        }
+        'uplink-down' {
+            return "Remedy: the NIC behind '$SwitchName' is not Up. Check the cable, the switch port, and Get-NetAdapter for a disabled or renegotiating adapter."
+        }
+        'management-os-detached' {
+            return "Remedy: the host has no 'vEthernet ($SwitchName)' adapter, so it is not on its own bridge. From a console: Set-VMSwitch -Name '$SwitchName' -AllowManagementOS `$true (this briefly re-plumbs the NIC, so run it where you can reach the machine physically)."
+        }
+        'management-os-unaddressed' {
+            return "Remedy: 'vEthernet ($SwitchName)' holds no usable IPv4. Check DHCP on that segment and whether the port is authenticated (802.1X leaves the link Up while forwarding nothing)."
+        }
+        default {
+            return "Remedy: inspect '$SwitchName' with Get-VMSwitch and Get-NetAdapter from an elevated console."
+        }
+    }
+}
+
+function Test-WindowsGuestNetworkHealth {
+    <#
+    .SYNOPSIS
+    Report which network path this Hyper-V host can still give a guest.
+    Returns a record; Healthy is $false ONLY when there is no path at all.
+
+    .DESCRIPTION
+    A Hyper-V vSwitch object outlives its uplink binding across a host
+    reboot, so the object's survival is not evidence that the bridge
+    still carries traffic. Guests attach to it, come up with no carrier,
+    and fail one after another while the host itself is online and every
+    other host condition passes -- a fault whose only symptom is a fleet
+    of identical guest failures a quarter of an hour later. This asks the
+    question no other host check asks (can a guest created right now
+    reach anything) once, at cycle start.
+
+    Reports; it does not refuse. A host with a usable External vSwitch OR
+    a Default Switch address has a working topology -- the Default Switch
+    is NAT + DHCP, the permanent steady state of every Wi-Fi host here --
+    so the cycle runs on whichever it has and says which one it got.
+    Healthy is $false only for the single state in which every guest is
+    guaranteed to fail identically: no viable External path AND no
+    Default Switch address.
+
+    Fail-open at every step. A host where the probes cannot run -- not
+    Windows, no Hyper-V/Net* cmdlets, no uplink classifier loaded, a
+    throw -- reports healthy with path 'unknown'. An unevaluable host is
+    not a broken one, and darkening an unattended machine needs proof.
+
+    .PARAMETER HostType
+    Host identifier supplied by the registry dispatch. Anything other
+    than host.windows.hyper-v returns the unevaluated healthy record.
+
+    .OUTPUTS
+    [hashtable] Healthy (bool), Degraded (bool), Path ('external' |
+    'default-switch' | 'none' | 'unknown'), Verdicts (array of
+    @{ Switch; Verdict }), Reason (string).
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param([string]$HostType = 'host.windows.hyper-v')
+
+    $record = @{
+        Healthy  = $true
+        Degraded = $false
+        Path     = 'unknown'
+        Verdicts = @()
+        Reason   = ''
+    }
+
+    if ($HostType -and $HostType -ne 'host.windows.hyper-v') {
+        $record.Reason = "Host type '$HostType' carries no Hyper-V guest-network state to check."
+        return $record
+    }
+    if (-not $IsWindows) {
+        $record.Reason = 'Not Windows -- Hyper-V guest-network state is not evaluable here.'
+        return $record
+    }
+    if (-not (Get-Command Get-VMSwitch -ErrorAction SilentlyContinue) -or
+        -not (Get-Command Get-NetIPAddress -ErrorAction SilentlyContinue)) {
+        $record.Reason = 'Hyper-V / Net* cmdlets are not available -- guest-network state left unchecked.'
+        return $record
+    }
+
+    try {
+        # A Wi-Fi (802.11) or USB uplink cannot carry a bridged guest MAC, so
+        # those hosts run every cycle on the Default Switch by design. Their
+        # External switches are not the path the guests take, so classifying
+        # them would only report on a topology nobody is using.
+        $notBridgeable = $false
+        if (Get-Command Test-WindowsUplinkNotBridgeable -ErrorAction SilentlyContinue) {
+            $notBridgeable = [bool](Test-WindowsUplinkNotBridgeable)
+        }
+
+        $externalViable  = $false
+        $externalPending = $false
+        $verdicts        = @()
+        if (-not $notBridgeable) {
+            $externalSwitch = @(Get-VMSwitch -ErrorAction SilentlyContinue |
+                Where-Object { $_.SwitchType -eq 'External' })
+            if ($externalSwitch.Count -eq 0) {
+                # No External switch yet is not a fault: the driver creates one
+                # on demand the first time a guest asks for a bridged path.
+                $externalViable  = $true
+                $externalPending = $true
+            }
+            # The uplink classifier is private to the Hyper-V driver module,
+            # which the operator-facing callers of this module (Test-Config,
+            # Enable-TestAutomation) never load. Its absence means the switch
+            # was not evaluated, which counts as usable.
+            # Call it with -SwitchName ONLY: binding any of its record
+            # parameters puts it in injected mode for all of them at once, so a
+            # partially-seeded call would judge the switch against adapter and
+            # address records nobody supplied.
+            $classifier = Get-Command Test-YurunaExternalSwitchUplink -ErrorAction SilentlyContinue
+            foreach ($sw in $externalSwitch) {
+                $verdict = 'unknown'
+                if ($classifier) {
+                    $verdict = "$(& $classifier -SwitchName $sw.Name)"
+                    if (-not $verdict) { $verdict = 'unknown' }
+                }
+                $verdicts += @{ Switch = [string]$sw.Name; Verdict = $verdict }
+                if ($verdict -in @('healthy', 'unknown')) {
+                    $externalViable = $true
+                } else {
+                    $record.Degraded = $true
+                    Write-Information ("Host guest-network: External vSwitch '$($sw.Name)' reads '$verdict' -- " +
+                        'guests attached there come up with no carrier, so they take the Default Switch instead ' +
+                        '(NAT + DHCP; LAN-exposed services ride host port-forwarders). ' +
+                        (Get-WindowsUplinkVerdictRemedy -Verdict $verdict -SwitchName $sw.Name))
+                }
+            }
+        }
+        $record.Verdicts = $verdicts
+
+        $defaultSwitchIp = Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue |
+            Where-Object { $_.InterfaceAlias -like '*Default Switch*' } |
+            Select-Object -First 1
+
+        if ($externalViable) {
+            $record.Path = 'external'
+            $record.Reason = if ($externalPending) {
+                'No External vSwitch exists yet; the driver creates one on demand when a guest asks for a bridged path.'
+            } else {
+                'An External vSwitch can still carry a guest.'
+            }
+        } elseif ($defaultSwitchIp) {
+            $record.Path = 'default-switch'
+            $record.Reason = if ($notBridgeable) {
+                "Uplink is Wi-Fi or USB, which Hyper-V cannot bridge; guests take the Default Switch (NAT + DHCP) at $($defaultSwitchIp.IPAddress)."
+            } else {
+                "No External vSwitch can carry a guest; the Default Switch (NAT + DHCP) at $($defaultSwitchIp.IPAddress) is still available."
+            }
+        } else {
+            $record.Path     = 'none'
+            $record.Healthy  = $false
+            $record.Degraded = $true
+            $record.Reason   = "No External vSwitch can carry a guest and the host holds no 'vEthernet (Default Switch)' IPv4, so a guest created now would have no network at all."
+        }
+    } catch {
+        $record.Healthy  = $true
+        $record.Degraded = $false
+        $record.Path     = 'unknown'
+        $record.Verdicts = @()
+        $record.Reason   = "Guest-network probe did not complete ($($_.Exception.Message)); host state left unchecked."
+    }
+    return $record
+}
+
 function Test-WindowsHostMinimum {
     <#
     .SYNOPSIS
@@ -1581,4 +1769,4 @@ function Test-WindowsHostMinimum {
     return $ok
 }
 
-Export-ModuleMember -Function Set-WindowsHostConditionSet, Assert-WindowsHostConditionSet, Test-WindowsHostMinimum, Sync-WindowsHostClock, Install-YurunaVirtualDisplay, Remove-YurunaVirtualDisplay, Set-YurunaDisplayCloneAndResolution, Set-YurunaDisplayScale100, Test-YurunaVirtualDisplayEnabled
+Export-ModuleMember -Function Set-WindowsHostConditionSet, Assert-WindowsHostConditionSet, Test-WindowsHostMinimum, Test-WindowsGuestNetworkHealth, Sync-WindowsHostClock, Install-YurunaVirtualDisplay, Remove-YurunaVirtualDisplay, Set-YurunaDisplayCloneAndResolution, Set-YurunaDisplayScale100, Test-YurunaVirtualDisplayEnabled

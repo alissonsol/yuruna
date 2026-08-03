@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.02
+.VERSION 2026.08.03
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456720
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -29,7 +29,10 @@
       3. MEMORY  -- total / used / available / swap
       4. DISK    -- free space per filesystem; flag any > 90% full
       5. GPU     -- vendor + driver where detectable
-      6. NETWORK -- interfaces, default route, DNS resolution sanity
+      6. NETWORK -- interfaces, default route, DNS resolution sanity, and
+                    (Windows) the Hyper-V virtual switch uplink fingerprint:
+                    bound NIC link state, management-OS vNIC presence and
+                    address, and a per-switch verdict
       7. TOP     -- top processes by CPU and by memory
       8. EVENTS  -- recent kernel/system errors
       9. DOCKER  -- daemon health, containers (all), images, disk usage
@@ -417,6 +420,179 @@ function Get-LocalRegistryCatalog {
 function Test-CommandAvailable {
     param([Parameter(Mandatory)][string]$Name)
     return ($null -ne (Get-Command $Name -ErrorAction SilentlyContinue))
+}
+
+# --- REGION: Hyper-V virtual switch uplink fingerprint
+# A Hyper-V vSwitch object outlives its uplink binding across a host reboot, so
+# the switch still being defined is no evidence that it bridges anything. The
+# address and route dumps cannot show the difference either: a host whose
+# management address has moved off the switch onto the bare physical NIC reads
+# as entirely healthy in both. The facts that do separate a working bridge from
+# a dead one are the bound physical NIC's link state, whether the management-OS
+# vNIC exists when the switch says it should, and whether that vNIC holds a
+# usable address -- so they are reported here, next to the addresses they
+# explain, and a degraded switch lands in the problem tally.
+#
+# Fail open at every step: an unevaluable probe reports 'unknown' and raises
+# nothing. This script also runs inside guests, which have no Hyper-V cmdlets
+# at all, and an unelevated run has the cmdlets but no access, so a missing
+# answer is the normal case rather than a finding.
+function Write-VirtualSwitchFingerprint {
+    [CmdletBinding()]
+    param()
+    if (-not (Test-CommandAvailable 'Get-VMSwitch')) {
+        Write-Output "(Get-VMSwitch not available -- Hyper-V management tools not installed)"
+        return
+    }
+    $switches = @()
+    try {
+        $switches = @(Get-VMSwitch -ErrorAction Stop)
+    } catch {
+        Write-Output "(Get-VMSwitch failed: $($_.Exception.Message); needs Hyper-V role + elevation)"
+        return
+    }
+    if ($switches.Count -eq 0) {
+        Write-Output "(no virtual switches defined)"
+        return
+    }
+    foreach ($sw in $switches) {
+        $switchName = [string]$sw.Name
+
+        # A teamed uplink (Switch Embedded Teaming, LBFO) carries its members on
+        # the PLURAL property and matches no single InterfaceDescription, so both
+        # are read and a match on any member counts as bound.
+        # The UNION of both properties, not the plural with the singular as a
+        # fallback: a switch whose singular names an adapter absent from the
+        # plural set would otherwise read as bound here and unbound in the
+        # driver, and two different words for one host state is the second
+        # opinion this section exists to avoid.
+        $descriptions = @()
+        if ($sw.PSObject.Properties.Name -contains 'NetAdapterInterfaceDescriptions' -and $sw.NetAdapterInterfaceDescriptions) {
+            $descriptions += @($sw.NetAdapterInterfaceDescriptions | Where-Object { $_ } | ForEach-Object { [string]$_ })
+        }
+        if ($sw.NetAdapterInterfaceDescription) {
+            $descriptions += [string]$sw.NetAdapterInterfaceDescription
+        }
+        $descriptions = @($descriptions | Select-Object -Unique)
+        $uplinkText = if ($descriptions.Count -gt 0) { $descriptions -join '; ' } else { '(none bound)' }
+        Write-Output ("  {0}: switchType={1} allowManagementOS={2}" -f $switchName, $sw.SwitchType, $sw.AllowManagementOS)
+        Write-Output ("    uplink: {0}" -f $uplinkText)
+
+        $bound = @()
+        $adapterProbeOk = $false
+        if ($descriptions.Count -gt 0 -and (Test-CommandAvailable 'Get-NetAdapter')) {
+            try {
+                $bound = @(Get-NetAdapter -ErrorAction Stop |
+                    Where-Object { $descriptions -contains [string]$_.InterfaceDescription })
+                $adapterProbeOk = $true
+            } catch { $adapterProbeOk = $false }
+        }
+        foreach ($nic in $bound) {
+            Write-Output ("    bound NIC: {0} status={1} speed={2}" -f $nic.Name, $nic.Status, $nic.LinkSpeed)
+        }
+        if ($adapterProbeOk -and $bound.Count -eq 0) {
+            Write-Output "    bound NIC: (the named adapter is not present on this host)"
+        } elseif (-not $adapterProbeOk -and $descriptions.Count -gt 0) {
+            Write-Output "    bound NIC: (not evaluable)"
+        }
+
+        # Ask Hyper-V for the management-OS vNIC rather than matching the
+        # "vEthernet (<switch>)" alias: an operator rename or a disambiguating
+        # suffix leaves the alias wrong while the vNIC is present and working.
+        $mgmt = @()
+        $mgmtProbeOk = $false
+        if (Test-CommandAvailable 'Get-VMNetworkAdapter') {
+            try {
+                $mgmt = @(Get-VMNetworkAdapter -ManagementOS -SwitchName $switchName -ErrorAction Stop)
+                $mgmtProbeOk = $true
+            } catch { $mgmtProbeOk = $false }
+        }
+
+        # Same reason the address is resolved by MAC: the vNIC's alias is not a
+        # reliable key. The alias lookup stays as a fallback for the case where
+        # no MAC matches at all.
+        $mgmtIps = @()
+        $mgmtAddrOk = $false
+        if ($mgmt.Count -gt 0 -and (Test-CommandAvailable 'Get-NetAdapter') -and (Test-CommandAvailable 'Get-NetIPAddress')) {
+            try {
+                $macs = @($mgmt | ForEach-Object { ([string]$_.MacAddress) -replace '[^0-9A-Fa-f]', '' } | Where-Object { $_ })
+                $hostNics = @(Get-NetAdapter -ErrorAction Stop |
+                    Where-Object { $macs -contains (([string]$_.MacAddress) -replace '[^0-9A-Fa-f]', '') })
+                if ($hostNics.Count -eq 0) {
+                    $hostNics = @(Get-NetAdapter -Name ("vEthernet ({0})" -f $switchName) -ErrorAction SilentlyContinue)
+                }
+                if ($hostNics.Count -gt 0) {
+                    $indexes = @($hostNics | ForEach-Object { $_.InterfaceIndex })
+                    $mgmtIps = @(Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue |
+                        Where-Object { $indexes -contains $_.InterfaceIndex -and $_.IPAddress -notmatch '^(127\.|169\.254\.)' } |
+                        ForEach-Object { [string]$_.IPAddress })
+                    $mgmtAddrOk = $true
+                }
+            } catch { $mgmtAddrOk = $false }
+        }
+
+        if (-not $mgmtProbeOk) {
+            Write-Output "    management-OS vNIC: (not evaluable)"
+        } elseif ($mgmt.Count -eq 0) {
+            Write-Output "    management-OS vNIC: absent"
+        } else {
+            $ipText = if ($mgmtIps.Count -gt 0) { $mgmtIps -join ', ' } elseif ($mgmtAddrOk) { '(none usable)' } else { '(not evaluable)' }
+            Write-Output ("    management-OS vNIC: present ({0}) ipv4={1}" -f (($mgmt | ForEach-Object { [string]$_.Name }) -join ', '), $ipText)
+        }
+
+        # The ladder below must land on the same word as the Hyper-V driver's own
+        # classifier for the same host state, rung for rung: an operator reads
+        # this artifact to explain a verdict the driver already acted on, and two
+        # ladders that disagree turn the diagnostic into a second opinion.
+        $verdict = 'unknown'
+        $verdictNote = $null
+        if ($sw.SwitchType -ne 'External') {
+            $verdict = 'not-external'
+            $verdictNote = 'only an External switch bridges guests to the LAN'
+        } elseif ($descriptions.Count -eq 0) {
+            $verdict = 'uplink-missing'
+        } elseif (-not $adapterProbeOk -or $bound.Count -eq 0) {
+            # A description that resolves to no adapter is ambiguous rather than
+            # broken -- a teamed member set can name adapters this enumeration
+            # does not expose -- so it must not demote a working host.
+            $verdict = 'unknown'
+        } elseif (@($bound | Where-Object { [string]$_.Status -eq 'Up' }).Count -eq 0) {
+            $verdict = 'uplink-down'
+        } elseif ($sw.AllowManagementOS -ne $true) {
+            # A switch deliberately created without -AllowManagementOS has no
+            # management vNIC by design; the host keeps its address on the
+            # bridged NIC and the bridge is fine, so neither management-OS rung
+            # below applies and its absence is not a fault.
+            $verdict = 'healthy'
+        } elseif (-not $mgmtProbeOk) {
+            $verdict = 'unknown'
+        } elseif ($mgmt.Count -eq 0) {
+            $verdict = 'management-os-detached'
+        } elseif (-not $mgmtAddrOk) {
+            # The vNIC exists but its host adapter could not be resolved, so
+            # there is no interface to look for an address on.
+            $verdict = 'unknown'
+        } elseif ($mgmtIps.Count -eq 0) {
+            $verdict = 'management-os-unaddressed'
+        } else {
+            $verdict = 'healthy'
+        }
+        # The verdict line carries the bare word and nothing else, so a reader
+        # scraping this artifact gets the same closed vocabulary for every
+        # switch; any explanation goes on its own line underneath.
+        Write-Output ("    verdict: {0}" -f $verdict)
+        if ($verdictNote) {
+            Write-Output ("      {0}" -f $verdictNote)
+        }
+        # 'not-external' names the kind of switch, not a fault: an Internal or
+        # Private switch (the Default Switch among them) is doing exactly what it
+        # was created to do, and only a broken External bridge is a problem.
+        if ($verdict -notin @('healthy', 'unknown', 'not-external')) {
+            Add-Problem -Class 'NETWORK.hyperv-switch-degraded' -Message (
+                ("NETWORK: External virtual switch '{0}' is degraded ({1}); uplink {2}. " -f $switchName, $verdict, $uplinkText) +
+                "Guests attached to it come up with no carrier while the host itself stays online and every other host check passes.")
+        }
+    }
 }
 
 # --- REGION: Linux privileged-probe support
@@ -829,6 +1005,8 @@ try {
         Get-NetRoute -AddressFamily IPv4 -DestinationPrefix '0.0.0.0/0' -ErrorAction SilentlyContinue |
             Sort-Object RouteMetric, InterfaceMetric |
             Select-Object -First 1 | Format-List | Out-String | ForEach-Object { Write-Output $_ }
+        Write-Sub "Hyper-V virtual switches"
+        Write-VirtualSwitchFingerprint
     } else {
         Write-Sub "ifconfig (interfaces with IPv4)"
         if ($IsMacOS) {

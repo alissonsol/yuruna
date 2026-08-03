@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.02
+.VERSION 2026.08.03
 .GUID 42b7e3c5-9a14-4d28-8f63-1e0a2b4c6d80
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -40,7 +40,17 @@ $script:FailureClassEnum = @(
     # project failing to clone) because the fix belongs to a different person --
     # the pool admin who made the assignment, not the host owner -- and distinct
     # from network_timeout because no retry can ever succeed.
-    'bootstrap_sync', 'plan_invalid', 'elevation_required', 'project_access_denied', 'unknown'
+    # host_network_degraded: the HOST's own guest-network path is broken, so
+    # every network-touching guest on it fails identically for a reason no
+    # guest-level retry can influence. Its own class because a virtual switch
+    # object outlives its uplink binding across a host reboot -- the switch is
+    # still there, nothing it carries forwards, and each guest reports only its
+    # own symptom (network_timeout / provisioning_failure). It is deliberately
+    # absent from the transient fast-retry allow-lists: retrying against a
+    # bridge with no carrier can only spend the cycle budget, so it routes to
+    # the operator like elevation_required does.
+    'bootstrap_sync', 'plan_invalid', 'elevation_required', 'project_access_denied',
+    'host_network_degraded', 'unknown'
 )
 $script:SeverityEnum = @('hard', 'soft', 'unknown')
 

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.02
+.VERSION 2026.08.03
 .GUID 42018f50-0ed8-4ecb-b393-93cbe248c2e7
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -51,14 +51,21 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
+# Honor the caller's logLevel, published as $env:YURUNA_LOG_LEVEL by whatever
+# entry point started this script (install/setup.ps1). See docs/loglevels.md.
+Import-Module (Join-Path $PSScriptRoot 'modules/Test.LogLevel.psm1') -Global -Force -DisableNameChecking
+Use-LogLevelFromEnv
+
 Import-Module -Name (Join-Path (Split-Path -Parent $PSScriptRoot) 'automation/Yuruna.HostRedirect.psm1') -Force -DisableNameChecking
 
 # The per-host Enable-TestAutomation.ps1 is an advanced script and narrates
 # each decision under -Verbose, so pass the switch on when it was asked for;
 # it binds to this redirector as a common parameter and would otherwise stop
-# here.
+# here. A level of Verbose or Debug asks for the same narration by another
+# name, and the switch is what the child binds -- the env var alone would only
+# reach the per-host script's own preferences, not its -Verbose-gated output.
 $extra = @()
-if ($PSBoundParameters.ContainsKey('Verbose')) { $extra += '-Verbose' }
+if ($PSBoundParameters.ContainsKey('Verbose') -or $VerbosePreference -eq 'Continue') { $extra += '-Verbose' }
 
 $forwarded = @(ConvertTo-HostScriptArgument `
     -BoundParameters $PSBoundParameters `

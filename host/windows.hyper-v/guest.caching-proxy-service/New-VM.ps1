@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.02
+.VERSION 2026.08.03
 .GUID 42f1b2c3-d4e5-4f67-8901-a2b3c4d5e6f8
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -212,11 +212,27 @@ $PasswordFile = Get-CachingProxyServiceStatePath
 # topology (Default Switch = 172.x gateway; External = host LAN IP).
 $switchName = Get-OrCreateYurunaExternalSwitch
 if (-not $switchName) {
-    Write-Verbose "External vSwitch unavailable -- falling back to 'Default Switch'."
-    Write-Verbose "  Cache VM will not be reachable from LAN by its own IP, and remote"
-    Write-Verbose "  clients routed via netsh portproxy will appear as the host's"
-    Write-Verbose "  vEthernet IP in squid's access.log (see docs/caching.md)."
     $switchName = 'Default Switch'
+    if (-not (Get-VMSwitch -Name $switchName -ErrorAction SilentlyContinue)) {
+        # The Default Switch ships only with Windows client SKUs and an
+        # operator can delete it. New-VM throws on a switch name that
+        # resolves to nothing, so an unchecked fallback turns a degraded
+        # network into a failed provision; any switch that exists still
+        # creates and boots the VM. Rank non-External switches first: this
+        # path is normally reached because the host uplink is one Hyper-V
+        # refuses to carry a bridged guest MAC over, so a guest attached to
+        # an External switch there comes up with no carrier at all, while an
+        # Internal/NAT switch still gives it a working address.
+        $substituteSwitch = @(Get-VMSwitch -ErrorAction SilentlyContinue) |
+            Sort-Object @{ Expression = { $_.SwitchType -eq 'External' } }, Name |
+            Select-Object -First 1
+        if ($substituteSwitch) {
+            $switchName = $substituteSwitch.Name
+            Write-Warning "This host has no 'Default Switch'. Attaching to vSwitch '$switchName' instead so VM creation still succeeds."
+        }
+    }
+    Write-Information "External vSwitch unavailable -- the VM is attached to '$switchName' (NAT + DHCP). It gets no LAN-bridged address: the host answers only at that switch's gateway address, and anything on the LAN reaches the guest only through a host port-forwarder."
+    Write-Information "  Cache VM will not be reachable from LAN by its own IP, and remote clients routed via netsh portproxy will appear as the host's vEthernet IP in squid's access.log (see docs/caching.md)."
 }
 
 # --- REGION: https://yuruna.link/network#cache-vm-seed-host-binding
@@ -424,10 +440,34 @@ Write-Output "   this can take 5-15 minutes on a slow connection -- be patient)"
 # entries by picking whichever answers squid.
 $cacheIp = $null
 $cacheCandidateIps = @()
-$maxIterations = 240  # 240 * 5s = 20 minutes
 $vmDiscoveryLogged = $false
 $cacheVmOnExternalSwitch = $false
 $arpProbeAnnounced = $false
+
+# The ARP sweep only makes sense on a bridged (External) switch, where the
+# host is not the DHCP server and never observes the guest's lease. The
+# External vSwitch name is operator-configurable (Get-OrCreateYurunaExternalSwitch
+# honors a pre-created switch under any name), so key off the switch this
+# script resolved rather than a literal name -- a literal silently skips the
+# sweep on a host that named its bridge anything else.
+$switchIsExternal = ((Get-VMSwitch -Name $switchName -ErrorAction SilentlyContinue).SwitchType -eq 'External')
+
+# A Hyper-V vSwitch object outlives its uplink binding across a host reboot,
+# so the switch still existing is not evidence that its bridge forwards. When
+# the bridge is dead the VM's DHCP request never reaches the LAN and no amount
+# of waiting produces an address, so bound the discovery budget instead of
+# spending the full 20 minutes re-proving it. The classifier is driver-private
+# and may be absent, in which case the uplink is treated as usable.
+$uplinkVerdict = 'unknown'
+if ($switchIsExternal -and (Get-Command Test-YurunaExternalSwitchUplink -ErrorAction SilentlyContinue)) {
+    $uplinkVerdict = Test-YurunaExternalSwitchUplink -SwitchName $switchName
+}
+$uplinkDegraded = ($uplinkVerdict -notin @('healthy', 'unknown'))
+if ($uplinkDegraded) {
+    Write-Warning "vSwitch '$switchName' classifies as '$uplinkVerdict': its bridge has no working uplink, so the cache VM cannot obtain a LAN address on it. Shortening the IP-discovery wait."
+}
+# 5s per iteration: 20 minutes normally, 3 minutes when the bridge is known dead.
+$maxIterations = if ($uplinkDegraded) { 36 } else { 240 }
 
 # Re-enable Write-Progress for the wait loop (script default is
 # SilentlyContinue so web-download progress doesn't spam non-interactive shells).
@@ -441,7 +481,7 @@ for ($i = 0; $i -lt $maxIterations; $i++) {
     # first few iterations normally return an empty candidate list.
     $vm = Get-VM -Name $VMName -ErrorAction SilentlyContinue
     if ($vm) {
-        # On Yuruna-External, the host is no longer the DHCP server so
+        # On a bridged External vSwitch the host is no longer the DHCP server so
         # the cache VM's lease never lands in the host's ARP cache
         # passively. KVP would eventually populate IPAddresses but only
         # after cloud-init's runcmd starts hv_kvp_daemon -- that's 5-15
@@ -451,15 +491,16 @@ for ($i = 0; $i -lt $maxIterations; $i++) {
         # Get-NetNeighbor on the next iteration. Default-Switch path
         # doesn't need this -- Hyper-V's NAT populates ARP at DHCP time.
         if ($i -eq 0) {
-            $cacheVmOnExternalSwitch = (($vm | Get-VMNetworkAdapter -ErrorAction SilentlyContinue |
-                                          Select-Object -First 1).SwitchName -eq 'Yuruna-External')
+            $cacheVmOnExternalSwitch = $switchIsExternal -and
+                (($vm | Get-VMNetworkAdapter -ErrorAction SilentlyContinue |
+                        Select-Object -First 1).SwitchName -eq $switchName)
         }
         if ($cacheVmOnExternalSwitch -and $i -ge 6) {
             if (-not $arpProbeAnnounced) {
-                Write-Output "  Active ARP probe on Yuruna-External subnet (cache VM has DHCP'd a LAN IP the host hasn't seen yet; KVP catches up later)..."
+                Write-Output "  Active ARP probe on the '$switchName' subnet (cache VM has DHCP'd a LAN IP the host hasn't seen yet; KVP catches up later)..."
                 $arpProbeAnnounced = $true
             }
-            Invoke-YurunaExternalArpProbe -SwitchName 'Yuruna-External'
+            Invoke-YurunaExternalArpProbe -SwitchName $switchName
         }
 
         $cacheCandidateIps = @(Get-CacheVmCandidateIp -VM $vm)
@@ -502,22 +543,44 @@ for ($i = 0; $i -lt $maxIterations; $i++) {
 Write-Progress -Activity $activity -Completed
 
 if (-not $cacheCandidateIps) {
+    $waitMinutes = [int](($maxIterations * 5) / 60)
+    # Name the topology that actually applies. Attributing every missing
+    # lease to Wi-Fi sends the operator after the wrong cause on a wired
+    # host, and prescribing Remove-VMSwitch is destructive: the long-lived
+    # service VMs on that switch have no code path back onto a replacement.
+    $switchDiagnosis = if ($uplinkDegraded) {
+        @"
+vSwitch '$switchName' classifies as '$uplinkVerdict': the bridge has no
+working uplink, so the VM's DHCP request never reached the LAN. A vSwitch
+object outlives its uplink binding across a host reboot, so the switch
+still existing is not evidence that it forwards. Re-bind it to a live
+physical adapter, or restore its management-OS vNIC, then re-run.
+"@
+    } elseif ($switchIsExternal) {
+        @"
+The VM is on the External vSwitch '$switchName' (uplink classified
+'$uplinkVerdict'). If the host uplink is Wi-Fi, the AP refuses to forward a
+bridged guest MAC's DHCP request -- a documented Hyper-V limitation; move
+the host to a wired uplink. Otherwise the LAN DHCP server did not answer.
+"@
+    } else {
+        @"
+The VM is on '$switchName', where the host itself is the NAT/DHCP server, so
+an address should have appeared within seconds. Suspect cloud-init or the
+guest's own networking rather than the LAN.
+"@
+    }
     $detail = @"
 
 =========================================================================
-ERROR: caching-proxy-service VM '$VMName' did not obtain an IP address within 20 minutes.
+ERROR: caching-proxy-service VM '$VMName' did not obtain an IP address within $waitMinutes minutes.
 =========================================================================
 
 The VM is running but never showed up in the host's ARP cache and
 never reported an IP via Hyper-V KVP. Exiting with failure so guest
 installs won't silently fall back to direct CDN access and 429.
 
-If the VM is on the Yuruna-External vSwitch and the host is on Wi-Fi:
-the AP probably refused to forward the cache VM's DHCP request -- this
-is a known Hyper-V-on-Wi-Fi limitation. Use a wired connection, or
-remove the Yuruna-External vSwitch (Remove-VMSwitch -Name 'Yuruna-External')
-to fall back to Default Switch on the next New-VM.ps1 run.
-
+$switchDiagnosis
 Accessing the VM for debugging:
   * Console:  vmconnect localhost $VMName
               login:    caching-proxy-service-admin

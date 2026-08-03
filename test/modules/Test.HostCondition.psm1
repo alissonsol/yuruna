@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.02
+.VERSION 2026.08.03
 .GUID 42b8c9d0-e1f2-4a34-9567-8f9a0b1c2d31
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -33,8 +33,10 @@ Import-Module (Join-Path $PSScriptRoot 'Test.Registry.psm1') -Force -DisableName
 # Backing store is a New-YurunaRegistry bundle anchored under
 # $global:YurunaHostConditionProviders so the registrations survive
 # -Force re-imports of this facade. Each entry is an [ordered]@{
-#   HostType; Set; Assert; AssertMinimum; RequiresElevation
-# } record.
+#   HostType; Set; Assert; AssertMinimum; RequiresElevation;
+#   Display; DisplayTeardown; ClockSync; NetworkHealth
+# } record; everything after RequiresElevation is optional and $null on a
+# platform that does not offer it.
 $script:HostConditionRegistry = New-YurunaRegistry `
     -Name 'HostCondition' `
     -AnchorVar 'YurunaHostConditionProviders' `
@@ -94,7 +96,14 @@ function Register-HostConditionProvider {
         # offer, Enable-TestAutomation) -- it needs privileges an unattended
         # cycle cannot obtain. $null for a host with no way to discipline
         # its own clock.
-        [scriptblock]$ClockSync = $null
+        [scriptblock]$ClockSync = $null,
+        # Optional "can this host still put a guest on a working network".
+        # Signature: `param([string]$HostType)`, returns the record described
+        # on Test-HostGuestNetworkHealth. Its own slot rather than part of
+        # Assert: Assert's $false means refuse the cycle, while a host that
+        # lost one network path but kept another runs on the one it kept.
+        # $null for a host with no way to answer the question.
+        [scriptblock]$NetworkHealth = $null
     )
     & $script:HostConditionRegistry.Register $HostType ([ordered]@{
         HostType          = $HostType
@@ -105,6 +114,7 @@ function Register-HostConditionProvider {
         Display           = $Display
         DisplayTeardown   = $DisplayTeardown
         ClockSync         = $ClockSync
+        NetworkHealth     = $NetworkHealth
     })
 }
 
@@ -429,7 +439,12 @@ function script:Register-IfAvailable {
         [string]$TeardownFn,
         # Optional: name of this platform's clock-discipline function.
         # Resolved only when present.
-        [string]$ClockSyncFn
+        [string]$ClockSyncFn,
+        # Optional: name of this platform's guest-network probe. Optional-only
+        # by construction -- a name listed as MANDATORY that cannot be resolved
+        # skips the ENTIRE registration, so a platform that never grows this
+        # capability must not be able to lose its Set/Assert/Minimum over it.
+        [string]$NetworkHealthFn
     )
     $missing = @()
     foreach ($fn in @($SetFn, $AssertFn, $MinimumFn)) {
@@ -460,6 +475,12 @@ function script:Register-IfAvailable {
         if ($clockCmd) { $clockBlock = $clockCmd.ScriptBlock }
         else { Write-Verbose "Test.HostCondition: $HostType clock sync '$ClockSyncFn' not found; skipping that capability." }
     }
+    $networkBlock = $null
+    if ($NetworkHealthFn) {
+        $networkCmd = Get-Command -Name $NetworkHealthFn -ErrorAction SilentlyContinue
+        if ($networkCmd) { $networkBlock = $networkCmd.ScriptBlock }
+        else { Write-Verbose "Test.HostCondition: $HostType guest-network probe '$NetworkHealthFn' not found; skipping that capability." }
+    }
     Register-HostConditionProvider -HostType $HostType `
         -Set             (Get-Command $SetFn).ScriptBlock `
         -Assert          (Get-Command $AssertFn).ScriptBlock `
@@ -467,12 +488,14 @@ function script:Register-IfAvailable {
         -RequiresElevation $RequiresElevation `
         -Display         $displayBlock `
         -DisplayTeardown $teardownBlock `
-        -ClockSync       $clockBlock
+        -ClockSync       $clockBlock `
+        -NetworkHealth   $networkBlock
 }
 Register-IfAvailable -HostType 'host.windows.hyper-v' `
     -SetFn 'Set-WindowsHostConditionSet' -AssertFn 'Assert-WindowsHostConditionSet' -MinimumFn 'Test-WindowsHostMinimum' `
     -DisplayFn 'Install-YurunaVirtualDisplay' -TeardownFn 'Remove-YurunaVirtualDisplay' `
     -ClockSyncFn 'Sync-WindowsHostClock' `
+    -NetworkHealthFn 'Test-WindowsGuestNetworkHealth' `
     -RequiresElevation $true
 Register-IfAvailable -HostType 'host.macos.utm' `
     -SetFn 'Set-MacHostConditionSet'     -AssertFn 'Assert-MacHostConditionSet'     -MinimumFn 'Test-MacHostMinimum' `
@@ -500,6 +523,73 @@ function Assert-HostConditionSet {
         return $true
     }
     return [bool](& $provider.Assert -HostType $HostType)
+}
+
+function Test-HostGuestNetworkHealth {
+    <#
+    .SYNOPSIS
+        Platform dispatcher: ask the host whether it can still put a guest on
+        a working network. Returns a record, never throws, and reports healthy
+        for any host that registered no probe.
+
+    .DESCRIPTION
+        Separate from Assert-HostConditionSet on purpose. Assert answers
+        "refuse this cycle"; this answers "which topology are the guests about
+        to get", and those are different questions with different consequences:
+        a host that lost its bridged path but kept a NAT path still runs a full
+        cycle on the NAT path, and refusing it would trade a degraded cycle for
+        no cycle at all on a machine nobody is standing next to.
+
+        Fail-open by contract. No provider, no probe, a probe that throws or
+        returns something that is not a record -- all read as healthy with path
+        'unknown'. Only a provider that positively reports Healthy = $false has
+        said anything the caller may act on.
+
+    .PARAMETER HostType
+        Stable host identifier, as registered.
+
+    .OUTPUTS
+        [hashtable] Healthy (bool -- $false only when NO guest network path
+        exists), Degraded (bool -- a path was lost but another remains), Path
+        (string, provider-defined; 'unknown' when unevaluated), Verdicts
+        (array of provider-defined per-network records), Reason (string).
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param([string]$HostType)
+
+    $unevaluated = @{
+        Healthy  = $true
+        Degraded = $false
+        Path     = 'unknown'
+        Verdicts = @()
+        Reason   = "No guest-network probe registered for '$HostType'."
+    }
+    $provider = Get-HostConditionProvider -HostType $HostType
+    if (-not $provider -or -not $provider.NetworkHealth) { return $unevaluated }
+
+    $result = $null
+    try {
+        $result = & $provider.NetworkHealth -HostType $HostType
+    } catch {
+        $unevaluated.Reason = "Guest-network probe for '$HostType' failed: $($_.Exception.Message)"
+        return $unevaluated
+    }
+    if ($result -isnot [System.Collections.IDictionary]) {
+        $unevaluated.Reason = "Guest-network probe for '$HostType' returned no status record."
+        return $unevaluated
+    }
+    # Copy field by field over the healthy defaults: a provider that omits a
+    # field must read as "did not say", never as $false -- [bool]$null on a
+    # missing Healthy would refuse a host whose probe merely under-reported.
+    $normalized = $unevaluated
+    $normalized.Reason = ''
+    foreach ($field in @('Healthy', 'Degraded', 'Path', 'Verdicts', 'Reason')) {
+        if ($result.Contains($field) -and $null -ne $result[$field]) { $normalized[$field] = $result[$field] }
+    }
+    $normalized.Healthy  = [bool]$normalized.Healthy
+    $normalized.Degraded = [bool]$normalized.Degraded
+    return $normalized
 }
 
 function Initialize-HostDisplay {
@@ -569,9 +659,9 @@ function Remove-HostDisplay {
 
 Export-ModuleMember -Function `
     Register-HostConditionProvider, Get-HostConditionProvider, Get-HostConditionProviderMatrix, Clear-HostConditionProvider, `
-    Assert-HostConditionSet, Initialize-HostDisplay, Remove-HostDisplay, `
+    Assert-HostConditionSet, Test-HostGuestNetworkHealth, Initialize-HostDisplay, Remove-HostDisplay, `
     Get-HostClockSkew, Get-HostClockSkewLimit, Write-HostClockDriftWarning, Reset-HostClockReport, Sync-HostClock, `
     Assert-ScreenLock, Initialize-SudoCache, `
     Get-MacPmsetGuardList, Set-MacHostConditionSet, Assert-Accessibility, Assert-ScreenRecording, Assert-MacHostConditionSet, Test-MacHostMinimum, Sync-MacHostClock, `
-    Set-WindowsHostConditionSet, Assert-WindowsHostConditionSet, Test-WindowsHostMinimum, Sync-WindowsHostClock, `
+    Set-WindowsHostConditionSet, Assert-WindowsHostConditionSet, Test-WindowsHostMinimum, Test-WindowsGuestNetworkHealth, Sync-WindowsHostClock, `
     Set-LinuxHostConditionSet, Assert-LinuxHostConditionSet, Test-LinuxHostMinimum, Sync-LinuxHostClock

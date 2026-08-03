@@ -1,7 +1,7 @@
 /*
   LICENSEURI https://yuruna.link/license
   Copyright (c) 2019-2026 by Alisson Sol et al.
-  Version: 2026.08.02
+  Version: 2026.08.03
 
   Shared helpers for the Yuruna status pages. Mounted on window.Yuruna.
   --- REGION: https://yuruna.link/definition#defining-the-status-page-browser-baseline
@@ -10,7 +10,7 @@
 (function() {
   'use strict';
 
-  var VERSION = '2026.08.02';
+  var VERSION = '2026.08.03';
 
   // --- REGION: https://yuruna.link/control-proof
   // A Grafana deep-link routes through the caching-proxy service's /go/host, which appends a
@@ -514,6 +514,32 @@
         })
         .then(function() {
           applyCachingProxyServiceBanner();
+        });
+    }
+
+    // runtime/host-network.txt exists only while this host's guest network is
+    // degraded, so a 404 is the healthy state, not an error: no warning, and the
+    // notice hides itself. The file already holds escaped, ready-to-embed HTML
+    // (its writer escapes the operator-chosen switch name), matching the
+    // caching-proxy text contract.
+    function applyHostNetworkBanner(html) {
+      var el = document.getElementById('host-network-notice');
+      if (!el) return;
+      el.innerHTML = html;
+      el.hidden = !html;
+    }
+
+    function loadHostNetworkText() {
+      fetch('runtime/host-network.txt?_=' + Date.now(), { cache: 'no-store' })
+        .then(function(res) {
+          if (!res.ok) throw new Error('HTTP ' + res.status);
+          return res.text();
+        })
+        .then(function(text) {
+          applyHostNetworkBanner((text || '').replace(/^\s+|\s+$/g, ''));
+        })
+        ['catch'](function() {
+          applyHostNetworkBanner('');
         });
     }
 
@@ -1190,6 +1216,7 @@
         document.getElementById('last-loaded').textContent = new Date().toLocaleTimeString();
         countdown = 60;
         loadCachingProxyServiceText();
+        loadHostNetworkText();
       });
     }
     // --- REGION: https://yuruna.link/definition#defining-the-status-page-visibility-aware-polling
@@ -1212,6 +1239,7 @@
     Yuruna.populateHeader(PAGE_CTA);
     Yuruna.getHostInfo().then(function(info) { renderIpAddresses(info.ipAddresses); });
     loadCachingProxyServiceText();
+    loadHostNetworkText();
     loadStatus();
 
     // Footer refresh link. Wired via addEventListener rather than an inline

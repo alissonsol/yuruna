@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.02
+.VERSION 2026.08.03
 .GUID 42d15e27-b2c3-4d4e-9f50-6b7c8d9e0f1a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -1280,6 +1280,38 @@ function Start-CycleHostDiagnostic {
                 # LogFile moves the folder to <base>/.
                 $cycleBaseName = Get-StableCycleBaseName
                 Write-Output "Host diagnostic (cycle start): ./status/log/$cycleBaseName/host.diagnostic.txt"
+                # The child also drops a machine-readable sibling next to the prose
+                # dump (<OutFile>.json, schema yuruna.diagnostic.problems/v1) whose
+                # per-class tallies are the only structured statement of what the
+                # host diagnostic actually found. Without reading it back the whole
+                # verdict lives in an artifact nobody opens until a post-mortem, so
+                # a host-scoped problem present at cycle start (a virtual switch
+                # whose uplink no longer forwards, disk pressure, a stopped
+                # service) stays invisible while the cycle burns its full budget.
+                # Console only, no alert: a per-cycle notification would fire on a
+                # standing condition every ~18 minutes. Its own catch inside the
+                # capture's catch, so a malformed sidecar reads as what it is
+                # instead of borrowing the "capture failed" wording from a capture
+                # that plainly succeeded -- and never fails a cycle either way.
+                $hostDiagSidecar = "$cycleHostDiagOut.json"
+                if (Test-Path -LiteralPath $hostDiagSidecar) {
+                    try {
+                        $diagDoc = Get-Content -Raw -LiteralPath $hostDiagSidecar -ErrorAction Stop |
+                            ConvertFrom-Json -AsHashtable -ErrorAction Stop
+                        if ($diagDoc -is [System.Collections.IDictionary]) {
+                            $diagCount = if ($diagDoc.Contains('count')) { [int]$diagDoc['count'] } else { 0 }
+                            if ($diagCount -gt 0) {
+                                $diagByClass = if ($diagDoc['byClass'] -is [System.Collections.IDictionary]) { $diagDoc['byClass'] } else { @{} }
+                                $diagTally = (@($diagByClass.Keys | Sort-Object | ForEach-Object { "$_=$($diagByClass[$_])" }) -join ', ')
+                                Write-Output "Host diagnostic (cycle start): $diagCount problem(s) reported -- $diagTally"
+                            } else {
+                                Write-Output "Host diagnostic (cycle start): no problems reported."
+                            }
+                        }
+                    } catch {
+                        Write-Verbose "Cycle-start host diagnostic problem sidecar unreadable: $($_.Exception.Message)"
+                    }
+                }
             }
         } else {
             Write-Warning "Cycle-start host diagnostic skipped: script not found at $hostDiagScript"
@@ -1411,6 +1443,144 @@ function Write-CapabilityGateFailureBanner {
     Write-Output "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
 }
 
+function Test-CycleHostNetworkDegraded {
+    <#
+    .SYNOPSIS
+        Does THIS host currently offer no working bridged path for its guests --
+        i.e. does it own External virtual switches and does every one of them
+        classify as broken?
+    .DESCRIPTION
+        A virtual switch object outlives its uplink binding across a host reboot:
+        the switch is still enumerable, still named, still marked External, and
+        nothing it carries forwards. That is why this is probed live every cycle
+        rather than read from a state file -- and why the answer must be re-derived
+        for the CURRENT cycle, so a recovered host stops relabelling genuine guest
+        faults the moment it recovers.
+
+        The classifier is private to the Hyper-V host driver, so it is resolved
+        through Get-Command and its absence (KVM/UTM hosts, an operator session
+        with no driver imported) reads as "not degraded". Fail-open throughout:
+        only a switch that POSITIVELY classifies unhealthy counts, and the host is
+        called degraded only when it has External switches and none of them is
+        usable -- with one usable bridge left the guests still land on a segment
+        that forwards. Evaluated at most once per process, which for the inner
+        runner (one cycle per process) is exactly once per cycle.
+    .OUTPUTS
+        [bool] $true only when every External switch on this host is unusable.
+    #>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param()
+    if ($null -ne $script:CycleHostNetworkDegraded) { return [bool]$script:CycleHostNetworkDegraded }
+    $degraded = $false
+    $verdictText = 'unknown'
+    try {
+        $classifier = Get-Command Test-YurunaExternalSwitchUplink -ErrorAction SilentlyContinue
+        if ($classifier -and (Get-Command Get-VMSwitch -ErrorAction SilentlyContinue)) {
+            $externalSwitches = @(Get-VMSwitch -ErrorAction SilentlyContinue | Where-Object { "$($_.SwitchType)" -eq 'External' })
+            if ($externalSwitches.Count -gt 0) {
+                # -SwitchName ONLY: binding any record parameter puts the
+                # classifier in injected mode for all of them at once, so a
+                # switch record passed without the adapter and host-IP records
+                # would be judged against no adapters and always read 'unknown'.
+                $verdicts = @(foreach ($sw in $externalSwitches) {
+                    [string](& $classifier -SwitchName ([string]$sw.Name))
+                })
+                $usable = @($verdicts | Where-Object { $_ -in @('healthy', 'unknown') })
+                $degraded = ($usable.Count -eq 0)
+                if ($degraded) {
+                    $verdictText = (@(for ($i = 0; $i -lt $externalSwitches.Count; $i++) {
+                        "$($externalSwitches[$i].Name)=$($verdicts[$i])"
+                    }) -join ', ')
+                }
+            }
+        }
+    } catch {
+        # Unevaluable is never degraded -- a probe that throws must not demote a
+        # working host or relabel a real guest fault as somebody else's problem.
+        Write-Verbose "Host-network verdict unevaluable, treating as healthy: $($_.Exception.Message)"
+        $degraded = $false
+    }
+    $script:CycleHostNetworkDegraded = $degraded
+    $script:CycleHostNetworkVerdict  = $verdictText
+    return $degraded
+}
+
+function Resolve-HostNetworkFailureClass {
+    <#
+    .SYNOPSIS
+        Re-file a per-guest network symptom against the host when this cycle's
+        guest-network path is degraded; return every other class untouched.
+    .DESCRIPTION
+        A host whose bridge carries nothing makes each network-touching guest fail
+        with its own local symptom -- network_timeout or provisioning_failure --
+        and both of those sit in the transient fast-retry allow-lists shared by
+        warm resume and the outer loop's auto-remediation pause-skip. Filed as the
+        symptom, the record therefore steers two independent retry mechanisms at a
+        fault no guest can influence; filed against the host it routes to the
+        operator instead. host_network_degraded is deliberately absent from both
+        allow-lists, which is the load-bearing part.
+
+        Bootstrap and planner stages are left alone: they use parenthesised pseudo
+        guest keys and their network is the runner's own reach to git/the project
+        repo over the physical NIC, not the guest bridge.
+    .OUTPUTS
+        [string] the class to file.
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        [AllowNull()][string]$FailureClass,
+        [string]$GuestKey = ''
+    )
+    $class = [string]$FailureClass
+    if ($class -notin @('network_timeout', 'provisioning_failure')) { return $class }
+    if ([string]::IsNullOrWhiteSpace($GuestKey) -or $GuestKey.StartsWith('(')) { return $class }
+    if (-not (Test-CycleHostNetworkDegraded)) { return $class }
+    return 'host_network_degraded'
+}
+
+function Write-CycleHostNetworkReclassification {
+    <#
+    .SYNOPSIS
+        Re-file the engine-written last_failure.json against the host when this
+        cycle's guest-network path is degraded, at the point the record lives.
+    .DESCRIPTION
+        The sequence engine classifies what the GUEST saw, so a fetch that never
+        completed lands as network_timeout. Both consumers that decide whether to
+        retry -- warm resume (Read-WarmResumeCheckpoint) and the outer loop's
+        auto-remediation pause-skip (Get-OuterLastFailureClass) -- read that same
+        file, so overriding the class anywhere else leaves them retrying against a
+        bridge that cannot carry the retry either. Rewriting the record itself is
+        what actually starves both.
+
+        Only the class field is rewritten; the engine's richer step / sequence /
+        repro fields are preserved, and a record whose class is not a guest-network
+        symptom is never touched. Best-effort by contract: an unreadable or
+        unwritable record is left exactly as the engine wrote it. Writes its status
+        line straight to the pipeline -- do not capture this function's output.
+    #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$GuestKey)
+    if (-not $env:YURUNA_LOG_DIR) { return }
+    if (-not (Test-CycleHostNetworkDegraded)) { return }
+    $failFile = Join-Path $env:YURUNA_LOG_DIR 'last_failure.json'
+    if (-not (Test-Path -LiteralPath $failFile)) { return }
+    if (-not (Get-Command Write-YurunaStateFile -ErrorAction SilentlyContinue)) { return }
+    try {
+        $rec = Get-Content -Raw -LiteralPath $failFile -ErrorAction Stop | ConvertFrom-Json -AsHashtable -ErrorAction Stop
+        if ($rec -isnot [System.Collections.IDictionary] -or -not $rec.Contains('failureClass')) { return }
+        $current = [string]$rec['failureClass']
+        $reclassified = Resolve-HostNetworkFailureClass -FailureClass $current -GuestKey $GuestKey
+        if ($reclassified -eq $current) { return }
+        $rec['failureClass'] = $reclassified
+        $null = Write-YurunaStateFile -Path $failFile -Content ($rec | ConvertTo-Json -Depth 6) -Confirm:$false
+        Write-Output "  Host network degraded ($script:CycleHostNetworkVerdict): re-filed as '$reclassified' (was '$current') -- no guest-level retry can influence it."
+    } catch {
+        Write-Verbose "Host-network reclassification of $failFile skipped: $($_.Exception.Message)"
+    }
+}
+
 function Write-CycleInfraFailure {
     <#
     .SYNOPSIS
@@ -1453,7 +1623,13 @@ function Write-CycleInfraFailure {
                else { $null }
         if (-not $dir) { return }
         if (-not (Get-Command New-InfraFailureRecord -ErrorAction SilentlyContinue)) { return }
-        $rec = New-InfraFailureRecord -Stage $Stage -FailureClass $FailureClass -Severity $Severity `
+        # Re-file a per-guest network symptom against the host at the point the
+        # record is PRODUCED, so the on-disk record, the event stream and the
+        # dashboard summary all carry one class. Overriding downstream (in the
+        # quarantine fold alone) would leave the retry consumers reading the
+        # symptom and retrying a fault no guest can influence.
+        $effectiveClass = Resolve-HostNetworkFailureClass -FailureClass $FailureClass -GuestKey $GuestKey
+        $rec = New-InfraFailureRecord -Stage $Stage -FailureClass $effectiveClass -Severity $Severity `
             -GuestKey $GuestKey -VMName $VMName -HostType $HostType -ErrorMessage $ErrorMessage
         $failFile = Join-Path $dir 'last_failure.json'
         if (-not (Test-Path -LiteralPath $failFile) -and (Get-Command Write-YurunaStateFile -ErrorAction SilentlyContinue)) {
@@ -1463,7 +1639,7 @@ function Write-CycleInfraFailure {
             Send-CycleEventSafely -EventRecord $rec.Event
         }
         if (Get-Command Set-LastFailureSummary -ErrorAction SilentlyContinue) {
-            Set-LastFailureSummary -FailureClass $FailureClass -Severity $Severity `
+            Set-LastFailureSummary -FailureClass $effectiveClass -Severity $Severity `
                 -SequenceName $Stage -GuestKey $GuestKey -StepName $Stage `
                 -ErrorMessage $ErrorMessage -VmName $VMName -Confirm:$false
         }
@@ -1600,6 +1776,48 @@ do {
     # update, manual change) between long-running cycles.
     if (-not (Assert-HostConditionSet -HostType $HostType)) {
         Write-Warning "Host conditions failed. Fix the reported issues and restart."
+        $hostCondErr = 'Host condition set failed at cycle start; the failing condition (elevation, hypervisor service, display/lock timeout) is named in the warnings above and is fixable only at the host console.'
+        # Ordering invariant for last_failure.json: Write-CycleInfraFailure never
+        # overwrites an existing record, and that rule exists to protect the
+        # RICHER engine-written record produced later in the SAME cycle. But
+        # $env:YURUNA_LOG_DIR is the log ROOT shared by every cycle, so a record
+        # sitting there at this point -- the first gate, before any cycle work --
+        # was left by an EARLIER cycle and is exactly what the outer loop's
+        # auto-remediation and warm resume would keep routing on. Clearing it is
+        # correct ONLY here, where nothing in this cycle can have written yet;
+        # moving this any later inverts the rule and destroys live evidence.
+        $staleFailureRecord = if ($env:YURUNA_LOG_DIR) { Join-Path $env:YURUNA_LOG_DIR 'last_failure.json' } else { $null }
+        if ($staleFailureRecord -and (Test-Path -LiteralPath $staleFailureRecord)) {
+            Remove-Item -LiteralPath $staleFailureRecord -Force -ErrorAction SilentlyContinue
+        }
+        # A refused cycle is a FAILED cycle. Leaving the flag at its $true
+        # initialization exits 0, so the outer respawns immediately with no
+        # failure-pause, no notification and no inter-cycle delay -- a host that
+        # cannot run at all becomes a silent tight spawn/exit loop.
+        $OverallPassed = $false
+        # 'unknown' rather than a sharper class because the gate answers with a
+        # bool only: which condition failed is in the warnings, not in the return.
+        # What matters for routing is that it is NOT one of the transient classes
+        # the outer's auto-remediation fast-retries -- this failure is unfixable
+        # without an operator at the console.
+        Write-CycleInfraFailure -Stage 'HostCondition' -FailureClass 'unknown' -HostType $HostType `
+            -Severity 'hard' -GuestKey '(host)' -ErrorMessage $hostCondErr
+        # Same latch as the other pre-cycle failures (armed -> N failures ->
+        # fired -> M successes), so a host left unfixed alerts once per streak
+        # instead of once per respawn.
+        $hostCondGate = @{
+            ConsecutiveFailures  = $ConsecutiveFailures
+            ConsecutiveSuccesses = $ConsecutiveSuccesses
+            AlertArmed           = $AlertArmed
+            FailuresBeforeAlert  = $FailuresBeforeAlert
+            SuccessesBeforeRearm = $SuccessesBeforeRearm
+        }
+        Invoke-RunnerBootstrapFailureGate -GatingState $hostCondGate -Stage 'HostCondition' `
+            -ErrorMessage $hostCondErr -GitCommit (Get-CurrentGitCommit -RepoRoot $RepoRoot) `
+            -FailureClass 'unknown' -HostType $HostType
+        $ConsecutiveFailures  = $hostCondGate.ConsecutiveFailures
+        $ConsecutiveSuccesses = $hostCondGate.ConsecutiveSuccesses
+        $AlertArmed           = $hostCondGate.AlertArmed
         break
     }
 
@@ -2378,6 +2596,11 @@ do {
                         if ($qfe -and $qfe.failureClass) { $qClass = [string]$qfe.failureClass }
                     } catch { $null = $_ }
                 }
+                # Secondary to the reclassification already landed on the record
+                # itself: a path that produced no record at all (or one written
+                # before the host verdict was known) must still not accumulate a
+                # per-guest quarantine streak for a fault that belongs to the host.
+                $qClass = Resolve-HostNetworkFailureClass -FailureClass $qClass -GuestKey $GuestKey
                 $qOut = Register-GuestQuarantineOutcome -RuntimeDir $env:YURUNA_RUNTIME_DIR -GuestKey $GuestKey -Outcome 'fail' `
                     -FailureClass $qClass -VmName ([string]$VMNames[$GuestKey]) -GitCommit $GitCommit -ProjectGitCommit $ProjectGitCommit `
                     -HostType $HostType -FailuresToQuarantine ([int]$cfg.GuestQuarantineFailures) -SkipCycles ([int]$cfg.GuestQuarantineSkipCycles)
@@ -3179,6 +3402,13 @@ function Invoke-GuestProvisionIteration {
         Set-StepStatus -GuestKey $GuestKey -StepName "Start-GuestWorkload" -Status "running"
         $wlStartUtc = [DateTime]::UtcNow
         $r = Start-GuestWorkload -HostType $HostType -GuestKey $GuestKey -VMName $VMName -RepoRoot $RepoRoot -SequencesDir $SequencesDir -SequenceNames $workSeqs -EffectiveVariables $cascadeVarsMap
+        # Re-file the engine's record against the host BEFORE the warm-resume
+        # decision reads it: on a host whose bridge carries nothing every attempt
+        # gets the same answer, so a resume would only spend the cycle budget
+        # reproducing it. The rewrite is what the outer loop reads too.
+        if (-not $r.success -and -not $r.skipped) {
+            Write-CycleHostNetworkReclassification -GuestKey $GuestKey
+        }
         # Warm-resume: on an eligible transient failure, re-run the failed sequence
         # from its last-good step on the SAME still-alive VM (the teardown below
         # fires only on the FINAL result), up to WarmResumeMaxAttempts, before

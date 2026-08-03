@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.08.02
+# Version: 2026.08.03
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 
@@ -49,6 +49,27 @@ resolve_fetch_source() {
         esac
         return
     fi
+    # --- REGION: https://yuruna.link/definition#defining-fetch-and-execute-host-unreachable-warning
+    # A guest holding no global IPv4 cannot reach the host status service OR
+    # GitHub, and none of the host-side causes named further down can be true
+    # of it -- the host may be perfectly healthy and still unreachable. Say
+    # that here instead, and skip a probe whose only possible answer is "no".
+    # The predicate is the address, not the default route: a status service on
+    # the same L2 segment is reachable with no default route at all. Skipped
+    # when `ip` is absent so a guest without iproute2 keeps the probe path.
+    if command -v ip >/dev/null 2>&1 && [ -z "$(ip -4 -o address show scope global 2>/dev/null)" ]; then
+        >&2 echo ""
+        >&2 echo "!! GUEST HAS NO IPv4"
+        >&2 echo "!!   state:   no global IPv4 address on any interface"
+        >&2 echo "!!   meaning: nothing is reachable from here -- neither the host nor"
+        >&2 echo "!!            GitHub -- so the host is not what is broken."
+        >&2 echo "!!   cause:   host-side: the virtual switch this vNIC attaches to has"
+        >&2 echo "!!            no live uplink, the vNIC is disconnected, or no DHCP"
+        >&2 echo "!!            lease was granted. See the NETWORK DIAGNOSTIC below."
+        >&2 echo ""
+        FETCH_SOURCE='github'
+        return
+    fi
     if [ -n "${YURUNA_STATUS_SERVICE_IP:-}" ] && [ -n "${YURUNA_STATUS_SERVICE_PORT:-}" ]; then
         # --- REGION: https://yuruna.link/definition#defining-fetch-and-execute-host-environment-variables
         if wget -q --no-proxy --timeout=2 -O /dev/null \
@@ -63,7 +84,10 @@ resolve_fetch_source() {
         >&2 echo "!!   url:     http://${YURUNA_STATUS_SERVICE_IP}:${YURUNA_STATUS_SERVICE_PORT}/livecheck"
         >&2 echo "!!   source:  /etc/yuruna/host.env (provisioned at New-VM time)"
         >&2 echo "!!   probe:   wget --no-proxy --timeout=2 -O /dev/null -> no response"
-        >&2 echo "!!   common:  the host's IP changed since this VM was provisioned (DHCP"
+        >&2 echo "!!   common:  this guest holds an IPv4 but its path may still be dead --"
+        >&2 echo "!!            bridged to a virtual switch with no live uplink, or landed"
+        >&2 echo "!!            on another segment; see the NETWORK DIAGNOSTIC below. Or"
+        >&2 echo "!!            the host's IP changed since this VM was provisioned (DHCP"
         >&2 echo "!!            lease renewed across a reboot, or Wi-Fi roamed to another"
         >&2 echo "!!            subnet), or the status service is down, or the host firewall"
         >&2 echo "!!            changed."
@@ -133,6 +157,54 @@ cleanup_auth_config() {
     return 0
 }
 trap cleanup_auth_config EXIT
+
+# --- REGION: https://yuruna.link/definition#defining-fetch-and-execute-failure-modes
+# Name what a wget exit code means, at the point the code is reported. wget
+# collapses DNS failure, "network is unreachable" and "connection refused"
+# into a single exit 4, which is the one code a reader most needs separated,
+# so that case is resolved from local state: no global IPv4 means the link
+# never came up, a missing default route means nothing can leave this subnet,
+# and a name that will not resolve points at DNS. The retry library's
+# classifier cannot answer here -- it is installed and sourced only once a
+# payload has landed, and it reports retry-worthiness, not a cause.
+classify_wget_rc() {
+    _cw_rc="$1"; _cw_url="$2"
+    case "$_cw_rc" in
+        0) echo "no transport error -- the response body was empty"; return ;;
+        1) echo "generic error"; return ;;
+        2) echo "command-line/parse error"; return ;;
+        3) echo "local file I/O error"; return ;;
+        5) echo "SSL verification failure"; return ;;
+        6) echo "authentication failure -- the credential was rejected"; return ;;
+        7) echo "protocol error"; return ;;
+        8) echo "server answered with an error status (HTTP 4xx/5xx)"; return ;;
+        4) : ;;
+        *) echo "unclassified"; return ;;
+    esac
+    if ! command -v ip >/dev/null 2>&1; then
+        echo "network failure (DNS, no route, or refused -- wget does not separate them)"
+        return
+    fi
+    if [ -z "$(ip -4 -o address show scope global 2>/dev/null)" ]; then
+        echo "network failure -- this guest holds no IPv4 address (no carrier, or no DHCP lease)"
+        return
+    fi
+    if [ -z "$(ip -4 route show default 2>/dev/null)" ]; then
+        echo "network failure -- no default route, so nothing can leave this subnet"
+        return
+    fi
+    _cw_host="${_cw_url#*://}"; _cw_host="${_cw_host%%/*}"; _cw_host="${_cw_host%%:*}"
+    case "$_cw_host" in
+        ''|*[!0-9.]*)
+            if command -v getent >/dev/null 2>&1 \
+               && ! getent hosts "$_cw_host" >/dev/null 2>&1; then
+                echo "network failure -- the name '$_cw_host' does not resolve (DNS)"
+                return
+            fi
+            ;;
+    esac
+    echo "network failure -- addressed and routed, so the peer refused or dropped the connection"
+}
 
 # Verify fetched bytes against a host-provided sha256 before they reach bash.
 # The expected digest arrives over the trusted channel that TYPED this command
@@ -220,6 +292,22 @@ if [ "$FETCH_SOURCE" = 'github' ] && { [ -z "$GH_REPO" ] || [ -z "$GH_REF" ]; };
     exit 2
 fi
 
+# The unauthenticated GitHub leg reads raw.githubusercontent.com, which serves
+# public repositories only. When the framework repository is private this leg
+# can only answer 404, so it is not a fallback at all -- the host status
+# service is the sole working source. Say so before the attempt: an
+# unannounced 404 reads as a bad commit pin and sends the reader after the
+# wrong thing. No token is delivered to guests over this path.
+if [ "$FETCH_SOURCE" = 'github' ] && [ -z "${GH_TOKEN:-}" ]; then
+    echo ""
+    echo "!! GITHUB FALLBACK IS UNAUTHENTICATED"
+    echo "!!   repo:   ${GH_REPO} at ${GH_REF}"
+    echo "!!   route:  raw.githubusercontent.com -- public repositories only"
+    echo "!!   effect: if that repository is private this leg can only 404, so"
+    echo "!!           there is no working alternative to the host right now."
+    echo ""
+fi
+
 wget_flags_for_source
 FULL_URL="$(build_fetch_url "$FILE_PATH")"
 
@@ -231,7 +319,11 @@ if [ -z "$fetch_tmp" ]; then
     printf "\n    NONZERO SCRIPT EXIT:\n    %s (could not create temp file)\n\n" "$FILE_PATH"
     exit 2
 fi
-wget "${WGET_FETCH_FLAGS[@]}" -qO "$fetch_tmp" "$FULL_URL"
+# --timeout/--tries bound the attempt without turning it into a retry ladder.
+# A hard-down link fails instantly, but a half-open path -- a SYN blackhole, a
+# stalled body, an origin that accepts and never answers -- has no bound of its
+# own, so a single guest can otherwise burn the whole step budget on one fetch.
+wget --timeout=20 --tries=2 "${WGET_FETCH_FLAGS[@]}" -qO "$fetch_tmp" "$FULL_URL"
 wget_rc=$?
 byte_count=$(wc -c < "$fetch_tmp" 2>/dev/null | tr -d '[:space:]')
 [ -z "$byte_count" ] && byte_count=0
@@ -244,20 +336,34 @@ if [ "$wget_rc" -ne 0 ] || [ "$byte_count" -eq 0 ]; then
     echo ""
     echo "!! FETCH FAILED"
     echo "!!   url:        $FULL_URL"
-    echo "!!   wget exit:  $wget_rc"
+    echo "!!   wget exit:  $wget_rc -- $(classify_wget_rc "$wget_rc" "$FULL_URL")"
     echo "!!   bytes read: $byte_count"
     # A GitHub fetch of an exact commit fails for reasons a network probe cannot
     # see, so name them: the commit has to be ON the remote (a host-only commit
-    # 404s), and a private repository has to be opened with a token.
+    # 404s), and a private repository has to be opened with a token. Both are
+    # server-side answers, so they may only be offered when a server actually
+    # answered. wget rc 4/5/7 mean the request never left this guest, and
+    # printing "a private repository will 404 here" under a dead link sends the
+    # reader hunting a repo, a commit and a token that are not implicated --
+    # past the link-down verdict the NETWORK DIAGNOSTIC below is about to give.
     if [ "$FETCH_SOURCE" = 'github' ]; then
         echo "!!   repo:       ${GH_REPO} at ${GH_REF}"
-        if [ -n "${GH_TOKEN:-}" ]; then
-            echo "!!   auth:       GH_TOKEN present (Contents API)"
-        else
-            echo "!!   auth:       no GH_TOKEN -- a private repository will 404 here"
-        fi
-        echo "!!   check:      is that commit pushed to the remote? a commit that"
-        echo "!!               exists only on the host cannot be fetched from GitHub."
+        case "$wget_rc" in
+            4|5|7)
+                echo "!!   reached:    no -- the request never got to GitHub, so the repo,"
+                echo "!!               the commit and the token are not implicated here."
+                echo "!!               See the NETWORK DIAGNOSTIC below for the real fault."
+                ;;
+            *)
+                if [ -n "${GH_TOKEN:-}" ]; then
+                    echo "!!   auth:       GH_TOKEN present (Contents API)"
+                else
+                    echo "!!   auth:       no GH_TOKEN -- a private repository will 404 here"
+                fi
+                echo "!!   check:      is that commit pushed to the remote? a commit that"
+                echo "!!               exists only on the host cannot be fetched from GitHub."
+                ;;
+        esac
     fi
     echo ""
     # Diagnose rather than retry: show whether the guest even holds an IPv4

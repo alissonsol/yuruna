@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.02
+.VERSION 2026.08.03
 .GUID 42c7d3a9-5e1b-4f80-9a2c-6d8e3f1b0a47
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -400,8 +400,8 @@ function Get-SnippetMap {
 
     $norm    = ($SequencePath -replace '\\', '/')
     $modeDir = Split-Path -Parent $SequencePath
-    # Locate the repo root from the flat sequence path: framework
-    # test/sequences/<file> or project project/<...>/test/<file>.
+    # Locate the repo root from the flat sequence path: framework paths look
+    # like test/sequences/<file>, project paths like project/<...>/test/<file>.
     $repoRoot = $null
     if     ($norm -match '(?i)/project/.+/test/[^/]+$') { $repoRoot = ($norm -replace '(?i)/project/.+$', '') }
     elseif ($norm -match '(?i)/test/sequences/[^/]+$')  { $repoRoot = ($norm -replace '(?i)/test/sequences/[^/]+$', '') }

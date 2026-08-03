@@ -228,7 +228,7 @@ The runner lifecycle itself is observable through the explicit
 cycle boundary; NDJSON `runner_state_transition` events). The
 operational outer-runner loop and its heartbeat-watchdog are split
 into [Test.RunnerOuterLoop](runner-outer-loop.md) and
-[Test.RunnerWatchdog](watchdog.md#module-testrunnerwatchdog) so both can be unit-tested
+[Test.RunnerWatchdog](runner-outer-loop.md#module-testrunnerwatchdog) so both can be unit-tested
 independently of the entry-point script.
 
 Cloud-init seed rendering goes through the
@@ -440,7 +440,8 @@ so a near-deadline call cannot push the cycle past the
 
 The outer runner's job is to keep the inner running forever. Stale
 heartbeat detection, single-instance guard, and the failure-pause
-back-off protocol all live in [Watchdog](watchdog.md). Per-step
+back-off protocol all live in
+[Watchdog](runner-outer-loop.md#watchdog-and-heartbeat-protocol). Per-step
 log-stream visibility is controlled by [Log levels](loglevels.md).
 
 ## Exit codes
@@ -456,6 +457,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.02
+Last review: 2026.08.03
 
 Back to [Yuruna](../README.md)

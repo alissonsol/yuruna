@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.02
+.VERSION 2026.08.03
 .GUID 42a3d6f5-c0b1-4478-de26-5f7a0c4d3e62
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -67,8 +67,9 @@ function Initialize-YurunaRuntimeDir {
     .DESCRIPTION
         $env:YURUNA_RUNTIME_DIR holds the small operationally-interesting
         state files: status.json, *.pid files, control.*-pause flags,
-        ipaddresses.txt, caching-proxy-service.txt, server.err, host.uuid, and
-        the detached status-service script. Keeping these separate from
+        ipaddresses.txt, caching-proxy-service.txt, server.err, host.uuid,
+        host-network.txt, host-network.json, and the detached status-service
+        script. Keeping these separate from
         $env:YURUNA_LOG_DIR (which contains bulky HTML transcripts and OCR
         debug artifacts) makes investigations faster -- you don't sift
         through hundreds of log files to find the current runner.pid.

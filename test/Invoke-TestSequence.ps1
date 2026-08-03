@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.02
+.VERSION 2026.08.03
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456708
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -581,6 +581,37 @@ if ($newVmProxy) {
 # --- REGION: Ensure VM exists (reuse or create)
 if ((Get-VMState -VMName $VMName) -ne 'absent') {
     Write-Output "VM '$VMName' already exists. Reusing."
+    # Reuse skips the entire New-VM path, so the switch selection that runs
+    # there never runs: the VM keeps whatever vNIC attachment it was created
+    # with, and no host-side network change ever reaches it. A Hyper-V vSwitch
+    # object outlives its uplink binding across a host reboot, so the switch
+    # still existing is not evidence that it still bridges -- revalidate the
+    # attachment before the sequence engine spends its step budget on a guest
+    # that can never reach the network. Report only: this script has no
+    # VM-file sweep, so re-creating the VM belongs to the runner's per-guest
+    # iteration, not here. The Get-Command guards keep the whole block inert
+    # on host.ubuntu.kvm and host.macos.utm.
+    if ((Get-Command Get-VMNetworkAdapter -ErrorAction SilentlyContinue) -and
+        (Get-Command Test-YurunaExternalSwitchUplink -ErrorAction SilentlyContinue)) {
+        $reuseSwitchName = ''
+        $reuseVerdict    = 'unknown'
+        try {
+            $reuseAdapter = Get-VMNetworkAdapter -VMName $VMName -ErrorAction Stop | Select-Object -First 1
+            if ($reuseAdapter) { $reuseSwitchName = [string]$reuseAdapter.SwitchName }
+            if ($reuseSwitchName) {
+                $reuseVerdict = [string](Test-YurunaExternalSwitchUplink -SwitchName $reuseSwitchName)
+            }
+        } catch {
+            # Fail open: anything unevaluable stays 'unknown'. A probe that
+            # could not run must never be reported as a fault.
+            Write-Verbose "VM '$VMName': switch attachment not evaluable: $($_.Exception.Message)"
+        }
+        if ($reuseVerdict -notin @('healthy', 'unknown')) {
+            Write-Warning "VM '$VMName' is attached to switch '$reuseSwitchName', which reports '$reuseVerdict'. Guests on this switch come up with no carrier: the host is unreachable from the guest, and the host address baked into this VM's seed may no longer be the one the host answers on. The VM is reused as-is -- delete it so it is provisioned onto a working switch, or restore the switch's uplink binding."
+        } else {
+            Write-Verbose "VM '$VMName': switch '$reuseSwitchName' uplink verdict '$reuseVerdict'."
+        }
+    }
 } else {
     Write-Output "VM '$VMName' not found. Creating..."
     # Forward -Username / -Hostname when the sequence declares them. Mirrors

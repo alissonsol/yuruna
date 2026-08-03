@@ -250,6 +250,20 @@ dialog still fires.
 
 Do NOT add any spaces after `ec2-user:` — it's part of the password.
 
+### Unlocked account needs plain_text_passwd
+
+*(service seeds: caching-proxy-service, pool-control-service, stash-service)*
+
+`plain_text_passwd` is paired with `lock_passwd: false` and must sit in
+the same `users:` entry. cloud-init checks for a password IN THAT BLOCK
+when asked not to lock the account; the `chpasswd` stanza runs in a
+later module and does not satisfy the check. Without it every boot
+records `Not unlocking password ... no 'passwd' provided` as a
+recoverable error and reports `extended_status: degraded` — which then
+greets anyone reading the guest diagnostics for an unrelated fault.
+The value is the same one `chpasswd` applies, so the effective
+credential is unchanged.
+
 ### ssh_authorized_keys at top level
 
 *(amazon.linux.2023)*
@@ -1071,6 +1085,8 @@ squid-openssl: OpenSSL-linked build. Ubuntu's default `squid` package is built W
 
 squidclient (/usr/bin/squidclient) ships in squid-common (already pulled in by squid-openssl); no separate package needed. PURGE example: curl -x http://<cache>:3128 -X PURGE http://<origin>:<port>/<path>
 
+`squid-cgi` (the cachemgr.cgi web UI) is intentionally NOT in the package list, and there is no `yuruna-cachemgr.conf` apache drop-in. Ubuntu dropped the package in 26.04 (Squid 7), so requesting it has no installation candidate and FAILS the entire cloud-init package transaction. Cache-manager data is reached with `squidclient mgr:<page>` on the VM instead; `cachemgr_passwd` stays set in squid.conf.
+
 ### Monitoring stack packages
 
 Monitoring stack: Prometheus scrapes squid-exporter (localhost:9301); Grafana on :3000 (anonymous Viewer). squid-exporter has no apt package and no stable GitHub release-asset URL, so golang-go is pulled in just long enough to `go install` it; both build tools are purged at the end of runcmd (~400 MB reclaimed). The compiled binary stays.
@@ -1109,9 +1125,15 @@ unattended-upgrades enable flags. Both timers (apt-daily.timer + apt-daily-upgra
 
 Pool intent store: serve the bare git repo READ-ONLY over the LAN via apache's static (dumb-HTTP) git protocol. Pooled hosts clone/pull http://<proxy>/pool-intent.git to learn pool membership + desiredState. The repo holds only NON-SECRET intent (pools.yml / test-sets / guests.compatibility); writes go through the admin CLI on the proxy (a local/file:// path), never this HTTP route. RFC1918 only, mirroring the cachemgr access policy.
 
+The `Alias` points at the pool NAS, not a proxy-local copy: the pool-control-service daemon runs on its own VM and can only PUSH to a location it mounts, and this share is the one both it and this proxy mount read-write. Pointing apache at the same bytes keeps a single store -- an operator writing intent in the UI and a runner pulling it cannot diverge. The route 404s while the NAS is unmounted, which is the honest answer; serving a stale local copy would hide the outage from every runner.
+
 ### Squid drop-in config approach
 
 Drop-in overrides on top of Ubuntu's stock /etc/squid/squid.conf. conf.d files include after the main config so same-named directives here win. Keeping this a drop-in (not a full replacement) means future squid package upgrades still get their default refresh_pattern and ACL baseline -- we only override what's specific to yuruna.
+
+Squid is a generic HTTP proxy/cache for test-VM installs. It replaced apt-cacher-ng, which only cached `.deb` URLs and still let security.ubuntu.com 429s bubble up to subiquity (its pre-install kernel fetch went direct). Squid caches any cacheable HTTP response, so the installer's own `apt-get --download-only` of linux-firmware etc. hits cache on subsequent installs.
+
+Do NOT declare `http_port 3128` in the drop-in. Ubuntu's stock /etc/squid/squid.conf already declares it, and /etc/squid/conf.d/* is INCLUDED (not overlaid) -- a duplicate makes squid try to bind twice, the second fails with EADDRINUSE (`listen ... (98) Address already in use`) while squid still appears 'running'. The default binding (all interfaces, :3128) is what we want.
 
 ### Snapshot cache tuning
 
@@ -1592,6 +1614,12 @@ Topics for `host/vmconfig/stash-service.base.user-data`, reached from the seed a
 
 On a bridged network the host observes no DHCP lease, so it cannot report this VM's address until the guest agent answers -- and every later runcmd step can run for minutes. Putting the agent overlay first keeps host-side discovery independent of how long the rest of the boot takes.
 
+### Bring-up driven by systemd, not runcmd
+
+The bring-up is a script driven by a systemd unit rather than inline `runcmd` steps. `runcmd` is a PER-INSTANCE cloud-init module and this seed's instance-id is a constant, so `runcmd` gets exactly ONE attempt in the life of the VM: a bring-up interrupted partway -- the VM stopped while cloud-init is still compiling the daemon -- is never retried. Every later boot skips it, cloud-init still reports `status: done, errors: []`, and the VM stays permanently half-built with no daemon, no unit, and nothing naming the cause. Driven by systemd instead, an interrupted bring-up simply finishes next boot.
+
+The script is therefore idempotent by construction and safe to re-run; it is the ONLY thing that installs the daemon. Each stage sets `+e` and reports rather than aborting, so a stage that cannot finish (an unreachable share, a host status service that is down) leaves the later stages free to do what they still can.
+
 ### Stash NAS cifs mount options
 
 The mount is persisted via `/etc/fstab` so it survives reboot and so systemd exposes a `mnt-ystash\x2dnas.mount` unit the daemon can order `After=`. Readiness is checked with `mountpoint -q`, NOT `findmnt --target`, which resolves a non-mount to its enclosing mount and false-passes.
@@ -1832,6 +1860,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.02
+Last review: 2026.08.03
 
 Back to [Yuruna](../README.md)

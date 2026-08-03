@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.02
+.VERSION 2026.08.03
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456740
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -385,6 +385,12 @@ try {
         # module set at file top already imported Test.CachingProxyService once:
         # docs/workarounds.md#nested-non-global-import-evicts-a-callers-view-of-a-module
         Import-Module (Join-Path $ModulesDir 'Test.CachingProxyService.psm1') -Global -Force -DisableNameChecking -Verbose:$false
+        # The port-map block below writes the same host-wide netsh/forwarder
+        # state the runner and a caching-proxy-service bring-up write, so it
+        # must take the same lock they take. Not part of the StatusService
+        # entry-point module set (that set covers the probe, not the write),
+        # so it is imported here next to its only consumer.
+        Import-Module (Join-Path $ModulesDir 'Test.CachingProxyServiceLock.psm1') -Global -Force -DisableNameChecking -Verbose:$false
         $cachingProxyUrl = Test-CachingProxyServiceAvailable
         if ($cachingProxyUrl) {
             # Port mapping so the status-page banner reports the same
@@ -427,7 +433,25 @@ try {
             }
             # Initialize-YurunaHost was already called above; Add-PortMap /
             # Remove-PortMap / Get-BestHostIp are now resolvable via Yuruna.Host.
-            if ($true) {
+            #
+            # Serialize the whole discriminate-and-write block against the
+            # runner's per-cycle refresh and against a caching-proxy-service
+            # bring-up. Add-PortMap is clear-all-first, so two writers whose
+            # port lists differ tear each other's netsh mappings, firewall
+            # rules and forwarders down; and a forwarder installed in front of
+            # a BRIDGED cache replaces the direct LAN path with kernel NAT,
+            # which loses the client source IP squid logs. Try-once with the
+            # same policy the runner uses: a live holder owns the maps for the
+            # duration of its own work and the next start re-applies.
+            $portMapDeferred = $false
+            $cpPortLock = if (Get-Command Enter-CachingProxyServiceLock -ErrorAction SilentlyContinue) {
+                Enter-CachingProxyServiceLock -RuntimeDir $RuntimeDir -Role 'portmap' -TimeoutSeconds 0
+            } else { @{ Acquired = $true; PidPath = $null } }
+            if (-not $cpPortLock.Acquired) {
+                $portMapDeferred = $true
+                Write-Output "Caching-proxy service: a caching-proxy-service bring-up holds the lock -- leaving the port map to it."
+            } else {
+                try {
                 if ($isExternal) {
                     # Remote serves its own ports; surface the remote IP
                     # in the dashboard link. Clear any stale local
@@ -538,8 +562,14 @@ try {
                         }
                     }
                 }
+                } finally {
+                    if (Get-Command Exit-CachingProxyServiceLock -ErrorAction SilentlyContinue) { [void](Exit-CachingProxyServiceLock -Handle $cpPortLock) }
+                }
             }
-            if ($mapOk) {
+            if ($portMapDeferred) {
+                $cachingProxyContent = 'Caching-proxy service: detected (port map owned by a bring-up)'
+                Write-Output "Caching-proxy service: detected, port map deferred -- written to $CachingProxyServiceFile"
+            } elseif ($mapOk) {
                 $dashboardUrl = "http://${bestIp}:3000/dashboards?tag=yuruna"
                 # Escape & for strict HTML-attribute correctness -- we
                 # inject via .innerHTML so lenient parsers work either
@@ -564,6 +594,17 @@ try {
     Write-Warning "Failed to probe/write proxy-cache state: $_"
     # Best-effort: leave a previous file intact if there was one.
 }
+
+# --- REGION: Host guest-network state (served here, written elsewhere)
+# runtime/host-network.txt (the banner the status page renders) and
+# runtime/host-network.json (the record host.registration.json advertises) are
+# served by the /runtime/* handler below like every other runtime file, and are
+# written by exactly one owner: the runner's cycle-start guest-network gate.
+# That gate is the only thing that observes the host's switch state once per
+# cycle, so it alone can advance the consecutive-cycle count on the pair. A
+# second writer here would either re-open a banner the gate had just cleared or
+# freeze the count at whatever the last service start happened to see -- this
+# service is long-lived and restarts far more rarely than a cycle runs.
 
 # --- REGION: Launch the server as a detached process
 $serverScript = @"

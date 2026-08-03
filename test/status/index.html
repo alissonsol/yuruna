@@ -56,6 +56,11 @@
     .control-notice code { font-family: var(--font-mono); }
     .control-notice[hidden] { display: none; }
 
+    /* Degraded guest-network notice. Shares the notice shape but takes the
+       warning accent: the host keeps running and passing on a fallback path,
+       so this reports a topology, it does not report a failure. */
+    .host-network-notice { border-left-color: var(--warn-fg); }
+
     .meta-grid {
       display: flex; flex-wrap: wrap;
     }
@@ -254,6 +259,12 @@
        a short-lived token the pool dashboard grants, and an un-enrolled host
        joins via the dashboard's Lab token (see control-routes). -->
   <div id="control-notice" class="control-notice" role="alert" hidden></div>
+
+  <!-- Filled from runtime/host-network.txt, which exists only while this host's
+       guest network is degraded; absent file means healthy and this stays
+       hidden. The host still runs and passes on its fallback path, so this is
+       role="status", not an alert. -->
+  <div id="host-network-notice" class="control-notice host-network-notice" role="status" hidden></div>
 
   <section id="sec-cycle" style="display:none">
     <div class="section-title with-controls">

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.02
+.VERSION 2026.08.03
 .GUID 42a2b3c4-d5e6-4f78-9012-3a4b5c6d7e91
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -699,6 +699,100 @@ function Confirm-UtmVMCreated {
 
 <#
 .SYNOPSIS
+    True when UTM still holds a registration for the named VM.
+
+.DESCRIPTION
+    `utmctl status` exits 0 for every VM UTM knows about regardless of run
+    state, and non-zero only when the name resolves to nothing, so it answers
+    "is this name still registered" on its own. That makes it the check a
+    delete has to be judged by -- `utmctl delete` does not report its own
+    outcome reliably (see Remove-UtmVMRegistration).
+
+.OUTPUTS
+    [bool] $true when UTM still lists the name.
+#>
+function Test-UtmVMRegistered {
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param([Parameter(Mandatory)][string]$VMName)
+    if (-not (Get-Command utmctl -ErrorAction SilentlyContinue)) { return $false }
+    $null = & utmctl status "$VMName" 2>&1
+    return ($LASTEXITCODE -eq 0)
+}
+
+<#
+.SYNOPSIS
+    Deregister a VM from UTM, confirming by probe that the name is really gone.
+
+.DESCRIPTION
+    `utmctl delete` exits 0 even when it deleted nothing: it prints the reason
+    ("Error from event: The operation couldn't be completed. (OSStatus error
+    -2700.) '<name>.utm' couldn't be removed.") on stdout and still returns
+    success. An exit-code check therefore reads a total failure as a clean
+    delete, so every attempt here is judged by re-probing the registration.
+
+    The case that cannot resolve itself is a registration whose bundle is
+    missing from disk. UTM deletes a VM by moving its bundle to the trash, so
+    with nothing at the recorded path the delete fails identically on every
+    future attempt and the name stays registered indefinitely. That is not
+    cosmetic: the name still answers `utmctl status`, so the sequence engine's
+    reuse check treats it as an existing VM, skips creation, and hands a
+    bundle-less name to Start-VM, which can only fail. Recreating an empty
+    bundle directory at the expected path gives the trash-move something to
+    operate on and the deregistration completes.
+
+.PARAMETER MaxAttempts
+    Delete attempts before giving up. The bundle-restore path needs a second
+    pass by construction: the first attempt is what reveals the delete did not
+    take.
+
+.OUTPUTS
+    [bool] $true when the name is no longer registered with UTM.
+#>
+function Remove-UtmVMRegistration {
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([bool])]
+    param(
+        [Parameter(Mandatory)][string]$VMName,
+        [int]$MaxAttempts = 3
+    )
+    if (-not (Test-UtmVMRegistered -VMName $VMName)) { return $true }
+    if (-not $PSCmdlet.ShouldProcess($VMName, 'Deregister VM from UTM')) { return $false }
+
+    $utmBundle = "$HOME/yuruna/guest.nosync/$VMName.utm"
+    $placeholderPath = $null
+    try {
+        for ($attempt = 1; $attempt -le $MaxAttempts; $attempt++) {
+            $deleteOutput = & utmctl delete "$VMName" 2>&1
+            if (-not (Test-UtmVMRegistered -VMName $VMName)) { return $true }
+            foreach ($line in @($deleteOutput)) {
+                $text = "$line".Trim()
+                if ($text) { Write-Verbose "utmctl delete '$VMName' (attempt $attempt): $text" }
+            }
+            if (-not (Test-Path -LiteralPath $utmBundle)) {
+                Write-Information -MessageData "  UTM still lists '$VMName' but its bundle is gone; restoring an empty bundle at $utmBundle so the deregistration can complete." -InformationAction Continue
+                $null = New-Item -Path $utmBundle -ItemType Directory -Force -ErrorAction SilentlyContinue
+                if (Test-Path -LiteralPath $utmBundle) { $placeholderPath = $utmBundle }
+                continue
+            }
+            if ($attempt -lt $MaxAttempts) { Start-Sleep -Seconds 3 }
+        }
+        return (-not (Test-UtmVMRegistered -VMName $VMName))
+    } finally {
+        # A placeholder that outlived a still-failing delete would be read as a
+        # real bundle by anything sizing or inventorying the VM store, so it is
+        # only allowed to persist when it is about to become the deleted VM's
+        # trashed bundle. Guarded on emptiness so a bundle that reappeared
+        # underneath (a concurrent New-VM for the same name) is never removed.
+        if ($placeholderPath -and (Test-Path -LiteralPath $placeholderPath) -and
+            -not (Get-ChildItem -LiteralPath $placeholderPath -Recurse -Force -ErrorAction SilentlyContinue)) {
+            Remove-Item -LiteralPath $placeholderPath -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
+}
+
+<#
+.SYNOPSIS
     Stop, delete, and remove the UTM bundle for the given VM.
 #>
 function Remove-UtmTestVM {
@@ -710,20 +804,23 @@ function Remove-UtmTestVM {
     if ($LASTEXITCODE -eq 0) { Write-Output "Stopped UTM VM: $VMName" }
     # Confirm the VM is actually powered off (escalating to `utmctl stop --kill`
     # if the soft stop stalls) and its qcow2/bundle handles are released BEFORE
-    # delete -- otherwise `utmctl delete` can run against a still-locked bundle.
-    # Wait-UtmVMPoweredOff drives the same kill-escalation + lock check the
-    # snapshot paths use.
+    # the deregistration -- otherwise the delete runs against a still-locked
+    # bundle. Wait-UtmVMPoweredOff drives the same kill-escalation + lock check
+    # the snapshot paths use.
     if (-not (Wait-UtmVMPoweredOff -VMName $VMName)) {
         Write-Warning "Remove-UtmTestVM: '$VMName' did not confirm powered-off within the timeout; proceeding with delete, but the bundle may still be locked."
     }
-    & utmctl delete "$VMName" 2>&1 | Out-Null
-    if ($LASTEXITCODE -ne 0) {
-        Start-Sleep -Seconds 3
-        & utmctl delete "$VMName" 2>&1 | Out-Null
+    if (-not (Remove-UtmVMRegistration -VMName $VMName -Confirm:$false)) {
+        # Leaving the bundle on disk is the point. UTM deletes a VM by moving
+        # its bundle to the trash, so removing the files under a registration
+        # that survived strands the name in UTM with nothing left to delete --
+        # and a stranded name is worse than a stranded bundle, because it still
+        # answers `utmctl status` and so reads as a reusable VM to the sequence
+        # engine, which then starts a VM that has no disk.
+        Write-Warning "Remove-UtmTestVM: UTM still lists '$VMName' after the delete; leaving its bundle in place so the registration stays removable."
+        return $false
     }
-    if ($LASTEXITCODE -eq 0) {
-        Write-Verbose "Deleted UTM VM from registry: $VMName"
-    }
+    Write-Verbose "Deleted UTM VM from registry: $VMName"
     $utmBundle = "$HOME/yuruna/guest.nosync/$VMName.utm"
     if (Test-Path $utmBundle) {
         if (Remove-UtmBundleWithRetry -Path $utmBundle) {
@@ -746,6 +843,14 @@ function Start-UtmVM {
     param([Parameter(Mandatory)][string]$VMName)
     $utmBundle = "$HOME/yuruna/guest.nosync/$VMName.utm"
     if (-not (Test-Path $utmBundle)) {
+        # Distinguish the two ways the bundle can be missing. Still registered
+        # means UTM holds a name whose files are gone -- the caller reached here
+        # because that name answered the reuse check, so pointing at the path
+        # alone would send the reader looking for a VM that was never created,
+        # not for the registration that has to be cleared before one can be.
+        if (Test-UtmVMRegistered -VMName $VMName) {
+            return @{ success = $false; errorMessage = "UTM lists '$VMName' but its bundle is gone ($utmBundle). Clear the registration (Remove-VM -VMName '$VMName') so the VM can be created again." }
+        }
         return @{ success = $false; errorMessage = "UTM bundle not found: $utmBundle" }
     }
     try {
@@ -3562,7 +3667,7 @@ Export-ModuleMember -Function `
     Test-DownloadAlreadyCurrent, Test-CachingProxyServicePort, Resolve-CacheHostIp, `
     Save-CachedHttpUri, `
     Stop-UtmDialogWatchdog, Start-UtmDialogWatchdog, `
-    Confirm-UtmVMCreated, Remove-UtmTestVM, Start-UtmVM, Stop-UtmVM, Confirm-UtmVMStarted, Wait-UtmVMPoweredOff, Restart-UtmConsole, `
+    Confirm-UtmVMCreated, Remove-UtmTestVM, Test-UtmVMRegistered, Remove-UtmVMRegistration, Start-UtmVM, Stop-UtmVM, Confirm-UtmVMStarted, Wait-UtmVMPoweredOff, Restart-UtmConsole, `
     Get-RunningVmName, Test-UtmctlResponsive, Assert-NoConcurrentUtmVm, Resume-YurunaServiceVM, `
     Get-MacProxyMarkerPath, Test-MacProxyIsYurunaManaged, Get-MacActiveNetworkService, Read-MacProxyState, `
     Invoke-MacElevationIfNeeded, Invoke-MacNetworksetup, `

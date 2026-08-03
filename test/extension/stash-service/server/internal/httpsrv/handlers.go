@@ -116,7 +116,7 @@ func writeErr(w http.ResponseWriter, status int, msg string) {
 }
 
 // pathKey pulls the {hostId}/{year}/{month}/{day}/{id} wildcards and
-// validates them: hostId hostId-shaped, date numeric, id 4 alnum. Rejects
+// validates them: hostId is hostId-shaped, date numeric, id 4 alnum. Rejects
 // any traversal (".." can't pass the shape checks). Returns the cleaned
 // parts and the UTC date.
 type pathKey struct {

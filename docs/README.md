@@ -62,10 +62,11 @@ cross-cutting model every other doc builds on, or with
 - **[test-perf.md](test-perf.md)** — the append-only structured log of every step
   execution, for cross-host and cross-cycle performance analytics.
 - **[runner-outer-loop.md](runner-outer-loop.md)** — the eternal cycle loop that
-  makes the runner resilient, the five things it does every pass, and the
-  runner's explicit six-state lifecycle machine.
-- **[watchdog.md](watchdog.md)** — the heartbeat protocol and the out-of-process
-  watchdog that lets the runner survive guest, network, and host-OS failures.
+  makes the runner resilient, the five things it does every pass, the
+  [heartbeat protocol and out-of-process
+  watchdog](runner-outer-loop.md#watchdog-and-heartbeat-protocol) that lets it
+  survive guest, network, and host-OS failures, and the runner's explicit
+  six-state lifecycle machine.
 - **[capability-matrix.md](capability-matrix.md)** — the per-cycle banner naming
   what the harness can actually do on the current host (OCR engines, host I/O,
   and more).
@@ -219,6 +220,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.02
+Last review: 2026.08.03
 
 Back to [Yuruna](../README.md)

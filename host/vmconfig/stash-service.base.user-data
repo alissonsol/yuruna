@@ -14,13 +14,7 @@ users:
     sudo: ALL=(ALL) NOPASSWD:ALL
     shell: /bin/bash
     lock_passwd: false
-    # Paired with lock_passwd. cloud-init checks for a password IN THIS BLOCK
-    # when asked not to lock the account; the chpasswd stanza below runs in a
-    # later module and does not satisfy that check, so without this every boot
-    # records "Not unlocking password ... no 'passwd' provided" as a recoverable
-    # error and reports `extended_status: degraded` -- which then greets anyone
-    # reading the guest diagnostics for an unrelated fault. Same value chpasswd
-    # applies, so the effective credential is unchanged.
+    # --- REGION: https://yuruna.link/vmconfig#unlocked-account-needs-plain_text_passwd
     plain_text_passwd: PASSWORD_PLACEHOLDER
     ssh_authorized_keys:
       - SSH_AUTHORIZED_KEY_PLACEHOLDER
@@ -76,26 +70,14 @@ write_files:
     owner: root:root
     content: |
       YURUNA_AGGREGATOR_URL='YURUNA_AGGREGATOR_URL_PLACEHOLDER'
-  # The bring-up, as a script driven by the unit below rather than as inline
-  # runcmd steps. runcmd is a PER-INSTANCE cloud-init module and this seed's
-  # instance-id is a constant, so runcmd gets exactly ONE attempt in the life of
-  # the VM: a bring-up interrupted partway -- the VM stopped while cloud-init is
-  # still compiling the daemon -- is never retried. Every later boot skips it,
-  # cloud-init still reports "status: done, errors: []", and the VM stays
-  # permanently half-built with no daemon, no unit, and nothing naming the cause.
-  # Driven by systemd instead, an interrupted bring-up simply finishes next boot.
+  # --- REGION: https://yuruna.link/vmconfig#bring-up-driven-by-systemd-not-runcmd
   - path: /usr/local/lib/yuruna/stash-bringup.sh
     permissions: '0755'
     owner: root:root
     content: |
       #!/bin/bash
-      # Yuruna stash service bring-up. Idempotent by construction and safe to re-run:
-      # it is the ONLY thing that installs the daemon, and it is driven by a systemd
-      # unit rather than by cloud-init's runcmd. See the unit for why.
-      #
-      # Each stage sets +e and reports rather than aborting, so a stage that cannot
-      # finish (an unreachable share, a host status service that is down) leaves the
-      # later stages free to do what they still can.
+      # Yuruna stash service bring-up, driven by the systemd unit below.
+      # --- REGION: https://yuruna.link/vmconfig#bring-up-driven-by-systemd-not-runcmd
 
       # --- REGION: https://yuruna.link/vmconfig#stash-nas-cifs-mount-options
       # 1) Mount the stash share, persistent via fstab.

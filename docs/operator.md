@@ -73,9 +73,18 @@ names the key rather than blocking:
 pwsh install/setup.ps1 -AnswerFile install/setup.answers.standalone.yml
 ```
 
-`-AnswerFile` is the only parameter the script declares; `-WhatIf` and
-`-Confirm` come from `SupportsShouldProcess`. The standalone keys it
-reads (anything else in the file is ignored):
+The script declares `-AnswerFile`, `-logLevel` and `-LogPath`; `-WhatIf`
+and `-Confirm` come from `SupportsShouldProcess`. `-logLevel` is the
+[shared cascade](loglevels.md) — `Error` through `Debug`, `Information`
+when neither the switch nor `logLevel:` in `test.config.yml` says
+otherwise — and it reaches every script the run starts, down to the
+per-guest image and VM builders, so `-logLevel Debug` is what to re-run
+with when a step failed somewhere inside a child script. The run log is
+written in full at every level; the level only decides what also reaches
+the terminal. `-LogPath` continues an existing run log and exists for the
+Windows elevated relaunch to pass to itself.
+
+The standalone keys it reads (anything else in the file is ignored):
 
 ```yaml
 setup:
@@ -743,6 +752,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.02
+Last review: 2026.08.03
 
 Back to [Yuruna](../README.md)

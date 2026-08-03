@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.02
+.VERSION 2026.08.03
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456729
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -173,17 +173,31 @@ function Test-PortPrivilegeBlocked {
         "the port is in use, stop the other owner" to someone whose port is empty
         sends them hunting a holder that does not exist.
 
-        Two signals separate the cases, and both are checked because they fail on
-        different platforms:
+        WINDOWS ONLY, and the platform gate is load-bearing rather than a
+        shortcut. A URL reservation is an HTTP.sys concept: on macOS and Linux
+        the managed HttpListener is an ordinary socket, and binding a port above
+        1024 needs no privilege at all -- so on those platforms a refused
+        wildcard bind is ALWAYS a real holder, never a privilege problem, and
+        answering $true there can only produce a wrong diagnosis.
 
-          * The HttpListenerException error code. Windows answers 183
-            (ERROR_ALREADY_EXISTS, "conflicts with an existing registration")
-            when a registration genuinely holds the port, and 5
-            (ERROR_ACCESS_DENIED) when the caller simply may not reserve it.
-          * A bind of `http://localhost:<port>/`, which carries no reservation
-            requirement and therefore succeeds ONLY when the port is really free.
-            This is what makes the answer hold on macOS/Linux, where the managed
-            HttpListener is not HTTP.sys and the error codes do not apply.
+        The localhost cross-check cannot substitute for that gate, because it
+        does not mean the same thing on BSD. With SO_REUSEADDR set (which the
+        managed listener sets), macOS lets a bind to a SPECIFIC address succeed
+        while another process holds the WILDCARD on the same port. So a
+        status service left behind by a different user -- the `sudo` run whose
+        root-owned listener is also invisible to an unprivileged `lsof` -- makes
+        the wildcard bind fail and the localhost bind succeed: exactly the
+        signature this function was reading as "free, but unprivileged". The
+        caller then printed HTTP.sys and `netsh` remedies on a Mac and refused
+        to start, while the true cause (another user holds the port, retry the
+        diagnostic with sudo) is what the caller's NEXT branch already says.
+
+        On Windows the two cases are separated by the HttpListenerException
+        error code: 183 (ERROR_ALREADY_EXISTS, "conflicts with an existing
+        registration") when a registration genuinely holds the port, and 5
+        (ERROR_ACCESS_DENIED) when the caller simply may not reserve it. The
+        localhost probe stays as a second signal there, where a specific-address
+        bind does not coexist with a wildcard holder.
 
         Deliberately NOT folded into Test-PortListenerFree: that function answers
         "can the status service bind here", and the answer stays $false in this
@@ -191,11 +205,13 @@ function Test-PortPrivilegeBlocked {
         Only the explanation differs, so only the explanation is computed here.
     .OUTPUTS
         [bool] $true only when the port is provably free AND the wildcard
-        reservation was refused for want of privilege.
+        reservation was refused for want of privilege. Always $false off Windows.
     #>
     [CmdletBinding()]
     [OutputType([bool])]
     param([Parameter(Mandatory)][int]$Port)
+
+    if (-not $IsWindows) { return $false }
 
     $code  = 0
     $probe = [System.Net.HttpListener]::new()
@@ -366,7 +382,7 @@ function Resolve-PortOrphan {
         'Recovered' : an orphan pwsh THIS user owns was stopped; port now free.
         'Conflict'  : the port is held by something this user must not (or
                       cannot) take over. The cycle must refuse to start.
-        'PrivilegeRequired' : the port is EMPTY, but this process may not reserve
+        'PrivilegeRequired' : WINDOWS ONLY -- the port is EMPTY, but this process may not reserve
                       the wildcard prefix (elevation, or a standing urlacl). The
                       cycle must still refuse -- the status service binds the same
                       prefix and would fail identically -- but there is no holder
@@ -439,11 +455,20 @@ function Resolve-PortOrphan {
             $ownerLine
             "  Refusing to start: a second status service cannot bind the same port, and running the"
             "  cycle without one hides the live dashboard / breakpoint controls (a hard-to-debug state)."
+            $(if (-not $IsWindows) {
+                "  Most often this is a status service left running as ROOT by an earlier sudo run of a" +
+                [Environment]::NewLine +
+                "  setup or runner script. Confirm and clear it with:" +
+                [Environment]::NewLine +
+                "        sudo lsof -nP -iTCP:$Port -sTCP:LISTEN      # names the root-owned holder" +
+                [Environment]::NewLine +
+                "        sudo pwsh test/Stop-StatusService.ps1       # stops it the way it was started"
+            })
             "  Resolve by ONE of:"
             "    - stop the other owner's status service (it may belong to another user account); or"
             "    - give this checkout its own port in test/test.config.yml (statusService.port) and rerun."
             "  Diagnostic: $diag"
-        )
+        ) | Where-Object { $null -ne $_ }
         return @{ Status = 'Conflict'; Port = $Port; Pids = @(); Owner = ''; Service = $service; Message = ($lines -join [Environment]::NewLine) }
     }
 

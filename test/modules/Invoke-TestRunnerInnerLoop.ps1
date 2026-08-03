@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.02
+.VERSION 2026.08.03
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456706
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -416,6 +416,220 @@ if ($HostType -eq 'host.macos.utm') {
     if (-not (Assert-NoConcurrentUtmVm)) { exit $ExitFailure }
 }
 
+# --- REGION: Cycle-start host guest-network gate
+# A virtual-switch object outlives its uplink binding across a host reboot, so
+# the object's survival is not evidence that the bridge still carries traffic:
+# every guest attaches to a switch with no carrier while the host itself is
+# online and every other host check passes. Nothing else in the preamble asks
+# whether a guest created right now could reach anything, so the answer is
+# named here -- at cycle start -- instead of being inferred from a fleet of
+# identical guest failures a quarter of an hour later.
+#
+# Reports; it almost never refuses. A host that still has ANY usable path (a
+# working External vSwitch, or a Default Switch address -- NAT + DHCP, the
+# permanent steady state of every Wi-Fi host here) runs the full cycle on the
+# path it has and PASSES; the notification gate turns a persistent degradation
+# into one alert per streak rather than one per cycle. Only TOTAL loss, where
+# every guest is guaranteed to fail identically, can refuse.
+#
+# Placed after Stop-ConcurrentVM so a refusal never strands guests the previous
+# cycle left running: refusing before the stop leaves the host dirtier than a
+# normal cycle, and the leftovers are exactly what keeps the condition from
+# clearing. The refusal path runs the VM sweep for the same reason.
+Write-RunnerPhase -Phase 'host-network'
+# Consecutive total-loss observations required before refusing. The inner runs
+# one cycle per process, so the counter is file-backed alongside
+# runner.gating.json; a process-local one would reset every cycle and never
+# reach the threshold. Why a streak at all: a NIC renegotiating link 30-60s
+# after the very reboot that started the runner is indistinguishable from a
+# dead uplink at this instant, and darkening an unattended host over a
+# transient costs physical console access to undo.
+$HostNetworkTotalLossCycles = 3
+# runner.hostNetwork.json carries ONE thing: the consecutive TOTAL-LOSS streak
+# that arms the refusal below. The degraded-host pair written further down
+# (host-network.txt / host-network.json) describes a different condition -- a
+# host that lost a bridge but still has a path -- and the two counts must never
+# share a file, or a merely degraded host would walk itself toward a refusal.
+$HostNetworkStateFile       = Join-Path $env:YURUNA_RUNTIME_DIR "runner.hostNetwork.json"
+$hostNetwork                = Test-HostGuestNetworkHealth -HostType $HostType
+$hostNetworkStreak          = 0
+if ($hostNetwork.Healthy) {
+    Write-Verbose "Host guest-network: path '$($hostNetwork.Path)'. $($hostNetwork.Reason)"
+    Remove-Item -LiteralPath $HostNetworkStateFile -Force -ErrorAction SilentlyContinue
+} else {
+    if (Test-Path $HostNetworkStateFile) {
+        try {
+            $priorHostNetwork  = Get-Content -Raw -LiteralPath $HostNetworkStateFile | ConvertFrom-Json
+            $hostNetworkStreak = [int]$priorHostNetwork.consecutiveTotalLoss
+        } catch {
+            Write-Warning "Could not parse $HostNetworkStateFile (restarting the host-network streak): $($_.Exception.Message)"
+        }
+    }
+    $hostNetworkStreak++
+    [void](Write-YurunaStateFileJson -Path $HostNetworkStateFile -InputObject @{
+        consecutiveTotalLoss = $hostNetworkStreak
+        path                 = [string]$hostNetwork.Path
+        reason               = [string]$hostNetwork.Reason
+        observedUtc          = [DateTime]::UtcNow.ToString('o')
+    } -Confirm:$false)
+}
+if ($hostNetwork.Degraded -and $hostNetwork.Healthy) {
+    Write-Information "Host guest-network: degraded but usable -- guests take the '$($hostNetwork.Path)' path this cycle. $($hostNetwork.Reason)"
+}
+
+# --- REGION: Degraded-host pair -> runtime/host-network.txt + host-network.json
+# host-network.txt is ready-to-embed HTML the status page appends verbatim;
+# host-network.json is the machine-readable twin Write-HostRegistrationRecord
+# advertises to the pool. Same observation, two audiences -- so ONE writer owns
+# both, and it is this gate: the probe above is the only thing that looks at the
+# host's guest-network state exactly once per cycle, which is what lets a
+# consecutive-cycle count mean anything.
+#
+# "File present == degraded, file absent == healthy" is the entire contract, so
+# recovery DELETES both files. Blanking them leaves a degraded host in every
+# consumer that only tests for existence.
+$HostNetworkBannerFile = Join-Path $env:YURUNA_RUNTIME_DIR "host-network.txt"
+$HostNetworkRecordFile = Join-Path $env:YURUNA_RUNTIME_DIR "host-network.json"
+$hostNetworkDegradedSwitch  = $null
+$hostNetworkDegradedVerdict = $null
+# Name order so a multi-switch host names the same switch every cycle instead
+# of whichever one enumeration happened to yield first -- a banner that
+# alternates between two broken switches reads as two separate faults.
+foreach ($verdictRecord in @($hostNetwork.Verdicts | Sort-Object -Property { "$($_.Switch)" })) {
+    $switchVerdict = "$($verdictRecord.Verdict)"
+    if ($switchVerdict -in @('healthy', 'unknown')) { continue }
+    $hostNetworkDegradedSwitch  = "$($verdictRecord.Switch)"
+    $hostNetworkDegradedVerdict = $switchVerdict
+    break
+}
+# A transition (appeared, changed switch/verdict, or cleared) is the only case
+# worth re-advertising: the registration record was written before this gate
+# ran, so without this a repaired host keeps publishing the fault it no longer
+# has until the next cycle -- a quarter of an hour of wrong.
+$hostNetworkTransition = $false
+# A host with NO usable guest path at all reaches here with an empty verdict
+# list -- the External block is skipped entirely on an uplink Hyper-V will not
+# bridge, so there is no switch to name. That is the worst state this gate can
+# observe, and keying the banner solely on a named switch would clear it in the
+# same pass that arms the refusal streak, leaving the dashboard blank exactly
+# when it has the most to say.
+$hostNetworkNoPath = ("$($hostNetwork.Path)" -eq 'none')
+if ($hostNetworkDegradedSwitch -or $hostNetworkNoPath) {
+    # Normalized to strings before any identity test: a no-switch observation
+    # carries $null here, and `'' -eq $null` is false in PowerShell, so an
+    # un-normalized compare would read every cycle as a fresh transition and
+    # the count could never advance past one.
+    $hostNetworkDegradedSwitch  = "$hostNetworkDegradedSwitch"
+    $hostNetworkDegradedVerdict = "$hostNetworkDegradedVerdict"
+    $hostNetworkSinceUtc = [DateTime]::UtcNow.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
+    $hostNetworkCycles   = 1
+    if (Test-Path -LiteralPath $HostNetworkRecordFile) {
+        try {
+            $priorDegraded = Get-Content -Raw -LiteralPath $HostNetworkRecordFile | ConvertFrom-Json -ErrorAction Stop
+            if ($priorDegraded.degraded -and
+                "$($priorDegraded.externalSwitch)" -eq $hostNetworkDegradedSwitch -and
+                "$($priorDegraded.verdict)"        -eq $hostNetworkDegradedVerdict) {
+                # Same switch, same verdict: one continuing condition, so the
+                # count advances and the first observation time is preserved.
+                # ConvertFrom-Json turns an ISO-8601 timestamp into a [datetime]
+                # in LOCAL time, so echoing it back with a plain string cast
+                # would rewrite the record with a locale-formatted, zone-less
+                # value that drifts one conversion further every cycle.
+                if ($priorDegraded.sinceUtc -is [DateTime]) {
+                    $hostNetworkSinceUtc = ([DateTime]$priorDegraded.sinceUtc).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
+                } elseif ($priorDegraded.sinceUtc) {
+                    $hostNetworkSinceUtc = [string]$priorDegraded.sinceUtc
+                }
+                $hostNetworkCycles = [Math]::Max(1, [int]$priorDegraded.consecutiveCycles + 1)
+            } else {
+                $hostNetworkTransition = $true
+            }
+        } catch {
+            Write-Warning "Could not parse $HostNetworkRecordFile (restarting the degraded-host count): $($_.Exception.Message)"
+            $hostNetworkTransition = $true
+        }
+    } else {
+        $hostNetworkTransition = $true
+    }
+    # Which topology the guests actually get this cycle, taken from the same
+    # record the verdict came from rather than assumed -- another External
+    # switch, the Default Switch, or nothing at all are three different
+    # instructions to whoever reads the banner.
+    $hostNetworkFallbackText = switch ("$($hostNetwork.Path)") {
+        'external'       { 'guests take another External switch this cycle.' }
+        'default-switch' { 'guests run on the Default Switch (NAT + DHCP) and reach the LAN through host port-forwarders.' }
+        default          { 'no usable guest-network path remains on this host.' }
+    }
+    # The switch name is operator-chosen free text and the status page injects
+    # this string with .innerHTML, so it is escaped at the writer.
+    $switchHtml  = $hostNetworkDegradedSwitch  -replace '&', '&amp;' -replace '<', '&lt;' -replace '>', '&gt;'
+    $verdictHtml = $hostNetworkDegradedVerdict -replace '&', '&amp;' -replace '<', '&lt;' -replace '>', '&gt;'
+    $streakText  = if ($hostNetworkCycles -eq 1) { '1 cycle' } else { "$hostNetworkCycles cycles" }
+    # No switch to name means the External block never ran, so the banner says
+    # what was observed rather than quoting an empty switch name at the reader.
+    $bannerHtml  = if ($hostNetworkDegradedSwitch) {
+        'Host network: <strong>degraded</strong> -- External switch "' + $switchHtml +
+        '" reports ' + $verdictHtml + ' (' + $streakText + '); ' + $hostNetworkFallbackText
+    } else {
+        'Host network: <strong>degraded</strong> -- no usable External vSwitch (' +
+        $streakText + '); ' + $hostNetworkFallbackText
+    }
+    [void](Write-YurunaStateFile -Path $HostNetworkBannerFile -Content $bannerHtml -Confirm:$false)
+    [void](Write-YurunaStateFileJson -Path $HostNetworkRecordFile -InputObject ([ordered]@{
+        externalSwitch    = $hostNetworkDegradedSwitch
+        verdict           = $hostNetworkDegradedVerdict
+        degraded          = $true
+        sinceUtc          = $hostNetworkSinceUtc
+        consecutiveCycles = $hostNetworkCycles
+    }) -Confirm:$false)
+    if ($hostNetworkDegradedSwitch) {
+        Write-Warning "Host network degraded: External switch '$hostNetworkDegradedSwitch' reports $hostNetworkDegradedVerdict ($streakText); $hostNetworkFallbackText Written to $HostNetworkBannerFile"
+    } else {
+        Write-Warning "Host network degraded: no usable External vSwitch ($streakText); $hostNetworkFallbackText Written to $HostNetworkBannerFile"
+    }
+} elseif ("$($hostNetwork.Path)" -ne 'unknown') {
+    # Only a host whose probe actually ran may clear the pair. 'unknown' is "no
+    # opinion" -- not Windows, no Hyper-V cmdlets, no classifier loaded, a probe
+    # that threw -- and clearing on no opinion silently retracts a real finding.
+    if (Test-Path -LiteralPath $HostNetworkRecordFile) { $hostNetworkTransition = $true }
+    Remove-Item -LiteralPath $HostNetworkBannerFile -Force -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath $HostNetworkRecordFile -Force -ErrorAction SilentlyContinue
+}
+if ($hostNetworkTransition -and (Get-Command Write-HostRegistrationRecord -ErrorAction SilentlyContinue)) {
+    try {
+        $null = Write-HostRegistrationRecord -HostType $HostType -RepoRoot $RepoRoot
+    } catch {
+        Write-Verbose "Registration refresh after a host-network transition: $($_.Exception.Message)"
+    }
+}
+if (-not $hostNetwork.Healthy) {
+    if ($hostNetworkStreak -lt $HostNetworkTotalLossCycles) {
+        Write-Warning "Host guest-network: no usable guest path ($($hostNetwork.Reason)) -- observation $hostNetworkStreak of $HostNetworkTotalLossCycles. Running this cycle anyway; a link still renegotiating after a reboot recovers on its own."
+    } else {
+        Write-Warning "==================================================================="
+        Write-Warning " No network path exists for any guest on this host."
+        Write-Warning " $($hostNetwork.Reason)"
+        Write-Warning " Seen on $hostNetworkStreak consecutive cycles, so this is not a"
+        Write-Warning " link still coming up after a reboot. Every guest this cycle would"
+        Write-Warning " boot with no carrier and fail identically ~18 minutes from now."
+        Write-Warning ""
+        Write-Warning " Fix from a console that can reach this machine, then delete"
+        Write-Warning " $HostNetworkStateFile (or just let the next healthy cycle clear it):"
+        Write-Warning "   Get-VMSwitch | Format-List Name, SwitchType, AllowManagementOS, NetAdapterInterfaceDescription"
+        Write-Warning "   Get-NetAdapter | Format-Table Name, InterfaceDescription, Status"
+        Write-Warning "==================================================================="
+        # Leave the host no dirtier than a normal cycle start: the sweep that
+        # removes VMs stranded by the previous cycle lives inside the cycle
+        # body, which this refusal skips.
+        try {
+            & (Join-Path $TestRoot "Remove-TestVMFiles.ps1") -Quiet
+        } catch {
+            Write-Warning "Cycle-start VM sweep raised a terminating error on the host-network refusal path (continuing to exit). Error: $_"
+        }
+        exit $ExitFailure
+    }
+}
+
 Write-Output "Runtime directory: $env:YURUNA_RUNTIME_DIR"
 Write-Output "Log directory:     $env:YURUNA_LOG_DIR"
 
@@ -451,6 +665,33 @@ if (Get-Command Clear-StaleControlState -ErrorAction SilentlyContinue) {
 # here puts it back; same fix used by Start-StatusService.ps1 immediately
 # after its own Initialize-YurunaHost.
 Import-Module (Join-Path $ModulesDir 'Test.CachingProxyService.psm1') -Global -Force -DisableNameChecking -Verbose:$false
+
+# --- REGION: Cycle-start service-VM restore
+# A host reboot leaves every service VM registered with the hypervisor and
+# powered OFF, and nothing else in the cycle turns them back on. The two
+# failures that produces do not look alike: the caching proxy merely degrades to
+# direct downloads, while the stash service is fatal -- the warm-up resolves it,
+# finds nothing, and skips every workload stage. So a rebooted host burns cycle
+# after cycle that cannot pass until an operator starts the VMs by hand.
+#
+# BEFORE the caching-proxy gate below, so a proxy restarted here is detected by
+# the very next probe instead of being reported absent for one more cycle. Runs
+# every cycle rather than only at boot: a service can also be stopped mid-session,
+# and on a healthy host this costs one state query per service.
+#
+# Starts only what is already built -- never rebuilds. A rebuild is ~15 minutes
+# and discards a warm squid cache; a start is seconds and keeps it.
+Write-RunnerPhase -Phase 'service-vm-restore'
+if (Get-Command Restore-YurunaServiceVM -ErrorAction SilentlyContinue) {
+    try {
+        $serviceRestore = @(Restore-YurunaServiceVM -Confirm:$false)
+        Write-YurunaServiceVmRestoreReport -Result $serviceRestore
+    } catch {
+        # Never fatal: a host that cannot check its service VMs still runs the
+        # cycle, and the gates below report what is actually reachable.
+        Write-Warning "service-VM restore sweep failed: $($_.Exception.Message). The cycle continues; the caching-proxy and stash gates below report what is reachable."
+    }
+}
 
 # --- REGION: Cycle-start caching-proxy-service gate
 # Probe the two operator sources in priority order (persistent

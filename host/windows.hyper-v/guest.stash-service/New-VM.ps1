@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.02
+.VERSION 2026.08.03
 .GUID 42f1b2c3-d4e5-4f67-8901-a2b3c4d5e680
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -166,9 +166,27 @@ Write-Output "See configuration at: $(Resolve-ExtensionAreaDir -Area 'authentica
 # is reachable only from same-host peers and the NAS likely isn't routable.
 $switchName = Get-OrCreateYurunaExternalSwitch
 if (-not $switchName) {
-    Write-Verbose "External vSwitch unavailable -- falling back to 'Default Switch'."
-    Write-Verbose "  The stash-service VM won't be reachable from LAN by its own IP, and the NAS may be unreachable."
     $switchName = 'Default Switch'
+    if (-not (Get-VMSwitch -Name $switchName -ErrorAction SilentlyContinue)) {
+        # The Default Switch ships only with Windows client SKUs and an
+        # operator can delete it. New-VM throws on a switch name that
+        # resolves to nothing, so an unchecked fallback turns a degraded
+        # network into a failed provision; any switch that exists still
+        # creates and boots the VM. Rank non-External switches first: this
+        # path is normally reached because the host uplink is one Hyper-V
+        # refuses to carry a bridged guest MAC over, so a guest attached to
+        # an External switch there comes up with no carrier at all, while an
+        # Internal/NAT switch still gives it a working address.
+        $substituteSwitch = @(Get-VMSwitch -ErrorAction SilentlyContinue) |
+            Sort-Object @{ Expression = { $_.SwitchType -eq 'External' } }, Name |
+            Select-Object -First 1
+        if ($substituteSwitch) {
+            $switchName = $substituteSwitch.Name
+            Write-Warning "This host has no 'Default Switch'. Attaching to vSwitch '$switchName' instead so VM creation still succeeds."
+        }
+    }
+    Write-Information "External vSwitch unavailable -- the VM is attached to '$switchName' (NAT + DHCP). It gets no LAN-bridged address: the host answers only at that switch's gateway address, and anything on the LAN reaches the guest only through a host port-forwarder."
+    Write-Information "  The stash-service VM won't be reachable from LAN by its own IP, and the NAS may be unreachable."
 }
 
 # Host coordinates (status service, for the in-VM source fetch) + stash storage
@@ -271,6 +289,14 @@ $vmDiscoveryLogged = $false
 $vmOnExternalSwitch = $false
 $arpProbeAnnounced = $false
 
+# The ARP sweep only makes sense on a bridged (External) switch, where the
+# host is not the DHCP server and never observes the guest's lease. The
+# External vSwitch name is operator-configurable (Get-OrCreateYurunaExternalSwitch
+# honors a pre-created switch under any name), so key off the switch this
+# script resolved rather than a literal name -- a literal silently skips the
+# sweep on a host that named its bridge anything else.
+$switchIsExternal = ((Get-VMSwitch -Name $switchName -ErrorAction SilentlyContinue).SwitchType -eq 'External')
+
 $ProgressPreference = 'Continue'
 $activity  = "Waiting for '$VMName' to obtain an IP"
 $startTime = Get-Date
@@ -278,19 +304,20 @@ $startTime = Get-Date
 for ($i = 0; $i -lt $maxIterations; $i++) {
     $vm = Get-VM -Name $VMName -ErrorAction SilentlyContinue
     if ($vm) {
-        # ARP-probe the Yuruna-External /24 to populate the host's
-        # neighbor cache when the host isn't the DHCP server.
+        # ARP-probe the bridged /24 to populate the host's neighbor cache
+        # when the host isn't the DHCP server.
         # feedback_hyperv_external_vswitch_arp_discovery.md
         if ($i -eq 0) {
-            $vmOnExternalSwitch = (($vm | Get-VMNetworkAdapter -ErrorAction SilentlyContinue |
-                                          Select-Object -First 1).SwitchName -eq 'Yuruna-External')
+            $vmOnExternalSwitch = $switchIsExternal -and
+                (($vm | Get-VMNetworkAdapter -ErrorAction SilentlyContinue |
+                        Select-Object -First 1).SwitchName -eq $switchName)
         }
         if ($vmOnExternalSwitch -and $i -ge 6) {
             if (-not $arpProbeAnnounced) {
-                Write-Output "  Active ARP probe on Yuruna-External subnet..."
+                Write-Output "  Active ARP probe on the '$switchName' subnet..."
                 $arpProbeAnnounced = $true
             }
-            Invoke-YurunaExternalArpProbe -SwitchName 'Yuruna-External'
+            Invoke-YurunaExternalArpProbe -SwitchName $switchName
         }
 
         $dockCandidateIps = @(Get-CacheVmCandidateIp -VM $vm)

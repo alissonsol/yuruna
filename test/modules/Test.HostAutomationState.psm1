@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.02
+.VERSION 2026.08.03
 .GUID 42b7c3e1-9d05-4a82-bf46-2e18c74a0d93
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -724,7 +724,7 @@ function Get-PoolStorageManualTeardown {
     param([Parameter(Mandatory)][string]$RepoRoot)
 
     $configPath = Join-Path $RepoRoot 'test/test.config.yml'
-    if (-not (Test-Path -LiteralPath $configPath)) { return @() }
+    if (-not (Test-Path -LiteralPath $configPath)) { return [string[]]@() }
     try {
         if (-not (Get-Command Read-TestConfig -ErrorAction SilentlyContinue)) {
             Import-Module (Join-Path $PSScriptRoot 'Test.Config.psm1') -Global -Force -DisableNameChecking -Verbose:$false
@@ -735,15 +735,15 @@ function Get-PoolStorageManualTeardown {
             $pool = $cfg.networkStorage.pool
             if ($pool -is [System.Collections.IDictionary] -and $pool.Contains('localPath')) { $localPath = "$($pool.localPath)".Trim() }
         }
-        if (-not $localPath) { return @() }
-        return @(
+        if (-not $localPath) { return [string[]]@() }
+        return [string[]]@(
             "Import-Module $RepoRoot/test/modules/Test.PoolStorage.psm1",
             "Dismount-PoolStoragePoint -MountPoint '$localPath'",
             "then clear the networkStorage.* keys in test/test.config.yml"
         )
     } catch {
         Write-Verbose "Get-PoolStorageManualTeardown: $($_.Exception.Message)"
-        return @()
+        return [string[]]@()
     }
 }
 

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.02
+.VERSION 2026.08.03
 .GUID 42c5e8a1-9b3d-4f27-8a6c-1d2e3f4a5b6c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -34,6 +34,14 @@
 $script:PoolStorageMountTimeoutSeconds     = 90
 $script:PoolStorageCopyTimeoutSeconds      = 600
 $script:PoolStorageSmbCmdletTimeoutSeconds = 60
+
+# The usability probe's own cap, deliberately much shorter than the SMB-cmdlet
+# one. The probe exists to catch a mount that no longer answers, and the whole
+# point of a wedged mount is that I/O against it never returns -- so the cap IS
+# the answer in the common failure, and it is paid on every mount check. 15s is
+# long enough that an ordinarily slow NAS is not called dead and short enough
+# that a wedged one does not stall a cycle.
+$script:PoolStorageProbeTimeoutSeconds = 15
 
 # Verbatim reason the last Connect-YurunaPoolStorage attempt failed, so the
 # write-path pre-flight can report WHAT went wrong instead of enumerating every
@@ -112,10 +120,18 @@ function Invoke-PoolStorageProcess {
     return [int](Invoke-PoolStorageProcessResult -FilePath $FilePath -ArgumentList $ArgumentList -TimeoutSeconds $TimeoutSeconds).ExitCode
 }
 
-# Condenses a child's stderr into one appendable clause for an exception message:
-# collapses the multi-line mount/mount.cifs output onto a single line and caps the
-# length so a pathological child cannot flood the operator's console. Returns ''
-# for empty stderr, so callers can append it unconditionally.
+<#
+.SYNOPSIS
+Condenses a child's stderr into one appendable clause for an exception message.
+.DESCRIPTION
+Collapses the multi-line mount/mount.cifs output onto a single line and caps the
+length so a pathological child cannot flood the operator's console. Returns ''
+for empty stderr, so callers can append it unconditionally.
+.PARAMETER StdErr
+Raw stderr text from the child; empty and $null are both accepted.
+.OUTPUTS
+[string] ": <detail>" ready to append, or '' when there was nothing to report.
+#>
 function Get-PoolStorageProcessErrorDetail {
     [CmdletBinding()]
     [OutputType([string])]
@@ -631,9 +647,16 @@ function Get-YurunaStashStorageConfig {
 
 <#
 .SYNOPSIS
-Returns $true only when LocalPath is already connected to OUR share (so Connect can be a no-op), anchoring the match on the exact mount point AND verifying the remote carries our share so a different share at the same point or a path-prefix collision is never mistaken for a live mount. Per-OS; best-effort; bounded on Windows.
+Returns $true when the MOUNT TABLE shows OUR share at OUR mount point, anchoring the match on the exact mount point AND verifying the remote carries our share so a different share at the same point or a path-prefix collision is never mistaken for a live mount. Per-OS; best-effort; bounded on Windows. Says nothing about whether the mount still WORKS -- Test-YurunaPoolStorageMounted adds that.
+.DESCRIPTION
+Split out from Test-YurunaPoolStorageMounted so Connect-YurunaPoolStorage can
+tell its two failure shapes apart. "No entry at all" needs a plain mount;
+"an entry that no longer answers" needs the dead mount torn down FIRST, because
+mount_smbfs refuses to mount over an occupied point with "File exists" -- which
+the caller then reports as a credential failure, sending the operator to reset a
+password that was never wrong.
 #>
-function Test-YurunaPoolStorageMounted {
+function Test-PoolStorageMountEntry {
     [CmdletBinding()]
     [OutputType([bool])]
     param([Parameter(Mandatory)][pscustomobject]$Config)
@@ -656,9 +679,100 @@ function Test-YurunaPoolStorageMounted {
         $mountOut = @(& $mountExe 2>$null | ForEach-Object { [string]$_ })
         return (Test-PoolStorageMountMatch -MountLines $mountOut -LocalPath $Config.LocalPath -NetworkPath $Config.NetworkPath)
     } catch {
-        Write-Verbose "Test-YurunaPoolStorageMounted: $($_.Exception.Message)"
+        Write-Verbose "Test-PoolStorageMountEntry: $($_.Exception.Message)"
         return $false
     }
+}
+
+<#
+.SYNOPSIS
+Proves a mount point is actually USABLE by writing a uniquely-named probe file into it and deleting it again, bounded by a short wall-clock cap. Returns @{ Ok; Error } and never throws.
+.DESCRIPTION
+WRITES, despite the Test- verb, and that is the point. Every consumer of pool
+and stash storage writes: the pool-intent store is pushed to, cycle output is
+replicated, the stash daemon uploads. A read-only check would pass on a share
+mounted read-only or one whose account lost write permission -- the two cases
+that then fail much later at `git push`, with an error naming git rather than
+the share.
+
+An SMB/CIFS mount does not disappear when its server does: the entry stays in
+the mount table indefinitely while every I/O against it returns a stale-handle
+error or, worse, hangs. That is why nothing here trusts the table alone, and why
+the cap is short -- for a wedged mount, the timeout IS the result.
+
+The probe file is created directly under the mount point (a subdirectory could
+be absent for reasons that say nothing about the mount), named per-process and
+per-call so two runs can never collide, and removed in a finally so a failure
+mid-probe cannot leave litter on a share that later gets replicated.
+#>
+function Test-PoolStorageWriteProbe {
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param(
+        # AllowNull/AllowEmptyString so a malformed config reaches the guard below
+        # instead of a parameter-binding exception: this function's contract is
+        # "never throws", and a caller handed an empty localPath needs the reason
+        # back as a result, not as a terminating error from the binder.
+        [Parameter(Mandatory)][AllowNull()][AllowEmptyString()][string]$Path,
+        [Parameter()][int]$TimeoutSeconds = $script:PoolStorageProbeTimeoutSeconds
+    )
+    if ([string]::IsNullOrWhiteSpace($Path)) { return @{ Ok = $false; Error = 'no local path is configured, so there is nothing to probe' } }
+    # Self-contained: this body runs in a thread job and closes over nothing from
+    # the module scope.
+    $probeBody = {
+        param($dir)
+        $file = Join-Path $dir ('.yuruna-write-probe.' + $PID + '.' + [guid]::NewGuid().ToString('N'))
+        try {
+            [System.IO.File]::WriteAllText($file, 'yuruna')
+            if (-not (Test-Path -LiteralPath $file)) { return 'the probe file was accepted but is not readable back' }
+            return ''
+        } catch {
+            return $_.Exception.Message
+        } finally {
+            try { [System.IO.File]::Delete($file) } catch { $null = $_ }
+        }
+    }
+    $r = Invoke-PoolStorageBoundedScript -TimeoutSeconds $TimeoutSeconds -ArgumentList @($Path) -ScriptBlock $probeBody
+    if ($r.TimedOut) {
+        return @{ Ok = $false; Error = "the share did not answer a write within ${TimeoutSeconds}s (the mount is wedged: its entry is still in the mount table but the server behind it is not answering)" }
+    }
+    if ($r.Error) { return @{ Ok = $false; Error = [string]$r.Error } }
+    $reason = "$($r.Result)"
+    if ($reason) { return @{ Ok = $false; Error = $reason } }
+    return @{ Ok = $true; Error = '' }
+}
+
+<#
+.SYNOPSIS
+Returns $true only when LocalPath is connected to OUR share AND that mount still answers a write, so Connect can be a no-op. Best-effort; never throws; bounded.
+.DESCRIPTION
+Two questions, both of which have to be yes: the mount table shows our share at
+our point (Test-PoolStorageMountEntry), and the mount is usable
+(Test-PoolStorageWriteProbe). The second is what a table-only check cannot
+answer -- a dead SMB mount reads as healthy forever -- and answering it wrong is
+expensive in exactly the place it is asked: setup.ps1's storage gate skips
+standing up storage on a $true, so a dead mount makes the run skip the one step
+that would have fixed it and fail in every later step that touches the share.
+
+Because the probe WRITES (see Test-PoolStorageWriteProbe), calling this is not
+free and not side-effect-free. That is deliberate: every caller is deciding
+whether real work against the share can proceed, and a cheaper answer to a
+different question is what the split above exists to make available.
+#>
+function Test-YurunaPoolStorageMounted {
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param([Parameter(Mandatory)][pscustomobject]$Config)
+    if (-not (Test-PoolStorageMountEntry -Config $Config)) { return $false }
+    $probe = Test-PoolStorageWriteProbe -Path $Config.LocalPath
+    if (-not $probe.Ok) {
+        # Verbose, not a warning: on the healthy path this runs every cycle, and
+        # the callers that ACT on the answer (Connect below, the setup gate)
+        # report it where the operator can do something about it.
+        Write-Verbose "Test-YurunaPoolStorageMounted: $($Config.LocalPath) is in the mount table but is not usable: $($probe.Error)"
+        return $false
+    }
+    return $true
 }
 
 <#
@@ -677,6 +791,24 @@ function Connect-YurunaPoolStorage {
         return $true
     }
     if (-not $PSCmdlet.ShouldProcess($Config.LocalPath, "Connect SMB share $($Config.NetworkPath)")) { return $false }
+
+    # Reaching here with an entry STILL in the mount table means the entry exists
+    # but the mount does not answer -- a dead SMB session whose server went away,
+    # whose credential was rotated, or that was left by another account. Tear it
+    # down before mounting: macOS mount_smbfs refuses an occupied mount point with
+    # "File exists" and Linux mount reports it busy, and that failure is then
+    # reported by the callers as a credential problem, which sends the operator to
+    # reset a password that was never wrong. Windows does not need this (Connect
+    # already drops the mapping first) but the call is harmless and keeps the three
+    # platforms on one path.
+    if (Test-PoolStorageMountEntry -Config $Config) {
+        Write-Information "poolStorage: $($Config.LocalPath) is mounted but not answering; releasing the dead mount before remounting." -InformationAction Continue
+        if (-not (Dismount-PoolStoragePoint -MountPoint $Config.LocalPath)) {
+            # Not fatal on its own: the mount attempt below still runs and its own
+            # error is more specific than anything that could be said here.
+            Write-Warning "poolStorage: could not release the dead mount at $($Config.LocalPath); the remount below may fail with 'File exists' or 'device is busy'."
+        }
+    }
 
     $password = $null
     if (Get-Command Get-Password -ErrorAction SilentlyContinue) {
@@ -788,6 +920,18 @@ function Connect-YurunaPoolStorage {
         # the gate's [FAIL] falls back to listing every possible cause.
         $script:PoolStorageLastMountError = "$($_.Exception.Message)"
         Write-Warning "poolStorage: failed to mount $($Config.NetworkPath) at $($Config.LocalPath): $($_.Exception.Message)"
+        return $false
+    }
+    # A mount that succeeded is not yet a mount that can be used. A share mounted
+    # read-only, or one whose account authenticated but carries no write
+    # permission at the share root, mounts cleanly and then fails the first real
+    # write -- at `git push` into the intent store, or mid-replication, with an
+    # error naming git or the copy rather than the share. Paying one probe here
+    # moves that discovery to the mount, where the reason is still legible.
+    $probe = Test-PoolStorageWriteProbe -Path $Config.LocalPath
+    if (-not $probe.Ok) {
+        $script:PoolStorageLastMountError = "mounted, but the share is not writable by '$($Config.NetworkUser)': $($probe.Error)"
+        Write-Warning "poolStorage: $($Config.NetworkPath) mounted at $($Config.LocalPath) but is NOT writable by '$($Config.NetworkUser)': $($probe.Error). The mount is left in place; fix the share's permissions for that account."
         return $false
     }
     $script:PoolStorageLastMountError = ''
@@ -1950,7 +2094,8 @@ Export-ModuleMember -Function `
     ConvertFrom-PoolStorageMountLine, Find-PoolStorageConflictingMount, `
     Get-PoolStorageConflictingMount, Clear-PoolStorageConflictingMount, Dismount-PoolStoragePoint, `
     Find-PoolStorageSupersededMount, Get-PoolStorageSupersededMount, `
-    Get-YurunaPoolStorageConfig, Get-YurunaStashStorageConfig, Test-YurunaPoolStorageMounted, Connect-YurunaPoolStorage, `
+    Get-YurunaPoolStorageConfig, Get-YurunaStashStorageConfig, Test-YurunaPoolStorageMounted, `
+    Test-PoolStorageMountEntry, Test-PoolStorageWriteProbe, Connect-YurunaPoolStorage, `
     Get-PoolStorageLinuxSudoHint, Get-PoolStorageSudoSpec, Set-PoolStorageSudoers, `
     Get-PoolStorageSudoCommandPath, Test-PoolStorageSudoReady, Test-PoolStorageCifsHelper, `
     Sync-YurunaPoolStorageFolder, Test-PoolStorageVaultDecision, Get-PoolStorageCycleIdentity, `

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.02
+.VERSION 2026.08.03
 .GUID 42c9d0e1-f2a3-4b45-9678-9a0b1c2d3e42
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -434,6 +434,10 @@ function Invoke-GitPull {
             Write-Information "Local branch is behind remote by $($st.Behind) commit(s). Pulling..." -InformationAction Continue
             $pull = Invoke-GitNetworkCommand -GitArgs @('-C', $RepoRoot, 'pull', '--ff-only') -TimeoutSeconds 60
             if ($pull.ExitCode -eq 0) {
+                # Exit 0 is not proof the working copy is usable: an autostash
+                # that failed to re-apply leaves conflict markers behind and
+                # still exits 0.
+                if (-not (Test-GitWorktreeMerged -RepoRoot $RepoRoot -Label 'framework repository')) { return $false }
                 Write-Information "Pull succeeded: $($pull.Output)" -InformationAction Continue
                 return $true
             }
@@ -456,6 +460,61 @@ function Invoke-GitPull {
             return $false
         }
     }
+}
+
+function Get-GitUnmergedPath {
+    <#
+    .SYNOPSIS
+    Paths left in a conflicted (unmerged) state in the worktree at $RepoRoot.
+    .DESCRIPTION
+    A pull can report success on a conflict it created itself. Every yuruna
+    clone runs with rebase.autoStash on (.gitconfig.yuruna), so a pull against
+    a dirty worktree stashes, fast-forwards, then fails to re-apply the stash:
+    git prints "Applying autostash resulted in conflicts", writes '<<<<<<<'
+    markers into the working copy, and still exits 0. An exit-code-only check
+    reads that as a clean sync, and the cycle goes on to execute .ps1/.psm1/.sh
+    sources with conflict markers in them.
+
+    The unmerged index is the durable evidence: it outlives the exit code and
+    names exactly which files are unusable.
+    .OUTPUTS
+    [string[]] conflicted paths, empty when there are none.
+    #>
+    [CmdletBinding()]
+    [OutputType([string[]])]
+    param([Parameter(Mandatory)][string]$RepoRoot)
+    $out = & git -C $RepoRoot ls-files --unmerged 2>$null
+    if ($LASTEXITCODE -ne 0 -or -not $out) { return [string[]]@() }
+    # `ls-files --unmerged` prints one line per stage: "<mode> <sha> <stage>\t<path>".
+    return [string[]]@(@($out) |
+        ForEach-Object { ($_ -split "`t", 2)[-1] } |
+        Where-Object { $_ } |
+        Sort-Object -Unique)
+}
+
+function Test-GitWorktreeMerged {
+    <#
+    .SYNOPSIS
+    $true when the worktree at $RepoRoot carries no conflicted paths.
+    .DESCRIPTION
+    The guard a pull's exit code cannot provide (see Get-GitUnmergedPath).
+    Reports the conflicted paths and the recovery, because the state does not
+    clear itself: the next pull refuses to run against a conflicted index, so
+    an unattended host stays wedged until an operator resolves it.
+    .OUTPUTS
+    [bool] $true when clean.
+    #>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param(
+        [Parameter(Mandatory)][string]$RepoRoot,
+        [string]$Label = 'repository'
+    )
+    $conflicted = @(Get-GitUnmergedPath -RepoRoot $RepoRoot)
+    if ($conflicted.Count -eq 0) { return $true }
+    Write-Warning ("The ${Label} at '$RepoRoot' has $($conflicted.Count) conflicted file(s) after the pull -- git exited 0 but left conflict markers in the working copy, so this checkout must not be executed: " + ($conflicted -join ', '))
+    Write-Warning "  Recover with: git -C '$RepoRoot' checkout --theirs . ; git -C '$RepoRoot' reset --hard '@{u}'  (local edits remain in `git stash list`)."
+    return $false
 }
 
 function Get-CurrentGitCommit {
@@ -969,4 +1028,4 @@ function Install-PSScriptAnalyzerIfMissing {
     return Install-YurunaGalleryModuleIfMissing -Name 'PSScriptAnalyzer' @PSBoundParameters
 }
 
-Export-ModuleMember -Function Invoke-GitPull, Get-GitUpstreamStatus, Get-CurrentGitCommit, Get-FileLockingProcess, Update-ProjectClone, Resolve-GitRepositoryWebUrl, Install-PowerShellYamlIfMissing, Install-PSScriptAnalyzerIfMissing, Test-GitRemoteAuthFailure, Write-GitAuthRefreshBanner, Invoke-GitNetworkCommand, Get-YurunaGitCredentialArg, Get-YurunaGhCliCredentialArg, Get-YurunaGitAuthAttemptList
+Export-ModuleMember -Function Invoke-GitPull, Get-GitUpstreamStatus, Get-GitUnmergedPath, Test-GitWorktreeMerged, Get-CurrentGitCommit, Get-FileLockingProcess, Update-ProjectClone, Resolve-GitRepositoryWebUrl, Install-PowerShellYamlIfMissing, Install-PSScriptAnalyzerIfMissing, Test-GitRemoteAuthFailure, Write-GitAuthRefreshBanner, Invoke-GitNetworkCommand, Get-YurunaGitCredentialArg, Get-YurunaGhCliCredentialArg, Get-YurunaGitAuthAttemptList

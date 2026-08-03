@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.02
+.VERSION 2026.08.03
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456725
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -387,6 +387,9 @@ function Write-HostRegistrationRecord {
         consumer learns each host's hostId / platform / hostIO / OCR / extensions
         without SSHing in. Identity + capability only (mostly static); LIVE runner
         state is NOT mirrored here -- status.json + the heartbeat already carry it.
+        The one exception is `network`, which reports a degraded-but-running guest
+        network: the host keeps passing cycles in that state, so no cycle verdict a
+        pool consumer can read ever names it.
         Written once per cycle at runner startup on the MAIN runspace, never from
         the heartbeat threadpool timer (the scriptblock-as-TimerCallback trap).
         Resolves the runtime dir + hostId from $env:YURUNA_RUNTIME_DIR +
@@ -545,6 +548,38 @@ function Write-HostRegistrationRecord {
                 $projectAccess = Get-Content -Raw -LiteralPath $accessMarker | ConvertFrom-Json -ErrorAction Stop
             }
         } catch { Write-Verbose "projectAccess marker: $($_.Exception.Message)" }
+        # network: this host's guest-network topology when it is NOT the healthy
+        # one. A Hyper-V vSwitch object outlives its uplink binding across a host
+        # reboot, so a host can be fully online, pass every host check, and still
+        # attach every guest to a switch with no carrier -- a state the cycle
+        # verdict alone cannot express, because such a host keeps running and
+        # passing on the Default Switch (NAT + DHCP). Absent marker = healthy, so
+        # the field stays null and an aggregator that never learned about it is
+        # unaffected. Read as a file, matching this function's resolution policy.
+        $network = $null
+        try {
+            $networkMarker = Join-Path $runtimeDir 'host-network.json'
+            if (Test-Path -LiteralPath $networkMarker) {
+                $nm = Get-Content -Raw -LiteralPath $networkMarker | ConvertFrom-Json -ErrorAction Stop
+                if ($nm -and [bool]$nm.degraded) {
+                    # ConvertFrom-Json rehydrates an ISO-8601 timestamp as a
+                    # [datetime] in LOCAL time, so a plain string cast would
+                    # republish a locale-formatted, zone-less value that no pool
+                    # consumer can parse back into an instant. Re-emit UTC Z.
+                    $sinceUtc = if ($nm.sinceUtc -is [DateTime]) {
+                        ([DateTime]$nm.sinceUtc).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
+                    } else {
+                        [string]$nm.sinceUtc
+                    }
+                    $network = [ordered]@{
+                        externalSwitch = [string]$nm.externalSwitch
+                        verdict        = [string]$nm.verdict
+                        degraded       = $true
+                        sinceUtc       = $sinceUtc
+                    }
+                }
+            }
+        } catch { Write-Verbose "host-network marker: $($_.Exception.Message)" }
         $record = [ordered]@{
             schemaVersion    = 1
             hostId           = [string]$global:__YurunaHostId
@@ -561,6 +596,7 @@ function Write-HostRegistrationRecord {
             projectCommit    = $projectCommit
             testSets         = $projectTestSets
             projectAccess    = $projectAccess
+            network          = $network
             runId           = [string]$global:__YurunaRunId
             pid             = $PID
             statusPort      = $statusPort

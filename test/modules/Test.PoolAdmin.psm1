@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.02
+.VERSION 2026.08.03
 .GUID 42c2d3e4-f5a6-4b78-9c01-2d3e4f5a6b7c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -457,8 +457,77 @@ function New-YurunaPoolIntentStore {
     return [pscustomobject]@{ Path = $Path; Created = $true; Reason = 'seeded' }
 }
 
+<#
+.SYNOPSIS
+    Make a WRITABLE filesystem intent target openable: seed the bare repository
+    when the path carries none yet. Returns @{ Ok; Created; Reason }.
+.DESCRIPTION
+    Open-YurunaPoolIntent can only clone a store that already exists, so every
+    authoring command against a path that was never seeded dies on the same
+    opaque `git clone failed (exit 128)`. The store is not something an operator
+    is expected to create by hand -- it is an implementation detail of the pool
+    -- and the only reason it ever existed before the first command was that a
+    lab bring-up happened to run New-Lab. Any other route to a fresh pool
+    folder (a NAS tier mounted straight into networkStorage, a share rebuilt
+    under a new root, a beacon whose pool folder was replaced) reaches an
+    authoring command with nothing to open and no hint of what is missing.
+
+    Only for CREATE/UPDATE paths. The read-only consumers (Get-PoolIntent,
+    Get-PoolStatus, Test-PoolIntent) must keep failing on an absent store: for
+    them a wrong url and an empty pool are different answers, and seeding one
+    here would turn "you are pointed at nothing" into a healthy-looking empty
+    pool that reports every host as unenrolled.
+
+    A remote url (http/https/ssh/git/file with a host) is left alone -- nothing
+    on this side can create a repository over there, and the caller's own clone
+    failure is the honest report. Only a local or UNC PATH is seeded, and only
+    when it holds no repository already; an existing store is never touched.
+.PARAMETER IntentGitUrl
+    The writable target Resolve-YurunaPoolAdminTarget produced.
+#>
+function Initialize-YurunaPoolIntentStorePath {
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([hashtable])]
+    param([Parameter(Mandatory)][string]$IntentGitUrl)
+
+    if ([string]::IsNullOrWhiteSpace($IntentGitUrl)) { return @{ Ok = $false; Created = $false; Reason = 'no url' } }
+    $target = $IntentGitUrl.Trim()
+
+    # A scheme means "somewhere else". file:// is the one scheme that still names
+    # a local path, so it is unwrapped rather than skipped -- an operator writing
+    # the writable target as a file:// url means the same store as the bare path.
+    if ($target -match '^file://(?<rest>.+)$') {
+        $rest = $Matches['rest']
+        # file:///srv/x -> /srv/x ; file://server/share -> \\server\share
+        $target = if ($rest -match '^/') { $rest } else { '\\' + ($rest -replace '/', '\') }
+    } elseif ($target -match '^[A-Za-z][A-Za-z0-9+.-]*://') {
+        return @{ Ok = $true; Created = $false; Reason = 'remote url -- not ours to create' }
+    } elseif ($target -match '^[^@/\\]+@[^:/\\]+:') {
+        # scp-like ssh remote (git@host:path); the user@ prefix is required so a
+        # Windows drive path (C:\...) is never mistaken for one.
+        return @{ Ok = $true; Created = $false; Reason = 'remote url -- not ours to create' }
+    }
+
+    if (Test-Path -LiteralPath (Join-Path $target 'refs')) {
+        return @{ Ok = $true; Created = $false; Reason = 'already a repository' }
+    }
+    if (-not $PSCmdlet.ShouldProcess($target, 'Seed the pool-intent store')) {
+        return @{ Ok = $true; Created = $false; Reason = 'WhatIf' }
+    }
+    try {
+        $store = New-YurunaPoolIntentStore -Path $target -Confirm:$false
+        return @{ Ok = $true; Created = [bool]$store.Created; Reason = $store.Reason }
+    } catch {
+        # Surfaced, not swallowed: the caller's clone is about to fail anyway,
+        # and "the store is missing AND could not be created because <reason>"
+        # is the message that names the real blocker (an unwritable mount, a
+        # NAS credential that authenticated read-only).
+        return @{ Ok = $false; Created = $false; Reason = $_.Exception.Message }
+    }
+}
+
 Export-ModuleMember -Function `
     Resolve-YurunaPoolSchemaPath, Test-YurunaPoolDocValid, Test-YurunaPoolIntentFile, `
     Open-YurunaPoolIntent, Read-YurunaPoolsDoc, Save-YurunaPoolDoc, Publish-YurunaPoolIntent, `
     Get-YurunaPoolFromDoc, Resolve-YurunaPoolAdminTarget, ConvertTo-YurunaHostId, `
-    New-YurunaPoolIntentStore
+    New-YurunaPoolIntentStore, Initialize-YurunaPoolIntentStorePath

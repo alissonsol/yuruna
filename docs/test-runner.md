@@ -110,7 +110,7 @@ pwsh test/Invoke-TestRunner.ps1
 
 The script self-supervises: stale-heartbeat detection, single-instance
 guard, and the failure-pause back-off all live in
-[Watchdog](watchdog.md). Per-step visibility is controlled by
+[Watchdog](runner-outer-loop.md#watchdog-and-heartbeat-protocol). Per-step visibility is controlled by
 [Log levels](loglevels.md).
 
 ### What a `test.runner.yml` entry can be
@@ -199,6 +199,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.02
+Last review: 2026.08.03
 
 Back to [Yuruna](../README.md)

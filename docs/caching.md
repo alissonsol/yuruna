@@ -737,7 +737,10 @@ deny-by-default posture costs nothing.
 
 When `Get-OrCreateYurunaExternalSwitch` cannot bridge the uplink (no
 LAN-routable NIC, a not-bridgeable uplink — Wi-Fi or a USB Ethernet
-adapter — or switch creation skipped), the cache VM lands on the
+adapter — switch creation skipped, or the existing External vSwitch has
+lost its uplink binding, see
+[Why a reused External vSwitch is validated before it is handed out](network.md#why-a-reused-external-vswitch-is-validated-before-it-is-handed-out)),
+the cache VM lands on the
 built-in `Default Switch` and the test/
 scripts re-enable netsh portproxy. LAN clients reach `<host-lan-ip>:3128`
 and squid logs the host's vEthernet IP — the source-IP-loss gap kept as
@@ -1284,7 +1287,9 @@ clients up to the cache:
    why both the install scripts and the cache prefer
    `Yuruna-External` and only fall back here when External cannot be
    created (no LAN, or a not-bridgeable uplink — Wi-Fi or a USB Ethernet
-   adapter).
+   adapter) or when the existing External vSwitch has lost its uplink
+   binding and is therefore declined, see
+   [Why a reused External vSwitch is validated before it is handed out](network.md#why-a-reused-external-vswitch-is-validated-before-it-is-handed-out).
 
 Per-port platform divergence in branch 3:
 
@@ -1295,9 +1300,31 @@ Per-port platform divergence in branch 3:
 | HTTP / HTTPS forwarder shape | `host:HTTP → VM:HTTP` / `host:HTTPS → VM:HTTPS` via plain `netsh portproxy`. | `host:HTTP → VM:3138` / `host:HTTPS → VM:3139` via userspace pwsh forwarder + PROXY v1 header — squid logs real client IPs. |
 
 `Yuruna.Host`'s `Test-CacheVMOnExternalNetwork` is the discriminator:
-on Windows it checks for any External-type vSwitch; on macOS it
-always returns `$true` (VMnet shared). So branches 2 and 3 are
-Windows-only in practice — macOS always takes branch 2.
+on Windows it asks whether the cache VM's own vNIC sits on an
+External-type vSwitch; on macOS it always returns `$true` (VMnet
+shared). So branches 2 and 3 are Windows-only in practice — macOS
+always takes branch 2.
+
+The branch-2-vs-3 decision is really made upstream: a vSwitch that
+fails uplink validation is never handed out as an attachment in the
+first place
+([Why a reused External vSwitch is validated before it is handed out](network.md#why-a-reused-external-vswitch-is-validated-before-it-is-handed-out)),
+so a newly built cache VM lands on the Default Switch and this
+discriminator simply reports where it landed.
+
+Whatever the discriminator consults, it must **fail open toward
+`$true`** — anything not positively established as "not bridged" is
+treated as bridged. The asymmetry is not stylistic. A false `$false`
+sends a bridged, healthy cache down branch 3, and `Add-PortMap` on
+Windows is clear-all-first: it tears down every Yuruna netsh mapping,
+firewall rule and forwarder before installing its own list, then
+publishes a redundant NAT path in front of a cache that already had a
+real LAN IP — which loses the real client IP that branch 2 exists to
+preserve, so squid logs the host address for every LAN client. A false
+`$true` costs only a missing forwarder. The discriminator is also read
+from more than one process (the runner and the host status service),
+which is a second reason not to key it on a single live probe of a
+value that churns while VMs start and stop.
 
 The "detected" word printed at startup is an ANSI OSC 8 hyperlink to
 the Grafana dashboard so modern terminals (Windows Terminal, VS Code)
@@ -1583,6 +1610,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.02
+Last review: 2026.08.03
 
 Back to [Yuruna](../README.md)

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.02
+.VERSION 2026.08.03
 .GUID 424f932a-5ed9-4dec-8a02-8f7c8aa9234b
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -46,6 +46,26 @@ $faePath  = Join-Path $repoRoot 'automation/fetch-and-execute.sh'
 
 function Assert-True  { param($Condition, [string]$Because = '') if (-not $Condition) { throw "Expected true. $Because" } }
 function Assert-Equal { param($Actual, $Expected, [string]$Because = '') if ("$Actual" -ne "$Expected") { throw "Expected '$Expected', got '$Actual'. $Because" } }
+
+function Get-GitHubSourceFixture {
+    <#
+        A throwaway checkout with its own remote and its own test.config.yml, so
+        the two sources of "which repository is this" can be set independently.
+        Built inside a function because a Describe body runs at discovery time
+        and its variables are not in scope when the It bodies execute.
+        -RemoteUrl '' leaves the checkout with no remote at all.
+    #>
+    param([string]$RemoteUrl, [string]$FrameworkUrl)
+    $dir = Join-Path ([System.IO.Path]::GetTempPath()) ("yuruna-ghsrc-" + [guid]::NewGuid().ToString('N').Substring(0, 8))
+    New-Item -ItemType Directory -Force -Path (Join-Path $dir 'test') | Out-Null
+    Set-Content -LiteralPath (Join-Path $dir 'test/test.config.yml') -Value "repositories:`n  frameworkUrl: $FrameworkUrl`n  ghToken: `"`"`n"
+    Set-Content -LiteralPath (Join-Path $dir 'seed.txt') -Value 'seed'
+    & git -C $dir init --quiet 2>&1 | Out-Null
+    if ($RemoteUrl) { & git -C $dir remote add origin $RemoteUrl 2>&1 | Out-Null }
+    & git -C $dir add -A 2>&1 | Out-Null
+    & git -C $dir -c user.email='t@example.invalid' -c user.name='t' commit -qm 'seed' 2>&1 | Out-Null
+    return $dir
+}
 
 # Define the REAL Get-FetchExecuteEnvPrefix by lifting its source out of the
 # module (parser find), so a refactor that drops the digest prefix breaks here.
@@ -157,6 +177,79 @@ Describe 'Get-YurunaGitHubSource / ConvertTo-GitHubRepoSlug' {
         $s = Get-YurunaGitHubSource -RepoRoot $repoRoot
         Assert-True ($s.Repo -match '^[^/]+/[^/]+$') "repo slug shape, got '$($s.Repo)'"
         Assert-True ($s.Ref  -match '^[0-9a-f]{40}$') "commit sha shape, got '$($s.Ref)'"
+    }
+
+    # Repo and Ref address ONE blob on raw.githubusercontent.com. Ref is always
+    # this checkout's HEAD, so a slug taken from anywhere else builds a URL for a
+    # commit that repository does not contain -- a 404 no token can open, and one
+    # that reads as a permissions problem rather than the mismatch it is.
+    It 'takes the slug from the checkout, not from a frameworkUrl naming another repo' {
+        $dir = Get-GitHubSourceFixture -RemoteUrl 'https://github.com/owner/checkout-repo.git' `
+                                       -FrameworkUrl 'https://github.com/owner/configured-repo'
+        try {
+            $s = Get-YurunaGitHubSource -RepoRoot $dir -WarningAction SilentlyContinue
+            Assert-Equal $s.Repo 'owner/checkout-repo' -Because 'the slug must name the repository the commit came from'
+            Assert-Equal $s.Ref (& git -C $dir rev-parse HEAD).Trim() -Because 'the ref is still this checkout HEAD'
+        } finally { Remove-Item -Recurse -Force $dir -ErrorAction SilentlyContinue }
+    }
+
+    It 'reports the disagreement instead of silently preferring one side' {
+        $dir = Get-GitHubSourceFixture -RemoteUrl 'https://github.com/owner/checkout-repo.git' `
+                                       -FrameworkUrl 'https://github.com/owner/configured-repo'
+        try {
+            $w = @()
+            $null = Get-YurunaGitHubSource -RepoRoot $dir -WarningVariable w -WarningAction SilentlyContinue
+            Assert-True ($w.Count -gt 0) 'a repo mismatch must be reported'
+            Assert-True ("$w" -match 'checkout-repo')   'the warning names the checkout repository'
+            Assert-True ("$w" -match 'configured-repo') 'the warning names the configured repository'
+        } finally { Remove-Item -Recurse -Force $dir -ErrorAction SilentlyContinue }
+    }
+
+    It 'stays quiet when the checkout and the configured URL agree' {
+        $dir = Get-GitHubSourceFixture -RemoteUrl 'https://github.com/owner/same-repo.git' `
+                                       -FrameworkUrl 'https://github.com/owner/same-repo'
+        try {
+            $w = @()
+            $s = Get-YurunaGitHubSource -RepoRoot $dir -WarningVariable w -WarningAction SilentlyContinue
+            Assert-Equal $s.Repo 'owner/same-repo' -Because 'the agreed slug is used'
+            Assert-Equal $w.Count 0 -Because 'agreement is not worth a warning'
+        } finally { Remove-Item -Recurse -Force $dir -ErrorAction SilentlyContinue }
+    }
+
+    # A checkout with no remote cannot prove where HEAD lives, so the configured
+    # URL is the only candidate left. It is still offered -- a fallback that might
+    # work beats none -- but not silently, because the 404 it can produce looks
+    # exactly like a missing token.
+    It 'falls back to frameworkUrl only when the checkout has no remote, and says so' {
+        $dir = Get-GitHubSourceFixture -RemoteUrl '' -FrameworkUrl 'https://github.com/owner/configured-repo'
+        try {
+            $w = @()
+            $s = Get-YurunaGitHubSource -RepoRoot $dir -WarningVariable w -WarningAction SilentlyContinue
+            Assert-Equal $s.Repo 'owner/configured-repo' -Because 'with no remote, the configured URL is all there is'
+            Assert-True ($w.Count -gt 0) 'the unproven pairing must be reported'
+        } finally { Remove-Item -Recurse -Force $dir -ErrorAction SilentlyContinue }
+    }
+
+    It 'keeps frameworkUrl as the clone URL even when the fetch slug differs' {
+        # FrameworkUrl answers "where do I clone the framework from", which is a
+        # different question from "where do these exact bytes live". Only the
+        # second has to agree with the pinned commit.
+        $dir = Get-GitHubSourceFixture -RemoteUrl 'https://github.com/owner/checkout-repo.git' `
+                                       -FrameworkUrl 'https://github.com/owner/configured-repo'
+        try {
+            $s = Get-YurunaGitHubSource -RepoRoot $dir -WarningAction SilentlyContinue
+            Assert-Equal $s.FrameworkUrl 'https://github.com/owner/configured-repo' -Because 'the clone URL still comes from config'
+        } finally { Remove-Item -Recurse -Force $dir -ErrorAction SilentlyContinue }
+    }
+
+    It 'ignores a non-GitHub remote so a mirror cannot become the fetch source' {
+        $dir = Get-GitHubSourceFixture -RemoteUrl 'https://gitlab.com/owner/mirror.git' `
+                                       -FrameworkUrl 'https://github.com/owner/configured-repo'
+        try {
+            $s = Get-YurunaGitHubSource -RepoRoot $dir -WarningAction SilentlyContinue
+            Assert-Equal (Get-YurunaCheckoutRemoteUrl -RepoRoot $dir) '' -Because 'a non-GitHub remote cannot serve raw content'
+            Assert-Equal $s.Repo 'owner/configured-repo' -Because 'so the configured URL answers instead'
+        } finally { Remove-Item -Recurse -Force $dir -ErrorAction SilentlyContinue }
     }
 }
 

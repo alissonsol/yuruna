@@ -4,6 +4,16 @@ Yuruna uses [Calendar Versioning](https://calver.org/): `YYYY.MM.DD`.
 Tags are cut from the `main` branch; entries below summarize each
 tagged release.
 
+## 2026.08.03
+
+- **A setup run can be told to say everything.** `install/setup.ps1` takes
+  `-logLevel Error|Warning|Information|Verbose|Debug`, and the level reaches
+  every script the run starts — down to the per-guest image and VM builders — so
+  a bring-up that failed inside a child can be repeated with the whole chain
+  verbose. The run log is written in full at every level; the level decides what
+  also reaches the terminal. See
+  [loglevels.md](docs/loglevels.md#a-setup-run-is-the-deepest-chain-of-it).
+
 ## 2026.08.02
 
 - **A setup run leaves a record.** `install/setup.ps1` now writes
@@ -301,6 +311,6 @@ LICENSEURI <https://yuruna.link/license>
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.02
+Last review: 2026.08.03
 
 Back to [Yuruna](README.md)

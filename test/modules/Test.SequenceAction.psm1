@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.02
+.VERSION 2026.08.03
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456726
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -104,7 +104,8 @@ function Register-SequenceAction {
             'host_io_blocked','pattern_matched_failure','retry_exhausted',
             'snapshot_restore_failed','script_error','wait_timeout',
             'extension_error','instrumentation_failure','provisioning_failure',
-            'bootstrap_sync','plan_invalid','elevation_required','project_access_denied','unknown')]
+            'bootstrap_sync','plan_invalid','elevation_required','project_access_denied',
+            'host_network_degraded','unknown')]
         [string]$FailureClass = 'unknown',
         [ValidateSet('hard','soft','unknown')]
         [string]$Severity = 'unknown',
@@ -160,7 +161,8 @@ if (Get-Command Assert-FailureTaxonomyInSync -ErrorAction SilentlyContinue) {
             'host_io_blocked','pattern_matched_failure','retry_exhausted',
             'snapshot_restore_failed','script_error','wait_timeout',
             'extension_error','instrumentation_failure','provisioning_failure',
-            'bootstrap_sync','plan_invalid','elevation_required','project_access_denied','unknown') `
+            'bootstrap_sync','plan_invalid','elevation_required','project_access_denied',
+            'host_network_degraded','unknown') `
         -Severity @('hard','soft','unknown')
 }
 

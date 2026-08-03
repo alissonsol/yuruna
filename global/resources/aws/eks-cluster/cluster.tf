@@ -49,7 +49,6 @@ module "eks" {
   # identity, so it needs an admin access entry.
   enable_cluster_creator_admin_permissions = true
 
-  # IPV6
   ip_family                  = "ipv6"
   create_cni_ipv6_iam_policy = true
 
@@ -227,7 +226,6 @@ module "eks" {
       ]
     }
 
-    # Complete
     complete = {
       name            = "complete-eks-mng"
       use_name_prefix = true

@@ -38,14 +38,17 @@ machine; every other machine only points at them.
 > pwsh install/setup.ps1                              # choose "Lab"
 > pwsh install/setup.ps1 -WhatIf                      # print the ordered task list, change nothing
 > pwsh install/setup.ps1 -AnswerFile lab-answers.yml  # unattended
+> pwsh install/setup.ps1 -logLevel Debug              # after a step failed inside a child script
 > ```
 >
 > An interactive run writes what you answered to
 > `install/setup.answers.lab.yml` — feed that back with `-AnswerFile` to build the
-> next beacon the same way. The lab keys are `lab.name` and
-> `lab.createDefaultPool` on top of the standalone set
+> next beacon the same way. The only lab key is `lab.name` on top of the
+> standalone set
 > ([operator.md A.0](operator.md#a0-shortcut-the-standalone-setup-script) lists
-> them all); an unattended `storage.kind: local` run also needs
+> them all) — the `default` pool is not a choice: every run inspects the pool
+> storage it configured and creates that pool in the intent store when none is
+> there, leaving an existing one untouched. An unattended `storage.kind: local` run also needs
 > `storage.localRoot`, or it stops and names the key rather than hanging on the
 > storage script's own prompt.
 >
@@ -727,7 +730,7 @@ pwsh test/Set-PoolTestSet.ps1 -PoolId poolb -Name testset2 -FrameworkUrl <framew
 ```
 
 A pool holds exactly one `testSet`; assigning replaces the previous
-one. Members do not split the work: from its next cycle, every poola
+one. Members do not split the work: from its next cycle, every `poola`
 member clones `<project-a-url>` and runs that project's full
 `test.runner.yml` plan, reporting under the pool.
 
@@ -779,6 +782,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.02
+Last review: 2026.08.03
 
 Back to [Yuruna](../README.md)

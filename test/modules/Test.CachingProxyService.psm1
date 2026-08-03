@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.02
+.VERSION 2026.08.03
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456821
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -629,6 +629,8 @@ function Get-PoolAggregatorServiceClaim {
 .OUTPUTS
     [System.Collections.Generic.List[hashtable]] of @{ Address; Source }.
 #>
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseOutputTypeCorrectly', '',
+        Justification = 'The `return ,$claims` idiom below is what makes the caller receive the declared List[hashtable]. Static analysis reads the comma as an [object[]] wrapper; at runtime the pipeline unwraps it and the caller gets the list, whose .Count every caller reads.')]
     [CmdletBinding()]
     [OutputType([System.Collections.Generic.List[hashtable]])]
     param()

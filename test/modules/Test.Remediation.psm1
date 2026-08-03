@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.02
+.VERSION 2026.08.03
 .GUID 42d6f5e4-b3a2-4c91-8076-2e3f4a5b6c92
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -625,6 +625,28 @@ function Register-BuiltinRecoveryHandler {
                 'On the console, install the runner drop-in: the failure message carries the exact /etc/sudoers.d/yuruna-runner rule',
                 'Validate it with visudo -cf before relying on it -- an invalid drop-in breaks sudo for every command',
                 'Re-launch test/Invoke-TestRunner.ps1; its startup elevation gate confirms the host before the first cycle'
+            )
+        }
+    }
+
+    Register-RecoveryHandler -FailureClass 'host_network_degraded' -Handler {
+        param([hashtable]$c)
+        # The failing record MAY carry the host-network detail (which switch, and
+        # which verdict the driver's classifier returned). Both are optional:
+        # read them off the raw record and degrade to generic wording, so this
+        # handler never depends on a producer that has not filled them in.
+        $rec = if ($c.Failure -is [System.Collections.IDictionary]) { $c.Failure } else { @{} }
+        $verdict = if ($rec.Contains('hostNetworkVerdict') -and $rec['hostNetworkVerdict']) { [string]$rec['hostNetworkVerdict'] } else { '' }
+        $switchName = if ($rec.Contains('hostNetworkSwitch') -and $rec['hostNetworkSwitch']) { [string]$rec['hostNetworkSwitch'] } else { '' }
+        $verdictText = if ($verdict) { "verdict '$verdict'" } else { 'the recorded verdict' }
+        $switchText = if ($switchName) { "the external switch '$switchName'" } else { "the host's external switch" }
+        return @{
+            Recommendation = 'operator_intervention_required'
+            Rationale      = "host_network_degraded on $($c.Context.vmName): the guest-network path the HOST provides is broken, not this guest. A virtual switch object outlives its uplink binding across a host reboot, so the switch still exists and every host check still passes while nothing attached to it forwards -- each guest can only report its own symptom. Retrying, on this cycle or a later one, attaches the next guest to the same carrier-less bridge, so this class never enters the transient retry allow-lists and is not counted toward a per-guest quarantine streak."
+            Actions        = @(
+                "On the host console, inspect $switchText ($verdictText): Get-VMSwitch, then Get-NetAdapter for the description it names",
+                "Restore the binding the verdict points at -- Set-VMSwitch -Name <switch> -NetAdapterName <nic> for a lost uplink, or -AllowManagementOS `$true for a missing management vNIC -- knowing it briefly interrupts the host's own network",
+                'Until it is restored, guests keep provisioning on the NAT fallback switch and reach the host only through its port-forwarders'
             )
         }
     }

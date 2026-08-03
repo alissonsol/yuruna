@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.02
+.VERSION 2026.08.03
 .GUID 421f2a9e-4b6d-4e83-9a5c-2d8e1f0b3c47
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -23,6 +23,41 @@
 # call time and Get-Command-guarded. See docs/failure-schema.md.
 
 $script:GuestQuarantineFileName = 'runner.quarantine.json'
+
+# Failure classes whose cause lives on the HOST, not in any one guest. The
+# circuit breaker counts a per-guest same-class streak, so a host-scoped fault
+# -- which produces the identical class on every network-touching guest at the
+# same time -- would trip quarantine on all of them within failuresToQuarantine
+# cycles and then SKIP them, leaving a green cycle over a broken host. These
+# classes therefore never start or extend a streak: the breaker exists to
+# suppress a guest that is individually broken, and a host fault is neither
+# suppressible nor attributable to the guest that reported it.
+$script:HostScopedFailureClass = @('host_network_degraded')
+
+function Get-GuestQuarantineHostScopedClass {
+    <#
+    .SYNOPSIS
+        The failureClass values exempt from per-guest streak accumulation
+        because their cause is host-scoped.
+    #>
+    [CmdletBinding()]
+    [OutputType([string[]])]
+    param()
+    return [string[]]$script:HostScopedFailureClass
+}
+
+function Test-GuestQuarantineHostScopedClass {
+    <#
+    .SYNOPSIS
+        $true when this failureClass is host-scoped and must not accumulate a
+        per-guest quarantine streak.
+    #>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param([AllowNull()][string]$FailureClass)
+    if ([string]::IsNullOrWhiteSpace($FailureClass)) { return $false }
+    return ($script:HostScopedFailureClass -contains ([string]$FailureClass))
+}
 
 function Get-GuestQuarantineUtcNow {
     <#
@@ -102,10 +137,13 @@ function Add-GuestQuarantineFailure {
     .SYNOPSIS
         Record a guest failure of the given class into $State (mutated in place):
         extend the same-class streak (or reset it on a class change), and trip
-        quarantine once the streak reaches -FailuresToQuarantine.
+        quarantine once the streak reaches -FailuresToQuarantine. A host-scoped
+        class leaves $State untouched (see $script:HostScopedFailureClass).
     .OUTPUTS
         [hashtable] NewlyQuarantined [bool], ConsecutiveFailures [int],
-        FailureClass [string] (normalized, 'unknown' when blank).
+        FailureClass [string] (normalized, 'unknown' when blank),
+        HostScoped [bool] ($true when the class was exempted and nothing was
+        counted).
     #>
     [CmdletBinding()]
     [OutputType([hashtable])]
@@ -119,6 +157,16 @@ function Add-GuestQuarantineFailure {
         [Parameter(Mandatory)][int]$SkipCycles
     )
     $fc = if ([string]::IsNullOrWhiteSpace($FailureClass)) { 'unknown' } else { [string]$FailureClass }
+    # Host-scoped fault: report it, count nothing. An existing streak from a
+    # genuine per-guest class is left standing rather than reset, so the host
+    # outage neither hides that guest's own history nor manufactures a new one.
+    if (Test-GuestQuarantineHostScopedClass -FailureClass $fc) {
+        $tracked = 0
+        if (($State.guests -is [System.Collections.IDictionary]) -and $State.guests.Contains($GuestKey)) {
+            $tracked = [int]$State.guests[$GuestKey].consecutiveFailures
+        }
+        return @{ NewlyQuarantined = $false; ConsecutiveFailures = $tracked; FailureClass = $fc; HostScoped = $true }
+    }
     if (-not ($State.guests -is [System.Collections.IDictionary])) { $State.guests = @{} }
     if (-not $State.guests.Contains($GuestKey)) {
         $State.guests[$GuestKey] = @{
@@ -147,7 +195,7 @@ function Add-GuestQuarantineFailure {
         $e.quarantinedAtUtc           = (Get-GuestQuarantineUtcNow)
         $newly = $true
     }
-    return @{ NewlyQuarantined = $newly; ConsecutiveFailures = [int]$e.consecutiveFailures; FailureClass = $fc }
+    return @{ NewlyQuarantined = $newly; ConsecutiveFailures = [int]$e.consecutiveFailures; FailureClass = $fc; HostScoped = $false }
 }
 
 function Clear-GuestQuarantineEntry {
@@ -314,7 +362,8 @@ function Register-GuestQuarantineOutcome {
         the guest_quarantined NDJSON event.
     .OUTPUTS
         [hashtable] NewlyQuarantined [bool], ConsecutiveFailures [int],
-        FailureClass [string], QuarantinedUntilCommit [string].
+        FailureClass [string], QuarantinedUntilCommit [string],
+        HostScoped [bool].
     #>
     [CmdletBinding()]
     [OutputType([hashtable])]
@@ -335,12 +384,17 @@ function Register-GuestQuarantineOutcome {
     if ($Outcome -eq 'pass') {
         Clear-GuestQuarantineEntry -State $state -GuestKey $GuestKey
         [void](Save-GuestQuarantineState -Path $path -State $state)
-        return @{ NewlyQuarantined = $false; ConsecutiveFailures = 0; FailureClass = ''; QuarantinedUntilCommit = '' }
+        return @{ NewlyQuarantined = $false; ConsecutiveFailures = 0; FailureClass = ''; QuarantinedUntilCommit = ''; HostScoped = $false }
     }
     $r = Add-GuestQuarantineFailure -State $state -GuestKey $GuestKey -FailureClass $FailureClass `
         -GitCommit $GitCommit -ProjectGitCommit $ProjectGitCommit `
         -FailuresToQuarantine $FailuresToQuarantine -SkipCycles $SkipCycles
-    [void](Save-GuestQuarantineState -Path $path -State $state)
+    # An exempted host-scoped failure changed nothing, so there is nothing to
+    # persist; skipping the write also keeps the file's savedAt honest about
+    # when the ledger last actually moved.
+    if (-not [bool]$r.HostScoped) {
+        [void](Save-GuestQuarantineState -Path $path -State $state)
+    }
     if ($r.NewlyQuarantined -and (Get-Command Send-CycleEventSafely -ErrorAction SilentlyContinue)) {
         $ev = New-GuestQuarantineEvent -GuestKey $GuestKey -VmName $VmName -FailureClass $r.FailureClass `
             -ConsecutiveFailures $r.ConsecutiveFailures -SkipCycles $SkipCycles `
@@ -352,10 +406,12 @@ function Register-GuestQuarantineOutcome {
         ConsecutiveFailures    = [int]$r.ConsecutiveFailures
         FailureClass           = [string]$r.FailureClass
         QuarantinedUntilCommit = if ($null -eq $GitCommit) { '' } else { [string]$GitCommit }
+        HostScoped             = [bool]$r.HostScoped
     }
 }
 
 Export-ModuleMember -Function `
     New-GuestQuarantineState, Get-GuestQuarantineDecision, Add-GuestQuarantineFailure, `
     Clear-GuestQuarantineEntry, New-GuestQuarantineEvent, Read-GuestQuarantineState, `
-    Save-GuestQuarantineState, Invoke-GuestQuarantineGate, Register-GuestQuarantineOutcome
+    Save-GuestQuarantineState, Invoke-GuestQuarantineGate, Register-GuestQuarantineOutcome, `
+    Get-GuestQuarantineHostScopedClass, Test-GuestQuarantineHostScopedClass

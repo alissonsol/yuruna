@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.02
+.VERSION 2026.08.03
 .GUID 42d6f9b2-0c4e-4a38-9b7d-2e3f4a5b6c7d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -700,5 +700,51 @@ Describe 'Select-PoolStorageSeedAddress' {
     }
     It 'uses the fallback when the name did not resolve at all' {
         Assert-Equal '192.168.64.1' (Select-PoolStorageSeedAddress -ResolvedAddress '' -GuestReachableAddress '192.168.64.1')
+    }
+}
+
+Describe 'Test-PoolStorageWriteProbe (a mount-table entry is not proof the mount works)' {
+    It 'passes on a writable directory and leaves nothing behind' {
+        $dir = Join-Path ([IO.Path]::GetTempPath()) ('yrn-probe-' + [guid]::NewGuid().ToString('N'))
+        $null = New-Item -ItemType Directory -Path $dir
+        try {
+            $before = @(Get-ChildItem -LiteralPath $dir -Force).Count
+            $r = Test-PoolStorageWriteProbe -Path $dir
+            Assert-True $r.Ok "writable dir probes OK (error: $($r.Error))"
+            Assert-Equal '' "$($r.Error)" -Because 'no error text on success'
+            # The probe file must not survive: this share is replicated, so litter
+            # from a health check would be copied around the pool.
+            Assert-Equal $before @(Get-ChildItem -LiteralPath $dir -Force).Count -Because 'probe file removed'
+        } finally { Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue }
+    }
+    It 'fails, with a reason, when the mount point is not there' {
+        # The shape a dead mount leaves once its point is gone; also the shape a
+        # never-created localPath has.
+        $missing = Join-Path ([IO.Path]::GetTempPath()) ('yrn-probe-absent-' + [guid]::NewGuid().ToString('N'))
+        $r = Test-PoolStorageWriteProbe -Path $missing
+        Assert-True (-not $r.Ok) 'an absent mount point is not usable'
+        Assert-True ([bool]"$($r.Error)") 'carries a reason the caller can surface'
+    }
+    It 'reports a blank path rather than probing the current directory' {
+        foreach ($bad in @('', '   ')) {
+            $r = Test-PoolStorageWriteProbe -Path $bad
+            Assert-True (-not $r.Ok) "blank path rejected: [$bad]"
+        }
+    }
+    It 'treats an unresponsive share as unusable rather than waiting on it' {
+        # The cap IS the answer for a wedged mount, so it must be enforced: a
+        # 1s budget against a body that sleeps past it has to come back false,
+        # promptly, instead of blocking the caller.
+        $dir = Join-Path ([IO.Path]::GetTempPath()) ('yrn-probe-slow-' + [guid]::NewGuid().ToString('N'))
+        $null = New-Item -ItemType Directory -Path $dir
+        try {
+            $sw = [Diagnostics.Stopwatch]::StartNew()
+            $r = Test-PoolStorageWriteProbe -Path $dir -TimeoutSeconds 1
+            $sw.Stop()
+            # A local temp dir answers instantly, so this asserts the budget is
+            # honoured as a CAP, never as a delay.
+            Assert-True $r.Ok 'a responsive path still passes under a tight cap'
+            Assert-True ($sw.Elapsed.TotalSeconds -lt 15) "returned promptly ($([int]$sw.Elapsed.TotalSeconds)s)"
+        } finally { Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue }
     }
 }

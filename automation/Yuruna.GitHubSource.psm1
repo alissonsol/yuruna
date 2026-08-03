@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.02
+.VERSION 2026.08.03
 .GUID 42b7c1d9-3e5a-4f26-9c84-6d1f0a7b2e53
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -72,17 +72,67 @@ function ConvertTo-GitHubRepoSlug {
     return ('{0}/{1}' -f $m.Groups[1].Value, $m.Groups[2].Value)
 }
 
+function Get-YurunaCheckoutRemoteUrl {
+    <#
+    .SYNOPSIS
+        The GitHub remote URL of the checkout at RepoRoot, or '' when it has none.
+    .DESCRIPTION
+        'origin' first, then any other configured remote, so a checkout whose
+        upstream is named something else still resolves. Each name is read with
+        the porcelain first and the raw config value second: `remote get-url`
+        applies url.<base>.insteadOf rewrites, which is usually what is wanted,
+        but it is absent from very old git and returns nothing for a remote that
+        exists only as a bare config entry.
+
+        Only a remote that reduces to a GitHub slug is accepted; a mirror on
+        another host cannot serve raw.githubusercontent.com content, so skipping
+        it lets a later remote answer instead.
+    .PARAMETER RepoRoot
+        Absolute path to the repository root.
+    .OUTPUTS
+        [string] the remote URL, or '' when no remote resolves to a GitHub slug.
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([Parameter(Mandatory)][string]$RepoRoot)
+
+    $names = @('origin')
+    $configured = & git -C $RepoRoot remote 2>$null
+    if ($LASTEXITCODE -eq 0 -and $configured) { $names += @($configured | ForEach-Object { "$_".Trim() }) }
+
+    foreach ($name in ($names | Where-Object { $_ } | Select-Object -Unique)) {
+        foreach ($read in @({ & git -C $RepoRoot remote get-url $name 2>$null },
+                            { & git -C $RepoRoot config --get "remote.$name.url" 2>$null })) {
+            $url = & $read
+            if ($LASTEXITCODE -ne 0 -or -not $url) { continue }
+            $url = ([string]$url).Trim()
+            if (ConvertTo-GitHubRepoSlug -Url $url) { return $url }
+        }
+    }
+    return ''
+}
+
 function Get-YurunaGitHubSource {
     <#
     .SYNOPSIS
         The repo slug, commit, and token a guest needs to fetch this host's code
         from GitHub.
     .DESCRIPTION
-        Repo comes from test.config.yml's repositories.frameworkUrl -- the same
-        URL the guest update scripts clone from, so the fallback and the clone
-        can never disagree about which repository "the framework" is. If that is
-        missing or unparseable, the git remote of RepoRoot answers the same
-        question and is used instead.
+        Repo and Ref MUST name the same repository, so both are read from the
+        checkout at RepoRoot: the slug from its git remote, the commit from its
+        HEAD. Taking the slug from a configured URL instead lets the two disagree
+        whenever the checkout came from somewhere else -- a host running a
+        published mirror of the repository the config names is the ordinary way
+        that happens -- and the resulting URL is a commit that does not exist in
+        the repository it is asked for, which can only 404. A token cannot fix
+        that, and the 404 reads as "private repo, no token" instead.
+
+        repositories.frameworkUrl still supplies FrameworkUrl, the CLONE url a
+        cut-off guest needs. That is a different question from "where do these
+        exact bytes live", and only the second one has to agree with Ref. When
+        the two name different repositories the mismatch is reported, because a
+        config pointing somewhere the checkout never came from is worth knowing
+        about either way.
 
         Ref is RepoRoot's HEAD commit, never a branch name. A branch moves; the
         digest the host computed from its working tree does not. Pinning the
@@ -128,7 +178,6 @@ function Get-YurunaGitHubSource {
                 if ($repositories -is [System.Collections.IDictionary]) {
                     if ($repositories.Contains('frameworkUrl')) {
                         $result.FrameworkUrl = ([string]$repositories['frameworkUrl']).Trim()
-                        $result.Repo = ConvertTo-GitHubRepoSlug -Url $result.FrameworkUrl
                     }
                     if ($repositories.Contains('projectUrl')) {
                         $result.ProjectUrl = ([string]$repositories['projectUrl']).Trim()
@@ -143,10 +192,28 @@ function Get-YurunaGitHubSource {
         }
     }
 
+    # The checkout answers first, because Ref below comes from the same checkout
+    # and the pair is only usable when both name one repository.
+    $remoteUrl    = Get-YurunaCheckoutRemoteUrl -RepoRoot $RepoRoot
+    $remoteSlug   = ConvertTo-GitHubRepoSlug -Url $remoteUrl
+    $configSlug   = ConvertTo-GitHubRepoSlug -Url $result.FrameworkUrl
+    $result.Repo  = $remoteSlug
+
+    if ($remoteSlug -and $configSlug -and ($remoteSlug -ne $configSlug)) {
+        Write-Warning ("This checkout came from '$remoteSlug' but repositories.frameworkUrl names '$configSlug'. " +
+                       "Serving the guest fallback from '$remoteSlug' so it matches the commit being pinned; " +
+                       "a commit from one repository cannot be fetched from the other. " +
+                       'Point frameworkUrl at the repository this host actually tracks, or run the host from a checkout of it.')
+    }
     if (-not $result.Repo) {
-        $remote = & git -C $RepoRoot remote get-url origin 2>$null
-        if ($LASTEXITCODE -eq 0 -and $remote) {
-            $result.Repo = ConvertTo-GitHubRepoSlug -Url ([string]$remote).Trim()
+        # No GitHub remote at all: the configured URL is the only candidate left.
+        # HEAD then has no proven relationship to it, so this is a best effort --
+        # said out loud, because the failure it produces (a 404 on a commit that
+        # exists only here) otherwise reads as a permissions problem.
+        $result.Repo = $configSlug
+        if ($result.Repo) {
+            Write-Warning ("This checkout has no GitHub remote, so the guest fallback falls back to repositories.frameworkUrl " +
+                           "('$($result.Repo)'). Its HEAD commit may not exist there, in which case the fallback 404s.")
         }
     }
     if (-not $result.FrameworkUrl -and $result.Repo) {
@@ -197,4 +264,4 @@ function Test-YurunaFileMatchesHead {
     return [string]::IsNullOrWhiteSpace(($status | Out-String))
 }
 
-Export-ModuleMember -Function ConvertTo-GitHubRepoSlug, Get-YurunaGitHubSource, Test-YurunaFileMatchesHead
+Export-ModuleMember -Function ConvertTo-GitHubRepoSlug, Get-YurunaCheckoutRemoteUrl, Get-YurunaGitHubSource, Test-YurunaFileMatchesHead

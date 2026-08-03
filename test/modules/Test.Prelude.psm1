@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.02
+.VERSION 2026.08.03
 .GUID 42ab19c1-07c0-4d84-be69-80c4f1c780a8
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -239,6 +239,11 @@ function Initialize-YurunaEntryPointModuleSet {
             # time (its callees resolve at runtime), so it loads after the planner.
             'Test.Orchestrator.psm1',
             'Test.CachingProxyService.psm1', 'Test.CachingProxyServiceLock.psm1', 'Test.Perf.psm1',
+            # Test.ServiceVm: the service-VM roster + the cycle-start restore that
+            # starts a service left registered-but-stopped by a host reboot. Leaf
+            # at load time -- it resolves the per-host VM contract by name at CALL
+            # time, so loading it here (before Initialize-YurunaHost) is correct.
+            'Test.ServiceVm.psm1',
             'Test.HostIO.psm1', 'Test.Capability.psm1',
             # Test.PoolPlanner: resolve a pool's test-sets into this
             # host's runnable cycle plan. After Test.SequencePlanner + Test.Capability

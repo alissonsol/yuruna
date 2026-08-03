@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.02
+.VERSION 2026.08.03
 .GUID 42e5f6a7-b8c9-4d12-9345-6e7f8a9b0c1d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -128,7 +128,17 @@ function Test-OuterNewCommitsAvailable {
     if ((Invoke-OuterNetworkGit -ArgumentList @('-C', $RepoRoot, 'fetch', '--quiet', 'origin') -TimeoutSeconds 45).ExitCode -ne 0) { return $false }
     $upstream = & git -C $RepoRoot rev-parse '@{u}' 2>$null
     if ($LASTEXITCODE -ne 0 -or -not $upstream) { return $false }
-    return (([string]$upstream).Trim() -ne $BaselineSha)
+    if (([string]$upstream).Trim() -eq $BaselineSha) { return $false }
+    # Differing from the baseline is necessary but not sufficient. A clone
+    # holding a local commit that was never pushed differs from the upstream
+    # tip permanently, so a tip-vs-HEAD comparison alone reports "new commits"
+    # on every poll forever: the failure pause then breaks at the first poll
+    # each cycle, the backoff cap never applies, and the console announces
+    # upstream commits that do not exist. Only commits this clone does NOT
+    # have are new, which is what the behind-count answers.
+    $behind = & git -C $RepoRoot rev-list --count 'HEAD..@{u}' 2>$null
+    if ($LASTEXITCODE -ne 0 -or -not $behind) { return $false }
+    return ([int]([string]$behind).Trim() -gt 0)
 }
 
 function Invoke-OuterGitPull {
@@ -159,7 +169,17 @@ function Invoke-OuterGitPull {
             Write-GitAuthRefreshBanner -RemoteUrl ("$remoteUrl".Trim()) -GitOutput $pull.Output
         }
     }
-    return ($pull.ExitCode -eq 0)
+    if ($pull.ExitCode -ne 0) { return $false }
+    # Exit 0 is not proof the working copy is usable. Every yuruna clone runs
+    # with rebase.autoStash, so a pull against a dirty worktree can fast-forward
+    # and then fail to re-apply the stash -- git writes conflict markers into
+    # the sources and still exits 0. Spawning the inner runner on that checkout
+    # executes .ps1/.psm1 files containing '<<<<<<<'.
+    if ((Get-Command Test-GitWorktreeMerged -ErrorAction SilentlyContinue) -and
+        -not (Test-GitWorktreeMerged -RepoRoot $RepoRoot -Label 'framework repository')) {
+        return $false
+    }
+    return $true
 }
 
 function Get-OuterRemoteSha {
@@ -842,29 +862,8 @@ function Invoke-RunnerOuterCycle {
         }
         Write-Output "[outer cycle $cycle] spawning inner pwsh... (local time: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss zzz'))"
         Write-OuterLog "[outer cycle $cycle] about to invoke inner pwsh"
-        # Wipe last cycle's inner.pid + runner.stepHeartbeat BEFORE
-        # arming the watchdog. Without this, Start-Watchdog's wait-
-        # for-pidfile loop sees the stale file from the previous cycle
-        # and skips the wait entirely; it then reads the dead PID,
-        # observes Get-Process returns nothing, and disarms in <60s
-        # -- leaving the new inner unwatched for the whole cycle. A
-        # stale runner.stepHeartbeat has the symmetric trap: the
-        # watchdog would see a 7h-old mtime and kill the new inner
-        # before it even started its first step.
-        #
-        # last_failure.json is wiped here too. Invoke-Sequence removes
-        # it at the start of each sequence within a cycle, but between
-        # the previous cycle's failure and the new cycle's first
-        # sequence there is a multi-second window where a dashboard /
-        # status-service reader sees stale cycle-N failure context
-        # attached to cycle N+1. Pre-spawn deletion closes that window.
-        #
-        # runner.phase is wiped on the same principle as the two above. It
-        # selects the watchdog's TIGHT preamble bound, so a copy left behind by
-        # a killed inner would apply that bound to the next cycle's sequence
-        # steps and kill healthy long ones. The new inner re-creates it within
-        # its first second; until then its absence means the loose bound, which
-        # is the safe direction.
+        # Wipe last cycle's runtime files BEFORE arming the watchdog.
+        # --- REGION: https://yuruna.link/runner-outer-loop#pre-spawn-cleanup-ordering
         $innerPidFile    = Join-Path $env:YURUNA_RUNTIME_DIR 'inner.pid'
         $stepHbFile      = Join-Path $env:YURUNA_RUNTIME_DIR 'runner.stepHeartbeat'
         $phaseFile       = Join-Path $env:YURUNA_RUNTIME_DIR 'runner.phase'

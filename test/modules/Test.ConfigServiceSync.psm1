@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.02
+.VERSION 2026.08.03
 .GUID 42d7f3b9-5c1e-4a80-9e2d-7f8a9b0c1d2e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -1135,7 +1135,56 @@ function Test-ConfigSyncReferenceFreshness {
     return $result
 }
 
+<#
+.SYNOPSIS
+    Copies test.config.yml from a reference host's status service onto this host,
+    converting it to this host's platform and schema on the way.
+
+.DESCRIPTION
+    The reference host is the source of truth: its config is fetched over HTTP
+    from /control/test-config, merged onto this host's template, backed up, and
+    written to test/test.config.yml.
+
+    Before anything is written the reference is checked against this checkout's
+    template. Copying from a host that is behind the current schema lands a
+    half-migrated config -- keys the reference lacks fall back to template
+    defaults and keys it still spells the retired way are read by nothing -- so a
+    stale reference stops the run and asks, rather than surfacing at the next
+    cycle as an unexplained default.
+
+.PARAMETER ReferenceHost
+    Host name or IP whose status service serves the config to copy.
+
+.PARAMETER StatusPort
+    Status-service port on the reference host.
+
+.PARAMETER RepoRoot
+    Repository root to write into. Defaults to the checkout this module lives in.
+
+.PARAMETER SharedToken
+    Lab auth token for the fetch. Empty means read it from local config.
+
+.PARAMETER NonInteractive
+    Never prompt. A stale reference throws instead of asking, so a scripted run
+    fails with a message rather than stalling on a prompt nobody can answer.
+
+.PARAMETER SkipValidation
+    Skip the test/Test-Config.ps1 pass over the freshly written config.
+
+.PARAMETER NoPool
+    Leave the pool-storage keys and their sudoers drop-in alone.
+
+.PARAMETER AllowStaleReference
+    Accept a reference host that is behind this host's schema without asking.
+    This is the bypass for the freshness prompt -- see the note on ShouldContinue
+    at the gate itself.
+
+.OUTPUTS
+    [pscustomobject] Wrote, BackupPath, Warnings, ValidationExit.
+#>
 function Sync-HostConfiguration {
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidShouldContinueWithoutForce', '',
+        Justification = 'The bypass exists, it is just not spelled -Force: -AllowStaleReference is what answers this prompt unattended, and -NonInteractive turns it into a throw. A second switch meaning the same thing would leave callers guessing which one the gate reads.')]
     [CmdletBinding(SupportsShouldProcess)]
     [OutputType([pscustomobject])]
     param(

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.02
+.VERSION 2026.08.03
 .GUID 426d4f21-8a35-49be-b7e0-3d18f52a9c6b
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -82,7 +82,14 @@
           onFailure: stop           # stop | local -- see below
         lab:
           name: workshop
-          createDefaultPool: true
+
+    There is no lab.createDefaultPool key. A lab beacon always ends with a
+    'default' pool: the run inspects the pool storage it just configured and
+    creates the pool in that intent store when it carries none, leaving an
+    existing pool of that name untouched. A lab without a pool is a lab nothing
+    can enrol into, so declining it only ever produced a beacon that looked
+    finished. The key is warned about and ignored if an older answer file
+    still carries it.
 
     setup.projectUrl is never prompted for. A run with no answer file entry uses
     the $DefaultProjectUrl set at the top of the script, so an operator who does
@@ -103,6 +110,22 @@
     Continue an existing run log instead of opening a new one. The Windows
     elevated relaunch passes it to itself so one file holds the whole run; there
     is no reason to set it by hand.
+.PARAMETER logLevel
+    Error | Warning | Information | Verbose | Debug -- how much of the run
+    reaches the console. Each level shows itself and every higher-priority one,
+    so Debug shows everything. Omitted, the level comes from logLevel: in
+    test/test.config.yml, and from 'Information' when that file says nothing
+    either.
+
+    It does not stop at this script. The resolved level is published as
+    $env:YURUNA_LOG_LEVEL, and every script started from here -- down to the
+    per-guest image and VM builders -- reads it from the environment it
+    inherits, because PowerShell preference variables do not cross a process
+    boundary. So -logLevel Debug makes the WHOLE setup verbose, which is what a
+    bring-up that failed somewhere inside a child script needs.
+
+    The run log records what this script emits whatever the level is set to;
+    this only decides how much of it also reaches the terminal.
 .PARAMETER WhatIf
     Print the ordered task list and stop, changing nothing -- except the run log,
     which a preview writes like any other run. What the preview would do is
@@ -113,12 +136,17 @@
     pwsh install/setup.ps1 -WhatIf
 .EXAMPLE
     pwsh install/setup.ps1 -AnswerFile lab-answers.yml
+.EXAMPLE
+    pwsh install/setup.ps1 -logLevel Debug
+    Everything this script and every child script it starts can say.
 #>
 
 [CmdletBinding(SupportsShouldProcess)]
 param(
     [string]$AnswerFile = '',
-    [string]$LogPath = ''
+    [string]$LogPath = '',
+    [ValidateSet('Error', 'Warning', 'Information', 'Verbose', 'Debug', IgnoreCase = $true)]
+    [string]$logLevel
 )
 
 $ErrorActionPreference = 'Stop'
@@ -138,6 +166,63 @@ $ConfigPath = Join-Path $TestRoot 'test.config.yml'
 # one line to retarget every future run; an answer file's setup.projectUrl still
 # wins per-run, and '' there keeps whatever test.config.yml already has.
 $DefaultProjectUrl = 'https://github.com/alissonsol/yuruna-project'
+
+function Import-SetupModule {
+<#
+.SYNOPSIS
+    Import one of the repo's modules with the engine's load narration silenced.
+.DESCRIPTION
+    At -logLevel Verbose or Debug the engine prints an "Exporting function" line
+    per exported name, and a module that imports others prints theirs as well.
+    That is several hundred lines across the modules a setup run loads, and it
+    buries the output the operator raised the level to see.
+
+    -Verbose:$false on the call cannot suppress the NESTED imports -- those read
+    $global:VerbosePreference, not this cmdlet's bound parameters -- so the
+    preference itself is dropped for the duration and put back afterwards.
+#>
+    param([Parameter(Mandatory)][string]$Name)
+    $prior = $global:VerbosePreference
+    try {
+        $global:VerbosePreference = 'SilentlyContinue'
+        Import-Module $Name -Force -DisableNameChecking -Verbose:$false
+    } finally {
+        $global:VerbosePreference = $prior
+    }
+}
+
+# --- REGION: log level
+# The cascade every yuruna entry point shares -- command line beats
+# test.config.yml beats 'Information'. See docs/loglevels.md.
+#
+# Resolved here, before anything is written, for two reasons. The run log's
+# header records the level, so a transcript that is missing what someone
+# expected says why. And Resolve-LogLevel publishes $env:YURUNA_LOG_LEVEL, which
+# is the ONLY channel that reaches the child scripts: they run in their own pwsh
+# (see Invoke-RepoScript) and PowerShell preference variables do not survive a
+# process boundary. Every one of them calls Use-LogLevelFromEnv, so -logLevel
+# Debug here is -logLevel Debug in the storage script, the service-VM starts and
+# the per-guest builders those start in turn.
+Import-SetupModule (Join-Path $TestRoot 'modules/Test.LogLevel.psm1')
+# test.config.yml read line-wise rather than through Test.Config: this runs
+# before the preflight that proves powershell-yaml is installed, and on a fresh
+# machine before the step that CREATES the file. Anchored at column 0 so it is
+# the top-level key, not some section's own logLevel.
+$configLogLevel = ''
+if (Test-Path -LiteralPath $ConfigPath) {
+    foreach ($line in (Get-Content -LiteralPath $ConfigPath)) {
+        if ($line -match '^logLevel\s*:\s*([A-Za-z]+)') { $configLogLevel = $Matches[1]; break }
+    }
+}
+$LogLevelSource = if ($logLevel) { 'command line' }
+                  elseif ($configLogLevel) { 'test.config.yml' }
+                  else { 'default -- not set anywhere' }
+$EffectiveLogLevel = Test.LogLevel\Resolve-LogLevel -CmdLineLevel $logLevel -ConfigLevel $configLogLevel
+# Resolve-LogLevel writes the $global:* preferences. This script assigns its own
+# $InformationPreference above, and a script-scoped assignment shadows the global
+# for the whole file -- so without taking the resolved value back, -logLevel
+# Error and -logLevel Warning would quiet every child and none of these lines.
+$InformationPreference = $global:InformationPreference
 
 # --- REGION: run log
 # Every question asked, every answer taken and every message printed also lands
@@ -246,6 +331,7 @@ function Initialize-SetupLog {
             ('script      : {0}' -f $PSCommandPath)
             ('repo        : {0}' -f $RepoRoot)
             ('answer file : {0}' -f $(if ($AnswerFile) { $AnswerFile } else { '(none -- interactive run)' }))
+            ('log level   : {0} ({1})' -f $EffectiveLogLevel, $LogLevelSource)
             ('user        : {0}{1}' -f [Environment]::UserName, $elevated)
             ('machine     : {0}' -f [Environment]::MachineName)
             ('pwsh        : {0} on {1}' -f $PSVersionTable.PSVersion, [Environment]::OSVersion.VersionString)
@@ -418,6 +504,11 @@ function Invoke-RepoScript {
     ArgumentList (not a joined string) so each argument reaches the child as one
     argv entry: a storage root or lab name carrying a space must not be re-split
     on the way in -- the legacy-quoting regression class.
+
+    The child inherits this process's environment (UseShellExecute false, no
+    Environment edits here), and $env:YURUNA_LOG_LEVEL rides along in it. That is
+    what carries -logLevel down: preference variables stop at the process
+    boundary, the environment variable does not.
 #>
     param(
         [Parameter(Mandatory)][string]$Path,
@@ -519,6 +610,8 @@ function Get-LocalLabStorageArgument {
     only sanitises the name it invents for itself, so a machine whose hostname
     carries an underscore would pass its own check by hand and fail through us.
 #>
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseOutputTypeCorrectly', '',
+        Justification = 'The `return ,$argList` idiom below is what makes the caller receive one array rather than loose strings. Static analysis reads the comma as an [object[]] wrapper; at runtime the pipeline unwraps it and the caller gets the string[].')]
     [CmdletBinding()]
     [OutputType([string[]])]
     param(
@@ -562,8 +655,8 @@ function Get-StorageAliasTier {
     [CmdletBinding()]
     [OutputType([hashtable[]])]
     param()
-    Import-Module (Join-Path $TestRoot 'modules/Test.PoolStorage.psm1') -Force -DisableNameChecking
-    Import-Module (Join-Path $TestRoot 'modules/Test.Config.psm1') -Force -DisableNameChecking
+    Import-SetupModule (Join-Path $TestRoot 'modules/Test.PoolStorage.psm1')
+    Import-SetupModule (Join-Path $TestRoot 'modules/Test.Config.psm1')
     $tiers = [System.Collections.Generic.List[hashtable]]::new()
     $cfg = Read-TestConfig -Path $ConfigPath
     foreach ($storage in @(
@@ -582,21 +675,27 @@ function Import-YamlModule {
 <#
 .SYNOPSIS
     Import powershell-yaml without its alias creation narrating itself under
-    -WhatIf.
+    -WhatIf, or its exports under -logLevel Verbose.
 .DESCRIPTION
     powershell-yaml creates two aliases at import, and New-Alias supports
     ShouldProcess -- so a preview run prints "What if: New Alias" twice before
-    the task list it was actually asked for. The preference has to be cleared in
-    the GLOBAL scope: a module's top-level code resolves preference variables up
-    the module/global chain, not through the caller's dynamic scope, so setting
-    it locally (or in a child scope) has no effect.
+    the task list it was actually asked for. Both preferences have to be cleared
+    in the GLOBAL scope: a module's top-level code resolves preference variables
+    up the module/global chain, not through the caller's dynamic scope, so
+    setting them locally (or in a child scope) has no effect -- and that is also
+    why -Verbose:$false on the call below would not reach the module's own
+    nested imports. Same suppression as Import-SetupModule, which cannot be used
+    here because this import is by module NAME and must not be -Force'd.
 #>
-    $prior = $global:WhatIfPreference
+    $priorWhatIf  = $global:WhatIfPreference
+    $priorVerbose = $global:VerbosePreference
     try {
-        $global:WhatIfPreference = $false
+        $global:WhatIfPreference  = $false
+        $global:VerbosePreference = 'SilentlyContinue'
         Import-Module powershell-yaml -Verbose:$false
     } finally {
-        $global:WhatIfPreference = $prior
+        $global:WhatIfPreference  = $priorWhatIf
+        $global:VerbosePreference = $priorVerbose
     }
 }
 
@@ -691,11 +790,11 @@ function Write-SetupReport {
 }
 
 # --- REGION: preflight
-Import-Module (Join-Path $RepoRoot 'automation/Yuruna.HostRedirect.psm1') -Force -DisableNameChecking
+Import-SetupModule (Join-Path $RepoRoot 'automation/Yuruna.HostRedirect.psm1')
 # Test.HostDetection directly: Yuruna.HostRedirect keeps its own
 # Import-HostDetectionModule private, and Get-HostType / Get-HostFolder are what
 # this needs.
-Import-Module (Join-Path $RepoRoot 'test/modules/Test.HostDetection.psm1') -Force -DisableNameChecking
+Import-SetupModule (Join-Path $RepoRoot 'test/modules/Test.HostDetection.psm1')
 $HostType = Get-HostType
 if (-not $HostType) {
     Write-SetupError 'Host type could not be determined. Only macOS (UTM), Windows (Hyper-V) and Linux (KVM/libvirt) are supported.'
@@ -765,6 +864,12 @@ if ($IsWindows) {
             # RunAs process is created by the AppInfo service, and the parent's
             # environment does not reliably survive that.
             if ($Script:LogFile) { $relaunchArgs += @('-LogPath', $Script:LogFile) }
+            # The level travels as an argument for the same reason the log path
+            # does: RunAs builds the process through the AppInfo service, so the
+            # $env:YURUNA_LOG_LEVEL this run published does not reliably reach
+            # it. Resolved rather than $logLevel verbatim, so a level that came
+            # from test.config.yml survives the elevation too.
+            $relaunchArgs += @('-logLevel', $EffectiveLogLevel)
             try {
                 # -Confirm:$false so an ambient $ConfirmPreference cannot turn the
                 # relaunch into a prompt that the elevated child never sees.
@@ -897,20 +1002,26 @@ if ($storageOnFailure -notin @('stop', 'local')) {
 
 $labName = ''
 $labNameSource = ''
-$createDefaultPool = $false
-$createDefaultPoolSource = ''
 if ($isLab) {
     $labName = [string](Get-Answer 'lab.name')
     $labNameSource = Get-DecisionSource -FromAnswerFile ([bool]$labName)
     if (-not $labName) { $labName = Read-Text -Question 'Lab beacon name' -Default ([Environment]::MachineName.ToLowerInvariant()) }
-    $poolAnswer = Get-Answer 'lab.createDefaultPool'
-    $createDefaultPoolSource = Get-DecisionSource -FromAnswerFile ($null -ne $poolAnswer)
-    $createDefaultPool = if ($null -ne $poolAnswer) { [bool]$poolAnswer } else {
-        (Read-Choice -Question "Create the 'default' pool?" -Default $true -Option @(
-            @{ Label = 'Yes'; Value = $true }
-            @{ Label = 'No'; Value = $false }
-        ))
-    }
+}
+# The 'default' pool is NOT asked about and has no answer-file key. A lab with no
+# pool is a lab no host can be enrolled into, so "no" was never a useful answer --
+# it only produced a beacon that looked finished and enrolled nobody. The pool is
+# instead DERIVED at the end of the run, from the storage this run configured:
+# whatever pool folder ended up in test.config.yml is inspected, and a 'default'
+# pool is created there when the intent store carries none. An existing pool of
+# that name is left exactly as it is (New-Pool -IfMissing), so an operator who
+# paused or renamed theirs keeps it across every re-run.
+#
+# An older answer file may still carry lab.createDefaultPool. It is deliberately
+# not read: honouring 'false' would recreate the very half-set-up lab this change
+# removes, and silently ignoring a key the operator wrote is worse than saying so.
+if ($isLab -and $null -ne (Get-Answer 'lab.createDefaultPool')) {
+    Write-SetupWarning ("lab.createDefaultPool in the answer file is obsolete and was ignored: the 'default' pool is now " +
+                        'always ensured from the configured pool storage. Remove the key to silence this.')
 }
 
 # The resolved questionnaire, in one block, before any of it is acted on. The
@@ -934,8 +1045,8 @@ Add-SetupDecision -Name 'storage.networkPath'     -Value $storageNetworkPath -So
 Add-SetupDecision -Name 'storage.networkUser'     -Value $storageNetworkUser -Source $networkSource
 Add-SetupDecision -Name 'storage.onFailure'       -Value $storageOnFailure   -Source $storageOnFailureSource
 if ($isLab) {
-    Add-SetupDecision -Name 'lab.name'              -Value $labName           -Source $labNameSource
-    Add-SetupDecision -Name 'lab.createDefaultPool' -Value $createDefaultPool -Source $createDefaultPoolSource
+    Add-SetupDecision -Name 'lab.name'              -Value $labName -Source $labNameSource
+    Add-SetupDecision -Name "lab pool 'default'"    -Value 'ensure' -Source 'always -- derived from the configured pool storage'
 }
 
 # --- REGION: 1. preflight checks
@@ -953,13 +1064,91 @@ if ($isLab) {
     Write-SetupMessage "    host type: $HostType"
 })
 
+# --- REGION: 1b. what a previous `sudo` run left behind
+# BEFORE anything is written, because two of the things this finds are what makes
+# the writing fail. Refusing to run as root (above) stops the next root run; it
+# does nothing about the machine an earlier one already changed, and that state
+# does not announce itself -- it surfaces as a permission error on a runtime file
+# or as a port that is unbindable with no visible holder, neither of which names
+# sudo as the cause.
+#
+# Clearing it means chown/umount/rm/kill as root, so it is never done silently:
+# an interactive run is asked per finding, and an unattended run stops with the
+# exact commands instead. An answer file is consent to a setup, not to reaching
+# into another account's processes and files.
+if (-not $IsWindows) {
+    [void](Invoke-SetupStep -Name 'Check for state left behind by a previous sudo run' -Critical -Action {
+        Import-SetupModule (Join-Path $TestRoot 'modules/Test.RootArtifact.psm1')
+        Import-SetupModule (Join-Path $TestRoot 'modules/Test.PortOwner.psm1')
+        Import-SetupModule (Join-Path $TestRoot 'modules/Test.Config.psm1')
+
+        # The CONFIGURED ports, so a checkout moved off the defaults is not
+        # checked against ports it never uses.
+        $ports = @(8080, 8443)
+        try {
+            if (Test-Path -LiteralPath $ConfigPath) {
+                $cfg = Read-TestConfig -Path $ConfigPath -NoCache
+                $statusPort = Get-TestConfigValue -Config $cfg -Path 'statusService.port'
+                $configPort = Get-TestConfigValue -Config $cfg -Path 'configService.port'
+                $ports = @($(if ($statusPort) { [int]$statusPort } else { 8080 }),
+                           $(if ($configPort) { [int]$configPort } else { 8443 }))
+            }
+        } catch { Write-SetupVerbose "service-port read for the root sweep: $($_.Exception.Message)" }
+
+        $found = @(Get-YurunaRootArtifact -RepoRoot $RepoRoot -Port $ports)
+        if ($found.Count -eq 0) {
+            Write-SetupMessage '    no root-owned yuruna state on this machine.'
+            return
+        }
+        Write-YurunaRootArtifactReport -Artifact $found
+        foreach ($a in $found) { Write-SetupLogLine -Level 'ROOT' -Message "$($a.Kind): $($a.Summary)" }
+
+        if ($Script:Unattended) {
+            $blocking = @($found | Where-Object { $_.Blocking })
+            if ($blocking.Count -eq 0) {
+                Write-SetupWarning 'Root-owned leftovers were found but none of them block this run; continuing. The block above lists them.'
+                return
+            }
+            throw ("$($blocking.Count) root-owned leftover(s) block this run and an unattended run will not clear them " +
+                   '(that means chown / umount / kill against another account). Run the commands listed above, or re-run ' +
+                   'this script interactively to be asked about each one.')
+        }
+
+        foreach ($a in $found) {
+            $question = '  {0} -- {1}?' -f $a.Summary, $(if ($a.Blocking) { 'Clear it now' } else { 'Remove it now' })
+            $choice = Read-Choice -Question $question -Default $true -Option @(
+                @{ Label = "Yes -- run the commands above with sudo (you may be prompted for your password)"; Value = $true }
+                @{ Label = 'No -- leave it and continue'; Value = $false }
+            )
+            if (-not $choice) { continue }
+            # -Confirm:$false: the question above IS the confirmation, and the
+            # function's ConfirmImpact High would otherwise ask a second time for
+            # the same decision.
+            if (Clear-YurunaRootArtifact -Artifact $a -Confirm:$false) {
+                Write-SetupMessage "    cleared: $($a.Summary)"
+            } else {
+                Write-SetupWarning "could not clear: $($a.Summary). Run the commands listed above by hand."
+            }
+        }
+
+        # Re-scan rather than trusting the clear results: an unmount that reported
+        # success can still leave the point busy, and the question that matters is
+        # what the machine looks like NOW.
+        $left = @(Get-YurunaRootArtifact -RepoRoot $RepoRoot -Port $ports | Where-Object { $_.Blocking })
+        if ($left.Count -gt 0) {
+            throw ("$($left.Count) root-owned leftover(s) still block this run: " +
+                   "$(($left | ForEach-Object { $_.Summary }) -join '; '). Clear them with the commands listed above and re-run.")
+        }
+    })
+}
+
 # --- REGION: 2. config
 [void](Invoke-SetupStep -Name 'Create or refresh test/test.config.yml from the template' -Critical -AlreadyDone {
     # Only "already done" when the file exists AND the operator named no project
     # URL -- otherwise there is a change to apply.
     (Test-Path -LiteralPath $ConfigPath) -and -not $projectUrl
 } -Action {
-    Import-Module (Join-Path $TestRoot 'modules/Test.ConfigSync.psm1') -Force -DisableNameChecking
+    Import-SetupModule (Join-Path $TestRoot 'modules/Test.ConfigSync.psm1')
     # test.config.yml.template -- NOT test.config.template.yml. Getting this
     # backwards silently disabled the refresh AND, on a machine with no
     # test.config.yml yet, killed the whole run on this -Critical step.
@@ -1019,8 +1208,8 @@ if ($storageKind -eq 'none') {
     Add-SkippedStep -Description 'Shared storage, and with it the stash service (storage.kind = none)'
 } elseif ($storageKind -eq 'local') {
     $ok = Invoke-SetupStep -Name 'Stand up local pool and stash shares (New-LocalLabStorage)' -AlreadyDone {
-        Import-Module (Join-Path $TestRoot 'modules/Test.PoolStorage.psm1') -Force -DisableNameChecking
-        Import-Module (Join-Path $TestRoot 'modules/Test.Config.psm1') -Force -DisableNameChecking
+        Import-SetupModule (Join-Path $TestRoot 'modules/Test.PoolStorage.psm1')
+        Import-SetupModule (Join-Path $TestRoot 'modules/Test.Config.psm1')
         $cfg = Read-TestConfig -Path $ConfigPath
         $pool = Get-YurunaPoolStorageConfig -Config $cfg -IgnoreReplicate -WarningAction SilentlyContinue
         if (-not ($pool -and $pool.LocalPath)) { return $false }
@@ -1039,8 +1228,8 @@ if ($storageKind -eq 'none') {
     $storageConfigured = $ok
 } else {
     $ok = Invoke-SetupStep -Name "Mount the NAS share $storageNetworkPath" -Action {
-        Import-Module (Join-Path $TestRoot 'modules/Test.PoolStorage.psm1') -Force -DisableNameChecking
-        Import-Module (Join-Path $TestRoot 'modules/Test.Config.psm1') -Force -DisableNameChecking
+        Import-SetupModule (Join-Path $TestRoot 'modules/Test.PoolStorage.psm1')
+        Import-SetupModule (Join-Path $TestRoot 'modules/Test.Config.psm1')
         # Sudoers FIRST on Linux: the mount runs `sudo -n` and fails outright
         # without the drop-in, which reads as an unreachable NAS.
         if ($IsLinux -and (Get-Command Set-PoolStorageSudoers -ErrorAction SilentlyContinue)) {
@@ -1111,7 +1300,7 @@ if (-not $isLab -and $storageKind -eq 'local') {
         # Set-LocalLabStorageHostAlias, not a hosts-file edit of our own: it owns
         # the loopback address the local shares are published on, and the elevated
         # re-launch the hosts file needs on macOS and Linux.
-        Import-Module (Join-Path $TestRoot 'modules/Test.LocalLabStorage.psm1') -Force -DisableNameChecking
+        Import-SetupModule (Join-Path $TestRoot 'modules/Test.LocalLabStorage.psm1')
         $names = @($tiers | ForEach-Object { $_.Name })
         $written = Set-LocalLabStorageHostAlias -RepoRoot $RepoRoot -Name $names
         Write-SetupMessage "    $written of $($names.Count) alias(es) rewritten: $($names -join ', ')"
@@ -1139,7 +1328,7 @@ Invoke-ServiceVMReset -Service 'caching-proxy service' -StopScript 'Stop-Caching
     [void](Invoke-RepoScript -Path (Join-Path $TestRoot 'Start-CachingProxyServiceVM.ps1'))
 })
 if (-not $WhatIfPreference) {
-    Import-Module (Join-Path $TestRoot 'modules/Test.CachingProxyService.psm1') -Force -DisableNameChecking
+    Import-SetupModule (Join-Path $TestRoot 'modules/Test.CachingProxyService.psm1')
     try {
         $state = Read-CachingProxyServiceState
         if ($state -and $state.ipAddress) { $proxyIp = [string]$state.ipAddress }
@@ -1191,7 +1380,7 @@ if ($storageConfigured) {
 
 # --- REGION: 9. validate
 [void](Invoke-SetupStep -Name 'Validate the configuration (Test-Config gate)' -Action {
-    Import-Module (Join-Path $TestRoot 'modules/Test.ConfigPreflight.psm1') -Force -DisableNameChecking
+    Import-SetupModule (Join-Path $TestRoot 'modules/Test.ConfigPreflight.psm1')
     $gate = Invoke-ConfigGate -TestRoot $TestRoot -ConfigPath $ConfigPath -CallerName 'setup.ps1'
     if (-not $gate.passed) { throw "Test-Config reported failures (exit $($gate.exitCode)); the block above names them" }
 })
@@ -1226,28 +1415,33 @@ if ($isLab) {
             -Arguments @($code, '-CachingProxyService', $proxyIp, '-BounceStatusService', '-NonInteractive'))
     })
 
-    if ($createDefaultPool) {
-        [void](Invoke-SetupStep -Name "Create the 'default' pool" -Action {
-            Import-Module (Join-Path $TestRoot 'modules/Test.PoolStorage.psm1') -Force -DisableNameChecking
-            Import-Module (Join-Path $TestRoot 'modules/Test.Config.psm1') -Force -DisableNameChecking
-            $cfg  = Read-TestConfig -Path $ConfigPath
-            $pool = Get-YurunaPoolStorageConfig -Config $cfg -IgnoreReplicate -WarningAction SilentlyContinue
-            if (-not $pool -or -not $pool.LocalPath) { throw 'pool storage has no localPath, so the intent store has nowhere to live' }
-            # The WRITABLE local path through the mount. The http:// URL apache
-            # serves is read-only by design and push-fails; without an explicit
-            # writable URL New-Pool exits "No intent store URL".
-            $script:intentGitUrl = Join-Path $pool.LocalPath 'pool-intent.git'
-            [void](Invoke-RepoScript -Path (Join-Path $TestRoot 'New-Pool.ps1') `
-                -Arguments @('-PoolId', 'default', '-IntentGitUrl', $script:intentGitUrl))
-        })
+    # Always, and derived rather than asked: the intent store lives on whatever
+    # pool storage this run actually ended up with, so it is read back out of
+    # test.config.yml here instead of being predicted from the questionnaire. A
+    # run that fell back from an unreachable NAS to local shares lands on the
+    # local path for the same reason.
+    [void](Invoke-SetupStep -Name "Ensure the lab's 'default' pool exists" -Action {
+        Import-SetupModule (Join-Path $TestRoot 'modules/Test.PoolStorage.psm1')
+        Import-SetupModule (Join-Path $TestRoot 'modules/Test.Config.psm1')
+        $cfg  = Read-TestConfig -Path $ConfigPath -NoCache
+        $pool = Get-YurunaPoolStorageConfig -Config $cfg -IgnoreReplicate -WarningAction SilentlyContinue
+        if (-not $pool -or -not $pool.LocalPath) { throw 'pool storage has no localPath, so the intent store has nowhere to live' }
+        # The WRITABLE local path through the mount. The http:// URL apache
+        # serves is read-only by design and push-fails; without an explicit
+        # writable URL New-Pool exits "No intent store URL".
+        $script:intentGitUrl = Join-Path $pool.LocalPath 'pool-intent.git'
+        # -IfMissing: this step runs on every re-run, and a plain upsert would
+        # reset a pool the operator had set to 'paused' or 'drain' back to 'run'
+        # each time. New-Pool seeds the bare store itself when the pool folder
+        # carries none yet, so a NAS tier that never ran New-Lab works here too.
+        [void](Invoke-RepoScript -Path (Join-Path $TestRoot 'New-Pool.ps1') `
+            -Arguments @('-PoolId', 'default', '-IfMissing', '-IntentGitUrl', $script:intentGitUrl))
+    })
 
-        [void](Invoke-SetupStep -Name 'Validate the pool intent store' -Action {
-            if (-not $intentGitUrl) { throw 'no intent store URL was resolved' }
-            [void](Invoke-RepoScript -Path (Join-Path $TestRoot 'Test-PoolIntent.ps1') -Arguments @('-IntentGitUrl', $intentGitUrl))
-        })
-    } else {
-        Add-SkippedStep -Description "The 'default' pool (not requested)"
-    }
+    [void](Invoke-SetupStep -Name 'Validate the pool intent store' -Action {
+        if (-not $intentGitUrl) { throw 'no intent store URL was resolved' }
+        [void](Invoke-RepoScript -Path (Join-Path $TestRoot 'Test-PoolIntent.ps1') -Arguments @('-IntentGitUrl', $intentGitUrl))
+    })
 }
 
 # --- REGION: -WhatIf stops here
@@ -1269,7 +1463,9 @@ if (-not $AnswerFile) {
             setup = [ordered]@{ type = $setupType; runTests = $runTests; projectUrl = "$projectUrl" }
             storage = [ordered]@{ kind = $storageKind; localRoot = "$storageLocalRoot"; networkPath = "$storageNetworkPath"; networkUser = "$storageNetworkUser"; onFailure = $storageOnFailure }
         }
-        if ($isLab) { $doc['lab'] = [ordered]@{ name = $labName; createDefaultPool = $createDefaultPool } }
+        # No createDefaultPool key: the pool is ensured on every run, so writing
+        # one would re-introduce a setting that the next run ignores.
+        if ($isLab) { $doc['lab'] = [ordered]@{ name = $labName } }
         Import-YamlModule
         ConvertTo-Yaml $doc | Set-Content -LiteralPath $answerOut -Encoding utf8
         Write-SetupMessage ''

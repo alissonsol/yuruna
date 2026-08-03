@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.02
+.VERSION 2026.08.03
 .GUID 42f4a5b6-c7d8-4e90-8f12-4a5b6c7d8e90
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -141,5 +141,58 @@ Describe 'ConvertTo-YurunaHostId (operator input normalization)' {
         # Stripping happens before the length check, so a 32-char string that is only
         # 32 long BECAUSE of its dashes must still fail.
         Assert-Null (ConvertTo-YurunaHostId -Value '42-abcdef0123456789abcdef0123456') 'short after stripping'
+    }
+}
+
+Describe 'Initialize-YurunaPoolIntentStorePath (seed a writable store that was never created)' {
+    It 'seeds a bare store at a local path that carries none' {
+        $work = New-TempDir
+        try {
+            $store = Join-Path $work 'pool-intent.git'
+            $r = Initialize-YurunaPoolIntentStorePath -IntentGitUrl $store -Confirm:$false
+            Assert-True $r.Ok 'reports success'
+            Assert-True $r.Created 'created the store'
+            Assert-True (Test-Path -LiteralPath (Join-Path $store 'refs')) 'a bare repository is on disk'
+            # The seeded pools.yml is what makes the store openable AND writable:
+            # a store seeded at schemaVersion 1 reads fine and fails every write.
+            $doc = & git -C $store show 'main:pools.yml' 2>$null
+            Assert-True ("$doc" -match 'schemaVersion:\s*2') 'seeded at schemaVersion 2'
+        } finally { Remove-Item -LiteralPath $work -Recurse -Force -ErrorAction SilentlyContinue }
+    }
+    It 'leaves an existing store untouched' {
+        $work = New-TempDir
+        try {
+            $store = Join-Path $work 'pool-intent.git'
+            $null = New-YurunaPoolIntentStore -Path $store -Confirm:$false
+            $before = (& git -C $store rev-parse main 2>$null)
+            $r = Initialize-YurunaPoolIntentStorePath -IntentGitUrl $store -Confirm:$false
+            Assert-True $r.Ok 'reports success'
+            Assert-False $r.Created 'did not recreate'
+            Assert-Equal -Expected "$before" -Actual "$(& git -C $store rev-parse main 2>$null)" -Because 'history preserved'
+        } finally { Remove-Item -LiteralPath $work -Recurse -Force -ErrorAction SilentlyContinue }
+    }
+    It 'never tries to create a remote the host does not own' {
+        # Ok WITHOUT Created: the caller proceeds to its own clone, whose failure is
+        # the honest report for a remote this side cannot reach.
+        foreach ($remote in @('http://proxy/pool-intent.git', 'https://git.example.com/team/intent.git',
+                              'ssh://git@example/pool-intent.git', 'git@github.com:owner/intent.git')) {
+            $r = Initialize-YurunaPoolIntentStorePath -IntentGitUrl $remote -Confirm:$false
+            Assert-True  $r.Ok      "remote tolerated: $remote"
+            Assert-False $r.Created "nothing created for: $remote"
+        }
+    }
+    It 'reports a blank url rather than seeding somewhere unintended' {
+        $r = Initialize-YurunaPoolIntentStorePath -IntentGitUrl '   ' -Confirm:$false
+        Assert-False $r.Ok 'a blank target is not a store'
+        Assert-False $r.Created 'nothing created'
+    }
+    It 'honours -WhatIf' {
+        $work = New-TempDir
+        try {
+            $store = Join-Path $work 'pool-intent.git'
+            $r = Initialize-YurunaPoolIntentStorePath -IntentGitUrl $store -WhatIf
+            Assert-False $r.Created 'a preview creates nothing'
+            Assert-False (Test-Path -LiteralPath $store) 'nothing on disk'
+        } finally { Remove-Item -LiteralPath $work -Recurse -Force -ErrorAction SilentlyContinue }
     }
 }

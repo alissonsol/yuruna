@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.02
+.VERSION 2026.08.03
 .GUID 42a2b3c4-d5e6-4f78-9012-3a4b5c6d7e90
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -252,6 +252,246 @@ function Test-WindowsUplinkNotBridgeable {
     return ($nic.PhysicalMediaType -eq 'Native 802.11' -or $nic.PnPDeviceID -like 'USB\*')
 }
 
+# Uplink verdicts a caller may treat as "the bridge is fine". 'unknown' is
+# in the list on purpose: the classifier can only ever demote a host to
+# NAT, so anything it could not evaluate has to read as OK.
+$script:UplinkVerdictOk = @('healthy', 'unknown')
+
+# Get-VMSwitch reports a Switch Embedded Team / LBFO team on the PLURAL
+# NetAdapterInterfaceDescriptions, and on such a switch the singular
+# property matches no single adapter -- so both are read everywhere a
+# switch has to be resolved back to the NIC(s) it bridges, and a match on
+# any team member counts.
+function Get-YurunaSwitchUplinkDescription {
+    [CmdletBinding()]
+    [OutputType([string[]])]
+    param([Parameter(Mandatory)][AllowNull()][object]$SwitchRecord)
+
+    if (-not $SwitchRecord) { return [string[]]@() }
+    $description = @()
+    foreach ($d in (@($SwitchRecord.NetAdapterInterfaceDescriptions) + @($SwitchRecord.NetAdapterInterfaceDescription))) {
+        if ("$d".Trim()) { $description += [string]$d }
+    }
+    return [string[]]@($description | Select-Object -Unique)
+}
+
+# $true when $Adapter sits on the same L2 segment a guest bridged to
+# $SwitchRecord lands on: either it is the switch's management-OS vNIC
+# ('vEthernet (<switch>)'), or it is a NIC the switch itself bridges --
+# the -AllowManagementOS:$false topology, where the host keeps its own
+# address on the bridged NIC and shares the guest's segment through it.
+function Test-YurunaAdapterOnSwitchSegment {
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param(
+        [Parameter(Mandatory)][AllowNull()][object]$SwitchRecord,
+        [Parameter(Mandatory)][AllowNull()][object]$Adapter,
+        [string]$SwitchName
+    )
+
+    if (-not $Adapter) { return $false }
+    if (-not $SwitchName -and $SwitchRecord) { $SwitchName = [string]$SwitchRecord.Name }
+    if ($SwitchName -and ("$($Adapter.InterfaceAlias)" -eq "vEthernet ($SwitchName)")) { return $true }
+    $description = @(Get-YurunaSwitchUplinkDescription -SwitchRecord $SwitchRecord)
+    if ($description.Count -eq 0) { return $false }
+    return ($description -contains [string]$Adapter.InterfaceDescription)
+}
+
+# $true when the host's IPv4 default route rides this switch's own
+# segment. Used only to rank equally-usable External switches, so every
+# unresolvable step answers $false rather than guessing.
+function Test-YurunaSwitchOnDefaultRoute {
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param([Parameter(Mandatory)][AllowNull()][object]$SwitchRecord)
+
+    if (-not $SwitchRecord) { return $false }
+    $route = Get-NetRoute -AddressFamily IPv4 -DestinationPrefix '0.0.0.0/0' -ErrorAction SilentlyContinue |
+        Where-Object { $_.NextHop -ne '0.0.0.0' -and $_.NextHop -ne '::' } |
+        Sort-Object RouteMetric, InterfaceMetric |
+        Select-Object -First 1
+    if (-not $route) { return $false }
+    $routeAdapter = Get-NetAdapter -InterfaceIndex $route.InterfaceIndex -ErrorAction SilentlyContinue
+    return (Test-YurunaAdapterOnSwitchSegment -SwitchRecord $SwitchRecord -Adapter $routeAdapter)
+}
+
+# --- REGION: https://yuruna.link/network#why-a-reused-external-vswitch-is-validated-before-it-is-handed-out
+# The blank line below is load-bearing. A single-line comment that touches the
+# <# #> block gets absorbed into it, and PowerShell then no longer reads the
+# block as comment-based help -- Get-Help for this function returns nothing at
+# all, silently. Keep any comment here separated from the block by a blank line.
+
+<#
+.SYNOPSIS
+    One-word verdict on whether an External vSwitch's bridge can still
+    carry a guest.
+
+.DESCRIPTION
+    A Hyper-V vSwitch object outlives its uplink binding across a host
+    reboot: the switch keeps its name, its SwitchType and the description
+    of the NIC it was bridged to, while the host's IP stack sits back on
+    the bare physical adapter and nothing forwards frames for a guest MAC.
+    The object's survival is therefore not evidence that the bridge works,
+    and nothing else in this driver asks the question -- the switch record
+    is read for its name and type only, and AllowManagementOS is written
+    at creation and never read back.
+
+    Verdicts, first match wins:
+      'not-external'              SwitchType is no longer External.
+      'uplink-missing'            the switch names no uplink adapter at all.
+      'uplink-down'               every named uplink adapter reports not Up.
+      'management-os-detached'    the switch is set to share its NIC with
+                                  the management OS, yet Hyper-V reports no
+                                  management-OS vNIC on it.
+      'management-os-unaddressed' that vNIC exists but holds no usable
+                                  IPv4, so a seed built now would carry no
+                                  host address the guest could reach.
+      'healthy'                   nothing above matched.
+      'unknown'                   not evaluable: non-Windows, a probe
+                                  cmdlet missing, a throw, no switch
+                                  record, or an ambiguous binding.
+
+    Failing open is a hard rule -- every unevaluable probe yields
+    'unknown', and callers treat 'unknown' exactly like 'healthy'. A false
+    unhealthy verdict demotes a whole host to NAT (its cache VM loses its
+    LAN IP, ARP discovery no-ops), which costs far more than missing one
+    degraded switch.
+
+    Management-OS presence is resolved from Hyper-V itself
+    (Get-VMNetworkAdapter -ManagementOS) rather than by looking for an
+    adapter named 'vEthernet (<switch>)': that alias is only a default,
+    and Rename-NetAdapter or a disambiguating enumeration suffix breaks
+    the shape on a perfectly working bridge.
+
+.PARAMETER SwitchName
+    vSwitch to classify.
+
+.PARAMETER SwitchRecord
+    Test seam, Get-VMSwitch shape. Binding it selects injected mode for
+    ALL THREE record parameters together, so a partially-bound call can
+    never fall through to live cmdlets on a host with no Hyper-V.
+
+.PARAMETER AdapterRecord
+    Test seam. Adapter records in the Get-NetAdapter shape
+    (InterfaceDescription, InterfaceAlias, Status, MacAddress,
+    InterfaceIndex), plus the switch's management-OS vNICs in the
+    Get-VMNetworkAdapter -ManagementOS shape (IsManagementOs, SwitchName,
+    MacAddress) -- live mode reads both and concatenates them here. A
+    record counts as a management vNIC when it is flagged IsManagementOs
+    or simply carries no InterfaceDescription, so injecting an adapter
+    with neither shape reads as "management OS present".
+
+.PARAMETER HostIpRecord
+    Test seam. Host IPv4 records in the Get-NetIPAddress shape
+    (IPAddress, InterfaceAlias, InterfaceIndex).
+
+.OUTPUTS
+    [string] exactly one verdict from the closed list above.
+#>
+function Test-YurunaExternalSwitchUplink {
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        [Parameter(Mandatory)][string]$SwitchName,
+        [Parameter()][AllowNull()][object]$SwitchRecord,
+        [Parameter()][AllowNull()][object[]]$AdapterRecord,
+        [Parameter()][AllowNull()][object[]]$HostIpRecord
+    )
+
+    if (-not $PSBoundParameters.ContainsKey('SwitchRecord')) {
+        if (-not $IsWindows) { return 'unknown' }
+        foreach ($probe in @('Get-VMSwitch', 'Get-NetAdapter', 'Get-VMNetworkAdapter', 'Get-NetIPAddress')) {
+            if (-not (Get-Command $probe -ErrorAction SilentlyContinue)) { return 'unknown' }
+        }
+        try {
+            $SwitchRecord  = Get-VMSwitch -Name $SwitchName -ErrorAction SilentlyContinue | Select-Object -First 1
+            $AdapterRecord = @(Get-NetAdapter -ErrorAction SilentlyContinue) +
+                             @(Get-VMNetworkAdapter -ManagementOS -SwitchName $SwitchName -ErrorAction SilentlyContinue)
+            $HostIpRecord  = @(Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue)
+        } catch {
+            Write-Verbose "Uplink classification of '$SwitchName' could not run ($($_.Exception.Message)) -- reporting 'unknown'."
+            return 'unknown'
+        }
+    }
+
+    if (-not $SwitchRecord) { return 'unknown' }
+    if ("$($SwitchRecord.SwitchType)" -ne 'External') { return 'not-external' }
+
+    $description = @(Get-YurunaSwitchUplinkDescription -SwitchRecord $SwitchRecord)
+    if ($description.Count -eq 0) { return 'uplink-missing' }
+
+    $adapter = @($AdapterRecord | Where-Object { $null -ne $_ })
+    $bound = @($adapter | Where-Object { $_.InterfaceDescription -and ($description -contains [string]$_.InterfaceDescription) })
+    # A named binding that resolves to no adapter is ambiguous rather than
+    # broken -- a team member list, a driver-supplied description change or
+    # an enumeration in flight all land here -- so it fails open.
+    if ($bound.Count -eq 0) { return 'unknown' }
+    if (@($bound | Where-Object { "$($_.Status)" -eq 'Up' }).Count -eq 0) { return 'uplink-down' }
+
+    # A switch deliberately created without -AllowManagementOS has no
+    # management vNIC by design; the host keeps its address on the bridged
+    # NIC and the bridge is fine.
+    if ($SwitchRecord.AllowManagementOS -ne $true) { return 'healthy' }
+
+    # Hyper-V's own answer, asked two ways so a single property name is
+    # never what decides an unhealthy verdict: a vNIC record flagged
+    # IsManagementOs, or any vSwitch-side record naming this switch (live
+    # mode only queries those for the switch's management OS, and a
+    # host-side Get-NetAdapter record always carries an
+    # InterfaceDescription instead).
+    $management = @($adapter | Where-Object {
+        (($_.IsManagementOs -eq $true) -or ($null -eq $_.InterfaceDescription)) -and
+        ((-not $_.SwitchName) -or ("$($_.SwitchName)" -eq $SwitchName))
+    })
+    if ($management.Count -eq 0) { return 'management-os-detached' }
+
+    # Map the management vNIC onto the host adapter that carries its
+    # addresses. MAC first (survives a renamed vNIC), alias second.
+    $hostNic = $null
+    foreach ($vnic in $management) {
+        $mac = ("$($vnic.MacAddress)" -replace '[^0-9A-Fa-f]', '')
+        if (-not $mac) { continue }
+        $hostNic = @($adapter | Where-Object {
+            $_.MacAddress -and (("$($_.MacAddress)" -replace '[^0-9A-Fa-f]', '') -eq $mac) -and
+            ("$($_.InterfaceDescription)" -match 'Hyper-V Virtual Ethernet')
+        }) | Select-Object -First 1
+        if ($hostNic) { break }
+    }
+    if (-not $hostNic) {
+        $hostNic = @($adapter | Where-Object { "$($_.InterfaceAlias)" -eq "vEthernet ($SwitchName)" }) | Select-Object -First 1
+    }
+    if (-not $hostNic) { return 'unknown' }
+
+    $isUsable = { param($Address) $Address -and ($Address -notmatch '^(127\.|169\.254\.)') }
+    $address = @($HostIpRecord | Where-Object {
+        $null -ne $_ -and (& $isUsable $_.IPAddress) -and (
+            (($null -ne $_.InterfaceIndex) -and ($null -ne $hostNic.InterfaceIndex) -and
+                ("$($_.InterfaceIndex)" -eq "$($hostNic.InterfaceIndex)")) -or
+            ($_.InterfaceAlias -and ("$($_.InterfaceAlias)" -eq "$($hostNic.InterfaceAlias)"))
+        )
+    })
+    if ($address.Count -eq 0) { return 'management-os-unaddressed' }
+
+    return 'healthy'
+}
+
+# $true only when Hyper-V positively reports that the switch has no
+# management-OS vNIC. Every unresolvable case answers $false: an unknown
+# state must keep a caller polling, never cut its wait short.
+function Test-YurunaManagementVnicAbsent {
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param([Parameter(Mandatory)][string]$SwitchName)
+
+    if (-not (Get-Command Get-VMNetworkAdapter -ErrorAction SilentlyContinue)) { return $false }
+    try {
+        $vnic = @(Get-VMNetworkAdapter -ManagementOS -SwitchName $SwitchName -ErrorAction Stop)
+    } catch {
+        return $false
+    }
+    return ($vnic.Count -eq 0)
+}
+
 <#
 .SYNOPSIS
     Poll until the host holds an IPv4 a guest bridged onto $SwitchName
@@ -270,11 +510,22 @@ function Test-WindowsUplinkNotBridgeable {
     Two sources, in order of precision:
       1. the IPv4 on `vEthernet (<switch>)` -- by construction an
          address on the very segment a bridged guest lands on;
-      2. the IPv4 on the default-route interface -- the right answer
-         when the switch was created without -AllowManagementOS, so the
-         host keeps its address on the physical NIC.
+      2. the IPv4 on the default-route interface, but ONLY when that
+         interface is on the switch's own segment: either the switch's
+         management vNIC, or a NIC the switch bridges (the
+         -AllowManagementOS:$false topology, where the host keeps its
+         address on the bridged NIC). A default-route address on any
+         other adapter belongs to a segment the bridged guest holds no
+         route to, which is not a degraded answer but a wrong one -- and
+         it is wrong in a way the guest can only discover after the seed
+         carrying it has been burned.
     APIPA (169.254/16) and loopback are rejected: an adapter sitting at
     APIPA has not been answered by DHCP yet, so it is still mid-bind.
+
+    Waiting only helps while an address is still arriving. When Hyper-V
+    reports that the switch has no management vNIC at all, source 1 can
+    never produce an answer, so the poll is abandoned within one interval
+    instead of spending the whole budget on an adapter that cannot appear.
 
 .PARAMETER SwitchName
     External vSwitch the guest will attach to. Used to look up
@@ -301,8 +552,15 @@ function Wait-ExternalSwitchHostIpv4 {
 
     $isUsable = { param($Address) $Address -and ($Address -notmatch '^(127\.|169\.254\.)') }
 
+    $switchRecord = $null
+    if ($SwitchName) {
+        $switchRecord = Get-VMSwitch -Name $SwitchName -ErrorAction SilentlyContinue | Select-Object -First 1
+    }
+
     $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
+    $pass = 0
     while ($true) {
+        $pass++
         if ($SwitchName) {
             $switchIp = Get-NetIPAddress -AddressFamily IPv4 -InterfaceAlias "vEthernet ($SwitchName)" -ErrorAction SilentlyContinue |
                 Where-Object { & $isUsable $_.IPAddress } |
@@ -310,21 +568,104 @@ function Wait-ExternalSwitchHostIpv4 {
             if ($switchIp) { return [string]$switchIp.IPAddress }
         }
 
+        $offSegment = $null
         $route = Get-NetRoute -AddressFamily IPv4 -DestinationPrefix '0.0.0.0/0' -ErrorAction SilentlyContinue |
             Where-Object { $_.NextHop -ne '0.0.0.0' -and $_.NextHop -ne '::' } |
             Sort-Object RouteMetric, InterfaceMetric |
             Select-Object -First 1
         if ($route) {
-            $routeIp = Get-NetIPAddress -AddressFamily IPv4 -InterfaceIndex $route.InterfaceIndex -ErrorAction SilentlyContinue |
-                Where-Object { & $isUsable $_.IPAddress } |
-                Select-Object -First 1
-            if ($routeIp) { return [string]$routeIp.IPAddress }
+            $routeAdapter = Get-NetAdapter -InterfaceIndex $route.InterfaceIndex -ErrorAction SilentlyContinue
+            # No -SwitchName is the legacy no-arg contract (any host IPv4
+            # will do), and a route whose adapter cannot be resolved is not
+            # evidence of a foreign segment -- both stay accepted.
+            $qualified = (-not $SwitchName) -or (-not $routeAdapter) -or
+                (Test-YurunaAdapterOnSwitchSegment -SwitchRecord $switchRecord -Adapter $routeAdapter -SwitchName $SwitchName)
+            if ($qualified) {
+                $routeIp = Get-NetIPAddress -AddressFamily IPv4 -InterfaceIndex $route.InterfaceIndex -ErrorAction SilentlyContinue |
+                    Where-Object { & $isUsable $_.IPAddress } |
+                    Select-Object -First 1
+                if ($routeIp) { return [string]$routeIp.IPAddress }
+            } else {
+                $offSegment = " (default route rides '$($routeAdapter.InterfaceAlias)', which is neither 'vEthernet ($SwitchName)' nor a NIC '$SwitchName' bridges, so its address is on a segment the guest cannot route to)"
+            }
         }
 
         if ((Get-Date) -ge $deadline) { return $null }
-        Write-Verbose "No usable host IPv4 yet (vSwitch bind still settling) -- retrying in ${PollSeconds}s."
+
+        # Re-checked one interval in rather than on the first pass, so a
+        # management vNIC that vmms is still materialising right after a
+        # bind is not mistaken for one that will never exist.
+        if ($pass -ge 2 -and $SwitchName -and (Test-YurunaManagementVnicAbsent -SwitchName $SwitchName)) {
+            Write-Verbose "vSwitch '$SwitchName' has no management-OS vNIC, so no address can appear on its segment$offSegment -- reporting no host IPv4 instead of waiting out the timeout."
+            return $null
+        }
+
+        Write-Verbose "No usable host IPv4 yet (vSwitch bind still settling)$offSegment -- retrying in ${PollSeconds}s."
         Start-Sleep -Seconds $PollSeconds
     }
+}
+
+# Both reuse branches of Get-OrCreateYurunaExternalSwitch funnel a
+# degraded verdict through here. Two invariants shape what it may do:
+#
+#   * $null is the only "no bridge" signal the guest scripts understand,
+#     and declining is always at least as good as handing back a bridge
+#     the classifier just rejected. Each guest script substitutes
+#     'Default Switch' for $null, verifies that switch exists, and where
+#     it does not (Windows Server SKUs ship none, and an operator can
+#     delete it on a client SKU) falls back to any vSwitch the host has,
+#     ranking non-External first -- which is the better choice precisely
+#     here, because a guest on a carrier-less External switch comes up
+#     with no address at all while an Internal/NAT switch still gives it
+#     a working one. Returning the degraded name instead would skip that
+#     picker entirely, so declining is what lets it run.
+#   * The branches run several times per cycle plus once per read-only
+#     Get-ExternalNetwork probe, so the diagnosis is latched to once per
+#     process per (switch, verdict) rather than repeated on every call.
+function Resolve-DegradedExternalSwitchFallback {
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        [Parameter(Mandatory)][string]$SwitchName,
+        [Parameter(Mandatory)][string]$Verdict,
+        [string]$Detail
+    )
+
+    $remedy = switch ($Verdict) {
+        'not-external' {
+            "Recreate '$SwitchName' as an External switch, or point the guests at an External switch that already exists."
+        }
+        'uplink-missing' {
+            "The switch names no uplink NIC. Re-bind it with Set-VMSwitch -Name '$SwitchName' -NetAdapterName <adapter>."
+        }
+        'uplink-down' {
+            'The bound NIC is not Up. Check the cable, the switch port and the adapter driver -- Hyper-V cannot bridge a link that is down.'
+        }
+        'management-os-detached' {
+            "Hyper-V reports no management-OS vNIC on the switch. Set-VMSwitch -Name '$SwitchName' -AllowManagementOS `$true restores it, at the cost of a brief host-networking drop on that NIC."
+        }
+        'management-os-unaddressed' {
+            "The switch's management vNIC holds no usable IPv4. Check DHCP on that segment, or the static address on 'vEthernet ($SwitchName)'."
+        }
+        default {
+            "Inspect the switch with Get-VMSwitch -Name '$SwitchName' and Get-NetAdapter."
+        }
+    }
+
+    $haveDefaultSwitch = [bool](Get-VMSwitch -Name 'Default Switch' -ErrorAction SilentlyContinue)
+    $latchKey = "$SwitchName/$Verdict/$haveDefaultSwitch"
+    if ($script:DegradedSwitchLatch -ne $latchKey) {
+        $script:DegradedSwitchLatch = $latchKey
+        $detailText = if ($Detail) { "; $Detail" } else { '' }
+        $consequence = if ($haveDefaultSwitch) {
+            'Guests attached to it come up with no carrier, so they are built on the Default Switch instead (NAT + DHCP); LAN-exposed services ride host port-forwarders rather than a bridged LAN IP.'
+        } else {
+            "Guests attached to it come up with no carrier, and this host has no 'Default Switch', so they are built on whichever vSwitch this host does have (non-External preferred); LAN-exposed services ride host port-forwarders rather than a bridged LAN IP."
+        }
+        Write-Warning "External vSwitch '$SwitchName' cannot carry a bridged guest (verdict '$Verdict'$detailText). $consequence Remedy: $remedy"
+    }
+
+    return $null
 }
 
 <#
@@ -386,13 +727,26 @@ function Get-OrCreateYurunaExternalSwitch {
         return $null
     }
 
-    # 1. Preferred name (default 'Yuruna-External'): use as-is if External.
+    # 1. Preferred name (default 'Yuruna-External'): use as-is when its
+    # bridge still works. A vSwitch object outlives its uplink binding
+    # across a host reboot, so finding the object is not evidence that a
+    # guest attached to it would get a carrier.
     $existing = Get-VMSwitch -Name $SwitchName -ErrorAction SilentlyContinue
     if ($existing) {
-        if ($existing.SwitchType -ne 'External') {
-            Write-Warning "Switch '$SwitchName' exists but is type '$($existing.SwitchType)', not External. Cache VM may not be LAN-reachable."
+        # No -SwitchRecord: binding any record parameter puts the
+        # classifier in fully-injected mode, where it must not reach for
+        # the adapter and address facts it needs to say anything but
+        # 'unknown'. Live callers pass the name and let it read all of
+        # them together.
+        $verdict = Test-YurunaExternalSwitchUplink -SwitchName $SwitchName
+        if ($verdict -in $script:UplinkVerdictOk) {
+            Write-Verbose "Reusing existing vSwitch '$SwitchName' (uplink verdict '$verdict')."
+            return $SwitchName
         }
-        return $SwitchName
+        $uplink  = @(Get-YurunaSwitchUplinkDescription -SwitchRecord $existing) -join ', '
+        $detail  = if ($uplink) { "bound NIC: $uplink" } else { 'no bound NIC' }
+        $declined = Resolve-DegradedExternalSwitchFallback -SwitchName $SwitchName -Verdict $verdict -Detail $detail
+        return $declined
     }
 
     # 2. ANY existing External-type vSwitch: reuse it instead of
@@ -402,13 +756,34 @@ function Get-OrCreateYurunaExternalSwitch {
     # original (network blip + every existing VM on the old switch
     # gets disconnected). On hosts where the operator pre-created an
     # External vSwitch under a different name (e.g., 'External',
-    # 'LAN-Bridge'), we honor that and return its name.
-    $anyExternal = Get-VMSwitch -ErrorAction SilentlyContinue |
-        Where-Object { $_.SwitchType -eq 'External' } |
-        Select-Object -First 1
-    if ($anyExternal) {
-        Write-Information "Using existing External vSwitch '$($anyExternal.Name)' (preferred name '$SwitchName' not present)."
-        return $anyExternal.Name
+    # 'LAN-Bridge'), we honor that and return its name. That same
+    # invariant is why an External switch whose bridge is degraded
+    # declines here instead of falling through to the create path.
+    $external = @(Get-VMSwitch -ErrorAction SilentlyContinue | Where-Object { $_.SwitchType -eq 'External' })
+    if ($external.Count -gt 0) {
+        $candidate = @($external | ForEach-Object {
+            [pscustomobject]@{
+                Name           = [string]$_.Name
+                Verdict        = (Test-YurunaExternalSwitchUplink -SwitchName $_.Name)
+                OnDefaultRoute = (Test-YurunaSwitchOnDefaultRoute -SwitchRecord $_)
+            }
+        })
+        # Deterministic pick: the switch carrying the host's own default
+        # route is the one whose segment the host is demonstrably on;
+        # name order breaks any remaining tie so repeated runs on the
+        # same host agree with each other.
+        $usable = @($candidate |
+            Where-Object { $_.Verdict -in $script:UplinkVerdictOk } |
+            Sort-Object -Property @{ Expression = 'OnDefaultRoute'; Descending = $true }, @{ Expression = 'Name'; Descending = $false })
+        if ($usable.Count -gt 0) {
+            $picked = $usable[0]
+            Write-Information "Using existing External vSwitch '$($picked.Name)' (preferred name '$SwitchName' not present)."
+            return $picked.Name
+        }
+        $fallback = @($candidate | Sort-Object -Property Name)[0]
+        $detail   = 'External vSwitches on this host: ' + ((@($candidate | ForEach-Object { "'$($_.Name)' -> $($_.Verdict)" })) -join ', ')
+        $declined = Resolve-DegradedExternalSwitchFallback -SwitchName $fallback.Name -Verdict $fallback.Verdict -Detail $detail
+        return $declined
     }
 
     # 3. No External vSwitch exists -- create one bridged on the NIC
@@ -537,8 +912,9 @@ function Invoke-YurunaExternalArpProbe {
 function Test-CacheVmOnYurunaExternalSwitch {
     <#
     .SYNOPSIS
-        $true if the caching-proxy-service VM is attached to ANY External-type
-        vSwitch (LAN-bridged, has a real LAN IP, no host forwarders needed).
+        $true if the caching-proxy-service VM is attached to an External-type
+        vSwitch whose bridge still has a live uplink (LAN-bridged, has a
+        real LAN IP, no host forwarders needed).
     .DESCRIPTION
         Used by the cross-platform test/ scripts to decide whether
         Add-PortMap is needed on Windows. When the cache VM
@@ -549,12 +925,23 @@ function Test-CacheVmOnYurunaExternalSwitch {
         is on Default Switch (or any internal/private switch), netsh
         portproxy is the LAN-reachability mechanism and must run.
 
+        The fast path therefore means bridged AND the bridge has a live
+        uplink: a vSwitch object outlives its uplink binding across a host
+        reboot, and a cache attached to such a switch holds no LAN address
+        at all, so answering $true for it would remove the forwarders that
+        are the only remaining way to reach the cache. An uplink the
+        classifier cannot evaluate answers $true, keeping the inverse --
+        installing forwarders in front of a healthy bridged cache, where
+        Add-PortMap's clear-all-first behavior would darken any port left
+        off the list -- reachable only on a positive fault.
+
         Function name retains the historical 'Yuruna' reference for
         call-site stability, but the check is by SwitchType=External --
         operators who pre-create an External vSwitch under a different
         name (e.g., 'External', 'LAN-Bridge') get the same fast path.
     .OUTPUTS
-        [bool] -- $false on non-Windows, missing VM, no NIC, or non-External switch.
+        [bool] -- $false on non-Windows, missing VM, no NIC, a non-External
+        switch, or an External switch whose uplink is positively degraded.
     #>
     [CmdletBinding()]
     [OutputType([bool])]
@@ -567,7 +954,12 @@ function Test-CacheVmOnYurunaExternalSwitch {
         Select-Object -First 1).SwitchName
     if (-not $switchName) { return $false }
     $switch = Get-VMSwitch -Name $switchName -ErrorAction SilentlyContinue
-    return ($switch -and $switch.SwitchType -eq 'External')
+    if (-not $switch -or $switch.SwitchType -ne 'External') { return $false }
+    $verdict = Test-YurunaExternalSwitchUplink -SwitchName $switchName
+    if ($verdict -notin $script:UplinkVerdictOk) {
+        Write-Verbose "Cache VM '$VMName' is on External vSwitch '$switchName', but its uplink is '$verdict' -- treating the cache as not LAN-bridged."
+    }
+    return ($verdict -in $script:UplinkVerdictOk)
 }
 
 function Get-WorkingCachingProxyServiceUrl {
@@ -681,6 +1073,17 @@ function Get-GuestReachableHostIp {
             # work rather than admitting there is none.
             Write-Warning "No host IPv4 reachable from a guest on External vSwitch '$SwitchName' ('vEthernet ($SwitchName)' and the default route both empty after ${SettleTimeoutSeconds}s). Reporting none instead of an unroutable Default Switch address."
             return $null
+        }
+        # Falling through to the Default-Switch address keeps a stale or
+        # mistyped switch name from stranding a guest with no host address
+        # at all, but the answer is only correct if the guest really does
+        # attach to the Default Switch. Say so, because the alternative is
+        # a 172.x address baked into a bridged guest's seed with nothing
+        # in the log to explain where it came from.
+        if ($switch) {
+            Write-Warning "vSwitch '$SwitchName' is type '$($switch.SwitchType)', not External. Answering with the Default Switch address, which is reachable only from a guest actually attached to the Default Switch."
+        } else {
+            Write-Warning "vSwitch '$SwitchName' does not exist on this host (renamed or removed since the guest's switch was chosen). Answering with the Default Switch address, which is reachable only from a guest actually attached to the Default Switch."
         }
     }
 
@@ -3514,7 +3917,7 @@ Export-ModuleMember -Function `
     Set-HostProxy, Clear-HostProxy, Remove-HostProxy, Get-HostProxyBackupPath, Assert-Virtualization, `
     `
     CreateIso, Get-CacheVmCandidateIp, `
-    Get-OrCreateYurunaExternalSwitch, Test-WindowsUplinkNotBridgeable, Test-CachingProxyServicePort, Invoke-YurunaExternalArpProbe, `
+    Get-OrCreateYurunaExternalSwitch, Test-WindowsUplinkNotBridgeable, Test-YurunaExternalSwitchUplink, Test-CachingProxyServicePort, Invoke-YurunaExternalArpProbe, `
     Test-CacheVmOnYurunaExternalSwitch, Get-WorkingCachingProxyServiceUrl, `
     Test-DownloadAlreadyCurrent, Resolve-CacheHostIp, `
     Save-CachedHttpUri, Assert-HyperVEnabled, `

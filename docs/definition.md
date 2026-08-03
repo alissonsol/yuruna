@@ -233,6 +233,36 @@ and the integrity gate refuses whatever else it finds. Either way the dev
 iteration loop is broken until the host is reachable again.
 `fetch-and-execute.sh` warns loudly on stderr.
 
+**The no-IPv4 precondition comes first.** Every cause that banner names
+is host-side, and each one presumes the guest itself has a working
+network — an assumption the banner cannot make on its own, because it
+prints during source resolution while the network diagnostic is only
+sourced much later, at failure time. So before the livecheck probe
+runs, `resolve_fetch_source` checks the cheapest local fact available:
+whether any interface holds a global IPv4 address
+(`ip -4 -o address show scope global`). If none does, nothing is
+reachable from this guest — neither the host nor GitHub — and none of
+the host-side theories above can be true, however healthy or unhealthy
+the host actually is. A distinct `GUEST HAS NO IPv4` banner prints
+instead of `HOST UNREACHABLE`, states that the cause sits on the host
+side of the virtual NIC (the virtual switch has no live uplink, the
+vNIC is disconnected, or no DHCP lease was granted), and resolution
+falls through to `github` — which will fail too, but for a reason the
+artifact now names correctly at the top instead of contradicting itself
+several screens later.
+
+The predicate is the *address*, not the default route: a status service
+on the same L2 segment is reachable with no default route at all, so
+keying on the route would divert guests that could still have fetched
+from the host. The check is skipped when `ip` is absent, leaving such a
+guest on the probe path.
+
+Both banners are read by OCR off the guest console, so their text is
+constrained: no line may contain the words "fetch" or "execute" (they
+fuzzy-match the echoed command line and would close the wait on a
+healthy run), and neither banner may grow enough to push the
+`NONZERO SCRIPT EXIT:` sentinel off the last captured frame.
+
 Source: [`automation/fetch-and-execute.sh`](../automation/fetch-and-execute.sh).
 
 ### Defining fetch-and-execute failure modes
@@ -248,6 +278,27 @@ shared NAT) — `--no-proxy` is added to wget for the same reason
 `resolve_base_url` does (see "host environment variables" above). For
 `source=github`, the proxy is left on so caching-proxy-service can serve cached
 external fetches.
+
+The payload fetch carries `--timeout` and `--tries`. That is a bound,
+not a retry ladder: the diagnose-rather-than-retry stance below is
+deliberate, and a link with no carrier never gains one. What the bound
+buys is the *half*-open path — a SYN blackhole, a stalled response
+body, an origin that accepts the connection and never answers — where
+wget's own defaults are effectively unbounded and the only remaining
+limit is the step's whole timeout, so one guest can burn more than a
+cycle on a single fetch.
+
+The failure banner names what the exit code means, because wget's own
+codes are not self-explanatory: **exit 4 collapses DNS failure,
+"network is unreachable" and "connection refused" into one value**, and
+that is precisely the distinction a reader needs. The script resolves
+it from local state at the moment of the failure — no global IPv4 means
+the link never came up; a missing default route means nothing can leave
+this subnet; a host name that will not resolve points at DNS; anything
+else means the guest was addressed and routed, so the peer refused or
+dropped the connection. The retry library's own classifier cannot
+answer this: it is installed and sourced only after a payload has
+landed, and it reports retry-worthiness rather than a cause.
 
 On fetch failure, the script prints the distinct
 `NONZERO SCRIPT EXIT:` marker so the GUI harness's
@@ -1961,6 +2012,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.02
+Last review: 2026.08.03
 
 Back to [Yuruna](../README.md)

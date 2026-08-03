@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.08.02
+# Version: 2026.08.03
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 #
@@ -19,7 +19,19 @@
 # at DHCP pool exhaustion (a fast-booting guest that loses the lease race
 # comes up with only an IPv6 SLAAC address and no IPv4). IPv6-via-RA needs no
 # DHCP server, so its presence does not clear the flag.
+#
+# A link that is DOWN is a different fault and must not be reported as the
+# lease-pool one: it never reaches DHCP at all, and the cause is outside this
+# machine (the virtual switch the vNIC attaches to has no live uplink, the
+# cable is out, or the port is administratively down). Reporting it as
+# "carrier-up interfaces all hold an address" is vacuously true and sends the
+# reader after the wrong subsystem, so the down state is a verdict of its own.
 network_diag() {
+    # Interface enumeration root. Overridable so a test can walk a fixture
+    # tree; unset, it is the real sysfs path and behavior is identical. The
+    # `ip` calls below are deliberately NOT redirected -- they report live
+    # state and have no meaningful fixture form.
+    local sysfs="${YURUNA_NET_SYSFS:-/sys/class/net}"
     echo ""
     echo "==== NETWORK DIAGNOSTIC ===="
     echo "--- addresses ---"
@@ -31,18 +43,33 @@ network_diag() {
     echo "--- DNS ---"
     grep -i '^nameserver' /etc/resolv.conf 2>/dev/null || echo "(no nameserver entries)"
 
-    # Walk the real (non-loopback, non-virtual) interfaces; collect any that
-    # are carrier-up yet hold no global IPv4 address.
-    local addrless="" ifc oper carrier v4 v6
-    for ifc in /sys/class/net/*; do
+    # Walk the real (non-loopback, non-virtual) interfaces; collect the ones
+    # with no carrier, and the carrier-up ones holding no global IPv4 address.
+    # Reading carrier on a down interface fails (EINVAL), so $carrier is empty
+    # there rather than "0" -- hence the :-none default when it is named.
+    # Only the first few down interfaces are named: this output is printed
+    # immediately before the marker the host matches on a failing run, and the
+    # capture surface holds a bounded number of trailing lines, so the report
+    # has to stay a fixed size no matter how many interfaces exist.
+    local addrless="" downlinks="" downcount=0 examined=0 ifc oper carrier v4 v6
+    for ifc in "$sysfs"/*; do
         ifc=$(basename "$ifc")
+        # An unmatched glob leaves the pattern itself as the only "entry".
+        [ -d "$sysfs/$ifc" ] || continue
         [ "$ifc" = "lo" ] && continue
         case "$ifc" in
             veth*|docker*|br-*|virbr*|cni*|flannel*|kube*|tap*|tun*) continue ;;
         esac
-        oper=$(cat "/sys/class/net/$ifc/operstate" 2>/dev/null)
-        carrier=$(cat "/sys/class/net/$ifc/carrier" 2>/dev/null)
-        [ "$oper" = "up" ] || [ "$carrier" = "1" ] || continue
+        oper=$(cat "$sysfs/$ifc/operstate" 2>/dev/null)
+        carrier=$(cat "$sysfs/$ifc/carrier" 2>/dev/null)
+        if [ "$oper" != "up" ] && [ "$carrier" != "1" ]; then
+            downcount=$((downcount + 1))
+            if [ "$downcount" -le 3 ]; then
+                downlinks="$downlinks $ifc(operstate=${oper:-unknown},carrier=${carrier:-none})"
+            fi
+            continue
+        fi
+        examined=$((examined + 1))
         v4=$(ip -4 -o address show dev "$ifc" scope global 2>/dev/null)
         v6=$(ip -6 -o address show dev "$ifc" scope global 2>/dev/null)
         if [ -z "$v4" ]; then
@@ -55,7 +82,16 @@ network_diag() {
         fi
     done
 
-    if [ -n "$addrless" ]; then
+    # Loudest true cause first: a down link explains everything below it, and a
+    # lease-pool verdict printed over it would point at the wrong subsystem.
+    if [ -n "$downlinks" ]; then
+        echo ""
+        echo "!! LINK DOWN on $downcount interface(s), first:$downlinks"
+        echo "!!   No carrier, so DHCP is never attempted and lease-pool"
+        echo "!!   questions do not apply. The cause is outside this machine:"
+        echo "!!   the virtual switch this vNIC attaches to has no live uplink,"
+        echo "!!   the cable is out, or the port is administratively down."
+    elif [ -n "$addrless" ]; then
         echo ""
         echo "!! NO IPv4 ADDRESS on carrier-up interface(s):$addrless"
         echo "!!   Neither a static address nor a DHCP lease is present."
@@ -63,9 +99,12 @@ network_diag() {
         echo "!!   have no free leases left to hand out. Other causes: the DHCP"
         echo "!!   server is down, a VLAN/cabling fault, or the link is not"
         echo "!!   forwarding yet."
-    else
+    elif [ "$examined" -gt 0 ]; then
         echo ""
         echo "   All carrier-up interfaces hold an IPv4 address."
+    else
+        echo ""
+        echo "   No non-loopback interface is carrier-up."
     fi
     echo "==== END NETWORK DIAGNOSTIC ===="
     echo ""

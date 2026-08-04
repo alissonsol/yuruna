@@ -11,31 +11,6 @@
 
   const $ = (id) => document.getElementById(id);
 
-  // --- passcode ------------------------------------------------------------
-
-  async function session() {
-    try { return await Y.api('/api/session'); } catch (e) { return { gate: false, authed: true }; }
-  }
-
-  function showLogin(show) {
-    $('login').hidden = !show;
-    $('board').hidden = show;
-  }
-
-  $('login-form').addEventListener('submit', async (ev) => {
-    ev.preventDefault();
-    $('login-error').hidden = true;
-    try {
-      await Y.api('/api/login', { method: 'POST', body: { passcode: $('passcode').value } });
-      $('passcode').value = '';
-      showLogin(false);
-      await load();
-    } catch (e) {
-      $('login-error').textContent = e.message;
-      $('login-error').hidden = false;
-    }
-  });
-
   // --- rendering -----------------------------------------------------------
 
   // Thresholds mirror the Grafana tile exactly: red below 95, amber below 100,
@@ -139,10 +114,18 @@
   $('confirm-cancel').addEventListener('click', () => closeConfirm(true));
   $('confirm-ok').addEventListener('click', async () => {
     if (!pending) return;
-    const { card, offer } = pending;
     $('confirm').hidden = true;
+    await assignPending();
+  });
+
+  // assignPending sends the confirmed assignment through Y.mutate, so a gate
+  // refusal prompts for the Lab token and re-sends this same assignment rather
+  // than losing the selection. A real failure puts the picker back where it was,
+  // so the UI never claims an assignment that did not happen.
+  async function assignPending() {
+    const { card, offer } = pending;
     try {
-      await Y.api('/api/pool/testset', {
+      await Y.mutate('/api/pool/testset', {
         method: 'POST',
         body: {
           poolId: card.poolId, name: offer.name,
@@ -152,18 +135,23 @@
       pending = null;
       await load();
     } catch (e) {
-      // Put the picker back where it was, so the UI never claims an assignment
-      // that did not happen.
       closeConfirm(true);
       alert('Could not assign: ' + e.message);
     }
-  });
+  }
 
   // --- data ----------------------------------------------------------------
+
+  // Header version + host id and the footer bar. stamp() (not markLoaded) records
+  // each pass, because the 30 s poll below would otherwise keep resetting the
+  // 60 s countdown and it would never reach zero. refreshOnVisible is off -- the
+  // board already reloads on that event.
+  const chrome = Y.initChrome({ intervalSeconds: 60, refresh: load, refreshOnVisible: false });
 
   async function load() {
     try {
       const d = await Y.api('/api/board?range=' + encodeURIComponent(state.range));
+      chrome.stamp();
       state.cards = d.cards || [];
       state.offers = d.offers || [];
       const b = $('stats-banner');
@@ -177,7 +165,6 @@
       }
       render();
     } catch (e) {
-      if (/passcode/i.test(e.message)) { showLogin(true); return; }
       Y.notice && Y.notice('error', e.message);
     }
   }
@@ -203,9 +190,9 @@
     for (const b of document.querySelectorAll('.periods button')) {
       b.classList.toggle('on', b.getAttribute('data-range') === state.range);
     }
-    const s = await session();
-    if (s.gate && !s.authed) { showLogin(true); return; }
-    showLogin(false);
+    // The board never blocks on the gate: it renders for anyone on the LAN and
+    // asks for the Lab token at the moment a change is attempted.
+    $('board').hidden = false;
     await load();
     startTimer();
   })();

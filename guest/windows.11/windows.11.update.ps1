@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.03
+.VERSION 2026.08.04
 .GUID 42f0a1b2-c3d4-4e56-f789-0a1b2c3d4e10
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -64,12 +64,11 @@ if (-not $pwshPath) {
 }
 
 # --- REGION: Install powershell-yaml module
-# Installed for all users via pwsh 7 (not Windows PowerShell 5.1) so the
-# module lands in the same PSModulePath the in-guest sequence planner and
-# Get-SystemDiagnostic.ps1 use. Administrator elevation (checked at the
-# top of this script) makes `-Scope AllUsers` succeed without an
-# interactive UAC prompt. powershell-yaml is a HARD dependency (the in-guest
-# sequence planner and Get-SystemDiagnostic.ps1 need it), so the install is
+# Installed for all users via pwsh 7 (not Windows PowerShell 5.1) so the module
+# lands in the same PSModulePath the in-guest sequence planner and
+# Get-SystemDiagnostic.ps1 use -- both need it, so it is a HARD dependency.
+# Administrator elevation (checked at the top of this script) makes
+# `-Scope AllUsers` succeed without an interactive UAC prompt. The install is
 # retried and the ConvertFrom-Yaml round-trip smoke test is fatal on failure
 # (Install-Module can report success yet leave the module unimportable) --
 # never swallow a missing parser with a soft note.
@@ -129,12 +128,11 @@ if ($env:YURUNA_STATUS_SERVICE_IP -and $env:YURUNA_STATUS_SERVICE_PORT -and -not
 }
 
 # --- REGION: Disable services that may suspend the machine
-# Mirrors the Linux `systemctl mask sleep.target ...` block. Test cycles
-# must not be interrupted by standby/hibernate/monitor-off. powercfg
-# applies to the active power scheme; `/hibernate off` disables the
-# feature entirely (and frees hiberfil.sys). 2>$null because /hibernate
-# off prints a non-fatal "Hibernation is already disabled" line in
-# environments where the BIOS already disabled it.
+# Mirrors the Linux `systemctl mask sleep.target ...` block: test cycles must
+# not be interrupted by standby/hibernate/monitor-off. powercfg applies to the
+# active power scheme; `/hibernate off` disables the feature entirely (and frees
+# hiberfil.sys). 2>$null because it prints a non-fatal "Hibernation is already
+# disabled" line where the BIOS already disabled it.
 Write-Output ""
 Write-Output "TESTHACK: Disabling services that may suspend the machine."
 powercfg /change standby-timeout-ac 0 | Out-Null

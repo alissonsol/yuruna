@@ -1,6 +1,8 @@
 /* LICENSEURI https://yuruna.link/license */
 /* Copyright (c) 2019-2026 by Alisson Sol et al. */
-:root { --fg:#1b1f23; --muted:#6a737d; --line:#e1e4e8; --accent:#2b6cb0; --bg:#fff; --err:#b00020; --ok:#1a7f37; }
+:root { --fg:#1b1f23; --muted:#6a737d; --line:#e1e4e8; --accent:#2b6cb0; --bg:#fff; --err:#b00020; --ok:#1a7f37;
+        --footer-bg:#111827; --footer-fg:#9ca3af; --footer-input-bg:#0b1220; --footer-input-border:#374151;
+        --mono: ui-monospace, Menlo, Consolas, monospace; }
 * { box-sizing: border-box; }
 /* Every page toggles visibility with the `hidden` ATTRIBUTE. A class rule that
    sets `display:` on the same element outranks the user-agent
@@ -8,11 +10,22 @@
    silent no-op -- and for an overlay, an undismissable one. Keep this ahead of
    every layout rule so the attribute always wins. */
 [hidden] { display: none !important; }
+/* iOS Safari boosts text inside any block wider than the viewport, and the
+   phone breakpoint below deliberately makes tables wider than the screen (they
+   scroll themselves). Without this pin a table paints at a different size from
+   the rest of the page. Prefixed form is the one Safari implements; the
+   standard form covers the others. */
+html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
 body { font: 14px/1.5 -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; color: var(--fg); background: var(--bg); margin: 0; }
 /* Space flex children with margins, not `gap` (flex gap is Safari/iOS 14.5+ only). */
 header.app { display: flex; flex-wrap: wrap; align-items: center; padding: .75rem 1.25rem; border-bottom: 1px solid var(--line); }
 header.app > * + * { margin-left: 1rem; }
-header.app .brand { font-weight: 600; }
+/* Service name with its version stacked underneath, so the two read as one
+   identity block rather than two unrelated header items. */
+header.app .brand { display: flex; flex-direction: column; line-height: 1.15; font-weight: 600; }
+header.app .version { color: var(--muted); font-family: var(--mono); font-size: .72rem; font-weight: 400; }
+header.app .spacer { flex: 1; }
+header.app .machine { color: var(--muted); font-family: var(--mono); font-size: .8rem; }
 header.app nav a { margin-right: 1rem; color: var(--accent); text-decoration: none; }
 header.app nav a.active { font-weight: 600; text-decoration: underline; }
 main { padding: 1.25rem; max-width: 1100px; }
@@ -42,7 +55,48 @@ td.error { color: var(--err); font-weight: 600; }
 /* Probe output is captured verbatim (version banners, stderr), so keep the
    newlines but let long single lines wrap instead of widening the table. */
 pre.detail { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: .85rem; margin: 0; white-space: pre-wrap; word-break: break-word; }
+
+/* Shared footer bar (server IPs · loaded · refresh countdown), mirroring the
+   stash service's #footer-bar and the status pages' — fixed at the bottom, with
+   a readonly mono textarea for the (possibly long) IP list. main pads its bottom
+   so the fixed bar never covers the last row of a table. */
+#footer-bar {
+  position: fixed; bottom: 0; left: 0; right: 0;
+  background: var(--footer-bg); color: var(--footer-fg);
+  /* Fixed bar: pad left/right and bottom by the safe-area-inset so it clears
+     the iPhone home indicator and the landscape notch. */
+  padding: .35rem 1rem;
+  padding: .35rem max(1rem, env(safe-area-inset-right)) max(.35rem, env(safe-area-inset-bottom)) max(1rem, env(safe-area-inset-left));
+  font-size: .6875rem;
+  display: flex; justify-content: space-between; align-items: center;
+  /* Above the board's sticky period selector, below the unlock overlay. */
+  z-index: 3;
+}
+#footer-bar > * + * { margin-left: .75rem; }
+#footer-bar a { color: var(--footer-fg); }
+#footer-ips { flex: 0 1 33%; max-width: 33%; min-width: 0; display: flex; align-items: center; }
+#footer-ips > * + * { margin-left: .5rem; }
+#footer-ips .label { flex-shrink: 0; }
+textarea#footer-ip-list {
+  flex: 1 1 auto; min-width: 0;
+  font-family: var(--mono); font-size: .6875rem;
+  color: var(--footer-fg); background: var(--footer-input-bg); border: 1px solid var(--footer-input-border);
+  border-radius: 3px; padding: .15rem .35rem;
+  resize: none; overflow: auto; white-space: pre;
+  line-height: 1.25; vertical-align: middle;
+  scrollbar-width: none;
+}
+textarea#footer-ip-list::-webkit-scrollbar { display: none; }
+/* body class (not :has()) so the fixed-footer clearance works on Firefox and
+   iOS Safari < 15.4, which predate :has(). */
+body.has-footer-bar main { padding-bottom: 3rem; padding-bottom: calc(3rem + env(safe-area-inset-bottom)); }
+
 @media (max-width: 600px) {
+  /* #footer-ips claims its own row here, so the bar is two rows tall and the
+     3rem single-row reserve above no longer clears it. */
+  #footer-bar { padding-left: .5rem; padding-left: max(.5rem, env(safe-area-inset-left)); padding-right: .5rem; padding-right: max(.5rem, env(safe-area-inset-right)); flex-wrap: wrap; }
+  #footer-ips { flex-basis: 100%; max-width: 100%; }
+  body.has-footer-bar main { padding-bottom: 4.5rem; padding-bottom: calc(4.5rem + env(safe-area-inset-bottom)); }
   /* The 4-6 column tables overflow a 375px phone; scroll the table itself
      instead of the whole page (matches the stash UI's .table-wrap idiom). */
   table { display: block; overflow-x: auto; -webkit-overflow-scrolling: touch; }
@@ -59,4 +113,36 @@ pre.detail { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: .
      375px phone, and a flex item's automatic minimum stops them shrinking, so the
      page scrolls sideways. min-width: 0 lets flex-shrink do its job. */
   .row > input { min-width: 0; }
+}
+
+/* The Lab-token prompt (Y.unlock in common.js). Built in code rather than
+   marked up per page, so every page that changes pool configuration shows the
+   same prompt at the same moment: when the change is attempted, never on
+   arrival -- reads are open. */
+.unlock-overlay {
+  position: fixed; top: 0; right: 0; bottom: 0; left: 0;
+  background: rgba(0,0,0,0.45);
+  display: flex; align-items: center; justify-content: center;
+  z-index: 20; padding: 1rem;
+}
+.unlock-overlay .login {
+  width: 100%; max-width: 22rem; text-align: center;
+  background: var(--bg, #fff); color: inherit;
+  border-radius: 16px; padding: 1.25rem;
+}
+.unlock-overlay .login h1 { font-size: 1.2rem; margin: 0 0 0.5rem; }
+.unlock-overlay .login-hint { font-size: 0.9rem; margin: 0 0 1rem; line-height: 1.4; }
+.unlock-overlay .login form { display: flex; flex-direction: column; }
+.unlock-overlay .login form > * + * { margin-top: 0.6rem; }
+.unlock-overlay .login input,
+.unlock-overlay .login button { min-height: 44px; font-size: 1rem; border-radius: 10px; padding: 0 0.7rem; }
+.unlock-overlay .login input {
+  border: 1px solid var(--line, #d0d7de); background: var(--bg, #fff); color: inherit;
+  text-align: center; letter-spacing: 0.2em; text-transform: lowercase;
+}
+.unlock-overlay .login-error { color: #cf222e; font-size: 0.9rem; margin: 0.6rem 0 0; }
+
+@media (prefers-color-scheme: dark) {
+  .unlock-overlay .login { --bg: #0d1117; }
+  .unlock-overlay .login input { border-color: #30363d; }
 }

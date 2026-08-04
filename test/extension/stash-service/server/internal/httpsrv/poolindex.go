@@ -1,12 +1,12 @@
 // LICENSEURI https://yuruna.link/license
 // Copyright (c) 2019-2026 by Alisson Sol et al.
 
-// Pool-wide aggregation. The local host's stashes
-// come from its SQLite index (live, including pending/buffered); every OTHER
-// host's come from its on-share sidecars. To keep memory bounded as the pool
-// ages (§3.2), the in-memory pool index holds only the last windowDays of
-// remote sidecars, refreshed periodically; queries reaching older dates do
-// an on-demand date-pruned deep scan instead.
+// Pool-wide aggregation. The local host's stashes come from its SQLite index
+// (live, including pending/buffered); every OTHER host's come from its
+// on-share sidecars. To keep memory bounded as the pool ages (§3.2), the
+// in-memory pool index holds only the last windowDays of remote sidecars,
+// refreshed periodically; queries reaching older dates do an on-demand
+// date-pruned deep scan instead.
 package httpsrv
 
 import (

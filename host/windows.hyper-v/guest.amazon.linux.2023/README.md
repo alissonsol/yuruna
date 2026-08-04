@@ -24,8 +24,7 @@ elevated PowerShell:
 
 ## First login and GUI install
 
-Test sequences log in as the per-guest test user (`yauser1` for
-amazon.linux.2023; the name is set in
+Test sequences log in as the per-guest test user (`yauser1`, set in
 [test/sequences/start.guest.amazon.linux.2023.yml](../../../test/sequences/start.guest.amazon.linux.2023.yml)
 and mirrored as the `-Username` default of `New-VM.ps1`). cloud-init
 creates it on top of the cloud-image default `ec2-user`. The password
@@ -55,6 +54,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.03
+Last review: 2026.08.04
 
 Back to [Yuruna](../../../README.md)

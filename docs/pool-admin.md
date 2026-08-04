@@ -2,14 +2,14 @@
 
 > **Who this is for.** A **pool administrator / operator** running several Yuruna test
 > hosts who wants them to share work and report together. It is *not* a guide to writing
-> test sequences or harness code. It assumes the test **sequences already exist** (the ones
-> a single host runs from `test.runner.yml`); your job here is to point a set of
+> test sequences or harness code, and assumes the test **sequences already exist** (the
+> ones a single host runs from `test.runner.yml`); your job here is to point a set of
 > hosts at the project that runs them.
 
 ## What a pool is
 
-A **pool** is a named group of test hosts that all run the same assigned work and report
-their results under one label (the `poolId`). You manage a pool by editing one small file
+A **pool** is a named group of test hosts that run the same assigned work and report
+under one label (the `poolId`). You manage a pool by editing one small file
 of **intent** — `pools.yml` — through a handful of admin commands. You never touch the
 hosts directly: each runner **pulls** the intent every cycle and acts on it.
 
@@ -33,7 +33,7 @@ library, `guests.compatibility.yml`). No credential is ever routed through it.
 
 1. **The intent store exists.** The caching-proxy-service VM seeds a bare git repo at
    `/var/lib/yuruna/pool-intent.git` and serves it **read-only over HTTP** at
-   `http://<proxy>/pool-intent.git`. This is set up automatically when the caching-proxy-service is
+   `http://<proxy>/pool-intent.git`. Set up automatically when the caching-proxy-service is
    provisioned — you don't create it.
 2. **Each host has opted in.** In each host's `test/test.config.yml`, set the `pool` block:
    ```yaml
@@ -42,10 +42,10 @@ library, `guests.compatibility.yml`). No credential is ever routed through it.
      intentGitUrl: http://<proxy>/pool-intent.git   # the READ-ONLY HTTP url
      localClonePath: ''                              # optional; defaults under runtime/
    ```
-   A host with `pool.enabled: false` (the default) runs standalone, exactly as before.
+   A host with `pool.enabled: false` (the default) runs standalone.
 3. **You know each host's id.** Every host has a stable id in `runtime/host.uuid` — a
-   `42`-prefixed 32-hex string. It is also shown as `hostId` on the host's own status page
-   and on the pool dashboard.
+   `42`-prefixed 32-hex string, also shown as `hostId` on the host's own status page and
+   on the pool dashboard.
 4. **You can write the intent repo.** The HTTP url above is read-only. The admin commands
    need a **writable** path/url, so run them **on the caching-proxy-service** against the local repo
    (`/var/lib/yuruna/pool-intent.git`), or against any pre-authenticated writable remote.
@@ -75,7 +75,7 @@ pwsh test/Add-HostToPool.ps1 -PoolId lab -HostId 42abcdef0123456789abcdef0123456
 
 - `-HostId` is the host's `runtime/host.uuid` (`42` + 30 hex). The pool dashboard's
   **Host ID** column renders it GUID-dashed for readability, and every pool-admin
-  command accepts that form too, so a value copied off the panel works as pasted.
+  command accepts that form, so a value copied off the panel works as pasted.
   Membership is the single source of truth and is idempotent — re-adding a host is
   a no-op.
 - To remove a host later, see **Step 6** below (drain it first if it is running).
@@ -148,9 +148,8 @@ ran cycles also leaves a `hosts/info.<hostId>.yml` identity record plus replicat
 cycle folders on the NAS, and — separately — keeps showing on the **Yuruna hosts**
 dashboard, which is the pool-aggregator-service's own polled, in-memory view (each host
 kept for the aggregator's host TTL after last contact — 24h by default, set with
-`-host-ttl`), *not* the NAS records. To fully retire a
-stale host — a disposable `example/nested.host` run, a decommissioned box, an id
-that will never return — use:
+`-host-ttl`), *not* the NAS records. To fully retire a stale host — a disposable
+`example/nested.host` run, a decommissioned box, an id that will never return — use:
 
 ```powershell
 pwsh test/Remove-PoolHost.ps1 -HostId 42<...30 hex...>          # add -WhatIf to preview
@@ -195,8 +194,8 @@ re-clone from the remote. Every command has full help: e.g. `Get-Help test/Set-P
 
 The Pool control service is the operator UI + API for the LAN pool intent. It
 serves three pages and drives the pool-intent git store; runners only PULL that
-store read-only. Every button routes through the same admin CLIs documented
-above, so the UI and the command line cannot diverge.
+store read-only. Every button routes through the admin CLIs above, so the UI
+and the command line cannot diverge.
 
 ### What it does
 
@@ -208,9 +207,8 @@ above, so the UI and the command line cannot diverge.
 - **Test sets** (`/test-sets`) &mdash; CRUD the named-triple library
   (`test-sets.yml`). GH_TOKEN is **never** stored here &mdash; it stays host-local.
 
-Assigning copies the chosen library triple into the pool's inline `testSet`; a
-pooled runner then overrides its `repositories.frameworkUrl`/`projectUrl` with it
-for the cycle and runs the assigned project's own `test.runner.yml`.
+Assigning copies the chosen library triple into the pool's inline `testSet`;
+members then behave exactly as on the CLI path in Steps 3-4 above.
 
 ### Architecture
 
@@ -232,6 +230,35 @@ A small Go daemon (`test/extension/pool-control-service/server`, module `pool-co
   `poolStorageNetworkPath/pool-control-service/` (the pool NAS), surviving restarts. `/healthz`
   serves that status. A monitor loop probes the intent every `--monitor-interval`.
 
+### Unlocking the actions
+
+Everything this service changes **is** pool configuration &mdash; which pools
+exist, which hosts belong to them, which test set each one runs &mdash; so every
+mutating route takes the lab-token gate that
+[docs/extensions-api.md](extensions-api.md#the-lab-token-rule) applies to every
+extension service:
+
+- **From a browser**, the first change you attempt prompts for the rotating
+  6-character **Lab token** the Yuruna hosts dashboard shows on its own tile.
+  Entering it exchanges the code for a session cookie (7 days, HttpOnly,
+  SameSite=Lax so the dashboard deep-link keeps it) and re-sends the change you
+  were making. There is nothing to set up: the daemon already knows the
+  aggregator, and the aggregator owns the codes.
+- **From automation**, send the shared `lab-auth-token` as
+  `Authorization: Bearer …`. The daemon reads it from `--auth-token-file`
+  (default `/etc/yuruna/lab-auth.token`, absent by default). Nothing bakes that
+  file into the VM seed, so the bearer is opt-in: drop the token there yourself
+  on a service VM that automation drives.
+
+**Reads are open**, matching the aggregator's own `pool-status` and every other
+extension service: the board renders on a wall display with no credential, and
+nothing it shows is a secret the LAN cannot already read from the pool.
+
+An aggregator that is down means the board cannot be unlocked &mdash; a
+deliberate fail-closed, reported as `503` with reason `lab-token-unavailable`
+rather than as a wrong code, so an operator does not retype a correct one until
+they give up.
+
 ### Running it
 
 **Default &mdash; on its own VM:**
@@ -247,14 +274,14 @@ that builds the daemon, installs pwsh + `powershell-yaml`, CIFS-mounts the pool 
 for the state dir, and runs it under systemd (`guest/ubuntu.server.26/ubuntu.server.26.pool-control-service.sh`).
 The per-hypervisor `guest.pool-control-service/New-VM.ps1` (mirroring the stash-service VM chain)
 generates the seed with `/etc/yuruna/{pool.env,host.env,pool-nas.cifs.cred}` and a
-distinct guest username. **No `go` toolchain is needed on the host** &mdash; the
-daemon is built inside the guest. The Extension-hosts row then points at the VM
-(beacon self-IP); deleting the VM clears it after the announce TTL.
+distinct guest username. **No `go` toolchain is needed on the host.** The
+Extension-hosts row then points at the VM (beacon self-IP); deleting the VM
+clears it after the announce TTL.
 
-After the VM boots, the launcher waits for the daemon to actually serve on `:80`
+After the VM boots, the launcher waits for the daemon to serve on `:80`
 (up to 15 min; override with `YURUNA_POOL_CONTROL_SERVICE_READY_TIMEOUT_SECONDS=<seconds>`) before
-reporting success &mdash; an IP alone is not "up", since the guest still has to
-build the daemon. If `:80` never comes up, it pulls the in-guest build log,
+reporting success &mdash; an IP alone is not "up": the guest still has to build
+the daemon. If `:80` never comes up, it pulls the in-guest build log,
 `cloud-init status`, and the `pool-control-service.service` journal over the harness SSH
 key and prints them, so a failed build shows you the reason instead of a dead URL.
 (That log is root-only; the harness `yuruna` account has NOPASSWD `sudo`, so
@@ -272,14 +299,104 @@ pwsh test/Start-PoolControlServiceVM.ps1 -HostSideProof [-Port 8090] [-Aggregato
 Needs `go` + `pwsh` on PATH and the framework checkout (the CLIs live at
 `<repo>/test/*.ps1`).
 
+## Download-agent service
+
+The Download-agent service is the pool's shared guest-image downloader. It keeps
+a **Download pool** on the pool NAS (`<pool root>/images/…`), re-verifies each
+image against its origin on a schedule, and serves the artifacts to hosts over
+HTTP — so a lab pulls an ISO or cloud image from the internet once instead of
+once per host. It needs pool storage configured; without a share the pool has
+nowhere to live and the service is skipped.
+
+### What it does
+
+- **Holds the pool.** One entry per `(hostType, imageKey, arch, variant)`, stored
+  under generation names (upstream filename + the artifact's SHA-256 prefix) with
+  a small `current.<arch>.<variant>.json` pointer that is written last, so a
+  refresh never renames over a file a host is streaming. The current generation
+  plus one previous is retained.
+- **Keeps it fresh.** A background scanner walks the pool every
+  `downloadAgentService.scanIntervalSeconds` and acts on anything expiring within
+  `prefetchLeadSeconds` of its `freshnessSeconds` budget. Freshness probes go
+  **direct** to the origin, never through the squid cache — a proxied HEAD would
+  return frozen prewarm-era headers and certify staleness as freshness. Byte
+  downloads do use the cache, falling back to direct on any proxy failure. When a
+  refresh fails, the previous verified artifact stays servable.
+- **Seeds itself.** With `autoSeed` on (the default) it reads the pool
+  aggregator's host roster, derives the host types actually present, and
+  pre-downloads the stable families for them. Hosts the aggregator has no status
+  for are covered on demand instead.
+- **Announces itself.** A beacon to the pool-aggregator service plus the
+  `runtime/download-agent-service.json` marker put it in the dashboard's
+  Extension hosts table as "Download-agent service", deep-linking to its UI.
+
+### The UI and its three actions
+
+The daemon serves a single-page UI at `http://<agent-vm-ip>/` — the agent
+header (version, pool availability, lease state, scanner cadence, last seed
+outcome), one row per image with its state badge, current filename, size on disk,
+`lastVerifiedAt` and time-to-expiry, checksum verdict, source URL, and live
+progress for in-flight downloads, plus a totals row answering "what is eating the
+share". Reads are open on the LAN. Three per-row actions are gated:
+
+- **Force refresh** — re-verify against the origin now; download only if it
+  changed. Also usable on an absent row to trigger a first download.
+- **Delete** — cancel any in-flight download, remove the pointer first, then
+  every generation and sidecar. The next host request or seed pass re-downloads
+  from the origin; this is the "force a new download" path. Hosts' local copies
+  are untouched.
+- **Prune previous** — drop only the previous generation to reclaim space; the
+  current one stays servable.
+
+Each action is appended to `<pool root>/download-agent-service/audit.jsonl`. The
+same three exist as API routes for automation, which also accept the shared
+`lab-auth-token` as a bearer.
+
+### Unlocking the actions
+
+The board's **Unlock actions** prompt takes the rotating 6-character **Lab
+token** the Yuruna hosts dashboard already displays on its own tile — the same
+code `test/Set-LabToken.ps1` redeems to enroll a host. Read it off the tile,
+type it in, and that browser stays unlocked for a week. Nothing is provisioned
+and nothing is stored on the agent VM.
+
+The daemon does not judge the code itself: it forwards it to the aggregator's
+`POST /api/v1/lab-token` exchange, which owns the rotation. So an aggregator
+that is down means the board cannot be unlocked — a deliberate fail-closed,
+answered as `503 lab-token-unavailable` rather than as "wrong code". Automation
+is unaffected; the same routes take `Authorization: Bearer <lab-auth-token>`.
+
+The code is public on the LAN by construction (the aggregator publishes it on
+its open `/metrics`). It stops a stray click on Delete; it is not a secret, and
+it is worth having because it expires on its own.
+
+With neither an aggregator to ask nor a lab-auth-token configured the mutating
+routes answer `503` — never an ungated write.
+
+### Running it
+
+```powershell
+pwsh test/Start-DownloadAgentServiceVM.ps1 [-VMName yuruna-download-agent-service]
+# stop (and tear down the VM) with test/Stop-DownloadAgentServiceVM.ps1
+```
+
+Like the pool-control service, the daemon is built **inside** the guest (no host
+`go` toolchain) from `host/vmconfig/download-agent-service.base.user-data` +
+`guest/ubuntu.server.26/ubuntu.server.26.download-agent-service.sh`, which
+CIFS-mounts the pool share at `/mnt/yuruna-pool`. The launcher waits for the
+daemon to serve on `:80` (up to 15 min; override with
+`YURUNA_DOWNLOAD_AGENT_SERVICE_READY_TIMEOUT_SECONDS=<seconds>`) and pulls the
+in-guest build log and journal when it does not. `install/setup.ps1` runs the
+stop/start pair for you in both modes whenever storage is configured, and never
+fails setup on it. Config keys:
+[test-config.md](test-config.md#downloadagentservice--the-pool-wide-image-downloader).
+
 ## Design choices
 
-- **One test-set per pool** — a pool runs exactly one framework/project pair at a
-  time; assigning another replaces it. Split hosts into two pools to run two
-  bodies of tests side by side.
+- **One test-set per pool** — split hosts into two pools to run two bodies of
+  tests side by side.
 - **Assignment is not probed** — `Set-PoolTestSet` records the repo URLs without
-  cloning them, and `Test-PoolIntent.ps1` checks shape, not reachability; a bad
-  URL first surfaces when a member's next cycle tries to clone.
+  cloning them, and `Test-PoolIntent.ps1` checks shape, not reachability.
 - **Members do not split the work** — every member runs the assigned project's
   full `test.runner.yml` plan; there is no per-guest scheduling across members.
 
@@ -317,6 +434,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.03
+Last review: 2026.08.04
 
 Back to [Yuruna](../README.md)

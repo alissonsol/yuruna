@@ -25,14 +25,14 @@ after install, or let `pwsh install/setup.ps1` do it as one step of a
 guided [standalone-host or lab setup](../../install/README.md#guided-setup).
 
 Then follow [Hosts — ...](../README.md#install-one-liner-convention). On
-Windows: step 2's reboot only applies when Hyper-V was just enabled;
+Windows: step 2's reboot applies only when Hyper-V was just enabled;
 step 4's hypervisor UI is Hyper-V Manager:
 
 ```
 Start-Process virtmgmt.msc
 ```
 
-Not auto-launched: Hyper-V Manager personalizes per user on first run
+Not auto-launched: Hyper-V Manager personalizes per user on first run,
 and enterprise-managed machines may need interactive acknowledgment.
 Prefer `pwsh` over `powershell.exe` afterwards.
 
@@ -60,6 +60,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.03
+Last review: 2026.08.04
 
 Back to [Yuruna](../../README.md)

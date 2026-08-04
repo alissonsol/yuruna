@@ -1,14 +1,13 @@
 # Yuruna Workarounds and FAQ
 
-Notes, frequently asked questions, and workarounds learned during
-development, followed by per-guest-OS troubleshooting. Host-side issues
-live in the host docs: [Windows Hyper-V](host-hyperv.md) ·
-[macOS UTM](host-macos.md).
+Notes, frequently asked questions, and workarounds from development,
+followed by per-guest-OS troubleshooting. Host-side issues live in the
+host docs: [Windows Hyper-V](host-hyperv.md) · [macOS UTM](host-macos.md).
 
 ## Connectivity
 
 **Connection to <http://localhost> fails** — on Windows, stop HTTP and
-related processes. Find what's holding port 80 with
+related processes. Find what holds port 80 with
 `netstat -nao | find ":80"`, then `net stop http`. When that is blocked by
 [HTTP services can't be stopped when the Microsoft Web Deployment Service is installed](https://learn.microsoft.com/en-us/troubleshoot/iis/http-service-fail-stopped),
 also `net stop msdepsvc`, reboot, and retry. If `BranchCache` keeps needing
@@ -22,9 +21,9 @@ under "Delete domain security policies" type the site → Delete.
 
 **A container is reachable via port forward but not via the ingress on
 localhost** — confirm the required ports aren't held by other processes
-before deploying. Docker Desktop itself often holds them
+before deploying. Docker Desktop often holds them
 ([docker/for-mac#4903](https://github.com/docker/for-mac/issues/4903)); quit
-and restart Docker, since the Restart menu item is not enough. See also
+and restart Docker — the Restart menu item is not enough. See also
 **Debugging localhost** below.
 
 **An example fails when executed twice, or after another example** — run,
@@ -54,8 +53,7 @@ one machine can be picked up on another. Import the cluster context and
 
 **`Error: can't find external program "pwsh"`** — check for PowerShell 7.0+
 via `$PSVersionTable`. Setup: <https://aka.ms/powershell>. Versions used in
-testing are listed in [Preflight
-dependencies](operator.md#b2-preflight-dependencies).
+testing: [Preflight dependencies](operator.md#b2-preflight-dependencies).
 
 ## Development notes
 
@@ -93,8 +91,8 @@ in PATH; sometimes `nuget restore <name>.proj` must run before
 [kubernetes/ingress-nginx examples](https://github.com/kubernetes/ingress-nginx/tree/master/docs/examples/grpc).
 
 **Docker Desktop recovery** — "Reset to factory defaults" under
-Troubleshoot is the quickest fix. Afterwards remove `~/.kube` and
-re-enable Kubernetes (loses some configuration).
+Troubleshoot is the quickest fix. Then remove `~/.kube` and re-enable
+Kubernetes (loses some configuration).
 
 For `docker-credential-desktop executable file not found in $PATH`:
 in `~/.docker/config.json` rename `credsStore` → `credStore` (or remove
@@ -109,8 +107,8 @@ resources/components/workloads.
 — usually a shell expression that returned nothing; append `$true`.
 
 **Edit a live service** — `kubectl edit svc <name> -n <ns>` (also
-configMaps, pods, etc.); once you reach the desired state, encode it
-as `kubectl patch` statements.
+configMaps, pods, etc.); once at the desired state, encode it as
+`kubectl patch` statements.
 
 **Debugging localhost** — resetting Docker's Kubernetes cluster and
 re-connecting contexts often helps. `automation/context-copy.ps1
@@ -127,17 +125,16 @@ the filename string** — `Resolve-UbuntuServerStableImage` in
 (consumed by every per-guest `Get-Image.ps1` across Hyper-V, UTM and
 KVM — noble + resolute) resolves the "latest stable" ISO by
 regex-matching `ubuntu-[\d.]+-live-server-<arch>\.iso` on the release
-directory listing and then sorting the matches on the `[version]`
-parsed out of each filename, descending, taking the first.
+directory listing, then sorting matches on the `[version]` parsed from
+each filename, descending, and taking the first.
 The `[version]` key is load-bearing: a plain
 `Sort-Object Value -Descending` is lexicographic, so once Ubuntu ships
 a `.10`+ point release `ubuntu-24.04.10-...` sorts BEFORE
 `ubuntu-24.04.2-...` (because `'1' < '2'`) and the picker would pin
 `24.04.9` while releases.ubuntu.com already serves `.10` — symptom:
 `Selected stable ISO: ubuntu-<NN>.04.9-live-server-<arch>.iso`.
-Keep the version-keyed sort (and its unparseable-value fallback) if
-this resolver is ever rewritten; one edit in the shared module affects
-every per-guest caller.
+Keep the version-keyed sort (and its unparseable-value fallback) in any
+rewrite; one edit in the shared module affects every per-guest caller.
 
 ## A detached grandchild pins the caller's pipe on Windows
 
@@ -148,21 +145,21 @@ turns handle inheritance ON for that child. `Invoke-StatusServiceBounce` in
 runs `Start-StatusService.ps1 -Restart` in a child pwsh, and the status
 server it starts is a grandchild that outlives the bounce by design. With
 inheritance on, that server inherits the write end of the caller's stdout
-pipe and holds it open for its whole lifetime: the read never reaches EOF,
-so the bounce blocks on the SERVER, not on the child that exited seconds
-ago. The same redirection also swallows every progress line, so the symptom
-is a silent, unbounded hang. Redirecting the child's own streams to files
-does NOT close the hole — an inheritable pipe further up the ancestry (any
+pipe and holds it open for its lifetime: the read never reaches EOF, so the
+bounce blocks on the SERVER, not on the child that exited seconds ago. The
+same redirection also swallows every progress line, so the symptom is a
+silent, unbounded hang. Redirecting the child's own streams to files does
+NOT close the hole — an inheritable pipe further up the ancestry (any
 caller that captures our output) is passed down all the same.
 
 The fix is to spawn with neither `-Redirect*` nor `-NoNewWindow`, which makes
-PowerShell use `ShellExecute`; that passes no inheritable handles at all, so
+PowerShell use `ShellExecute`; that passes no inheritable handles, so
 nothing downstream can pin a pipe anywhere in the chain. The child writes its
 own transcript with `Tee-Object` and the caller tails that file while it
 waits. `-NonInteractive` goes on the child so a prompt fails fast instead of
-blocking against a hidden window nobody can answer. Waiting must use
+blocking on a hidden window nobody can answer. Waiting must use
 `Process.WaitForExit(ms)` on the child alone — `Start-Process -Wait` waits on
-the whole descendant tree, which includes the status service, and reintroduces
+the whole descendant tree, which includes the status service, reintroducing
 the unbounded wait from the other direction.
 
 Unix has no `ShellExecute`, but its detached server is `nohup`'d onto
@@ -205,8 +202,8 @@ Sites that depend on this ordering: `test/Start-CachingProxyServiceVM.ps1`,
 `test/Test-CachingProxyService.ps1`, `test/Start-StatusService.ps1`,
 `test/Remove-TestVMFiles.ps1`, `test/Set-LabToken.ps1`.
 
-Symptoms when the re-import is missing are silent rather than loud,
-because the surrounding `try` usually swallows the resolution error:
+Symptoms when the re-import is missing are silent, because the
+surrounding `try` usually swallows the resolution error:
 
 - `Start-StatusService.ps1` leaves `runtime/caching-proxy-service.txt` at whatever
   the previous run wrote, so the status-page banner reports "not detected"
@@ -223,22 +220,21 @@ Durable capture: `feedback_module_force_import_evicts_global`.
 On a freshly-imported bundle, `utmctl start` can return 0 at the RPC layer
 while UTM is still finalizing bundle ingestion — the start request is
 silently dropped and the VM stays `stopped`. The exit code alone is
-therefore not evidence the VM is running, and a caller that trusts it
-advertises a service that does not exist and then blames whatever runs
-next (cloud-init, a daemon build, a NAS mount) for a guest that never
-booted.
+therefore not evidence the VM is running: a caller that trusts it
+advertises a service that does not exist, then blames whatever runs next
+(cloud-init, a daemon build, a NAS mount) for a guest that never booted.
 
 The fix is to verify the transition rather than the exit code: the host
 contract's `Start-VM` (`Start-UtmVM`) retries and parses `utmctl status`,
 and every service bring-up follows it with `Wait-VMRunning` before doing
 anything downstream. Do not hand-roll `open` + `utmctl start`; that path
 also skips the custom-QEMU-args dialog watchdog, without which UTM blocks
-on a modal and the bring-up cannot run unattended at all.
+on a modal and the bring-up cannot run unattended.
 
 ## Guest troubleshooting
 
-Per-guest-OS notes, for problems that surface inside a provisioned guest
-rather than on the host.
+Notes for problems that surface inside a provisioned guest rather than on
+the host.
 
 ### Amazon Linux 2023
 
@@ -316,6 +312,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.03
+Last review: 2026.08.04
 
 Back to [Yuruna](../README.md)

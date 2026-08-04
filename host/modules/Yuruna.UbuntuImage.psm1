@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.03
+.VERSION 2026.08.04
 .GUID 42b1e7d3-c9a4-4f82-a571-6c8d3e5f9a01
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -192,10 +192,9 @@ function Resolve-UbuntuServerImage {
         Returns the resolved ISO manifest (filename, URL, checksum URL).
 
     .DESCRIPTION
-        Prefers stable; falls back to daily when -PreferDaily is omitted.
-        Inverts that preference when -PreferDaily is set. Returns $null if
-        both stable and daily are unreachable. Callers are responsible
-        for emitting any final user-facing error message.
+        Tries stable then daily; -PreferDaily inverts that order. Returns
+        $null when both are unreachable -- the caller emits any final
+        user-facing error message.
     #>
     param(
         [Parameter(Mandatory)][string]$ReleaseCodename,
@@ -250,10 +249,10 @@ function Test-UbuntuServerImageChecksum {
     Write-Information "Verifying download integrity..." -InformationAction Continue
     # Best-effort: authenticate the SHA256SUMS via its detached GPG signature
     # before trusting any hash parsed from it. The verifier lives in
-    # Yuruna.Image; import it on demand (that module isn't loaded in the ISO
-    # path) and capture it as a CommandInfo so it resolves against its defining
-    # module. gpg/keyserver absent or no .gpg -> 'unverified' (proceed on hash);
-    # a definitively bad/foreign signature -> fail like a hash mismatch.
+    # Yuruna.Image, which the ISO path does not load, so import on demand and
+    # capture a CommandInfo that resolves against its defining module. No
+    # gpg/keyserver/.gpg -> 'unverified' (proceed on hash); a definitively bad
+    # or foreign signature -> fail like a hash mismatch.
     $sigVerifier = Get-Command Test-PublishedChecksumSignature -ErrorAction SilentlyContinue
     if (-not $sigVerifier) {
         $imgMod = Join-Path $PSScriptRoot 'Yuruna.Image.psm1'
@@ -276,13 +275,12 @@ function Test-UbuntuServerImageChecksum {
             }
         }
     }
-    # SHA256SUMS fetch: bounded retries absorb transient mirror failures so
-    # they are not conflated with "mirror publishes no checksums". A
-    # definitive HTTP 403/404/410 means the checksum file genuinely is not
-    # published -> soft pass, same class as the missing-line case below.
-    # Any other failure that survives the retry budget leaves the
-    # just-downloaded bytes unverifiable -> $false so the caller aborts
-    # instead of promoting an unverified image.
+    # SHA256SUMS fetch: bounded retries absorb transient mirror failures so they
+    # are not conflated with "mirror publishes no checksums". A definitive HTTP
+    # 403/404/410 means the checksum file genuinely is not published -> soft
+    # pass, same class as the missing-line case below. Any other failure that
+    # survives the retry budget leaves the just-downloaded bytes unverifiable ->
+    # $false, so the caller aborts instead of promoting an unverified image.
     if (-not (Get-Command Invoke-WithYurunaRetry -ErrorAction SilentlyContinue)) {
         $retryModule = [System.IO.Path]::GetFullPath((Join-Path -Path $PSScriptRoot -ChildPath '../../automation/Yuruna.Retry.psm1'))
         if (Test-Path -LiteralPath $retryModule) { Import-Module $retryModule -ErrorAction SilentlyContinue }
@@ -385,11 +383,13 @@ function Save-UbuntuServerImage {
         Full resolve-download-verify-rename pipeline for an Ubuntu live-server ISO.
 
     .DESCRIPTION
-        Resolves stable/daily, applies the skip-if-same-source guard,
-        downloads (through Save-CachedHttpUri when available), verifies
-        SHA256, preserves the prior ISO as <baseImageName>.previous.iso,
-        and writes the sentinel <baseImageName>.txt with @(filename,
-        url, byteCount).
+        Consults a download agent first when one is reachable (see
+        docs/guest-image-setup.md#agent-first-image-downloads); with no
+        agent, or on any agent failure, resolves stable/daily, applies the
+        skip-if-same-source guard, downloads (through Save-CachedHttpUri
+        when available) and verifies SHA256. Either way it preserves the
+        prior ISO as <baseImageName>.previous.iso and writes the sentinel
+        <baseImageName>.txt with @(filename, url, byteCount).
 
         Returns one of: 'skipped', 'downloaded'. Throws on unrecoverable
         failure (no resolved manifest, download failure, checksum
@@ -429,65 +429,140 @@ function Save-UbuntuServerImage {
 
     $baseImageFile   = Join-Path $DownloadDir "$BaseImageName.iso"
     $baseImageOrigin = Join-Path $DownloadDir "$BaseImageName.txt"
+    $downloadFile    = Join-Path $DownloadDir 'downloaded.iso'
 
-    $resolved = Resolve-UbuntuServerImage -ReleaseCodename $ReleaseCodename -Arch $Arch -PreferDaily:$PreferDaily
-    if (-not $resolved) {
-        $url = Get-UbuntuServerImageManifestUrl -ReleaseCodename $ReleaseCodename -Arch $Arch
-        $msg = "Could not resolve a usable Ubuntu live-server $Arch ISO. Stable ($($url.StableReleaseUrl)) and daily ($($url.DailyBaseUrl)) are both unreachable or missing the expected image."
-        Write-Information $msg -InformationAction Continue
-        if ($EmitProxyDiagnosticOnFailure) {
-            Write-UbuntuImageProxyDiagnostic -ProbeUrls @("$($url.StableReleaseUrl)/", "$($url.DailyBaseUrl)/$($url.DailyIsoFileName)")
-        }
-        throw $msg
+    # --- REGION: https://yuruna.link/guest-image-setup#agent-first-image-downloads
+    # Ask the download agent before the origin is touched at all: when it
+    # confirms the local copy IS the current artifact there is nothing to
+    # resolve, HEAD-probe or transfer. Both the client module and a healthy
+    # agent are feature-detected, so a lab with no agent -- or one whose agent
+    # is down, has no pool, or errors mid-request -- falls through to the
+    # resolve / same-source guard / download pipeline below.
+    $agentServed       = $false
+    $agentLastModified = ''
+    $agentImageKey = switch ($ReleaseCodename) {
+        'noble'    { 'guest.ubuntu.server.24' }
+        'resolute' { 'guest.ubuntu.server.26' }
+        default    { '' }
     }
-
-    $isoFileName = $resolved.IsoFileName
-    $sourceUrl   = $resolved.SourceUrl
-    $checksumUrl = $resolved.ChecksumUrl
-    Write-Information "Selected $($resolved.Variant) ISO: $isoFileName" -InformationAction Continue
-
-    New-Item -ItemType Directory -Force -Path $DownloadDir | Out-Null
-
-    # Same-source guard: prefer the host-shipped Test-DownloadAlreadyCurrent
-    # (4-line sentinel; the writer below matches it), fall back to the bundled
-    # Test-UbuntuServerImageAlreadyCurrent (3-line) for a bare caller with no
-    # host driver imported.
-    $alreadyCurrent = $false
-    if (Get-Command -Name Test-DownloadAlreadyCurrent -ErrorAction SilentlyContinue) {
-        $alreadyCurrent = Test-DownloadAlreadyCurrent -SourceUrl $sourceUrl -BaseImageFile $baseImageFile -OriginFile $baseImageOrigin
-    } else {
-        $alreadyCurrent = Test-UbuntuServerImageAlreadyCurrent -SourceUrl $sourceUrl -BaseImageFile $baseImageFile -OriginFile $baseImageOrigin
-    }
-    if ($alreadyCurrent) {
-        $msg = "Skipping download: $sourceUrl URL and expected size match the prior run for $baseImageFile. To force a re-download, delete or rename: $baseImageFile"
-        Write-Information $msg -InformationAction Continue
-        return 'skipped'
-    }
-
-    $downloadFile = Join-Path $DownloadDir 'downloaded.iso'
-    Remove-Item $downloadFile -Force -ErrorAction SilentlyContinue
-    Write-Information "Downloading $sourceUrl to $downloadFile" -InformationAction Continue
-    try {
-        if (Get-Command -Name Save-CachedHttpUri -ErrorAction SilentlyContinue) {
-            Save-CachedHttpUri -Uri $sourceUrl -OutFile $downloadFile
+    # The pool keys images by the host/ directory name; every caller's
+    # BaseImageName already carries it as the "host.<host type>." prefix.
+    $agentHostType = ''
+    if ($BaseImageName -match '^host\.(windows\.hyper-v|ubuntu\.kvm|macos\.utm)\.') { $agentHostType = $Matches[1] }
+    if ($agentImageKey -and $agentHostType -and
+        (Get-Command -Name Resolve-DownloadAgentEndpoint -ErrorAction SilentlyContinue) -and
+        (Get-Command -Name Request-DownloadAgentImage -ErrorAction SilentlyContinue)) {
+        $agentBaseUrl = ''
+        try { $agentBaseUrl = [string](Resolve-DownloadAgentEndpoint) } catch { $agentBaseUrl = '' }
+        if (-not $agentBaseUrl) {
+            Write-Verbose "Save-UbuntuServerImage: no download agent reachable; using the origin path."
         } else {
-            Invoke-WebRequest -Uri $sourceUrl -OutFile $downloadFile -ErrorAction Stop
+            # Fingerprint the local copy with the sentinel's filename + byte
+            # count and no SHA-256: hashing a multi-GB ISO on every run would
+            # cost more than the transfer it can save, and filename + byte
+            # count is what the agent falls back to.
+            $agentArgs = @{
+                BaseUrl         = $agentBaseUrl
+                HostType        = $agentHostType
+                ImageKey        = $agentImageKey
+                Arch            = $Arch
+                Variant         = $(if ($PreferDaily) { 'daily' } else { 'stable' })
+                StagingPath     = $downloadFile
+                DeadlineSeconds = 7200
+            }
+            if ((Test-Path -LiteralPath $baseImageFile) -and (Test-Path -LiteralPath $baseImageOrigin)) {
+                $sentinelLines = @(Get-Content -LiteralPath $baseImageOrigin -ErrorAction SilentlyContinue)
+                $sentinelBytes = 0L
+                if ($sentinelLines.Count -ge 3 -and [int64]::TryParse($sentinelLines[2].Trim(), [ref]$sentinelBytes) -and $sentinelBytes -gt 0) {
+                    $agentArgs['LocalFilename']  = $sentinelLines[0].Trim()
+                    $agentArgs['LocalByteCount'] = $sentinelBytes
+                }
+            }
+            $agentResult = $null
+            try {
+                New-Item -ItemType Directory -Force -Path $DownloadDir | Out-Null
+                Remove-Item -LiteralPath $downloadFile -Force -ErrorAction SilentlyContinue
+                $agentResult = Request-DownloadAgentImage @agentArgs
+            } catch {
+                Write-Warning "Download agent at $agentBaseUrl failed ($($_.Exception.Message)); falling back to the origin download path."
+                $agentResult = $null
+            }
+            if ($agentResult -and $agentResult.outcome -eq 'skipped') {
+                $msg = "Skipping download: the download agent at $agentBaseUrl confirms $baseImageFile is the current $agentImageKey artifact. To force a re-download, delete or rename: $baseImageFile"
+                Write-Information $msg -InformationAction Continue
+                return 'skipped'
+            } elseif ($agentResult -and $agentResult.outcome -eq 'downloaded') {
+                $agentServed       = $true
+                $isoFileName       = [string]$agentResult.filename
+                $sourceUrl         = [string]$agentResult.sourceUrl
+                $agentLastModified = [string]$agentResult.lastModified
+                $downloadedSize    = (Get-Item -LiteralPath $downloadFile).Length
+                Write-Information "Download agent at $agentBaseUrl served verified $isoFileName ($downloadedSize bytes) to $downloadFile" -InformationAction Continue
+            } elseif ($agentResult) {
+                $detail = if ($agentResult.error) { ": $($agentResult.error)" } else { '' }
+                Write-Warning "Download agent at $agentBaseUrl answered '$($agentResult.outcome)'$detail; falling back to the origin download path."
+            }
         }
-    } catch {
-        throw "Download failed: $($_.Exception.Message)"
     }
-    $downloadedSize = (Get-Item -LiteralPath $downloadFile).Length
 
-    if (-not (Test-UbuntuServerImageChecksum -ChecksumUrl $checksumUrl -IsoFileName $isoFileName -DownloadFile $downloadFile)) {
-        # Hard-fail on a genuine checksum MISMATCH (corruption or tamper,
-        # never benign) and on a SHA256SUMS fetch that stays failing through
-        # the bounded retry budget (unverifiable bytes must not be promoted).
-        # Only a definitively MISSING upstream checksum (HTTP 403/404/410 or
-        # no line for this ISO) stays a soft pass -- that path returns $true
-        # from Test-UbuntuServerImageChecksum and never reaches here. The
-        # failure banner is printed above.
-        Remove-Item -LiteralPath $downloadFile -Force -ErrorAction SilentlyContinue
-        throw "Image checksum verification failed for $isoFileName (see banner above): mismatch or unverifiable download. Deleted the download and aborted; re-run once the publisher checksum is reachable."
+    if (-not $agentServed) {
+        $resolved = Resolve-UbuntuServerImage -ReleaseCodename $ReleaseCodename -Arch $Arch -PreferDaily:$PreferDaily
+        if (-not $resolved) {
+            $url = Get-UbuntuServerImageManifestUrl -ReleaseCodename $ReleaseCodename -Arch $Arch
+            $msg = "Could not resolve a usable Ubuntu live-server $Arch ISO. Stable ($($url.StableReleaseUrl)) and daily ($($url.DailyBaseUrl)) are both unreachable or missing the expected image."
+            Write-Information $msg -InformationAction Continue
+            if ($EmitProxyDiagnosticOnFailure) {
+                Write-UbuntuImageProxyDiagnostic -ProbeUrls @("$($url.StableReleaseUrl)/", "$($url.DailyBaseUrl)/$($url.DailyIsoFileName)")
+            }
+            throw $msg
+        }
+
+        $isoFileName = $resolved.IsoFileName
+        $sourceUrl   = $resolved.SourceUrl
+        $checksumUrl = $resolved.ChecksumUrl
+        Write-Information "Selected $($resolved.Variant) ISO: $isoFileName" -InformationAction Continue
+
+        New-Item -ItemType Directory -Force -Path $DownloadDir | Out-Null
+
+        # Same-source guard: prefer the host-shipped Test-DownloadAlreadyCurrent
+        # (4-line sentinel; the writer below matches it), fall back to the bundled
+        # Test-UbuntuServerImageAlreadyCurrent (3-line) for a bare caller with no
+        # host driver imported.
+        $alreadyCurrent = $false
+        if (Get-Command -Name Test-DownloadAlreadyCurrent -ErrorAction SilentlyContinue) {
+            $alreadyCurrent = Test-DownloadAlreadyCurrent -SourceUrl $sourceUrl -BaseImageFile $baseImageFile -OriginFile $baseImageOrigin
+        } else {
+            $alreadyCurrent = Test-UbuntuServerImageAlreadyCurrent -SourceUrl $sourceUrl -BaseImageFile $baseImageFile -OriginFile $baseImageOrigin
+        }
+        if ($alreadyCurrent) {
+            $msg = "Skipping download: $sourceUrl URL and expected size match the prior run for $baseImageFile. To force a re-download, delete or rename: $baseImageFile"
+            Write-Information $msg -InformationAction Continue
+            return 'skipped'
+        }
+
+        Remove-Item $downloadFile -Force -ErrorAction SilentlyContinue
+        Write-Information "Downloading $sourceUrl to $downloadFile" -InformationAction Continue
+        try {
+            if (Get-Command -Name Save-CachedHttpUri -ErrorAction SilentlyContinue) {
+                Save-CachedHttpUri -Uri $sourceUrl -OutFile $downloadFile
+            } else {
+                Invoke-WebRequest -Uri $sourceUrl -OutFile $downloadFile -ErrorAction Stop
+            }
+        } catch {
+            throw "Download failed: $($_.Exception.Message)"
+        }
+        $downloadedSize = (Get-Item -LiteralPath $downloadFile).Length
+
+        if (-not (Test-UbuntuServerImageChecksum -ChecksumUrl $checksumUrl -IsoFileName $isoFileName -DownloadFile $downloadFile)) {
+            # Hard-fail on a genuine checksum MISMATCH (corruption or tamper,
+            # never benign) and on a SHA256SUMS fetch still failing after the
+            # bounded retry budget -- unverifiable bytes must not be promoted.
+            # Only a definitively MISSING upstream checksum (HTTP 403/404/410 or
+            # no line for this ISO) is a soft pass, and that returns $true from
+            # Test-UbuntuServerImageChecksum and never reaches here.
+            Remove-Item -LiteralPath $downloadFile -Force -ErrorAction SilentlyContinue
+            throw "Image checksum verification failed for $isoFileName (see banner above): mismatch or unverifiable download. Deleted the download and aborted; re-run once the publisher checksum is reachable."
+        }
     }
 
     $previousFile = Join-Path $DownloadDir "$BaseImageName.previous.iso"
@@ -498,15 +573,23 @@ function Save-UbuntuServerImage {
     }
     Move-Item -Path $downloadFile -Destination $baseImageFile
 
-    # Write the sentinel in the SAME format the skip-guard above reads back: when
-    # the host driver ships the 4-line Test-DownloadAlreadyCurrent reader, emit the
-    # matching 4-line sentinel (filename + URL + size + Last-Modified) via
-    # Write-ImageSentinel; otherwise keep the bundled 3-line shape that
-    # Test-UbuntuServerImageAlreadyCurrent reads. An asymmetric writer/reader pair
-    # never matches, so the within-script skip-guard would re-download every
-    # forced refresh.
+    # Write the sentinel in the SAME format the skip-guard above reads back: the
+    # 4-line shape (filename + URL + size + Last-Modified) via Write-ImageSentinel
+    # when the host driver ships Test-DownloadAlreadyCurrent, else the bundled
+    # 3-line shape that Test-UbuntuServerImageAlreadyCurrent reads. An asymmetric
+    # writer/reader pair never matches, so the skip-guard would re-download every
+    # run.
     if (Get-Command -Name Test-DownloadAlreadyCurrent -ErrorAction SilentlyContinue) {
-        Write-ImageSentinel -SourceUrl $sourceUrl -OriginFile $baseImageOrigin -SizeBytes $downloadedSize -Confirm:$false
+        if ($agentServed) {
+            # Last-Modified comes from the agent's record of the origin
+            # response. Letting Write-ImageSentinel HEAD the origin here would
+            # re-touch the very server the agent path exists to spare, and on
+            # an unreachable origin would record an empty 4th line for bytes
+            # whose timestamp is known.
+            Write-ImageSentinel -SourceUrl $sourceUrl -OriginFile $baseImageOrigin -SizeBytes $downloadedSize -LastModified $agentLastModified -Confirm:$false
+        } else {
+            Write-ImageSentinel -SourceUrl $sourceUrl -OriginFile $baseImageOrigin -SizeBytes $downloadedSize -Confirm:$false
+        }
     } else {
         Set-Content -Path $baseImageOrigin -Value @($isoFileName, $sourceUrl, "$downloadedSize")
     }

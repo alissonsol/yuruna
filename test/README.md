@@ -20,7 +20,7 @@ Windows requires elevation; macOS does not.
 
 ## Host setup
 
-Three host-neutral entry points. Each detects the host and runs that host's
+Four host-neutral entry points. Each detects the host and runs that host's
 copy of the script from `host/<host type>/`, so the same command works on
 every host:
 
@@ -50,9 +50,9 @@ Copy the template (it is git-ignored):
 cp test/test.config.yml.template test/test.config.yml
 ```
 
-Most operators only ever set `guestSequence`, `repositories.frameworkUrl`,
+Most operators only set `guestSequence`, `repositories.frameworkUrl`,
 `repositories.projectUrl`, `statusService.port`, and `testCycle.stopOnFailure`.
-Notification credentials moved to
+Notification credentials live in
 `test/status/extension/notification/transports.yml` -- see the
 "Notifications (Resend)" section below.
 Full key table, defaults, and behavioral notes:
@@ -114,16 +114,16 @@ pwsh test/Invoke-TestRunner.ps1 -logLevel Debug
 ```
 
 `logLevel` (Error|Warning|Information|Verbose|Debug) controls which
-PowerShell streams reach the console; each level cascades down (Error is
-highest priority, default is `Information` so progress narration is
-visible; only errors are shown if you set it to `Error`). See
+PowerShell streams reach the console; each level cascades down from Error
+(highest priority). The default `Information` keeps progress narration
+visible; `Error` shows only errors. See
 [Test Runner](read.more.md). Status dashboard while the runner is
 active: `http://localhost:8080/status/` (architecture in
 [Test harness](../docs/test-harness.md)).
 
 ## Host pools
 
-Run several hosts as one **pool** that share assigned test sequences and report
+Run several hosts as one **pool** that shares assigned test sequences and reports
 together. Default-off — a host with no `pool` config runs standalone. To create a pool
 and assign already-developed test sequences to it, see the operator guide
 [Pool admin](../docs/pool-admin.md).
@@ -151,6 +151,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.03
+Last review: 2026.08.04
 
 Back to [Yuruna](../README.md)

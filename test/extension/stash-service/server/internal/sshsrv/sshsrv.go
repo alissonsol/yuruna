@@ -378,12 +378,11 @@ func (s *Server) commit(id, status string, final *store.FinalizeResult, buffered
 	if err := s.Meta.UpdateOnComplete(id, final.StoredPath, final.OriginalFilename, final.IsArchive, status, final.SizeBytes, time.Now().UTC()); err != nil {
 		return err
 	}
-	// Detect the content type server-side, once, before the sidecar is
-	// written so SCP- and UI-created stashes classify identically and the
-	// type survives a reimage rebuild. The
-	// artifact exists locally now (share or buffer), so detection works in
-	// both cases; for a buffered upload the type lands in the DB row here and
-	// is carried onto the sidecar at flush time.
+	// Detect the content type server-side, once, before the sidecar is written
+	// so SCP- and UI-created stashes classify identically and the type survives
+	// a reimage rebuild. The artifact exists locally now (share or buffer), so
+	// detection works either way; for a buffered upload the type lands in the
+	// DB row here and is carried onto the sidecar at flush time.
 	s.detectAndStore(id, final)
 	if buffered {
 		s.triggerFlush()

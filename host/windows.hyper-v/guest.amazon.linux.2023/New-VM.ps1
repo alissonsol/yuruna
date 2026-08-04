@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.03
+.VERSION 2026.08.04
 .GUID 42e9f0a1-b2c3-4d45-e678-9f0a1b2c3d45
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -16,7 +16,7 @@
 
 #requires -version 7
 
-# Script parameters. Default VMName should not match the base image name.
+# The default VMName must not collide with the base image name.
 param(
 	[Parameter(Position = 0)]
 	[string]$VMName = "amazon-linux01",

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.03
+.VERSION 2026.08.04
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456812
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -16,17 +16,15 @@
 
 #requires -version 7
 
-# Default notification extension: dispatches each event to the
-# email-transport subscribers listed in transports.yml, delivered via
-# Resend's REST API. Empty/missing subscriber lists are a silent no-op
-# (Verbose only) so first-run users do not get errors before they fill
-# in the config.
+# Default notification extension: dispatches each event to the email-transport
+# subscribers listed in transports.yml, delivered via Resend's REST API. An
+# empty or missing subscriber list is a silent no-op (Verbose only), so
+# first-run users do not get errors before they fill in the config.
 #
-# Runtime config (transports.yml -- carries the Resend API key) lives
-# under test/status/extension/notification/ so it sits with the rest of
-# the harness state that is wiped when cleaning a host. The committed
-# extension code (and the .template seed) live under
-# test/extension/notification/.
+# Runtime config (transports.yml -- it carries the Resend API key) lives under
+# test/status/extension/notification/ with the rest of the harness state that
+# is wiped when cleaning a host. The committed extension code and the
+# .template seed live under test/extension/notification/.
 
 # Module file lives at test/extension/notification/default.psm1; three
 # Split-Path -Parent calls reach the repo root.
@@ -49,11 +47,11 @@ function Read-NotificationConfig {
         return [ordered]@{ transports = [ordered]@{}; subscribers = [ordered]@{} }
     }
     # Normalize the success path to one stable shape so every consumer sees an
-    # IDictionary that has both transports and subscribers. A valid-but-oddly-shaped
-    # transports.yml -- an empty / comment-only file (ConvertFrom-Yaml returns
-    # $null), a top-level scalar or list, or a mapping missing either key -- would
-    # otherwise reach Send-Notification's $cfg.Contains('subscribers') and throw,
-    # since a null / non-dictionary has no key-membership contract.
+    # IDictionary carrying both transports and subscribers. A valid-but-odd
+    # transports.yml -- empty or comment-only (ConvertFrom-Yaml returns $null),
+    # a top-level scalar or list, or a mapping missing either key -- would
+    # otherwise reach Send-Notification's $cfg.Contains('subscribers') and
+    # throw, since a null / non-dictionary has no key-membership contract.
     if ($parsed -isnot [System.Collections.IDictionary]) {
         Write-Warning "transports.yml did not parse to a mapping; treating as empty."
         return [ordered]@{ transports = [ordered]@{}; subscribers = [ordered]@{} }

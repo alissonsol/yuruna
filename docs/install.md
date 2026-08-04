@@ -7,18 +7,18 @@ installers:
 - [install/macos.utm.sh](../install/macos.utm.sh)
 - [install/ubuntu.kvm.sh](../install/ubuntu.kvm.sh)
 
-The scripts themselves stay deliberately small — each section in this file
-maps to a `# --- REGION: Section name` divider in the script body. The single
+The scripts stay deliberately small — each section here maps to a
+`# --- REGION: Section name` divider in the script body. The single
 `# --- REGION: https://yuruna.link/install/explained` line near the top of
-each installer is the operator's entry point to this document; from there
-they can navigate to the section that matches the block divider in front
-of the code they are studying.
+each installer is the operator's entry point to this document, from where
+they navigate to the section matching the divider above the code they are
+studying.
 
 Anchors follow the GitHub Markdown rule: lowercase the heading, strip
 punctuation, replace spaces with hyphens. So `## Section name` becomes
 `#section-name`.
 
-The same `# --- REGION: https://yuruna.link/<key>#<slug>` convention is also
+The same `# --- REGION: https://yuruna.link/<key>#<slug>` convention is
 used by [memory.md](memory.md), [definition.md](definition.md),
 [vmconfig.md](vmconfig.md), and [network.md](network.md).
 
@@ -30,25 +30,24 @@ used by [memory.md](memory.md), [definition.md](definition.md),
 
 Each installer mirrors stdout+stderr to a log file as well as the
 terminal so a mid-install failure can be inspected afterwards. The shell
-installers do this with a FIFO and a backgrounded `tee` (rather than
-`exec > >(tee ...)`) so the EXIT path can wait for tee to flush, making
-the file complete even on an abrupt exit — a plain process-substitution
-tee is left an orphan that may be killed before flushing its
-block-buffered file write. The log lands in the standard per-user
-location — `~/Library/Logs/Yuruna` on macOS, the state dir
-`$XDG_STATE_HOME/yuruna/logs` (default `~/.local/state/yuruna/logs`) on
+installers use a FIFO and a backgrounded `tee` (rather than
+`exec > >(tee ...)`) so the EXIT path can wait for tee to flush, keeping
+the file complete even on an abrupt exit — a process-substitution tee is
+orphaned and may be killed before flushing its block-buffered write. The
+log lands in the standard per-user location — `~/Library/Logs/Yuruna` on
+macOS, the state dir `$XDG_STATE_HOME/yuruna/logs`
+(default `~/.local/state/yuruna/logs`) on
 Ubuntu — falling back to `${TMPDIR:-/tmp}`.
 
-On Windows the failure mode is different: the elevated relaunch runs in
-a SEPARATE console window that vanishes the instant the script ends or
-dies, so a mid-install failure there leaves nothing on screen to read.
-The installer transcripts every elevated stage to a file under a
-standard, discoverable location (`%ProgramData%\Yuruna\logs`, falling
-back to `%TEMP%`) so the failure can be inspected after the window is
-gone. The path is generated ONCE and forwarded through every relaunch
-via `-LogPath`, so the line printed before the UAC relaunch names the
-exact file the elevated window writes, and every stage appends to that
-one file.
+On Windows the failure mode differs: the elevated relaunch runs in a
+SEPARATE console window that vanishes the instant the script ends or
+dies, leaving nothing on screen to read. The installer transcripts every
+elevated stage to a file under a standard, discoverable location
+(`%ProgramData%\Yuruna\logs`, falling back to `%TEMP%`) so the failure
+can be inspected after the window is gone. The path is generated ONCE
+and forwarded through every relaunch via `-LogPath`, so the line printed
+before the UAC relaunch names the exact file the elevated window writes,
+and every stage appends to that one file.
 
 ### Two-repo split
 
@@ -57,17 +56,16 @@ The installer ships in TWO repos that share the same script:
 - public  `https://github.com/alissonsol/yuruna`       (clone works unauthenticated)
 - private `https://github.com/alissonsol/yurunadev`    (clone needs GitHub auth)
 
-The copy committed to each repo points the `$YurunaRepo` / `$YURUNA_REPO`
-default at its OWN URL so the `irm | iex` (or `curl | bash`) one-liner
-clones the repo the operator chose to download the script from. Both
-constants stay defined regardless of which copy is running so the
-existing-checkout logic further down can recognize the remote a previous
-run cloned from — and skip a pull that would just stall waiting for
-GitHub credentials this run doesn't have.
+Each repo's copy points the `$YurunaRepo` / `$YURUNA_REPO` default at its
+OWN URL, so the `irm | iex` (or `curl | bash`) one-liner clones the repo
+the operator downloaded the script from. Both constants stay defined
+regardless of which copy runs, so the existing-checkout logic below can
+recognize the remote a previous run cloned from — and skip a pull that
+would stall waiting for GitHub credentials this run doesn't have.
 
 ### Release pinning + signed integrity
 
-`VERSION` (bare CalVer, e.g. `2026.08.03`) is the source of truth for releases.
+`VERSION` (bare CalVer, e.g. `2026.08.04`) is the source of truth for releases.
 At release time `tools/Update-YurunaReleasePins.ps1` regenerates
 `install/install.sha256`, signs it (`install/install.sha256.sig`, RSA-4096),
 runs the ASCII/no-BOM gate as a hard precondition, and bumps the one tag still
@@ -123,10 +121,10 @@ The private development repo (`yurunadev`) is tagged only at the weekly
 release, so mid-week its pinned-CalVer default resolves to nothing. When the
 target remote's basename is `yurunadev` and the operator did **not** pin a ref
 explicitly, the installer tracks `main` (latest code) instead of the release
-tag. This is why each installer records whether the ref was supplied
-explicitly (`$script:YurunaBranchExplicit` / `YURUNA_BRANCH_EXPLICIT`) at the
-top rather than comparing against the default value later — an explicit
-request for a specific ref always wins over this fallback.
+tag. So each installer records whether the ref was supplied explicitly
+(`$script:YurunaBranchExplicit` / `YURUNA_BRANCH_EXPLICIT`) at the top
+rather than comparing against the default value later; an explicit
+request always wins over this fallback.
 
 ### System-requirements preflight
 
@@ -150,9 +148,9 @@ Re-runs of the installer must be able to upgrade installed packages and
 the repository in place. An active Yuruna test run or status service
 would fight with the upgrade for the working tree and port 8080. The
 installer force-stops the outer runner, its per-cycle inner pwsh, and
-the detached status HTTP server, then WAITS for them to actually exit
-before the repo update renames the checkout aside — the rename fails
-while any of them still holds a handle inside the tree.
+the detached status HTTP server, then WAITS for them to exit before the
+repo update renames the checkout aside — the rename fails while any of
+them still holds a handle inside the tree.
 
 Targets are collected from three channels, union-ed so a service is
 caught even when one channel misses it:
@@ -196,7 +194,7 @@ guards against.
 
 Candidate PIDs are deduplicated, the installer's own PID is dropped,
 and each survivor is identity-validated before anything is killed:
-only PIDs whose executable is actually a PowerShell interpreter
+only PIDs whose executable is a PowerShell interpreter
 (`pwsh` / `powershell`) are stopped, because every real target — the
 outer runner, the per-cycle inner runner, the detached status service —
 is a PowerShell process.
@@ -243,11 +241,10 @@ gated separately on cache preservation, below).
 On macOS the detection is two-signal: a TCP-connect probe to the recorded
 cache IP on port 3128 (authoritative, Apple-Events-independent) and a
 fallback `utmctl status` parse that treats every uncertain status as
-"preserve". This is the signal that survives a non-graphical launch
-(SSH, no Apple Events). The previous detector trusted only `utmctl
-status` and treated every non-`started` result — INCLUDING `utmctl
-could not reach UTM` — as "not running"; an installer launched over SSH
-then quit UTM, and the orphan-bundle sweep deleted the cache.
+"preserve". The probe is the signal that survives a non-graphical launch
+(SSH, no Apple Events). `utmctl status` alone is not enough: over SSH it
+answers `utmctl could not reach UTM`, and reading that as "not running"
+quits UTM and lets the orphan-bundle sweep delete the cache.
 
 If the cache is running OR its state is uncertain, the macOS installer
 skips the UTM cask upgrade so a quit-UTM window does not let the
@@ -274,11 +271,11 @@ a directory cannot be renamed while any process holds a handle inside
 it — most often a shell sitting inside the tree (its working directory
 pins it), or an editor or Explorer window with the folder open. That
 failure would otherwise surface only after the winget installs, the
-Hyper-V enable and the `test/status` backup, so the operator would wait
-minutes for a surprising "item is in use" abort. The Windows installer
-probes it up front with the same operation the rescue uses — a rename to
-the `<dir>.locktest` sibling — and a pass renames straight back, so
-nothing is disrupted.
+Hyper-V enable and the `test/status` backup — minutes of waiting for a
+surprising "item is in use" abort. The Windows installer probes up front
+with the same operation the rescue uses — a rename to the
+`<dir>.locktest` sibling — and a pass renames straight back, so nothing
+is disrupted.
 
 Besides never copying (the probe renames through `Move-YurunaDirectory`;
 see [Directory rename that stays a rename](#directory-rename-that-stays-a-rename)),
@@ -286,7 +283,7 @@ two properties keep the probe from costing more than it reports.
 
 **It steps the PROCESS working directory out of the tree, not just the
 PowerShell location.** A process holds an open handle on its own current
-directory, and that handle pins every parent of it against rename.
+directory, and that handle pins every parent against rename.
 `Set-Location` moves only the PowerShell location; the OS-level working
 directory the process was launched with stays put, and the elevated
 relaunch inherits it. Since the documented way to run the installer is
@@ -327,7 +324,7 @@ remote.
 If the local remote is `yurunadev`, demonstrate access before
 `git fetch`: `git ls-remote` fails fast on 401/403, sparing the operator
 a stalled credential prompt or an error transcript that looks like the
-test harness broke when really only auth was missing. The pull is
+test harness broke when only auth was missing. The pull is
 skipped (not the rest of the install) so a contributor on a flaky or
 unauthenticated session can still keep iterating with the last-known-good
 code on disk. `GIT_TERMINAL_PROMPT=0` fails fast on missing credentials
@@ -336,10 +333,10 @@ instead of blocking the installer on an interactive `Username:` prompt.
 ### Backup-and-reclone on non-ff pull
 
 When `git pull --ff-only` cannot advance the local repo (uncommitted
-changes, divergent commits, detached HEAD), rather than leaving the
-installer in a half-updated state the script moves the existing checkout
-aside as a timestamped `<dir>.backup.<stamp>` and re-clones fresh. The
-final-summary block surfaces the backup path loudly so the operator can
+changes, divergent commits, detached HEAD), the script moves the existing
+checkout aside as a timestamped `<dir>.backup.<stamp>` and re-clones
+fresh rather than leaving a half-updated state. The final-summary block
+surfaces the backup path loudly so the operator can
 salvage local edits before deleting it. The `test/status` runtime state
 was already captured to TEMP by the preservation block above, so cycle
 history survives this path.
@@ -350,12 +347,11 @@ history survives this path.
 type a Linux guest reads — `*.sh`, `*.yml`, `user-data`, `meta-data`,
 etc. Adding `.gitattributes` does NOT rewrite files already in the
 working tree: without this step a developer who cloned with
-`core.autocrlf=true` still has `fetch-and-execute.sh` sitting on disk
-as CRLF, the host status service serves those CRLF bytes byte-faithfully
-to the guest, and the guest's bash chokes with `$'\r': command not
-found` on line 2 of the script. The installer forces a one-shot rebuild
-of the working tree from the index so every file picks up the `eol=`
-rules.
+`core.autocrlf=true` still has `fetch-and-execute.sh` on disk as CRLF,
+the host status service serves those bytes byte-faithfully to the guest,
+and the guest's bash chokes with `$'\r': command not found` on line 2.
+The installer forces a one-shot rebuild of the working tree from the
+index so every file picks up the `eol=` rules.
 
 `core.autocrlf=input` is pinned on the LOCAL repo too, so any future
 file added without a matching `.gitattributes` rule still avoids CRLF
@@ -380,12 +376,12 @@ Re-running the installer on a host that has been executing test cycles
 must not lose the dashboard's history, per-cycle log transcripts, or
 the runtime-dir state (`status.json` with `history[]`,
 `runner.gating.json`, `runner.quarantine.json`, `runner.pid`, control
-flags). None of those are
-tracked by git — per `.gitignore` every subdir under `test/status/` is
-gitignored as runtime state. The clone/update/renormalize block is
-designed to leave untracked files alone (`git rm -r --cached . &&
-git reset --hard HEAD` only touches tracked files), but the installer
-backstops that contract with an explicit snapshot-and-restore so a
+flags). None of those are tracked by git — per `.gitignore` every subdir
+under `test/status/` is gitignored as runtime state. The
+clone/update/renormalize block leaves untracked files alone
+(`git rm -r --cached . && git reset --hard HEAD` only touches tracked
+files), but the installer backstops that contract with an explicit
+snapshot-and-restore so a
 future regression in the renormalize logic, or a manual delete of
 `$YurunaDir` between attempts, cannot silently wipe weeks of cycle
 history.
@@ -411,12 +407,10 @@ driver modules.
 On Ubuntu, group activation needs care: `usermod -aG libvirt $USER`
 adds the user to `/etc/group`, but the CURRENT shell's effective group
 set was sampled at login and won't include `libvirt` until a re-login
-or `newgrp`. Calling `pwsh` directly inherits the parent's stale group
-set, so `virsh` fails with "Permission denied" on
+or `newgrp`, so `virsh` fails with "Permission denied" on
 `/var/run/libvirt/libvirt-sock` the very first time after group add.
-`sg libvirt -c '<cmd>'` runs a subshell with libvirt as an effective
-supplementary group, which works the instant `/etc/group` has the
-membership — no re-login required.
+The cleanup therefore runs under `sg libvirt` — see
+[sg libvirt for the first-run cleanup](#sg-libvirt-for-the-first-run-cleanup).
 
 ### Root-artifact sweep — what a sudo run leaves behind
 
@@ -487,12 +481,12 @@ string, here-doc, and identifier in the installer file MUST stay plain
 If a future edit introduces non-ASCII content, replace it with an ASCII
 equivalent (e.g. `--` instead of an em-dash) rather than adding a BOM.
 
-This is also captured in [memory.md](memory.md) under "Why the bootstrap
-installer must stay ASCII-only?".
+Also captured in
+[memory.md](memory.md#why-the-bootstrap-installer-must-stay-ascii-only).
 
 ### param() default + irm | iex compatibility
 
-The `[CmdletBinding()]` + `param()` block is at line 74 (after
+The `[CmdletBinding()]` + `param()` block is at line 29 (after
 `<#PSScriptInfo #>` and `<# .SYNOPSIS #>` headers). PS 5.1's `iex`
 accepts `param()` as a top-of-script construct ONLY when the input has
 no leading BOM and `param()` is positioned after the comment-based help
@@ -571,8 +565,7 @@ fails to resolve with `Class not registered` (HRESULT `0x80040154`).
 That terminates the script on re-runs; and when
 `-ErrorAction SilentlyContinue` silences it on the first run, the
 returned `$feature` becomes `$null` and the enable step is skipped
-without the user noticing — which is why the first run of an earlier
-revision of this installer could leave Hyper-V off. `DISM.exe` is a
+without the user noticing, leaving Hyper-V off. `DISM.exe` is a
 plain Win32 tool with no COM dependency and is what the cmdlets wrap
 internally.
 
@@ -611,8 +604,8 @@ All NEXT STEPS guidance lives inside the spawned pwsh window's welcome
 banner. The admin console this script is running in was spawned by the
 self-elevation block via `Start-Process -Verb RunAs` and closes the
 moment we return. Anything we `Write-Output` AFTER that exit is
-unreadable — which is why a previous revision's NEXT STEPS block
-vanished before the user could read it.
+unreadable, so a NEXT STEPS block printed there vanishes before the user
+can read it.
 
 The handoff window is launched via `pwsh -NoExit -EncodedCommand <base64>`
 to sidestep every shell-quoting pitfall for the spawned process.
@@ -623,11 +616,10 @@ admin console with a 60-second `Start-Sleep` to keep the window readable
 
 ### Test-SystemRequirement is silent on success
 
-The Windows preflight is silent when every requirement is met so an
-operator on a tested box gets no extra noise. It only prints when
-something is below baseline. The function uses `Get-CimInstance` (more
-portable than WMI) and converts `TotalVisibleMemorySize` (KB) to GB via
-`/ 1MB`.
+The Windows preflight prints only when something is below baseline, so
+an operator on a tested box gets no extra noise. It uses
+`Get-CimInstance` (more portable than WMI) and converts
+`TotalVisibleMemorySize` (KB) to GB via `/ 1MB`.
 
 ### Display scaling check
 
@@ -663,12 +655,12 @@ The corresponding reset action lives in
 [host/windows.hyper-v/Enable-TestAutomation.ps1](../host/windows.hyper-v/Enable-TestAutomation.ps1).
 It writes 100% to all three sources and emits per-monitor status lines
 via `Write-Information`. The Enable-TestAutomation script sets
-`$InformationPreference = 'Continue'` so those messages actually
-surface to the operator (without the preference set, they're silent —
-and the script's own header would lie about "informing of each
-action"). Changes take effect after the operator signs out and back in
-(or reboots) — `Set-WindowsHostConditionSet` emits a
-`Write-Warning` reminder when any value was changed.
+`$InformationPreference = 'Continue'` so those messages surface to the
+operator (without it they are silent, and the script's own header would
+lie about "informing of each action"). Changes take effect after the
+operator signs out and back in (or reboots) —
+`Set-WindowsHostConditionSet` emits a `Write-Warning` reminder when any
+value was changed.
 
 The install-side reader and the module-side reset deliberately
 duplicate the three-source logic rather than share a module function:
@@ -726,9 +718,8 @@ install/upgrade write targets directly.
 gracefully quits UTM via AppleScript (`tell application "UTM" to quit`)
 and falls back to `pkill` if it refuses. If the caching-proxy-service VM is
 running (see [Preserve the yuruna-caching-proxy-service VM](#preserve-the-yuruna-caching-proxy-service-vm)),
-the UTM cask upgrade is skipped this run; it gets upgraded on the next
-install re-run when the cache happens to be stopped (or when the
-operator quits UTM manually).
+the UTM cask upgrade is skipped this run; it upgrades on the next re-run
+when the cache is stopped (or when the operator quits UTM manually).
 
 ### brew_ensure_formula vs brew_ensure_cask
 
@@ -800,9 +791,9 @@ On a fresh image the apt cache may not yet know that the `-hwe`
 variant exists, and the probe would fall back to the base package even
 though the HWE one is available. `apt-get update -q` (one quiet, not
 `-qq`) keeps apt warnings and connectivity errors visible. With `-qq`,
-a hung mirror or a signature verification failure aborted the script
-with zero output, which made the silent exit "just after Refreshing
-apt index" impossible to diagnose without re-running with `-x`.
+a hung mirror or a signature verification failure aborts the script with
+zero output, making the silent exit "just after Refreshing apt index"
+impossible to diagnose without re-running with `-x`.
 
 ### qemu-kvm split on Ubuntu 26.04 (resolute)
 
@@ -916,8 +907,8 @@ The installer follows cli.github.com's recommended apt-repo install:
 keyring under `/etc/apt/keyrings`, repo source under
 `/etc/apt/sources.list.d`, then `apt-get install gh`. Idempotent on
 re-runs — an existing keyring or source-list file triggers a no-op.
-The binary lands on PATH but is unauthenticated — `gh auth login`
-once per host to authenticate.
+The binary lands on PATH but is unauthenticated — run `gh auth login`
+once per host.
 
 ### sg libvirt for the first-run cleanup
 
@@ -941,6 +932,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.03
+Last review: 2026.08.04
 
 Back to [Yuruna](../README.md)

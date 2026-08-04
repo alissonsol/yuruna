@@ -135,14 +135,19 @@ func TestGoStashUnknownTarget404(t *testing.T) {
 	}
 }
 
-// A paused host reports its own "paused" status (code 5) above the last cycle's
-// terminal result, matching the host status page's effective-pause badge: paused
-// when cyclePaused is set and the host is not mid-cycle; a pause-pending running
-// cycle stays "running" until it stops.
+// The pause and runner readings match the host status page's banner: a host that
+// has actually stopped is "paused" (code 5) above the last cycle's terminal result,
+// and one that is merely ARMED to stop is its own "pausing-*" status rather than a
+// plain "running" that would hide the pending stop. Step pause resolves before
+// cycle pause, and the current-action sidecar is what separates parked-at-the-
+// boundary from still-running-the-step. A verified-dead runner outranks all of it:
+// nothing below it describes anything that is still happening.
 func TestStatusLabelPaused(t *testing.T) {
 	mk := func(reachable bool, st *hostStatus) *hostView {
 		return &hostView{Reachable: reachable, Status: st}
 	}
+	parked := func(hv *hostView) *hostView { hv.StepPauseReached = true; return hv }
+	dead := func(hv *hostView) *hostView { hv.RunnerStopped = true; return hv }
 	cases := []struct {
 		name      string
 		hv        *hostView
@@ -151,9 +156,17 @@ func TestStatusLabelPaused(t *testing.T) {
 	}{
 		{"paused after a pass", mk(true, &hostStatus{OverallStatus: "pass", CyclePaused: true}), "paused", 5},
 		{"paused after a fail", mk(true, &hostStatus{OverallStatus: "fail", CyclePaused: true}), "paused", 5},
-		{"pause pending mid-cycle stays running", mk(true, &hostStatus{OverallStatus: "running", CyclePaused: true}), "running", 1},
+		{"cycle pause pending mid-cycle", mk(true, &hostStatus{OverallStatus: "running", CyclePaused: true}), "pausing-cycle", 6},
+		{"step pause pending mid-step", mk(true, &hostStatus{OverallStatus: "running", StepPaused: true}), "pausing-step", 7},
+		{"step pause armed between cycles", mk(true, &hostStatus{OverallStatus: "pass", StepPaused: true}), "pausing-step", 7},
+		{"step pause reached is paused", parked(mk(true, &hostStatus{OverallStatus: "running", StepPaused: true})), "paused", 5},
+		{"step pause wins over cycle pause", mk(true, &hostStatus{OverallStatus: "running", StepPaused: true, CyclePaused: true}), "pausing-step", 7},
 		{"not paused keeps the terminal status", mk(true, &hostStatus{OverallStatus: "pass", CyclePaused: false}), "pass", 2},
 		{"unreachable is never paused", mk(false, &hostStatus{OverallStatus: "pass", CyclePaused: true}), "unreachable", 0},
+		{"stopped runner outranks a stale pass", dead(mk(true, &hostStatus{OverallStatus: "pass"})), "stopped", 8},
+		{"stopped runner outranks an armed pause", dead(mk(true, &hostStatus{OverallStatus: "running", StepPaused: true})), "stopped", 8},
+		{"stopped runner with no cycle data", dead(&hostView{Reachable: true}), "stopped", 8},
+		{"unreachable outranks stopped", dead(mk(false, &hostStatus{OverallStatus: "pass"})), "unreachable", 0},
 	}
 	for _, c := range cases {
 		if got := c.hv.statusLabel(); got != c.wantLabel {
@@ -161,6 +174,82 @@ func TestStatusLabelPaused(t *testing.T) {
 		}
 		if got := c.hv.statusCode(); got != c.wantCode {
 			t.Errorf("%s: statusCode = %d, want %d", c.name, got, c.wantCode)
+		}
+	}
+}
+
+// The current-action sidecar is read for exactly one bit: is the runner sitting at
+// a step boundary. A sidecar that has not been written this cycle answers 404,
+// which is a definite "not parked" -- so an armed host between sequences reports
+// "will pause" instead of failing the read and inheriting whatever it last saw.
+func TestFetchCurrentActionStepPause(t *testing.T) {
+	cases := []struct {
+		name string
+		line string
+		want bool
+	}{
+		{"parked at the boundary", "[3/9] Paused (waiting for resume)", true},
+		{"still running the step", "[3/9] takeScreenshot: capture the desktop", false},
+		{"no sidecar written yet", "", false}, // 404
+	}
+	for _, c := range cases {
+		body := ""
+		if c.line != "" {
+			body = `{"guestKey":"g1","vmName":"vm1","line":"` + c.line + `","updatedAt":"2026-08-03T00:00:00Z"}`
+		}
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path != "/runtime/current-action.json" || body == "" {
+				w.WriteHeader(http.StatusNotFound)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(body))
+		}))
+		got, err := fetchCurrentAction(srv.Client(), srv.URL)
+		srv.Close()
+		if err != nil {
+			t.Errorf("%s: unexpected error: %v", c.name, err)
+			continue
+		}
+		if got != c.want {
+			t.Errorf("%s: fetchCurrentAction = %v, want %v", c.name, got, c.want)
+		}
+	}
+}
+
+// Only an explicit running:false is evidence of a stopped runner. A host that
+// predates the route (404) or answers without the field cannot say, and must not be
+// reported stopped -- otherwise a route that moved would blank every real status in
+// the pool at once.
+func TestFetchRunnerStopped(t *testing.T) {
+	cases := []struct {
+		name string
+		body string // "" -> 404
+		want bool
+	}{
+		{"runner alive", `{"running":true,"pid":4242,"liveness":"ok"}`, false},
+		{"runner verified dead", `{"running":false,"pid":null,"liveness":"idle"}`, true},
+		{"answer without the field", `{"pid":null,"liveness":"unknown"}`, false},
+		{"route absent on an older build", "", false},
+	}
+	for _, c := range cases {
+		body := c.body
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path != "/control/runner-status" || body == "" {
+				w.WriteHeader(http.StatusNotFound)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(body))
+		}))
+		got, err := fetchRunnerStopped(srv.Client(), srv.URL)
+		srv.Close()
+		if err != nil {
+			t.Errorf("%s: unexpected error: %v", c.name, err)
+			continue
+		}
+		if got != c.want {
+			t.Errorf("%s: fetchRunnerStopped = %v, want %v", c.name, got, c.want)
 		}
 	}
 }

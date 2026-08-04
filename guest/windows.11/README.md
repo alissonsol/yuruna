@@ -28,17 +28,16 @@ before running other workloads.
 | Script | Workload |
 |--------|----------|
 | `windows.11.update.ps1` | System update |
-| `windows.11.code.ps1` | [Code](../../docs/guest-workloads.md#code): Java JDK, .NET SDK, Git, VS Code |
+| `windows.11.code.ps1` | [Code](../../docs/guest-image-setup.md#code): Java JDK, .NET SDK, Git, VS Code |
 | `windows.11.k8s.ps1` | [k8s](../../docs/kubernetes.md#guest-side-prerequisites): Docker, Kubernetes, Helm, OpenTofu, cloud CLIs |
 
 The `n8n`, `openclaw`, and `postgresql` workloads are intentionally out
-of scope for the Windows 11 guest; use one of the Linux guests for those
-workloads.
+of scope for the Windows 11 guest; use a Linux guest instead.
 
 **Docker note**: installing k8s requirements succeeds, but starting
 Docker needs coordinated virtualization settings on both host and guest.
-Those instructions are too long and unreliable to automate yet. Until
-they stabilize, ask an AI assistant for the current recipe for
+Those steps are too long and unreliable to automate yet; until they
+stabilize, ask an AI assistant for the current recipe for
 (macOS UTM + ARM64 host) or (Windows Hyper-V host).
 
 ---
@@ -47,6 +46,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.03
+Last review: 2026.08.04
 
 Back to [Yuruna](../../README.md)

@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.08.03
+# Version: 2026.08.04
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 
@@ -9,11 +9,12 @@
 # and of the retry lib, E_FB_REPO / E_FB_REF carry the GitHub fallback repo and
 # an abbreviated commit. The names are terse because every character of that
 # line is an individual key event on the console path, where long sends have
-# corrupted mid-flight. EXEC_REQUIRE_SHA256 deliberately keeps its long name: a
-# guest imaged before the rename still recognizes it and refuses to run bytes it
-# has no digest for, so meeting an old guest fails CLOSED instead of silently
-# running unverified code. The legacy EXEC_* spellings are still read below, so
-# a guest built from this commit also works under an older host.
+# corrupted mid-flight. Both name generations stay live so host and guest can
+# skew in either direction: EXEC_REQUIRE_SHA256 deliberately keeps its long name
+# because an older guest image still recognizes only that spelling and refuses
+# to run bytes it has no digest for -- meeting an old guest fails CLOSED instead
+# of silently running unverified code -- and the legacy EXEC_* spellings are
+# still read below, so a current guest also works under an older host.
 
 # --- REGION: https://yuruna.link/definition#defining-fetch-and-execute-base-url-resolution
 # Two fetch sources, tried in order: the host status service, then GitHub. The

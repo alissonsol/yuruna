@@ -45,8 +45,8 @@ named `VM Configured`. Optional: `sudo dnf install powershell -y`.
 
 Contribution opportunity. The
 [AL2023 TigerVNC tutorial](https://docs.aws.amazon.com/linux/al2023/ug/vnc-configuration-al2023.html)
-path was tested ([TightVNC](https://www.tightvnc.com/download.php) client)
-but 1920×1080 settings produced 1024×768.
+path was tested (with the [TightVNC](https://www.tightvnc.com/download.php)
+client) but 1920×1080 settings produced 1024×768.
 
 ---
 
@@ -54,6 +54,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.03
+Last review: 2026.08.04
 
 Back to [Yuruna](../../../README.md)

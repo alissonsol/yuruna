@@ -2,10 +2,10 @@
 
 When a sequence step fails (or the engine crashes mid-step), the runner
 writes `$YURUNA_LOG_DIR/last_failure.json` and emits one `step_failure`
-NDJSON line into `cycle.events.ndjson`. Both are produced from one
-builder — [`New-SequenceFailureRecord`](../test/modules/Test.SequenceFailureState.psm1)
-in the slot-owning module — so the on-disk record and the event stream
-can never drift on classification or fields. The
+NDJSON line into `cycle.events.ndjson`. Both come from one builder —
+[`New-SequenceFailureRecord`](../test/modules/Test.SequenceFailureState.psm1)
+in the slot-owning module — so the record and the event stream cannot
+drift on classification or fields. The
 [remediation dispatcher](#remediation-dispatcher) routes on `failureClass`; the
 class/severity/recovery vocabulary comes from each verb's registration
 (see [handler schema](handler-schema.md)).
@@ -38,7 +38,7 @@ A reproduction an operator or autonomous remediator can run without reconstructi
 
 | Field | Notes |
 |---|---|
-| `command` | `pwsh test/Invoke-TestSequence.ps1 -SequenceName <name> [-GuestKey <k>] [-VMName <vm>] -logLevel Debug`. Re-runs the failing sequence (and its baseline chain) to reproduce deterministically. It deliberately **omits** `-StartStep`: `stepNumber` / `resumeFromStep` are **file-local** (1-based within this sequence file), but `Invoke-TestSequence -StartStep` is **chain-global**, so a naive `-StartStep` would mis-target a leaf that still has an unbuilt baseline. |
+| `command` | `pwsh test/Invoke-TestSequence.ps1 -SequenceName <name> [-GuestKey <k>] [-VMName <vm>] -logLevel Debug`. Re-runs the failing sequence (and its baseline chain) deterministically. It deliberately **omits** `-StartStep`: `stepNumber` / `resumeFromStep` are **file-local** (1-based within this sequence file), but `Invoke-TestSequence -StartStep` is **chain-global**, so a naive `-StartStep` would mis-target a leaf that still has an unbuilt baseline. |
 | `runnerScript` / `entrypoint` | `test/Invoke-TestSequence.ps1` / `Invoke-TestSequence`. |
 | `sequenceName` | Same as the top-level field. |
 | `resumeFromStep` | The file-local failing step. Safe to pass as `-StartStep` only when the sequence has no unbuilt baseline (the warm / `requiresSnapshot` path, or a baseline-less sequence). |
@@ -71,20 +71,19 @@ remediator or the status service never observes a truncated record.
 
 Emitted alongside the file so a stream consumer (status service,
 remediation loop, CI hook) sees the failure without reading the static
-file. It carries the same values as the file, flattened (no nested
-`context`), plus `event` = `step_failure`, `ok` = `false`, and
-`durationMs` = `null` (mirrors the `step_end` shape so a consumer can
-join the two on a single field). The flattened event also carries
-`reason`, `classificationSource`, `sequenceName`, `reproCommand` (the
-`repro.command` string), and `matchedFailurePattern` (the nested-context
-field lifted flat). A crash event adds `crashError`.
+file. It carries the same values, flattened (no nested `context`), plus
+`event` = `step_failure`, `ok` = `false`, and `durationMs` = `null`
+(mirrors the `step_end` shape so a consumer can join the two on a single
+field). It also carries `reason`, `classificationSource`, `sequenceName`,
+`reproCommand` (the `repro.command` string), and `matchedFailurePattern`
+(the nested-context field lifted flat). A crash event adds `crashError`.
 
 ## `last_remediation.json` (the dispatcher's decision, persisted)
 
 When the [remediation dispatcher](#remediation-dispatcher) routes a failure it
 writes `$YURUNA_LOG_DIR/last_remediation.json` beside `last_failure.json`.
-Three signals describe a failure and it is easy to confuse them; this file
-exists to keep the authoritative one durable:
+Three easily-confused signals describe a failure; this file keeps the
+authoritative one durable:
 
 - the verb's `suggestedRecoveries` is a **hint** (what the failing action
   thinks might help),
@@ -92,7 +91,7 @@ exists to keep the authoritative one durable:
   on the stream, and
 - `last_remediation.json` is the dispatcher's **decision** — the single
   recommendation a consumer should act on — written as a self-contained file
-  so a consumer that polls the filesystem (dashboard, pool-aggregator service, a
+  so a filesystem-polling consumer (dashboard, pool-aggregator service, a
   future autonomous loop) never has to tail the event stream or re-run the
   dispatcher to recover it.
 
@@ -106,10 +105,9 @@ wrapper, and the correlation fields (`vmName`, `guestKey`, `hostType`,
 
 `autoApply` is **always `false` today**: the dispatcher records what should
 happen, it never performs the action. Acting on the recommendation is a
-separate, default-off capability that stays gated behind a per-cycle attempt
-cap, a class allow-list, and enough human review of these records first —
-which is exactly why the decision is persisted now, ahead of any actor that
-consumes it.
+separate, default-off capability gated behind a per-cycle attempt cap, a
+class allow-list, and enough human review of these records first — which is
+why the decision is persisted ahead of any actor that consumes it.
 
 `Stop-LogFile` archives the file into the per-cycle folder on a non-pass
 outcome (same path as `last_failure.json`), `Write-CycleManifest` catalogs
@@ -119,8 +117,8 @@ without a dedicated push.
 
 ## Synthetic & infra records
 
-Two record variants reuse the schema-v2 shape for failures that happen
-outside a normal step:
+Two record variants reuse the schema-v2 shape for failures outside a
+normal step:
 
 ### Infra-stage records
 
@@ -155,9 +153,9 @@ so the contract stays satisfied and a remediator stays null-safe.
 The same `cycle.events.ndjson` stream also carries `degradation` events —
 emitted by `Send-YurunaDegradation` (Test.Log.psm1) when the harness falls
 back from a primary mechanism to a lesser alternative and **continues** the
-cycle in a degraded mode. It is deliberately distinct from the `*_failed` /
+cycle degraded. It is deliberately distinct from the `*_failed` /
 `*_unavailable` events (a capability that broke): a degradation reports a
-capability that was unavailable and was *worked around*, so a degraded-but-
+capability that was unavailable and *worked around*, so a degraded-but-
 passing cycle is queryable instead of reading as a clean pass. Fields:
 `event` = `degradation`, `timestamp`, `dependency` (the subsystem, e.g.
 `keystroke-mechanism`), `primary` (preferred mechanism), `fallback`
@@ -176,12 +174,12 @@ failures of the **same** class (default 3), the guest is skipped for up to
 whichever comes first — so a deterministically-broken guest stops costing a
 full provision+deploy every cycle, while a guest that fails a *different* way
 each time is never trapped. Enabled by default; set
-`testCycle.guestQuarantine.enabled: false` to disable. When a failure trips the
-threshold, one `guest_quarantined` event is emitted with `event` =
-`guest_quarantined`, `timestamp`, `guestKey`, `failureClass`,
-`consecutiveFailures`, `skipCycles`, `quarantinedUntilCommit` (and
-`vmName` / `hostType` / `quarantinedUntilProjectCommit` when known). The
-skipped guest is also flagged on `status.json` (`guests[].quarantined` +
+`testCycle.guestQuarantine.enabled: false` to disable. Tripping the threshold
+emits one `guest_quarantined` event: `event` = `guest_quarantined`,
+`timestamp`, `guestKey`, `failureClass`, `consecutiveFailures`, `skipCycles`,
+`quarantinedUntilCommit` (and `vmName` / `hostType` /
+`quarantinedUntilProjectCommit` when known). The skipped guest is also
+flagged on `status.json` (`guests[].quarantined` +
 `quarantinedUntilCommit`) so the dashboard shows a **quarantined** pill — the
 skip is loud, never a silent pass. The emit is best-effort
 (`Send-CycleEventSafely`) and never fails the cycle.
@@ -196,7 +194,7 @@ allow-list), the runner re-runs the *failed* sequence from `repro.resumeFromStep
 on the **same still-alive VM** (the teardown fires only on the final result),
 up to `testCycle.warmResume.maxAttempts` (default 2), then continues any
 remaining workload sequences. On exhaustion or an ineligible class it falls
-through to today's teardown + cold re-provision, so warm-resume is
+through to the normal teardown + cold re-provision, so warm-resume is
 safe-on-failure. Enabled by default; set `testCycle.warmResume.enabled: false`
 to disable. Each attempt emits a `warm_resume` event: `event` = `warm_resume`,
 `timestamp`, `guestKey`, `sequenceName`, `resumeFromStep`, `attempt`, plus
@@ -206,8 +204,8 @@ because it resumed stays queryable, never a silent pass.
 Soundness rests on the runner running each workload sequence as a **single
 file** (`Invoke-SequenceByName` → `Invoke-Sequence`), so `resumeFromStep` (file-
 local) maps directly onto `Invoke-Sequence -StartStep` (file-local). This is
-exactly the "warm / no unbuilt baseline" case the [`repro`](#repro) note calls
-out — Invoke-TestSequence's chain runner concatenates baselines and is *not* this
+the "warm / no unbuilt baseline" case the [`repro`](#repro) note calls out —
+Invoke-TestSequence's chain runner concatenates baselines and is *not* this
 case, which is why `repro.command` still omits `-StartStep`.
 
 ## `retry_attempt` / `retry_exhausted` events (retry telemetry)
@@ -261,11 +259,10 @@ remediation dispatcher in
 maps that token to an actionable recommendation — the keystone of
 autonomous self-heal.
 
-This module is what consumes the FailureClass enum. Without it, an
-operator (or a future autonomous loop) would have to grep the free-text
-error message and guess what to do next. The dispatcher closes the
-loop: read the failure record, route on `failureClass`, return what
-the caller should do.
+Without it, an operator (or a future autonomous loop) would have to grep
+the free-text error message and guess what to do next. The dispatcher
+closes the loop: read the failure record, route on `failureClass`,
+return what the caller should do.
 
 ### Public surface
 
@@ -293,7 +290,7 @@ this small finite set instead of free-text matching:
 | `reconnect` | Transport-level (VNC dropped, SSH session died); rebuild the connection and continue. |
 | `pause_and_inspect` | Repeating the step risks burning resources; surface and wait. |
 | `operator_intervention_required` | The runner cannot self-recover (vault password wrong, image unsigned). |
-| `escalate` | Reserved — a valid recommendation an external handler may return to flag a novel case for the framework to learn. No built-in handler emits it; the no-handler / handler-error fallback is `operator_intervention_required`. |
+| `escalate` | Reserved — an external handler may return it to flag a novel case for the framework to learn. No built-in handler emits it; the no-handler / handler-error fallback is `operator_intervention_required`. |
 
 ### Inner-cause routing past `retry_exhausted`
 
@@ -302,7 +299,7 @@ masks the deepest verb's actionable cause. The failure record preserves
 that cause in `innerFailureClass`; when the outer class is
 `retry_exhausted` and the inner class has its own registered handler, the
 dispatcher routes on the **inner** class so the recommendation targets
-the real failure rather than the generic retry wrapper. `severity` and
+the real failure, not the retry wrapper. `severity` and
 `suggestedRecoveries` follow the routed class; the outer class stays
 visible as `RoutedFromFailureClass` on the result and `outerFailureClass`
 on the `remediation_recommended` event. With no inner class (or no inner
@@ -310,30 +307,28 @@ handler) the dispatcher routes on the outer class unchanged.
 
 ### Advisory by design
 
-Handlers return **what the caller should do**, not what they
-**did**. A future iteration can flip individual handlers to act
-directly (call `Repair-VncConnection`, `Wait-SshReady`,
-`Restore-VMDiskSnapshot` themselves) once the autonomous loop's blast
-radius is bounded. Today the safer contract is: dispatcher tells you
-the next step; caller decides.
+Handlers return **what the caller should do**, not what they **did**. A
+future iteration can flip individual handlers to act directly (call
+`Repair-VncConnection`, `Wait-SshReady`, `Restore-VMDiskSnapshot`
+themselves) once the autonomous loop's blast radius is bounded. Today's
+safer contract: dispatcher tells you the next step; caller decides.
 
 ### Registry shape
 
 The registry uses the shared
 [`New-YurunaRegistry`](../test/modules/Test.Registry.psm1)
 primitive, so it appears in `Get-YurunaRegistryDirectory` alongside
-`SequenceAction`, `HostIO`, `OcrProvider`,
-and
-[`HostCondition`](host-condition-registry.md) — autonomous tooling
-enumerates every routing surface through one API.
+`SequenceAction`, `HostIO`, `OcrProvider`, and
+[`HostCondition`](test-harness.md#host-condition-registry) — autonomous
+tooling enumerates every routing surface through one API.
 
 ### Event emission
 
 Every dispatch emits a `remediation_recommended` NDJSON event
 carrying `(failureClass, recommendation, severity, handledBy)` so a
-streaming consumer follows what the dispatcher chose without having
-to parse the recommendation object. Schema lives in
-[`Test.EventSchema`](../test/modules/Test.EventSchema.psm1); the same
+streaming consumer follows what the dispatcher chose without parsing
+the recommendation object. Schema lives in
+[`Test.EventSchema`](../test/modules/Test.EventSchema.psm1) — the same
 validator that gates the cycle event stream.
 
 ### Adding a new failure class
@@ -361,8 +356,8 @@ validator that gates the cycle event stream.
    and `reproCommand` — each an empty string when absent, so a handler
    string-tests without a null guard), returning `@{ Recommendation =
    '<enum>'; Rationale = '<short>' }` (optional `Actions`, `HandledBy`,
-   `AutoApply`). Severity is attached by the dispatcher from the
-   failure record, not by the handler.
+   `AutoApply`). The dispatcher attaches severity from the failure
+   record, not the handler.
 4. The startup capability matrix picks up the registration
    automatically; the dispatcher cannot reach an unrouted class
    because the validator at module load throws if any enum value is
@@ -382,6 +377,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.03
+Last review: 2026.08.04
 
 Back to [Yuruna](../README.md)

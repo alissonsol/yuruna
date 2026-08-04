@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.03
+.VERSION 2026.08.04
 .GUID 42a7b8c9-d0e1-4f23-4567-8a9b0c112435
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -66,9 +66,9 @@ function Get-ToolProbeOutput {
         snapshot -- satisfies Get-Command, and bash even executes it as an empty
         script (exit 0, no output), so shell-side probes call it healthy.
         PowerShell execve()s it directly and raises a ResourceUnavailable "Exec
-        format error", which without this catch escapes as a raw exception
-        instead of a diagnosed problem. Treat "no output" as "not usable": every
-        tool probed here prints something when it works.
+        format error", which without this catch escapes as a raw exception rather
+        than a diagnosed problem. Treat "no output" as "not usable": every tool
+        probed here prints something when it works.
     #>
     [CmdletBinding()]
     [OutputType([string])]
@@ -242,13 +242,12 @@ if ([string]::IsNullOrWhiteSpace($caRoot)) {
 }
 
 if ($problems.Count -gt 0) {
-    # The failing verdict goes to the ERROR stream, not Information. The deploy
+    # The failing verdict goes to the ERROR stream, not Information: the deploy
     # entrypoints call this with the default logLevel ('Error'), which silences
-    # Information AND Warning -- a pre-flight that reported its problems there
-    # printed nothing at all, so a runtime fault (a broken tool, an unreachable
-    # cluster) became a deploy that silently did nothing. $ErrorActionPreference
-    # is left at 'Continue' by the logLevel cascade precisely so errors stay
-    # visible at every level; this is an error.
+    # Information AND Warning, so a problem reported there prints nothing and a
+    # runtime fault (broken tool, unreachable cluster) becomes a deploy that
+    # silently does nothing. The logLevel cascade leaves $ErrorActionPreference
+    # at 'Continue' precisely so errors stay visible at every level.
     $report = @("", "== Runtime Check: PROBLEMS FOUND ==") + $problems + @("")
     Write-Error ($report -join [Environment]::NewLine)
     return $false

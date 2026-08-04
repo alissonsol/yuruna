@@ -5,8 +5,10 @@ $id: https://yuruna.com/schemas/extension-config.schema.yml
 title: Yuruna extension area config
 description: >
   Per-area config that names which extension scripts under the same
-  directory are active. Authentication uses exactly active[0];
-  notification iterates the full list.
+  directory are active, and -- for an area that is a SERVICE on the
+  network rather than code loaded into a cycle -- describes that
+  service. Authentication uses exactly active[0]; notification
+  iterates the full list.
 
 type: object
 additionalProperties: false
@@ -20,3 +22,80 @@ properties:
       type: string
       pattern: '^[A-Za-z0-9._-]+$'
       description: Base name of a sibling <name>.psm1 (no extension).
+
+  service:
+    type: object
+    additionalProperties: false
+    required: [displayName]
+    description: >
+      Present only for an area that runs as a service the pool can
+      locate. It is the single source of truth every consumer reads:
+      the host-side roster that restarts service VMs after a reboot,
+      the runtime marker the aggregator turns into the dashboard's
+      Extension hosts row, and the write-gate posture below. An area
+      without this block is code the cycle loads (authentication,
+      notification) or a sidecar inside another VM.
+    properties:
+      displayName:
+        type: string
+        description: >
+          Human label for this service, e.g. "Stash service". What the
+          dashboard's Extension hosts column and the host-side reports
+          show in place of the area slug.
+      vmName:
+        type: string
+        pattern: '^[A-Za-z0-9._-]+$'
+        description: >
+          The VM this host creates to run the service. Absent when the
+          service runs inside another area's VM (see hostedIn), which
+          is also what keeps it out of the service-VM roster.
+      hostedIn:
+        type: string
+        pattern: '^[A-Za-z0-9._-]+$'
+        description: >
+          The area whose VM this service runs inside, when it has no VM
+          of its own.
+      healthPort:
+        type: integer
+        minimum: 1
+        maximum: 65535
+        description: >
+          The port a CONSUMER connects to, deliberately, rather than
+          whatever the guest also happens to listen on. A VM that is
+          running but not answering here is not yet a service.
+      healthPath:
+        type: string
+        pattern: '^/'
+        description: Liveness path on healthPort. Defaults to /healthz.
+      startScript:
+        type: string
+        pattern: '^[A-Za-z0-9._-]+\.ps1$'
+        description: Script under test/ that builds and starts the VM.
+      stopScript:
+        type: string
+        pattern: '^[A-Za-z0-9._-]+\.ps1$'
+        description: Script under test/ that stops it and clears the marker.
+      markerBaseUrlKey:
+        type: string
+        pattern: '^[A-Za-z0-9_]+$'
+        description: >
+          The key in runtime/<area>.json holding the base URL this host
+          advertises for the service. Every marker also carries the
+          uniform `baseUrl`; this names the per-service key that
+          predates it, which readers still honour.
+      beaconInterval:
+        type: string
+        pattern: '^[0-9]+(ns|us|ms|s|m|h)$'
+        description: >
+          How often the service re-announces itself to the pool
+          aggregator, in Go duration form. Must stay well inside the
+          aggregator's announce TTL.
+      writeGate:
+        type: string
+        enum: [lab-token, none]
+        description: >
+          What a route that changes host or pool configuration requires.
+          `lab-token` is the rule: the shared lab-auth-token as a bearer,
+          or a session unlocked with the dashboard's rotating Lab token.
+          `none` is only for an area that changes no configuration at
+          all -- it is a claim about the service, not a way to opt out.

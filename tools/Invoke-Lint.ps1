@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.03
+.VERSION 2026.08.04
 .GUID 42d3e6a1-9b74-4c25-8f30-1a2b3c4d5e6f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -67,13 +67,12 @@ try {
     # excluded without a hand-maintained path list.
     #
     # The extension filter runs HERE, not as a git pathspec. A `*.ps1` pathspec
-    # argument is expanded against the current directory before git ever sees it
-    # whenever a file in that directory matches -- so from the repo root, git
-    # received the single root-level .ps1 filename and returned it alone, and
-    # every .ps1 in a subdirectory went unscanned (`*.psm1` matched nothing at the
-    # root, so it survived as a pattern and those files were scanned). Listing
-    # first and filtering in PowerShell removes the expansion from the path
-    # entirely; -Path is applied to the same list.
+    # is expanded against the current directory before git sees it whenever a
+    # file there matches, so from the repo root git gets the single root-level
+    # .ps1 filename and returns it alone, leaving every .ps1 in a subdirectory
+    # unscanned (`*.psm1` matches nothing at the root, survives as a pattern, and
+    # those files are scanned). Listing first and filtering in PowerShell removes
+    # the expansion entirely; -Path is applied to the same list.
     # Forward slashes: git output is '/'-separated on every platform, so do NOT
     # use Join-Path (it would emit a backslash on Windows that would not match).
     $prefix = if ($Path) { ($Path -replace '\\', '/').TrimEnd('/') + '/' } else { '' }

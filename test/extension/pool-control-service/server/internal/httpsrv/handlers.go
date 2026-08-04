@@ -18,46 +18,45 @@ import (
 
 func (s *Server) routes() http.Handler {
 	mux := http.NewServeMux()
-	// /healthz stays OPEN: the launcher polls it to decide the daemon is up,
-	// and the beacon/announce path depends on it. Gating it would make a
-	// passcode a bring-up dependency.
+	// /healthz stays OPEN and never gated: the launcher polls it to decide the
+	// daemon is up, so gating it would make a credential a bring-up dependency.
 	mux.HandleFunc("GET /healthz", s.handleHealth)
-	// /api/session tells the UI whether a gate exists and whether this device is
-	// through it; necessarily open, or the login page could not render.
+	// The session route must be open, or the login prompt could not render.
 	mux.HandleFunc("GET /api/session", s.handleSession)
 	mux.HandleFunc("POST /api/login", s.handleLogin)
 
-	// Reads: exempt from the gate only when --public-read is set (wall display).
-	mux.HandleFunc("GET /api/board", s.requireAuth(true, s.handleBoard))
-	mux.HandleFunc("GET /api/hosts", s.requireAuth(true, s.handleHosts))
-	mux.HandleFunc("GET /api/state", s.requireAuth(true, s.handleState))
-	// /api/diagnostics reports the daemon's environment (paths, uid, urls), so
-	// it is gated as a READ even though the expert pages use it.
-	mux.HandleFunc("GET /api/diagnostics", s.requireAuth(true, s.handleDiagnostics))
+	// Reads: unconditionally open on the trusted LAN, the same posture as the
+	// aggregator's pool-status and every other extension service. The board
+	// renders on a wall display with no credential, and nothing it shows is a
+	// secret the LAN cannot already read from the pool.
+	mux.HandleFunc("GET /api/hostinfo", s.handleHostInfo)
+	mux.HandleFunc("GET /api/board", s.handleBoard)
+	mux.HandleFunc("GET /api/hosts", s.handleHosts)
+	mux.HandleFunc("GET /api/state", s.handleState)
+	mux.HandleFunc("GET /api/diagnostics", s.handleDiagnostics)
 
-	// Mutations: ALWAYS gated. --public-read never opens these.
-	mux.HandleFunc("POST /api/pool", s.requireAuth(false, s.handleNewPool))
-	mux.HandleFunc("DELETE /api/pool", s.requireAuth(false, s.handleRemovePool))
-	mux.HandleFunc("POST /api/pool/desired-state", s.requireAuth(false, s.handleDesiredState))
-	mux.HandleFunc("POST /api/pool/host", s.requireAuth(false, s.handleAddHost))
-	mux.HandleFunc("DELETE /api/pool/host", s.requireAuth(false, s.handleRemoveHost))
-	mux.HandleFunc("POST /api/pool/move-host", s.requireAuth(false, s.handleMoveHost))
-	mux.HandleFunc("POST /api/pool/testset", s.requireAuth(false, s.handleAssign))
-	mux.HandleFunc("POST /api/testset", s.requireAuth(false, s.handleSetTestSet))
-	mux.HandleFunc("DELETE /api/testset", s.requireAuth(false, s.handleDeleteTestSet))
+	// Mutations: lab-token session or lab-auth-token bearer. Every one of these
+	// rewrites pool configuration.
+	mux.HandleFunc("POST /api/pool", s.gate.Require(s.handleNewPool))
+	mux.HandleFunc("DELETE /api/pool", s.gate.Require(s.handleRemovePool))
+	mux.HandleFunc("POST /api/pool/desired-state", s.gate.Require(s.handleDesiredState))
+	mux.HandleFunc("POST /api/pool/host", s.gate.Require(s.handleAddHost))
+	mux.HandleFunc("DELETE /api/pool/host", s.gate.Require(s.handleRemoveHost))
+	mux.HandleFunc("POST /api/pool/move-host", s.gate.Require(s.handleMoveHost))
+	mux.HandleFunc("POST /api/pool/testset", s.gate.Require(s.handleAssign))
+	mux.HandleFunc("POST /api/testset", s.gate.Require(s.handleSetTestSet))
+	mux.HandleFunc("DELETE /api/testset", s.gate.Require(s.handleDeleteTestSet))
 
 	mux.HandleFunc("GET /assets/", s.handleAsset)
-	// Pages are served open; each one's DATA is gated above, and the board
-	// renders its own passcode prompt from /api/session. Gating the HTML too
-	// would mean serving a 401 body a browser cannot act on.
+	// Pages are served open; each mutation is gated above, and the board renders
+	// its own lab-token prompt from /api/session. Gating the HTML too would mean
+	// serving a 401 body a browser cannot act on.
 	mux.HandleFunc("GET /pools", s.servePage("pools.html"))
 	mux.HandleFunc("GET /test-sets", s.servePage("test-sets.html"))
 	mux.HandleFunc("GET /diagnostics", s.servePage("diagnostics.html"))
 	mux.HandleFunc("GET /advanced", s.servePage("advanced.html"))
 	mux.HandleFunc("GET /hosts", s.servePage("hosts.html"))
-	// The Assign page's URL WAS "/". The board takes that slot, so Assign moves
-	// to /assign -- the one bookmark whose meaning changes, called out rather
-	// than glossed over.
+	// Assign lives at /assign, not "/": the root slot serves the board.
 	mux.HandleFunc("GET /assign", s.servePage("index.html"))
 	mux.HandleFunc("GET /{$}", s.servePage("board.html"))
 	return mux

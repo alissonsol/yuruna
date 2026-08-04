@@ -10,9 +10,9 @@ name (`waitForSeconds`, `pressKey`, `inputText`, ...) via
 `Register-SequenceAction`. When the engine walks a YAML sequence and
 hits a step with `action: <verb>`, it looks up the verb in
 `$global:YurunaSequenceActions`. If the entry has a `Handler`, the
-engine dispatches via `Invoke-SequenceActionHandler` and the handler
-takes over; a verb without a Handler is a hard step failure (the
-engine warns "Unknown action" and fails the step).
+engine dispatches via `Invoke-SequenceActionHandler`; a verb without a
+Handler is a hard step failure (the engine warns "Unknown action" and
+fails the step).
 
 Two modules carry the contract:
 
@@ -21,8 +21,8 @@ Two modules carry the contract:
   `Test-...HasHandler`, `Clear-`). Owns the field shape and the
   `FailureClass` / `Severity` / `SuggestedRecoveries` value sets.
 - **[`Test.SequenceHandler.psm1`](../test/modules/Test.SequenceHandler.psm1)** —
-  the actual Handler bodies for built-in verbs. Adding a new verb is
-  a local edit here, not a merge-conflict magnet on the engine.
+  the Handler bodies for built-in verbs. Adding a new verb is a local
+  edit here, not a merge-conflict magnet on the engine.
 
 ## The `$Context` hashtable
 
@@ -55,10 +55,9 @@ dispatch.
 | `WaitWhilePaused`      | `scriptblock`                 | Engine callback that blocks until a pause flag clears.                     |
 | `InvokeStepBlock`      | `scriptblock`                 | Recursive dispatcher for verbs that nest steps (`retry`, ...).             |
 
-Handlers should treat `$Context` as read-mostly. The two fields that
-are legitimately mutable are `$Context.Vars` (write a captured value
-back for later steps to consume) and the screenshot/log directories
-(side-effect writes are expected).
+Handlers should treat `$Context` as read-mostly. The mutable fields are
+`$Context.Vars` (write a captured value back for later steps) and the
+screenshot/log directories (side-effect writes are expected).
 
 ## Return-value contract
 
@@ -86,9 +85,9 @@ A bare `return` (no value) is coerced to `$false`. Always be explicit.
 | `Description`        | `[string]`                                                                                                                                                                                                                                                                                     | Free-form note. Surfaces in the capability matrix and future docs page.                                                                                     |
 | `Aliases`            | `[string[]]`                                                                                                                                                                                                                                                                                   | Alternate YAML names that resolve to the same entry (legacy renames).                                                                                       |
 | `Handler`            | `[scriptblock]` `param([hashtable]$c)` → `[bool]`                                                                                                                                                                                                                                              | The body that runs when the verb dispatches. Required in practice: a registration without a Handler hard-fails the step at dispatch.                       |
-| `FailureClass`       | `ValidateSet`: `ocr_timeout`, `network_timeout`, `credential_expired`, `host_io_blocked`, `pattern_matched_failure`, `retry_exhausted`, `snapshot_restore_failed`, `script_error`, `wait_timeout`, `extension_error`, `instrumentation_failure`, `provisioning_failure`, `bootstrap_sync`, `plan_invalid`, `unknown`                                       | Machine-readable failure category for downstream routing (no regex-on-label needed).                                                                        |
+| `FailureClass`       | `ValidateSet`: `ocr_timeout`, `network_timeout`, `credential_expired`, `host_io_blocked`, `pattern_matched_failure`, `retry_exhausted`, `snapshot_restore_failed`, `script_error`, `wait_timeout`, `extension_error`, `instrumentation_failure`, `provisioning_failure`, `bootstrap_sync`, `plan_invalid`, `elevation_required`, `project_access_denied`, `host_network_degraded`, `unknown`                                       | Machine-readable failure category for downstream routing (no regex-on-label needed).                                                                        |
 | `Severity`           | `ValidateSet`: `hard`, `soft`, `unknown`                                                                                                                                                                                                                                                       | `soft` = retry is plausible; `hard` = retry won't help (e.g. snapshot restore failed); `unknown` = no claim either way.                                     |
-| `SuggestedRecoveries`| `[string[]]` — free-form, ordered                                                                                                                                                                                                                                                              | Hints for an autonomous remediation loop. Common values: `retry_immediately`, `wait_and_retry`, `restore_snapshot`, `notify_operator`. Not validated.       |
+| `SuggestedRecoveries`| `[string[]]` — free-form, ordered                                                                                                                                                                                                                                                              | Hints for an autonomous remediation loop. Common values: `retry_immediately`, `wait_and_retry`, `restore_snapshot`, `notify_operator`. A token outside the remediation dispatcher's vocabulary warns at registration. |
 
 ## Example registration: `waitForSeconds`
 
@@ -152,8 +151,8 @@ cmdlet (notably Hyper-V on Windows).
    context. Return `[bool]`.
 5. If the verb has a non-trivial failure label (e.g. the YAML field
    names the target), add a `FailureLabel` scriptblock.
-6. If the verb takes user-supplied YAML field names that overlap with
-   a deprecated spelling, add the deprecated spelling to `Aliases`.
+6. If the verb replaces a deprecated verb name, add the old name to
+   `Aliases` so existing sequences keep resolving.
 
 No edit to `Test.SequenceEngine.psm1` is required for the registry path —
 the engine discovers the registration via `$global:YurunaSequenceActions`.
@@ -164,6 +163,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.03
+Last review: 2026.08.04
 
 Back to [Yuruna](../README.md)

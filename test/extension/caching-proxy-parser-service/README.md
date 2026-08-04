@@ -1,6 +1,6 @@
 # caching-proxy-parser-service
 
-A ~300-line Go tail-server that replaces loki + promtail for the single
+A ~380-line Go tail-server that replaces loki + promtail for the single
 "Recent 100 requests" panel on the caching-proxy-service Grafana dashboard.
 Optimized for that one scenario — no tenancy, no persistence, no
 LogQL, no plugin dependencies.
@@ -9,9 +9,9 @@ LogQL, no plugin dependencies.
 
 The earlier stack (loki + promtail + Grafana logs panel) wedged with
 the ingester rejecting pushes ("Ingester is shutting down") while the
-process reported healthy by every nominal probe. The short version:
-a single-host, single-source, ~25 k requests/day workload doesn't
-need the loki ingester lifecycle to view its own access log.
+process reported healthy by every nominal probe. A single-host,
+single-source, ~25 k requests/day workload doesn't need the loki
+ingester lifecycle to view its own access log.
 
 This extension trades the loki stack for a memory-only ring buffer of
 the last 100 parsed lines from `/var/log/squid/yuruna_access.log`,
@@ -104,6 +104,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.03
+Last review: 2026.08.04
 
 Back to [Yuruna](../../../README.md)

@@ -4,21 +4,22 @@
 bootstrapped from `test/test.config.yml.template` (then git-ignored, so your edits
 and secrets stay local). Edit it directly, or through the status-page editor
 (`config.html`), a schema-driven form that loads/saves via
-`GET`/`POST /control/test-config`. The template is intentionally **comment-free**;
-this document is its reference (the editor + `ConvertTo-Yaml` round-trip strips
-inline comments anyway).
+`GET`/`POST /control/test-config`. The template carries short comments on many
+non-obvious knobs and reconciliation renders those into the live file (a save
+from the editor round-trips through `ConvertTo-Yaml` and strips them until the
+next reconciliation); this document is the fuller reference.
 
-Top-level sections: `configService`, `guestSequence`, `logLevel`,
-`networkStorage`, `notification`, `pool`, `repositories`, `statusService`,
-`testCycle`, `vmCommunication`, `vmImage`, `vmStart`. Most are
+Top-level sections: `configService`, `downloadAgentService`, `guestSequence`,
+`logLevel`, `networkStorage`, `notification`, `pool`, `repositories`,
+`statusService`, `testCycle`, `vmCommunication`, `vmImage`, `vmStart`. Most are
 self-describing; the ones carrying non-obvious behavior are documented below.
 
 ## Key names
 
-Only the current key names are accepted: `Test-Config.ps1` fails a config that
-still carries a retired one and names its replacement, and the pre-cycle gate
-runs that same check, so a stale file stops the cycle at startup instead of
-being half-honored. To convert a whole file in one step — key renames, the
+Only the current key names are accepted: `Test-Config.ps1` fails a config
+carrying a retired one and names its replacement, and the pre-cycle gate runs
+the same check, so a stale file stops the cycle at startup instead of being
+half-honored. To convert a whole file in one step — key renames, the
 minutes/hours-to-seconds value conversions, and the `autoRemediation` nesting
 move — run:
 
@@ -48,7 +49,7 @@ out-of-band `secrets` node is untouched.
 Outcomes: already canonical → PASS with no rewrite; fields added/re-sorted
 → PASS listing new fields to fill in; populated keys dropped from the
 schema → WARN or FAIL per `-OnConfigSchemaDrift` (recover from the
-`.backup`). At cycle start the runner performs the same reconciliation via
+`.backup`). At cycle start the runner runs the same reconciliation via
 `Update-TestConfigFromTemplate`, which additionally STOPS the run when a
 populated value no longer maps; `-ApplyConfigMigration` runs that
 stop-on-unmappable variant immediately.
@@ -57,11 +58,11 @@ stop-on-unmappable variant immediately.
 
 The reconciled file is rendered **from the template text**, not regenerated
 from a parsed object: a `ConvertFrom-Yaml`/`ConvertTo-Yaml` round-trip drops
-every comment, which is why an operator's `test.config.yml` used to carry
-none of the template's per-knob explanations. The template is already both
-the schema and the canonical ordering, so it doubles as the rendering
-skeleton — its comments, blank lines and key order come through verbatim,
-with the operator's value substituted wherever the file has one.
+every comment, so the operator's file would lose every per-knob explanation
+the template carries. The template is already both the schema and the
+canonical ordering, so it doubles as the rendering skeleton — its comments,
+blank lines and key order come through verbatim, with the operator's value
+substituted wherever the file has one.
 
 Keys the template no longer defines are written back as commented-out
 entries under an `# --- Obsolete keys` block instead of only living in the
@@ -81,10 +82,10 @@ while its value stays in view for hand-migration. Entries parked by an
 earlier run are carried forward, and rendering is deterministic — a second
 run reproduces the file byte for byte and writes nothing.
 
-Two consequences worth knowing: the operator-managed `secrets` node is
-emitted as real YAML (never commented) so credentials survive the rewrite;
-and comments an operator adds by hand outside the obsolete block are not
-preserved, because the template — not the previous file — is the skeleton.
+Two consequences: the operator-managed `secrets` node is emitted as real YAML
+(never commented) so credentials survive the rewrite; and comments an operator
+adds by hand outside the obsolete block are not preserved, because the
+template — not the previous file — is the skeleton.
 
 ## configService — host mTLS credential service
 
@@ -95,6 +96,30 @@ enabled, the runner ensures it per cycle (given a Config CA exists); VMs fetch
 over the `yuruna-config-fetch.sh` mTLS path and fall back to baked creds only
 if it is unreachable.
 
+## downloadAgentService — the pool-wide image downloader
+
+The **download-agent service** VM (`yuruna-download-agent-service`) keeps guest
+images on the pool share fresh, so the lab pulls an image from its origin once
+instead of once per host. It needs the **pool** tier below configured — that
+share is where the Download pool lives — and it is brought up by
+`install/setup.ps1` or `pwsh test/Start-DownloadAgentServiceVM.ps1`. Operator
+guide: [download-agent.md](download-agent.md); the service section of
+[pool-admin.md](pool-admin.md#download-agent-service).
+
+| Key | Type | Meaning |
+|---|---|---|
+| `autoSeed` | bool | Pre-download the stable image families for the host types the pool aggregator reports, instead of waiting for a host to ask. Default `true`; `false` leaves the pool demand-driven and manual. |
+| `enabled` | bool | Master switch. `false` makes `install/setup.ps1` skip the agent's reset+start pair, so a re-run neither rebuilds nor starts it. An absent key reads as enabled. Running `test/Start-DownloadAgentServiceVM.ps1` by hand still starts it — asking for it explicitly overrides the setup default. |
+| `freshnessSeconds` | int | How long an image stays fresh after its last successful **direct** origin check. Default `86400` (24 h). |
+| `prefetchLeadSeconds` | int | The scanner acts on an image whose freshness expires within this window, rather than waiting for it to go stale. Default `7200` (2 h). |
+| `scanIntervalSeconds` | int | How often the agent walks the pool looking for work. Default `900` (15 min). |
+
+The four tunables are read at **VM-create time** and baked onto the daemon's
+flag line in the guest seed, so changing one takes effect on the next
+stop→start of the agent VM, not on the next cycle. The same defaults are
+hardcoded in the daemon (`server/internal/config`), so a host with no
+`downloadAgentService` block and a bare daemon behave identically.
+
 ## networkStorage — optional NAS-backed durable tiers
 
 Hosts (like guests) are **reimageable at any time**, so local storage stays local,
@@ -103,7 +128,7 @@ fast, and ephemeral; optional Network-Attached Storage shares are the durable ti
 **pool** (cycle-output replication, keys `pool*`; its on/off switch is the pool
 behavior `pool.networkReplicate`) and the **stash** (the stash service's own
 durable store, keys `stash*`). They use **separate NAS shares and separate NAS
-accounts** — the stash no longer reuses the pool's share or credential.
+accounts** — the stash does not reuse the pool's share or credential.
 
 When `pool.networkReplicate` is true, each cycle's pool output is copied to
 `<poolStorageLocalPath>/<hostId>/` on the share over **SMB3** (uniform across
@@ -161,8 +186,8 @@ networkStorage:
 macOS expands a leading `~/` to `$HOME` — keep the **slash** (`~/Shares/ypool-nas`, not
 `~Shares/ypool-nas`): only `~/…` is expanded, a tilde glued to the next character is left
 literal and the mount silently fails. The macOS/Linux mount point needs no quoting
-(no trailing colon). On **Ubuntu/Linux** the mount also
-requires **passwordless `sudo` for `mount`** (an `/etc/sudoers.d` drop-in) — see
+(no trailing colon). On **Ubuntu/Linux** the mount also requires
+**passwordless `sudo` for `mount`** (an `/etc/sudoers.d` drop-in) — see
 [pool-storage.md](pool-storage.md).
 
 > **YAML quoting — quote a Windows drive-letter `poolStorageLocalPath`/`stashStorageLocalPath`.**
@@ -177,12 +202,11 @@ requires **passwordless `sudo` for `mount`** (an `/etc/sudoers.d` drop-in) — s
 
 ### Stash storage (the stash service's own durable store)
 
-The **stash service** uses an **isolated** storage tier: its own NAS share and its
-own NAS account, configured under the `stash*` keys. It does **not** reuse the
-pool's share or `poolStorageNetworkUser` credential, and it has **no replicate flag**
-(the stash daemon writes files directly). All three `stash*` keys must be set for
-the stash store to be active; leave them empty to leave the stash store off. The
-reader is `Get-YurunaStashStorageConfig` (the pool tier's reader is
+The **stash service** uses an **isolated** storage tier: its own NAS share, its
+own NAS account (the `stash*` keys), and **no replicate flag** — the stash daemon
+writes files directly. All three `stash*` keys must be set for the stash store to
+be active; leave them empty to leave the stash store off. The reader is
+`Get-YurunaStashStorageConfig` (the pool tier's reader is
 `Get-YurunaPoolStorageConfig`).
 
 | Key | Type | Meaning |
@@ -210,7 +234,7 @@ The passwords are **never** stored in `test.config.yml` — they live in the vau
 ### Setting the SMB passwords in the vault
 
 Each SMB password must match the NAS exactly, so it is **never** auto-generated —
-you set it once, per host. Because the pool and stash now use **separate
+you set it once, per host. Because the pool and stash use **separate
 accounts**, you set **two** passwords: one for `poolStorageNetworkUser` and one for
 `stashStorageNetworkUser`. The vault
 (`test/status/extension/authentication/vault.yml`) is git-ignored, plaintext, and
@@ -227,8 +251,8 @@ the pool account has no usable credential, the validator asks for the
 `poolStorageNetworkUser` password (typed twice, not echoed), maps the `vaultKey` in
 `users.yml`, stores the password, and re-checks — so the run ends with the gate
 satisfied instead of a failure to act on later. Run non-interactively (the
-unattended runner, a redirected stdin) it never prompts and reports the failure
-as before. The `stashStorageNetworkUser` password is still set by hand, below.
+unattended runner, a redirected stdin) it never prompts and just reports the
+failure. The `stashStorageNetworkUser` password is still set by hand, below.
 
 **Recommended (fail-safe):** map a `vaultKey` so the harness never silently
 auto-generates a wrong password, then store the value. Do this for **both** users.
@@ -328,7 +352,7 @@ intent store's `pools.yml` `members[]` (the operator assigns this host's stable
 cycling as a single host (it never blocks on the pull). `desiredState`
 (`run`/`paused`/`drain`) gates the cycle — `paused` holds after the in-flight
 cycle, `drain` stops after the current one — and any **test-sets** the pool
-assigns drive what this host runs (operator guide: [pool-admin.md](pool-admin.md)).
+assigns drive what this host runs.
 
 ## testCycle.autoRemediation
 
@@ -362,7 +386,7 @@ with none proceeds without a caching-proxy service.
 Empty string means absent (fall through to the env var / local
 discovery). The status-page editor validates the value at save time:
 it must parse as an IPv4/IPv6 address **and** answer on TCP `:3128`,
-so a dead IP is rejected before it is ever persisted. Full cache-source
+so a dead IP is rejected before it is persisted. Full cache-source
 story: [caching.md](caching.md#external-cache-override).
 
 ---
@@ -371,6 +395,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.03
+Last review: 2026.08.04
 
 Back to [Yuruna](../README.md)

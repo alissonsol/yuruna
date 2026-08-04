@@ -2,11 +2,16 @@
 // Copyright (c) 2019-2026 by Alisson Sol et al.
 // Test-set library CRUD: named {name, frameworkUrl, projectUrl} triples. No GH_TOKEN.
 (function () {
+  // Header version + host id and the footer bar; its countdown re-reads the
+  // library rather than reloading, so a half-typed test set is not wiped.
+  const chrome = Y.initChrome({ refresh: load });
+
   async function load() {
     Y.clearNotice();
     let data;
     try { data = await Y.api('/api/state'); }
     catch (e) { Y.notice('error', 'Could not load test sets: ' + e.message); return; }
+    chrome.markLoaded();
     const sets = data.testSets || [];
     const tbody = document.getElementById('ts-rows');
     tbody.textContent = '';
@@ -24,7 +29,7 @@
       const delBtn = Y.el('button', { text: 'Delete' });
       delBtn.addEventListener('click', async function () {
         delBtn.disabled = true;
-        try { await Y.api('/api/testset?name=' + encodeURIComponent(t.name), { method: 'DELETE' }); Y.notice('ok', "Deleted '" + t.name + "'."); load(); }
+        try { await Y.mutate('/api/testset?name=' + encodeURIComponent(t.name), { method: 'DELETE' }); Y.notice('ok', "Deleted '" + t.name + "'."); load(); }
         catch (e) { Y.notice('error', 'Delete failed: ' + e.message); delBtn.disabled = false; }
       });
       tbody.appendChild(Y.el('tr', {}, [
@@ -42,7 +47,7 @@
     const proj = document.getElementById('ts-project').value.trim();
     if (!name || !fw || !proj) { Y.notice('error', 'name, frameworkUrl and projectUrl are all required.'); return; }
     try {
-      await Y.api('/api/testset', { method: 'POST', body: { name: name, frameworkURL: fw, projectURL: proj } });
+      await Y.mutate('/api/testset', { method: 'POST', body: { name: name, frameworkURL: fw, projectURL: proj } });
       Y.notice('ok', "Saved test set '" + name + "'.");
       load();
     } catch (e) { Y.notice('error', 'Save failed: ' + e.message); }

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.03
+.VERSION 2026.08.04
 .GUID 42c7a1b9-3d4e-4f80-9a21-5b6c7d8e9f01
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -18,15 +18,14 @@
 
 # Orchestration-sequence execution for Invoke-TestSequence.ps1: runs every
 # `InvokeTestSequence` inner sequence IN-PROCESS under ONE status.json
-# cycle, one dashboard row per inner sequence. Replaces the retired
-# one-shot Test-SequenceSet driver. See docs/test-runner.md.
+# cycle, one dashboard row per inner sequence. See docs/test-runner.md.
 #
-# NOTE (dedup follow-up): Invoke-OrchestratorGuestRun below mirrors the
-# per-guest prep + chain-run Invoke-TestSequence.ps1 performs inline for a
-# standalone run (plan -> caching-proxy service -> ssh-user override -> VM
-# ensure/start -> Invoke-TestSequenceChain). It is kept separate here so
-# this change leaves the proven standalone path untouched; a later pass
-# can fold both onto one helper once a full-lab run re-verifies it.
+# Known duplication: Invoke-OrchestratorGuestRun below mirrors the per-guest
+# prep + chain-run Invoke-TestSequence.ps1 performs inline for a standalone run
+# (plan -> caching-proxy service -> ssh-user override -> VM ensure/start ->
+# Invoke-TestSequenceChain). The two are kept separate so a change here cannot
+# regress the standalone path; folding them onto one helper needs a full-lab
+# run to re-verify both.
 
 function Test-IsOrchestrationSequence {
     <#

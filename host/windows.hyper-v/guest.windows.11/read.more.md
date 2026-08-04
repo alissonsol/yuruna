@@ -39,7 +39,7 @@ enables Remote Desktop. Default credentials: `ywuser1` / `password`
 - ISO must be downloaded manually.
 - Remove the DVD drives after install.
 - VM is unactivated until a key is provided.
-- Enhanced Session Mode is disabled by yuruna to force VMConnect basic mode (prevents interactive resolution dialogs during automated testing).
+- Enhanced Session Mode is disabled by yuruna to force VMConnect basic mode, which prevents interactive resolution dialogs during automated testing.
 
 ---
 
@@ -47,6 +47,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.03
+Last review: 2026.08.04
 
 Back to [Yuruna](../../../README.md)

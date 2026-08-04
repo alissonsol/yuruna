@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.08.03
+# Version: 2026.08.04
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 set -euo pipefail
@@ -25,10 +25,9 @@ esac
 
 # --- REGION: https://yuruna.link/network#defining-yuruna-retry-lib
 . /usr/local/lib/yuruna/yuruna-retry.sh
-# Baked retry libs may default apt attempts to a wall-clock bound -- the
-# wrapped-apt teardown-hang trap class (apt blocks at end-of-transaction
-# under a timeout(1) parent). Force unbounded regardless of the image's
-# lib vintage; remove once no image predates the lib's unbounded default.
+# Baked retry libs may bound apt attempts on wall-clock -- the wrapped-apt
+# teardown-hang trap class (apt blocks at end-of-transaction under a timeout(1)
+# parent). Force unbounded until no image predates the lib's unbounded default.
 export YURUNA_APT_STALL_TIMEOUT_SECONDS=0
 
 # --- REGION: https://yuruna.link/network#caching-proxy-service-ca-cert-rc60-gate
@@ -94,13 +93,12 @@ if ! command -v pwsh >/dev/null 2>&1; then
   echo "Installing PowerShell ${PS_VER} (${PS_ARCH}) from ${PS_URL}"
 
   curl_retry -fsSL -o /tmp/powershell.tar.gz "$PS_URL"
-  # Verify the pwsh tarball against the release's published
-  # hashes.sha256 before unpacking it (pwsh is the interpreter for all
-  # downstream automation). The asset is UTF-16 LE (BOM+CRLF, Windows-
-  # generated) -> normalize to UTF-8/LF. A genuine MISMATCH is fatal
-  # (corruption/tamper); a hashes.sha256 that can't be fetched or parsed
-  # after retries only WARNs and proceeds so a transient GitHub blip never
-  # fails every guest's provisioning.
+  # Verify the pwsh tarball against the release's published hashes.sha256 before
+  # unpacking (pwsh is the interpreter for all downstream automation). The asset
+  # is UTF-16 LE (BOM+CRLF, Windows-generated) -> normalize to UTF-8/LF. A genuine
+  # MISMATCH is fatal (corruption/tamper); a hashes.sha256 that cannot be fetched
+  # or parsed after retries only WARNs, so a transient GitHub blip never fails
+  # every guest's provisioning.
   PS_PKG="powershell-${PS_VER}-linux-${PS_ARCH}.tar.gz"
   if curl_retry -fsSL -o /tmp/pwsh-hashes.sha256 \
        "https://github.com/PowerShell/PowerShell/releases/download/${PS_TAG}/hashes.sha256"; then
@@ -301,11 +299,10 @@ if [ ! -d "$REAL_HOME/yuruna" ]; then
       echo "yuruna: repositories.frameworkUrl missing from test.config.yml - cannot clone framework" >&2
       exit 1
     fi
-    # git ships no stall detection (http.lowSpeedLimit/Time unset), so a
-    # clone stalled mid-transfer would hang this attempt forever and the
-    # retry ladder below it would never fire (the stalled-transfer trap
-    # class); the low-speed pair aborts a <1 KB/s-for-60s transfer into
-    # the retry path instead.
+    # git ships no stall detection (http.lowSpeedLimit/Time unset), so a clone
+    # stalled mid-transfer would hang forever and the retry ladder below would
+    # never fire (the stalled-transfer trap class); the low-speed pair aborts a
+    # <1 KB/s-for-60s transfer into the retry path instead.
     for attempt in 1 2 3; do
       git -c http.lowSpeedLimit=1024 -c http.lowSpeedTime=60 clone "$FRAMEWORK_URL" "$REAL_HOME/yuruna" && break
       echo "git clone attempt $attempt failed"

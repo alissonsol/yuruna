@@ -285,9 +285,13 @@ Describe 'The removal path never trusts a utmctl delete exit code' {
         Assert-True ($body.Length -gt 0) 'Start-UtmVM is defined'
         Assert-True ($body -match 'Test-UtmVMRegistered') 'the two ways the bundle can be missing are distinguished'
         $probeAt = $body.IndexOf('Test-UtmVMRegistered')
-        $startAt = $body.IndexOf('utmctl start')
-        Assert-True ($startAt -ge 0) 'the start is still there'
-        Assert-True ($probeAt -ge 0 -and $probeAt -lt $startAt) 'and the probe happens before any start is attempted'
+        # Anchored on however the start is ISSUED, not on the utmctl verb: the
+        # start is delegated to a retrying helper, and pinning the literal verb
+        # here would make this guard fail for a refactor that preserves exactly
+        # the ordering it exists to protect.
+        $startMatch = [regex]::Match($body, 'Invoke-UtmVMStartWithRetry|utmctl start')
+        Assert-True ($startMatch.Success) 'the start is still there'
+        Assert-True ($probeAt -ge 0 -and $probeAt -lt $startMatch.Index) 'and the probe happens before any start is attempted'
     }
 }
 

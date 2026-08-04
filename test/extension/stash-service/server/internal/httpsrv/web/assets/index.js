@@ -1,7 +1,7 @@
 // LICENSEURI https://yuruna.link/license
 // Copyright (c) 2019-2026 by Alisson Sol et al.
-// Recent-stashes list + search. Visibility-aware
-// auto-refresh so a backgrounded tab does not poll.
+// Recent-stashes list + search. Visibility-aware auto-refresh, so a
+// backgrounded tab does not poll.
 
 (function () {
   const PAGE = 50;
@@ -48,7 +48,7 @@
     $('status').textContent = 'Loading…';
     try {
       const data = await Y.api('/api/stashes?' + filterQuery());
-      if (data.localHostId) $('machine').textContent = 'this host: ' + Y.shortHost(data.localHostId);
+      if (data.localHostId) $('machine').textContent = 'Host: ' + Y.shortHost(data.localHostId);
       if (data.version) $('header-version').textContent = 'v' + data.version;
       lastTotal = data.total;
       for (const v of data.stashes) {

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.03
+.VERSION 2026.08.04
 .GUID 422a71b9-84cf-4d16-a903-1b7e6c05d284
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -42,7 +42,8 @@
     Needs sudo for pmset, the /Library/Preferences write and sysadminctl. The
     cache is primed once, up front, with a reason banner.
 .PARAMETER StopServices
-    Also stop the caching-proxy, stash and pool-control VMs this host runs.
+    Also stop the caching-proxy, stash, pool-control and download-agent VMs
+    this host runs.
 .EXAMPLE
     pwsh host/macos.utm/Disable-TestAutomation.ps1 -WhatIf
 #>
@@ -210,7 +211,7 @@ Restore-Knob -Name 'networktime' -Description 'Network time' -Apply {
 
 # --- REGION: services (opt-in)
 if ($StopServices) {
-    foreach ($svc in @('CachingProxyService', 'StashService', 'PoolControlService')) {
+    foreach ($svc in @('CachingProxyService', 'StashService', 'PoolControlService', 'DownloadAgentService')) {
         $script = Join-Path $RepoRoot "test/Stop-${svc}VM.ps1"
         if (-not (Test-Path -LiteralPath $script)) { $skipped.Add("test/Stop-${svc}VM.ps1 not found"); continue }
         if ($PSCmdlet.ShouldProcess("$svc VM", 'Stop')) {
@@ -243,7 +244,7 @@ Write-DisableManualStep -What 'The Yuruna credential vault -- it holds credentia
     'Unregister-SecretVault -Name <name> # then delete its store on disk'
 )
 if (-not $StopServices) {
-    Write-DisableManualStep -What 'The caching-proxy / stash / pool-control VMs (re-run with -StopServices to stop them)'
+    Write-DisableManualStep -What 'The caching-proxy / stash / pool-control / download-agent VMs (re-run with -StopServices to stop them)'
 }
 
 $capturePath = Get-HostAutomationStatePath

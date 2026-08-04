@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.03
+.VERSION 2026.08.04
 .GUID 4292b214-b454-46f0-976c-81a548f8de5d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -188,8 +188,8 @@ $null = Initialize-YurunaLogDir
 # Refuse to start when an Invoke-TestRunner already owns the runtime dir.
 # Invoke-TestProject spawns its own inner with YURUNA_RUNNER_RELAUNCH=1 below,
 # which tells inner to skip its own pidfile-takeover guard -- safe only
-# when Invoke-TestProject itself is the legitimate parent. If a real Invoke-
-# TestRunner is already running, that contract would let our inner race
+# when Invoke-TestProject itself is the legitimate parent. If a real
+# Invoke-TestRunner is already running, that contract would let our inner race
 # the live cycle's runner.pid + status.json updates. Assert-NoOtherRunner
 # (Test.Prelude, backed by Test.SingleInstance) reads runner.pid +
 # runner.start and refuses; Invoke-TestRunner's takeover path is the
@@ -303,8 +303,8 @@ Write-Output "[Invoke-TestProject] Step 3: inner cycle exited with code $innerEx
 
 # --- REGION: Step 4: stop
 # Not a repeated process. Surface the inner's exit code so a CI step or
-# upstream wrapper can branch on cycle pass/fail just as if Invoke-Test-
-# InnerRunner had been called directly.
+# upstream wrapper can branch on cycle pass/fail just as if
+# Invoke-TestRunnerInnerLoop had been called directly.
 Write-Output ''
 Write-Output '============================================='
 Write-Output "  Invoke-TestProject: STOP (exit $innerExit)"

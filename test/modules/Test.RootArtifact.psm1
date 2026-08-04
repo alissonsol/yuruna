@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.03
+.VERSION 2026.08.04
 .GUID 42e7c3b1-9d64-4a52-8f0e-7c1b3a9d6e50
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -140,42 +140,58 @@ function New-RootArtifactRecord {
 function Get-YurunaRootOwnedRepoFile {
     <#
     .SYNOPSIS
-        Files under test/status owned by uid 0, as a record -- or $null.
+        Files owned by uid 0 in the repo directories a normal run writes to,
+        one record per directory. Empty when there are none.
     .DESCRIPTION
         `find -uid 0` rather than a PowerShell walk: owner uid is not exposed on
         FileSystemInfo across the versions this has to run on, and find is present
         on every macOS and Linux host and reads the whole tree in one pass.
 
         BLOCKING. These are the files that break the next run rather than merely
-        wasting space: status/runtime carries the json + yml a cycle rewrites
-        every pass, and an in-place overwrite of a root-owned file fails for the
-        operator no matter how writable its directory is.
+        wasting space, and an in-place overwrite of a root-owned file fails for
+        the operator no matter how writable its directory is.
+
+        Both directories an unprivileged run writes into are scanned, because a
+        clean report for one of them is not a clean report for the machine:
+        test/status carries the json + yml a cycle rewrites every pass, and
+        install/ carries the answer file a guided run saves on its way out. A
+        scan narrower than what the run writes hands back an all-clear that the
+        very next permission error contradicts.
+
+        One record per directory, so each carries the chown that clears it.
+    .OUTPUTS
+        pscustomobject[] -- empty when nothing is root-owned.
     #>
     [CmdletBinding()]
-    [OutputType([pscustomobject])]
+    [OutputType([pscustomobject[]])]
     param([Parameter(Mandatory)][string]$RepoRoot)
 
-    $statusDir = Join-Path (Join-Path $RepoRoot 'test') 'status'
-    if (-not (Test-Path -LiteralPath $statusDir)) { return $null }
+    $records = [System.Collections.Generic.List[pscustomobject]]::new()
     $find = (Get-Command -CommandType Application -Name 'find' -ErrorAction SilentlyContinue | Select-Object -First 1).Source
-    if (-not $find) { return $null }
-    $r = Invoke-RootArtifactProcess -FilePath $find -ArgumentList @($statusDir, '-uid', '0')
-    if ($r.ExitCode -ne 0 -and -not $r.StdOut) { return $null }
-    $paths = @(($r.StdOut -split "`n") | ForEach-Object { $_.Trim() } | Where-Object { $_ })
-    if ($paths.Count -eq 0) { return $null }
-
+    if (-not $find) { return $records.ToArray() }
     $user = Get-RootArtifactCurrentUser
-    # Shown truncated: a root run can touch thousands of cycle files and the list
-    # is evidence, not a worklist -- the count plus a sample is what an operator
-    # reads, and the remedy covers all of them either way.
-    $sample = @($paths | Select-Object -First 8)
-    $detail = @($sample | ForEach-Object { "    $_" })
-    if ($paths.Count -gt $sample.Count) { $detail += "    ... and $($paths.Count - $sample.Count) more" }
-    return New-RootArtifactRecord -Kind 'repo-file' -Blocking $true `
-        -Summary "$($paths.Count) file(s) under test/status are owned by root" `
-        -Detail $detail `
-        -Remedy @("sudo chown -R ${user}: '$statusDir'") `
-        -Items $paths -Target $statusDir
+
+    foreach ($relative in @('test/status', 'install')) {
+        $dir = Join-Path $RepoRoot $relative
+        if (-not (Test-Path -LiteralPath $dir)) { continue }
+        $r = Invoke-RootArtifactProcess -FilePath $find -ArgumentList @($dir, '-uid', '0')
+        if ($r.ExitCode -ne 0 -and -not $r.StdOut) { continue }
+        $paths = @(($r.StdOut -split "`n") | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+        if ($paths.Count -eq 0) { continue }
+
+        # Shown truncated: a root run can touch thousands of cycle files and the
+        # list is evidence, not a worklist -- the count plus a sample is what an
+        # operator reads, and the remedy covers all of them either way.
+        $sample = @($paths | Select-Object -First 8)
+        $detail = @($sample | ForEach-Object { "    $_" })
+        if ($paths.Count -gt $sample.Count) { $detail += "    ... and $($paths.Count - $sample.Count) more" }
+        [void]$records.Add((New-RootArtifactRecord -Kind 'repo-file' -Blocking $true `
+            -Summary "$($paths.Count) file(s) under $relative are owned by root" `
+            -Detail $detail `
+            -Remedy @("sudo chown -R ${user}: '$dir'") `
+            -Items $paths -Target $dir))
+    }
+    return $records.ToArray()
 }
 
 function Get-YurunaRootOwnedListener {
@@ -242,7 +258,15 @@ function Get-YurunaRootHomeArtifact {
     $target = "$rootHome/yuruna"
     # Unprivileged first: on a host where root's home is traversable this answers
     # without involving sudo at all.
-    if (Test-Path -LiteralPath $target) {
+    #
+    # -ErrorAction SilentlyContinue because a DENIED probe is an expected answer
+    # here, not a fault. macOS keeps /var/root at 0700, so an unprivileged
+    # Test-Path returns $false AND writes a red "Access to the path is denied"
+    # error to the caller's console -- during setup, in the middle of the step
+    # list, on a check that goes on to succeed by asking sudo instead. The
+    # sudo-backed probe below is the one that decides; this branch is only the
+    # shortcut for hosts where the answer is free.
+    if (Test-Path -LiteralPath $target -ErrorAction SilentlyContinue) {
         return New-RootArtifactRecord -Kind 'root-home' -Blocking $false `
             -Summary "root's own yuruna tree exists at $target" `
             -Detail @('    Base images and VM bundles a previous sudo run wrote into root''s home.',
@@ -372,7 +396,7 @@ function Get-YurunaRootArtifact {
         Empty on Windows and on a clean machine. Never prompts, never elevates,
         never throws.
     .PARAMETER RepoRoot
-        Repository root, for the test/status ownership scan.
+        Repository root, for the ownership scan of the directories a run writes.
     .PARAMETER Port
         Service ports to check for a foreign listener. Callers pass the CONFIGURED
         statusService/configService ports so a checkout on a non-default port is
@@ -388,6 +412,8 @@ function Get-YurunaRootArtifact {
     )
     $out = [System.Collections.Generic.List[pscustomobject]]::new()
     if ($IsWindows) { return $out.ToArray() }
+    # Get-YurunaRootOwnedRepoFile returns one record per scanned directory; the
+    # array subexpression flattens that in alongside the single-record probes.
     foreach ($record in @(
         (Get-YurunaRootOwnedRepoFile -RepoRoot $RepoRoot),
         (Get-YurunaRootOwnedMount),

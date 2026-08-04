@@ -22,7 +22,7 @@ pwsh ./Get-Image.ps1
 
 [`New-VM.ps1`](./New-VM.ps1) assembles a UTM bundle under
 `~/yuruna/guest.nosync/`. Copies the qcow2 directly (the QEMU backend
-reads qcow2 natively; no raw conversion), resizes to 128 GB (thin),
+reads it natively; no raw conversion), resizes to 128 GB (thin),
 generates a cloud-init `seed.iso`, and writes `config.plist` from
 [`config.plist.template`](./config.plist.template) — QEMU (HVF)
 ARM64, core-count-policy vCPUs (min 4), 12 GB RAM, UEFI, shared NAT,
@@ -41,7 +41,7 @@ Install the GUI with `sudo dnf groupinstall -y "Desktop"`.
 ## Key differences from the Hyper-V version
 
 - Amazon Linux ships pre-built qcow2 KVM ARM64 images — no installer
-  ISO; the VM boots directly from the copied qcow2 disk.
+  ISO; the VM boots straight from the copied disk.
 - `seed.iso` uses cloud-init (not autoinstall).
 - `hdiutil makehybrid` replaces `Oscdimg.exe`.
 
@@ -51,6 +51,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.03
+Last review: 2026.08.04
 
 Back to [Yuruna](../../../README.md)

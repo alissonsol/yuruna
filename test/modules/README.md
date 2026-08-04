@@ -10,13 +10,13 @@ This folder also holds [`Invoke-TestRunnerInnerLoop.ps1`](Invoke-TestRunnerInner
 the single-cycle inner that the outer `Invoke-TestRunner.ps1` spawns
 once per cycle. It lives here (not in `test/`) so the entry-point
 folder contains only operator-facing scripts; the inner is an
-implementation detail of the outer runner and should not be invoked
-directly. The defensive single-instance guard inside it warns and
-exits if it detects an outer already running.
+implementation detail and should not be invoked directly. The
+defensive single-instance guard inside it warns and exits if it
+detects an outer already running.
 
 ## Sequence engine and cycle planner
 
-The cycle no longer needs per-guest `.ps1` extensions. The runner walks
+The cycle needs no per-guest `.ps1` extensions. The runner walks
 `project/test/test.runner.yml` to derive an ordered execution plan,
 and runs every sequence inline through
 [`Test.SequenceEngine.psm1`](Test.SequenceEngine.psm1) — the engine that
@@ -62,15 +62,15 @@ Sequences whose name starts with `start.` route to the runner's
 
 ## Three loggers, three jobs
 
-Three modules in this tree carry "Log" or `Write-*` helpers in their
-exports. The names look interchangeable from a distance; in practice
-they own three disjoint responsibilities, and a contributor who adds
-helpers to the wrong one introduces silent shadowing. Pick one with
-this decision tree:
+Three modules carry "Log" or `Write-*` helpers in their exports. The
+names look interchangeable from a distance, but they own three
+disjoint responsibilities, and a contributor who adds helpers to the
+wrong one introduces silent shadowing. Pick one with this decision
+tree:
 
 - **Want every console `Write-*` to also land in the cycle HTML?**
   Use [`automation/Yuruna.Log.psm1`](../../automation/Yuruna.Log.psm1)
-  (it's already loaded for you via `Initialize-YurunaEntryPointModuleSet`).
+  (already loaded via `Initialize-YurunaEntryPointModuleSet`).
 - **Need cycle-folder paths, NDJSON event lines, or the per-cycle
   `manifest.json`?** Use [`Test.Log.psm1`](Test.Log.psm1).
 - **Writing a one-shot `Test-*` check script that needs a PASS/FAIL
@@ -118,6 +118,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.03
+Last review: 2026.08.04
 
 Back to [Yuruna](../../README.md)

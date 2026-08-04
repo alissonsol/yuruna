@@ -1,0 +1,23 @@
+# yaml-language-server: $schema=../../schemas/extension-config.schema.yml
+
+# LICENSEURI https://yuruna.link/license
+# Copyright (c) 2019-2026 by Alisson Sol et al.
+# Active provider for the pool-control-service extension. Single-provider area;
+# the Go daemon under server/ is fetched + built inside the
+# yuruna-pool-control-service VM by that VM's cloud-init user-data, so this
+# host-side module carries only the metadata stub and the reachability
+# pre-flight.
+active:
+  - default
+service:
+  displayName: Pool-control service
+  vmName: yuruna-pool-control-service
+  healthPort: 80
+  healthPath: /healthz
+  startScript: Start-PoolControlServiceVM.ps1
+  stopScript: Stop-PoolControlServiceVM.ps1
+  markerBaseUrlKey: poolControlServiceBaseUrl
+  beaconInterval: 15m
+  # Everything this service mutates IS pool configuration: which pools exist,
+  # which hosts belong to them, which test set each one runs.
+  writeGate: lab-token

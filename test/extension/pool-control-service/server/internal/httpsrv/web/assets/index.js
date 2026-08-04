@@ -3,11 +3,16 @@
 // Main page: list pools with their assigned test-set; assign a library test-set
 // to each pool; show members + the copy-config-from-another-host command.
 (function () {
+  // Header version + host id and the footer bar; its countdown re-reads pool
+  // intent rather than reloading, so an in-progress test-set choice survives.
+  const chrome = Y.initChrome({ refresh: load });
+
   async function load() {
     Y.clearNotice();
     let data;
     try { data = await Y.api('/api/state'); }
     catch (e) { Y.notice('error', 'Could not load pool intent: ' + e.message); return; }
+    chrome.markLoaded();
     const pools = data.pools || [];
     const testSets = data.testSets || [];
     const tbody = document.getElementById('pool-rows');
@@ -21,7 +26,6 @@
     for (const p of pools) {
       const ts = p.testSet || null;
 
-      // Assign dropdown (library test-sets) + button.
       const sel = Y.el('select', {});
       sel.appendChild(Y.el('option', { value: '', text: '(choose a test set)' }));
       for (const t of testSets) {
@@ -37,7 +41,7 @@
         if (!t) return;
         assignBtn.disabled = true;
         try {
-          await Y.api('/api/pool/testset', { method: 'POST', body: { poolId: p.poolId, name: t.name, frameworkURL: t.frameworkUrl, projectURL: t.projectUrl } });
+          await Y.mutate('/api/pool/testset', { method: 'POST', body: { poolId: p.poolId, name: t.name, frameworkURL: t.frameworkUrl, projectURL: t.projectUrl } });
           Y.notice('ok', "Assigned '" + name + "' to pool '" + p.poolId + "'.");
           load();
         } catch (e) { Y.notice('error', 'Assign failed: ' + e.message); assignBtn.disabled = false; }

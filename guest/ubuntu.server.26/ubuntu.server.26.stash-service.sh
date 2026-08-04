@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.08.03
+# Version: 2026.08.04
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 #
@@ -36,10 +36,9 @@ esac
 if [ -r /usr/local/lib/yuruna/yuruna-retry.sh ]; then
   # --- REGION: https://yuruna.link/network#defining-yuruna-retry-lib
   . /usr/local/lib/yuruna/yuruna-retry.sh
-  # Baked retry libs may default apt attempts to a wall-clock bound -- the
-  # wrapped-apt teardown-hang trap class (apt blocks at end-of-transaction
-  # under a timeout(1) parent). Force unbounded regardless of the image's
-  # lib vintage; remove once no image predates the lib's unbounded default.
+  # Baked retry libs may bound apt attempts on wall-clock -- the wrapped-apt
+  # teardown-hang trap class (apt blocks at end-of-transaction under a timeout(1)
+  # parent). Force unbounded until no image predates the lib's unbounded default.
   export YURUNA_APT_STALL_TIMEOUT_SECONDS=0
 fi
 
@@ -75,8 +74,7 @@ METADATA_DIR=/var/lib/stash-service/metadata
 BUFFER_DIR=/var/lib/stash-service/buffer
 LOCAL_FALLBACK=/var/lib/stash-service/share-local
 
-# UI/API HTTP listener + pool knobs.
-# Operator-overridable via the environment; sensible defaults otherwise.
+# UI/API HTTP listener + pool knobs, operator-overridable via the environment.
 # HTTP_ADDR binds :80 (the unprivileged service user holds
 # CAP_NET_BIND_SERVICE, set below, which covers any port <1024).
 # AGGREGATOR_URL is the pool-aggregator-service base (e.g. https://<proxy>:9400) for
@@ -208,14 +206,14 @@ sudo setcap 'cap_net_bind_service=+ep' /usr/local/bin/stash-service
 # §4.2 mandates the custom daemon binds :22, so the OS sshd has to go.
 #
 # MASK, not disable. `disable` only removes the unit's own [Install] symlinks,
-# which leaves it startable by anything that pulls it in by name -- and stock
-# Ubuntu's cloud-init-network.service carries `Wants=sshd.service`. So a
-# disabled sshd comes back on EVERY boot after this one, takes :22 before the
-# daemon is up, and the daemon dies on `bind: address already in use`. It never
-# reaches its :80 listener either, so systemd restart-loops a stash service that
-# answers on no port at all -- while the build that created the VM looked
-# perfect, because there the disable ran after cloud-init had already finished.
-# A masked unit is symlinked to /dev/null and cannot be started by anything.
+# leaving it startable by anything that pulls it in by name -- and stock Ubuntu's
+# cloud-init-network.service carries `Wants=sshd.service`. A disabled sshd is
+# therefore back on EVERY later boot, takes :22 before the daemon is up, and the
+# daemon dies on `bind: address already in use` without ever reaching its :80
+# listener, so systemd restart-loops a stash service that answers on no port at
+# all -- invisible at VM-build time, where the disable ran after cloud-init had
+# already finished. A masked unit is symlinked to /dev/null and cannot be
+# started by anything.
 #
 # Nothing later needs OpenSSH: the deploy is deliberately the last step of the
 # bring-up, because afterwards :22 speaks the stash SCP/SFTP protocol.

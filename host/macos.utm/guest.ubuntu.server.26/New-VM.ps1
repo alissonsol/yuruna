@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.03
+.VERSION 2026.08.04
 .GUID 42f2a3b4-c5d6-4e78-9012-3f4a5b6c7d81
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -188,7 +188,7 @@ Write-Verbose "Copied installer ISO as: $VMName.iso"
 
 # Create blank disk for installation (64GB, qcow2 sparse -- grows on
 # demand inside the qcow2 container, so the host doesn't pre-reserve
-# the full nominal size). Uniform cap across hosts.ubuntu.kvm /
+# the full nominal size). Uniform cap across hosts: ubuntu.kvm /
 # windows.hyper-v / macos.utm. Paired with sizing-policy: all in
 # host/vmconfig/ubuntu.server.base.user-data so the root LV consumes the whole PV.
 $DiskImage = "$DataDir/disk.qcow2"
@@ -314,9 +314,8 @@ To intentionally skip the cache:
 }
 
 # --- REGION: Build the autoinstall apt block
-# Build the autoinstall apt block via the shared builder
-# (automation/Yuruna.GuestSeed.psm1). UTM pins the aarch64 ports mirror. See
-# feedback_macos_utm_apt_block_resolute_curtin_trap.md.
+# Shared builder (automation/Yuruna.GuestSeed.psm1); UTM pins the aarch64
+# ports mirror. See feedback_macos_utm_apt_block_resolute_curtin_trap.md.
 # --- REGION: https://yuruna.link/vmconfig#apt-proxy-block
 $AptProxyBlock = New-AptProxyBlock -PrimaryUri 'http://ports.ubuntu.com/ubuntu-ports' -CachingProxyServiceUrl $CachingProxyServiceUrl
 
@@ -401,7 +400,6 @@ if (-not (Test-Path $TemplatePath)) {
     exit 1
 }
 
-# Generate UUIDs and MAC address for this VM
 $VmUuid = [guid]::NewGuid().ToString().ToUpper()
 $DiskId = [guid]::NewGuid().ToString().ToUpper()
 $IsoId = [guid]::NewGuid().ToString().ToUpper()

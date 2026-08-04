@@ -35,19 +35,19 @@ perf/
 ```
 
 `host.uuid` is **not** under `perf/`; it lives in the sibling
-`$env:YURUNA_RUNTIME_DIR/host.uuid` (`status/runtime/host.uuid`) because it is
-a per-machine identity consulted by non-perf code paths.
+`$env:YURUNA_RUNTIME_DIR/host.uuid` (`status/runtime/host.uuid`) because it is a
+per-machine identity consulted by non-perf code paths.
 
 **Why JSONL, one file per cycle.** Append-only writes (no
 read-modify-write means no lock contention between writers and
 collectors); partial-file recovery is trivial; DuckDB/jq/Loki/BigQuery
-all consume it natively. CSV was rejected (rigid schema, no nesting);
-SQLite was rejected (file-locking overhead for write-once data).
+all consume it natively. CSV was rejected (rigid schema, no nesting),
+SQLite too (file-locking overhead for write-once data).
 
-**Why not extend `status.json`.** `status.json` is the live-state doc
-re-serialized on every step write. Appending the perf history to it
-would re-serialize the entire growing document on every step. JSONL
-appends one row in O(1) regardless of history depth.
+**Why not extend `status.json`.** It is the live-state doc, re-serialized
+on every step write; appending perf history would re-serialize the whole
+growing document each time. JSONL appends one row in O(1) regardless of
+history depth.
 
 ---
 
@@ -70,15 +70,14 @@ appends one row in O(1) regardless of history depth.
 
 A sequence is a stable user-facing concept that occasionally gets
 renamed. A GUID rescues you from that one rename. Steps don't deserve
-the same treatment — step renames are rare; when they happen you
-accept the discontinuity (old name's series ends, new name's begins).
+the same treatment — renames are rare, and you accept the
+discontinuity when they happen.
 
 GUID shape: `42xxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx` — first two hex
-chars are the literal `42` (visual filter in mixed-source logs;
-recognizable at a glance), remaining 30 hex chars give ≈ 120 bits of
-randomness — collision-free at any realistic scale. Not a strict
-RFC-4122 UUIDv4 (the variant nibble can be anything), but no consumer
-cares.
+chars are the literal `42` (a visual filter in mixed-source logs),
+remaining 30 hex chars give ≈ 120 bits of randomness, collision-free
+at any realistic scale. Not a strict RFC-4122 UUIDv4 (the variant
+nibble can be anything), but no consumer cares.
 
 Mint a fresh one with PowerShell:
 
@@ -107,9 +106,8 @@ resource:
 The GUI (`<name>.yml`) and SSH (`<name>.ssh.yml`) variants of the same
 logical workflow are separate sequences: each declares its **own
 `sequenceGuid`**, so each variant's history stands alone through
-renames. To compare the keystroke-driven path against the SSH-driven
-path, join on the shared `sequenceName` stem (strip the `.ssh` suffix)
-at query time.
+renames. To compare the two paths, join on the shared `sequenceName`
+stem (strip the `.ssh` suffix) at query time.
 
 If you split a logical sequence into two genuinely different ones,
 mint a fresh GUID for the new file.
@@ -133,17 +131,16 @@ at the time it ran — a snapshot. If a step gets inserted at position
 ### Retry blocks
 
 When a `retry` block re-runs its inner steps, each inner attempt emits
-its own row. The retry-wrapper itself does NOT emit a row (its
-duration is the sum of inner durations). Inner rows carry
-`parentStepOrdinal` = outer retry's position and `parentAction =
-"retry"` so the wrapper is reconstructible at query time.
+its own row. The wrapper itself does NOT emit a row (its duration is
+the sum of inner durations). Inner rows carry `parentStepOrdinal` =
+outer retry's position and `parentAction = "retry"` so the wrapper is
+reconstructible at query time.
 
 ---
 
 ## The row schema
 
-Schema version: `1` (carried in every row's `schema:` field; readers
-branch on it).
+Schema version: `1`, carried in every row's `schema:` field.
 
 ```
 {
@@ -241,11 +238,11 @@ by its hash. Same for `guestinfo/` (small JSON fingerprint) and
 3. Writes the sidecar file only if `<hash>.<ext>` doesn't already exist.
 4. Embeds the hash in every step row.
 
-A host whose hardware doesn't change emits **one** ~10 KB file per
-machine for the lifetime of that machine. The same hash collapses
-across thousands of cycle files at query time (`JOIN` on hash, render
-once). This is what lets the schema honor "hostinfo is assumed to be
-stable" without bloating per-step rows.
+A host whose hardware doesn't change emits **one** ~10 KB file for the
+lifetime of that machine. The same hash collapses across thousands of
+cycle files at query time (`JOIN` on hash, render once). This lets the
+schema honor "hostinfo is assumed to be stable" without bloating
+per-step rows.
 
 ---
 
@@ -309,8 +306,7 @@ for tomorrow's yellow tier.
 ## What changes when
 
 - **A sequence is renamed.** GUID stays; `sequenceName` changes; joins on
-  GUID continue to work across the rename. Joins on name see a clean
-  break.
+  GUID keep working across the rename, joins on name see a clean break.
 - **A step is added / removed / reordered.** Bump `sequenceRevision`
   in the sequence YAML. Future rows carry the new revision; baseline
   queries naturally segment by revision.
@@ -329,7 +325,7 @@ for tomorrow's yellow tier.
 
 The emitter is wired into the runner at three points:
 
-1. **`Invoke-TestRunnerInnerLoop.ps1`** calls `Start-PerfCycle` once per
+1. **`Test.RunnerInnerLoop.psm1`** calls `Start-PerfCycle` once per
    cycle, right after the cycle-start host diagnostic is captured —
    hash-stores the diagnostic, opens the cycle's JSONL file, stamps
    the two commit SHAs.
@@ -352,7 +348,7 @@ crashes a cycle.**
 
 - **Phase 1 (current).** Emit rows. Nothing reads them yet. Two weeks
   of cycles produce baseline data; without it, yellow-tile thresholds
-  have no signal to use.
+  have no signal.
 - **Phase 2.** A status-page `perf-summary.html` running DuckDB-WASM
   queries against `/perf/cycles/*.jsonl` served by
   `Start-StatusService.ps1`. Read-only summary tables.
@@ -363,8 +359,8 @@ crashes a cycle.**
 
 ## Explicit non-goals
 
-- **Not** extending `status.json`. The doc is rewritten on every step
-  write; piling history on it makes the perf cost worse.
+- **Not** extending `status.json` — rewritten on every step write, so
+  piling history on it makes that cost worse.
 - **Not** Prometheus / Loki for the canonical store. Prometheus is for
   high-frequency gauges; perf-step durations are sparse rich events.
   (Promtail still tails `outer.log` for human debugging — orthogonal.)
@@ -376,6 +372,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.03
+Last review: 2026.08.04
 
 Back to [Yuruna](../README.md)

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.03
+.VERSION 2026.08.04
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456770
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -99,19 +99,17 @@ $script:DefaultScreenHistorySize = 5
 # so callers in this file resolve the function via the global scope.
 
 # -- Progress wrapper ---------------------------------------------------------
-# Invoke-Sequence runs inline in the runner's interactive host now (the cycle
+# Invoke-Sequence runs inline in the runner's interactive host (the cycle
 # planner dispatches Invoke-SequenceByName directly from Test.Start-GuestOS /
 # Test.Start-GuestWorkload -- no child pwsh in the path), so Write-Progress works
-# natively. This wrapper keeps the call sites uniform with the previous
-# child-pwsh era when a stdout marker protocol was also needed.
+# natively. The wrapper stays so every call site funnels through one place.
 function Write-ProgressTick {
     <#
     .SYNOPSIS
         Uniform Write-Progress wrapper for sequence-step heartbeats.
     .DESCRIPTION
         Forwards to Write-Progress with a -Completed shortcut. Kept as a
-        thin wrapper so call sites stay uniform across hosts and across
-        the inline / former-child-spawn runtimes.
+        thin wrapper so call sites stay uniform across hosts.
     #>
     param(
         [Parameter(Mandatory)][string]$Activity,
@@ -461,9 +459,9 @@ function Invoke-TapOn {
     $labelDisplay = $Label -join "' / '"
     # Wall-clock deadline. See the matching commentary in Wait-ForText for
     # why this is NOT an iteration counter -- on a slow Hyper-V host a
-    # configured timeoutSeconds: 60 used to expand to 3-5 minutes of
-    # wall-clock when each iteration paid full screenshot + OCR cost on
-    # top of the $PollSeconds sleep.
+    # configured timeoutSeconds: 60 would expand to 3-5 minutes of wall-clock
+    # when each iteration pays full screenshot + OCR cost on top of the
+    # $PollSeconds sleep.
     $startUtc    = [DateTime]::UtcNow
     $deadlineUtc = $startUtc.AddSeconds($TimeoutSeconds)
     $elapsed     = 0
@@ -647,18 +645,16 @@ function Wait-ForText {
     $script:Fail.WaitForTextPatternsSought = [string[]]@()
     if ($HostType) { Write-Debug "Wait-ForText: -HostType '$HostType' is informational; Yuruna.Host dispatches Get-VMScreenshot internally." }
 
-    # Display label uses first pattern for log messages
     $patternLabel = $Pattern[0]
-    # Wall-clock deadline -- NOT an iteration counter. Earlier revisions
-    # tracked $elapsed by adding $PollSeconds each loop pass, which assumed
-    # every iteration finished in $PollSeconds wall-clock. In practice each
-    # iteration does a screenshot + tesseract OCR + sidecar write before
-    # the Start-Sleep -Seconds $PollSeconds at the bottom -- on a busy
-    # Hyper-V host that adds 5-25 s on top of the sleep, so a configured
-    # timeoutSeconds: 1800 took 1-3 hours of wall-clock to expire (and
-    # multiplied by retry maxAttempts could exceed half a day before
-    # giving up). With a wall-clock deadline timeoutSeconds means exactly
-    # what the operator configured.
+    # Wall-clock deadline -- NOT an iteration counter. Adding $PollSeconds per
+    # loop pass would assume every iteration finishes in $PollSeconds of
+    # wall-clock. In practice each iteration does a screenshot + tesseract OCR
+    # + sidecar write before the Start-Sleep -Seconds $PollSeconds at the
+    # bottom -- on a busy Hyper-V host that adds 5-25 s on top of the sleep, so
+    # a configured timeoutSeconds: 1800 would take 1-3 hours of wall-clock to
+    # expire (and multiplied by retry maxAttempts could exceed half a day
+    # before giving up). With a wall-clock deadline timeoutSeconds means
+    # exactly what the operator configured.
     $startUtc    = [DateTime]::UtcNow
     $deadlineUtc = $startUtc.AddSeconds($TimeoutSeconds)
     $elapsed     = 0
@@ -793,16 +789,14 @@ function Wait-ForText {
                 if (Test-Path $txtSibling) { Remove-Item -Path $txtSibling -Force -ErrorAction SilentlyContinue }
             }
 
-            # OCR is fed the raw capture as-is -- no preprocessing. Earlier
-            # revisions ran a vertical-line / grayscale / invert / contrast-
-            # stretch / 2x-scale pipeline (and before that, a diff-against-
-            # the-previous-frame stage that suppressed unchanged pixels);
-            # both stages were dropped so every operating system delivers
-            # the intact screenshot straight to the OCR engines and edge
-            # cases the pipeline corrupted (anti-aliased serifs collapsing,
-            # fresh text being suppressed when the surrounding pixels also
-            # changed) stop biting. Tesseract / WinRT OCR / macOS Vision
-            # all handle native-resolution color screenshots fine.
+            # OCR is fed the raw capture as-is -- no preprocessing. Do not
+            # reintroduce a vertical-line / grayscale / invert / contrast-
+            # stretch / 2x-scale pipeline, nor a diff-against-the-previous-
+            # frame stage that suppresses unchanged pixels: both corrupt edge
+            # cases (anti-aliased serifs collapsing, fresh text suppressed
+            # when the surrounding pixels also changed). Tesseract / WinRT OCR
+            # / macOS Vision all handle native-resolution color screenshots
+            # fine.
             if ($rawScreenPath -and (Test-Path $rawScreenPath)) {
                 if ($FreshMatch) {
                     # -- FreshMatch mode: only check the last N lines --
@@ -1397,8 +1391,8 @@ function Invoke-Sequence {
     # is free to declare its own `loginUser` under variables: (or pass
     # one in via the cascade) -- only the unset case is auto-filled.
     # Empty corporate fields in users.yml mean loginUser == username
-    # (today's local-only behavior); a populated corporate mapping
-    # renders DOMAIN\sam or upn@domain.com.
+    # (the local-only case); a populated corporate mapping renders
+    # DOMAIN\sam or upn@domain.com.
     if (-not $vars.ContainsKey('loginUser') -and $vars.ContainsKey('username')) {
         try {
             # Import the extension area lazily; the planner / runner has
@@ -1490,8 +1484,8 @@ function Invoke-Sequence {
     #      per-sequence work don't run while paused, and the very first
     #      action of a new sequence can't start while paused. This matters
     #      most between two sequences (e.g. Test-Start -> Test-Workload, or
-    #      one guest's workload -> the next guest's workload) where clicking
-    #      Pause used to only take effect after the next sequence had
+    #      one guest's workload -> the next guest's workload), where a Pause
+    #      click would otherwise only take effect after the next sequence had
     #      already started its first action.
     #   2. At the top of each step iteration (further below) -- so a click
     #      mid-sequence takes effect before the next action.
@@ -1747,8 +1741,8 @@ function Invoke-Sequence {
                 RepoRoot              = $repoRoot
                 ExpandVariable        = ${function:Expand-Variable}
                 # Step-default param resolution lives in each handler
-                # scriptblock; these mirror the values the engine used to
-                # read directly from $script:Default*.
+                # scriptblock; these mirror the engine's $script:Default*
+                # values.
                 DefaultCharDelayMs    = $script:DefaultCharDelayMs
                 DefaultPollSeconds    = $script:DefaultPollSeconds
                 DefaultTimeoutSeconds = $script:DefaultTimeoutSeconds
@@ -2084,13 +2078,13 @@ function Invoke-Sequence {
 # Expand-Variable; we pass it in so the registry module does NOT have to
 # import Invoke-Sequence). Each block reads $Context and returns the
 # label string. Capability requirements (HostIORequirement + OcrRequired)
-# are the same table Test.Capability used to carry.
+# ride in the same registry entries; Test.Capability reads them from there.
 #
 # The catalog of built-in verb Handlers lives in
 # Test.SequenceHandler.psm1, which is imported -Global at module load so
 # its Register-SequenceAction side effects populate the same
 # Test.SequenceAction registry the engine dispatches against. That
-# catalog now includes retry and recoverFromSnapshot; the cross-module
+# catalog includes retry and recoverFromSnapshot; the cross-module
 # failure state they coordinate lives in the shared Test.SequenceFailureState
 # store ($script:Fail), so this module stays the pure executor.
 

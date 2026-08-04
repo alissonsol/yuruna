@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.03
+.VERSION 2026.08.04
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456821
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -71,7 +71,7 @@ function Get-CachingProxyServiceStatePath {
 <#
 .SYNOPSIS
     Returns the persisted state as a hashtable. Empty hashtable when
-    the file is missing or unparsable; never $null.
+    the file is missing or unparseable; never $null.
 .OUTPUTS
     [hashtable] with keys 'password' and 'ipAddress' (each a string,
     possibly empty). Additional keys round-trip through Save unchanged.
@@ -1073,8 +1073,8 @@ function Sync-PoolIntentAliasOnProxy {
     Points the caching-proxy service's read-only pool-intent route at the pool NAS
     store, so runners pull the same bytes the pool-control service UI writes.
 .DESCRIPTION
-    The proxy originally served a proxy-LOCAL bare repo, which the pool-control-service
-    daemon (on its own VM) cannot push to. Both boxes mount the pool NAS
+    A proxy-LOCAL bare repo is not an option: the pool-control-service daemon
+    (on its own VM) cannot push to one. Both boxes mount the pool NAS
     read-write, so the store lives there and apache serves it -- one store, no
     mirroring, no divergence between what an operator writes and what a runner
     pulls.

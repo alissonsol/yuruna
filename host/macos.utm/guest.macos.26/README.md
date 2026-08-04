@@ -27,8 +27,7 @@ Apple does not publish a stable IPSW URL, so the script asks
 `VZMacOSRestoreImage.fetchLatestSupported` (Virtualization framework)
 for the latest macOS 26 build for this host's hardware bucket and
 downloads it (~15-20 GB) into `~/yuruna/image/macos.env/`. The skip-
-if-same-source guard prevents re-downloading the same build on a
-repeat run.
+if-same-source guard avoids re-downloading the same build.
 
 ## For each VM
 
@@ -51,16 +50,16 @@ import it into UTM and start the VM.
 ## Test harness integration (TBD)
 
 The Setup Assistant flow is not automated yet. Until OCR templates and
-a `start.guest.macos.26.yml` sequence land, the harness can create the
-bundle and start the VM (`Test-VMRunning` succeeds because the VM
-process exists) but every interactive step that follows must be driven
-by hand. Treat this guest as "scaffolding-ready, sequence-pending".
+a `test/sequences/start.guest.macos.26.yml` sequence land, the harness
+can create the bundle and start the VM (`Test-VMRunning` succeeds
+because the VM process exists), but every interactive step after that
+must be driven by hand. Treat this guest as "scaffolding-ready,
+sequence-pending".
 
-When the test sequence lands it will live under
-`test/sequences/start.guest.macos.26.yml` and follow the same
-contract as `start.guest.ubuntu.server.24.yml` — the GUI steps that
-walk Setup Assistant to a logged-in desktop and rotate the
-operator-chosen initial password.
+That sequence will follow the same contract as
+`start.guest.ubuntu.server.24.yml` — the GUI steps that walk Setup
+Assistant to a logged-in desktop and rotate the operator-chosen
+initial password.
 
 ---
 
@@ -68,6 +67,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.03
+Last review: 2026.08.04
 
 Back to [Yuruna](../../../README.md)

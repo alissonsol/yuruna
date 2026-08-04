@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.03
+.VERSION 2026.08.04
 .GUID 42c4b1e7-5a8d-4f23-9b1c-7e3f8a2d4c61
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -36,19 +36,18 @@
     this file is the executable source of truth.
 
     Naming policy (by design):
-        The contract uses generic verbs -- New-VM, Start-VM, Stop-VM,
-        Remove-VM -- that happen to collide with the Hyper-V module's
-        cmdlet names. This is intentional. Hyper-V is one of three
-        virtualization backends Yuruna supports (UTM, libvirt/KVM, and
-        Hyper-V); a contract named for any one backend would mis-frame
-        the abstraction. The per-host driver modules live under
-        host/<host>/modules/ and are imported into the runner's session
-        with -Global only when that host is selected, so the collision
-        is scoped to the runner runspace -- the drivers are NOT on
-        PSModulePath and won't shadow Hyper-V cmdlets in other shells.
-        Callers that need the Hyper-V cmdlet explicitly inside a Yuruna
-        sequence use module-qualified `Hyper-V\Start-VM`; the unqualified
-        `Start-VM` always resolves to the active host's driver contract.
+        The generic verbs -- New-VM, Start-VM, Stop-VM, Remove-VM --
+        deliberately collide with the Hyper-V module's cmdlet names:
+        Hyper-V is one of three virtualization backends Yuruna supports
+        (UTM, libvirt/KVM, Hyper-V), and a contract named for any one of
+        them would mis-frame the abstraction. The per-host driver modules
+        live under host/<host>/modules/ and are imported into the runner's
+        session with -Global only when that host is selected, so the
+        collision is scoped to the runner runspace -- the drivers are NOT
+        on PSModulePath and won't shadow Hyper-V cmdlets in other shells.
+        Callers that need the Hyper-V cmdlet inside a Yuruna sequence use
+        module-qualified `Hyper-V\Start-VM`; the unqualified `Start-VM`
+        always resolves to the active host's driver contract.
 #>
 
 # Verb names a Yuruna host driver is expected to export. Adding a verb
@@ -59,14 +58,13 @@ $script:YurunaHostContract = @(
     # VM lifecycle
     'New-VM', 'Start-VM', 'Stop-VM', 'Stop-VMForce', 'Remove-VM',
     'Rename-VM', 'Get-VMState',
-    # VM inventory. Get-VMName is what lets a caller clean up by name
-    # prefix without branching on hypervisor: enumeration is the only
-    # part of a prefix sweep that was ever host-specific, so exposing it
-    # here keeps every sweep -- cycle-start, teardown, project teardown --
-    # on one code path. It MUST distinguish "no VMs" from "could not ask
-    # the host": a driver that returns an empty list when its CLI is
-    # unreachable would let a sweep report a clean host and let the
-    # orphan-file pass delete bundles that are still registered.
+    # VM inventory. Get-VMName lets a caller clean up by name prefix without
+    # branching on hypervisor: enumeration is the only host-specific part of
+    # a prefix sweep, so exposing it here keeps every sweep -- cycle-start,
+    # teardown, project teardown -- on one code path. It MUST distinguish
+    # "no VMs" from "could not ask the host": a driver that returns an empty
+    # list when its CLI is unreachable would let a sweep report a clean host
+    # and let the orphan-file pass delete bundles that are still registered.
     'Get-VMName',
     # Disk snapshots
     'Save-VMDiskSnapshot', 'Restore-VMDiskSnapshot', 'Test-VMDiskSnapshot',

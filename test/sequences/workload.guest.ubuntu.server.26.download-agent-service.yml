@@ -1,0 +1,59 @@
+# yaml-language-server: $schema=../schemas/sequence.schema.yml
+
+# LICENSEURI https://yuruna.link/license
+# Copyright (c) 2019-2026 by Alisson Sol et al.
+
+# Standalone SMOKE TEST of the download-agent daemon build + launch on a vanilla
+# Ubuntu guest (no pool share seeded -> the daemon starts and reports the pool
+# as unavailable, which is the designed degraded state, not a failure).
+# It is NOT the production bring-up and is NOT wired into automated test-sets;
+# run it manually to verify the daemon compiles + starts.
+
+sequenceGuid: 42cabb3b-2d32-4dd0-8771-b3d897fbf3d5
+sequenceRevision: 1
+
+description: "Ubuntu Server 26.04: log in as download-agent-service-admin and bring up the Yuruna download-agent service daemon."
+keystrokeMechanism: gui
+resource:
+  ubuntu.server.26:
+    - start.guest.ubuntu.server.26
+variables:
+  # The download-agent-service VM's cloud-init creates only
+  # 'download-agent-service-admin' (passwordless sudo + vault password); use it
+  # for console login. The bring-up script runs many sudo commands -- apt,
+  # systemctl, mount -- so a NOPASSWD account is required here.
+  username: download-agent-service-admin
+
+component:
+  - action: retry
+    maxAttempts: 2
+    description: "Login + retry"
+    steps:
+      - snippet: firstLoginPrime
+
+      - action: passwdPrompt
+        pattern: "login:"
+        timeoutSeconds: 600
+        text: "${username}"
+        description: "OCR: login:"
+
+      - action: passwdPrompt
+        pattern: "Password:"
+        text: "${ext:authentication.GetPassword(${username})}"
+        description: "OCR: Password:"
+
+  - action: waitForText
+    pattern: "${username}@${hostname}"
+    timeoutSeconds: 90
+    description: "OCR: ${username}@${hostname}"
+
+workload:
+  - action: fetchAndExecute
+    text: "/usr/local/lib/yuruna/fetch-and-execute.sh guest/ubuntu.server.26/ubuntu.server.26.download-agent-service.sh"
+    description: "ubuntu.server.26.download-agent-service.sh"
+    waitPattern: "FETCHED AND EXECUTED:"
+    timeoutSeconds: 900
+
+  - action: inputTextAndEnter
+    text: "clear; exit;"
+    description: "Exit back to login"

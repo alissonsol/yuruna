@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.03
+.VERSION 2026.08.04
 .GUID 42d4e5f6-a7b8-4c90-1234-5d6e7f809102
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -58,22 +58,20 @@ param (
 Import-Module (Join-Path $PSScriptRoot 'Yuruna.LogLevel.psm1') -Global -Force
 Set-YurunaLogLevel -LogLevel $logLevel
 
-# Pre-flight check: delegate to Test-Runtime.ps1.
-#
 # Test-Runtime streams its docker images / containers tables to stdout on the
 # healthy path, so the capture is a collection whose LAST element is the script's
-# [bool] verdict. Test the collection itself and any stdout line at all reads as a
-# pass -- which holds today only because the failing path happens to print nothing
-# there, an accident one added diagnostic line would silently take away.
+# [bool] verdict. Testing the collection itself would let any stdout line read as a
+# pass -- which holds only because the failing path happens to print nothing there,
+# an accident one added diagnostic line would silently take away.
 $testRuntimeScript = Join-Path -Path $PSScriptRoot -ChildPath "Test-Runtime.ps1"
 $runtimeOutput = @(& $testRuntimeScript -logLevel $logLevel)
 $runtimeOk = ($runtimeOutput.Count -gt 0) -and ($runtimeOutput[-1] -is [bool]) -and $runtimeOutput[-1]
 if (-not $runtimeOk) {
     # `exit 1`, never `return $false`: a bare `return` at script scope leaves the
-    # PROCESS exit code at 0. The guest wrappers run this entrypoint under
-    # `set -euo pipefail`, so a zero exit reads as "deployed" -- the sequence marches
-    # on and the real fault surfaces minutes later, in a different step, as an
-    # unreachable endpoint. Same contract as Complete-YurunaRun's failure tail.
+    # PROCESS exit code at 0, and the guest wrappers run this entrypoint under
+    # `set -euo pipefail`, so a zero exit reads as "deployed" -- the sequence
+    # marches on and the real fault surfaces minutes later, in a different step,
+    # as an unreachable endpoint. Same contract as Complete-YurunaRun's failure tail.
     Write-Warning "Runtime pre-flight failed; no workload was deployed."
     exit 1
 }

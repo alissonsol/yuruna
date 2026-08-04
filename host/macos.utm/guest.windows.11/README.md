@@ -18,8 +18,8 @@ pwsh ./Get-Image.ps1
 ```
 
 Downloads the Windows 11 ARM64 ISO and UTM Guest Tools (SPICE + VirtIO)
-into `~/yuruna/image/windows.env/`. Prints manual instructions for ISOs that
-can't be fetched automatically — see [Windows 11 guest on macOS UTM host — Nerd-Level Details](read.more.md).
+into `~/yuruna/image/windows.env/`. Prints manual instructions for ISOs it
+can't fetch — see [Windows 11 guest on macOS UTM host — Nerd-Level Details](read.more.md).
 
 ## For each VM
 
@@ -70,6 +70,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.03
+Last review: 2026.08.04
 
 Back to [Yuruna](../../../README.md)

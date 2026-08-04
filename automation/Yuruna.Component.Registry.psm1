@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.03
+.VERSION 2026.08.04
 .GUID 42d2e3f4-a5b6-4789-0123-4d5e6f7a8b9c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -32,8 +32,7 @@
     dependency from the automation layer into the test tree.
 #>
 
-# Resolve the sibling module path once at module load. $PSScriptRoot is
-# automation/, where Yuruna.CredentialProvider.psm1 also lives.
+# $PSScriptRoot is automation/, where Yuruna.CredentialProvider.psm1 also lives.
 $script:CredentialProviderModulePath = Join-Path `
     -Path $PSScriptRoot `
     -ChildPath 'Yuruna.CredentialProvider.psm1'

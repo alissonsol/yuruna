@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.03
+.VERSION 2026.08.04
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456820
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -19,25 +19,25 @@
 # Default stash-service extension. The Go daemon (SCP sink-mode wire-protocol
 # handler, SQLite metadata index, on-disk storage layout) lives under
 # [server/](server/); user guide: https://yuruna.link/stash-guide.
-# Get-StashServiceInfo is a status stub that
-# returns a uniform hashtable in the host-side cmdlet vocabulary; host-side
-# status probing (querying a running stash-service VM) is not wired yet, so the flags
-# stay $false until that lands.
+#
+# Get-StashServiceInfo is a status stub returning a uniform hashtable in the
+# host-side cmdlet vocabulary; host-side status probing (querying a running
+# stash-service VM) is not wired yet, so the flags stay $false until that lands.
 #
 # Resolve-Host is the runtime stash-address discovery a sequence's `variables:`
 # block consumes via ${ext:stash-service.ResolveHost(<vm>)}, so the stash IP is
 # a discovered artifact instead of a hard-coded literal: the same live Get-VMIp
 # lookup the caching-proxy-service/edge discovery uses, then the address a cycle
 # published in <runtime>/stash-host.txt, then whatever the framework's
-# Get-ExtensionHostAddress can find for the area -- the last of which is what
-# answers for a lab whose stash runs on another host entirely.
+# Get-ExtensionHostAddress can find for the area -- the last of which answers
+# for a lab whose stash runs on another host entirely.
 #
-# Test-StashServiceHost + Publish-StashServiceHost are the writer half of that: a cycle's
-# warm-up resolves the stash ONCE, up front, confirms it answers /healthz, and
-# publishes the address. Doing it there rather than per sequence means a stash
-# that is unreachable stops the cycle before its long provisioning stages
-# instead of after them, and the scenarios that follow resolve the address
-# without re-probing for a VM this host may not run at all.
+# Test-StashServiceHost + Publish-StashServiceHost are the writer half: a
+# cycle's warm-up resolves the stash ONCE, up front, confirms it answers
+# /healthz, and publishes the address. Doing it there rather than per sequence
+# means an unreachable stash stops the cycle before its long provisioning
+# stages instead of after them, and later scenarios resolve the address without
+# re-probing for a VM this host may not run at all.
 
 function Get-StashServiceInfo {
     <#

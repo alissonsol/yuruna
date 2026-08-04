@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.03
+.VERSION 2026.08.04
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456708
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -146,8 +146,8 @@ if (Test-Path $yurunaLogModule) {
 # (see test/modules/Test.SequenceRunner.psm1 header).
 Import-Module (Join-Path $ModulesDir 'Test.SequenceRunner.psm1') -Global -Force
 # Test.Orchestrator runs an orchestration sequence (InvokeTestSequence steps,
-# no baseline) in-process under one status cycle -- the local successor to
-# Test-SequenceSet.ps1. Detected + dispatched below, before the guest path.
+# no baseline) in-process under one status cycle. Detected + dispatched below,
+# before the guest path.
 Import-Module (Join-Path $ModulesDir 'Test.Orchestrator.psm1') -Global -Force
 $global:VerbosePreference = $savedVerbose
 
@@ -399,7 +399,7 @@ if (-not (Assert-TesseractInstalled)) { exit $ExitFailure }
 # host driver, runtime dirs, single-instance guard and OCR setup are up,
 # but before the guest-only GuestKey + VM path -- and handed to
 # Test.Orchestrator, which owns its own status cycle + log and returns an
-# exit code. This is the local one-shot successor to Test-SequenceSet.ps1.
+# exit code.
 $topLevelDoc = $null
 try { $topLevelDoc = Read-SequenceFile -Path $SequencePath } catch {
     Write-Error "Could not parse sequence file '$SequencePath': $($_.Exception.Message)"
@@ -726,13 +726,13 @@ $effectiveStop = $StopStep -ne 0 ? $StopStep : $totalSteps
 $stopLabel = $StopStep -ne 0 ? ", stopping after step $effectiveStop" : ""
 
 # --- REGION: Register this run as a cycle in status.json
-# Without this block Invoke-TestSequence runs landed under cycle "000000" with no
-# row in the dashboard's history table, and break-active.json had no live
-# cycle to anchor the Continue button against. Mirrors Invoke-TestInner-
-# Runner's shape but uses a single 'Sequence' step (the inner runner's
-# fixed phase pills -- New-VM / Start-VM / Start-GuestOS / ... -- would
-# render four "pending" chips that never animate, since Invoke-TestSequence
-# skips those phase boundaries).
+# Without this block an Invoke-TestSequence run lands under cycle "000000" with
+# no row in the dashboard's history table, and break-active.json has no live
+# cycle to anchor the Continue button against. Mirrors
+# Invoke-TestRunnerInnerLoop's shape but uses a single 'Sequence' step: the
+# inner runner's fixed phase pills -- New-VM / Start-VM / Start-GuestOS / ...
+# -- would render four "pending" chips that never animate, since
+# Invoke-TestSequence skips those phase boundaries.
 # $nestedNodeId is the id of this run's node in the owner's `nested` map; it
 # stays $null for an owner run and is read again in the finally{} to finalize
 # the node, so it must live in the script scope BEFORE the branch.
@@ -762,9 +762,6 @@ if ($isNested) {
     Write-Output "Log file: $LogFile"
 } else {
     # --- OWNER: register + own the cycle (classic standalone path).
-    # Without this block Invoke-TestSequence runs landed under cycle "000000" with no
-    # row in the dashboard's history table, and break-active.json had no live
-    # cycle to anchor the Continue button against.
     Reset-StatusDocumentForCycleStart -StatusFilePath $StatusFile -Confirm:$false
 
     $frameworkUrl = if ($Config.repositories -is [System.Collections.IDictionary] -and $Config.repositories.frameworkUrl) {
@@ -912,11 +909,7 @@ try {
         }
         if (Get-Command Stop-NestedLogFile -ErrorAction SilentlyContinue) { Stop-NestedLogFile }
     } else {
-        # OWNER: finalize the status.json cycle row so the dashboard's history
-        # table reflects this run. 'unknown' (mid-try exit before outcome was
-        # assigned) is recorded as 'fail' -- a cycle the operator walked away
-        # from is closer to a failed cycle than a clean pass for downstream
-        # automation (notification, retry, history pruning).
+        # OWNER: finalize the cycle row this run owns.
         if (Get-Command Set-StepStatus -ErrorAction SilentlyContinue) {
             Set-StepStatus -GuestKey $GuestKey -StepName 'Sequence' -Status $finalOutcome -ErrorMessage $script:TestSequenceReason -Confirm:$false
         }

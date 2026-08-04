@@ -2,7 +2,8 @@
   LICENSEURI https://yuruna.link/license
   Copyright (c) 2019-2026 by Alisson Sol et al.
   Stash UI styles. Mirrors the status-pages' yuruna.common design tokens
-  (light/dark custom properties) for visual consistency. Vendored into the daemon binary, not fetched from the host.
+  (light/dark custom properties). Vendored into the daemon binary, not fetched
+  from the host.
 */
 
 :root {
@@ -74,6 +75,13 @@
 }
 
 * { box-sizing: border-box; }
+
+/* iOS Safari boosts text inside any block wider than the viewport, which the
+   8-column stash table and the `white-space: pre` viewer both are on a phone
+   (each scrolls itself). Without this pin they paint at a different size from
+   the rest of the page. Prefixed form is the one Safari implements; the
+   standard form covers the others. */
+html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
 
 html, body {
   margin: 0;

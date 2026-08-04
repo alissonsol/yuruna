@@ -11,11 +11,11 @@ import (
 )
 
 // handleHostInfo returns the lightweight host facts the shared UI footer
-// renders: this host's id, the daemon version, and
-// the server's own LAN IP addresses. It is page-agnostic on purpose — any UI
-// page drives the same footer module (assets/common.js initFooter) from this
-// one endpoint, so the footer needs no page-specific data shape — and it is
-// intentionally cheap so the footer's periodic poll stays trivial.
+// renders: this host's id, the daemon version, and the server's own LAN IP
+// addresses. It is page-agnostic on purpose — any UI page drives the same
+// footer module (assets/common.js initFooter) from this one endpoint, so the
+// footer needs no page-specific data shape — and it is intentionally cheap so
+// the footer's periodic poll stays trivial.
 func (s *Server) handleHostInfo(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok":          true,

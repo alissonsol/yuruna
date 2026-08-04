@@ -7,3 +7,17 @@
 # (the pool services host) via that VM's cloud-init user-data.
 active:
   - default
+service:
+  displayName: Pool-aggregator service
+  # No vmName: this is the one extension service a host does not create a VM
+  # for. It runs inside the caching-proxy-service VM, which is also why knowing
+  # the proxy address is enough to locate every other service the pool offers.
+  hostedIn: caching-proxy-service
+  healthPort: 9400
+  healthPath: /healthz
+  beaconInterval: 15m
+  # /ingest and /api/v1/forget-host take the shared lab-auth-token as a bearer.
+  # /announce is deliberately open -- requiring the token would kill the beacon
+  # exactly where it is needed -- and is contained by self-identity binding, a
+  # health probe, and being telemetry-only.
+  writeGate: lab-token

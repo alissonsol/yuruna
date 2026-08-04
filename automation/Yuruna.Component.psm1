@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.03
+.VERSION 2026.08.04
 .GUID 42a9c1d2-e3f4-4567-8901-2a3b4c5d6e7f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -81,8 +81,7 @@ function Publish-ComponentList {
         $resourcesOutputYaml = ConvertFrom-File $resourcesOutputFile
     }
 
-    # Resources output and component-globals pushed to env verbatim
-    # (no ExpandString -- layering is done at the YAML level).
+    # Verbatim to env (-NoExpand): layering is done at the YAML level.
     Set-ExpandedResourcesOutput -ResourcesOutputYaml $resourcesOutputYaml -NoExpand -EmitDebug
     Set-ExpandedVariableHashtable -Variables $componentsYaml.globalVariables -NoExpand -DebugLabel 'globalVariables'
 

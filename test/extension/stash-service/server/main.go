@@ -22,13 +22,13 @@ import (
 	"syscall"
 	"time"
 
-	"stash-service/internal/beacon"
 	"stash-service/internal/config"
 	"stash-service/internal/httpsrv"
 	"stash-service/internal/id"
 	"stash-service/internal/meta"
 	"stash-service/internal/sshsrv"
 	"stash-service/internal/store"
+	"stash-service/internal/yex/beacon"
 )
 
 // version is the framework version shown in the UI header. The bring-up
@@ -118,11 +118,10 @@ func main() {
 	// a restart after the outage ended) (§8.4).
 	go srv.RunFlushWorker(ctx)
 
-	// Two listeners in one process: the SCP/SFTP
-	// sink on :22 and the UI/API HTTP server (default :80). Both stop on ctx
-	// cancel and return nil; a real bind/serve failure on either is fatal.
-	// Each goroutine sends exactly one result to errCh when its
-	// ListenAndServe returns; listeners counts how many were started so the
+	// Two listeners in one process: the SCP/SFTP sink on :22 and the UI/API
+	// HTTP server (default :80). Both stop on ctx cancel and return nil; a
+	// real bind/serve failure on either is fatal. Each goroutine sends exactly
+	// one result to errCh, and listeners counts how many were started so the
 	// shutdown drain below reads every pending send.
 	listeners := 1
 	errCh := make(chan error, 2)

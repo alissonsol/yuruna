@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.03
+.VERSION 2026.08.04
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456720
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -69,15 +69,15 @@
                     apt mirror retry storms, IPv6 RA-driven netplan
                     re-apply) that runtime sections cannot see.
      11c. GUEST PROVISIONING (Linux only) -- every file under
-                    /var/log/yuruna/ (one per pwsh_retry-wrapped action;
-                    today: pwsh-yaml-install.log) carrying per-attempt
+                    /var/log/yuruna/ (one per pwsh_retry-wrapped action,
+                    e.g. pwsh-yaml-install.log) carrying per-attempt
                     pre-flight probes and Verbose streams, plus a slice
                     of systemd-resolved's journal and a current snapshot
                     of PSRepository / PackageProvider / module state.
                     Diagnoses transient PSGallery / NuGet / DNS flakes
-                    that one-shot Install-Module would render as the
-                    same low-information "No match was found" string
-                    regardless of which leg actually failed.
+                    that a one-shot Install-Module reduces to the same
+                    low-information "No match was found" string whichever
+                    leg actually failed.
      12. YURUNA PROJECT -- ../project tree scan for resources.output.yml
                     files (path + content + empty-block analysis) and a
                     grep across every .yuruna/ working folder for any
@@ -109,10 +109,11 @@
     Skip the Docker section even if docker is available.
 
 .PARAMETER SkipProjectGaps
-    Skip the YURUNA PROJECT and GAP HEURISTICS sections. These recursively
-    walk the entire ../project tree (the slowest part of a run); a
-    host/guest-only collection that does not need deploy-gap analysis can
-    bypass them. Omit it to get the full collection.
+    Skip the YURUNA PROJECT and GAP HEURISTICS sections. These recursively walk
+    the entire ../project tree (resources.output.yml, .yuruna/ working folders,
+    tofu state) and are the slowest part of a run; a host/guest-only collection
+    that does not need deploy-gap analysis can bypass them. Omit it to get the
+    full collection.
 
 .PARAMETER logLevel
     One of Error|Warning|Information|Verbose|Debug. Each level shows
@@ -133,11 +134,6 @@ param(
     [string]$OutFile = $null,
     [switch]$SkipDocker,
     [switch]$SkipKube,
-    # When set, skips the YURUNA PROJECT and GAP HEURISTICS sections. Those
-    # walk the entire project tree recursively (resources.output.yml, .yuruna/
-    # working folders, tofu state) and are the slowest part of a run; a
-    # host/guest-only collection that does not care about deploy-gap analysis
-    # can bypass them. Default (unset) reproduces the full collection.
     [switch]$SkipProjectGaps,
     [ValidateSet('Error','Warning','Information','Verbose','Debug', IgnoreCase = $true)]
     [string]$logLevel = 'Information'
@@ -149,10 +145,10 @@ Import-Module (Join-Path $PSScriptRoot 'Yuruna.LogLevel.psm1') -Global -Force
 Set-YurunaLogLevel -LogLevel $logLevel
 
 $script:Problems = [System.Collections.Generic.List[string]]::new()
-# Parallel structured store: one @{ class; message } per Add-Problem call, in
-# the same order as $script:Problems. The prose SUMMARY reads $script:Problems
-# unchanged; the machine-readable sidecar (Write-ProblemJson) reads these so a
-# consumer can select problems by class without regex-parsing prose lines.
+# Parallel structured store: one @{ class; message } per Add-Problem call, in the
+# same order as $script:Problems. The prose SUMMARY reads $script:Problems; the
+# machine-readable sidecar (Write-ProblemJson) reads these so a consumer can select
+# problems by class without regex-parsing prose lines.
 $script:ProblemRecords = [System.Collections.Generic.List[hashtable]]::new()
 
 function Write-Section {
@@ -174,9 +170,8 @@ function Add-Problem {
         # explicit class where the message prefix would be ambiguous (the four
         # GAP heuristics all share the "GAP:" prose prefix but are distinct
         # failure modes). When omitted, the class is derived from the leading
-        # uppercase token of the message (e.g. "DISK: ..." -> "DISK") so the
-        # existing call sites are classified without touching each one; a
-        # message with no such prefix falls back to "OTHER".
+        # uppercase token of the message (e.g. "DISK: ..." -> "DISK"); a message
+        # with no such prefix falls back to "OTHER".
         [string]$Class = $null
     )
     $script:Problems.Add($Message) | Out-Null
@@ -219,8 +214,8 @@ function Get-ProblemJson {
 # Emit the JSON sidecar. Always writes the sentinel-bracketed block to stdout
 # (the path an SSH/console capture takes into the .txt artifact). When -OutFile
 # was supplied, ALSO drop a sibling <OutFile>.json so a local run has a file a
-# consumer can read without slicing sentinels. Additive: nothing here touches
-# the prose SUMMARY or the exit code.
+# consumer can read without slicing sentinels. Never touches the prose SUMMARY
+# or the exit code.
 function Write-ProblemJson {
     param([string]$SidecarBasePath)
     $json = Get-ProblemJson
@@ -265,13 +260,12 @@ function Invoke-WithDeadline {
         [Parameter(Mandatory)][scriptblock]$ScriptBlock,
         [int]$TimeoutSeconds = 5,
         [object[]]$ArgumentList = @(),
-        # Pure-PowerShell work (e.g. the recursive file-tree walks) can run in a
-        # far cheaper in-process thread job instead of spawning a brand-new pwsh
-        # process per call. Native-tool probes must NOT set this: an
-        # out-of-process Start-Job is force-killable when a wedged daemon call
-        # hangs, whereas a native call blocked inside an in-process runspace may
-        # not abort on Stop-Job. Falls back to Start-Job when Start-ThreadJob
-        # (the ThreadJob module) is unavailable.
+        # Pure-PowerShell work (e.g. the recursive file-tree walks) can run in a far
+        # cheaper in-process thread job instead of a new pwsh process per call.
+        # Native-tool probes must NOT set this: an out-of-process Start-Job is
+        # force-killable when a wedged daemon call hangs, whereas a native call
+        # blocked inside an in-process runspace may not abort on Stop-Job. Falls
+        # back to Start-Job when Start-ThreadJob (the ThreadJob module) is absent.
         [switch]$InProcess
     )
     $useThread = $InProcess -and [bool](Get-Command Start-ThreadJob -ErrorAction SilentlyContinue)
@@ -301,20 +295,20 @@ function Invoke-WithDeadline {
     return @{ TimedOut = $false; Output = $out }
 }
 
-# Recursive project-tree walks can wedge for minutes on a huge or
-# network-mounted checkout. Run each behind Invoke-WithDeadline so a slow
-# walk degrades to a partial/empty result plus a marker line instead of
-# stalling the whole diagnostic. These are pure-PowerShell (Get-ChildItem)
-# walks, so they run -InProcess (Start-ThreadJob) to avoid a full pwsh
-# process spawn per call. Both job kinds return objects exposing the FileInfo
-# properties the callers read (FullName, Length, Extension, Name,
-# LastWriteTime) -- Start-Job via serialized note properties, Start-ThreadJob
-# via the live objects -- so downstream code is unchanged on the success path.
+# Recursive project-tree walks can wedge for minutes on a huge or network-mounted
+# checkout. Run each behind Invoke-WithDeadline so a slow walk degrades to a
+# partial/empty result plus a marker line instead of stalling the whole diagnostic.
+# These are pure-PowerShell (Get-ChildItem) walks, so they run -InProcess
+# (Start-ThreadJob) to avoid a full pwsh process spawn per call. Both job kinds
+# return objects exposing the FileInfo properties the callers read (FullName,
+# Length, Extension, Name, LastWriteTime) -- Start-Job via serialized note
+# properties, Start-ThreadJob via the live objects -- so the success path sees the
+# same shape either way.
 #
-# The function has a singular collection contract, so the timeout marker is
-# emitted by the caller (statement level) rather than from here -- a
-# Write-Output of the marker would be captured into the caller's @(...)
-# array instead of reaching stdout/transcript.
+# The function has a singular collection contract, so the timeout marker is emitted
+# by the caller (statement level) rather than from here: a Write-Output of the
+# marker would be captured into the caller's @(...) array instead of reaching
+# stdout/transcript.
 function Get-FileTreeWithDeadline {
     param(
         [Parameter(Mandatory)][scriptblock]$ScriptBlock,
@@ -665,7 +659,6 @@ try {
     Write-Output ("Time (UTC)   : {0}" -f (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'"))
     Write-Output ("Time (local) : {0}" -f (Get-Date).ToString('yyyy-MM-ddTHH:mm:ssK'))
 
-    # --- REGION: Software
     # --- REGION: https://yuruna.link/system-diagnostic#1-host--software-probe-resilience
     Write-Sub "Software"
     function Get-VersionLine {
@@ -1091,7 +1084,7 @@ try {
         }
     } else {
         $connectivityEndpoints = @(
-            # Yuruna sites
+            # Sites Yuruna depends on
             '8.8.8.8',
             'ports.ubuntu.com',
             'archive.ubuntu.com',
@@ -1784,7 +1777,7 @@ try {
                 try {
                     # Win32_Process has Handle (=pid), ParentProcessId, CommandLine,
                     # CreationDate. No wall-elapsed column -- compute it from
-                    # CreationDate. No %CPU -- approximate via UserModeTime+KernelModeTime.
+                    # CreationDate. No %CPU column at all, so that cell stays empty.
                     $allProcs = Get-CimInstance Win32_Process -ErrorAction Stop
                     foreach ($p in $allProcs) {
                         $etimeSeconds = $null
@@ -1916,7 +1909,7 @@ try {
                     $evts | Select-Object TimeCreated, ProviderName, Id, LevelDisplayName, Message |
                         Format-Table -AutoSize -Wrap | Out-String -Width 240 | ForEach-Object { Write-Output $_.TrimEnd() }
                 } else {
-                    Write-Output "(no System log errors/warnings in the last 1h)"
+                    Write-Output "(no System log critical/error entries in the last 1h)"
                 }
             } catch {
                 Write-Output "(Get-WinEvent System failed: $($_.Exception.Message))"
@@ -2573,7 +2566,7 @@ try {
                     if ($trimmedStart.StartsWith('---')) { continue }
                     if ($raw -match '^([A-Za-z_][A-Za-z0-9_.-]*):\s*(.*?)\s*$') {
                         if ($null -ne $pendingKey -and -not $pendingHasContent) {
-                            $issues.Add(("top-level resource block '{0}' (line {1}) is present but empty -- a downstream chart that does `index .Values `"{0}.<output>`"` will render empty string and silently produce a malformed value (e.g. an InvalidImageName pod). Run 'yuruna resources <project> <env>' to (re)capture this resource's tofu output." -f $pendingKey, ($pendingKeyLine + 1)))
+                            $issues.Add(("top-level resource block '{0}' (line {1}) is present but empty -- a downstream chart that does `index .Values `"{0}.<output>`"` will render an empty string and silently produce a malformed value (e.g. an InvalidImageName pod). Run 'yuruna resources <project> <env>' to (re)capture this resource's tofu output." -f $pendingKey, ($pendingKeyLine + 1)))
                         }
                         $pendingKey        = $Matches[1]
                         $pendingKeyLine    = $i
@@ -2885,9 +2878,9 @@ try {
         }
     }
 
-    # Machine-readable mirror of the prose list above. Emitted after (never
-    # instead of) the human summary so the existing text output is unchanged;
-    # a consumer parses the sentinel-bracketed line to select problems by class.
+    # Machine-readable mirror of the prose list above. Emitted after (never instead
+    # of) the human summary; a consumer parses the sentinel-bracketed line to select
+    # problems by class.
     Write-ProblemJson -SidecarBasePath $OutFile
 
     Write-Output ""

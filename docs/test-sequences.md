@@ -11,8 +11,8 @@ back the ones with non-trivial cross-host divergence.
 - Schema for the YAML shape is
   [`test/schemas/actions.schema.yml`](../test/schemas/actions.schema.yml).
 - Short one-paragraph catalog (consumed by tooling) is
-  [`actions.yml`](../test/sequences/actions.yml). This file is the rendered, prose-style
-  complement.
+  [`actions.yml`](../test/sequences/actions.yml); this file is its
+  prose-style complement.
 
 ## How a sequence step runs
 
@@ -38,9 +38,9 @@ failure (with retry-wrapping as documented under `retry`).
   at sequence start. Each entry can reference any variable declared
   above it plus the built-ins; the resolved value is stored and reused
   on every later `${name}` reference. This is the "stable value across
-  multiple steps" path — for example, when a "New password:" must be
-  typed and then re-typed at "Retype:", assign the `${ext:...}` call
-  to a sequence variable so both prompts see the same string.
+  multiple steps" path — when a "New password:" must be typed and then
+  re-typed at "Retype:", assign the `${ext:...}` call to a sequence
+  variable so both prompts see the same string.
 - **Inline `${ext:area.Method(args)}` references in a step's args** are
   **invoked fresh on every reference** (no per-step memoization).
   Inner `${var}` placeholders inside the args are resolved first.
@@ -75,14 +75,14 @@ sequence sets the value for its whole chain:
 | `username` | `-Username` | cloud-init account | per-guest (`yuuser24`) |
 | `hostname` | `-Hostname` | cloud-init `local-hostname` | the VM name |
 | `memoryStartupBytes` | `-MemoryStartupBytes` | VM RAM | 12 GB (Hyper-V / UTM), 8 GB (KVM) |
-| `cores` | `-Cores` | vCPU count (overrules the host/2 default) | `max(4, host/2)` |
+| `cores` | `-Cores` | vCPU count (overrules the host/2 default) | `max(4, host/2)` (Hyper-V / UTM), `min(host-1, max(2, host/2))` (KVM) |
 
 `memoryStartupBytes` accepts a raw byte count or a binary `KB`/`MB`/`GB`/`TB`
 suffix (`34359738368`, `32768MB`, and `32GB` are equivalent) — normalized by
 `ConvertTo-MemoryStartupBytes` in `automation/Yuruna.Common.psm1`. `cores` is a
 positive integer, clamped to the host's physical core count. Both are honored
-today by the `guest.ubuntu.server.24` scripts on all three hosts; other guests
-adopt them by adding the parameter (the plumbing already forwards it). Example:
+by the `guest.ubuntu.server.24` scripts on all three hosts; other guests adopt
+them by adding the parameter (the plumbing already forwards it). Example:
 
 ```yaml
 variables:
@@ -157,7 +157,7 @@ A **snippet** is a named, reusable list of steps spliced into a sequence
 wherever a `snippet:` step appears — so a common preamble lives in one
 place instead of being copied across every sequence. The classic case is
 the cold-agetty login prime (see [`firstLoginPrime`](#firstloginprime)
-below), shared by all `workload.guest.*` sequences.
+below), shared by the Linux `workload.guest.*` gui sequences.
 
 Reference one with a step whose only key is `snippet:` (it has no
 `action:`). It works at the top level **and inside `retry.steps`**:
@@ -236,13 +236,13 @@ prompt) and pausing lets the prompt settle before the
 
 Cooperative breakpoint, and the framework's canonical
 **resume-from-step-N** primitive. Authors place a `break` at the
-boundary they want to be able to resume from; the runner pauses there
-and waits for an operator decision. The same code path covers
-"investigate a guest while it's still alive" and "skip the long
-bring-up cycle next time and re-run only the last few steps".
+boundary they want to resume from; the runner pauses there and waits
+for an operator decision. The same code path covers "investigate a
+guest while it's still alive" and "skip the long bring-up cycle next
+time and re-run only the last few steps".
 
 Writes `.yuruna-break-<NNN>.lock` under the per-guest
-`cycleGuestDataFolder` and busy-waits for one of two resume signals:
+`cycleGuestDataFolder` and busy-waits for one of two resume signals.
 
 By default a `break` is a plain breakpoint: on either resume signal the
 sequence picks up at the next step **in place** — no snapshot restore,
@@ -267,12 +267,11 @@ a real snapshot name such as the workload's `requiresSnapshot` /
 
 #### restoreOnContinue (opt-in rewind)
 
-Set `restoreOnContinue: true` on a `break` to make UI Continue rewind
-the disk to `break.id` and restart the VM before resuming — the
-**resume-from-known-good-state** use case where you're iterating on the
-steps after a checkpoint (pair it with a prior
-[`saveDiskSnapshot`](#savedisksnapshot) `-Id <same>`). Without it, the
-`id` is purely a label and Continue resumes in place. Marker-delete
+Set `restoreOnContinue: true` on a `break` to rewind the disk to
+`break.id` and restart the VM on UI Continue — the
+**resume-from-known-good-state** case, where you iterate on the steps
+after a checkpoint (pair it with a prior
+[`saveDiskSnapshot`](#savedisksnapshot) `-Id <same>`). Marker-delete
 always resumes in place regardless of this flag.
 
 The Continue button is driven by `/runtime/break-active.json`, a sidecar
@@ -302,11 +301,10 @@ curl -fsS -X POST http://localhost:8080/control/break-continue
 rm "$(cat <cycleGuestDataFolder>/.yuruna-break-NNN.lock | grep marker | ...)"
 ```
 
-The HTTP and direct-write paths behave exactly like the UI Continue
-button — indistinguishable to the sequence — so they honor
-`restoreOnContinue` the same way: in place by default, snapshot-restore +
-`Start-VM` only when the step opted in. The marker-delete path always
-resumes in place.
+The HTTP and direct-write paths are indistinguishable from the UI
+Continue button to the sequence, so they honor `restoreOnContinue` the
+same way: in place by default, snapshot-restore + `Start-VM` only when
+the step opted in. The marker-delete path always resumes in place.
 
 Login after a snapshot-restore is **the sequence author's
 responsibility** — the guest boots fresh from the snapshot disk and
@@ -317,13 +315,13 @@ similar steps after the break.
 | Parameter | Type | Notes |
 |---|---|---|
 | `reason` | string | Optional. Written into the marker file so the operator knows why we stopped. |
-| `id` | string | Optional. Snapshot id to restore on Continue. Typically the id of a `saveDiskSnapshot` step earlier in the same sequence. Omit for a "just pause" break with no snapshot restore on Continue. |
+| `id` | string | Optional. Label shown in the marker file and the status UI. Restores only when `restoreOnContinue` is set; then it must name a snapshot, typically from a `saveDiskSnapshot` step earlier in the same sequence. |
+| `restoreOnContinue` | boolean | Optional, default `false`. When true AND `id` names an existing snapshot, UI Continue rewinds the disk and restarts the VM before resuming. |
 
 > **On "resume from step N" generally.** Yuruna does not expose a
-> `--resume-from N` flag on the runner. The reason is that mid-sequence
-> resumption is only safe when the author has guaranteed the
-> precondition state for step N — Yuruna can't infer that automatically
-> from the YAML. A `break` (optionally paired with a
+> `--resume-from N` flag on the runner: mid-sequence resumption is only
+> safe when the author has guaranteed the precondition state for step N,
+> and Yuruna can't infer that from the YAML. A `break` (optionally paired with a
 > [`saveDiskSnapshot`](#savedisksnapshot)) is the author's explicit
 > assertion that "resumption here is well-defined", which is also what
 > snapshot-restore + Start-VM materializes at runtime. For ad-hoc dev
@@ -422,10 +420,10 @@ Declarative auto-recovery primitive. Place AFTER a step whose failure
 should trigger a restore-from-snapshot. The Handler is a no-op when
 the prior step succeeded; on prior-step failure, it validates the
 snapshot exists (and matches the
-[snapshot manifest](#restore-vmdisksnapshot), if one was written), runs
-[`Restore-VMDiskSnapshot`](#restore-vmdisksnapshot), then `Start-VM`,
-and clears the engine's `LastFailed*` markers so the sequence
-continues with a clean guest.
+[snapshot manifest](definition.md#snapshot-manifest-sidecars), if one
+was written), runs [`Restore-VMDiskSnapshot`](#restore-vmdisksnapshot),
+then `Start-VM`, and clears the engine's `LastFailed*` markers so the
+sequence continues with a clean guest.
 
 | Parameter | Type | Notes |
 |---|---|---|
@@ -597,13 +595,13 @@ exports a fixed surface; the engine resolves the active driver via
 See [Test harness — architecture](test-harness.md#yurunahost-contract) for the full list.
 
 Below are the contract functions whose **per-host behavior diverges in
-operationally significant ways** — i.e. where a sequence author needs
-to know what actually happens on each host.
+operationally significant ways** — where a sequence author needs to
+know what actually happens on each host.
 
 ### `Save-VMDiskSnapshot` + `Rename-VM`
 
-Backs the [`saveDiskSnapshot`](#savedisksnapshot) action. Two distinct
-operations executed sequentially: capture a disk-only point, then move
+Backs the [`saveDiskSnapshot`](#savedisksnapshot) action. Two
+operations run in sequence: capture a disk-only point, then move
 the VM out of the `test-*` namespace so it survives the next cycle's
 cleanup sweep. The rename is **part of the contract** — calling the
 contract function commits to both legs and returns `$false` if either
@@ -630,7 +628,7 @@ fails.
 - **Snapshot:** stop VM, drop any prior snapshot with the same name,
   `virsh snapshot-create-as --atomic --domain <vm> --name <id>` on the
   offline domain. `--atomic` rolls back partial snapshots on failure.
-- **Rename:** `virsh domrename <old> <new>` (libvirt ≥ 1.2.19; safely
+- **Rename:** `virsh domrename <old> <new>` (libvirt ≥ 1.2.19;
   available on the Ubuntu baseline). Followed by:
   - `Rename-Item ~/yuruna/vms/<old>/` → `<new>/`
   - Per-file rename for files whose basename starts with `<old>`
@@ -642,16 +640,14 @@ fails.
 
   The XML rewrite uses literal string `Replace` on `$oldDir` and
   `"$VMName."` (with the trailing dot to bound the match). Safe for the
-  cloud-init naming convention used by the test harness; would
-  over-replace if a guest's name happened to be a substring of an
-  unrelated XML token.
+  cloud-init naming convention the test harness uses; would over-replace
+  if a guest's name were a substring of an unrelated XML token.
 
 #### UTM (macOS) — full support via plist surgery
 
 UTM has no first-class rename API, and macOS 26 builds mark the
-AppleScript `name` property of `virtual machine` as read-only.
-To bypass this limitation, Rename-VM performs direct on-disk surgery while
-UTM is offline:
+AppleScript `name` property of `virtual machine` as read-only, so
+Rename-VM performs direct on-disk surgery while UTM is offline:
 
 - **Snapshot:** stop VM (`utmctl stop`), 2-second settle pause (QEMU
   helper can keep the qcow2 open briefly), then for each `*.qcow2`
@@ -714,9 +710,8 @@ per host (and per the sequence's own `keystrokeMechanism`):
 | KVM | `virsh send-key` / `virsh screenshot`; mouse via VNC (libvirt). | Same. |
 | UTM | AXUI via accessibility events on the UTM app window; VNC fallback for some keys. | Same. |
 
-Each sequence declares its own `keystrokeMechanism` (gui|ssh); the ssh variant
-of a sequence is a distinct `<name>.ssh.yml` file. The per-host driver then
-routes the gui vs ssh backend.
+The ssh variant of a sequence is a distinct `<name>.ssh.yml` file; the
+per-host driver routes the gui vs ssh backend.
 
 ### Other contract surface
 
@@ -748,6 +743,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.03
+Last review: 2026.08.04
 
 Back to [Yuruna](../README.md)

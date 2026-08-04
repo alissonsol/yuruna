@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.03
+.VERSION 2026.08.04
 .GUID 42a2b3c4-d5e6-4f78-9012-3a4b5c6d7e91
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -45,6 +45,10 @@ Import-Module (Join-Path $script:TestModulesDir 'Test.CachingProxyService.psm1')
 # The X509 chain-validation callback lives here verbatim; per-driver cache-host
 # discovery is injected via the -ResolveCacheHostIp scriptblock (see wrapper below).
 Import-Module (Join-Path $script:RepoRoot 'host/modules/Yuruna.HostDownload.psm1') -Force -DisableNameChecking -Global
+# Download-agent client. The Get-Image hooks feature-detect its two functions by
+# name, so this import is what decides whether the agent path exists at all on
+# this host; without it the agent is silently never consulted.
+Import-Module (Join-Path $script:RepoRoot 'host/modules/Yuruna.DownloadAgent.psm1') -Force -DisableNameChecking -Global
 # Shared per-guest provisioning helpers (the New-VM.ps1 child-runner +
 # the Get-Image log-line writer) common to all three drivers.
 Import-Module (Join-Path $script:RepoRoot 'host/modules/Yuruna.HostProvision.psm1') -Force -DisableNameChecking -Global
@@ -835,6 +839,136 @@ function Remove-UtmTestVM {
 
 <#
 .SYNOPSIS
+    Classify what `utmctl start` printed: an Apple Event transport failure, a
+    QEMU failure, or nothing wrong. Returns 'apple-event', 'qemu' or 'none'.
+
+.DESCRIPTION
+    utmctl exits 0 for both failure classes, and the two need opposite
+    responses. An Apple Event error (an OSStatus code, "Error from event")
+    means UTM.app did not ACT on the request: the VM was never launched, it is
+    exactly as it was, and the same call issued moments later routinely
+    succeeds. A QEMU error means the VM DID launch and its process then died --
+    a port it cannot bind, a missing disk -- which no amount of repeating will
+    change.
+
+    Reporting the first as the second sends the reader to the VM layer for a
+    fault that never reached it, and tells them to rebuild a VM that is fine.
+#>
+function Get-UtmStartFailureKind {
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([AllowEmptyString()][string]$Text)
+    if ([string]::IsNullOrWhiteSpace($Text)) { return 'none' }
+    # QEMU first: a message naming QEMU is about the VM process even if an
+    # Apple Event phrase appears alongside it.
+    if ($Text -match 'QEMU error|QEMU exited from an error') { return 'qemu' }
+    if ($Text -match 'OSStatus error|Error from event|couldn.t be completed') { return 'apple-event' }
+    return 'none'
+}
+
+<#
+.SYNOPSIS
+    Start a UTM VM and confirm it by POLLING STATE, retrying a few times.
+    Returns @{ success; errorMessage; attempts; kind }.
+
+.DESCRIPTION
+    `utmctl start` is not a trustworthy report of its own outcome. It exits 0
+    while UTM is still ingesting a bundle and drops the request; it exits 0 and
+    prints an Apple Event error when UTM never acted on it; and it exits 0 for a
+    VM whose QEMU then dies. The VM's state afterwards is the only answer that
+    means anything, so every attempt here is judged by polling Get-VMState
+    rather than by the verb's exit code or its output.
+
+    Retrying is the point of this function. An Apple Event failure leaves the
+    VM untouched, and the same start issued seconds later normally works -- so a
+    single attempt turns a momentary refusal into an outage that lasts until an
+    operator types the command by hand, taking every guest that consumes the
+    service down with it for as long as that takes.
+
+    A QEMU failure is deliberately NOT retried. The VM launched and its process
+    died; repeating that only multiplies the delay before the caller finds out
+    something is really wrong.
+
+    The state pre-check at the top of each attempt keeps a slow starter from
+    being handed a second start while the first is still coming up.
+
+    The dialog watchdog is the caller's business, not this function's: some
+    callers hold one open across a longer sequence, and Start-UtmDialogWatchdog
+    stops any predecessor, so starting one here would kill theirs.
+
+.PARAMETER MaxAttempts
+    Start attempts before giving up. Attempts after the first are spaced by a
+    pause that grows with the attempt number.
+
+.PARAMETER SettleSeconds
+    How long one attempt waits for the VM to reach 'running' before that
+    attempt is judged to have failed.
+#>
+function Invoke-UtmVMStartWithRetry {
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([hashtable])]
+    param(
+        [Parameter(Mandatory)][string]$VMName,
+        [int]$MaxAttempts    = 3,
+        [int]$SettleSeconds  = 20,
+        [int]$BackoffSeconds = 5
+    )
+    if (-not $PSCmdlet.ShouldProcess($VMName, 'Start UTM VM (with retry)')) {
+        return @{ success = $false; errorMessage = 'WhatIf'; attempts = 0; kind = 'none' }
+    }
+    $attemptCap = [Math]::Max(1, $MaxAttempts)
+    $lastError  = ''
+    $lastKind   = 'none'
+    for ($attempt = 1; $attempt -le $attemptCap; $attempt++) {
+        $state = 'unknown'
+        try { $state = [string](Get-VMState -VMName $VMName) } catch { $state = 'unknown' }
+        if ($state -eq 'running') {
+            return @{ success = $true; errorMessage = $null; attempts = $attempt; kind = 'none' }
+        }
+        if ($attempt -gt 1) {
+            $pause = $BackoffSeconds * ($attempt - 1)
+            Write-Information -MessageData "  '$VMName' is still $state -- start attempt $attempt of $attemptCap in ${pause}s..." -InformationAction Continue
+            Start-Sleep -Seconds $pause
+        }
+
+        $output = & utmctl start "$VMName" 2>&1
+        $exit   = $LASTEXITCODE
+        $text   = (@($output) | ForEach-Object { "$_".Trim() } | Where-Object { $_ }) -join '; '
+        if ($text) { Write-Information -MessageData "  utmctl start: $text" -InformationAction Continue }
+        $lastKind = Get-UtmStartFailureKind -Text $text
+        $lastError = if ($exit -ne 0) { "utmctl start exited $exit$(if ($text) { ": $text" })" }
+                     elseif ($lastKind -ne 'none') { $text }
+                     else { '' }
+
+        # Polled even when the verb reported an error: a start that printed an
+        # Apple Event timeout can still have been carried out, and the state is
+        # what settles it.
+        $deadline = (Get-Date).AddSeconds([Math]::Max(1, $SettleSeconds))
+        while ((Get-Date) -lt $deadline) {
+            Start-Sleep -Seconds 1
+            $now = 'unknown'
+            try { $now = [string](Get-VMState -VMName $VMName) } catch { $now = 'unknown' }
+            if ($now -eq 'running') {
+                return @{ success = $true; errorMessage = $null; attempts = $attempt; kind = 'none' }
+            }
+        }
+        if ($lastKind -eq 'qemu') {
+            return @{ success = $false; attempts = $attempt; kind = 'qemu'
+                      errorMessage = "QEMU did not survive for '$VMName': $lastError" }
+        }
+    }
+    $detail = if ($lastKind -eq 'apple-event') {
+        "UTM would not act on the start request for '$VMName' across $attemptCap attempt(s); the last reported '$lastError'. utmctl reached UTM.app -- state queries were answered throughout -- but the start itself was never carried out, so the VM was never launched and its disk is untouched. Retry it (utmctl start '$VMName'); rebuilding fixes nothing here."
+    } elseif ($lastError) {
+        "'$VMName' did not reach 'running' across $attemptCap attempt(s): $lastError"
+    } else {
+        "'$VMName' did not reach 'running' across $attemptCap attempt(s); utmctl reported no error, so UTM accepted each request and dropped it."
+    }
+    return @{ success = $false; errorMessage = $detail; attempts = $attemptCap; kind = $lastKind }
+}
+
+<#
+.SYNOPSIS
     Cold-start a UTM VM (clears stale vmstate and spawns dialog watchdog).
 #>
 function Start-UtmVM {
@@ -899,30 +1033,17 @@ function Start-UtmVM {
             Start-UtmDialogWatchdog
             & open "$utmBundle"
             Start-Sleep -Seconds 3
-            $startOutput = & utmctl start "$VMName" 2>&1
-            if ($LASTEXITCODE -ne 0) {
-                return @{ success = $false; errorMessage = "utmctl start failed for '$VMName' (exit code $LASTEXITCODE): $(($startOutput | ForEach-Object { "$_" }) -join '; ')" }
-            }
-            # utmctl can exit 0 while QEMU dies immediately afterwards (a port
-            # it cannot bind, a missing disk). Surface whatever it printed AND
-            # fail on it: reporting success here buys a dead VM a full sequence
-            # of downstream steps before anything notices, and the eventual
-            # symptom (an SSH timeout, a guest script asserting on a peer that
-            # never came up) names neither this VM nor this reason.
-            $startFailure = $null
-            if ($startOutput) {
-                foreach ($line in $startOutput) {
-                    $text = "$line".Trim()
-                    if (-not $text) { continue }
-                    Write-Information -MessageData "  utmctl start: $text" -InformationAction Continue
-                    if (-not $startFailure -and
-                        $text -match 'QEMU error|QEMU exited from an error|Error from event') {
-                        $startFailure = $text
-                    }
-                }
-            }
-            if ($startFailure) {
-                return @{ success = $false; errorMessage = "utmctl start exited 0 but QEMU did not survive for '$VMName': $startFailure" }
+            # Adjudicated by state and retried, because utmctl exits 0 in three
+            # different situations that are not success: a request UTM dropped
+            # while still ingesting the bundle, a request UTM never acted on
+            # (Apple Event error), and a VM whose QEMU died right after launch.
+            # Reporting any of them as started buys a dead VM a full sequence of
+            # downstream steps before anything notices, and the eventual symptom
+            # -- an SSH timeout, a guest asserting on a peer that never came up
+            # -- names neither this VM nor this reason.
+            $start = Invoke-UtmVMStartWithRetry -VMName $VMName -Confirm:$false
+            if (-not $start.success) {
+                return @{ success = $false; errorMessage = $start.errorMessage }
             }
         }
         return @{ success = $true; errorMessage = $null }
@@ -2138,11 +2259,16 @@ function Remove-VM {
     THROWS when utmctl cannot reach UTM.app rather than returning an
     empty list. utmctl exits 0 and prints its error to stderr when Apple
     Events are denied (OSStatus -1743, typical from an SSH session or a
-    process without Automation access) or when UTM.app is wedged under
-    memory pressure (-1712), so an exit-code check alone reads "cannot
-    ask" as "nothing registered". A sweep that accepted that empty list
-    would report a clean host, and the orphan-file pass behind it would
-    delete bundles UTM still has registered.
+    process without Automation access), when a request times out (-1712),
+    and for other Apple Event faults besides -- so an exit-code check alone
+    reads "cannot ask" as "nothing registered". A sweep that accepted that
+    empty list would report a clean host, and the orphan-file pass behind
+    it would delete bundles UTM still has registered.
+
+    Matched on ANY OSStatus code rather than an enumerated few. The set that
+    can appear here is open, the consequence of missing one is deleting a
+    VM's disk, and there is no OSStatus value whose correct reading is
+    "believe the empty list".
 .PARAMETER Prefix
     Zero or more name prefixes. A VM is returned when its name starts
     with any of them. Omit (or pass none) to return every VM.
@@ -2158,7 +2284,7 @@ function Get-VMName {
     }
     $output = & utmctl list 2>&1
     $text = ($output | ForEach-Object { "$_" }) -join "`n"
-    if ($LASTEXITCODE -ne 0 -or $text -match 'OSStatus error -174[23]|utmctl does not work from SSH') {
+    if ($LASTEXITCODE -ne 0 -or $text -match 'OSStatus error|couldn.t be completed|utmctl does not work from SSH') {
         throw "Get-VMName: utmctl could not reach UTM. Run from a Terminal session with Automation access for pwsh, after UTM.app is launched and a user is logged in graphically. Output:`n$text"
     }
     $names = [System.Collections.Generic.List[string]]::new()
@@ -2261,17 +2387,27 @@ function Resume-YurunaServiceVM {
             continue
         }
         if ($state -eq 'running') { continue }
-        & utmctl start $name 2>&1 | Out-Null
-        $resumeDeadline = (Get-Date).AddSeconds($TimeoutSeconds)
-        $resumed = $false
-        while ((Get-Date) -lt $resumeDeadline) {
-            Start-Sleep -Seconds 1
-            if ((Get-VMState -VMName $name) -eq 'running') { $resumed = $true; break }
+        # The watchdog is started HERE rather than left to the caller. The path
+        # that leads to a resume quits UTM, and the Stop-VM on the way in reaps
+        # any watchdog with it -- so this is the one place a service VM is
+        # launched with nothing to dismiss the launch-time custom-QEMU-args
+        # confirmation that both service VMs carry, and a start waiting on a
+        # modal nobody answers looks exactly like a start that was refused.
+        Start-UtmDialogWatchdog
+        try {
+            # The retry budget is spread ACROSS TimeoutSeconds rather than added
+            # on top of it, so a caller's timeout still means what it says while
+            # a momentary refusal now gets the second and third try that a
+            # single-shot start never had.
+            $start = Invoke-UtmVMStartWithRetry -VMName $name -Confirm:$false `
+                -SettleSeconds ([Math]::Max(15, [int]($TimeoutSeconds / 3)))
+        } finally {
+            Stop-UtmDialogWatchdog
         }
-        if ($resumed) {
-            Write-Verbose "Resume-YurunaServiceVM: '$name' is running again."
+        if ($start.success) {
+            Write-Verbose "Resume-YurunaServiceVM: '$name' is running again (attempt $($start.attempts))."
         } else {
-            Write-Warning "Resume-YurunaServiceVM: '$name' did not return to 'started' within $TimeoutSeconds s; every guest that consumes it will fail until it is resumed by hand (utmctl start '$name')."
+            Write-Warning "Resume-YurunaServiceVM: '$name' did not return to 'started'. $($start.errorMessage) Every guest that consumes it will fail until it is running."
             [void]$failed.Add($name)
         }
     }
@@ -2468,7 +2604,18 @@ function Rename-VM {
     # Resume regardless of whether the rename surfaced: the services were
     # taken down by the quit above either way, and leaving them suspended
     # to report a rename failure would trade one broken thing for several.
-    [void](Resume-YurunaServiceVM -VMName $serviceVmToResume -Confirm:$false)
+    #
+    # The failed list is NOT discarded. This function's caller judges the
+    # rename, and a rename can succeed while the services it took down stay
+    # down -- which reads as a passing step that quietly hands every later
+    # step, and the next cycle, a host with no cache and no stash. The rename
+    # verdict is still the return value; this makes the collateral damage say
+    # so at the point it happened, instead of surfacing minutes later as an
+    # unrelated-looking failure somewhere downstream.
+    $resumeFailed = @(Resume-YurunaServiceVM -VMName $serviceVmToResume -Confirm:$false)
+    if ($resumeFailed.Count -gt 0) {
+        Write-Warning "Rename-VM: '$NewName' was renamed, but $($resumeFailed.Count) service VM(s) that this rename stopped did not come back: $($resumeFailed -join ', '). Every later step that consumes them will fail. Start them before continuing: $(($resumeFailed | ForEach-Object { "utmctl start '$_'" }) -join '; ')."
+    }
     if ($surfaced) { return $true }
     Write-Warning "Rename-VM: UTM relaunch did not surface '$NewName' within timeout."
     return $false

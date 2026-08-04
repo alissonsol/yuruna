@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.03
+.VERSION 2026.08.04
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456725
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -459,43 +459,33 @@ function Write-HostRegistrationRecord {
         # dashboard's Extension hosts table WITHOUT mounting ystash-nas (no cross-host
         # config service / NAS-credential dependency). Driven by per-service runtime
         # markers a host writes when it brings a service up -- Start-StashServiceVM.ps1
-        # writes runtime/stash-service.json; Stop-StashServiceVM.ps1 removes it. File I/O
-        # only (no foreign-module calls), matching this function's resolution policy.
+        # writes runtime/stash-service.json; Stop-StashServiceVM.ps1 removes it.
         # extensionTargets carries the per-area deep-link the host advertises for its
-        # service (the stash-service VM's UI base URL the host resolved via Get-VMIp into the
-        # marker's stashBaseUrl), so the aggregator can /go/stash to it without an
-        # address store of its own.
+        # service (the service VM's UI base URL the host resolved via Get-VMIp), so the
+        # aggregator can redirect to it without an address store of its own. On a
+        # Shared-NAT UTM bundle that base URL is the HOST's forwarded address, not the
+        # guest IP, because the guest address is unreachable from the rest of the LAN.
+        #
+        # One loop over the markers rather than one block per service: a hardcoded
+        # copy per area would put an edit to this writer in the path of every new
+        # extension service that wants to be visible to the pool.
         $activeExtensions = @()
         $extensionTargets = [ordered]@{}
         try {
-            $stashMarker = Join-Path $runtimeDir 'stash-service.json'
-            if (Test-Path -LiteralPath $stashMarker) {
-                $sm = Get-Content -Raw -LiteralPath $stashMarker | ConvertFrom-Json -ErrorAction Stop
-                # Marker presence = active; an explicit active:false clears it.
-                if ($null -eq $sm.active -or [bool]$sm.active) {
-                    $activeExtensions += 'stash-service'
-                    if (-not [string]::IsNullOrWhiteSpace([string]$sm.stashBaseUrl)) {
-                        $extensionTargets['stash-service'] = [string]$sm.stashBaseUrl
-                    }
+            if (-not (Get-Command Get-ActiveExtensionService -ErrorAction SilentlyContinue)) {
+                $extensionModule = Join-Path $PSScriptRoot 'Test.ExtensionService.psm1'
+                if (Test-Path -LiteralPath $extensionModule) {
+                    Import-Module $extensionModule -Global -Force -DisableNameChecking -Verbose:$false
                 }
             }
-        } catch { Write-Verbose "activeExtensions (stash-service.json): $($_.Exception.Message)" }
-        # pool-control-service: the Pool control service marker (runtime/pool-control-service.json,
-        # written by Start-PoolControlServiceVM.ps1). Same contract as the stash marker
-        # -- presence = active, and poolControlServiceBaseUrl is the deep-link the aggregator
-        # surfaces from the Extension hosts table.
-        try {
-            $pcMarker = Join-Path $runtimeDir 'pool-control-service.json'
-            if (Test-Path -LiteralPath $pcMarker) {
-                $pc = Get-Content -Raw -LiteralPath $pcMarker | ConvertFrom-Json -ErrorAction Stop
-                if ($null -eq $pc.active -or [bool]$pc.active) {
-                    $activeExtensions += 'pool-control-service'
-                    if (-not [string]::IsNullOrWhiteSpace([string]$pc.poolControlServiceBaseUrl)) {
-                        $extensionTargets['pool-control-service'] = [string]$pc.poolControlServiceBaseUrl
-                    }
-                }
+            if (Get-Command Get-ActiveExtensionService -ErrorAction SilentlyContinue) {
+                $active = Get-ActiveExtensionService -RuntimeDir $runtimeDir
+                $activeExtensions = @($active.Areas)
+                $extensionTargets = $active.Targets
+            } else {
+                Write-Verbose 'activeExtensions: Test.ExtensionService not loadable; this host advertises no extension services this write.'
             }
-        } catch { Write-Verbose "activeExtensions (pool-control-service.json): $($_.Exception.Message)" }
+        } catch { Write-Verbose "activeExtensions: $($_.Exception.Message)" }
         # projectUrl / projectCommit / testSets: what this host's CURRENT project
         # offers, so the pool-control service can build its library of assignable
         # test sets without ever cloning a project itself -- the host already has

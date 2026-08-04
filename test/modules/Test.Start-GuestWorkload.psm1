@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.03
+.VERSION 2026.08.04
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456715
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -79,11 +79,10 @@ function Start-GuestWorkload {
         [string]$ResumeFromSequence = '',
         [int]$ResumeFromStep = 1
     )
-    # ShowOutput is a transitional shim. The flag has never been read inside
-    # this function, but a long-running macOS runner re-imports modules each
-    # cycle without reloading Invoke-TestRunner.ps1 itself, so a runner that
-    # was launched before the call-site removal is still passing the arg.
-    # Accept and ignore until those runners restart.
+    # ShowOutput is a compatibility shim, never read inside this function. A
+    # long-running macOS runner re-imports modules each cycle without reloading
+    # Invoke-TestRunner.ps1 itself, so a runner launched from an older call site
+    # can still be passing the arg. Accept and ignore until those runners restart.
     Write-Debug "Start-GuestWorkload: -ShowOutput=$ShowOutput accepted as a no-op (transitional shim)."
     # The dispatcher loop lives in Invoke-Sequence (Invoke-GuestSequenceList), shared
     # verbatim with Start-GuestOS; only the failure-message phase label differs.

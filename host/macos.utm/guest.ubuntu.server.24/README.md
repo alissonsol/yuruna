@@ -11,7 +11,7 @@ step always succeeds. First boot lands in a text-mode login.
 **Nested-virt requirements (Docker/KVM inside the VM)**: macOS 15+,
 Apple **M3+**, UTM v4.6+. `New-VM.ps1` validates only baseline
 compatibility (macOS 12+, any M-series, UTM 4.0+); the nested-virt
-floor is not checked and must be verified separately before use.
+floor is not checked — verify it separately before use.
 Cross-host concepts: [Hosts — ...](../../README.md).
 
 ## One-time
@@ -31,15 +31,16 @@ pwsh ./New-VM.ps1 -VMName myhost
 
 Double-click `HOSTNAME.utm` in `~/yuruna/guest.nosync/` to import and
 start. Autoinstall is fully unattended. Keep the `guest.caching-proxy-service`
-VM running for dramatically faster rebuilds.
+VM running for much faster rebuilds.
 
 Default user is `yuuser24` (override with `-Username`; the same name is
 declared in
 [test/sequences/start.guest.ubuntu.server.24.yml](../../../test/sequences/start.guest.ubuntu.server.24.yml)).
-Initial password
-comes from the per-cycle authentication vault managed by the authentication extension at `test/extension/authentication/` and is **expired** on first login,
-so the test sequence's Current/New/Retype rotation runs against the
-OS prompt. See [Test Runner — Nerd-Level Details](../../../test/read.more.md) for the
+Initial password comes from the per-cycle vault of the authentication
+extension (`test/extension/authentication/`) and is **expired** on
+first login, so the test sequence's Current/New/Retype rotation runs
+against the OS prompt. See
+[Test Runner — Nerd-Level Details](../../../test/read.more.md) for the
 vault model.
 
 ---
@@ -48,6 +49,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.03
+Last review: 2026.08.04
 
 Back to [Yuruna](../../../README.md)

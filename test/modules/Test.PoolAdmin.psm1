@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.03
+.VERSION 2026.08.04
 .GUID 42c2d3e4-f5a6-4b78-9c01-2d3e4f5a6b7c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -392,10 +392,10 @@ function ConvertTo-YurunaHostId {
 .SYNOPSIS
     Create a bare pool-intent repository, seeded with an empty schema-valid pools.yml.
 .DESCRIPTION
-    Until now the only implementations of this lived in shell, inside the
-    caching-proxy-service and pool-control-service cloud-init, so nothing on the host side could
-    create a store. Three details are load-bearing and are the reason this is a
-    shared function rather than a fresh `git init` at each call site:
+    The only other implementations live in shell, inside the caching-proxy-service
+    and pool-control-service cloud-init, so this is the host side's way to create a
+    store. Three details are load-bearing and are the reason this is a shared
+    function rather than a fresh `git init` at each call site:
 
       * `core.fileMode false` -- a NAS mount maps modes from the mount options, so
         git would otherwise see a permission change on every file it writes back.
@@ -464,11 +464,10 @@ function New-YurunaPoolIntentStore {
 .DESCRIPTION
     Open-YurunaPoolIntent can only clone a store that already exists, so every
     authoring command against a path that was never seeded dies on the same
-    opaque `git clone failed (exit 128)`. The store is not something an operator
-    is expected to create by hand -- it is an implementation detail of the pool
-    -- and the only reason it ever existed before the first command was that a
-    lab bring-up happened to run New-Lab. Any other route to a fresh pool
-    folder (a NAS tier mounted straight into networkStorage, a share rebuilt
+    opaque `git clone failed (exit 128)`. The store is an implementation detail of
+    the pool, not something an operator creates by hand, and the only thing that
+    ever seeded it was a lab bring-up running New-Lab. Any other route to a fresh
+    pool folder (a NAS tier mounted straight into networkStorage, a share rebuilt
     under a new root, a beacon whose pool folder was replaced) reaches an
     authoring command with nothing to open and no hint of what is missing.
 

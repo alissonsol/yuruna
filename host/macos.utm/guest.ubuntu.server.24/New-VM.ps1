@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.03
+.VERSION 2026.08.04
 .GUID 42b5c6d7-e8f9-4a01-b234-5c6d7e8f9a02
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -195,7 +195,7 @@ Write-Verbose "Copied installer ISO as: $VMName.iso"
 
 # Create blank disk for installation (64GB, qcow2 sparse -- grows on
 # demand inside the qcow2 container, so the host doesn't pre-reserve
-# the full nominal size). Uniform cap across hosts.ubuntu.kvm /
+# the full nominal size). Uniform cap across hosts: ubuntu.kvm /
 # windows.hyper-v / macos.utm. Paired with sizing-policy: all in
 # host/vmconfig/ubuntu.server.base.user-data so the root LV consumes the whole PV.
 $DiskImage = "$DataDir/disk.qcow2"
@@ -320,12 +320,11 @@ To intentionally skip the cache:
 }
 
 # --- REGION: Build the autoinstall apt block
-# Always emit `geoip: false` + a pinned
-# `primary:` mirror (deterministic election; `primary:` not `sources_list:`,
-# see feedback_macos_utm_apt_block_resolute_curtin_trap.md).
+# Always emit `geoip: false` + a pinned `primary:` mirror (deterministic
+# election; `primary:` not `sources_list:`, see
+# feedback_macos_utm_apt_block_resolute_curtin_trap.md). The primary URI is
+# the ports mirror because macOS UTM is always aarch64.
 # --- REGION: https://yuruna.link/vmconfig#apt-proxy-block
-#
-# Primary URI is the ports mirror because macOS UTM is always aarch64.
 $AptProxyLine = if ($CachingProxyServiceUrl) { "`n    proxy: $CachingProxyServiceUrl" } else { "" }
 $AptProxyBlock = @"
   apt:
@@ -420,7 +419,6 @@ if (-not (Test-Path $TemplatePath)) {
     exit 1
 }
 
-# Generate UUIDs and MAC address for this VM
 $VmUuid = [guid]::NewGuid().ToString().ToUpper()
 $DiskId = [guid]::NewGuid().ToString().ToUpper()
 $IsoId = [guid]::NewGuid().ToString().ToUpper()

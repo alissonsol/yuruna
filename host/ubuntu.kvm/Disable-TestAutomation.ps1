@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.03
+.VERSION 2026.08.04
 .GUID 424c8e37-1b52-4f6d-8c07-e5d29a3b7104
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -43,7 +43,8 @@
     Needs sudo for ufw, systemctl and gpasswd. The cache is primed once, up
     front, with a reason banner.
 .PARAMETER StopServices
-    Also stop the caching-proxy, stash and pool-control VMs this host runs.
+    Also stop the caching-proxy, stash, pool-control and download-agent VMs
+    this host runs.
 .EXAMPLE
     pwsh host/ubuntu.kvm/Disable-TestAutomation.ps1 -WhatIf
 #>
@@ -218,7 +219,7 @@ if (-not $ufwCmd) {
 
 # --- REGION: services (opt-in)
 if ($StopServices) {
-    foreach ($svc in @('CachingProxyService', 'StashService', 'PoolControlService')) {
+    foreach ($svc in @('CachingProxyService', 'StashService', 'PoolControlService', 'DownloadAgentService')) {
         $script = Join-Path $RepoRoot "test/Stop-${svc}VM.ps1"
         if (-not (Test-Path -LiteralPath $script)) { $skipped.Add("test/Stop-${svc}VM.ps1 not found"); continue }
         if ($PSCmdlet.ShouldProcess("$svc VM", 'Stop')) {
@@ -254,7 +255,7 @@ Write-DisableManualStep -What 'The Yuruna credential vault -- it holds credentia
     'Unregister-SecretVault -Name <name> # then delete its store on disk'
 )
 if (-not $StopServices) {
-    Write-DisableManualStep -What 'The caching-proxy / stash / pool-control VMs (re-run with -StopServices to stop them)'
+    Write-DisableManualStep -What 'The caching-proxy / stash / pool-control / download-agent VMs (re-run with -StopServices to stop them)'
 }
 
 $capturePath = Get-HostAutomationStatePath

@@ -369,7 +369,7 @@ func (s *Server) handleGetMeta(w http.ResponseWriter, r *http.Request) {
 	view.MimeType, view.ContentClass, view.IsText, view.TypeLabel, view.TypeScore = eff.MimeType, eff.ContentClass, eff.IsText, eff.TypeLabel, eff.TypeScore
 	// Remote stash → resolve the owning host's UI deep-link (best-effort).
 	if !view.Local {
-		if base := s.resolveStashBaseURL(res.hostID); base != "" {
+		if base := s.resolveStashBaseURL(r.Context(), res.hostID); base != "" {
 			view.RemoteStashURL = base + view.Permalink
 		}
 	}
@@ -464,9 +464,9 @@ func (s *Server) serveBytes(w http.ResponseWriter, r *http.Request, attachment b
 func (s *Server) handleCreate(w http.ResponseWriter, r *http.Request) {
 	clientIP := clientIP(r)
 	ct := r.Header.Get("Content-Type")
-	// Bound the whole request body before any parse so an unauthenticated
-	// POST can't fill /tmp or the stash (§ security: multipart spill + the
-	// per-file 100 MB cap only bounds individual files, not the request).
+	// Bound the whole request body before any parse so an unauthenticated POST
+	// can't fill /tmp (multipart spill) or the stash: the per-file 100 MB cap
+	// bounds individual files, not the whole request.
 	r.Body = http.MaxBytesReader(w, r.Body, config.MaxRequestBytes)
 
 	// JSON paste body: {text, title, author}.
@@ -617,7 +617,7 @@ func (s *Server) handleHostResolve(w http.ResponseWriter, r *http.Request) {
 		"ok":           true,
 		"hostId":       hostID,
 		"local":        hostID == s.localHostID,
-		"stashBaseUrl": s.resolveStashBaseURL(hostID),
+		"stashBaseUrl": s.resolveStashBaseURL(r.Context(), hostID),
 	})
 }
 

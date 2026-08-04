@@ -6,7 +6,7 @@ the configuration once; switch target clouds by changing a parameter.
 
 See [Yuruna Architecture](architecture.md) for the three-phase model
 (Resources→Components→Workloads), the CLI entry points, and the project
-layout. This doc is the user-facing quick start for Kubernetes itself.
+layout. This doc is the user-facing quick start for Kubernetes.
 
 Prerequisites are in [Preflight dependencies](operator.md#b2-preflight-dependencies).
 
@@ -42,7 +42,7 @@ Set-Component.ps1 website localhost -logLevel Debug
 Set-Workload.ps1  website localhost -logLevel Debug
 ```
 
-The output of `Set-Workload.ps1` prints the URL.
+`Set-Workload.ps1` prints the URL.
 
 ## Cloud Deployment
 
@@ -87,20 +87,19 @@ fully private control plane, set EKS `endpoint_public_access = false` / AKS
 `private_cluster_enabled = true` and run the deploy from a VPN or in-VPC/VNet
 host.
 
-The EKS module no longer ships a `cluster-admin`-bound dashboard `admin-user`
-ServiceAccount — it was an unused manifest, and the deploy identity already
-has cluster admin (`enable_cluster_creator_admin_permissions`). If you want
-the Kubernetes dashboard, grant a scoped role and mint a short-lived token on
-demand (`kubectl create token`) rather than leaving a standing cluster-admin
+The EKS module ships no `cluster-admin`-bound dashboard `admin-user`
+ServiceAccount: the deploy identity already has cluster admin
+(`enable_cluster_creator_admin_permissions`). If you want the Kubernetes
+dashboard, grant a scoped role and mint a short-lived token on demand
+(`kubectl create token`) rather than leaving a standing cluster-admin
 secret in the cluster.
 
 Details, service accounts, and API enablement: [Yuruna Authentication ...](authentication.md).
 
 ## Cleaning up cloud resources
 
-**These instructions will destroy resources.** Make sure you enter the correct
-parameters. Cloud resources incur charges, so always clear what you are not
-using.
+**These instructions will destroy resources.** Enter the correct parameters.
+Cloud resources incur charges, so always clear what you are not using.
 
 ### Cleaning up automatically
 
@@ -117,7 +116,7 @@ Clearing the `website` project in the `azure` cloud (assuming the
 Invoke-Clear.ps1 website azure
 ```
 
-If needed, you can delete resources directly from the folder holding the initial
+You can also delete resources directly from the folder holding the initial
 deployment files (`.yuruna/$config_subfolder/resources/$resourceName` — e.g.
 `.yuruna/azure/resources/website-cluster` for `Invoke-Clear.ps1 website azure`):
 
@@ -125,7 +124,7 @@ deployment files (`.yuruna/$config_subfolder/resources/$resourceName` — e.g.
 tofu destroy -auto-approve -refresh=false
 ```
 
-This needs the created `.terraform` folder to still be available. Without it you
+This needs the created `.terraform` folder to still be available; without it you
 will see `0 destroyed` — follow the manual cleanup below instead.
 
 Don't forget to delete the cluster context from `[user]/.kube/config`. The
@@ -139,13 +138,13 @@ can both do this.
 - **AWS** — from the [AWS Management Console](https://console.aws.amazon.com/),
   delete clusters, registries, VPCs, IPs and other resources.
 - **Azure** — from the [Azure Portal](https://portal.azure.com), delete the
-  Azure Resource Groups that were created; deleting a resource group deletes all
-  associated resources. There will be a global resource for registry and
-  clusters, and each Kubernetes cluster has a corresponding AKS node resource
-  group (see [AKS faq](https://learn.microsoft.com/en-us/azure/aks/faq)) named
-  with the suffix `_nodes`.
+  Azure Resource Groups created; deleting a resource group deletes all
+  associated resources. There is a global resource for registry and clusters,
+  and each Kubernetes cluster has a corresponding AKS node resource group
+  (see [AKS faq](https://learn.microsoft.com/en-us/azure/aks/faq)) named with
+  the suffix `_nodes`.
 - **GCP** — from the [GCP Console](https://console.cloud.google.com/), delete any
-  resources that were previously created.
+  resources previously created.
 
 ## Guest-side prerequisites
 
@@ -179,8 +178,8 @@ kubectl config current-context
 
 ### Why the website readiness check waits on Deployment availability, not Endpoints
 
-The website workload script waits on **Deployment availability**, not on
-Endpoints addresses, at its end — before the GUI test step that follows:
+The website workload script ends by waiting on **Deployment availability**,
+not Endpoints addresses, before the GUI test step that follows:
 
 ```
 kubectl wait --for=condition=available deployment/website -n website --timeout=240s
@@ -197,9 +196,9 @@ Checking `endpoints/website-service` would be wrong on two counts:
    ephemeral-storage pressure, its replacement stuck on the
    disk-pressure taint).
 
-`--for=condition=available` blocks on the actual
-`Deployment.status.conditions` readiness signal, so the test waits the
-full 240 s and the diagnostic captures a useful pod state.
+`--for=condition=available` blocks on the `Deployment.status.conditions`
+readiness signal, so the test waits the full 240 s and the diagnostic
+captures a useful pod state.
 
 ### Reclaim build-cache disk before deploy
 
@@ -223,6 +222,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.03
+Last review: 2026.08.04
 
 Back to [Yuruna](../README.md)

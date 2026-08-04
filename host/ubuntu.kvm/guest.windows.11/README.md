@@ -19,7 +19,7 @@ pwsh ./New-VM.ps1 -VMName myhost            # custom name
 it through a JavaScript-driven download page that issues short-lived
 signed URLs. The script prints download instructions; drop the ISO at
 `~/yuruna/image/windows.11/host.ubuntu.kvm.guest.windows.11.iso` (or any
-`Win11*.iso` in that directory and the script renames it on the next
+`Win11*.iso` in that directory -- the script renames it on the next
 run). The virtio-win driver ISO IS auto-fetched from Fedora's hosted
 bundle (signed).
 
@@ -51,8 +51,8 @@ see the qcow2 disk.
 | Access | OpenSSH Server enabled on first boot (port 22) + RDP |
 
 The `ywuser1` / `password` credentials match the macOS UTM and Hyper-V
-variants of `guest.windows.11`, so a single test sequence can target
-the same account across all supported hosts.
+variants of `guest.windows.11`, so one test sequence targets the same
+account across all supported hosts.
 
 ## Reaching the guest
 
@@ -68,8 +68,8 @@ virt-viewer --connect qemu:///system <vmname>
 ## Architecture support
 
 x86_64 only. Windows 11 ARM64 on KVM aarch64 is technically possible
-(via UUP-dump-assembled ISOs) but out of scope for the initial
-scaffold. Use the macOS UTM guest for ARM64 Windows 11.
+(via UUP-dump-assembled ISOs) but unsupported here. Use the macOS UTM
+guest for ARM64 Windows 11.
 
 ---
 
@@ -77,6 +77,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.03
+Last review: 2026.08.04
 
 Back to [Yuruna](../../../README.md)

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.03
+.VERSION 2026.08.04
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456771
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -26,7 +26,7 @@
     With VZBridgedNetworkDeviceAttachment (config.plist.template) the
     cache VM has its own LAN DHCP IP and there is no host-side forwarder
     layer to revive -- the LAN cable IS the data path. What can still
-    drift is the state file under <track>/yuruna-caching-proxy-service.yml: an
+    drift is the state file under <runtime>/yuruna-caching-proxy-service.yml: an
     old shared-NAT IP from before the upgrade, or an empty entry from
     Stop-CachingProxyServiceVM. This script:
 
@@ -41,11 +41,11 @@
     Safe to re-run. NEVER touches: utmctl / the .utm bundle / the VM
     itself / Get-Image / cloud-init / system proxy / Wi-Fi / DNS.
 
-    Auto-discovery: if the state file is empty (e.g. after Stop-
-    CachingProxyService.ps1) auto-discovery has nothing to consult and the
-    script errors out. Re-run Start-CachingProxyServiceVM.ps1 to repopulate, or
-    pass -CacheIp <lan-ip> to commit a known IP directly. LAN-wide
-    cache discovery is a separate future feature.
+    Auto-discovery: if the state file is empty (e.g. after
+    Stop-CachingProxyServiceVM.ps1) there is nothing to consult and the script
+    errors out. Re-run Start-CachingProxyServiceVM.ps1 to repopulate, or pass
+    -CacheIp <lan-ip> to commit a known IP directly. LAN-wide cache discovery
+    is a separate future feature.
 
 .PARAMETER CacheIp
     Override auto-discovery. When provided, the LAN scan is skipped and

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.03
+.VERSION 2026.08.04
 .GUID 42f1c60d-4b28-4d97-a3e5-90b6d2417fac
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -38,10 +38,10 @@ function Assert-True  { param($Condition, [string]$Because = '') if (-not $Condi
 function Assert-False { param($Condition, [string]$Because = '') if ($Condition) { throw "Expected false. $Because" } }
 
 Describe 'Get-YurunaServiceVmRoster' {
-    It 'lists the three service VMs' {
+    It 'lists the four service VMs' {
         $r = @(Get-YurunaServiceVmRoster)
-        Assert-Equal 3 $r.Count
-        foreach ($key in @('caching-proxy', 'stash', 'pool-control')) {
+        Assert-Equal 4 $r.Count
+        foreach ($key in @('caching-proxy', 'stash', 'pool-control', 'download-agent')) {
             Assert-Equal 1 @($r | Where-Object { $_.Key -eq $key }).Count -Because "roster carries '$key'"
         }
     }
@@ -67,12 +67,13 @@ Describe 'Get-YurunaServiceVmRoster' {
         Assert-Equal 3128 $byKey['caching-proxy'].HealthPort -Because 'squid, the port guests proxy through'
         Assert-Equal 80   $byKey['stash'].HealthPort         -Because '/healthz, the stash pre-flight gate'
         Assert-Equal 80   $byKey['pool-control'].HealthPort  -Because 'the pool-control UI/API'
+        Assert-Equal 80   $byKey['download-agent'].HealthPort -Because '/healthz, the download-agent pre-flight gate'
     }
     It 'filters by key and tolerates an unknown one' {
         Assert-Equal 1 @(Get-YurunaServiceVmRoster -Key 'stash').Count
         Assert-Equal 2 @(Get-YurunaServiceVmRoster -Key @('stash', 'caching-proxy')).Count
         Assert-Equal 0 @(Get-YurunaServiceVmRoster -Key 'no-such-service').Count
-        Assert-Equal 3 @(Get-YurunaServiceVmRoster -Key @()).Count -Because 'an empty filter means everything'
+        Assert-Equal 4 @(Get-YurunaServiceVmRoster -Key @()).Count -Because 'an empty filter means everything'
     }
 }
 
@@ -113,7 +114,7 @@ Describe 'Restore-YurunaServiceVM' {
         # it could not look -- reporting an empty result would read as "all
         # services healthy" on a host where nothing was checked at all.
         $r = @(Restore-YurunaServiceVM -Confirm:$false)
-        Assert-Equal 3 $r.Count -Because 'one record per service even when nothing can be checked'
+        Assert-Equal 4 $r.Count -Because 'one record per service even when nothing can be checked'
         foreach ($x in $r) {
             Assert-Equal 'no-host-driver' $x.Outcome
             Assert-False $x.Healthy 'unknown is never reported as healthy'

@@ -14,27 +14,27 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Yuruna pools</title>
+  <title>Yuruna Pool Control</title>
   <link rel="stylesheet" href="/assets/style.css">
   <link rel="stylesheet" href="/assets/board.css">
 </head>
-<body class="board">
-  <header class="board-top">
-    <span class="brand">Yuruna pools</span>
-    <a class="advanced-link" href="/advanced">Advanced</a>
+<body class="board has-footer-bar">
+  <header class="app">
+    <div class="brand">
+      <span>Yuruna Pool Control</span>
+      <span class="version" id="header-version"></span>
+    </div>
+    <nav>
+      <a href="/" class="active">Board</a>
+      <a href="/advanced">Advanced</a>
+    </nav>
+    <span class="spacer"></span>
+    <span class="machine" id="machine"></span>
   </header>
 
-  <!-- Passcode prompt. Hidden unless /api/session says a gate exists and this
-       device is not through it. -->
-  <section id="login" class="login" hidden>
-    <h1>Enter the lab passcode</h1>
-    <form id="login-form">
-      <input id="passcode" type="password" inputmode="numeric" autocomplete="current-password"
-             placeholder="Passcode" aria-label="Lab passcode">
-      <button type="submit">Continue</button>
-    </form>
-    <p id="login-error" class="login-error" hidden></p>
-  </section>
+  <!-- Reads are open, so the board renders for anyone on the LAN. The Lab-token
+       prompt is built by Y.unlock at the moment a change is attempted, which is
+       the same prompt every other page in this service shows. -->
 
   <main id="board" hidden>
     <nav class="periods" aria-label="Time period">
@@ -60,6 +60,12 @@
       </div>
     </div>
   </div>
+
+  <footer id="footer-bar">
+    <span id="footer-ips"><span class="label">IPs:</span><textarea id="footer-ip-list" readonly rows="1" spellcheck="false" inputmode="none" autocorrect="off" autocapitalize="off" aria-label="Server IP addresses">—</textarea></span>
+    <span>Loaded: <span id="last-loaded">—</span></span>
+    <span><a id="footer-refresh" href="#">Refresh</a>: <span id="countdown">60</span>s · <a href="https://yuruna.link/pool-control">guide</a></span>
+  </footer>
 
   <script src="/assets/common.js"></script>
   <script src="/assets/board.js"></script>

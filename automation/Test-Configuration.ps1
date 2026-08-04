@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.03
+.VERSION 2026.08.04
 .GUID 42f6a7b8-c9d0-4e12-3456-7f8091021324
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -58,9 +58,9 @@ param (
 Import-Module (Join-Path $PSScriptRoot 'Yuruna.LogLevel.psm1') -Global -Force
 Set-YurunaLogLevel -LogLevel $logLevel
 
-# Resolve roots via the shared Resolve-YurunaRootSet (-LiteralPath + ambiguity guard,
-# so a wildcard or multi-match project path cannot slip through). Called before the
-# Yuruna.* eviction sweeps up the leaf resolver.
+# Resolve roots via Resolve-YurunaRootSet (-LiteralPath + ambiguity guard, so a
+# wildcard or multi-match project path cannot slip through), before the Yuruna.*
+# eviction sweeps up the leaf resolver.
 $roots = Resolve-YurunaRootSet -ScriptRoot $PSScriptRoot -ProjectRoot $project_root -ConfigSubfolder $config_subfolder
 if (-not $roots) { return $false }
 $yuruna_root = $roots.YurunaRoot

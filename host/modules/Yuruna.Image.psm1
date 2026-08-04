@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.03
+.VERSION 2026.08.04
 .GUID 42de9c8b-f7a6-4b34-9182-3c4d5e6f7ab7
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -26,22 +26,20 @@
     The Ubuntu ISO pipeline runs through a warn-only checksum policy.
     The other guest-image sources (Windows ISO, Amazon Linux 2023
     qcow2, caching-proxy-service base, macOS images) reach disk through
-    `Save-CachedHttpUri` + `Invoke-WebRequest` without going through
-    any shared integrity layer; a supply-chain incident on any of
-    those mirrors would land silently.
+    `Save-CachedHttpUri` + `Invoke-WebRequest` with no shared integrity
+    layer, so a supply-chain incident on those mirrors would land
+    silently.
 
     Save-ImageWithChecksum is the single chokepoint:
 
-      1. Download the image to a destination path. Routes through
-         the host's `Save-CachedHttpUri` when available (squid bump
-         + per-process custom CA trust) and falls back to a direct
-         Invoke-WebRequest.
+      1. Download to a destination path, through the host's
+         `Save-CachedHttpUri` when available (squid bump + per-process
+         custom CA trust), else a direct Invoke-WebRequest.
       2. Compute SHA-256 over the downloaded file.
-      3. Compare against an expected hash. The expected hash can
-         come from -ExpectedSha256 directly OR by parsing a published
-         checksum file at -ChecksumUrl with -ChecksumPattern (defaults
-         to the conventional `<sha256>  <filename>` shape used by
-         the cloud-images mirrors).
+      3. Compare against an expected hash, supplied by -ExpectedSha256
+         or parsed from a published checksum file at -ChecksumUrl with
+         -ChecksumPattern (defaults to the conventional
+         `<sha256>  <filename>` shape the cloud-images mirrors use).
       4. POLICY (matches the Ubuntu-ISO policy):
            - hash match    -> silent pass, return $true
            - hash mismatch -> emit a visual banner Write-Warning,
@@ -50,10 +48,7 @@
                               didn't supply one; not Yuruna's call
                               to block on that)
 
-    Caller can flip strictness via -OnMismatch:
-       'WarnAndContinue'  (default)  warn + keep the file
-       'WarnAndDelete'                emit banner + delete the file
-       'Throw'                        emit banner + throw an exception
+    -OnMismatch flips that strictness; see its parameter help.
 
     Designed to be the migration target for the AL2023 / Windows /
     caching-proxy-service / macOS Get-Image.ps1 scripts. The Ubuntu path
@@ -128,11 +123,9 @@ function Test-PublishedChecksumSignature {
         file against a pinned set of signing-key fingerprints.
     .DESCRIPTION
         Authenticates the SHA256SUMS that the hash check trusts. GPG is a
-        BONUS here, never a hard dependency, so a missing tool, a missing
-        signature, or an unreachable keyserver can NEVER brick a download --
-        those degrade to 'unverified' and the caller proceeds on the hash
-        alone. Only a signature that is present, checkable, and definitively
-        wrong returns 'bad'.
+        BONUS here, never a hard dependency: a missing tool, signature, or
+        keyserver can NEVER brick a download. Only a signature that is
+        present, checkable, and definitively wrong returns 'bad'.
 
           'unverified' - gpg absent, no detached .gpg published / fetch failed,
                          keyserver unreachable, or the pinned key can't be
@@ -176,10 +169,8 @@ function Test-PublishedChecksumSignature {
         } catch {
             return 'unverified'
         }
-        # Import the bundled pinned public keys into the throwaway keyring
-        # (offline -- no dirmngr/keyserver, which is unreliable under a custom
-        # --homedir on Windows). The pinned fingerprint set is still the trust
-        # anchor: a signature is 'good' only if VALIDSIG names a pinned fpr.
+        # Offline import of the bundled pinned public keys: no dirmngr/keyserver,
+        # which is unreliable under a custom --homedir on Windows.
         & $gpgCmd.Source --homedir $work --batch --quiet --import $KeyringPath 2>$null
         $status = & $gpgCmd.Source --homedir $work --batch --status-fd 1 --verify $sigFile $sumsFile 2>$null
         if ($status | Where-Object { $_ -match '^\[GNUPG:\] BADSIG ' }) { return 'bad' }
@@ -220,8 +211,9 @@ function Save-ImageWithChecksum {
         Filename to match inside the SHA256SUMS body. Defaults to
         the basename of SourceUrl.
     .PARAMETER ChecksumPattern
-        Format-string regex; {0} is replaced by the escaped target
-        filename. Defaults to the cloud-images / Ubuntu format.
+        Regex carrying the literal token {0}, which is replaced by the
+        escaped target filename. Defaults to the cloud-images / Ubuntu
+        format.
     .PARAMETER OnMismatch
         Policy when computed hash != expected hash:
           - 'WarnAndContinue'  (default) emit banner, return $true
@@ -236,13 +228,12 @@ function Save-ImageWithChecksum {
         degrades to a warning and proceeds on the hash.
     .PARAMETER RetryBudgetSeconds
         Wall-clock budget for retrying a FAILED transfer. These images are
-        hundreds of MB and routinely travel through a squid cache that was
-        itself provisioned minutes earlier, so a mid-stream truncation
-        ("The response ended prematurely, with at least N additional bytes
-        expected") is a transient event, not a reason to abort a bring-up. Each
-        retry restarts from zero -- neither Save-CachedHttpUri nor
-        Invoke-WebRequest resumes -- so the partial file is removed between
-        attempts. 0 disables retrying.
+        hundreds of MB and routinely travel through a squid cache provisioned
+        minutes earlier, so a mid-stream truncation ("The response ended
+        prematurely, with at least N additional bytes expected") is transient,
+        not a reason to abort a bring-up. Neither Save-CachedHttpUri nor
+        Invoke-WebRequest resumes, so each retry restarts from zero and the
+        partial file is removed between attempts. 0 disables retrying.
     .OUTPUTS
         [bool] $true when the download landed successfully (regardless
         of checksum outcome under WarnAndContinue); $false when the
@@ -387,10 +378,9 @@ function Convert-Qcow2ToVhdx {
         FILE_ATTRIBUTE_SPARSE_FILE set so Resize-VHD then fails with
         0xC03A001A ("must not be sparse") -- see feedback_qemu_img_vhdx_sparse.md.
         This clears the flag, then resizes via Resize-VHD with a qemu-img
-        fallback. A resize failure is non-fatal (warned); a convert failure
-        cleans up the partial DestPath and returns $false. Native qemu-img
-        output is captured (never emitted) so it cannot pollute the [bool]
-        return.
+        fallback. A convert failure, or a resize that fails on both paths,
+        removes the partial DestPath and returns $false. Native qemu-img output
+        is captured (never emitted) so it cannot pollute the [bool] return.
     .PARAMETER SizeBytes
         Target nominal size. Omit (or pass 0) to convert only and leave the
         VHDX at the cloud image's native capacity -- what a shared base image
@@ -399,8 +389,8 @@ function Convert-Qcow2ToVhdx {
         largest consumer would force the smaller ones to SHRINK, which
         Hyper-V refuses while the guest partition still spans the disk.
     .OUTPUTS
-        [bool] $true when the convert succeeded (DestPath is a usable VHDX),
-        $false when qemu-img is missing or the convert failed.
+        [bool] $true when DestPath is a usable VHDX at the requested size;
+        $false when qemu-img is missing or the convert or resize failed.
     #>
     [CmdletBinding()]
     [OutputType([bool])]
@@ -443,10 +433,9 @@ function Convert-Qcow2ToVhdx {
     }
     if (-not $resized) {
         # Both resize paths failed, so the VHDX is only the base cloud-image
-        # capacity. Refuse to hand it back as success -- a caller that proceeds
-        # would provision an undersized disk (a 512 GB cache on a ~4 GB image).
-        # Remove the stub so a retry does not adopt the undersized VHDX, and
-        # return $false; every caller already fails fast on $false.
+        # capacity. Refuse it as success -- a caller that proceeds would
+        # provision an undersized disk (a 512 GB cache on a ~4 GB image) -- and
+        # remove the stub so a retry cannot adopt it.
         Write-Warning "VHDX resize failed via both Resize-VHD and qemu-img; refusing the base-capacity disk."
         Write-Warning "Resize manually: fsutil sparse setflag '$DestPath' 0; Resize-VHD -Path '$DestPath' -SizeBytes $SizeBytes"
         Remove-Item -LiteralPath $DestPath -Force -ErrorAction SilentlyContinue
@@ -454,27 +443,9 @@ function Convert-Qcow2ToVhdx {
     return $resized
 }
 
-# --- REGION: Shared extension-service base image
-# The stash, pool-control and caching-proxy service VMs all boot the SAME
-# Ubuntu server cloud image: same release, same arch, same publisher URL.
-# They differ only in cloud-init and in how large their disk needs to be.
-# One artifact per host type serves all of them -- a per-service copy would
-# be byte-identical, costing an extra download and an extra full-size disk
-# each. The nominal size is NOT baked in here (see Expand-ExtensionVmDisk):
-# every consumer grows its own per-VM copy instead.
-#
-# Deliberately NOT the guest.ubuntu.server.26 image: that one is the
-# live-server INSTALLER ISO driven by subiquity autoinstall, while these
-# services boot a pre-built cloud rootfs directly with no install pass.
-#
-# Ubuntu 26.04 LTS (Resolute Raccoon). A current LTS keeps these long-lived
-# service VMs inside the supported-LTS window, so the `unattended-upgrades`
-# their user-data enables keeps pulling security patches rather than going
-# EOL mid-cycle. It also has to stay recent enough that the distro Go
-# toolchain satisfies the stash / pool-control daemons' go.mod directive.
-# The stem carries the release number too, so a codename bump moves both --
-# and the changed stem gives the new release a fresh artifact rather than
-# silently overwriting the one running VMs were built from.
+# --- REGION: https://yuruna.link/guest-image-setup#shared-extension-service-base-image
+# One shared cloud image for every extension-service VM; NOT the
+# guest.ubuntu.server.26 installer ISO. Bump the codename and the stem together.
 $script:UbuntuExtensionImageCodename = 'resolute'
 $script:UbuntuExtensionImageStem     = 'ubuntu.extension.26'
 
@@ -579,6 +550,10 @@ function Save-UbuntuExtensionImage {
         image described by Get-UbuntuExtensionImageInfo.
     .DESCRIPTION
         Full resolve-skip-download-verify-promote pipeline:
+          * a download agent, when one is reachable, answers "you already
+            hold the current artifact" or serves verified bytes with the
+            origin never contacted
+            (docs/guest-image-setup.md#agent-first-image-downloads)
           * skip-if-same-source guard on the 4-line sentinel, so the second
             and third service asking for the image cost one HEAD request
           * SHA-256 + pinned-key GPG verification of the publisher checksum
@@ -614,41 +589,111 @@ function Save-UbuntuExtensionImage {
 
     New-Item -ItemType Directory -Force -Path $Image.DownloadDir | Out-Null
 
-    # --- REGION: https://yuruna.link/guest-image-setup#skip-if-same-source-guard
-    if (Test-DownloadAlreadyCurrent -SourceUrl $Image.SourceUrl -BaseImageFile $Image.BaseImageFile -OriginFile $Image.OriginFile -Verbose:($VerbosePreference -ne 'SilentlyContinue')) {
-        $skipLines = @(Get-Content -LiteralPath $Image.OriginFile -ErrorAction SilentlyContinue)
-        $msg = @(
-            "Skipping download: source URL + size + Last-Modified all match the prior run for $($Image.BaseImageFile)."
-            "  Sentinel: $($Image.OriginFile)"
-            "    filename     : $($skipLines[0])"
-            "    source URL   : $($skipLines[1])"
-            "    byte count   : $($skipLines[2])"
-            "    last-modified: $($skipLines[3])"
-            "  To force a re-download, delete or rename: $($Image.BaseImageFile)"
-        ) -join [Environment]::NewLine
-        Write-Information $msg -InformationAction Continue
-        Write-Output $msg
-        return $true
-    }
-
-    # --- REGION: Download the cloud image
     # PID-suffixed staging names: every extension service resolves to this
     # one artifact, so two service builds running at once would otherwise
     # interleave writes into a single partial file.
     $downloadFile = Join-Path $Image.DownloadDir "$($Image.BaseImageName).downloading.$PID.img"
-    Remove-Item -LiteralPath $downloadFile -Force -ErrorAction SilentlyContinue
-    $sourceBaseName = $Image.SourceUrl.Substring($Image.SourceUrl.LastIndexOf('/') + 1)
-    $downloaded = Save-ImageWithChecksum `
-        -SourceUrl   $Image.SourceUrl `
-        -DestPath    $downloadFile `
-        -ChecksumUrl $Image.ChecksumUrl `
-        -ChecksumTargetFileName $sourceBaseName `
-        -OnMismatch  'WarnAndDelete' `
-        -VerifyUbuntuSignature `
-        -Confirm:$false
-    if (-not $downloaded) {
-        Write-Error "Download failed for $($Image.SourceUrl)"
-        return $false
+
+    # --- REGION: https://yuruna.link/guest-image-setup#agent-first-image-downloads
+    # Ask the download agent before the origin is touched at all. The hook lands
+    # ahead of the same-source guard and the single Save-ImageWithChecksum call
+    # below, so this chain consults the agent exactly once; every other answer --
+    # no client module, no agent, no pool, a checksum mismatch, a deadline --
+    # falls through to the guard-plus-download path below.
+    $agentServed       = $false
+    $agentSourceUrl    = ''
+    $agentLastModified = ''
+    if ((Get-Command -Name Resolve-DownloadAgentEndpoint -ErrorAction SilentlyContinue) -and
+        (Get-Command -Name Request-DownloadAgentImage -ErrorAction SilentlyContinue)) {
+        $agentBaseUrl = ''
+        try { $agentBaseUrl = [string](Resolve-DownloadAgentEndpoint) } catch { $agentBaseUrl = '' }
+        if (-not $agentBaseUrl) {
+            Write-Verbose "Save-UbuntuExtensionImage: no download agent reachable; using the origin path."
+        } else {
+            # Fingerprint the local copy with the sentinel's filename + byte
+            # count and no SHA-256: the sentinel records the DOWNLOAD size,
+            # which is the pooled artifact's size even on Hyper-V where the
+            # local file is a converted VHDX, and re-hashing a multi-hundred-MB
+            # image every run would cost more than it saves.
+            $agentArgs = @{
+                BaseUrl         = $agentBaseUrl
+                HostType        = $Image.HostType
+                ImageKey        = 'ubuntu.extension.26'
+                Arch            = $Image.Arch
+                Variant         = 'stable'
+                StagingPath     = $downloadFile
+                DeadlineSeconds = 7200
+            }
+            if ((Test-Path -LiteralPath $Image.BaseImageFile) -and (Test-Path -LiteralPath $Image.OriginFile)) {
+                $sentinelLines = @(Get-Content -LiteralPath $Image.OriginFile -ErrorAction SilentlyContinue)
+                $sentinelBytes = 0L
+                if ($sentinelLines.Count -ge 3 -and [int64]::TryParse($sentinelLines[2].Trim(), [ref]$sentinelBytes) -and $sentinelBytes -gt 0) {
+                    $agentArgs['LocalFilename']  = $sentinelLines[0].Trim()
+                    $agentArgs['LocalByteCount'] = $sentinelBytes
+                }
+            }
+            $agentResult = $null
+            try {
+                Remove-Item -LiteralPath $downloadFile -Force -ErrorAction SilentlyContinue
+                $agentResult = Request-DownloadAgentImage @agentArgs
+            } catch {
+                Write-Warning "Download agent at $agentBaseUrl failed ($($_.Exception.Message)); falling back to the origin download path."
+                $agentResult = $null
+            }
+            if ($agentResult -and $agentResult.outcome -eq 'skipped') {
+                $msg = @(
+                    "Skipping download: the download agent at $agentBaseUrl confirms $($Image.BaseImageFile) is the current ubuntu.extension.26 artifact."
+                    "  Sentinel: $($Image.OriginFile)"
+                    "  To force a re-download, delete or rename: $($Image.BaseImageFile)"
+                ) -join [Environment]::NewLine
+                Write-Information $msg -InformationAction Continue
+                Write-Output $msg
+                return $true
+            } elseif ($agentResult -and $agentResult.outcome -eq 'downloaded') {
+                $agentServed       = $true
+                $agentSourceUrl    = [string]$agentResult.sourceUrl
+                $agentLastModified = [string]$agentResult.lastModified
+                Write-Output "Download agent at $agentBaseUrl served verified $($agentResult.filename) to $downloadFile"
+            } elseif ($agentResult) {
+                $detail = if ($agentResult.error) { ": $($agentResult.error)" } else { '' }
+                Write-Warning "Download agent at $agentBaseUrl answered '$($agentResult.outcome)'$detail; falling back to the origin download path."
+            }
+        }
+    }
+
+    if (-not $agentServed) {
+        # --- REGION: https://yuruna.link/guest-image-setup#skip-if-same-source-guard
+        if (Test-DownloadAlreadyCurrent -SourceUrl $Image.SourceUrl -BaseImageFile $Image.BaseImageFile -OriginFile $Image.OriginFile -Verbose:($VerbosePreference -ne 'SilentlyContinue')) {
+            $skipLines = @(Get-Content -LiteralPath $Image.OriginFile -ErrorAction SilentlyContinue)
+            $msg = @(
+                "Skipping download: source URL + size + Last-Modified all match the prior run for $($Image.BaseImageFile)."
+                "  Sentinel: $($Image.OriginFile)"
+                "    filename     : $($skipLines[0])"
+                "    source URL   : $($skipLines[1])"
+                "    byte count   : $($skipLines[2])"
+                "    last-modified: $($skipLines[3])"
+                "  To force a re-download, delete or rename: $($Image.BaseImageFile)"
+            ) -join [Environment]::NewLine
+            Write-Information $msg -InformationAction Continue
+            Write-Output $msg
+            return $true
+        }
+
+        # --- REGION: Download the cloud image
+        Remove-Item -LiteralPath $downloadFile -Force -ErrorAction SilentlyContinue
+        $sourceBaseName = $Image.SourceUrl.Substring($Image.SourceUrl.LastIndexOf('/') + 1)
+        $downloaded = Save-ImageWithChecksum `
+            -SourceUrl   $Image.SourceUrl `
+            -DestPath    $downloadFile `
+            -ChecksumUrl $Image.ChecksumUrl `
+            -ChecksumTargetFileName $sourceBaseName `
+            -OnMismatch  'WarnAndDelete' `
+            -VerifyUbuntuSignature `
+            -Confirm:$false
+        if (-not $downloaded) {
+            Write-Error "Download failed for $($Image.SourceUrl)"
+            return $false
+        }
     }
     # Capture the HTTP-download size BEFORE any conversion: the artifact at
     # BaseImageFile is the converted file, not the bytes the guard compares
@@ -691,7 +736,16 @@ function Save-UbuntuExtensionImage {
     Move-Item -LiteralPath $stagedFile -Destination $Image.BaseImageFile
 
     # --- REGION: https://yuruna.link/guest-image-setup#skip-if-same-source-guard
-    Write-ImageSentinel -SourceUrl $Image.SourceUrl -OriginFile $Image.OriginFile -SizeBytes $downloadedSize -Confirm:$false
+    if ($agentServed) {
+        # Describe the bytes that actually landed: the agent reports the origin
+        # URL and Last-Modified it downloaded from, and HEAD-ing the origin here
+        # would re-touch the server the agent path exists to spare. A URL that
+        # ever drifts from Get-UbuntuExtensionImageInfo's fixed one simply makes
+        # the next run's guard re-download, which is the safe direction.
+        Write-ImageSentinel -SourceUrl $agentSourceUrl -OriginFile $Image.OriginFile -SizeBytes $downloadedSize -LastModified $agentLastModified -Confirm:$false
+    } else {
+        Write-ImageSentinel -SourceUrl $Image.SourceUrl -OriginFile $Image.OriginFile -SizeBytes $downloadedSize -Confirm:$false
+    }
     Write-Output "Recorded source filename, URL, byte count, and Last-Modified to: $($Image.OriginFile)"
     Write-Output "Download complete: $($Image.BaseImageFile)"
     return $true
@@ -705,9 +759,8 @@ function Expand-ExtensionVmDisk {
     .DESCRIPTION
         The base image stays at the cloud image's native capacity so one
         artifact can serve services with different disk budgets; growth
-        happens here, on the copy, before first boot -- cloud-init's growpart
-        then expands the root partition into it exactly as it did when the
-        base image itself carried the size.
+        happens here, on the copy, before first boot, and cloud-init's
+        growpart then expands the root partition into it.
 
         qcow2 and dynamic VHDX both grow as metadata, so this is fast and
         consumes no additional disk until the guest writes.

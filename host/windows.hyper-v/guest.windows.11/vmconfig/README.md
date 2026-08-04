@@ -4,7 +4,7 @@
 
 ## Product Keys
 
-Defaults to the **Windows 11 Pro** generic installation key -- installs without a purchased license; system is unactivated afterwards.
+Defaults to the **Windows 11 Pro** generic installation key -- installs without a purchased license; the system is unactivated afterwards.
 
 ### Generic Installation Keys (for automated install)
 
@@ -63,6 +63,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.03
+Last review: 2026.08.04
 
 Back to [Yuruna](../../../../README.md)

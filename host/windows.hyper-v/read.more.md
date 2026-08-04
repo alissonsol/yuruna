@@ -7,7 +7,7 @@ Every step needs an **elevated** PowerShell (Run as Administrator).
 ## 1) Install PowerShell 7
 
 Yuruna scripts target PowerShell 7 (`pwsh`), not the legacy
-`powershell.exe`. See the official
+`powershell.exe`. See the
 [installation guide](https://learn.microsoft.com/en-us/powershell/scripting/install/installing-powershell-on-windows)
 or install via `winget`:
 
@@ -82,7 +82,7 @@ git clone https://github.com/alissonsol/yuruna.git $HOME\git\yuruna
 ## 8) Refresh PATH in the Current Shell
 
 `winget` updates machine `PATH`, but the current session keeps the old
-copy. Open a new PowerShell window, or patch the current one:
+copy. Open a new PowerShell window, or patch this one:
 
 ```
 $env:Path = [Environment]::GetEnvironmentVariable('Path','Machine') + ';' +
@@ -141,6 +141,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.03
+Last review: 2026.08.04
 
 Back to [Yuruna](../../README.md)

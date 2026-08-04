@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.03
+.VERSION 2026.08.04
 .GUID 42f6a7b8-c9d0-4e12-8345-6a7b8c9d0e1f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -40,12 +40,21 @@ param(
     [string]$VMName = 'yuruna-pool-control-service'
 )
 
-$ErrorActionPreference = 'Stop'
 $InformationPreference = 'Continue'
+
+# $ErrorActionPreference is deliberately left at its inherited 'Continue', and
+# must stay that way. A script-scoped 'Stop' is not scoped to the script: an
+# advanced function invoked from here runs under it too, so every host-contract
+# call below would have its NON-terminating errors promoted to terminating ones.
+# Those helpers report and carry on by design -- Get-VMState answers 'absent' for
+# a VM that was never created, Remove-GuestVMQuietly -BestEffort is documented to
+# tolerate an already-gone VM -- and under 'Stop' each of those intended outcomes
+# ends the teardown instead. The sibling service teardowns (stash, caching proxy)
+# run at 'Continue' for the same reason.
 
 # Honor the caller's logLevel, published as $env:YURUNA_LOG_LEVEL by whatever
 # entry point started this script (install/setup.ps1, a runner cycle). After the
-# line above on purpose: an explicit level is the operator's choice and replaces
+# lines above on purpose: an explicit level is the operator's choice and replaces
 # this script's own default. $InformationPreference is then re-read from the
 # global the cascade writes, because the script-scoped assignment above shadows
 # it for the rest of this file. See docs/loglevels.md.
@@ -74,17 +83,16 @@ Write-Information "Host type: $HostType" -InformationAction Continue
 # Read the marker BEFORE removing it. A -HostSideProof run records the host-side
 # daemon's pid here; stop that process so the host-side proof is fully torn down.
 Import-Module (Join-Path $ModulesDir 'Test.YurunaDir.psm1') -Global -Force
+Import-Module (Join-Path $ModulesDir 'Test.ExtensionService.psm1') -Global -Force
 $runtimeDir = Initialize-YurunaRuntimeDir
-$marker = Join-Path $runtimeDir 'pool-control-service.json'
-if (Test-Path -LiteralPath $marker) {
-    try {
-        $m = Get-Content -Raw -LiteralPath $marker | ConvertFrom-Json -ErrorAction Stop
-        if ($m.pid -and $PSCmdlet.ShouldProcess("pid $($m.pid)", 'Stop host-side pool-control-service')) {
-            Stop-Process -Id ([int]$m.pid) -Force -ErrorAction SilentlyContinue
-        }
-    } catch { Write-Verbose "stop host-side pool-control-service: $($_.Exception.Message)" }
-    Remove-Item -LiteralPath $marker -Force -ErrorAction SilentlyContinue
-    Write-Information "  Cleared pool-control-service marker (host will drop from Extension hosts)." -InformationAction Continue
+$m = Read-ExtensionServiceMarker -Area 'pool-control-service' -RuntimeDir $runtimeDir
+if ($m) {
+    if ($m.pid -and $PSCmdlet.ShouldProcess("pid $($m.pid)", 'Stop host-side pool-control-service')) {
+        Stop-Process -Id ([int]$m.pid) -Force -ErrorAction SilentlyContinue
+    }
+    if (Remove-ExtensionServiceMarker -Area 'pool-control-service' -RuntimeDir $runtimeDir -Confirm:$false) {
+        Write-Information "  Cleared pool-control-service marker (host will drop from Extension hosts)." -InformationAction Continue
+    }
 }
 
 # Publish the removal NOW: regenerate host.registration.json so the marker's

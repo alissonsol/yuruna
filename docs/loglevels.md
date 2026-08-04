@@ -7,8 +7,8 @@ pwsh / per-cycle inner runner / sequence engine through `$env:YURUNA_LOG_LEVEL`.
 The canonical implementation lives in
 [`test/modules/Test.LogLevel.psm1`](../test/modules/Test.LogLevel.psm1).
 This module is the single source of truth for the rank table +
-preference cascade, so it is not duplicated across the 28+ scripts and
-four runner files that depend on it.
+preference cascade, so it is not duplicated across the 60+ scripts and
+runner files that depend on it.
 
 ## Levels
 
@@ -31,7 +31,7 @@ except Debug.
    `Invoke-TestSequence.ps1` / `install/setup.ps1`.
 2. **`logLevel:` in `test.config.yml`** — hot-reloadable; the inner
    runner re-resolves on every `Sync-RuntimeConfig`, so an operator can
-   edit the YAML mid-cycle and the next step picks up the new value.
+   edit the YAML mid-cycle and the next step picks it up.
 3. **Default `Information`** — invalid values fall back here with a
    one-line warning, so a YAML typo does not silently silence the
    transcript.
@@ -39,13 +39,13 @@ except Debug.
 The default differs by entry point. The three-phase scripts
 (`Set-Resource.ps1` / `Set-Component.ps1` / `Set-Workload.ps1`),
 `Test-Configuration.ps1` and `Invoke-Clear.ps1` default to `Error` —
-they are run interactively, where anything above an error is noise.
+they run interactively, where anything above an error is noise.
 Only the test runner (`Invoke-TestRunner.ps1`) and `install/setup.ps1`
-default to `Information`, because their transcripts are the record of a
-long run nobody watched all of.
+default to `Information`: their transcripts are the record of a long
+run nobody watched all of.
 
-The cmdline override wins over a hot-reload — once you start a runner
-at `Information`, a config edit to `Warning` will not promote it. Stop
+The cmdline override wins over a hot-reload: start a runner at
+`Information` and a config edit to `Warning` will not promote it. Stop
 the runner and restart without `-logLevel` to release the override.
 
 ## Propagation across pwsh boundaries
@@ -53,10 +53,11 @@ the runner and restart without `-logLevel` to release the override.
 Child pwsh processes (the outer → inner spawn, sequence engine sub-
 processes, `Invoke-TestSequence` standalone) inherit `$env:YURUNA_LOG_LEVEL`
 but NOT PowerShell preference variables. The env var IS the propagation
-channel. The cascade module exports `Use-LogLevelFromEnv` — every child
+channel. The cascade module exports `Use-LogLevelFromEnv`; every child
 script that should honor the parent's level calls it at the top:
 
 ```
+# Honor logLevel from Invoke-TestRunner.ps1 via $env:YURUNA_LOG_LEVEL. See docs/loglevels.md.
 $_logLevelMod = Join-Path $PSScriptRoot '../../../test/modules/Test.LogLevel.psm1'
 if (Test-Path $_logLevelMod) { Import-Module $_logLevelMod -Global -Force; Use-LogLevelFromEnv }
 ```
@@ -81,16 +82,16 @@ variable is inherited at each hop, so every script that calls
 `Use-LogLevelFromEnv` lands on the level the operator asked for. The one
 hop it does NOT survive is the Windows elevated relaunch: `-Verb RunAs`
 builds the process through the AppInfo service, which does not carry the
-parent's environment, so `setup.ps1` hands the resolved level to its own
+parent's environment, so `setup.ps1` passes the resolved level to its own
 elevated copy as an argument. `Test.SetupLogLevel.Tests.ps1` guards both
 halves.
 
 A script started this way applies the level AFTER its own preference
-assignments, and re-reads `$InformationPreference` from the global the
-cascade writes where it also assigns that variable at script scope — a
-script-scoped assignment shadows the global for the rest of the file, so
-without the re-read `-logLevel Error` would quiet every child but not the
-lines of the script that set it.
+assignments, and where it also assigns `$InformationPreference` at
+script scope it re-reads that variable from the global the cascade
+writes. A script-scoped assignment shadows the global for the rest of
+the file, so without the re-read `-logLevel Error` would quiet every
+child but not the lines of the script that set it.
 
 ## Why `$ErrorActionPreference` stays at `Continue`
 
@@ -98,7 +99,7 @@ lines of the script that set it.
 `$global:InformationPreference`, `$global:VerbosePreference`,
 `$global:DebugPreference`, and (at Verbose+) `$global:ProgressPreference`.
 It deliberately does NOT touch `$ErrorActionPreference`. Errors must
-stay visible at every level; and PowerShell's `-ErrorAction Stop`
+stay visible at every level, and PowerShell's `-ErrorAction Stop`
 semantics depend on the inherited default — silencing the preference
 would suppress the throw-on-error contract that many `try/catch`
 blocks rely on.
@@ -108,8 +109,8 @@ blocks rely on.
 `Write-Progress` overwrites the bottom line of the terminal. At Verbose
 or Debug the per-poll OCR text would scroll past and the progress bar
 would replay each tick, making the transcript unreadable. The cascade
-silences it past Information so operators running with `-logLevel
-Verbose` see clean, line-oriented output.
+silences it past Information so `-logLevel Verbose` gives clean,
+line-oriented output.
 
 ---
 
@@ -117,6 +118,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.03
+Last review: 2026.08.04
 
 Back to [Yuruna](../README.md)

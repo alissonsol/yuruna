@@ -1,7 +1,7 @@
 // LICENSEURI https://yuruna.link/license
 // Copyright (c) 2019-2026 by Alisson Sol et al.
-// Stash detail view. Renders by content
-// class, always offers download, deletes only local-host stashes.
+// Stash detail view. Renders by content class, always offers download, deletes
+// only local-host stashes.
 
 (function () {
   const TEXT_PREVIEW_CAP = 1024 * 1024; // fallback if the server omits inlineTextCap (§6.2)

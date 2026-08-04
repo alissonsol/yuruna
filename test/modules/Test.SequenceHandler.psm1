@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.03
+.VERSION 2026.08.04
 .GUID 42a1b2c3-d4e5-4f67-8901-bc012345672a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -52,10 +52,9 @@ $script:NonzeroScriptExitSentinel = 'NONZERO SCRIPT EXIT:'
 # intact. Long lines have been observed to corrupt mid-send on host.macos.utm
 # (RFB -> QEMU -> guest): characters silently dropped, and then a key left
 # held down that the guest kernel auto-repeats at the console default of
-# ~30 chars/sec, filling the screen until the VM is rebuilt. Cycles
-# 001927-001929 on 2026-07-29 lost the same 557-character send three times,
-# each run degrading around character ~416; the 370- and 410-character sends
-# in that same sequence were unaffected.
+# ~30 chars/sec, filling the screen until the VM is rebuilt. A 557-character
+# send has been lost repeatedly, degrading around character ~416, while the
+# 370- and 410-character sends in the same sequence were unaffected.
 #
 # 400 sits just under the longest length observed to survive. This is a
 # WARNING, not a cap: the fix for a long step is to move the work into the
@@ -731,9 +730,8 @@ Register-SequenceAction -Name 'networkRelease' -HostIORequirement @('Send-Text',
             Start-Sleep -Milliseconds 800
             return [bool](Test.SequenceEngine\Send-Key -HostType $c.HostType -VMName $c.VMName -KeyName 'Enter')
         }
-        # TODO(windows.11): implement DHCP lease release for Windows guests
-        # (e.g. `ipconfig /release`). Left as a no-op reminder until the
-        # Windows.11 guest path is wired up.
+        # Windows guests have no release path yet: the equivalent
+        # (`ipconfig /release`) is unwired, so this stays a warned no-op.
         if ($guest -match 'windows') {
             Write-Warning "      networkRelease: Windows guest release not implemented yet (TODO windows.11) -- skipping for '$guest'."
             return $true

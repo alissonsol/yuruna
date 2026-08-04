@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.03
+.VERSION 2026.08.04
 .GUID 42a1b2c3-d4e5-4f67-8901-bc012345674a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -328,14 +328,14 @@ if ($script:FailCount -gt 0) {
 #
 # Auto-wipe before promotion: Remove-HostProxy unconditionally clears any
 # leftover WinINet ProxyServer string and HTTP_PROXY/HTTPS_PROXY/NO_PROXY
-# env vars BEFORE Set-HostProxy writes the new ones. The previous
-# snapshot-and-restore design preserved whatever proxy state was on the
-# host when the FIRST Set-HostProxy ran -- which on a host that had a
-# pre-existing (or older-cycle) HTTP_PROXY env var meant Stop-CachingProxyServiceVM
-# would faithfully restore it, leaking a stale IP into every subsequent
-# Test-CachingProxyService probe. Wiping first means each promotion lands on a
-# guaranteed-clean baseline; Stop-CachingProxyServiceVM similarly wipes definitively
-# rather than restoring. No user-action -ClearHostProxy required.
+# env vars BEFORE Set-HostProxy writes the new ones. The snapshot-and-restore
+# alternative preserves whatever proxy state was on the host when the FIRST
+# Set-HostProxy ran -- which on a host that had a pre-existing (or older-cycle)
+# HTTP_PROXY env var means Stop-CachingProxyServiceVM faithfully restores it,
+# leaking a stale IP into every subsequent Test-CachingProxyService probe.
+# Wiping first means each promotion lands on a guaranteed-clean baseline;
+# Stop-CachingProxyServiceVM similarly wipes definitively rather than restoring.
+# No user-action -ClearHostProxy required.
 
 if ($SetHostProxy) {
     Write-Output ""

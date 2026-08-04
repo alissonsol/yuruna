@@ -1,0 +1,22 @@
+# yaml-language-server: $schema=../../schemas/extension-config.schema.yml
+
+# LICENSEURI https://yuruna.link/license
+# Copyright (c) 2019-2026 by Alisson Sol et al.
+# Active provider for the download-agent-service extension. Single-provider
+# area; the Go daemon under server/ is fetched + built inside the
+# yuruna-download-agent-service VM by that VM's cloud-init user-data, so this
+# host-side module carries only the status stub and the reachability pre-flight.
+active:
+  - default
+service:
+  displayName: Download-agent service
+  vmName: yuruna-download-agent-service
+  healthPort: 80
+  healthPath: /healthz
+  startScript: Start-DownloadAgentServiceVM.ps1
+  stopScript: Stop-DownloadAgentServiceVM.ps1
+  markerBaseUrlKey: downloadAgentServiceBaseUrl
+  beaconInterval: 15m
+  # Deleting a generation or forcing a re-download changes what every host in
+  # the pool receives.
+  writeGate: lab-token

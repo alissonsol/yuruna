@@ -4,6 +4,135 @@ Yuruna uses [Calendar Versioning](https://calver.org/): `YYYY.MM.DD`.
 Tags are cut from the `main` branch; entries below summarize each
 tagged release.
 
+## 2026.08.04
+
+- **One way to build an extension service.** There were four of them, and each
+  new one meant copying a presence beacon, an aggregator read client, a write
+  gate and a runtime marker, then editing three hardcoded lists inside the
+  framework so the pool could see it at all. Every copy had drifted. There is
+  now a single interface: a `service:` manifest in each area's own
+  `<area>.config.yml` (VM name, health port, start/stop scripts, dashboard
+  label, write-gate posture), a shared Go SDK under
+  `test/extension/extension-sdk/` (`beacon`, `pool`, `labgate`), and one
+  host-side module, `Test.ExtensionService.psm1`, that owns the runtime marker.
+  The service-VM roster, the reboot sweep, the cleanup guard and the
+  registration record the pool dashboard reads are all derived from the
+  manifests, so **a new extension service is discovered by existing**. See
+  [extensions-api.md](docs/extensions-api.md#the-extension-interface).
+
+- **Anything that changes host or pool configuration now needs the Lab token.**
+  The pool-control service — the one service whose every button rewrites pool
+  configuration — shipped with a `--passcode` flag nothing ever set, which left
+  creating pools, moving hosts between them and reassigning test sets open to
+  any client on the LAN. Those routes now take the same credential the rest of
+  the lab already uses: the rotating 6-character **Lab token** from the Yuruna
+  hosts dashboard, exchanged in the browser for a session, or the shared
+  `lab-auth-token` as a bearer for automation. The passcode is gone; there is
+  nothing to provision, and no second secret to distribute. Reads stay open, so
+  the board still renders on a wall display. A validator that cannot be reached
+  answers `503 lab-token-unavailable` rather than "wrong code", and a service
+  with no credential configured refuses the write instead of running it
+  ungated. Every unlock attempt is audited with its source address. See
+  [pool-admin.md](docs/pool-admin.md#unlocking-the-actions).
+
+- **Three consolidation fixes that came with it.** The download-agent's
+  auto-seed read the aggregator with a client built for public origins, so its
+  pool-status fetch failed certificate verification against the proxy's own CA
+  and the pass reported an error every time — the shared client carries the
+  trusted-LAN posture the other services already had. The pool-control service
+  keyed its login throttle on an address it derived by splitting on the last
+  colon, which gives one IPv6 peer a fresh bucket per attempt; the shared gate
+  uses the real host/port split. And every URL a service reads from the pool is
+  now scheme-checked before it can reach a page as a link.
+
+## 2026.08.04
+
+- **One machine downloads a guest image, the whole lab has it.** A fourth
+  service VM, `yuruna-download-agent-service`, keeps guest images on the pool
+  share under `images/<host type>/<guest type>/` and re-checks them against the
+  origin on a timer — an image whose upstream has not moved has its freshness
+  renewed without transferring a byte. Its board shows what is stored, what is
+  downloading, and what each image is costing in disk, with per-image *Force
+  refresh*, *Delete* and *Prune previous* actions. Unlocking those actions asks
+  for the same rotating 6-character **Lab token** the Yuruna hosts dashboard
+  already shows: nothing to provision, nothing to look up in a vault, and a code
+  that walks out of the lab expires on its own. The daemon checks it with the
+  pool aggregator rather than holding a copy, so an aggregator that is down
+  leaves the board locked — deliberately, and the bearer-token API still works
+  for automation. The pool table sorts on any column, with *State* ordered by
+  severity and *Size* by bytes rather than alphabetically, and the choice is
+  remembered across reloads. `install/setup.ps1` starts it in both standalone
+  and lab mode wherever storage is configured, and it appears in the dashboard's
+  Extension hosts table. New `downloadAgentService` block in
+  `test.config.yml`. See [download-agent.md](docs/download-agent.md).
+
+- **And the other machines stop downloading it.** `Get-Image.ps1` for the
+  Ubuntu Server ISOs (24.04, 26.04), the shared extension-service cloud image,
+  and Amazon Linux 2023 now asks the agent before it contacts the publisher. If
+  the agent says the copy on this host is already the current artifact, the run
+  ends there — no index page read, no HEAD probe, no bytes — and it can say so
+  even while it is refreshing that image for someone else. Otherwise the bytes
+  arrive from the agent over the LAN, checksum-verified, and the local
+  conversion, previous-generation backup and sentinel are unchanged. **A lab
+  without an agent sees no difference at all**: a missing client module, an
+  agent VM never started, one that is down or whose pool share is unmounted, a
+  failed checksum, an expired deadline — each falls back to the publisher path
+  with the same output and the same exit codes. macOS images stay on their own
+  path (the Virtualization framework mints their URLs per Mac). See
+  [guest-image-setup.md](docs/guest-image-setup.md#agent-first-image-downloads).
+
+- **A KVM host can be handed the Windows 11 ISO it used to demand by hand.**
+  That script has always exited with instructions and waited for someone to drop
+  the media in place; when the pool holds it, the download now just happens. The
+  Hyper-V and UTM scripts ask the pool too, and the KVM guest's virtio-win driver
+  ISO joins the pooled families outright. **Every one of them looks on disk
+  first**: the existing file checks, including "adopt any `Win11*.iso` dropped
+  here", all run before the agent is consulted, so a host that already has the
+  media never trades it for a transfer, and the worst case is exactly today's
+  behaviour. The Windows media itself is **best effort** and says so — the agent
+  mints Microsoft's short-lived URL by running Fido under PowerShell inside its
+  Linux VM, which is unproven, and either piece can be absent from a VM. When it
+  does not work the agent reports the family absent and hosts silently keep the
+  path they have (Fido locally on Hyper-V and UTM, manual on KVM) — no warning,
+  because an agent without Windows media is an ordinary state. The agent VM
+  gains both installs at build time, so an existing one needs a stop/start to
+  pick them up, which a setup re-run already does. See
+  [download-agent.md](docs/download-agent.md).
+
+- **A dashboard correction reaches a running caching proxy.** The Yuruna hosts
+  dashboard is baked into the proxy VM at build time, so fixing a panel label
+  used to mean a quarter-hour rebuild that took the cache, Grafana, Loki and
+  Prometheus down with it. `test/Sync-PoolDashboardOnProxy.ps1` pushes the
+  canonical dashboard onto the running VM instead — same aggregator-URL rewrite
+  cloud-init performs, JSON-validated in the guest before it replaces anything,
+  and the per-host panels re-fitted to the live host count immediately rather
+  than up to five minutes later. Grafana is not restarted; a proxy already
+  serving that dashboard is left alone. A rebuild remains the fallback. See
+  [caching.md](docs/caching.md#updating-the-pool-dashboard-without-a-rebuild).
+
+- **A users.yml written before a service existed catches up.** The runtime
+  `users.yml` was copied from its template only when absent, so a host
+  provisioned earlier never learned a later service's logical user and strict
+  mode refused the cycle over a name the operator was never asked about. The
+  authentication area now merges template-declared, credential-free entries into
+  an existing file.
+
+
+- **The pool table stops hiding a pause you already asked for — or a runner that
+  is gone.** A host told to stop after the current step or the current cycle kept
+  reading `running` in *Pool hosts* until it actually stopped, and a host whose
+  runner had been stopped outright kept showing its last cycle's green. Both were
+  statuses that said nothing was about to change. The Status column now carries
+  the same ladder the host's own status banner does: **runner stopped** above
+  everything, then **paused**, **will pause (after current step)** and **will
+  pause (after current cycle)** while the host finishes what it is on, then the
+  cycle result. A step pause reaches `paused` the moment the runner parks at the
+  boundary, not when the cycle ends. Pool health is unaffected: a host working
+  through a pending pause, or one not running cycles at all, still counts as
+  healthy — a genuinely failing host is caught by its incident, not by its status
+  cell. **Needs a caching-proxy service rebuild.**
+
+
 ## 2026.08.03
 
 - **A setup run can be told to say everything.** `install/setup.ps1` takes
@@ -83,7 +212,7 @@ tagged release.
 - **The host clock is reported by a cycle, repaired by an operator.** Cycles
   no longer sync it or refuse a drifted host — the repair needs sudo nobody
   can type unattended. A cycle warns once; `Test-Config.ps1` offers the fix.
-  See [host-condition-registry.md](docs/host-condition-registry.md#the-host-clock).
+  See [test-harness.md](docs/test-harness.md#the-host-clock).
 
 ## 2026.07.26
 
@@ -311,6 +440,6 @@ LICENSEURI <https://yuruna.link/license>
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.03
+Last review: 2026.08.04
 
 Back to [Yuruna](README.md)

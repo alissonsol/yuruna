@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.03
+.VERSION 2026.08.04
 .GUID 42f2c3d4-e5f6-4a78-b901-c2d3e4f5a6b8
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -55,3 +55,11 @@ try {
 if (-not (Save-UbuntuExtensionImage -Image $image -Verbose:($VerbosePreference -ne 'SilentlyContinue'))) {
     exit 1
 }
+# Success must be an explicit exit 0. Start-CachingProxyServiceVM.ps1 invokes
+# this script in-process (& $GetImageScript) and reads $LASTEXITCODE, and the
+# download-agent discovery ladder inside Save-UbuntuExtensionImage probes VMs
+# that may legitimately be absent (utmctl ip-address on a missing VM exits
+# non-zero). A cache-hit run ends on cmdlets, which never overwrite
+# $LASTEXITCODE, so falling off the end here would report that stale probe
+# failure as this script's own exit status.
+exit 0

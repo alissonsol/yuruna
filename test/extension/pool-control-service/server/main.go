@@ -16,14 +16,15 @@ import (
 	"os"
 	"os/signal"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
-	"pool-control-service/internal/beacon"
 	"pool-control-service/internal/config"
 	"pool-control-service/internal/httpsrv"
 	"pool-control-service/internal/intent"
 	"pool-control-service/internal/state"
+	"pool-control-service/internal/yex/beacon"
 )
 
 var version = "dev"
@@ -39,8 +40,7 @@ func main() {
 	stateDir := flag.String("state-dir", "", "directory (under poolStorageNetworkPath/pool-control-service/) for the audit log + status.json; empty disables persistence")
 	monitorInterval := flag.Duration("monitor-interval", 60*time.Second, "how often to probe the intent + refresh status.json")
 	configPath := flag.String("config-file", "/etc/yuruna/pool-control-service.env", "env file re-read before each intent operation for POOL_CONTROL_INTENT_GIT_URL (empty pins the launch flag)")
-	passcode := flag.String("passcode", "", "shared passcode gating the operator board (empty leaves the service open on the LAN, as before)")
-	publicRead := flag.Bool("public-read", false, "let the read-only board render without the passcode (a wall display); mutations stay gated regardless")
+	authTokenFile := flag.String("auth-token-file", config.DefaultAuthTokenFile, "file holding the lab auth token accepted as a bearer on the mutating routes (empty or missing leaves the dashboard's lab token as the only way in)")
 	autoEnrol := flag.Bool("auto-enrol", false, "enable the auto-enrolment sweep (adds lab-token-ready hosts to the target pool); OFF by default")
 	autoEnrolInterval := flag.Duration("auto-enrol-interval", 60*time.Second, "how often the auto-enrolment sweep runs when --auto-enrol is set")
 	flag.Parse()
@@ -50,13 +50,18 @@ func main() {
 		log.Fatalf("pool-control-service: --repo-dir is required (the yuruna framework checkout with test/*.ps1)")
 	}
 
+	// An unreadable token file is not a startup failure: it only means the bearer
+	// route into the gate is unavailable, and an operator can still unlock with
+	// the dashboard's lab token.
+	authToken := readTokenFile(*authTokenFile)
+
 	runner := &intent.Runner{Pwsh: *pwshPath, RepoDir: *repoDir, IntentGitUrl: *intentGitURL, ConfigPath: *configPath}
 	store := state.New(*stateDir, time.Now())
 	ui := httpsrv.New(runner, httpsrv.Options{
 		Addr: *httpAddr, Version: version, Store: store,
 		PwshPath: *pwshPath, RepoDir: *repoDir, StateDir: *stateDir,
 		AggregatorURL: *aggregatorURL, HostID: *hostID, IntentGitURL: *intentGitURL,
-		Passcode: *passcode, PublicRead: *publicRead,
+		AuthToken: authToken,
 	})
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -70,9 +75,8 @@ func main() {
 	// gated on --state-dir, which the host-side launcher never passes, so a
 	// sweep riding it would silently not exist on that deployment.
 	go ui.RunAutoEnrolment(ctx, httpsrv.AutoEnrolOptions{
-		Enabled:       *autoEnrol,
-		Interval:      *autoEnrolInterval,
-		AggregatorURL: *aggregatorURL,
+		Enabled:  *autoEnrol,
+		Interval: *autoEnrolInterval,
 	})
 
 	// Continuous monitor: probe the intent store and refresh status.json (the
@@ -116,6 +120,20 @@ func main() {
 	case <-beaconDone:
 	case <-time.After(8 * time.Second):
 	}
+}
+
+// readTokenFile loads the lab auth token; an absent or unreadable file leaves
+// bearer auth simply unconfigured rather than failing startup.
+func readTokenFile(path string) string {
+	if strings.TrimSpace(path) == "" {
+		return ""
+	}
+	b, err := os.ReadFile(path)
+	if err != nil {
+		log.Printf("pool-control-service: auth token file %s unreadable (%v); bearer auth disabled", path, err)
+		return ""
+	}
+	return strings.TrimSpace(string(b))
 }
 
 // uiPort extracts the port from an addr like "0.0.0.0:80" for the beacon's

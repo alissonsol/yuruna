@@ -1,12 +1,12 @@
 // LICENSEURI https://yuruna.link/license
 // Copyright (c) 2019-2026 by Alisson Sol et al.
 
-// UI-facing ingest + delete entry points. The
-// browser UI creates stashes (pasted text or uploaded files) and deletes
-// its own host's stashes. Both routes go through the SAME storage pipeline
-// as SCP/SFTP — chooseTarget → staging → FinalizeStaging → commit — so a
-// UI-created stash is indistinguishable from an SCP one (a stash is a
-// stash, §1). The only difference is the recorded source = config.SourceUI.
+// UI-facing ingest + delete entry points. The browser UI creates stashes
+// (pasted text or uploaded files) and deletes its own host's stashes. Both
+// routes go through the SAME storage pipeline as SCP/SFTP — chooseTarget →
+// staging → FinalizeStaging → commit — so a UI-created stash is
+// indistinguishable from an SCP one (a stash is a stash, §1). The only
+// difference is the recorded source = config.SourceUI.
 package sshsrv
 
 import (

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.03
+.VERSION 2026.08.04
 .GUID 42d7f3b9-5c1e-4a80-9e2d-7f8a9b0c1d2e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -828,11 +828,11 @@ function Invoke-ConfigSyncHostAlias {
 # address the REFERENCE host resolves it to: the reference is the source of
 # truth for the sync, so its answer is consulted for every name, not only for
 # the ones that fail to resolve here. Skipping the lookup whenever a name
-# resolved locally made the sync a one-shot bootstrap -- a NAS that moved to a
-# new address left a stale hosts entry that still "resolved", so no re-run could
-# ever repair it, and the mounts kept failing against the old IP. Now a re-run
-# rewrites a mapping that disagrees with the reference and writes nothing when
-# they already agree. Operator prompt remains the last resort.
+# resolves locally would make the sync a one-shot bootstrap: a NAS that moved to
+# a new address leaves a stale hosts entry that still "resolves", so no re-run
+# could ever repair it and the mounts would keep failing against the old IP. A
+# re-run therefore rewrites a mapping that disagrees with the reference and
+# writes nothing when they already agree. Operator prompt remains the last resort.
 function Sync-ConfigSyncHostAlias {
     [CmdletBinding(SupportsShouldProcess)]
     param(

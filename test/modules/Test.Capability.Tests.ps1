@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.03
+.VERSION 2026.08.04
 .GUID 42b6d9f1-3c75-4e82-a0d4-6f8b1c2e3a49
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -158,6 +158,31 @@ Describe 'Write-HostRegistrationRecord' {
             [void](Write-HostRegistrationRecord -HostType 'host.windows.hyper-v' -RepoRoot $fx.Tmp)
             $rec = Get-Content -Raw (Join-Path $fx.Tmp 'host.registration.json') | ConvertFrom-Json
             Assert-True (-not ($rec.activeExtensions -contains 'stash-service')) 'active:false marker is not advertised'
+        } finally { Remove-RegFixture -Fixture $fx }
+    }
+
+    It 'folds an active download-agent-service marker into activeExtensions + extensionTargets' {
+        $fx = New-RegFixture
+        try {
+            $marker = [ordered]@{ active = $true; vmName = 'yuruna-download-agent-service';
+                hostType = 'host.ubuntu.kvm'; downloadAgentServiceBaseUrl = 'http://10.0.0.9' }
+            [System.IO.File]::WriteAllText((Join-Path $fx.Tmp 'download-agent-service.json'), ($marker | ConvertTo-Json), [System.Text.UTF8Encoding]::new($false))
+            [void](Write-HostRegistrationRecord -HostType 'host.ubuntu.kvm' -RepoRoot $fx.Tmp)
+            $rec = Get-Content -Raw (Join-Path $fx.Tmp 'host.registration.json') | ConvertFrom-Json
+            Assert-True ($rec.activeExtensions -contains 'download-agent-service') 'activeExtensions carries download-agent-service'
+            Assert-Equal -Expected 'http://10.0.0.9' -Actual $rec.extensionTargets.'download-agent-service' -Because 'extensionTargets carries the advertised agent URL'
+        } finally { Remove-RegFixture -Fixture $fx }
+    }
+
+    It 'does not advertise a torn-down download-agent marker (active:false)' {
+        $fx = New-RegFixture
+        try {
+            $marker = [ordered]@{ active = $false; vmName = 'yuruna-download-agent-service';
+                hostType = 'host.ubuntu.kvm'; downloadAgentServiceBaseUrl = 'http://10.0.0.9' }
+            [System.IO.File]::WriteAllText((Join-Path $fx.Tmp 'download-agent-service.json'), ($marker | ConvertTo-Json), [System.Text.UTF8Encoding]::new($false))
+            [void](Write-HostRegistrationRecord -HostType 'host.ubuntu.kvm' -RepoRoot $fx.Tmp)
+            $rec = Get-Content -Raw (Join-Path $fx.Tmp 'host.registration.json') | ConvertFrom-Json
+            Assert-True (-not ($rec.activeExtensions -contains 'download-agent-service')) 'active:false marker is not advertised'
         } finally { Remove-RegFixture -Fixture $fx }
     }
 }

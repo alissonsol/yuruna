@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.03
+.VERSION 2026.08.04
 .GUID 42634a21-7352-4663-b6f4-cff499ce7a2b
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -848,15 +848,15 @@ return "window_not_found"
 }
 
 # -- libvirt KVM keystroke transport: virsh send-key --------------------------
-# We tried VNC first (Connect-VNC + Send-TextVNC, the same path UTM uses).
+# VNC (Connect-VNC + Send-TextVNC, the path UTM uses) does not work here.
 # Empirically, libvirt-managed QEMU on Ubuntu 24.04 accepts our TCP connect
 # and emits its 'RFB 003.008' greeting, then drops the connection
 # immediately after we write the client version -- before any auth or
-# security-types handshake. UTM's QEMU does not. Tracking down the
-# libvirt-vs-stand-alone-QEMU handshake difference would be deep work; the
-# pragmatic fix is to bypass VNC entirely on KVM and inject keystrokes via
-# `virsh send-key`, which goes through libvirt's QMP monitor and has none
-# of the listen-address / port-discovery / RFB-version moving parts.
+# security-types handshake. UTM's QEMU does not. Rather than chase the
+# libvirt-vs-stand-alone-QEMU handshake difference, KVM bypasses VNC entirely
+# and injects keystrokes via `virsh send-key`, which goes through libvirt's
+# QMP monitor and has none of the listen-address / port-discovery /
+# RFB-version moving parts.
 #
 # `virsh send-key <domain> [keycode...]` accepts Linux input event names
 # (KEY_A, KEY_LEFTSHIFT, KEY_ENTER, ...) and sends them as one chord

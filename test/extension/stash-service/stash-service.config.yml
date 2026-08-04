@@ -1,4 +1,19 @@
+# yaml-language-server: $schema=../../schemas/extension-config.schema.yml
+
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 active:
   - default
+service:
+  displayName: Stash service
+  vmName: yuruna-stash-service
+  healthPort: 80
+  healthPath: /healthz
+  startScript: Start-StashServiceVM.ps1
+  stopScript: Stop-StashServiceVM.ps1
+  markerBaseUrlKey: stashBaseUrl
+  beaconInterval: 15m
+  # DELETE is restricted to the VM itself and the deploying host, which is a
+  # narrower rule than the lab token, not a looser one -- and a stash holds
+  # artifacts, not host or pool configuration.
+  writeGate: none

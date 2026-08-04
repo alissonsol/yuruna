@@ -3,11 +3,16 @@
 // Pools CRUD: create (mints poolGuid server-side), set desired state, add/remove
 // hosts, delete an empty pool.
 (function () {
+  // Header version + host id and the footer bar; its countdown re-reads pool
+  // intent rather than reloading, so a half-typed new-pool id is not wiped.
+  const chrome = Y.initChrome({ refresh: load });
+
   async function load() {
     Y.clearNotice();
     let data;
     try { data = await Y.api('/api/state'); }
     catch (e) { Y.notice('error', 'Could not load pools: ' + e.message); return; }
+    chrome.markLoaded();
     const pools = data.pools || [];
     const tbody = document.getElementById('pool-rows');
     tbody.textContent = '';
@@ -18,7 +23,6 @@
     for (const p of pools) {
       const members = p.members || [];
 
-      // desiredState select
       const stateSel = Y.el('select', {});
       for (const st of ['run', 'paused', 'drain']) {
         const o = Y.el('option', { value: st, text: st });
@@ -26,17 +30,16 @@
         stateSel.appendChild(o);
       }
       stateSel.addEventListener('change', async function () {
-        try { await Y.api('/api/pool/desired-state', { method: 'POST', body: { poolId: p.poolId, desiredState: stateSel.value } }); Y.notice('ok', "Pool '" + p.poolId + "' -> " + stateSel.value); load(); }
+        try { await Y.mutate('/api/pool/desired-state', { method: 'POST', body: { poolId: p.poolId, desiredState: stateSel.value } }); Y.notice('ok', "Pool '" + p.poolId + "' -> " + stateSel.value); load(); }
         catch (e) { Y.notice('error', 'State change failed: ' + e.message); }
       });
 
-      // add-host input + button
       const hostInput = Y.el('input', { placeholder: 'hostId (42+30hex)', size: '20' });
       const addBtn = Y.el('button', { text: '+ host' });
       addBtn.addEventListener('click', async function () {
         const hid = hostInput.value.trim(); if (!hid) return;
         addBtn.disabled = true;
-        try { await Y.api('/api/pool/host', { method: 'POST', body: { poolId: p.poolId, hostId: hid } }); Y.notice('ok', 'Added ' + hid + ' to ' + p.poolId); load(); }
+        try { await Y.mutate('/api/pool/host', { method: 'POST', body: { poolId: p.poolId, hostId: hid } }); Y.notice('ok', 'Added ' + hid + ' to ' + p.poolId); load(); }
         catch (e) { Y.notice('error', 'Add host failed: ' + e.message); addBtn.disabled = false; }
       });
 
@@ -44,7 +47,7 @@
       delBtn.addEventListener('click', async function () {
         if (members.length > 0) { Y.notice('error', "Pool '" + p.poolId + "' has members; remove them first."); return; }
         delBtn.disabled = true;
-        try { await Y.api('/api/pool?poolId=' + encodeURIComponent(p.poolId), { method: 'DELETE' }); Y.notice('ok', "Deleted pool '" + p.poolId + "'."); load(); }
+        try { await Y.mutate('/api/pool?poolId=' + encodeURIComponent(p.poolId), { method: 'DELETE' }); Y.notice('ok', "Deleted pool '" + p.poolId + "'."); load(); }
         catch (e) { Y.notice('error', 'Delete failed: ' + e.message); delBtn.disabled = false; }
       });
 
@@ -53,7 +56,7 @@
       for (const m of members) {
         const rm = Y.el('button', { text: 'x' });
         rm.addEventListener('click', async function () {
-          try { await Y.api('/api/pool/host?poolId=' + encodeURIComponent(p.poolId) + '&hostId=' + encodeURIComponent(m), { method: 'DELETE' }); load(); }
+          try { await Y.mutate('/api/pool/host?poolId=' + encodeURIComponent(p.poolId) + '&hostId=' + encodeURIComponent(m), { method: 'DELETE' }); load(); }
           catch (e) { Y.notice('error', 'Remove host failed: ' + e.message); }
         });
         memCell.appendChild(Y.el('div', { class: 'mono' }, [m + ' ', rm]));
@@ -77,7 +80,7 @@
     const state = document.getElementById('new-state').value;
     if (!poolId) { Y.notice('error', 'Enter a pool id.'); return; }
     try {
-      await Y.api('/api/pool', { method: 'POST', body: { poolId: poolId, displayName: display, desiredState: state } });
+      await Y.mutate('/api/pool', { method: 'POST', body: { poolId: poolId, displayName: display, desiredState: state } });
       Y.notice('ok', "Created pool '" + poolId + "'.");
       document.getElementById('new-poolid').value = '';
       document.getElementById('new-display').value = '';

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.03
+.VERSION 2026.08.04
 .GUID 42d15e27-b2c3-4d4e-9f50-6b7c8d9e0f1a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -1602,8 +1602,8 @@ function Write-CycleInfraFailure {
         is resolvable this is a no-op -- Test.RunnerInnerLoop's
         'Write-CycleInfraFailure' Pester test asserts the record IS written when the
         builders are present, so a resolution break fails loudly instead of
-        silently dropping infra records. $HostType is passed explicitly (it was a
-        captured local while this was an in-cycle closure).
+        silently dropping infra records. $HostType is passed explicitly rather
+        than captured from an enclosing scope.
     #>
     [CmdletBinding()]
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidGlobalVars', '',
@@ -1662,8 +1662,8 @@ function Invoke-RunnerBootstrapFailureGate {
         (the outer then enters its failure-pause). A bootstrap failure is not a
         code crash, so $ConsecutiveCrashes is left untouched -- a persistent outage
         is throttled by the outer failure-pause, not the MaxConsecutiveCrashes
-        abort. The GitPull and ProjectClone paths shared this block verbatim; only
-        Stage / ErrorMessage / GitCommit / FailureClass differ.
+        abort. The GitPull and ProjectClone paths share this block; only Stage /
+        ErrorMessage / GitCommit / FailureClass differ.
 
         Mutates $GatingState IN PLACE (ConsecutiveFailures / ConsecutiveSuccesses /
         AlertArmed; reads FailuresBeforeAlert / SuccessesBeforeRearm) and writes its
@@ -1947,8 +1947,8 @@ do {
     }
 
     # --- REGION: Assigned-project access probe ----------------------------
-    # A pool can hand this host a projectUrl its credential cannot read. Today
-    # that would surface only when the clone below fails, mid-cycle, as a
+    # A pool can hand this host a projectUrl its credential cannot read. Without
+    # this probe that surfaces only when the clone below fails, mid-cycle, as a
     # generic bootstrap error -- and the person who MADE the assignment is not
     # the person watching this host. Probe first, classify precisely, and
     # publish the result so the pool-control board can name the blocked hosts.
@@ -2163,18 +2163,19 @@ do {
         # project's own test.runner.yml exactly like an unpooled host -- there is
         # no separate pool cycle-plan. $script:PoolCycle just records that this is
         # a pooled run (for status/labeling). A sequence typo still throws
-        # PlannerFatal, so the catch's banner aborts the cycle as before.
+        # PlannerFatal, so the catch's banner aborts the cycle.
         $poolManifest = if (Get-Command Read-YurunaPoolManifest -ErrorAction SilentlyContinue) { Read-YurunaPoolManifest } else { $null }
         $script:PoolCycle = ($poolManifest -is [System.Collections.IDictionary]) -and ($poolManifest['testSet'] -is [System.Collections.IDictionary])
         # --- REGION: pool test-set subset -------------------------------------
-        # !! GATED: this branch edits the runner's central plan resolution and
-        # !! MUST NOT MERGE without a live pool cycle proving it. See the design
-        # !! (dev-only/design/default-pool-auto-enrolment-and-test-sets.md 4.6).
+        # This branch edits the runner's central plan resolution, so it stays
+        # inert unless a pool explicitly opts in. The two-phase schema rollout
+        # that governs when a store may emit testSet.sequences[] is recorded in
+        # dev-only/design/default-pool-auto-enrolment-and-test-sets.md (4.6).
         #
         # An assigned testSet may name a SUBSET of the project's top-level
         # sequences. Absent or empty -> $script:PoolSubset stays empty and the
-        # call below is byte-for-byte the previous behaviour, which is what every
-        # unpooled host and every existing pool store gets.
+        # call below is byte-for-byte the whole-project behaviour, which is what
+        # every unpooled host and every existing pool store gets.
         $script:PoolSubset = @()
         if ($script:PoolCycle) {
             $script:PoolSubset = @(@($poolManifest['testSet']['sequences']) | ForEach-Object { "$_".Trim() } | Where-Object { $_ })
@@ -2184,7 +2185,7 @@ do {
             Write-Output "Pool test-set '$setName': running $($script:PoolSubset.Count) of the project's sequences ($($script:PoolSubset -join ', '))."
             # Resolve-TestSetCyclePlan produces the identical entry shape and
             # raises the same PlannerFatal, so the catch below and its
-            # plan_invalid routing are unchanged.
+            # plan_invalid routing apply here too.
             $script:CyclePlan = Resolve-TestSetCyclePlan -RepoRoot $RepoRoot -SequencesDir $SequencesDir -HostType $HostType `
                 -Sequences $script:PoolSubset -SetName $setName
         } else {
@@ -2214,7 +2215,7 @@ do {
             $FailureMessage = $_.Exception.Message
             Write-CycleInfraFailure -Stage 'Resolve-CyclePlan' -FailureClass 'plan_invalid' -GuestKey '(planner)' -ErrorMessage $FailureMessage -HostType $HostType
         } else {
-            # Inner message now embeds the offending file path (Read-SequenceFile
+            # The inner message embeds the offending file path (Read-SequenceFile
             # walks the YamlDotNet exception chain to surface file + line:col),
             # so don't prefix with project/test/test.runner.yml -- the actual
             # failure may be in any sequence the planner walked to.
@@ -2233,7 +2234,7 @@ do {
     # inner sequence, Complete/seal -- exactly as a standalone `Invoke-TestSequence
     # <orch>` run does. The runner delegates to it below instead of the per-guest
     # VM lifecycle, and forces GuestList empty so the empty-plan fallback to the
-    # legacy guestSequence does NOT bring up a phantom guest (the bug this fixes).
+    # legacy guestSequence does NOT bring up a phantom guest.
     $isOrchestrationCycle = $false
     $orchestrationDoc     = $null
     $orchestrationName    = $null
@@ -2252,8 +2253,7 @@ do {
         # the resolved plan, so a subset that excludes an orchestration
         # top-level would still see it here and trip the orchestration-mix
         # plan_invalid below for work this cycle was never going to run. Empty
-        # when unpooled or when the set names no subset, which is the previous
-        # behaviour.
+        # when unpooled or when the set names no subset.
         try { $orchestrations = Get-CycleOrchestrationList -RepoRoot $RepoRoot -SequencesDir $SequencesDir -HostType $HostType -Sequences $script:PoolSubset }
         catch { Write-Warning "Could not resolve orchestration list: $($_.Exception.Message)" }
     }
@@ -2922,9 +2922,9 @@ do {
     # respawns immediately (success) or enters its failure-pause (non-
     # zero exit). Putting the delay here means an "Invoke-TestRunner is
     # idle for 30s between cycles" period is observable on the runner
-    # host -- Windows hosts in particular were going dark between cycles
-    # when the delay lived in the outer, since the outer's Write-Output
-    # could be swallowed by conhost while the inner pwsh was gone.
+    # host -- with the delay in the outer, Windows hosts in particular go
+    # dark between cycles, since the outer's Write-Output can be swallowed
+    # by conhost while the inner pwsh is gone.
     #
     # The countdown is sliced into 1-second waits so Ctrl+C / shutdown /
     # cycle-pause flag can break out without sitting through a long
@@ -2964,7 +2964,7 @@ do {
     # pause armed via the status UI DURING the cycleDelaySeconds wait is honored
     # here -- after the wait runs to completion, before we exit the inner, so the
     # outer respawns the next cycle only once resumed. This is what makes the
-    # UI's now-enabled "Pause after cycle" button take effect right after the
+    # UI's "Pause after cycle" button take effect right after the
     # inter-cycle delay. Gated on $effectiveDelay so it only fires when a wait
     # actually ran; with no inter-cycle delay the pre-delay gate above is the
     # sole cycle boundary. Mirrors that gate's wait loop -- keep the heartbeat-

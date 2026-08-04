@@ -54,10 +54,9 @@ type Record struct {
 	// records are false.
 	LocallyBuffered bool
 
-	// UI fields. Populated by server-side
-	// detection at upload/flush time; carried on the durable sidecar so a
-	// stash classified on one host renders the same when viewed from
-	// another, and survives a reimage rebuild.
+	// UI fields, populated by server-side detection at upload/flush time and
+	// carried on the durable sidecar so a stash classified on one host renders
+	// the same when viewed from another, and survives a reimage rebuild.
 	MimeType     string  // detected MIME type
 	ContentClass string  // text|image|pdf|audio|video|archive|other
 	IsText       bool    // convenience flag for the text viewer
@@ -395,11 +394,10 @@ SELECT ` + uploadColumns + `
 }
 
 func escapeLike(s string) string {
-	// LIKE special chars in SQLite: % and _. Escape with \, then add
-	// ESCAPE '\\' to the LIKE call... but we use the simpler form
-	// "LIKE ?" without ESCAPE. For v1 we accept that a literal % in a
-	// search term is treated as a wildcard. Trusted-network tradeoff;
-	// the in-VM UI controls the search input shape.
+	// LIKE's special chars in SQLite are % and _. The queries use the plain
+	// "LIKE ?" form with no ESCAPE clause, so a literal % in a search term is
+	// treated as a wildcard. Trusted-network tradeoff; the in-VM UI controls
+	// the search input shape.
 	return s
 }
 
@@ -451,9 +449,9 @@ func scanRow(s scanner) (*Record, error) {
 
 // Sidecar is the on-disk JSON record written next to each committed
 // artifact on the share (§8.5). It is the durable, reimage-surviving form
-// of a metadata record, deliberately decoupled from the SQLite schema so
-// the on-disk format and the index can evolve independently. The
-// UI and the rebuild path (RebuildFromSidecars) both read it.
+// of a metadata record, deliberately decoupled from the SQLite schema so the
+// on-disk format and the index can evolve independently. The UI and the
+// rebuild path (RebuildFromSidecars) both read it.
 type Sidecar struct {
 	ID               string     `json:"id"`
 	StoredPath       string     `json:"storedPath"`
@@ -470,10 +468,10 @@ type Sidecar struct {
 	// written for artifacts already committed to the share. The field is
 	// carried for §8.1 completeness and forward-compatibility.
 	LocallyBuffered bool `json:"locallyBuffered"`
-	// UI detection fields. omitempty so a sidecar
-	// from before the UI shipped round-trips unchanged; an empty
-	// contentClass signals "not yet classified" to the reader, which then
-	// detects on-the-fly (remote) or backfills (local owner).
+	// UI detection fields. omitempty so a sidecar written without them
+	// round-trips unchanged; an empty contentClass signals "not yet
+	// classified" to the reader, which then detects on-the-fly (remote) or
+	// backfills (local owner).
 	MimeType     string  `json:"mimeType,omitempty"`
 	ContentClass string  `json:"contentClass,omitempty"`
 	IsText       bool    `json:"isText,omitempty"`
@@ -499,9 +497,9 @@ func WriteSidecar(r *Record) error {
 }
 
 // ReadSidecar reads and parses one <id>.yuruna.meta.json file into a
-// Record. Used by the pool-wide UI to read OTHER hosts' sidecars off the
-// share without going through any host's local
-// index. Returns an error for an unreadable / malformed / empty-id file.
+// Record. Used by the pool-wide UI to read OTHER hosts' sidecars off the share
+// without going through any host's local index. Returns an error for an
+// unreadable / malformed / empty-id file.
 func ReadSidecar(path string) (*Record, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {

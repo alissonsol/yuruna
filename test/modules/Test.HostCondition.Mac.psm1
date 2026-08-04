@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.03
+.VERSION 2026.08.04
 .GUID 42d4a3b2-c1f0-4e89-5678-9a0b1c2d3e40
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -497,13 +497,12 @@ function Initialize-SudoCache {
     #
     # Write-Host, not Write-Output: every caller wraps this function as
     # `[void](Initialize-SudoCache ...)`, and that cast discards the whole
-    # success stream -- so a Write-Output notice was swallowed and the operator
-    # saw a bare "[sudo] password for ..." with no explanation of what wanted it.
-    # Write-Host also keeps the [OutputType([bool])] contract honest: with the
-    # box on the success stream this function returned an ARRAY of box lines plus
-    # the bool, which is why `if (-not (Initialize-SudoCache ...))` in
-    # test/Test-Config.ps1 never fired on the cold path (a non-empty array is
-    # always truthy).
+    # success stream -- a Write-Output notice would be swallowed, leaving the
+    # operator with a bare "[sudo] password for ..." and no explanation. It also
+    # keeps the [OutputType([bool])] contract honest: box lines on the success
+    # stream make the return an ARRAY, and a non-empty array is always truthy,
+    # so `if (-not (Initialize-SudoCache ...))` in test/Test-Config.ps1 would
+    # never fire on the cold path.
     Write-Host ""
     Write-Host "  +---------------------------------------------------------------+"
     Write-Host "  | This script needs sudo for:                                   |"

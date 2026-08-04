@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.03
+.VERSION 2026.08.04
 .GUID 425458ca-5060-4a2d-b2e3-2fb297ec265e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -38,6 +38,10 @@ $script:LogLevelRank = [ordered]@{
 # Set-LogLevelPreference suppresses it (at Verbose/Debug) and restored when the
 # level rises back above Verbose. $null means "nothing suppressed to restore".
 $script:SavedProgressPreference = $null
+
+# Path this process is transcribing to, or $null when it is not. Guards against
+# a second Start-Transcript in a script that re-imports this module.
+$script:ChildTranscriptPath = $null
 
 function Get-LogLevelRank {
     <#
@@ -113,16 +117,98 @@ function Resolve-LogLevel {
     return $matched
 }
 
+function Start-YurunaChildTranscript {
+    <#
+    .SYNOPSIS
+        Tee this process's PowerShell streams into a file under
+        $env:YURUNA_CHILD_TRANSCRIPT_DIR when a parent asked for one.
+        Silent no-op when the variable is unset.
+    .DESCRIPTION
+        A parent that hands its real console to a child -- so the child's
+        prompts stay visible and Read-Host still reaches the keyboard -- cannot
+        also pipe that child's output somewhere it can read back afterwards. Its
+        own log then records an exit code and nothing else, and the reason a
+        child failed lives only in the operator's scrollback.
+
+        Start-Transcript closes that gap from the child's side: it writes a copy
+        of the output streams to a file WITHOUT taking the console away, so a
+        parent gets a readable record and the operator still sees, and can
+        answer, every prompt.
+
+        One file per process, named for the script and its pid. A child that
+        spawns pwsh grandchildren of its own -- a Start-*ServiceVM delegating to
+        a per-host New-VM.ps1 -- would otherwise have two processes writing one
+        file. Each generation lands in the shared directory under a name of its
+        own, and the parent reads whichever ones exist.
+
+        Best-effort, and deliberately silent when it cannot start: a transcript
+        is a diagnostic aid, so a host that has transcription running already,
+        an unwritable directory, or a host that does not implement transcription
+        at all must not cost the script the work it was started to do.
+
+        A native command's stderr is NOT part of a PowerShell transcript -- that
+        goes straight to the console handle. Every PowerShell stream does land
+        in the file, which is where an entry point's own failure text is written.
+    .OUTPUTS
+        [string] the transcript path, or '' when none was started.
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions',
+        '', Justification = 'Opens a diagnostic transcript for this process; a log-level prelude carries no -WhatIf intent.')]
+    param()
+    if ($script:ChildTranscriptPath) { return $script:ChildTranscriptPath }
+    $dir = $env:YURUNA_CHILD_TRANSCRIPT_DIR
+    if ([string]::IsNullOrWhiteSpace($dir)) { return '' }
+    try {
+        if (-not (Test-Path -LiteralPath $dir)) {
+            New-Item -ItemType Directory -Force -Path $dir -WhatIf:$false | Out-Null
+        }
+        # The BOTTOM call-stack frame is the script pwsh was launched with, which
+        # is the name an operator recognizes in the parent's report. A dot-sourced
+        # or interactive caller leaves it empty, hence the fallback.
+        $leaf = 'child'
+        $bottom = @(Get-PSCallStack)[-1].ScriptName
+        if ($bottom) { $leaf = [System.IO.Path]::GetFileNameWithoutExtension($bottom) }
+        $leaf = $leaf -replace '[^A-Za-z0-9._-]', '_'
+        $path = Join-Path $dir ('{0}.{1}.log' -f $leaf, $PID)
+        $transcriptArgs = @{ Path = $path; Append = $true; WhatIf = $false; ErrorAction = 'Stop' }
+        # -UseMinimalHeader keeps the preamble to one line instead of a dozen. It
+        # arrived after 7.0, which #requires -version 7 still admits, so it is
+        # passed only where the parameter exists.
+        if ((Get-Command Start-Transcript).Parameters.ContainsKey('UseMinimalHeader')) {
+            $transcriptArgs['UseMinimalHeader'] = $true
+        }
+        Start-Transcript @transcriptArgs | Out-Null
+        $script:ChildTranscriptPath = $path
+        return $path
+    } catch {
+        # Nowhere useful to report this: the console belongs to the operator and
+        # the parent's log is not reachable from here.
+        $script:ChildTranscriptPath = $null
+        return ''
+    }
+}
+
 function Use-LogLevelFromEnv {
     <#
     .SYNOPSIS
         Apply the cascade in a child script that inherited YURUNA_LOG_LEVEL
         from its parent. No-op when the env var is unset or invalid -- the
         script keeps PowerShell's default preference values.
+    .DESCRIPTION
+        Also opens the child transcript when a parent asked for one. Both
+        concerns answer the same question -- what this run says, and where it
+        can be read afterwards -- and this is the one call every yuruna entry
+        point already makes, so hanging the transcript here reaches all of them
+        (including the per-guest builders a service bring-up spawns) without a
+        second line in each.
     #>
     if ($env:YURUNA_LOG_LEVEL -and $script:LogLevelRank.Contains($env:YURUNA_LOG_LEVEL)) {
         Set-LogLevelPreference -Level $env:YURUNA_LOG_LEVEL
     }
+    [void](Start-YurunaChildTranscript)
 }
 
-Export-ModuleMember -Function Get-LogLevelRank, Set-LogLevelPreference, Resolve-LogLevel, Use-LogLevelFromEnv
+Export-ModuleMember -Function Get-LogLevelRank, Set-LogLevelPreference, Resolve-LogLevel, `
+    Use-LogLevelFromEnv, Start-YurunaChildTranscript

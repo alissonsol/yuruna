@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.03
+.VERSION 2026.08.04
 .GUID 42f1b2c3-d4e5-4f67-8901-a2b3c4d5e6f9
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -196,7 +196,6 @@ if (-not $AdminPassword) { Write-Error "Get-Password returned empty for 'caching
 Write-Output "Password came from authentication mechanism: $_authActiveName"
 Write-Output "See configuration at: $(Resolve-ExtensionAreaDir -Area 'authentication')"
 [void](Save-CachingProxyServiceState -Secret $AdminPassword -Confirm:$false)
-# Resolve the file path once for the Write-Output lines below.
 $PasswordFile = Get-CachingProxyServiceStatePath
 
 # --- REGION: https://yuruna.link/network#cache-vm-seed-host-binding

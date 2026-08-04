@@ -11,23 +11,18 @@
    still unimplemented. Grid gaps are declared twice, `grid-gap` first, which
    covers Safari 10.1-11.x. */
 
-.board { margin: 0; padding: 0 0 3rem; }
+/* No bottom padding here: the shared `body.has-footer-bar main` rule in
+   style.css already reserves the strip the fixed footer bar sits in, and
+   reserving it twice leaves a visible gap under the last card. */
+.board { margin: 0; padding: 0; }
 
-.board-top {
-  display: flex; align-items: center; justify-content: space-between;
-  padding: 0.9rem 1rem;
-  border-bottom: 1px solid var(--line, #d0d7de);
-  position: sticky; top: 0; z-index: 2;
-  background: var(--bg, #fff);
-}
-.board-top .brand { font-weight: 600; font-size: 1.05rem; margin-right: 1rem; }
-.advanced-link { font-size: 0.9rem; text-decoration: none; opacity: 0.75; }
-.advanced-link:hover { opacity: 1; text-decoration: underline; }
-
-/* Period selector: sticky so it stays reachable while scrolling a long list. */
+/* Period selector: sticky so it stays reachable while scrolling a long list.
+   It parks at the very top because the page header scrolls away with the
+   content -- the header is the shared one every page in this service carries,
+   not a board-specific bar. */
 .periods {
   display: flex; padding: 0.75rem 1rem;
-  position: sticky; top: 3.1rem; z-index: 1;
+  position: sticky; top: 0; z-index: 1;
   background: var(--bg, #fff);
 }
 .periods button {
@@ -80,15 +75,6 @@
   background: #ffebe9; color: #82071e; font-size: 0.85rem;
 }
 
-/* Passcode prompt. */
-.login { max-width: 22rem; margin: 4rem auto; padding: 0 1.25rem; text-align: center; }
-.login h1 { font-size: 1.2rem; margin-bottom: 1rem; }
-.login form { display: flex; flex-direction: column; }
-.login form > * + * { margin-top: 0.6rem; }
-.login input, .login button { min-height: 44px; font-size: 1rem; border-radius: 10px; padding: 0 0.7rem; }
-.login input { border: 1px solid var(--line, #d0d7de); background: var(--bg, #fff); color: inherit; }
-.login-error { color: #cf222e; font-size: 0.9rem; }
-
 /* Confirmation sheet: bottom-anchored on a phone, where thumbs are. */
 /* `display:flex` here would beat the user-agent `[hidden] { display: none }`,
    which is why style.css carries the `!important` [hidden] guard: without it
@@ -112,10 +98,14 @@
 }
 
 @media (prefers-color-scheme: dark) {
-  .board, .board-top, .periods, .login input, .card select, .sheet-box { --bg: #0d1117; }
+  .board, .periods, .card select, .sheet-box { --bg: #0d1117; }
   .board { background: #0d1117; color: #e6edf3; }
-  .board-top, .periods { background: #0d1117; }
-  .card, .periods button, .login input, .card select, .sheet-actions .ghost { border-color: #30363d; }
+  .periods { background: #0d1117; }
+  /* The shared header is styled light-only in style.css (the desktop pages have
+     no dark scheme). Only the board honours the device preference, so its dark
+     values are set here rather than there. */
+  header.app { border-color: #30363d; --muted: #8b949e; --accent: #4493f8; }
+  .card, .periods button, .card select, .sheet-actions .ghost { border-color: #30363d; }
   .sheet-box { background: #161b22; }
   .stats-banner { background: #341a00; color: #f0b72f; }
   .card .blocked { background: #3c1618; color: #ff9492; }

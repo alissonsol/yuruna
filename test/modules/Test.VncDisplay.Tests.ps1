@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.03
+.VERSION 2026.08.04
 .GUID 42c1f70a-8d35-4e63-9a27-5b48c1e07d92
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -200,22 +200,57 @@ Describe 'A failed VM start is never reported as success' {
         $body = [regex]::Match($text, '(?ms)^function Start-UtmVM\b.*?\n\}').Value
         Assert-True ($body -match 'Find-FreeVncDisplay') 'start picks a free display'
         Assert-True ($body -match 'Set-VncDisplayInBundle') 'and records it in the bundle'
-        $utmctlAt = $body.IndexOf('utmctl start')
+        # Anchored on however the start is ISSUED, not on the utmctl verb, which
+        # now lives in the retrying helper Start-UtmVM delegates to. The ordering
+        # this protects is unchanged.
+        $startMatch = [regex]::Match($body, 'Invoke-UtmVMStartWithRetry|utmctl start')
+        Assert-True ($startMatch.Success) 'the start is still there'
         $resolveAt = $body.IndexOf('Find-FreeVncDisplay')
-        Assert-True ($resolveAt -ge 0 -and $resolveAt -lt $utmctlAt) 'the display is resolved BEFORE the start'
+        Assert-True ($resolveAt -ge 0 -and $resolveAt -lt $startMatch.Index) 'the display is resolved BEFORE the start'
     }
 
-    It 'Start-UtmVM fails when utmctl exits 0 but QEMU died' {
+    It 'the start path fails when utmctl exits 0 but QEMU died' {
         # utmctl start acknowledges the request, not the guest. QEMU can exit
         # immediately afterwards over a port it cannot bind, and returning
         # success there buys a dead VM a whole sequence of downstream steps.
         $text = Get-Content -Raw (Join-Path $VncRepoRoot 'host/macos.utm/modules/Yuruna.Host.psm1')
-        $body = [regex]::Match($text, '(?ms)^function Start-UtmVM\b.*?\n\}').Value
-        Assert-True ($body -match 'QEMU exited from an error') 'the QEMU death notice is recognised'
-        $detectAt = $body.IndexOf('$startFailure = $text')
-        $returnAt  = $body.IndexOf('success = $true')
-        Assert-True ($detectAt -ge 0) 'the failing line is captured'
-        Assert-True ($detectAt -lt $returnAt) 'and it is inspected before the success return'
+        $classify = [regex]::Match($text, '(?ms)^function Get-UtmStartFailureKind\b.*?\n\}').Value
+        Assert-True ($classify.Length -gt 0) 'the start-failure classifier is defined'
+        Assert-True ($classify -match 'QEMU exited from an error') 'the QEMU death notice is recognised'
+        $qemuAt  = $classify.IndexOf("'qemu'")
+        $appleAt = $classify.IndexOf("'apple-event'")
+        Assert-True ($qemuAt -ge 0 -and $appleAt -ge 0) 'the two failure classes are told apart'
+        # Order matters: UTM prints QEMU deaths that also carry an Apple Event
+        # phrase, and reading one of those as a transport fault would retry a VM
+        # whose process is already dead.
+        Assert-True ($qemuAt -lt $appleAt) 'a message naming QEMU is classified as QEMU even when it also carries an Apple Event phrase'
+
+        $starter = [regex]::Match($text, '(?ms)^function Invoke-UtmVMStartWithRetry\b.*?\n\}').Value
+        Assert-True ($starter.Length -gt 0) 'the retrying starter is defined'
+        Assert-True ($starter -match "kind\s*=\s*'qemu'") 'a QEMU death is returned with its class'
+        Assert-True ($starter -match 'success\s*=\s*\$false')  'and as a failure, not a success'
+    }
+
+    It 'the start path retries a refused start but never a dead QEMU' {
+        # An Apple Event failure means UTM never acted on the request: the VM is
+        # untouched and the same call routinely succeeds moments later, so a
+        # single attempt turns a momentary refusal into an outage that lasts
+        # until an operator types the command by hand -- taking every guest that
+        # consumes the service down with it. A QEMU death is the opposite case:
+        # the VM launched and its process died, and repeating that only delays
+        # the news.
+        $text = Get-Content -Raw (Join-Path $VncRepoRoot 'host/macos.utm/modules/Yuruna.Host.psm1')
+        $starter = [regex]::Match($text, '(?ms)^function Invoke-UtmVMStartWithRetry\b.*?\n\}').Value
+        Assert-True ($starter.Length -gt 0) 'the retrying starter is defined'
+        Assert-True ($starter -match 'MaxAttempts') 'it takes an attempt budget'
+        Assert-True ($starter -match 'for\s*\(\s*\$attempt') 'and loops over attempts'
+        $loopAt       = $starter.IndexOf('for ($attempt')
+        $qemuReturnAt = $starter.IndexOf("kind = 'qemu'")
+        Assert-True ($loopAt -ge 0 -and $qemuReturnAt -gt $loopAt) 'the QEMU early-out sits inside the retry loop, so it cannot come round again'
+        # The verb's own exit code and output are advisory; the VM's observed
+        # state is what decides, because utmctl exits 0 for several outcomes
+        # that are not a running VM.
+        Assert-True ($starter -match 'Get-VMState') 'each attempt is adjudicated by polling the VM state'
     }
 
     It 'Rename-VM allocates the VNC display while UTM is quit' {

@@ -7,17 +7,22 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Pool-control service &mdash; Pools</title>
+  <title>Yuruna Pool Control &mdash; Pools</title>
   <link rel="stylesheet" href="/assets/style.css">
 </head>
-<body>
+<body class="has-footer-bar">
   <header class="app">
-    <span class="brand">Yuruna pool-control service</span>
+    <div class="brand">
+      <span>Yuruna Pool Control</span>
+      <span class="version" id="header-version"></span>
+    </div>
     <nav>
-      <a href="/">Assign</a>
+      <a href="/assign">Assign</a>
       <a href="/pools" class="active">Pools</a>
       <a href="/test-sets">Test sets</a>
     </nav>
+    <span class="spacer"></span>
+    <span class="machine" id="machine"></span>
   </header>
   <main>
     <h1>Pools</h1>
@@ -34,6 +39,11 @@
       <tbody id="pool-rows"></tbody>
     </table>
   </main>
+  <footer id="footer-bar">
+    <span id="footer-ips"><span class="label">IPs:</span><textarea id="footer-ip-list" readonly rows="1" spellcheck="false" inputmode="none" autocorrect="off" autocapitalize="off" aria-label="Server IP addresses">—</textarea></span>
+    <span>Loaded: <span id="last-loaded">—</span></span>
+    <span><a id="footer-refresh" href="#">Refresh</a>: <span id="countdown">60</span>s · <a href="https://yuruna.link/pool-control">guide</a></span>
+  </footer>
   <script src="/assets/common.js"></script>
   <script src="/assets/pools.js"></script>
 </body>

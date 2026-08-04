@@ -1,12 +1,12 @@
 # Install scripts
 
-One bootstrap installer per host. Each one is idempotent, prompts for
+One bootstrap installer per host. Each is idempotent, prompts for
 elevation once with an up-front banner, and clones the repo to
 `~/git/yuruna` (or `%USERPROFILE%\git\yuruna` on Windows).
 
 By default the clone tracks the `main` branch, so the host **auto-updates
-the framework every test cycle**. To freeze a host at a fixed release that
-never auto-updates, see **Pin to a release** below.
+the framework every test cycle**. To freeze a host at a fixed release, see
+**Pin to a release** below.
 
 Enabling the host as a Yuruna test host (display sleep / screen lock /
 storage-pool tweaks) is intentionally NOT done automatically. Run
@@ -22,8 +22,8 @@ host settings alone, `host/<platform>/Enable-TestAutomation.ps1`.
 ## Guided setup
 
 The installer above puts packages and the repo on the machine. [setup.ps1](setup.ps1)
-takes it the rest of the way — to a working **Standalone host** or a working
-**Lab** — asking only what it cannot infer:
+takes it the rest of the way — to a working **Standalone host** or **Lab** —
+asking only what it cannot infer:
 
 ```
 pwsh install/setup.ps1                    # interactive
@@ -40,7 +40,7 @@ pwsh install/setup.ps1 -logLevel Debug    # everything the run and its children 
 Storage is one of the questions, not an assumption: **this machine** (local SMB
 shares, the default for standalone), **an existing NAS share** (mounted, never
 created — set up the share and `networkStorage.*` first), or **none**, which is
-standalone-only and skips shared storage and the stash service with it.
+standalone-only and skips shared storage and the stash service.
 
 It installs nothing and clones nothing — it orchestrates the scripts that already
 do each job. Storage is configured **before** the service VMs in both modes,
@@ -55,12 +55,12 @@ the next machine can be set up the same way.
 Every run — previews included — is recorded in
 `test/status/log/setup.<yyyy.MM.dd.HH.mm>.log`: each question, the answer taken
 and whether anyone chose it, each step and its outcome, each child script's
-command line and exit code, and the closing report. The setup itself names the
-file at the start and at the end. The child scripts keep printing to the console
-rather than the log, so their prompts stay visible; on Windows the elevated
-relaunch continues the same file.
+command line and exit code, and the closing report. The setup names the file at
+start and at end. The child scripts keep printing to the console rather than the
+log, so their prompts stay visible; on Windows the elevated relaunch continues
+the same file.
 
-The log gets that whatever `-logLevel` says — the level decides how much of it
+The log gets all of that whatever `-logLevel` says — the level decides how much
 also reaches the terminal, and how much the child scripts say there. It is the
 [shared cascade](../docs/loglevels.md): `Error` through `Debug`, taken from
 `logLevel:` in `test/test.config.yml` when the switch is omitted, and passed down
@@ -85,16 +85,15 @@ pwsh test/Disable-TestAutomation.ps1 -StopServices  # also stop the service VMs
 It reverses settings only. Packages, PSGallery modules, macOS TCC grants, the
 credential vault, cloned repos and images, and everything the storage
 questionnaire wrote are **reported, mostly with the command to run** rather than removed —
-tearing those down on a "disable settings" is a surprise. On a host enabled before
-the capture shipped, only what is provably ours is removed — the status-port
+tearing those down on a "disable settings" is a surprise. On a host enabled by a
+build that predates the capture, only what is provably ours is removed — the status-port
 firewall rule and the Yuruna ICMP rule on Windows, the `ufw` status-port rule on
 Ubuntu, and **nothing at all on macOS**, which adds no objects of its own. Every
 other setting is left alone and reported, because restoring a guessed default is
 still a change nobody asked for.
 
-It refuses to run while a test runner owns the host's runtime directory, and
-`-WhatIf` shows what it would restore without touching anything. Full breakdown
-in [docs/operator.md](../docs/operator.md#putting-the-machine-back).
+It refuses to run while a test runner owns the host's runtime directory. Full
+breakdown in [docs/operator.md](../docs/operator.md#putting-the-machine-back).
 
 ## Remote one-liners
 
@@ -126,25 +125,22 @@ bash <(curl -fsSL "https://raw.githubusercontent.com/alissonsol/yuruna/refs/head
 ```
 
 The Ubuntu line uses process substitution (`bash <(curl ...)`) rather
-than the `bash -c "$(curl ...)"` form that the macOS one uses. Both reach
-the same script, but the process-substitution form keeps the script as
-a real file argument for bash, which sidesteps a stdin/sudo-prompt
-edge case some Ubuntu terminals trip on.
+than the macOS `bash -c "$(curl ...)"` form. Both reach the same script,
+but process substitution keeps it a real file argument for bash, which
+sidesteps a stdin/sudo-prompt edge case some Ubuntu terminals trip on.
 
 > The one-liners above are the **convenience path** and are **UNVERIFIED** by
 > construction (a single pipe runs the bytes before anything can check them).
 > They fetch the moving `refs/heads/main`, and the resulting clone **tracks
-> `main` and auto-updates every cycle**. To freeze a host at a fixed release,
-> see **Pin to a release** below. For a signature-checked install, prefer the
-> **verified** path below.
+> `main` and auto-updates every cycle** (see **Pin to a release** below). For a
+> signature-checked install, prefer the **verified** path below.
 
 ## Pin to a release (disable auto-update)
 
 By default a host installed with the one-liners above tracks the moving
-`main` branch and **auto-updates every cycle**. To freeze a host at the
-current release -- the version in the repo's `VERSION` file at install time,
-so it does **not** auto-update -- add `-PinVersion` (Windows) /
-`PIN_VERSION=1` (macOS, Ubuntu).
+`main` branch and **auto-updates every cycle**. To freeze it at the current
+release -- the version in the repo's `VERSION` file at install time -- add
+`-PinVersion` (Windows) / `PIN_VERSION=1` (macOS, Ubuntu).
 
 **From the web (pinned):**
 
@@ -185,7 +181,7 @@ pass the tag directly: `-YurunaBranch 2026.06.20` /
 ## Verified install (signed release)
 
 > Available for published release **tags**. The signing artifacts
-> (`install.sha256.sig`, `install/keys/`) first ship in release `2026.08.03`;
+> (`install.sha256.sig`, `install/keys/`) first ship in release `2026.08.04`;
 > until that tag is cut, use the convenience one-liners above.
 
 A tagged release publishes, next to each installer:
@@ -194,9 +190,9 @@ A tagged release publishes, next to each installer:
 - `install/install.sha256.sig` — a detached RSA signature of that manifest,
 
 verifiable against the bundled public key `install/keys/yuruna-release-signing.pub`
-(`.pem` for `openssl`, `.xml` for Windows PowerShell). This defends a compromised
-CDN/mirror or a moved ref — not just same-channel corruption. **First confirm the
-key fingerprint out-of-band** (see [install/keys/README.md](keys/README.md)):
+(`.pem` for `openssl`, `.xml` for Windows PowerShell). This defends against a
+compromised CDN/mirror or a moved ref — not just same-channel corruption. **First
+confirm the key fingerprint out-of-band** (see [install/keys/README.md](keys/README.md)):
 
 ```
 SHA-256(DER public key) = 14fce044df5de1ebbac6fdeae8d4f87abac618393f06e32748b7ef4571c5c337
@@ -205,7 +201,7 @@ SHA-256(DER public key) = 14fce044df5de1ebbac6fdeae8d4f87abac618393f06e32748b7ef
 **Windows Hyper-V** (PowerShell 5.1+; uses .NET, no extra tooling):
 
 ```
-$base='https://raw.githubusercontent.com/alissonsol/yuruna/refs/tags/2026.08.03'; $t=Join-Path $env:TEMP 'yuruna-install'; New-Item -ItemType Directory -Force $t|Out-Null
+$base='https://raw.githubusercontent.com/alissonsol/yuruna/refs/tags/2026.08.04'; $t=Join-Path $env:TEMP 'yuruna-install'; New-Item -ItemType Directory -Force $t|Out-Null
 'install/windows.hyper-v.ps1','install/install.sha256','install/install.sha256.sig','install/keys/yuruna-release-signing.pub.xml'|%{ irm "$base/$_" -OutFile (Join-Path $t (Split-Path $_ -Leaf)) }
 $k=New-Object System.Security.Cryptography.RSACryptoServiceProvider; $k.FromXmlString((Get-Content "$t\yuruna-release-signing.pub.xml" -Raw))
 if(-not $k.VerifyData([IO.File]::ReadAllBytes("$t\install.sha256"),'SHA256',[IO.File]::ReadAllBytes("$t\install.sha256.sig"))){throw 'SIGNATURE INVALID -- do not run'}
@@ -216,7 +212,7 @@ $h=(Get-FileHash "$t\windows.hyper-v.ps1" -Algorithm SHA256).Hash.ToLower(); if(
 **macOS UTM / Ubuntu KVM** (uses `openssl`, present on both):
 
 ```
-BASE='https://raw.githubusercontent.com/alissonsol/yuruna/refs/tags/2026.08.03'; S=install/macos.utm.sh   # or install/ubuntu.kvm.sh
+BASE='https://raw.githubusercontent.com/alissonsol/yuruna/refs/tags/2026.08.04'; S=install/macos.utm.sh   # or install/ubuntu.kvm.sh
 t=$(mktemp -d); for f in "$S" install/install.sha256 install/install.sha256.sig install/keys/yuruna-release-signing.pub.pem; do curl -fsSL "$BASE/$f" -o "$t/$(basename "$f")"; done
 openssl dgst -sha256 -verify "$t/yuruna-release-signing.pub.pem" -signature "$t/install.sha256.sig" "$t/install.sha256" || { echo 'SIGNATURE INVALID -- do not run'; exit 1; }
 grep -qF "$(sha256sum "$t/$(basename "$S")" | cut -d' ' -f1)" "$t/install.sha256" || { echo 'INSTALLER HASH MISMATCH -- do not run'; exit 1; }
@@ -225,9 +221,8 @@ bash "$t/$(basename "$S")"
 
 The detached signature is produced at release time by `tools/Update-YurunaReleasePins.ps1`.
 
-Each link in the table above goes to the per-host README with the
-post-install steps (group membership, screen-saver settings, TCC
-grants, etc.).
+Each link in the table above goes to the per-host README with post-install
+steps (group membership, screen-saver settings, TCC grants, etc.).
 
 ## GitHub CLI (`gh`)
 
@@ -240,9 +235,9 @@ The binary lands on PATH but is unauthenticated -- run
 gh auth login
 ```
 
-once per host to authenticate. The installer cannot do this for you:
-authentication requires an interactive web flow (or a personal-access
-token paste) that the operator has to drive.
+once per host. The installer cannot do it: authentication requires an
+interactive web flow (or a personal-access token paste) that the
+operator has to drive.
 
 ---
 
@@ -250,6 +245,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.03
+Last review: 2026.08.04
 
 Back to [Yuruna](../README.md)

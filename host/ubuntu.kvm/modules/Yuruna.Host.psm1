@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.03
+.VERSION 2026.08.04
 .GUID 42a2b3c4-d5e6-4f78-9012-3a4b5c6d7e8f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -60,6 +60,10 @@ Import-Module (Join-Path $script:TestModulesDir 'Test.CachingProxyService.psm1')
 # Save-CachedHttpUri wrapper below). This also puts Test-DownloadAlreadyCurrent /
 # Write-ImageSentinel on the table for the per-guest Get-Image.ps1 scripts.
 Import-Module (Join-Path $script:RepoRoot 'host/modules/Yuruna.HostDownload.psm1') -Force -DisableNameChecking -Global
+# Download-agent client. The Get-Image hooks feature-detect its two functions by
+# name, so this import is what decides whether the agent path exists at all on
+# this host; without it the agent is silently never consulted.
+Import-Module (Join-Path $script:RepoRoot 'host/modules/Yuruna.DownloadAgent.psm1') -Force -DisableNameChecking -Global
 # Shared per-guest provisioning helper (the New-VM.ps1 child-runner) common to
 # all three drivers.
 Import-Module (Join-Path $script:RepoRoot 'host/modules/Yuruna.HostProvision.psm1') -Force -DisableNameChecking -Global

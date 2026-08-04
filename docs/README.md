@@ -1,16 +1,16 @@
 # Yuruna documentation
 
-What each document under `docs/` covers, so you can jump straight to the
-right one. Start with [Yuruna Architecture](architecture.md) for the
-cross-cutting model every other doc builds on, or with
-[Operator runbook](operator.md) if you are bringing up a test machine.
+What each document under `docs/` covers. Start with
+[Yuruna Architecture](architecture.md) for the cross-cutting model every
+other doc builds on, or [Operator runbook](operator.md) if you are bringing
+up a test machine.
 
 ## Start here
 
 - **[architecture.md](architecture.md)** — the three capabilities and the
   three-phase Resources → Components → Workloads model, plus the CLI entry
-  points. Cross-cutting concepts referenced by every README; other docs link
-  here rather than repeat.
+  points. Cross-cutting concepts every other README links to rather than
+  repeats.
 - **[install.md](install.md)** — load-bearing rationale for the three bootstrap
   installers (Windows Hyper-V, Ubuntu KVM, macOS UTM): what each step does and
   why it is ordered that way. The installers stop at packages and the clone;
@@ -21,18 +21,18 @@ cross-cutting model every other doc builds on, or with
 - **[operator.md](operator.md)** — bring-up runbook for a single test
   machine: OS baseline to a passing cycle, the test user, and the
   caching-proxy-service / stash-service VMs. Its [preflight
-  dependencies](operator.md#b2-preflight-dependencies) section is the tool
-  list — every tool to install before running Yuruna, the cloud accounts and
-  CLIs, and the environment the instructions were tested against.
+  dependencies](operator.md#b2-preflight-dependencies) section lists every
+  tool to install before running Yuruna, the cloud accounts and CLIs, and the
+  environment the instructions were tested against.
 - **[lab-operator.md](lab-operator.md)** — bring-up runbook for a lab:
   shared NAS storage, caching-proxy service, stash and pool-control services,
   each additional machine enrolled via the dashboard's lab token, and a
   two-pool split running a different test set on each.
-- **[definition.md](definition.md)** — the glossary. Generic and
+- **[definition.md](definition.md)** — the glossary: generic and
   Yuruna-specific terms in one place, so the framework, guest scripts, and docs
   stay consistent.
-- **[opportunities.md](opportunities.md)** — prioritized work the project would
-  welcome help on, ranked by return on investment, with a roadmap.
+- **[opportunities.md](opportunities.md)** — work the project would welcome
+  help on, ranked by return on investment, with a roadmap.
 
 ## Deploying applications
 
@@ -50,7 +50,11 @@ cross-cutting model every other doc builds on, or with
 ## Test harness
 
 - **[test-harness.md](test-harness.md)** — how `test/` is put together: entry
-  points, modules, and how the pieces fit.
+  points and modules, including the
+  [host-condition registry](test-harness.md#host-condition-registry) —
+  the three-method contract each host platform implements to apply and
+  verify host settings, and how a drifted
+  [host clock](test-harness.md#the-host-clock) is reported.
 - **[test-runner.md](test-runner.md)** — the daily-driver loop that pulls the
   repo, re-reads config, refreshes images, and runs cycles forever.
 - **[test-sequences.md](test-sequences.md)** — authoritative reference for every
@@ -65,8 +69,8 @@ cross-cutting model every other doc builds on, or with
   makes the runner resilient, the five things it does every pass, the
   [heartbeat protocol and out-of-process
   watchdog](runner-outer-loop.md#watchdog-and-heartbeat-protocol) that lets it
-  survive guest, network, and host-OS failures, and the runner's explicit
-  six-state lifecycle machine.
+  survive guest, network, and host-OS failures, and the runner's six-state
+  lifecycle machine.
 - **[capability-matrix.md](capability-matrix.md)** — the per-cycle banner naming
   what the harness can actually do on the current host (OCR engines, host I/O,
   and more).
@@ -84,8 +88,6 @@ cross-cutting model every other doc builds on, or with
   cannot drift, plus the
   [remediation dispatcher](failure-schema.md#remediation-dispatcher) that routes
   a `failureClass` token to a recovery recommendation.
-- **[host-condition-registry.md](host-condition-registry.md)** — the three-method
-  contract each host platform implements to apply and verify host settings.
 - **[system-diagnostic.md](system-diagnostic.md)** — the read-only diagnostic
   dump collected during incident triage.
 - **[workarounds.md](workarounds.md)** — frequently asked questions plus
@@ -105,9 +107,10 @@ cross-cutting model every other doc builds on, or with
   through for keystrokes, text input, and mouse clicks.
 - **[guest-image-setup.md](guest-image-setup.md)** — the shared image lifecycle
   every `host/<HOST>/guest.<GUEST>/` folder follows; per-host READMEs document
-  only the deltas.
-- **[guest-workloads.md](guest-workloads.md)** — optional software workloads
-  installed into a guest via `fetch-and-execute.sh`.
+  only the deltas. Continues past first boot into the scripts that run *inside*
+  the guest: the per-guest update script and the optional
+  [software workloads](guest-image-setup.md#guest-workloads) installed via
+  `fetch-and-execute.sh`.
 - **[vmconfig.md](vmconfig.md)** — rationale behind every non-trivial line in the
   per-guest `vmconfig/` artifacts, so the seed files themselves stay short, plus
   the shared base + per-host overlay rendering pipeline that produces them, and
@@ -133,6 +136,9 @@ cross-cutting model every other doc builds on, or with
   the [Pool control service](pool-admin.md#pool-control-service) — the operator
   UI and API that drives the pool-intent git store, which runners only ever
   pull read-only.
+- **[download-agent.md](download-agent.md)** — the pool-wide image downloader:
+  one machine fetches a guest image and every host reads it from the pool
+  share, kept fresh on a timer and managed from the service's own board.
 - **[control-routes.md](control-routes.md)** — the state-changing `/control/*`
   routes on a host's status service and the proof required to call them.
 - **[stash-guide.md](stash-guide.md)** — the shared drop box for files and
@@ -143,13 +149,11 @@ cross-cutting model every other doc builds on, or with
 
 - **[design/00-index.md](design/00-index.md)** — entry point to the generated
   design diagrams: what each shows, how they relate, and the source each was
-  derived from. From there: [Level-1
-  components](design/01-context-and-components.md), the [Level-2
-  breakdown](design/02-component-breakdown.md), [data
-  flows](design/03-data-flows.md), [lifecycle
-  state](design/04-lifecycle-state.md), the [configuration data
-  model](design/05-data-model.md), and the [deployment
-  topology](design/06-deployment.md).
+  derived from. From there: [components](design/01-components.md), [data
+  flows](design/02-data-flows.md), [lifecycle
+  state](design/03-lifecycle-state.md), the [configuration data
+  model](design/04-data-model.md), and the [deployment
+  topology](design/05-deployment.md).
 - **[design/naming.md](design/naming.md)** — the naming rules: components are
   "<name> service", durations carry `Seconds`/`Ms`, booleans are bare
   adjectives, acronyms are words in camelCase — plus the foreign contracts
@@ -220,6 +224,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.03
+Last review: 2026.08.04
 
 Back to [Yuruna](../README.md)

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.03
+.VERSION 2026.08.04
 .GUID 42f4e5f6-a7b8-4c9d-0123-4e5f6a7b8c9d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -154,10 +154,6 @@ New-Item -ItemType Directory -Force -Path $vmDir | Out-Null
 # non-zero when the domain isn't defined; stderr is captured and
 # surfaced only at -Verbose.
 $virshUri = 'qemu:///system'
-# Capture stdout+stderr + exit code for each call so an operator
-# running with -Verbose sees the per-call outcome. The post-condition
-# below catches the actual failure mode; this just preserves forensics
-# when something unusual surfaces between the two idempotent ops.
 $destroyOut = & virsh --connect $virshUri destroy $VMName 2>&1
 Write-Verbose "virsh destroy '$VMName' exit=$LASTEXITCODE output='$($destroyOut -join '; ')'"
 # Snapshot metadata, checkpoint metadata and a managed-save image each
@@ -168,12 +164,9 @@ Write-Verbose "virsh destroy '$VMName' exit=$LASTEXITCODE output='$($destroyOut 
 $undefineOut = & virsh --connect $virshUri undefine --nvram --managed-save `
     --snapshots-metadata --checkpoints-metadata $VMName 2>&1
 Write-Verbose "virsh undefine '$VMName' exit=$LASTEXITCODE output='$($undefineOut -join '; ')'"
-# Post-condition: virsh destroy/undefine on a non-existing domain is
-# idempotent (returns non-zero; stderr captured and shown only at
-# -Verbose). But if either
-# op failed while the domain remains defined, the next virt-install
-# fails with "domain already defined" and the outer loop has no signal
-# to recover. Fail-loud now with dominfo so the operator can act.
+# Post-condition: a failure that leaves the domain defined makes the next
+# virt-install fail with "domain already defined", and the outer loop has
+# no signal to recover. Fail loud now with dominfo so the operator can act.
 $stillDefined = & virsh --connect $virshUri list --all --name 2>$null |
     Where-Object { $_.Trim() -eq $VMName }
 if ($stillDefined) {
@@ -413,13 +406,8 @@ Write-Output "  and log in with the credentials above to inspect cloud-init stat
 Write-Output ""
 
 # --- REGION: Pick libvirt network
-# $networkName was resolved above via Resolve-GuestHostBinding (prefers
-# a bridged 'yuruna-external' network so the cache VM gets a real LAN IP via
-# the upstream DHCP server and remote LAN clients reach it directly by IP;
-# falls back to the NAT 'default' network when no bridged network is defined
-# -- cache still works for same-host guests but is NOT directly reachable
-# from LAN clients without a host-side port forwarder). README.md documents
-# the `virsh net-define` command for the bridged path.
+# $networkName was resolved above via Resolve-GuestHostBinding; see the
+# .DESCRIPTION network-choice notes for what each mode costs.
 if (-not $networkName) {
     Write-Error "No libvirt network defined. Run 'virsh net-start default' to enable the NAT default, or define 'yuruna-external' (see README.md) for LAN-bridged access."
     exit 1
@@ -541,8 +529,8 @@ $installArgs = @(
 # aarch64 has no BIOS option in QEMU, so UEFI is mandatory.
 # x86_64 cloud images boot fine with the libvirt default (i440fx + SeaBIOS)
 # from the qcow2's hybrid GRUB MBR, so no --boot uefi here for x86_64
-# (avoids the NVRAM-empty fallback issue described in the amazon.linux.2023
-# New-VM.ps1 SeaBIOS comment).
+# (avoids the NVRAM-empty fallback issue described at
+# https://yuruna.link/memory#why-the-amazonlinux-kvm-guest-uses-seabios-not-uefi).
 if ($arch -eq 'aarch64') {
     $installArgs += @('--machine', 'virt', '--boot', 'uefi')
 }

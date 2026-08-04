@@ -6,8 +6,7 @@ Please read the **Administrator Risk Warning** section of the [Yuruna License](.
 repository, re-reads `test.config.yml`, refreshes base images on a
 configurable cadence, then walks each entry of `guestSequence` —
 creating a fresh VM, driving its sequences, and recording results — in
-a loop that is meant to run for hours or days without an operator
-present.
+a loop meant to run for hours or days without an operator present.
 
 See [test-config.md](test-config.md) for the `test.config.yml` parameter
 reference, including the optional `networkStorage` NAS replication tier and how to
@@ -24,7 +23,7 @@ Continuous validation across hours or days catches intermittent
 failures — timing-sensitive UI hangs, transient network issues,
 cumulative resource leaks, upstream-mirror rate limits, OS auto-update
 windows — that a single interactive run misses. The unattended runner
-in this document trades human monitoring for coverage breadth: it
+trades human monitoring for coverage breadth: it
 runs against the same `guestSequence` every cycle, surfaces every
 fault through the same `last_failure.json` + NDJSON event channels,
 and absorbs each transient via the
@@ -37,31 +36,31 @@ unattended-by-design contract safe to leave running.
 
 **Do not run unattended test automation using a personal account.**
 
-It is assumed that unattended machines will be in a physically protected
-environment, like a test lab, with controlled access. Despite that, it is
-important to use test accounts with limited network access and
-no access to personal data in the local machine.
+Unattended machines are assumed to be in a physically protected
+environment, like a test lab, with controlled access. Even so, use test
+accounts with limited network access and no access to personal data on
+the local machine.
 
 ### Create a test account
 
-  - Use the script `test/New-LocalTestUser.ps1` to create a local test account.
-    It creates the account, sets the password, and grants machine-administrator
-    rights in one step, on Windows, macOS, and Ubuntu alike:
+  - Use `test/New-LocalTestUser.ps1` to create a local test account. It creates
+    the account, sets the password, and grants machine-administrator rights in
+    one step, on Windows, macOS, and Ubuntu alike:
 
     ```
     pwsh test/New-LocalTestUser.ps1 -Admin
     ```
 
     The account name defaults to `yurunatest`; pass `-AccountName <name>` for a
-    different one. The password is asked for at a prompt (on the elevated side,
-    so it never reaches shell history), and the account can log in immediately.
+    different one. The password is prompted for on the elevated side, so it
+    never reaches shell history, and the account can log in immediately.
     `-Password <value>` is the non-interactive equivalent for a scripted run,
     `-NoPassword` creates the account locked to have a password set out-of-band,
     and `-ForcePasswordChange` makes the password a one-shot credential that
     must be changed at first login.
   - **Do not leave the password in open text files and sticky notes.**
   - Log in using the test account.
-  - Execute the install script one-liners for your host, as per the [install](../install/README.md) instructions.
+  - Execute the install script one-liners for your host, per the [install](../install/README.md) instructions.
   - Run the `Enable-TestAutomation.ps1` script that ships under your host type:
 
     | Host type | Script |
@@ -83,7 +82,7 @@ no access to personal data in the local machine.
 
 Before the first unattended run, execute `test/Invoke-TestRunner.ps1`
 at least once **interactively** on the machine. Two things only the
-operator can do happen on that first execution:
+operator can do happen on that run:
 
 - **Approve runtime permissions.** Some platform prompts (Hyper-V
   service, accessibility / screen-recording on macOS, virsh / libvirt
@@ -95,14 +94,14 @@ operator can do happen on that first execution:
   refresh cadence. Pre-seeding lets the unattended loop recover from a
   later failure (or a step that needs manual intervention) without
   blocking on a multi-gigabyte download mid-cycle.
-  - **macOS and Windows base images must be downloaded manually.** 
-  Due to limitations imposed by the image providers, the runner 
-  cannot fetch them. Follow the instructions in each `Get-Image.ps1`.
+  - **macOS and Windows base images must be downloaded manually.**
+    Image-provider limitations keep the runner from fetching them;
+    follow the instructions in each `Get-Image.ps1`.
 
 ## Run unattended
 
-Once the host is prepared and the first interactive cycle has
-completed, launch the runner:
+With the host prepared and the first interactive cycle complete,
+launch the runner:
 
 ```
 pwsh test/Invoke-TestRunner.ps1
@@ -141,8 +140,8 @@ rather than silently running a subset.
 `Invoke-TestRunner.ps1` refuses to enter the eternal loop when either of
 two conditions holds. Both are hard stops rather than warnings, because
 the failure mode they guard against is a loop that keeps running and
-keeps producing near-empty cycles — expensive to notice, expensive to
-diagnose after the fact.
+keeps producing near-empty cycles — expensive to notice and to diagnose
+after the fact.
 
 ### powershell-yaml must be installed
 
@@ -152,12 +151,12 @@ is missing, the inner runner's `try`/`catch` turns the throw into a
 `Write-Warning` — a stream the per-cycle log does not capture — and falls
 back to the legacy `guestSequence` list. That fallback leaves
 `Start-GuestOS` with no sequence names, so the step is recorded as
-`skipped` in `status.json` with no line in the cycle log at all.
+`skipped` in `status.json` with no line in the cycle log.
 
 The condition is not transient, so the outer runner surfaces it once at
 startup and exits instead of spinning an eternal loop of degraded cycles.
 The reason goes through `Write-OuterLog` so it lands in `outer.log`, not
-only in the transient console Warning stream. Fix with:
+only the transient console Warning stream. Fix with:
 
 ```
 Install-Module powershell-yaml -Scope CurrentUser
@@ -172,8 +171,8 @@ The gate blocks startup when `test.config.yml`, the extension configs,
 cycle's `New-VM`/`Start-GuestOS` fail in a confusing way.
 [`Test-Config.ps1`](../test/Test-Config.ps1) is the single source of
 validation rules — schema, completeness, and cross-references — and
-calling it as a startup gate is what turns it from an operator tool into
-a hard production guardrail (`users.yml` strict mode, the
+calling it as a startup gate turns it from an operator tool into a hard
+production guardrail (`users.yml` strict mode, the
 vaultKey-resolves-in-`vault.yml` check, and the rest).
 
 The gate always runs `Test-Config.ps1` with `-SkipSend`. Its notification
@@ -199,6 +198,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.03
+Last review: 2026.08.04
 
 Back to [Yuruna](../README.md)

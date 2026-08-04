@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.03
+.VERSION 2026.08.04
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456811
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -216,7 +216,7 @@ function Import-Extension {
     form resolves.
 
     Lookup is path-based, NOT module-name-based: two areas can ship a
-    module with the same basename (auth/default.psm1 +
+    module with the same basename (authentication/default.psm1 +
     notification/default.psm1) and both will register under the same
     PowerShell module name 'default', confusing -Module filters. Match
     the loaded module by its absolute .psm1 path instead so the

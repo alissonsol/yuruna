@@ -1,8 +1,8 @@
 # Yuruna Authentication Instructions
 
 How an operator authenticates to each supported cloud, how the
-component-push pipeline authenticates to a container registry on its
-own, and the threat model for the test harness's own credential store.
+component-push pipeline authenticates to a container registry
+unattended, and the threat model for the test harness's credential store.
 
 ## Docker Desktop
 
@@ -29,7 +29,7 @@ own, and the threat model for the test harness's own credential store.
 
 > **Note:** GCP deployment is planned and not yet available — the
 > `global/resources/gcp/` resource templates do not ship yet. These steps
-> prepare for the upcoming GCP support.
+> prepare for it.
 
 - One-time initialization:
   - Check currently active configuration: `gcloud config list`
@@ -57,22 +57,22 @@ own, and the threat model for the test harness's own credential store.
 The steps above are what an operator types once per session. The
 component-push pipeline in
 [`automation/Yuruna.Component.psm1`](../automation/Yuruna.Component.psm1)
-has to do the equivalent unattended: log into the target container
-registry before pushing the built image. Today's supported registries
+does the equivalent unattended: log into the target container
+registry before pushing the built image. Supported registries
 (Azure ACR, AWS ECR, Google Artifact Registry, Docker Hub, generic
-Docker login) each use a different CLI and a different credential
-model. The dispatcher in
+Docker login) each use a different CLI and credential model. The
+dispatcher in
 [`automation/Yuruna.Component.Registry.psm1`](../automation/Yuruna.Component.Registry.psm1)
 asks the credential-provider registry in
 [`automation/Yuruna.CredentialProvider.psm1`](../automation/Yuruna.CredentialProvider.psm1)
 "what is the login command for `<host>`?" and pipes the answer
 through the same `Invoke-ComponentCommand` wrapper that handles
-build / tag / push — so the `registryLogin` phase shares
+build / tag / push, so the `registryLogin` phase shares
 `docker.stderr.log` and `docker.rc` with the rest of the pipeline.
 
 The dispatcher keeps registry knowledge out of `Yuruna.Component`,
 which carries no per-registry branching like
-`if ($registryLocation -like '*azurecr.io*')`. Adding a new registry
+`if ($registryLocation -like '*azurecr.io*')`. Adding a registry
 kind (ECR, GAR, Docker Hub, Harbor, Nexus, …) is one
 `Register-CredentialProvider` call; nothing in `Yuruna.Component`
 changes.
@@ -84,7 +84,7 @@ Both `Yuruna.Component` and the credential-provider registry live in
 anchor, `Register-CredentialProvider`, `Get-CredentialProvider`, and the
 five built-in provider registrations) is in
 [`automation/Yuruna.CredentialProvider.psm1`](../automation/Yuruna.CredentialProvider.psm1),
-so the runtime component-push pipeline never imports from `test/` —
+so the runtime component-push pipeline never imports from `test/`:
 there is no `automation/ -> test/` import edge. The test-only helpers
 (`Get-CredentialProviderMatrix`, `Repair-Credential`,
 `Clear-CredentialProvider`) stay in
@@ -92,7 +92,7 @@ there is no `automation/ -> test/` import edge. The test-only helpers
 which imports the automation module `-Global` and re-exposes
 `Register`/`Get` to test callers. The bridge file
 [`automation/Yuruna.Component.Registry.psm1`](../automation/Yuruna.Component.Registry.psm1)
-concentrates the dispatch so future readers see it in one place.
+concentrates the dispatch in one place.
 
 ### Public surface
 
@@ -105,7 +105,7 @@ concentrates the dispatch so future readers see it in one place.
 | `Clear-CredentialProvider` | `Test.CredentialProvider` | Tests only |
 | `Resolve-ComponentRegistryLogin -RegistryLocation` | `Yuruna.Component.Registry` | The push pipeline; returns the login command string or `$null` |
 
-Each provider exposes two scriptblocks with disjoint use cases:
+Each provider exposes two scriptblocks:
 
 - **`Authenticator`** — self-heal path
   (`Repair-Credential` after a 401). Runs the auth in-process
@@ -113,10 +113,8 @@ Each provider exposes two scriptblocks with disjoint use cases:
   login`, …). Returns `[bool]`.
 - **`LoginCommand`** — batch pipeline
   (`Yuruna.Component` push). Returns the shell command string the
-  push pipeline pipes through its own logging wrapper. Returns
-  `$null` when the environment doesn't have the credentials (the
-  pipeline silently skips the login phase and lets the operator's
-  pre-existing docker credential helper take over).
+  push pipeline pipes through its own logging wrapper, or `$null`
+  when the environment doesn't have the credentials.
 
 ### Built-in providers
 
@@ -129,27 +127,25 @@ Each provider exposes two scriptblocks with disjoint use cases:
 | `docker-generic` | `.+` | `$env:YURUNA_REGISTRY_PASSWORD \| docker login --username $env:YURUNA_REGISTRY_USERNAME --password-stdin <host>` |
 
 Order matters and is preserved: more specific patterns precede the
-catch-all `docker-generic`. The path-suffix tolerance
-(`(/|$)`) lets `foo.azurecr.io/myimage` match the same provider as
-the bare host.
+catch-all `docker-generic`. The path-suffix tolerance (`(/|$)`) lets
+`foo.azurecr.io/myimage` match the same provider as the bare host.
 
 ### Credential env vars
 
 Docker Hub and `docker-generic` read credentials from environment
-variables; the others derive auth from the operator's existing CLI
-context (`az login`, `aws configure`, `gcloud auth login`) set up in
-the sections above:
+variables; the others derive auth from the operator's CLI context
+(`az login`, `aws configure`, `gcloud auth login`) set up above:
 
 | Env var | Used by |
 |---|---|
 | `YURUNA_DOCKER_HUB_USERNAME` / `YURUNA_DOCKER_HUB_PASSWORD` | `dockerhub` provider |
 | `YURUNA_REGISTRY_USERNAME` / `YURUNA_REGISTRY_PASSWORD` | `docker-generic` provider |
 
-When either env-var pair is missing, the corresponding provider's
-`LoginCommand` returns `$null` — the push pipeline silently skips
-the login phase and the operator's pre-existing docker credential
-helper handles the push. This is the "no login needed" default for
-any registry without provider-supplied credentials.
+When either env-var pair is missing, that provider's `LoginCommand`
+returns `$null`: the push pipeline skips the login phase and the
+operator's pre-existing docker credential helper handles the push.
+This is the "no login needed" default for any registry without
+provider-supplied credentials.
 
 ### Adding a new registry kind
 
@@ -161,11 +157,11 @@ any registry without provider-supplied credentials.
    [`Yuruna.CredentialProvider`](../automation/Yuruna.CredentialProvider.psm1)
    in registration order — more specific patterns first.
 4. The push pipeline picks up the new provider on the next outer
-   restart; nothing in `Yuruna.Component` changes.
+   restart.
 
 ### Related registries
 
-- [Host-condition registry](host-condition-registry.md) — same `New-YurunaRegistry` primitive, different domain.
+- [Host-condition registry](test-harness.md#host-condition-registry) — same `New-YurunaRegistry` primitive, different domain.
 - [Host I/O registry](host-io.md) — the older, two-level registry that established the pattern.
 - [Remediation dispatcher](failure-schema.md#remediation-dispatcher) — calls `Repair-Credential` when a push fails with 401.
 
@@ -177,7 +173,7 @@ plaintext YAML by design.** It is NOT a production secrets vault.
 
 What lands in it: per-cycle passwords for the throwaway guest OS
 accounts the harness creates (`yauser1`, `yuuser24`, `yt2sqluser`, etc.)
-on test VMs that are wiped and rebuilt every cycle. The accounts
+on test VMs wiped and rebuilt every cycle. The accounts
 exist only inside the test VM; the harness rotates the password on
 first contact via `Set-Password`, stores both `password` and
 `previousPassword` so a half-applied rotation can recover, and never
@@ -192,11 +188,11 @@ Trust boundary:
 
 | Layer | Mechanism | Why plaintext is acceptable |
 |-------|-----------|----------------------------|
-| Filesystem | The file is git-ignored (`.gitignore` rule `test/status/*/`); never committed, never sync'd. | An attacker with filesystem read access already has equivalent or greater capability — they're already on the operator's machine. |
+| Filesystem | The file is git-ignored (`.gitignore` rule `test/status/*/`); never committed, never synced. | An attacker with filesystem read access already has equivalent or greater capability — they're already on the operator's machine. |
 | Process | Read+write serialized by a SHA-1-of-path named mutex; atomic temp+rename. | Concurrent cycles cannot corrupt the file; not a confidentiality control. |
 | Audit | Every read / write / rotate is appended to `events.log` as one JSON line. Passwords never appear in the log. | Tampering detection, not encryption. |
 
-If you ever extend the harness to drive a production system, do NOT
+If you extend the harness to drive a production system, do NOT
 add production credentials to this vault. Wire a separate
 authentication extension (see [Extensions API](extensions-api.md))
 backed by DPAPI / system keyring / a real secret manager. Today's
@@ -212,6 +208,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.03
+Last review: 2026.08.04
 
 Back to [Yuruna](../README.md)

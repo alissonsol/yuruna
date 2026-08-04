@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.03
+.VERSION 2026.08.04
 .GUID 42aa1b2c-3d4e-4f56-a789-0b1c2d3e4f56
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -43,9 +43,10 @@ if ((Get-Item $currentConfig).Length -eq 0) { Write-Information "K8S current con
 
 kubectl config unset contexts.$destinationContext *>&1 | Write-Verbose
 
-# Capture originalContext now; use-context confirms sourceContext exists before we mutate the config.
-# Capture KUBECONFIG before any mutation so the finally below can restore it
-# even on an early-return path that aborts before it is overwritten.
+# Capture originalContext and KUBECONFIG before any mutation: use-context confirms
+# sourceContext exists before the config is changed, and the finally below can then
+# restore both even on an early-return path that aborts before KUBECONFIG is
+# overwritten.
 $originalContext = kubectl config current-context
 $originalKubeConfig = (Test-Path Env:KUBECONFIG) ? $env:KUBECONFIG : $null
 kubectl config use-context $sourceContext *>&1 | Write-Verbose

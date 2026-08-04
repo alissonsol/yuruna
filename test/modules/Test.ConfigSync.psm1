@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.03
+.VERSION 2026.08.04
 .GUID 42c04f16-a1b2-4c3d-8e4f-5a6b7c8d9e0f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -632,7 +632,7 @@ function Sync-TestConfigToTemplate {
         # Optional: when supplied, the file is rendered from the template TEXT so
         # it keeps the template's per-knob comments and parks obsolete keys as
         # comments. Without it the writer falls back to the plain ConvertTo-Yaml
-        # form (no comments), which is what every pre-existing caller got.
+        # form, which carries no comments.
         [Parameter()] [string]$TemplatePath
     )
 

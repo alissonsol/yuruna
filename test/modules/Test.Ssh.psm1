@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.03
+.VERSION 2026.08.04
 .GUID 422c9a3d-41bb-4e8c-9b64-5f7a1d0c9a12
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -306,6 +306,7 @@ console credential of the others:
   guest.caching-proxy-service  -> caching-proxy-service-admin
   guest.pool-control-service   -> pool-control-service-admin
   guest.stash-service  -> stash-admin
+  guest.download-agent-service -> download-agent-service-admin
 The username for each guest must match the `username:` variable in
 the corresponding test/sequences/**/*.<guest>.yml file.
 .PARAMETER GuestKey
@@ -329,6 +330,7 @@ System.String. Username to log in as over SSH.
         "guest.caching-proxy-service"  { return "caching-proxy-service-admin" }
         "guest.pool-control-service"   { return "pool-control-service-admin" }
         "guest.stash-service"  { return "stash-admin" }
+        "guest.download-agent-service" { return "download-agent-service-admin" }
         default { return "root" }
     }
 }
@@ -481,26 +483,8 @@ System.Boolean. $true if SSH became ready, $false on timeout.
     # "KVP/DHCP/utmctl never reported an address" wait from a genuine sshd/auth
     # fault when the gate fails (drives Get-SshReadinessFailureCause below).
     $ipEverDiscovered = $false
-    # Per-probe wall-clock cap. ConnectTimeout=5 only bounds TCP setup; if
-    # the SSH banner / kex_exchange_identification stalls (or the post-
-    # handshake session goes half-dead -- TCP ESTABLISHED both ends, no
-    # data flowing), ssh has no further timeout of its own. Running the
-    # probe foreground in the runner runspace would then make the outer
-    # `while ((Get-Date) -lt $deadline)` deadline useless: it is only
-    # checked between iterations, so one stuck ssh would hold the loop
-    # forever and saveSystemDiagnostic would blow past Save-GuestDiagnostic's
-    # cap.
-    #
-    # In-process .NET Process.Start + WaitForExit(timeoutMs) gives a
-    # hard per-probe cap WITHOUT the Start-Job / Wait-Job runspace cost
-    # (~200-500 ms cold-start per iteration; ~18 iterations on a 90 s
-    # boot is 4-9 s of pure overhead). On timeout the child ssh is
-    # killed directly via Process.Kill($true) (entire process tree),
-    # which also closes the OS-level ssh that a Start-Job implementation
-    # leaks (Stop-Job cannot terminate the native child). The
-    # ServerAlive options below shorten
-    # the in-flight detection of a half-dead session to ~6 s so most
-    # probes complete well under the cap on a healthy guest.
+    # Per-probe wall-clock cap; ssh has no timeout of its own past TCP setup.
+    # --- REGION: https://yuruna.link/memory#why-the-ssh-readiness-probe-runs-in-process-with-its-own-wall-clock-cap
     $probeCapSeconds = 15
     # Adaptive backoff: first 3 attempts at 1 s catch the typical sshd-
     # becomes-ready window (1-2 s on a healthy guest) without sleeping

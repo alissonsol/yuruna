@@ -15,8 +15,8 @@ scripts (per hypervisor): [Hosts — ...](../host/README.md).
 
 ## Guest workload pattern
 
-Inside a running guest, workloads are installed by fetching and running
-one script each. The fetcher honors `YurunaCacheContent`:
+Workloads are installed by fetching and running one script each. The
+fetcher honors `YurunaCacheContent`:
 
 ```
 # Linux guests
@@ -29,13 +29,10 @@ $nc = if ($env:YurunaCacheContent) { "?nocache=$env:YurunaCacheContent" } else {
 irm "https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/guest/windows.11/windows.11.<workload>.ps1$nc" | iex
 ```
 
-Available workloads are listed in each guest folder's `README.md`
-(e.g. [Amazon Linux 2023](amazon.linux.2023/README.md),
-[Ubuntu Server 24.04](ubuntu.server.24/README.md),
-[Ubuntu Server 26.04](ubuntu.server.26/README.md),
-[Windows 11](windows.11/README.md)) and documented per-workload under
-[../docs/](../docs/) (see `guest-workloads.md` for code/n8n/openclaw/postgresql,
-and `kubernetes.md`).
+Available workloads are listed in each guest folder's `README.md` (linked
+above) and documented per-workload under [../docs/](../docs/) — see [Guest
+workloads](../docs/guest-image-setup.md#guest-workloads) for
+code/n8n/openclaw/postgresql, and [kubernetes.md](../docs/kubernetes.md).
 
 ---
 
@@ -43,6 +40,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.03
+Last review: 2026.08.04
 
 Back to [Yuruna](../README.md)

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.03
+.VERSION 2026.08.04
 .GUID 42b8c9d0-e1f2-4a34-9567-89b0c1d2e3f4
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -23,13 +23,11 @@
     The three platform scripts ([host/windows.hyper-v/Remove-OrphanedVMFiles.ps1](../windows.hyper-v/Remove-OrphanedVMFiles.ps1),
     [host/macos.utm/Remove-OrphanedVMFiles.ps1](../macos.utm/Remove-OrphanedVMFiles.ps1),
     [host/ubuntu.kvm/Remove-OrphanedVMFiles.ps1](../ubuntu.kvm/Remove-OrphanedVMFiles.ps1))
-    need the same Write-Status routing function, the same [int64] folder
+    need the same Write-CleanupMessage routing, the same [int64] folder
     sizing (Get-VMFolderSize), and (on Hyper-V + UTM) the same
-    base-image-name discovery loop. All three route -Quiet through
-    Set-VMCleanupQuiet here so the quiet contract stays in one place; the
-    scripts never touch the module-internal $script:QuietOutput flag
-    directly. The helpers live here so the routing, sizing, and naming
-    stay in lockstep.
+    base-image-name discovery loop, so those helpers live here and stay in
+    lockstep. All three route -Quiet through Set-VMCleanupQuiet; the scripts
+    never touch the module-internal $script:QuietOutput flag directly.
 #>
 
 $script:QuietOutput = $false
@@ -85,16 +83,13 @@ function Get-VMFolderSize {
         Recursively sum the byte length of every file under a directory,
         returning a consistent [int64].
     .DESCRIPTION
-        The per-platform cleanup scripts each size an orphaned VM's on-disk
-        footprint the same way -- enumerate files recursively and add up
-        their lengths. Measure-Object -Sum yields a [double] .Sum and is
-        [double]::NaN/$null when the enumeration is empty, so ad-hoc call
-        sites diverged (one cast to [int64], another null-coalesced the
-        [double]). Centralizing the enumeration + aggregation keeps the
-        result type [int64] everywhere, so the "{0:N2} GB" totals and any
-        arithmetic on Size stay identical across KVM, UTM, and Hyper-V.
-        An unreadable or missing path sizes as 0 rather than throwing --
-        the callers treat a folder they cannot read as contributing no
+        Measure-Object -Sum yields a [double] .Sum that is $null on an empty
+        enumeration, so ad-hoc call sites diverged (one cast to [int64],
+        another null-coalesced the [double]). Centralizing enumeration +
+        aggregation keeps the result [int64] everywhere, so the "{0:N2} GB"
+        totals and any arithmetic on Size stay identical across KVM, UTM, and
+        Hyper-V. An unreadable or missing path sizes as 0 rather than throwing
+        -- callers treat a folder they cannot read as contributing no
         reclaimable bytes.
     .PARAMETER Path
         Directory to size. Enumerated with -Recurse -File.
@@ -149,8 +144,8 @@ function Resolve-BaseImageName {
     foreach ($g in $guestDirs) {
         $names.Add("$hostFolder.$($g.Name)")
     }
-    # Shared base image behind every extension service; stem kept in lockstep
-    # with Get-UbuntuExtensionImageInfo (host/modules/Yuruna.Image.psm1).
+    # Shared base image behind every extension service; no guest.* folder owns
+    # it, so the stem comes from Yuruna.Image.psm1's canonical helper.
     Import-Module (Join-Path $PSScriptRoot 'Yuruna.Image.psm1') -Force -DisableNameChecking
     $names.Add((Get-UbuntuExtensionImageBaseName -HostType (Split-Path -Leaf $HostScriptDir)))
     return @{ HostFolder = $hostFolder; BaseImageNames = $names.ToArray() }

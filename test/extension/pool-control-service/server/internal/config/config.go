@@ -21,4 +21,8 @@ const (
 
 	// MaxRequestBytes caps mutating request bodies.
 	MaxRequestBytes = 1 << 20
+
+	// DefaultAuthTokenFile holds the lab auth token accepted as a bearer on the
+	// routes that change pool configuration.
+	DefaultAuthTokenFile = "/etc/yuruna/lab-auth.token"
 )

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.03
+.VERSION 2026.08.04
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456712
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -818,15 +818,11 @@ function Test-ConsoleEchoIntact {
         return 'corrupt'
     }
 
-    # Corruption signal: the longest stretch the command cannot account
-    # for, but counted only once the command's OWN echo has been seen. An
-    # unexplained stretch is scored only after AnchorMinRun explained
-    # positions have appeared in a row; a lone coincidental gram hit inside
-    # scrollback does not qualify, so a banner, a boot log, or earlier output
-    # printed ahead of the command -- legitimately unexplained and unbounded
-    # -- never anchors the count. A stuck key's garbage sits at or after the
-    # command it corrupted, so the command's dense echo has already anchored
-    # the count by the time the garbage is reached.
+    # Corruption signal: the longest stretch the command cannot account for,
+    # scored only after AnchorMinRun explained positions in a row have marked
+    # where the command's OWN echo starts (rationale at the constant). A stuck
+    # key's garbage sits at or after the command it corrupted, so that dense
+    # echo has already anchored the count by the time the garbage is reached.
     $longestRun   = 0
     $currentRun   = 0
     $explainedRun = 0
@@ -1363,8 +1359,6 @@ function Save-GuestDiagnostic {
 
     $result      = $null
     $lastResult  = $null
-    # $attempted was hoisted to the top of the function so the early-
-    # return manifests below can include rungs that were tried.
 
     # Primary: key SSH (most reliable rung on a healthy guest). Skipped when the pre-flight
     # showed SSH is unreachable -- the console rung below is the fallback for that case.

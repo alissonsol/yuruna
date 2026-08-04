@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"pool-control-service/internal/intent"
+	"pool-control-service/internal/yex/labgate"
 )
 
 // The board's server side. The properties worth defending are the ones a wrong
@@ -42,7 +43,9 @@ func (f *boardIntent) State(context.Context) intent.Result {
 func (f *boardIntent) NewPool(_ context.Context, id, _, _ string) intent.Result {
 	return f.res(true, "NewPool:"+id)
 }
-func (f *boardIntent) RemovePool(context.Context, string, bool) intent.Result { return f.res(true, "RemovePool") }
+func (f *boardIntent) RemovePool(context.Context, string, bool) intent.Result {
+	return f.res(true, "RemovePool")
+}
 func (f *boardIntent) SetDesiredState(context.Context, string, string) intent.Result {
 	return f.res(true, "SetDesiredState")
 }
@@ -228,99 +231,104 @@ func TestProjectSlugIsProjectScoped(t *testing.T) {
 	}
 }
 
-// --- passcode gate ---------------------------------------------------------
+// --- the write gate --------------------------------------------------------
+//
+// The gate's own semantics live in the SDK's labgate suite. What is covered here
+// is which of THIS service's routes sit behind it: every route that rewrites pool
+// configuration, and nothing else.
 
-func TestGateOpenWhenNoPasscode(t *testing.T) {
-	// The existing posture: no passcode configured means nothing changes.
-	s := New(&boardIntent{doc: intentTwoPools}, Options{})
-	rec := httptest.NewRecorder()
-	s.routes().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/hosts", nil))
-	if rec.Code == http.StatusUnauthorized {
-		t.Error("an unconfigured gate must not block anything")
+func TestReadsAreOpenAndPoolConfigWritesAreNot(t *testing.T) {
+	s := New(&boardIntent{doc: intentTwoPools}, Options{AuthToken: "shared-lab-auth-token"})
+
+	// Reads render on a wall display with no credential, matching the
+	// aggregator's own pool-status posture.
+	for _, path := range []string{"/healthz", "/api/session", "/api/board", "/api/hosts", "/api/state", "/api/diagnostics"} {
+		rec := httptest.NewRecorder()
+		s.routes().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
+		if rec.Code == http.StatusUnauthorized {
+			t.Errorf("GET %s = 401; reads are open", path)
+		}
 	}
-}
 
-func TestGateBlocksReadsAndWrites(t *testing.T) {
-	s := New(&boardIntent{doc: intentTwoPools}, Options{Passcode: "let-me-in"})
+	// Every mutation rewrites pool configuration, so every one of them is gated.
 	for _, tc := range []struct{ method, path string }{
-		{http.MethodGet, "/api/board"},
-		{http.MethodGet, "/api/hosts"},
-		{http.MethodPost, "/api/pool/testset"},
+		{http.MethodPost, "/api/pool"},
+		{http.MethodDelete, "/api/pool"},
+		{http.MethodPost, "/api/pool/desired-state"},
+		{http.MethodPost, "/api/pool/host"},
+		{http.MethodDelete, "/api/pool/host"},
 		{http.MethodPost, "/api/pool/move-host"},
+		{http.MethodPost, "/api/pool/testset"},
+		{http.MethodPost, "/api/testset"},
+		{http.MethodDelete, "/api/testset"},
 	} {
 		rec := httptest.NewRecorder()
 		s.routes().ServeHTTP(rec, httptest.NewRequest(tc.method, tc.path, strings.NewReader("{}")))
 		if rec.Code != http.StatusUnauthorized {
-			t.Errorf("%s %s = %d, want 401", tc.method, tc.path, rec.Code)
+			t.Errorf("%s %s = %d with no credential, want 401", tc.method, tc.path, rec.Code)
 		}
-	}
-	// /healthz must stay open: the launcher polls it to decide the daemon is up.
-	rec := httptest.NewRecorder()
-	s.routes().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/healthz", nil))
-	if rec.Code == http.StatusUnauthorized {
-		t.Error("/healthz must not be gated -- bring-up depends on it")
 	}
 }
 
-func TestPublicReadOpensReadsOnly(t *testing.T) {
-	s := New(&boardIntent{doc: intentTwoPools}, Options{Passcode: "x", PublicRead: true})
+func TestTheBearerOpensThePoolConfigWrites(t *testing.T) {
+	s := New(&boardIntent{doc: intentTwoPools}, Options{AuthToken: "shared-lab-auth-token"})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/pool/move-host", strings.NewReader("{}"))
+	req.Header.Set("Authorization", "Bearer wrong")
 	rec := httptest.NewRecorder()
-	s.routes().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/hosts", nil))
-	if rec.Code == http.StatusUnauthorized {
-		t.Error("--public-read should open reads")
+	s.routes().ServeHTTP(rec, req)
+	if rec.Code != http.StatusUnauthorized {
+		t.Errorf("wrong bearer = %d, want 401", rec.Code)
 	}
+
+	req = httptest.NewRequest(http.MethodPost, "/api/pool/move-host", strings.NewReader("{}"))
+	req.Header.Set("Authorization", "Bearer shared-lab-auth-token")
 	rec = httptest.NewRecorder()
+	s.routes().ServeHTTP(rec, req)
+	if rec.Code == http.StatusUnauthorized {
+		t.Error("the shared lab auth token must open a pool-config write")
+	}
+}
+
+// With no aggregator to validate a lab token and no bearer configured, a write
+// is refused with a machine-readable reason. It is never allowed through because
+// there is no gate to fail: this service rewrites the whole lab's assignment.
+func TestAnUnconfiguredGateRefusesPoolConfigWrites(t *testing.T) {
+	s := New(&boardIntent{doc: intentTwoPools}, Options{})
+	rec := httptest.NewRecorder()
 	s.routes().ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/pool/move-host", strings.NewReader("{}")))
-	if rec.Code != http.StatusUnauthorized {
-		t.Error("--public-read must NEVER open mutations")
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("write with nothing configured = %d, want 503", rec.Code)
+	}
+	var body struct {
+		Reason string `json:"reason"`
+	}
+	_ = json.Unmarshal(rec.Body.Bytes(), &body)
+	if body.Reason != labgate.ReasonUnconfigured {
+		t.Fatalf("reason = %q, want %q", body.Reason, labgate.ReasonUnconfigured)
 	}
 }
 
-func TestLoginIssuesUsableSessionAndThrottles(t *testing.T) {
-	s := New(&boardIntent{doc: intentTwoPools}, Options{Passcode: "let-me-in"})
-
+// The session route tells the UI which prompt to render; it must answer without
+// a credential, or the prompt could never appear.
+func TestSessionReportsTheWaysIn(t *testing.T) {
+	s := New(&boardIntent{doc: intentTwoPools}, Options{AggregatorURL: "http://aggregator.invalid", AuthToken: "t"})
 	rec := httptest.NewRecorder()
-	s.routes().ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/login", strings.NewReader(`{"passcode":"let-me-in"}`)))
+	s.routes().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/session", nil))
 	if rec.Code != http.StatusOK {
-		t.Fatalf("login = %d: %s", rec.Code, rec.Body.String())
+		t.Fatalf("GET /api/session = %d", rec.Code)
 	}
-	cookies := rec.Result().Cookies()
-	if len(cookies) == 0 {
-		t.Fatal("login issued no cookie")
+	var body map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("session body %q: %v", rec.Body.String(), err)
 	}
-	c := cookies[0]
-	if !c.HttpOnly {
-		t.Error("session cookie must be HttpOnly")
-	}
-	if c.SameSite != http.SameSiteLaxMode {
-		// Strict would suppress the cookie on the Grafana deep-link, which is
-		// the primary way an operator arrives, re-prompting every time.
-		t.Errorf("SameSite = %v, want Lax", c.SameSite)
-	}
-
-	req := httptest.NewRequest(http.MethodGet, "/api/hosts", nil)
-	req.AddCookie(c)
-	rec = httptest.NewRecorder()
-	s.routes().ServeHTTP(rec, req)
-	if rec.Code == http.StatusUnauthorized {
-		t.Error("a freshly issued session should be accepted")
-	}
-
-	// A forged/edited cookie must not pass.
-	req = httptest.NewRequest(http.MethodGet, "/api/hosts", nil)
-	req.AddCookie(&http.Cookie{Name: passcodeCookie, Value: "9999999999.deadbeef"})
-	rec = httptest.NewRecorder()
-	s.routes().ServeHTTP(rec, req)
-	if rec.Code != http.StatusUnauthorized {
-		t.Error("a forged session cookie was accepted")
-	}
-
-	for i := 0; i < passcodeMaxFails+2; i++ {
-		r := httptest.NewRecorder()
-		s.routes().ServeHTTP(r, httptest.NewRequest(http.MethodPost, "/api/login", strings.NewReader(`{"passcode":"nope"}`)))
-		if i >= passcodeMaxFails && r.Code != http.StatusTooManyRequests {
-			t.Errorf("attempt %d = %d, want 429 (a short shared code must be throttled)", i, r.Code)
+	for _, key := range []string{"labToken", "bearer", "configured"} {
+		if body[key] != true {
+			t.Errorf("session %s = %v, want true", key, body[key])
 		}
+	}
+	if body["authed"] != false || body["mutationsOpen"] != false {
+		t.Errorf("a request with no credential reported authed: %+v", body)
 	}
 }
 
@@ -339,7 +347,7 @@ func TestSweepOnlyEnrolsReadyUnpooledHosts(t *testing.T) {
 	f := &boardIntent{doc: intentTwoPools}
 	s := New(f, Options{AggregatorURL: agg.URL})
 
-	s.sweepOnce(context.Background(), agg.URL)
+	s.sweepOnce(context.Background())
 
 	var added []string
 	for _, c := range f.calls {
@@ -359,7 +367,7 @@ func TestSweepDoesNothingWhenNoCandidates(t *testing.T) {
 	defer agg.Close()
 	f := &boardIntent{doc: intentTwoPools}
 	s := New(f, Options{AggregatorURL: agg.URL})
-	s.sweepOnce(context.Background(), agg.URL)
+	s.sweepOnce(context.Background())
 	for _, c := range f.calls {
 		if strings.HasPrefix(c, "AddHost") || strings.HasPrefix(c, "NewPool") {
 			t.Errorf("sweep wrote intent with nothing to do: %v", f.calls)
@@ -374,7 +382,7 @@ func TestSweepInertWhenNotOptedIn(t *testing.T) {
 	defer agg.Close()
 	f := &boardIntent{doc: doc}
 	s := New(f, Options{AggregatorURL: agg.URL})
-	s.sweepOnce(context.Background(), agg.URL)
+	s.sweepOnce(context.Background())
 	if len(f.calls) != 0 {
 		t.Errorf("sweep acted while disabled: %v", f.calls)
 	}
@@ -383,9 +391,8 @@ func TestSweepInertWhenNotOptedIn(t *testing.T) {
 func TestSweepSkipsTickWhenAggregatorDown(t *testing.T) {
 	f := &boardIntent{doc: intentTwoPools}
 	s := New(f, Options{AggregatorURL: "http://127.0.0.1:1"})
-	s.sweepOnce(context.Background(), "http://127.0.0.1:1")
+	s.sweepOnce(context.Background())
 	if len(f.calls) != 0 {
 		t.Errorf("sweep wrote intent despite an unreachable aggregator: %v", f.calls)
 	}
 }
-

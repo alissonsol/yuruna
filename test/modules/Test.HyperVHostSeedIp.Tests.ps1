@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.03
+.VERSION 2026.08.04
 .GUID 42b1c9e4-7d52-4f8a-9c36-e15a8d40b972
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -82,7 +82,7 @@ function Get-GuestNewVmScriptName {
     return @(
         'guest.amazon.linux.2023', 'guest.ubuntu.server.24', 'guest.ubuntu.server.26',
         'guest.windows.11', 'guest.caching-proxy-service', 'guest.stash-service',
-        'guest.pool-control-service'
+        'guest.pool-control-service', 'guest.download-agent-service'
     )
 }
 
@@ -214,7 +214,7 @@ Describe 'hyper-v-guest-new-vm-switch-fallback' {
 
     It 'every guest New-VM script substitutes the Default Switch when no External switch is offered' {
         $guestScript = @(Get-GuestNewVmScriptName)
-        Assert-True ($guestScript.Count -eq 7) "expected seven Hyper-V guest drivers, found $($guestScript.Count)"
+        Assert-True ($guestScript.Count -eq 8) "expected eight Hyper-V guest drivers, found $($guestScript.Count)"
         $missing = @()
         foreach ($guest in $guestScript) {
             $path = Get-GuestNewVmScriptPath -GuestName $guest
@@ -239,7 +239,7 @@ Describe 'hyper-v-guest-new-vm-switch-fallback' {
             $src = Get-Content -Raw -LiteralPath (Get-GuestNewVmScriptPath -GuestName $guest)
             if ($src -notmatch '(?s)\$switchName\s*=\s*''Default Switch''.{0,800}Get-VMSwitch') { $missing += $guest }
         }
-        Assert-True ($guestScript.Count -eq 7) 'the guest-driver list must not go empty'
+        Assert-True ($guestScript.Count -eq 8) 'the guest-driver list must not go empty'
         Assert-True ($missing.Count -eq 0) "these scripts substitute a switch name without confirming it resolves: $($missing -join ', ')"
     }
 

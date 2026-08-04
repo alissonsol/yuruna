@@ -1,7 +1,7 @@
 #!/bin/bash
 # Yuruna Ubuntu KVM/libvirt bootstrap installer.
 # LICENSEURI https://yuruna.link/license
-# Version: 2026.08.03  Copyright (c) 2019-2026 by Alisson Sol et al.
+# Version: 2026.08.04  Copyright (c) 2019-2026 by Alisson Sol et al.
 # --- REGION: https://yuruna.link/install/explained
 # One-liner: bash <(curl -fsSL https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/install/ubuntu.kvm.sh)
 # Supported target: Ubuntu 26.04 (Resolute) or newer on x86_64 (aarch64 supported but UNTESTED -- see preflight).
@@ -44,7 +44,6 @@ log()  { _yuruna_step="$*"; printf '\033[1;34m==>\033[0m %s\n' "$*"; }
 warn() { printf '\033[1;33m!! \033[0m %s\n' "$*" >&2; }
 die()  { printf '\033[1;31mXX \033[0m %s\n' "$*" >&2; exit 1; }
 
-# --- REGION: Install log
 # --- REGION: https://yuruna.link/install/explained#install-log
 if [[ -z "${YURUNA_INSTALL_LOG:-}" ]]; then
   _yuruna_log_dir="${XDG_STATE_HOME:-$HOME/.local/state}/yuruna/logs"

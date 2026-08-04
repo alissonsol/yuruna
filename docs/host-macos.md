@@ -6,7 +6,7 @@
 
 - Non-Homebrew packages (e.g. PowerShell) aren't covered by `brew update`/`upgrade`.
 - Different install methods can shadow each other via PATH order.
-- For most cases, use `brew-doctor-fix.sh`. Occasionally you'll need manual steps like `brew uninstall powershell && brew install powershell`.
+- For most cases, use `brew-doctor-fix.sh`; occasionally you'll need manual steps like `brew uninstall powershell && brew install powershell`.
 
 ## PowerShell, .NET, and nested `sudo pwsh`
 
@@ -15,14 +15,14 @@ framework-dependent on brew's `dotnet` and locates its runtime through
 `DOTNET_ROOT`, exported by the wrapper on `PATH`. Any `pwsh` started without
 that environment — notably a nested `sudo pwsh`, whose `env_reset` strips it —
 fails to find `libhostfxr` and exits **131** before running a line of script.
-The error names .NET, never the caller, so it surfaces far from its cause (the
-first report was `New-LocalLabStorage.ps1` dying at step 5/8).
+The error names .NET, never the caller, so it surfaces far from its cause — for
+example `New-LocalLabStorage.ps1` dying at step 5/8.
 
 Two things make this go away, and the installer does both:
 `/etc/dotnet/install_location_$(uname -m)` records the runtime location
 machine-wide, read regardless of who starts `pwsh` or with what environment; and
 `Get-SudoPwshArgumentList` (`automation/Yuruna.Common.psm1`) adds `-E` on macOS
-for every nested launch. To repair a host installed before that:
+for every nested launch. To repair a host that predates both:
 
 ```
 echo "$(brew --prefix dotnet)/libexec" | sudo tee /etc/dotnet/install_location_$(uname -m)
@@ -45,9 +45,9 @@ Recovery: `sudo chown -R "$USER" ~/yuruna` (the whole tree — removing a
 directory needs write permission on its *parent*, and `guest.nosync` is shared
 by every builder), then re-run unelevated.
 
-## Cleaning Up Old Files
+## Cleaning up old files
 
-Run `Remove-OrphanedVMFiles.ps1`. It removes per-VM artifacts (bundles, ISOs, etc.) for any VM that no longer exists. Downloaded base images are explicitly KEPT so subsequent `Get-Image.ps1` runs don't re-download them; refresh a base image with the matching `Get-Image.ps1`.
+Run `Remove-OrphanedVMFiles.ps1`. It removes per-VM artifacts (bundles, ISOs, etc.) for any VM that no longer exists. Downloaded base images are KEPT so later `Get-Image.ps1` runs don't re-download them; refresh one with the matching `Get-Image.ps1`.
 
 ## `tapOn` loops on "UTM window for `<vm>` not found"
 
@@ -170,12 +170,12 @@ cloud-init[…]: Connecting to 192.168.64.1:8080... failed: Connection timed out
 Root cause: macOS `vmnet-shared` allocates **one bridge interface per
 vmnet "session"**. The first running VM owns `bridge100` (host side
 `192.168.64.1/24`); the second is pushed onto `bridge101` (host side
-`192.168.65.1/24`). The two bridges do not route between each other,
-and yuruna only observes the first bridge at cycle start — so the host
+`192.168.65.1/24`). The two bridges do not route to each other, and
+yuruna only observes the first bridge at cycle start — so the host
 proxy IP it bakes into the test guests' cloud-init seed.iso is the
-bridge100 host IP. When the test guests end up on bridge101 (because
-an unrelated UTM VM already claimed bridge100), `192.168.64.1:8080`
-is unreachable from inside the guest.
+bridge100 host IP. When the guests land on bridge101 (an unrelated UTM
+VM already claimed bridge100), `192.168.64.1:8080` is unreachable from
+inside the guest.
 
 Confirm:
 
@@ -197,7 +197,7 @@ Even with `sleep=0`, macOS can blank the display or suspend UTM via
 Power Nap (dark wake for Mail/Backup), `standby` (deep sleep),
 `autopoweroff` (power-off after N hours of sleep), or
 `hibernatemode` (RAM-to-disk). Any of these during a multi-hour cycle
-hide the UTM window from CoreGraphics enumeration; the symptom is
+hides the UTM window from CoreGraphics enumeration; the symptom is
 `"UTM window for '<vm>' not found. CG: not_found, bounds: not_found"`.
 
 `Set-MacHostConditionSet` therefore asserts an extended set of `pmset`
@@ -220,11 +220,10 @@ more). The host setup step (`Set-MacHostConditionSet` in
 `host/macos.utm/Enable-TestAutomation.ps1`) applies them all using the
 legacy names, which `pmset` accepts as compatibility aliases. The install
 script does not apply `pmset` settings; it only primes the sudo cache
-for that step. The precheck reads `pmset -g custom` (no sudo) and only invokes
-`sudo pmset` if a key is present AND has the wrong value — a missing
-key is treated as "macOS no longer surfaces it under that name", not
-as a verification failure. This skips an unnecessary sudo prompt when
-the values are already correct.
+for that step. The precheck reads `pmset -g custom` (no sudo) and invokes
+`sudo pmset` only if a key is present AND has the wrong value, so correct
+values cost no sudo prompt; a missing key is treated as "macOS no longer
+surfaces it under that name", not as a verification failure.
 
 `disablesleep` is the one key exempt from that rule (`AlwaysApply` in
 `Get-MacPmsetGuardList`). macOS does not list it in `pmset -g custom`
@@ -243,14 +242,14 @@ still catches it.
 Symptom: `yuruna-caching-proxy-service` and `yuruna-stash-service` show
 `suspended` in the UTM library (`utmctl status` agrees), and every guest
 that consumes them fails — package installs time out against the proxy,
-the build cannot upload to the stash. Nothing resumes them; they sit
-there until someone presses play.
+the build cannot upload to the stash. Nothing resumes them until someone
+presses play.
 
 Root cause: **quitting UTM saves the state of every VM still running.**
 UTM's termination handler returns `NSTerminateLater`, writes each running
 VM's RAM to disk, and only then lets the app exit. What was `started`
-before the quit is `suspended` after it. In the unified log the whole
-sequence is visible as a `Handling Quit AppleEvent` /
+before the quit is `suspended` after it. In the unified log the sequence
+shows as a `Handling Quit AppleEvent` /
 `applicationShouldTerminate: NSTerminateLater` pair followed seconds
 later by `replyToApplicationShouldTerminate:YES` — the gap is the state
 being written.
@@ -268,18 +267,17 @@ Two things quit UTM, and each has its own guard:
    `install/macos.utm.sh` has to take it down to upgrade the cask. The
    rename path captures the running service VMs first and calls
    `Resume-YurunaServiceVM` after the relaunch on every path out; the
-   installer refuses to quit at all while any service VM is running
+   installer refuses to quit while any service VM is running
    (`is_service_vm_running`, which also preserves when `utmctl` cannot
    be reached — Apple Events are denied over SSH, and reading that as
    "nothing is running" would quit on exactly the unattended hosts that
    can least afford it).
 
-Side effect worth knowing about: QEMU writes the saved state into the
-first qcow2 on its command line, which for these bundles is
-`Data/efi_vars.fd` — a 64 MiB UEFI variable store. Each suspend inflates
-it by roughly the VM's RAM, and resuming deletes the snapshot without
-shrinking the file, so a bundle that has been suspended a few times
-carries gigabytes of dead space:
+Side effect: QEMU writes the saved state into the first qcow2 on its
+command line, which for these bundles is `Data/efi_vars.fd` — a 64 MiB
+UEFI variable store. Each suspend inflates it by roughly the VM's RAM,
+and resuming deletes the snapshot without shrinking the file, so a
+bundle suspended a few times carries gigabytes of dead space:
 
 ```
 qemu-img info -U ~/yuruna/guest.nosync/<vm>.utm/Data/efi_vars.fd
@@ -303,7 +301,7 @@ about `stashBaseUrl` / `extensionTargets`.
 Root cause is the lease store. macOS files every DHCP lease under the name
 the guest sent and never prunes, and a rebuilt guest presents a fresh client
 identity — systemd derives its DHCP DUID from a machine-id the rebuild
-regenerates — so it is issued a **new** address instead of its predecessor's.
+regenerates — so it gets a **new** address instead of its predecessor's.
 One name therefore accumulates one block per incarnation:
 
 ```
@@ -314,10 +312,10 @@ grep -c 'name=yuruna-stash-service' /var/db/dhcpd_leases     # 3, on a host rebu
 `Select-DhcpLeaseIpAddress` picks the largest `lease=` expiry among the
 matches. That is right once the live guest has taken its lease, and wrong for
 the seconds before it does — the only blocks bearing the name then belong to
-guests that no longer exist, and the address handed back parses, sits on-link,
+guests that no longer exist, so the address handed back parses, sits on-link,
 and is dead.
 
-Two things follow from that, and both are guarded:
+Two things follow, and both are guarded:
 
 - **Advertising it.** `Update-StashServiceMarkerAddress` confirms a candidate
   against `/healthz` before publishing it, and keeps polling while it does not
@@ -333,11 +331,10 @@ Two things follow from that, and both are guarded:
   `-WhatIf` reports without changing anything; a timestamped backup is written
   first, and a lease file that the DHCP server rewrote mid-run is left alone.
 
-Note that `extensionTargets` in `host.registration.json` is a snapshot taken
-when the registration was last written, and the runner writes it *before* it
-refreshes the marker (the refresh needs `Get-VMIp`, which is only wired later
-in startup). A corrected address therefore reaches the dashboard on the next
-cycle, not the current one.
+`extensionTargets` in `host.registration.json` is a snapshot taken when the
+registration was last written, and the runner writes it *before* it refreshes
+the marker (the refresh needs `Get-VMIp`, wired later in startup). A corrected
+address therefore reaches the dashboard on the next cycle, not the current one.
 
 ## macOS guest install: embedded Swift VZMacOSInstaller helper
 
@@ -363,6 +360,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.03
+Last review: 2026.08.04
 
 Back to [Yuruna](../README.md)

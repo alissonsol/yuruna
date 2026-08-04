@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.03
+.VERSION 2026.08.04
 .GUID 42a2b3c4-d5e6-4f78-9012-3a4b5c6d7e9a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -25,8 +25,10 @@
       * Windows 11 multi-edition x64 ISO (from microsoft.com/software-download).
         Microsoft serves this only via a JS-driven page that issues
         short-lived signed download URLs -- there is no clean wget-able
-        link. This script prints manual-download instructions and exits
-        non-zero until the operator drops the ISO at the expected path.
+        link. A download agent that holds the media can serve it to this
+        host; failing that, this script prints manual-download
+        instructions and exits non-zero until the operator drops the ISO
+        at the expected path.
       * virtio-win ISO (Fedora's signed driver bundle). This IS publicly
         downloadable; we pull the latest stable from fedorapeople.org.
 
@@ -76,6 +78,74 @@ if (-not (Test-Path -LiteralPath $winIso)) {
         Set-Content -Path $baseImageOrigin -Value @($candidate.Name, [System.Uri]::new($candidateOriginalPath).AbsoluteUri)
         Write-Output "Adopted $($candidate.Name) -> $winIso"
         Write-Output "Recorded source filename and URL to: $baseImageOrigin"
+    }
+}
+if (-not (Test-Path -LiteralPath $winIso)) {
+    # --- REGION: https://yuruna.link/guest-image-setup#agent-first-image-downloads
+    # This host has no automated Windows-media path of its own -- the section
+    # below exits 1 with instructions -- so an agent that holds the ISO is the
+    # only way this script ever finishes unattended. It is consulted only once
+    # the ISO is genuinely absent (the existence check and the drop-in adoption
+    # above have both run), and the manual instructions stay exactly as they are
+    # for when it cannot serve one. The family is best effort by design (the
+    # agent mints its URL by running Fido under Linux pwsh), so "the agent does
+    # not serve Windows 11" is an ordinary answer and stays verbose -- only an
+    # agent that took the request and then broke is worth a warning.
+    #
+    # No local fingerprint is sent: this script's sidecar is the 2-line
+    # filename + URL form, which carries no byte count for the agent to compare,
+    # and the existence check above is already the local-copy decision.
+    $agentStagingFile = Join-Path $downloadDir 'downloaded.iso'
+    # The host driver carries the download-agent client. It is imported again
+    # further down for the virtio-win fetch; here the import is guarded because
+    # a driver that cannot load is a host with no agent, not a failed run.
+    if (-not (Get-Command -Name Resolve-DownloadAgentEndpoint -ErrorAction SilentlyContinue)) {
+        try {
+            Import-Module -Name (Join-Path (Split-Path -Parent $PSScriptRoot) "modules/Yuruna.Host.psm1") -Force -ErrorAction Stop
+        } catch {
+            Write-Verbose "Host driver did not load ($($_.Exception.Message)); no download agent will be consulted."
+        }
+    }
+    if ((Get-Command -Name Resolve-DownloadAgentEndpoint -ErrorAction SilentlyContinue) -and
+        (Get-Command -Name Request-DownloadAgentImage -ErrorAction SilentlyContinue)) {
+        $agentBaseUrl = ''
+        try { $agentBaseUrl = [string](Resolve-DownloadAgentEndpoint) } catch { $agentBaseUrl = '' }
+        if (-not $agentBaseUrl) {
+            Write-Verbose "No download agent reachable; the Windows 11 ISO stays a manual download."
+        } else {
+            $agentResult = $null
+            try {
+                Remove-Item $agentStagingFile -Force -ErrorAction SilentlyContinue
+                $agentResult = Request-DownloadAgentImage -BaseUrl $agentBaseUrl -HostType 'ubuntu.kvm' `
+                    -ImageKey 'guest.windows.11' -Arch 'amd64' -Variant 'stable' `
+                    -StagingPath $agentStagingFile -DeadlineSeconds 7200
+            } catch {
+                Write-Warning "Download agent at $agentBaseUrl failed ($($_.Exception.Message)); the Windows 11 ISO stays a manual download."
+                $agentResult = $null
+            }
+            if ($agentResult -and $agentResult.outcome -eq 'downloaded') {
+                Write-Output "Download agent at $agentBaseUrl served verified $($agentResult.filename) to $agentStagingFile"
+                $previousFile = Join-Path $downloadDir "$baseImageName.previous.iso"
+                Remove-Item $previousFile -Force -ErrorAction SilentlyContinue
+                if (Test-Path -LiteralPath $winIso) {
+                    Move-Item -Path $winIso -Destination $previousFile
+                    Write-Output "Previous image preserved as: $previousFile"
+                }
+                Move-Item -Path $agentStagingFile -Destination $winIso -Force
+                # The 2-line sidecar (filename + URL) Write-BaseImageProvenance
+                # reads, the same shape the adoption path above writes.
+                $baseImageOrigin = Join-Path $downloadDir "$baseImageName.txt"
+                Set-Content -Path $baseImageOrigin -Value @([string]$agentResult.filename, [string]$agentResult.sourceUrl)
+                Write-Output "Recorded source filename and URL to: $baseImageOrigin"
+            } elseif ($agentResult -and $agentResult.outcome -eq 'failed') {
+                $detail = if ($agentResult.error) { ": $($agentResult.error)" } else { '' }
+                Write-Warning "Download agent at $agentBaseUrl answered 'failed'$detail; the Windows 11 ISO stays a manual download."
+            } elseif ($agentResult) {
+                # 'unavailable' is what a working agent answers for a family it
+                # does not hold, the documented steady state for Windows 11.
+                Write-Verbose "Download agent at $agentBaseUrl answered '$($agentResult.outcome)'; the Windows 11 ISO stays a manual download."
+            }
+        }
     }
 }
 if (-not (Test-Path -LiteralPath $winIso)) {
@@ -129,59 +199,141 @@ $virtioUrl = 'https://fedorapeople.org/groups/virt/virtio-win/direct-downloads/a
 Import-Module -Name (Join-Path (Split-Path -Parent $PSScriptRoot) "modules/Yuruna.Host.psm1") -Force
 Import-Module -Name (Join-Path $PSScriptRoot '../../../automation/Yuruna.Retry.psm1') -Force
 
-if (Test-DownloadAlreadyCurrent -SourceUrl $virtioUrl -BaseImageFile $virtioIso -OriginFile $virtioOrigin) {
+# --- REGION: https://yuruna.link/guest-image-setup#agent-first-image-downloads
+# Unlike the Windows media above, virtio-win is a plain pinned URL the agent can
+# always resolve, so it is a pooled family like the Ubuntu and AL2023 images: ask
+# before the origin is HEAD-probed, fingerprint the local copy from its 4-line
+# sentinel, and on a hit nothing is transferred at all. Both the client module
+# and a healthy agent are feature-detected, so with no agent -- or one that is
+# down, has no pool, or errors mid-request -- everything below runs exactly as it
+# always has.
+$tmp = Join-Path $downloadDir 'virtio-win.iso.part'
+$virtioAgentServed  = $false
+$virtioAgentSkipped = $false
+$virtioAgentUrl     = ''
+$virtioAgentLastModified = ''
+if ((Get-Command -Name Resolve-DownloadAgentEndpoint -ErrorAction SilentlyContinue) -and
+    (Get-Command -Name Request-DownloadAgentImage -ErrorAction SilentlyContinue)) {
+    $agentBaseUrl = ''
+    try { $agentBaseUrl = [string](Resolve-DownloadAgentEndpoint) } catch { $agentBaseUrl = '' }
+    if (-not $agentBaseUrl) {
+        Write-Verbose "No download agent reachable; using the origin path for virtio-win."
+    } else {
+        # Fingerprint the local copy with the sentinel's filename + byte count
+        # and no SHA-256: re-hashing the ISO every run would cost more than the
+        # transfer it can save.
+        $agentArgs = @{
+            BaseUrl         = $agentBaseUrl
+            HostType        = 'ubuntu.kvm'
+            ImageKey        = 'virtio-win'
+            Arch            = 'amd64'
+            Variant         = 'stable'
+            StagingPath     = $tmp
+            DeadlineSeconds = 7200
+        }
+        if ((Test-Path -LiteralPath $virtioIso) -and (Test-Path -LiteralPath $virtioOrigin)) {
+            $sentinelLines = @(Get-Content -LiteralPath $virtioOrigin -ErrorAction SilentlyContinue)
+            $sentinelBytes = 0L
+            if ($sentinelLines.Count -ge 3 -and [int64]::TryParse($sentinelLines[2].Trim(), [ref]$sentinelBytes) -and $sentinelBytes -gt 0) {
+                $agentArgs['LocalFilename']  = $sentinelLines[0].Trim()
+                $agentArgs['LocalByteCount'] = $sentinelBytes
+            }
+        }
+        $agentResult = $null
+        try {
+            Remove-Item $tmp -Force -ErrorAction SilentlyContinue
+            $agentResult = Request-DownloadAgentImage @agentArgs
+        } catch {
+            Write-Warning "Download agent at $agentBaseUrl failed ($($_.Exception.Message)); falling back to the origin download path."
+            $agentResult = $null
+        }
+        if ($agentResult -and $agentResult.outcome -eq 'skipped') {
+            $virtioAgentSkipped = $true
+        } elseif ($agentResult -and $agentResult.outcome -eq 'downloaded') {
+            $virtioAgentServed = $true
+            # An agent that served bytes but published no origin URL still has
+            # to produce a sentinel: Write-ImageSentinel refuses an empty
+            # SourceUrl, and under this script's Stop preference that refusal
+            # would abort a run whose download actually succeeded.
+            $virtioAgentUrl = [string]$agentResult.sourceUrl
+            if (-not $virtioAgentUrl) { $virtioAgentUrl = $virtioUrl }
+            $virtioAgentLastModified = [string]$agentResult.lastModified
+            Write-Output "Download agent at $agentBaseUrl served verified $($agentResult.filename) to $tmp"
+        } elseif ($agentResult) {
+            $detail = if ($agentResult.error) { ": $($agentResult.error)" } else { '' }
+            Write-Warning "Download agent at $agentBaseUrl answered '$($agentResult.outcome)'$detail; falling back to the origin download path."
+        }
+    }
+}
+
+if ($virtioAgentSkipped) {
+    Write-Output "Skipping virtio-win download: the download agent at $agentBaseUrl confirms $virtioIso is the current virtio-win artifact"
+} elseif (-not $virtioAgentServed -and (Test-DownloadAlreadyCurrent -SourceUrl $virtioUrl -BaseImageFile $virtioIso -OriginFile $virtioOrigin)) {
     Write-Output "Skipping virtio-win download: URL and size match prior run for $virtioIso"
 } else {
-    $tmp = Join-Path $downloadDir 'virtio-win.iso.part'
-    Remove-Item $tmp -Force -ErrorAction SilentlyContinue
-    Write-Output "Downloading $virtioUrl"
-    # Retry so a transient squid SSL-bump / origin blip on this single fetch
-    # does not fail the whole guest (matching the kubectl/helm fetch policy).
-    # Invoke-WithYurunaRetry catches the statement-terminating exception
-    # Save-CachedHttpUri raises on a TLS handshake failure and retries with
-    # backoff. Save-CachedHttpUri is invoked through a captured CommandInfo so
-    # it still resolves when the scriptblock runs inside the retry module's
-    # session state (see feedback_closure_foreign_module_command_resolution).
-    $saveCmd = Get-Command -Name Save-CachedHttpUri
-    # Make the downloaded FILE the authoritative success signal, not the
-    # ambient $LASTEXITCODE. Save-CachedHttpUri's cache discovery runs native
-    # `virsh` probes (Get-VMIp) that leave a non-zero $LASTEXITCODE when the
-    # cache VM has no lease, even when the subsequent direct download succeeds;
-    # Invoke-WithYurunaRetry keys success off $LASTEXITCODE, so without the
-    # in-scriptblock file-check + reset a clean download is misreported as a
-    # failure with no exception to show (an empty error message). See
-    # feedback_lastexitcode_null_pure_ps_chain. A missing/empty file throws,
-    # giving the retry a real message to surface and a reason to retry.
-    $dlLog = Join-Path $downloadDir 'virtio-win.download.log'
-    Remove-Item $dlLog -Force -ErrorAction SilentlyContinue
-    $download = Invoke-WithYurunaRetry -Label 'virtio-win.iso' -LogPath $dlLog -ScriptBlock ({
-        & $saveCmd -Uri $virtioUrl -OutFile $tmp
-        if (-not (Test-Path -LiteralPath $tmp)) { throw "download wrote no file to $tmp" }
-        if ((Get-Item -LiteralPath $tmp).Length -le 0) { throw "download produced an empty file at $tmp" }
-        $global:LASTEXITCODE = 0
-    }).GetNewClosure()
-    if (-not $download.Success) {
-        # Surface the real cause: unwind the inner-exception chain (the squid
-        # bump failure detail lives in an inner exception, not the top message),
-        # and fall back to the captured per-attempt output when no exception
-        # was recorded. The full per-attempt transcript is in $dlLog.
-        if ($download.LastError) {
-            $chain = @(); $ex = $download.LastError.Exception
-            while ($ex) { $chain += ('{0}: {1}' -f $ex.GetType().Name, $ex.Message); $ex = $ex.InnerException }
-            $detail = $chain -join ' -> '
-        } else {
-            $detail = 'no exception recorded (a stale non-zero $LASTEXITCODE from cache discovery, or a non-terminating failure)'
+    if (-not $virtioAgentServed) {
+        Remove-Item $tmp -Force -ErrorAction SilentlyContinue
+        Write-Output "Downloading $virtioUrl"
+        # Retry so a transient squid SSL-bump / origin blip on this single fetch
+        # does not fail the whole guest (matching the kubectl/helm fetch policy).
+        # Invoke-WithYurunaRetry catches the statement-terminating exception
+        # Save-CachedHttpUri raises on a TLS handshake failure and retries with
+        # backoff. Save-CachedHttpUri is invoked through a captured CommandInfo so
+        # it still resolves when the scriptblock runs inside the retry module's
+        # session state (see feedback_closure_foreign_module_command_resolution).
+        $saveCmd = Get-Command -Name Save-CachedHttpUri
+        # Make the downloaded FILE the authoritative success signal, not the
+        # ambient $LASTEXITCODE. Save-CachedHttpUri's cache discovery runs native
+        # `virsh` probes (Get-VMIp) that leave a non-zero $LASTEXITCODE when the
+        # cache VM has no lease, even when the subsequent direct download succeeds;
+        # Invoke-WithYurunaRetry keys success off $LASTEXITCODE, so without the
+        # in-scriptblock file-check + reset a clean download is misreported as a
+        # failure with no exception to show (an empty error message). See
+        # feedback_lastexitcode_null_pure_ps_chain. A missing/empty file throws,
+        # giving the retry a real message to surface and a reason to retry.
+        $dlLog = Join-Path $downloadDir 'virtio-win.download.log'
+        Remove-Item $dlLog -Force -ErrorAction SilentlyContinue
+        $download = Invoke-WithYurunaRetry -Label 'virtio-win.iso' -LogPath $dlLog -ScriptBlock ({
+            & $saveCmd -Uri $virtioUrl -OutFile $tmp
+            if (-not (Test-Path -LiteralPath $tmp)) { throw "download wrote no file to $tmp" }
+            if ((Get-Item -LiteralPath $tmp).Length -le 0) { throw "download produced an empty file at $tmp" }
+            $global:LASTEXITCODE = 0
+        }).GetNewClosure()
+        if (-not $download.Success) {
+            # Surface the real cause: unwind the inner-exception chain (the squid
+            # bump failure detail lives in an inner exception, not the top message),
+            # and fall back to the captured per-attempt output when no exception
+            # was recorded. The full per-attempt transcript is in $dlLog.
+            if ($download.LastError) {
+                $chain = @(); $ex = $download.LastError.Exception
+                while ($ex) { $chain += ('{0}: {1}' -f $ex.GetType().Name, $ex.Message); $ex = $ex.InnerException }
+                $detail = $chain -join ' -> '
+            } else {
+                $detail = 'no exception recorded (a stale non-zero $LASTEXITCODE from cache discovery, or a non-terminating failure)'
+            }
+            $tail = (@($download.LastOutput) | ForEach-Object { [string]$_ }) -join "`n    "
+            throw ("virtio-win.iso download failed after $($download.Attempts)/$($download.MaxAttempts) attempt(s) " +
+                   "[lastExit=$($download.LastExit)]: $detail`n  last-attempt output:`n    $tail`n  full per-attempt log: $dlLog")
         }
-        $tail = (@($download.LastOutput) | ForEach-Object { [string]$_ }) -join "`n    "
-        throw ("virtio-win.iso download failed after $($download.Attempts)/$($download.MaxAttempts) attempt(s) " +
-               "[lastExit=$($download.LastExit)]: $detail`n  last-attempt output:`n    $tail`n  full per-attempt log: $dlLog")
     }
     $size = (Get-Item -LiteralPath $tmp).Length
     if (Test-Path -LiteralPath $virtioIso) {
         Move-Item -Path $virtioIso -Destination (Join-Path $downloadDir 'virtio-win.previous.iso') -Force
     }
     Move-Item -Path $tmp -Destination $virtioIso
-    Write-ImageSentinel -SourceUrl $virtioUrl -OriginFile $virtioOrigin -SizeBytes $size -Confirm:$false
+    if ($virtioAgentServed) {
+        # Record the URL the AGENT fetched from, with the Last-Modified it saw
+        # there: letting Write-ImageSentinel HEAD the origin would re-touch the
+        # very server the agent path exists to spare, and on an unreachable
+        # origin would leave an empty 4th line for bytes whose timestamp is
+        # known. A pinned virtio-win URL that has moved on since the agent
+        # stored it costs one origin re-download on a later agentless run --
+        # never a wrong artifact, because the filename and byte count the next
+        # comparison uses come from the same record.
+        Write-ImageSentinel -SourceUrl $virtioAgentUrl -OriginFile $virtioOrigin -SizeBytes $size -LastModified $virtioAgentLastModified -Confirm:$false
+    } else {
+        Write-ImageSentinel -SourceUrl $virtioUrl -OriginFile $virtioOrigin -SizeBytes $size -Confirm:$false
+    }
     Write-Output "Download complete: $virtioIso"
 }
 

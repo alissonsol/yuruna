@@ -245,6 +245,14 @@ type hostStatus struct {
 	// host as its own "paused" status, the same effective-pause signal the host status
 	// page shows -- see statusLabel.
 	CyclePaused bool `json:"cyclePaused"`
+	// StepPaused mirrors the host's control.step-pause flag, written the same way.
+	// Armed, it stops the runner at the NEXT step boundary, so on its own it means
+	// "will pause", not "paused"; whether that boundary has actually been reached is
+	// visible only in the current-action sidecar (hostView.StepPauseReached). Both
+	// flags are surfaced as their own status rather than hidden inside a "running"
+	// cycle, so the pool view never shows a plain "running" for a host an operator
+	// has already told to stop -- see statusLabel.
+	StepPaused bool `json:"stepPaused"`
 	// GitCommits mirrors status.json's gitCommits array (framework FIRST, project
 	// SECOND by the runner's convention -- see Test.RunnerInnerLoop's
 	// GitCommitsList): the source-tree commit(s) the current cycle ran. Drives the
@@ -371,6 +379,18 @@ type hostView struct {
 	// answer changes only on enrollment. Drives host_info's control label -> the
 	// dashboard's Control column.
 	Control string `json:"control,omitempty"`
+	// RunnerStopped is true when the host answered /control/runner-status with a
+	// verified-dead outer runner. Refreshed each poll and kept across a transient
+	// probe miss like Version/Control, since a host whose runner is stopped keeps
+	// answering everything else normally -- its status.json simply stops moving.
+	RunnerStopped bool `json:"runnerStopped,omitempty"`
+	// StepPauseReached is true when the host's current-action sidecar says the runner
+	// is SITTING at a step boundary rather than still executing the step the armed
+	// flag will stop after. It is meaningful only while Status.StepPaused is set,
+	// which is the only condition under which it is read (statusLabel) and the only
+	// condition under which it is refreshed: the sidecar line outlives a resume until
+	// the next step overwrites it, so an unarmed host must not carry it forward.
+	StepPauseReached bool `json:"stepPauseReached,omitempty"`
 }
 
 // controlLabel is Control with the never-learned case folded onto the state that
@@ -641,24 +661,55 @@ func (s *poolState) poolFor(hostID string) string {
 
 func isTerminal(status string) bool { return status == "pass" || status == "fail" }
 
-// statusLabel folds reachability + overallStatus into one value for the
-// dashboard's per-host table (a string cell); statusCode is the numeric twin
-// for the state-timeline panel. Derived from the same source so they never
-// disagree. Mapping: unreachable=0, running=1, pass=2, fail=3, idle=4 (reachable
-// but no/other cycle status), paused=5.
+// statusLabel folds reachability, whether the host's runner is still alive,
+// overallStatus and the two pause flags into one value for the dashboard's per-host
+// table (a string cell); statusCode is the
+// numeric twin for the state-timeline panel. Derived from the same source so they
+// never disagree. Mapping: unreachable=0, running=1, pass=2, fail=3, idle=4
+// (reachable but no/other cycle status), paused=5, pausing-cycle=6, pausing-step=7,
+// stopped=8.
+//
+// The whole ladder mirrors the host status page's banner (yuruna.common.js
+// applyBanner + pauseBannerText) state for state, so a host reads the same on both
+// surfaces. Two of those readings exist because status.json cannot supply them and
+// a host that looks fine without them is the one an operator most needs to see:
+//
+//   - ARMED-but-not-yet-stopped. The host is still executing, but an operator has
+//     already told it to stop, and reporting that as a plain "running" hides a
+//     pending stop behind a status that says nothing is going to change. Step pause
+//     is resolved before cycle pause because the step boundary is reached first.
+//   - Runner stopped. status.json is a record of what ran, so it reads identically
+//     an hour after the runner went away -- a green "pass" for a host that is not
+//     testing anything, which is the false-green the runner-status route exists to
+//     remove. It is resolved above everything: the last cycle's result, and any
+//     pause flag still armed on it, describe a runner no longer there to honour
+//     them.
 func (hv *hostView) statusLabel() string {
 	if hv == nil || !hv.Reachable {
 		return "unreachable"
 	}
+	if hv.RunnerStopped {
+		return "stopped"
+	}
 	if hv.Status == nil {
 		return "idle"
 	}
-	// A host whose cycle-pause flag is set and that is NOT mid-cycle is sitting
-	// paused -- report that ABOVE the last cycle's pass/fail so it reads as paused,
-	// not as a stale terminal result. Matches the host status page's effective-pause
-	// badge (cyclePaused && overallStatus != "running"); a still-running cycle that is
-	// only pause-PENDING stays "running" until it stops.
-	if hv.Status.CyclePaused && hv.Status.OverallStatus != "running" {
+	if hv.Status.StepPaused {
+		// Only the current-action sidecar separates "parked at the boundary" from
+		// "still running the step it will stop after" -- the flag alone reads the same
+		// in both states.
+		if hv.StepPauseReached {
+			return "paused"
+		}
+		return "pausing-step"
+	}
+	if hv.Status.CyclePaused {
+		// Mid-cycle the stop has not happened yet. Anything else means the host is
+		// sitting at the cycle boundary the flag stopped it at -- reported ABOVE the
+		// last cycle's pass/fail so it reads as paused, not as a stale terminal result.
+		if hv.Status.OverallStatus == "running" {
+			return "pausing-cycle"
+		}
 		return "paused"
 	}
 	switch hv.Status.OverallStatus {
@@ -681,6 +732,12 @@ func (hv *hostView) statusCode() int {
 		return 4
 	case "paused":
 		return 5
+	case "pausing-cycle":
+		return 6
+	case "pausing-step":
+		return 7
+	case "stopped":
+		return 8
 	default: // unreachable
 		return 0
 	}
@@ -764,6 +821,10 @@ func (s *poolState) pollOnce(client *http.Client, squidLog, lokiURL string, now 
 		activeExt  []string          // extension areas the host is actively running (registration activeExtensions)
 		extTargets map[string]string // per-area deep-link URLs the host advertises (registration extensionTargets)
 		control    string            // classified control state ("" = not fetched this poll; caller keeps prior)
+		stepParked bool              // current-action sidecar says the runner is sitting at a step boundary
+		parkedOK   bool              // the sidecar was read this poll (false = keep the prior reading)
+		runnerDead bool              // runner-status says the outer runner is verifiably not alive
+		runnerOK   bool              // runner-status answered this poll (false = keep the prior reading)
 	}
 	// This proxy's own token tag, computed once per poll: the value every host's
 	// published tag is compared against. "" when no lab-auth-token is configured,
@@ -802,6 +863,25 @@ func (s *poolState) pollOnce(client *http.Client, squidLog, lokiURL string, now 
 				// is not skewed by the poll's own duration.
 				if cs, cerr := fetchControlStatus(client, base); cerr == nil {
 					pr.control = classifyControl(proxyTag, cs, now)
+				}
+				// Best-effort: is anything still driving this host? status.json
+				// alone cannot say -- it is a record of what ran, and it reads
+				// exactly the same an hour after the runner went away. This is the
+				// one probe that cannot be skipped on a hint from status.json,
+				// since a stopped runner is precisely the case where status.json
+				// has stopped changing.
+				if dead, rerr := fetchRunnerStopped(client, base); rerr == nil {
+					pr.runnerDead, pr.runnerOK = dead, true
+				}
+				// Only while the step-pause flag is armed: the sidecar is the one
+				// thing that separates "parked at the boundary" from "still running
+				// the step it will stop after", and it is read nowhere else
+				// (statusLabel gates on StepPaused), so the overwhelmingly common
+				// unarmed host costs no extra request per poll.
+				if st.StepPaused {
+					if parked, aerr := fetchCurrentAction(client, base); aerr == nil {
+						pr.stepParked, pr.parkedOK = parked, true
+					}
 				}
 				results[i] = pr
 			} else {
@@ -870,6 +950,21 @@ func (s *poolState) pollOnce(client *http.Client, squidLog, lokiURL string, now 
 		// this tick, not that control was lost.
 		if r.control != "" {
 			hv.Control = r.control
+		}
+		// Keep the prior runner verdict when the route did not answer this tick, the
+		// same guard as Control: a missed probe is not a runner that started.
+		if r.runnerOK {
+			hv.RunnerStopped = r.runnerDead
+		}
+		// An unarmed host has no boundary to be parked at, so the reading is cleared
+		// rather than kept -- otherwise a stale true would resurface the moment the
+		// flag is armed again and report a still-running host as already stopped.
+		// While armed, a sidecar miss keeps the prior reading, which on a freshly
+		// armed flag is the "will pause" it should be.
+		if !r.st.StepPaused {
+			hv.StepPauseReached = false
+		} else if r.parkedOK {
+			hv.StepPauseReached = r.stepParked
 		}
 		// Update the advertised poolId only when the registration probe succeeded,
 		// so a transient registration miss never wipes a known pool (and a host that
@@ -1045,11 +1140,99 @@ func fetchStatus(client *http.Client, base string) (*hostStatus, error) {
 	return &st, nil
 }
 
+// fetchRunnerStopped reads /control/runner-status and reports whether the host's
+// outer test runner is verifiably NOT alive. The route is open and read-only like
+// control-status, so this needs no credential.
+//
+// ONLY an explicit running:false counts as stopped, matching the host status page's
+// own banner test (yuruna.common.js applyBanner reads runnerStatus.running ===
+// false). A route that is absent (404 on an older framework build) or that answers
+// without the field has nothing to say, and inventing "stopped" out of silence would
+// blank every host's real status the moment the route moved or was renamed. A
+// transport failure returns the error so the caller can keep what it last knew.
+func fetchRunnerStopped(client *http.Client, base string) (bool, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), probeTimeout)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, base+"/control/runner-status", nil)
+	if err != nil {
+		return false, err
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return false, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusNotFound {
+		return false, nil // answered, but predates the route: not evidence of a stopped runner
+	}
+	if resp.StatusCode != http.StatusOK {
+		return false, fmt.Errorf("runner-status HTTP %d", resp.StatusCode)
+	}
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
+	if err != nil {
+		return false, err
+	}
+	// A pointer, so an answer that omits the field is told apart from one that says
+	// false -- the difference between "cannot tell" and "the runner is gone".
+	var rs struct {
+		Running *bool `json:"running"`
+	}
+	if err := json.Unmarshal(body, &rs); err != nil {
+		return false, fmt.Errorf("runner-status parse: %w", err)
+	}
+	return rs.Running != nil && !*rs.Running, nil
+}
+
+// stepPauseMarker is the substring Invoke-Sequence writes into the current-action
+// sidecar while it is blocked at a step boundary. The host's own status page keys
+// its "Test paused" badge off the same substring (yuruna.common.js
+// pauseBannerText), so both surfaces flip from "will pause" to "paused" together.
+const stepPauseMarker = "Paused (waiting for resume)"
+
+// fetchCurrentAction reads /runtime/current-action.json and reports ONLY whether
+// the runner is parked at a step boundary. The sidecar also carries the in-progress
+// step's text and the guest VM name; neither is decoded into anything this process
+// stores or exports, because /metrics and /api/v1/pool-status are unauthenticated by
+// design and a step line is host detail -- the same deliberately narrow read as
+// hostStatus.LastFailure. A missing sidecar (404: no sequence has written one this
+// cycle) is a definite "not parked" rather than an error, so a host whose flag is
+// armed between sequences reports "will pause" instead of inheriting a stale reading.
+func fetchCurrentAction(client *http.Client, base string) (bool, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), probeTimeout)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, base+"/runtime/current-action.json", nil)
+	if err != nil {
+		return false, err
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return false, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusNotFound {
+		return false, nil
+	}
+	if resp.StatusCode != http.StatusOK {
+		return false, fmt.Errorf("current-action.json HTTP %d", resp.StatusCode)
+	}
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
+	if err != nil {
+		return false, err
+	}
+	var doc struct {
+		Line string `json:"line"`
+	}
+	if err := json.Unmarshal(body, &doc); err != nil {
+		return false, fmt.Errorf("current-action.json parse: %w", err)
+	}
+	return strings.Contains(doc.Line, stepPauseMarker), nil
+}
+
 // fetchVersion reads the host's framework version from VERSION at the repo root,
 // served by the status service at /yuruna-repo/VERSION -- the SAME source the
 // host's own status pages read for their header (their getHostInfo() fetches
 // yuruna-repo/VERSION via JS, so the version is not embedded in the HTML). A tiny
-// plain-text file (one CalVer line, e.g. "2026.08.03"), so it is lighter than any
+// plain-text file (one CalVer line, e.g. "2026.08.04"), so it is lighter than any
 // status HTML page and fetchable server-side without a JS engine. Returns
 // ("", err) on any failure; the caller keeps the prior version on a transient
 // miss (the version is stable across polls). The value is capped + first-line
@@ -1220,26 +1403,33 @@ func fetchRegistration(client *http.Client, base string) (string, string, *gatin
 // drains + closes the body, and logs (prefixed by logPrefix) on a build error, a
 // transport error, or a non-2xx status. The cycle / single-line beacon / events /
 // incident push paths share this tail; only the payload and logPrefix differ.
-func postToLoki(client *http.Client, lokiURL string, payload map[string]any, logPrefix string) {
+//
+// Returns nil once Loki has ACCEPTED the line, else why it did not. Most callers
+// are best-effort and ignore it -- their data is re-pushed on the next poll or
+// discovery. It exists for the callers whose own reply has to state whether the
+// line will survive a restart; see pushAnnounce.
+func postToLoki(client *http.Client, lokiURL string, payload map[string]any, logPrefix string) error {
 	buf, _ := json.Marshal(payload)
 	ctx, cancel := context.WithTimeout(context.Background(), pushTimeout)
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, lokiURL, bytes.NewReader(buf))
 	if err != nil {
 		log.Printf("%s build: %v", logPrefix, err)
-		return
+		return err
 	}
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := client.Do(req)
 	if err != nil {
 		log.Printf("%s: %v", logPrefix, err)
-		return
+		return err
 	}
 	defer resp.Body.Close()
 	_, _ = io.Copy(io.Discard, resp.Body)
 	if resp.StatusCode/100 != 2 {
 		log.Printf("%s HTTP %d", logPrefix, resp.StatusCode)
+		return fmt.Errorf("%s: HTTP %d", logPrefix, resp.StatusCode)
 	}
+	return nil
 }
 
 // lokiStreamsResult is the query_range response envelope every Loki reader
@@ -1454,16 +1644,21 @@ func pushLoki(client *http.Client, lokiURL, pool string, st *hostStatus, baseURL
 
 // pushLokiStream POSTs one line to Loki under the given stream labels --
 // the shared body of the single-line beacon pushes (presence, announce).
-// Best-effort: any error is logged under `what` and dropped.
-func pushLokiStream(client *http.Client, lokiURL, what string, stream map[string]string, line []byte, now time.Time) {
+// Any error is logged under `what` and also returned, for the callers that
+// have to answer for durability rather than drop it.
+//
+// No Loki endpoint (or no client) is NOT an error: a pool can legitimately run
+// without one, and reporting that as a push failure would turn "this lab keeps
+// no log store" into a permanent fault in every caller that checks.
+func pushLokiStream(client *http.Client, lokiURL, what string, stream map[string]string, line []byte, now time.Time) error {
 	if client == nil || lokiURL == "" {
-		return
+		return nil
 	}
 	payload := map[string]any{"streams": []map[string]any{{
 		"stream": stream,
 		"values": [][]string{{fmt.Sprintf("%d", now.UnixNano()), string(line)}},
 	}}}
-	postToLoki(client, lokiURL, payload, what+" push")
+	return postToLoki(client, lokiURL, payload, what+" push")
 }
 
 // pushPresence records a host's last-known address in Loki under {pool,hostId,
@@ -1493,12 +1688,19 @@ func pushPresence(client *http.Client, lokiURL, pool, hostID, baseURL string, no
 // aggregator's -pool default) so the rehydrate, which queries that same pool
 // label, finds it -- the same label coupling pushPresence documents. Goodbyes
 // (active=false) are pushed too so the latest line decides restart state.
-func pushAnnounce(client *http.Client, lokiURL, pool, hostID, area, target string, active bool, now time.Time) {
+//
+// UNLIKE the other push paths this one is not best-effort, and the error is the
+// point. This line is the ONLY record of the announce that outlives the process:
+// the entry itself is in-memory, and nothing but the announcer ever re-sends it.
+// So a dropped push is a silently lost registration, recoverable only by the
+// announcer's next beacon -- a whole re-announce period later. handleAnnounce
+// turns this error into a non-2xx so the announcer keeps trying instead.
+func pushAnnounce(client *http.Client, lokiURL, pool, hostID, area, target string, active bool, now time.Time) error {
 	if lokiURL == "" || hostID == "" {
-		return
+		return nil
 	}
 	line, _ := json.Marshal(map[string]any{"hostId": hostID, "area": area, "target": target, "active": active})
-	pushLokiStream(client, lokiURL, "announce",
+	return pushLokiStream(client, lokiURL, "announce",
 		map[string]string{"pool": pool, "hostId": hostID, "src": "announce"}, line, now)
 }
 
@@ -2341,8 +2543,13 @@ func poolAlertID(t time.Time) string { return fmt.Sprintf("alert-pool-%d", t.Uni
 // break. MUST be called with s.mu held (reads s.hosts/s.incident/s.gating, mutates
 // s.poolGate). Returns the alert lifecycle events to ship to Loki after the unlock.
 //
-// healthy(host)   := reachable AND status in {running,pass,idle} AND not in an open
+// healthy(host)   := reachable AND status in {running,pass,idle,stopped} or either
 //
+//	pending pause (pausing-cycle/pausing-step -- an armed flag does not
+//	stop the host until its boundary, so it is still executing normally
+//	and must not drag the pool's fraction down; a stopped runner is not
+//	running cycles at all and is not counted against the pool either,
+//	the same reading idle has always had), AND not in an open
 //	incident; healthyFraction := healthy/known (known = pool members
 //	in the view). degraded latches when the fraction stays below the
 //	threshold for >= DegradedAfter (wall-clock), clears immediately on
@@ -2385,7 +2592,11 @@ func (s *poolState) evaluatePoolGate(now time.Time) []incidentEvent {
 		for _, hv := range members {
 			if hv.Reachable && s.incident[hv.HostId] == nil {
 				switch hv.statusCode() {
-				case 1, 2, 4: // running, pass, idle
+				// running, pass, idle, pause-armed but still running, runner stopped.
+				// A stale fail behind a stopped runner is no longer counted against the
+				// pool; a host that is genuinely failing is excluded by the incident
+				// test above, which does not care what its current status reads.
+				case 1, 2, 4, 6, 7, 8:
 					healthy++
 				}
 			}
@@ -3980,8 +4191,9 @@ func (s *poolState) handleMetrics(w http.ResponseWriter, _ *http.Request) {
 	// host_status: the numeric twin of host_info's status, keyed on hostId so it
 	// forms one continuous series per host -- the input the state-timeline panel
 	// needs. No hostname label (pool view is hostname-free). 0=unreachable
-	// 1=running 2=pass 3=fail 4=idle 5=paused.
-	b.WriteString("# HELP yuruna_pool_host_status Per-host cycle status code (0=unreachable 1=running 2=pass 3=fail 4=idle 5=paused).\n# TYPE yuruna_pool_host_status gauge\n")
+	// 1=running 2=pass 3=fail 4=idle 5=paused 6=pausing-cycle 7=pausing-step
+	// 8=stopped.
+	b.WriteString("# HELP yuruna_pool_host_status Per-host cycle status code (0=unreachable 1=running 2=pass 3=fail 4=idle 5=paused 6=pausing-cycle 7=pausing-step 8=stopped).\n# TYPE yuruna_pool_host_status gauge\n")
 	for _, h := range ids {
 		hv := s.hosts[h]
 		if hv == nil {
@@ -4538,9 +4750,23 @@ func (s *poolState) handleAnnounce(w http.ResponseWriter, r *http.Request) {
 	if active {
 		s.confirmExtensionTarget(s.httpClient, key, target, time.Now().UTC())
 	}
-	// Push after the unlock so a slow Loki never stalls the handler; goodbyes
-	// are pushed too so the latest line decides restart state.
-	pushAnnounce(s.httpClient, s.lokiURL, poolLabel, a.HostId, a.Area, target, active, time.Now().UTC())
+	// Push after the unlock so a slow Loki never stalls the state above;
+	// goodbyes are pushed too so the latest line decides restart state.
+	//
+	// The push OUTCOME is the reply, because 2xx is what stops the announcer:
+	// its beacon retries only until the first success, then sleeps a full
+	// re-announce period. Answering 2xx for a line that never reached Loki
+	// therefore trades a retry the announcer would have made in seconds for an
+	// entry that exists only in this process's memory -- and the window where
+	// that matters is precisely a restart, which is also when an aggregator is
+	// most likely to be restarted by whatever brought it up. The entry is KEPT
+	// either way: it is live and serving right now, and the retry is what makes
+	// it durable. Where no Loki is configured there is nothing to lose, and the
+	// push reports success (pushLokiStream), so those pools still get 2xx.
+	if err := pushAnnounce(s.httpClient, s.lokiURL, poolLabel, a.HostId, a.Area, target, active, time.Now().UTC()); err != nil {
+		http.Error(w, "announce accepted but not durably recorded; retry", http.StatusServiceUnavailable)
+		return
+	}
 	w.WriteHeader(http.StatusNoContent)
 }
 

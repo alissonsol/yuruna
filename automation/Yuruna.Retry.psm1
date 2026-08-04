@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.03
+.VERSION 2026.08.04
 .GUID 42e3a5b6-c7d8-4901-2345-6e7f80910218
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -60,13 +60,11 @@ $script:RetryDefaults = @{
 # What each token covers, why a bare 500 is in the list, and the per-phase
 # gating: docs/architecture.md#shared-transient-failure-retry-policy
 #
-# The codes are matched with word boundaries (\b429\b ... \b504\b) so "HTTP 500"
-# matches wherever the code stands alone (mid-line or end-of-line) while "1500"/
-# "2500" and other embedded digits do not; the boundaries allow any surrounding
-# context (HTTP/status/bare). EOF is likewise a bounded token (\bEOF\b) so a
-# standalone transient read -- "unexpected EOF", ": EOF while reading", a
-# trailing ": EOF" -- matches, while EOF embedded in an unrelated token (EOFError
-# in a stack trace, an EOF-prefixed identifier) does not.
+# Status codes and EOF are matched as word-bounded tokens (\b429\b ... \b504\b,
+# \bEOF\b) so each matches standing alone in any surrounding context ("HTTP 500",
+# a bare 500; "unexpected EOF", a trailing ": EOF") while embedded digits
+# ("1500", "2500") and EOF inside an unrelated token (EOFError in a stack trace)
+# do not.
 $script:TransientFailurePattern = '(?i)(failed to fetch|i/o timeout|no such host|connection refused|connection reset|client\.timeout|\bEOF\b|TLS handshake|temporary failure|\b(?:429|500|502|503|504)\b|too many requests|error acquiring the state lock|ConditionalCheckFailedException)'
 
 <#
@@ -91,12 +89,10 @@ function Get-YurunaRetryDefault {
 <#
 .SYNOPSIS
     Returns the shared transient-failure regex string for callers that match
-    output inline instead of calling Test-YurunaTransientFailure.
+    output inline -- e.g. a closure that must run detached in the retry module's
+    scope -- instead of calling Test-YurunaTransientFailure.
 #>
 function Get-YurunaTransientPattern {
-    # The regex string, for callers that match inline (e.g. a closure that
-    # must run detached in the retry module's scope) rather than calling
-    # Test-YurunaTransientFailure.
     [OutputType([string])]
     param()
     return $script:TransientFailurePattern
@@ -104,12 +100,11 @@ function Get-YurunaTransientPattern {
 
 <#
 .SYNOPSIS
-    Returns $true when the given command output (string or array of lines)
-    matches the shared transient-failure pattern and is worth retrying.
+    Returns $true when the given command output (a string, or an array of
+    output lines/records) matches the shared transient-failure pattern and is
+    worth retrying.
 #>
 function Test-YurunaTransientFailure {
-    # $true when command output looks like a transient failure worth
-    # retrying. Accepts a string or an array of output lines/records.
     [OutputType([bool])]
     param([Parameter(Mandatory)][AllowNull()]$Output)
     if ($null -eq $Output) { return $false }

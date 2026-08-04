@@ -16,8 +16,8 @@ The release process signs `install/install.sha256` (the SHA-256 of the three
 bootstrap installers) with the **private** key, producing
 `install/install.sha256.sig` (a detached PKCS#1 v1.5 / SHA-256 signature).
 The verified install path (see [install/README.md](../README.md)) checks that
-signature against the public key here, then checks the installer's own hash
-against the verified `install.sha256`. This gives integrity against a
+signature against the public key here, then the installer's own hash against
+the verified `install.sha256`. This gives integrity against a
 compromised CDN/mirror or a moved `main`, not just same-channel corruption.
 
 ## Fingerprint (verify OUT-OF-BAND before trusting)
@@ -55,6 +55,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.03
+Last review: 2026.08.04
 
 Back to [Yuruna](../../README.md)

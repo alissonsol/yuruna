@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.03
+.VERSION 2026.08.04
 .GUID 42e0d1c8-9b3a-4f52-8c61-7d2e4a9b0f33
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -137,9 +137,9 @@ function Write-ImageSentinel {
         Write the 4-line image sentinel (filename, source URL, byte count,
         Last-Modified) that Test-DownloadAlreadyCurrent reads back.
     .DESCRIPTION
-        One writer for every KVM Get-Image script so the sentinel shape stays
-        in lockstep with the reader: the filename is derived from the URL the
-        SAME way the reader expects it, closing the noble->resolute URL-bump
+        One writer for every Get-Image path, so the sentinel shape stays in
+        lockstep with the reader: the filename is derived from the URL the SAME
+        way the reader expects it, closing the noble->resolute URL-bump
         regression a 3-line sentinel silently misses. When -LastModified is
         omitted a HEAD probe captures what the server reports at fetch time; a
         server that strips the header records an empty 4th line, which the
@@ -274,14 +274,12 @@ function Save-CachedHttpUri {
         [Parameter(Mandatory)][string]$OutFile,
         [scriptblock]$ResolveCacheHostIp
     )
-    # A platform that imports this shared module only for the sentinel/skip
-    # helpers ships no driver wrapper to bind its own Resolve-CacheHostIp, so the
-    # closure arrives $null: with no discovery there is no cache to route through,
-    # download direct. The closure stays optional (not mandatory) on purpose --
-    # the image helpers feature-detect this command by name and invoke it with
-    # just -Uri/-OutFile, and a mandatory closure would make that by-name call
-    # bind against a missing mandatory parameter, which stalls on an interactive
-    # prompt instead of falling through to a direct fetch.
+    # A platform that imports this module only for the sentinel/skip helpers has
+    # no driver wrapper to bind Resolve-CacheHostIp, so the closure arrives $null:
+    # no discovery means no cache to route through, so download direct. The
+    # closure stays optional on purpose -- the image helpers feature-detect this
+    # command by name and call it with just -Uri/-OutFile, and a mandatory
+    # parameter would stall that call on an interactive prompt.
     if (-not $ResolveCacheHostIp) {
         Invoke-WebRequest -Uri $Uri -OutFile $OutFile -ErrorAction Stop
         return
@@ -377,10 +375,8 @@ function Invoke-HttpsViaSquidBump {
     $handler = [System.Net.Http.HttpClientHandler]::new()
     $handler.UseProxy = $true
     $handler.Proxy = [System.Net.WebProxy]::new([System.Uri]$ProxyUrl, $true)
-    # The validation callback fires on HttpClient's TLS worker thread, which
-    # has no PowerShell runspace -- a scriptblock there throws "There is no
-    # Runspace available to run scripts in this thread" and fails every
-    # handshake. Use a compiled C# delegate, which runs on any thread.
+    # A compiled C# delegate, not a scriptblock: the callback fires on
+    # HttpClient's TLS worker thread, which has no PowerShell runspace.
     $handler.ServerCertificateCustomValidationCallback = Get-SquidBumpCertValidator -ExtraCa $extraCa
 
     $client = [System.Net.Http.HttpClient]::new($handler, $true)

@@ -34,10 +34,9 @@ esac
 if [ -r /usr/local/lib/yuruna/yuruna-retry.sh ]; then
   # --- REGION: https://yuruna.link/network#defining-yuruna-retry-lib
   . /usr/local/lib/yuruna/yuruna-retry.sh
-  # Baked retry libs may default apt attempts to a wall-clock bound -- the
-  # wrapped-apt teardown-hang trap class (apt blocks at end-of-transaction
-  # under a timeout(1) parent). Force unbounded regardless of the image's
-  # lib vintage; remove once no image predates the lib's unbounded default.
+  # Baked retry libs may bound apt attempts on wall-clock -- the wrapped-apt
+  # teardown-hang trap class (apt blocks at end-of-transaction under a timeout(1)
+  # parent). Force unbounded until no image predates the lib's unbounded default.
   export YURUNA_APT_STALL_TIMEOUT_SECONDS=0
 fi
 
@@ -53,6 +52,11 @@ fi
 echo "Service user: $SERVICE_USER"
 HTTP_ADDR="${POOL_CONTROL_HTTP_ADDR:-0.0.0.0:80}"
 PRESENCE_INTERVAL="${POOL_CONTROL_PRESENCE_INTERVAL:-15m}"
+# The lab-auth token opens the bearer path on the routes that change pool
+# configuration, for automation. Absent file => bearer disabled; an operator
+# unlocking with the dashboard's Lab token is then the only way in, and a change
+# with neither is refused rather than running ungated.
+AUTH_TOKEN_FILE="${POOL_CONTROL_AUTH_TOKEN_FILE:-/etc/yuruna/lab-auth.token}"
 
 # Aggregator URL + host id + host ip from the shared env files (same as stash).
 AGGREGATOR_URL="$(sed -n 's/^YURUNA_AGGREGATOR_URL=//p' /etc/yuruna/pool.env 2>/dev/null | head -1 || true)"
@@ -204,10 +208,9 @@ echo "== building pool-control-service ($VERSION_STR) from $SERVER_DIR =="
 BUILD=/tmp/pool-control-service-build
 rm -rf "$BUILD"; cp -r "$SERVER_DIR" "$BUILD"
 # go.sum is committed, so DO NOT run `go mod tidy` (it needs the network to
-# recompute the graph); `go build` verifies against go.sum and fetches any
-# missing module through the caching-proxy service. Retry: a cache miss that the proxy
-# cannot relay surfaces as a transient fetch failure, and one retry usually
-# lands once the proxy has the object.
+# recompute the graph); `go build` verifies against go.sum and fetches missing
+# modules through the caching-proxy service. Retry: a cache miss the proxy cannot
+# relay surfaces as a transient fetch failure that clears once it has the object.
 attempts=3
 delay=10
 for try in $(seq 1 "$attempts"); do
@@ -352,6 +355,7 @@ POOL_CONTROL_HOST_ID=$HOST_ID
 POOL_CONTROL_INTENT_GIT_URL=$INTENT_GIT_URL
 POOL_CONTROL_STATE_DIR=$STATE_DIR
 POOL_CONTROL_PRESENCE_INTERVAL=$PRESENCE_INTERVAL
+POOL_CONTROL_AUTH_TOKEN_FILE=$AUTH_TOKEN_FILE
 EOF
 
 sudo tee /etc/systemd/system/pool-control-service.service >/dev/null <<EOF
@@ -368,7 +372,7 @@ Wants=network-online.target
 Type=simple
 User=$SERVICE_USER
 EnvironmentFile=/etc/yuruna/pool-control-service.env
-ExecStart=/usr/local/bin/pool-control-service --http-addr=\${POOL_CONTROL_HTTP_ADDR} --repo-dir=\${POOL_CONTROL_REPO_DIR} --pwsh=\${POOL_CONTROL_PWSH} --aggregator-url=\${POOL_CONTROL_AGGREGATOR_URL} --host-id=\${POOL_CONTROL_HOST_ID} --intent-git-url=\${POOL_CONTROL_INTENT_GIT_URL} --state-dir=\${POOL_CONTROL_STATE_DIR} --presence-interval=\${POOL_CONTROL_PRESENCE_INTERVAL}
+ExecStart=/usr/local/bin/pool-control-service --http-addr=\${POOL_CONTROL_HTTP_ADDR} --repo-dir=\${POOL_CONTROL_REPO_DIR} --pwsh=\${POOL_CONTROL_PWSH} --aggregator-url=\${POOL_CONTROL_AGGREGATOR_URL} --host-id=\${POOL_CONTROL_HOST_ID} --intent-git-url=\${POOL_CONTROL_INTENT_GIT_URL} --state-dir=\${POOL_CONTROL_STATE_DIR} --presence-interval=\${POOL_CONTROL_PRESENCE_INTERVAL} --auth-token-file=\${POOL_CONTROL_AUTH_TOKEN_FILE}
 Restart=on-failure
 RestartSec=5
 AmbientCapabilities=CAP_NET_BIND_SERVICE

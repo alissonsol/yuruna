@@ -21,7 +21,7 @@ Hypervisor) to run a Windows 11 ARM64 VM.
 
 Prerequisites: `brew install --cask utm`, `brew install powershell qemu`.
 Unlike Ubuntu, the Windows 11 ARM64 ISO has no stable direct download
-URL. [`Get-Image.ps1`](./Get-Image.ps1) first attempts an automated
+URL. [`Get-Image.ps1`](./Get-Image.ps1) first tries an automated
 download via a hash-pinned Fido release (pbatard/Fido v1.70), then
 falls back to printing manual instructions and checking for an
 existing ISO in `~/yuruna/image/windows.env/`:
@@ -32,7 +32,7 @@ pwsh ./Get-Image.ps1
 
 Three sourcing options:
 
-1. **[UUP dump](https://uupdump.net)** (recommended, free) — build the
+1. **[UUP dump](https://uupdump.net)** (recommended, free) — builds the
    ISO from Windows Update packages. Pick latest ARM64, English (US),
    Windows 11 Pro; run the scripts; save as
    `~/yuruna/image/windows.env/host.macos.utm.guest.windows.11.iso`.
@@ -52,9 +52,8 @@ Three sourcing options:
   [`config.plist.template`](./config.plist.template) — QEMU aarch64,
   core-count-policy vCPUs (min 4), 12 GB RAM, UEFI + TPM, NVMe, USB CD,
   virtio-net-pci, intel-hda, clipboard.
-- Warns if the UTM Guest Tools ISO (`spice.iso`) is missing — it is
-  attached manually after install (see 2.1), never during the initial
-  install.
+- Warns if the UTM Guest Tools ISO (`spice.iso`) is missing — attach it
+  manually after install (see 2.1), never during it.
 
 ```
 pwsh ./New-VM.ps1                    # default windows11-01
@@ -92,7 +91,7 @@ Default is `virtio-net-pci` (needs Guest Tools — see 2.1). Modes via
 
 VPNs break Shared mode: UTM NAT routes VM traffic through the macOS
 stack, and a corporate VPN sends that traffic over the tunnel — Windows
-reports "a VPN that cannot be reset." Bridged bypasses the VPN.
+reports "a VPN that cannot be reset." Bridged bypasses it.
 
 ```
 pwsh ./New-VM.ps1 -VMName myhost                                     # Shared
@@ -152,6 +151,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.03
+Last review: 2026.08.04
 
 Back to [Yuruna](../../../README.md)

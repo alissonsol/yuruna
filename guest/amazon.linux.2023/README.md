@@ -22,13 +22,13 @@ Run `amazon.linux.2023.update.sh` first.
 | `<workload>` | Description |
 |--------------|-------------|
 | `update` | System update |
-| `code` | [Code](../../docs/guest-workloads.md#code): Java JDK, .NET SDK, Git, VS Code |
-| `n8n` | [n8n](../../docs/guest-workloads.md#n8n) workflow automation |
-| `openclaw` | [OpenClaw](../../docs/guest-workloads.md#openclaw): Git, Node.js, OpenClaw AI agent |
-| `postgresql` | [PostgreSQL](../../docs/guest-workloads.md#postgresql) from the AL2023 repos |
+| `code` | [Code](../../docs/guest-image-setup.md#code): Java JDK, .NET SDK, Git, VS Code |
+| `n8n` | [n8n](../../docs/guest-image-setup.md#n8n) workflow automation |
+| `openclaw` | [OpenClaw](../../docs/guest-image-setup.md#openclaw): Git, Node.js, OpenClaw AI agent |
+| `postgresql` | [PostgreSQL](../../docs/guest-image-setup.md#postgresql) from the AL2023 repos |
 
 The Kubernetes workload (`k8s`) is intentionally out of scope for
-Amazon Linux 2023; use one of the Ubuntu Server guests for `k8s`.
+Amazon Linux 2023; use an Ubuntu Server guest instead.
 
 ---
 
@@ -36,6 +36,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.03
+Last review: 2026.08.04
 
 Back to [Yuruna](../../README.md)

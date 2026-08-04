@@ -41,6 +41,6 @@ variable "destinationContext" {
 }
 
 variable "apiServerAuthorizedCidrs" {
-  description = "REQUIRED. Comma-separated CIDR allow-list for the Kubernetes API server PUBLIC endpoint. MUST include the Yuruna host's public egress IP as a /32 (e.g. \"203.0.113.5/32\") or the workload pipeline's first kubectl/helm call is locked out; add admin/VPN ranges comma-separated. No default on purpose: a deploy that omits it fails at plan time instead of silently exposing the control plane to 0.0.0.0/0. Set it in resources.yml globalVariables."
+  description = "REQUIRED. Comma-separated CIDR allow-list for the Kubernetes API server PUBLIC endpoint. MUST include the Yuruna host's public egress IP as a /32 (e.g. \"203.0.113.5/32\") or the workload pipeline's first kubectl/helm call is locked out; add admin/VPN ranges as needed. No default on purpose: a deploy that omits it fails at plan time instead of silently exposing the control plane to 0.0.0.0/0. Set it in resources.yml globalVariables."
   type        = string
 }

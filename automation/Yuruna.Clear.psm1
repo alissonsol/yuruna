@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.03
+.VERSION 2026.08.04
 .GUID 42c1e3f4-a5b6-4789-0123-4c5d6e7f8091
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -28,14 +28,14 @@ function Clear-Configuration {
         $config_subfolder
     )
 
-    # Teardown consumes resources.output.yml (the deployed-state manifest, gated
-    # by Test-Path below) and destroys from the deployed .yuruna work folders --
-    # NOT the forward resources.yml + its referenced template folders. Blocking
-    # destroy on forward validation means any source-config drift after deploy (a
-    # template folder renamed/deleted, a variable now expanding empty) leaves the
-    # operator unable to destroy what was actually created, defeating idempotent
-    # cleanup. Downgrade the forward check to a warning so teardown is never
-    # blocked by it; the resources.output.yml gate below is the real precondition.
+    # Teardown reads resources.output.yml (the deployed-state manifest, gated by
+    # Test-Path below) and destroys from the deployed .yuruna work folders -- NOT
+    # the forward resources.yml and its referenced template folders. Blocking
+    # destroy on forward validation would let post-deploy source drift (a
+    # template folder renamed/deleted, a variable now expanding empty) strand the
+    # operator with resources they cannot destroy, defeating idempotent cleanup;
+    # so the forward check is only a warning here, and the resources.output.yml
+    # gate below is the real precondition.
     if (!(Confirm-ResourceList $project_root $config_subfolder)) {
         Write-Warning "Clear-Configuration: forward resources.yml validation failed; proceeding with teardown from resources.output.yml anyway (source config may have drifted since deploy)."
     }
@@ -55,16 +55,14 @@ function Clear-Configuration {
     # The deployed resource names are the top-level keys of resources.output.yml
     # other than globalVariables: Set-Resource writes that map plus one
     # `<resourceName>: <tofu outputs>` block per resource it actually created.
-    # There is no `resources:` list in this file -- that shape belongs to the
-    # forward resources.yml, and reading it here would silently find nothing and
-    # report a successful teardown that destroyed no resource.
-    #
-    # Two properties of that key set matter. A resource declared with an empty
-    # template is never written here at all -- it only names an already-existing
-    # resource and owns no work folder -- so the keys are exactly the set that
-    # has something to destroy. And the keys are already variable-expanded, so
-    # they match the .yuruna work folder names verbatim and must not be expanded
-    # a second time.
+    # There is no `resources:` list here -- that shape belongs to the forward
+    # resources.yml, and reading it would silently find nothing and report a
+    # successful teardown that destroyed no resource. Two properties of the key
+    # set matter: a resource declared with an empty template is never written
+    # here (it only names an already-existing resource and owns no work folder),
+    # so the keys are exactly the set with something to destroy; and the keys are
+    # already variable-expanded, matching the .yuruna work folder names verbatim,
+    # so they must not be expanded a second time.
     $resourceNames = @()
     if (($null -ne $yaml) -and ($null -ne $yaml.Keys)) {
         $resourceNames = @($yaml.Keys | Where-Object { (-Not [string]::IsNullOrWhiteSpace($_)) -and ($_ -ne 'globalVariables') })

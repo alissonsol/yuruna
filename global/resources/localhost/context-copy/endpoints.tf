@@ -2,8 +2,8 @@
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 # Reference: https://registry.terraform.io/providers/hashicorp/external/latest/docs/data-sources/data_source
 # The external programs derive everything from local DNS APIs; they read
-# neither argv nor stdin, so the query is the empty object the provider
-# still requires to send on stdin.
+# neither argv nor stdin, so query is the empty object the provider still
+# requires on stdin.
 data "external" "originalIp" {
   program = [
     "pwsh",

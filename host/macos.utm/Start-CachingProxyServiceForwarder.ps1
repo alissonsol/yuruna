@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.03
+.VERSION 2026.08.04
 .GUID 42c0ffee-a0de-4e1f-a2b3-c4d5e6f7aa02
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -33,9 +33,6 @@
     the real client IP at the NAT hop.
     Pure PowerShell (TcpListener + runspace pool per connection) -- no
     brew/socat/HAProxy dependency, runs anywhere pwsh runs.
-
-    On macOS: typically launched detached by Start-CachingProxyServiceVM.ps1 to
-    let REMOTE LAN hosts reach squid via the Mac's LAN IP.
 
     On Windows: launched by the host driver's Add-PortMap
     when -ProxyProtocolPort lists a port; -PrependProxyV1 then makes

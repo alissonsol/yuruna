@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.03
+.VERSION 2026.08.04
 .GUID 42ab19c1-07c0-4d84-be69-80c4f1c780a8
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -231,7 +231,7 @@ function Initialize-YurunaEntryPointModuleSet {
             # Test.SequenceRunner: chain planning + execution (Resolve-TestSequencePlan,
             # Invoke-TestSequenceChain). Test.Orchestrator calls both, so it must load
             # first. Standalone Invoke-TestSequence.ps1 imports it explicitly; the Inner path
-            # relies on this set, so omitting it made the orchestrator's guest run fail.
+            # relies on this set, so omitting it fails the orchestrator's guest run.
             'Test.SequenceRunner.psm1',
             # Test.Orchestrator: runs an orchestration top-level (InvokeTestSequence
             # steps) as one cycle. The runner dispatches a test.runner.yml
@@ -330,8 +330,12 @@ function Initialize-YurunaEntryPointModuleSet {
             'Test.HostContract.psm1'
         )
         CachingProxyService = @(
-            # Union of Start-/Stop-/Test-/Repair-CachingProxyService.ps1 inline
-            # imports: Test.HostContract (for Initialize-YurunaHost, Get-HostType,
+            # Union of the inline imports in the five caching-proxy entry
+            # scripts under test/ -- Start-CachingProxyServiceVM.ps1,
+            # Stop-CachingProxyServiceVM.ps1, Move-CachingProxyService.ps1,
+            # Test-CachingProxyService.ps1 and
+            # Repair-CachingProxyServiceForwarder.ps1. This set must stay a
+            # superset of all five: Test.HostContract (for Initialize-YurunaHost, Get-HostType,
             # Invoke-LibvirtGroupReExecIfNeeded, Add-PortMap / Remove-PortMap,
             # Test-CacheVMOnExternalNetwork, Remove-HostProxy / Set-HostProxy,
             # Initialize-SudoCache), Test.CachingProxyService (Get-CachingProxyServiceState-

@@ -23,6 +23,7 @@ systemd units say `<name>-service`.
 | Pool intent UI + API | the pool-control service | `pool-control-service` |
 | Fleet telemetry aggregator | the pool-aggregator service | `pool-aggregator-service` |
 | Artifact store daemon | the stash service | `stash-service` |
+| Pool-wide guest-image downloader | the download-agent service | `download-agent-service` (`downloadAgentService` config key) |
 | Per-host status HTTP daemon | the status service | `statusService` (config key) |
 | Per-host mTLS credential daemon | the config service | `configService` (config key) |
 
@@ -132,4 +133,4 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.03
+Last review: 2026.08.04

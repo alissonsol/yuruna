@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.03
+.VERSION 2026.08.04
 .GUID 42a2b3c4-d5e6-4f78-9012-3a4b5c6d7e92
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -362,6 +362,16 @@ function Remove-GuestVMQuietly {
                 Write-Warning "Remove-GuestVMQuietly: '$VMName' is still running after teardown (possible serialization hazard)."
             }
         }
+    } catch {
+        # -ErrorAction SilentlyContinue silences a NON-terminating error; it does
+        # nothing about one that throws, and the host drivers do throw (the UTM
+        # inventory raises rather than answer "nothing registered" when it cannot
+        # reach UTM.app). Without this, -BestEffort could not keep the promise its
+        # own parameter makes -- teardown paths that must never fail on an
+        # already-gone VM would still take a teardown fault all the way out to the
+        # caller. Reported as a warning so the fault is visible and skippable.
+        if (-not $BestEffort) { throw }
+        Write-Warning "Remove-GuestVMQuietly: teardown of '$VMName' did not complete ($($_.Exception.Message)); continuing (-BestEffort)."
     } finally {
         $global:ProgressPreference = $savedProgress
     }
@@ -534,10 +544,15 @@ function Update-StashServiceMarkerAddress {
             # Retract an address published before the VM moved onto (or was
             # rebuilt on) the private network: leaving it in place would keep
             # feeding the pool an address it cannot reach.
-            if (-not [string]::IsNullOrWhiteSpace([string]$marker.stashBaseUrl)) {
+            if (-not [string]::IsNullOrWhiteSpace([string]$marker.stashBaseUrl) -or
+                -not [string]::IsNullOrWhiteSpace([string]$marker.baseUrl)) {
+                # Both keys, together. A marker carries the uniform `baseUrl` and
+                # the area's own `stashBaseUrl`; retracting one and leaving the
+                # other would keep feeding the pool the address this branch
+                # exists to withdraw.
                 $record = [ordered]@{}
                 foreach ($prop in $marker.PSObject.Properties) {
-                    if ($prop.Name -eq 'stashBaseUrl') { continue }
+                    if ($prop.Name -in @('stashBaseUrl', 'baseUrl')) { continue }
                     $record[$prop.Name] = $prop.Value
                 }
                 $tmp = "$markerPath.tmp"
@@ -548,11 +563,14 @@ function Update-StashServiceMarkerAddress {
         }
 
         $url = "http://$(Format-IpUrlHost $ip)"
-        if ([string]$marker.stashBaseUrl -eq $url) { return $url }
+        if ([string]$marker.stashBaseUrl -eq $url -and [string]$marker.baseUrl -eq $url) { return $url }
 
-        # Preserve every existing marker field; set/replace stashBaseUrl only.
+        # Preserve every existing marker field; set/replace the address only --
+        # under BOTH the uniform key every extension marker carries and this
+        # area's own, so a consumer reading either sees the same answer.
         $record = [ordered]@{}
         foreach ($prop in $marker.PSObject.Properties) { $record[$prop.Name] = $prop.Value }
+        $record['baseUrl'] = $url
         $record['stashBaseUrl'] = $url
         $tmp = "$markerPath.tmp"
         [System.IO.File]::WriteAllText($tmp, ($record | ConvertTo-Json), [System.Text.UTF8Encoding]::new($false))

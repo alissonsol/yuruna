@@ -1,6 +1,20 @@
 configService:
   enabled: true
   port: 8443
+# The download-agent service VM: one pool-wide downloader that keeps guest
+# images on the pool share fresh, so a host fetches an image from the origin
+# only when the agent cannot serve it.
+downloadAgentService:
+  # Pre-download the stable image families for the host types the aggregator
+  # reports, instead of waiting for a host to ask for one.
+  autoSeed: true
+  enabled: true
+  # How long an image stays fresh after its last successful origin check.
+  freshnessSeconds: 86400
+  # The scanner refreshes anything whose freshness expires within this window.
+  prefetchLeadSeconds: 7200
+  # How often the agent walks the pool looking for work.
+  scanIntervalSeconds: 900
 guestSequence:
 - guest.amazon.linux.2023
 - guest.ubuntu.server.24
@@ -39,43 +53,38 @@ testCycle:
   cycleDelaySeconds: 300
   # Circuit breaker: skip a guest that keeps failing the same way, so it stops
   # burning a full provision+deploy every cycle. After failuresToQuarantine
-  # consecutive failures of the SAME failureClass, the guest is skipped for up
-  # to skipCycles cycles or until a framework/project commit changes (whichever
-  # comes first), emitting a guest_quarantined event + a dashboard flag. Set
-  # enabled:false to disable.
+  # consecutive failures of the SAME failureClass, the guest is skipped for up to
+  # skipCycles cycles or until a framework/project commit changes (whichever comes
+  # first), emitting a guest_quarantined event + a dashboard flag.
   guestQuarantine:
     enabled: true
     failuresToQuarantine: 3
     skipCycles: 5
-  # Per-step performance log: one JSONL row per step under
-  # status/perf/cycles/, which is what the status page's Perf chart renders.
-  # Collection is automatic for every cycle; this knob only exists to turn it
-  # off for a host. It is deliberately host-level, not per project, so one
-  # project's runner config cannot stop a machine from collecting. An absent
-  # key reads as enabled.
+  # Per-step performance log: one JSONL row per step under status/perf/cycles/,
+  # which is what the status page's Perf chart renders. Collection is automatic;
+  # this knob only turns it off for a host. Deliberately host-level, not per
+  # project, so one project's runner config cannot stop a machine from collecting.
+  # An absent key reads as enabled.
   perfLog:
     enabled: true
   recentDisplayCount: 30
   stopOnFailure: false
   stepTimeoutSeconds: 2700
-  # Tighter watchdog bound for the runner's PREAMBLE -- process start through
-  # host detection, the caching-proxy gate and its port-map refresh, and the
-  # status-service start, i.e. everything before the first sequence step. None
-  # of it is legitimately slow, so a stall there means the runner is wedged
-  # (a sudo or credential prompt on the inherited terminal with nobody present
-  # is the case this exists for) and waiting out stepTimeoutSeconds means 45
-  # minutes of a green dashboard over a host doing nothing.
-  # Set to 0 to opt out: stepTimeoutSeconds then applies everywhere, which is
-  # the behaviour from before this knob existed. Raise it instead if a host
-  # has a genuinely slow preamble.
+  # Tighter watchdog bound for the runner's PREAMBLE -- process start through host
+  # detection, the caching-proxy gate and its port-map refresh, and the status-service
+  # start, i.e. everything before the first sequence step. None of it is legitimately
+  # slow, so a stall there means the runner is wedged (the case this exists for is a
+  # sudo or credential prompt on the inherited terminal with nobody present), and
+  # waiting out stepTimeoutSeconds means 45 minutes of a green dashboard over an idle
+  # host. Set to 0 to opt out, so stepTimeoutSeconds applies everywhere; raise it
+  # instead if a host has a genuinely slow preamble.
   preambleTimeoutSeconds: 600
   # Warm-resume checkpointing: on an eligible transient workload failure
   # (network_timeout / wait_timeout / instrumentation_failure / host_io_blocked),
-  # re-run the failed sequence from its last-good step on the same live VM
-  # instead of tearing the guest down and redoing the whole install. Up to
-  # maxAttempts in-place tries; on exhaustion it falls back to the normal
-  # teardown + cold re-provision. Emits a warm_resume event. enabled:false
-  # disables it.
+  # re-run the failed sequence from its last-good step on the same live VM instead
+  # of tearing the guest down and redoing the whole install. Up to maxAttempts
+  # in-place tries; on exhaustion it falls back to the normal teardown + cold
+  # re-provision. Emits a warm_resume event.
   warmResume:
     enabled: true
     maxAttempts: 2
@@ -92,11 +101,10 @@ vmStart:
   cachingProxyIp: ""
   startTimeoutSeconds: 120
   testVmNamePrefix: test-
-  # Extra VM-name prefixes the cycle sweep may stop and delete, for a
-  # project whose VMs are promoted out of the test-VM namespace (a
-  # snapshot id becomes the VM name, so those guests no longer carry
-  # testVmNamePrefix and would otherwise survive every cycle and block
-  # the next one). testVmNamePrefix is always swept and does not need
-  # repeating here. Prefixes match literally, never as wildcards; an
-  # empty entry is ignored rather than matching every VM on the host.
+  # Extra VM-name prefixes the cycle sweep may stop and delete, for a project
+  # whose VMs are promoted out of the test-VM namespace (a snapshot id becomes
+  # the VM name, so those guests no longer carry testVmNamePrefix and would
+  # otherwise survive every cycle and block the next one). testVmNamePrefix is
+  # always swept and needs no repeating here. Prefixes match literally, never as
+  # wildcards; an empty entry is ignored rather than matching every VM.
   cleanupVmNamePrefixes: []

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.03
+.VERSION 2026.08.04
 .GUID 42e1f2a3-b4c5-4d67-8901-aabbccddee01
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -38,7 +38,7 @@
     hook point at for the published artifact.
 
     It also repoints the one release pin that is still hard-coded -- the README
-    verified-path snippet (the signed-download URL) to `refs/tags/<VERSION>`.
+    verified-path snippet's signed-download URL -- to `refs/tags/<VERSION>`.
     The installers themselves carry no baked version: -PinVersion / PIN_VERSION
     reads the repo's VERSION file at install time, and the clone DEFAULT stays on
     the moving `main` branch so normal installs auto-update. The pin is rewritten

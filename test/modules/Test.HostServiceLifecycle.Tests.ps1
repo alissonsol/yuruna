@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.03
+.VERSION 2026.08.04
 .GUID 42b6c7d8-e9f0-4a12-8b34-5c6d7e8f9a01
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -144,6 +144,54 @@ function Test-AssignsFromCommand {
         }
     }
     return $false
+}
+
+# Extent text of every value assigned to a named variable anywhere in the tree.
+# An AssignmentStatementAst, so a mention of the variable in a comment or a
+# string cannot register as an assignment.
+function Get-AssignedValueText {
+    param($Ast, [string]$Variable)
+    $wanted = $Variable
+    $out = @()
+    foreach ($a in @($Ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.AssignmentStatementAst] }, $true))) {
+        $lhs = $a.Left
+        if ($lhs -is [System.Management.Automation.Language.VariableExpressionAst] -and
+            $lhs.VariablePath.UserPath -eq $wanted) {
+            $out += $a.Right.Extent.Text
+        }
+    }
+    $out
+}
+
+# Every service VM bring-up and teardown in test/, discovered rather than listed
+# so a service added later is held to the same invariant without a second edit.
+$serviceVmScriptCases = @(
+    Get-ChildItem -LiteralPath $testDir -Filter '*ServiceVM.ps1' -File -ErrorAction SilentlyContinue |
+        Where-Object { $_.Name -like 'Start-*' -or $_.Name -like 'Stop-*' } |
+        Sort-Object Name |
+        ForEach-Object { @{ Name = $_.Name; Path = $_.FullName } }
+)
+
+Describe 'service VM scripts leave ErrorActionPreference at the inherited value' {
+    foreach ($case in $serviceVmScriptCases) {
+        It "$($case.Name) does not force ErrorActionPreference to Stop" -TestCases @(@{ Path = $case.Path; Name = $case.Name }) {
+            param([string]$Path, [string]$Name)
+            $ast = Get-ScriptAst $Path
+            $stops = @(Get-AssignedValueText -Ast $ast -Variable 'ErrorActionPreference' |
+                       ForEach-Object { $_.Trim([char[]]@("'", '"')) } |
+                       Where-Object { $_ -eq 'Stop' })
+            # A script-scoped preference is not scoped to the script: an advanced
+            # function called from here runs under it, so 'Stop' promotes the
+            # NON-terminating errors of every host-contract and storage helper to
+            # terminating ones. Those helpers report and continue by design --
+            # Get-VMState answering 'absent', a storage pre-flight warning and
+            # proceeding, a -BestEffort teardown tolerating a gone VM -- and each
+            # of those intended outcomes then ends the script instead, leaving the
+            # reason on a console rather than in any log. A script that genuinely
+            # must stop says so at the point that matters, with Write-Error + exit.
+            Assert-True ($stops.Count -eq 0) "$Name assigns ErrorActionPreference = 'Stop'; service VM scripts must run at the inherited 'Continue' and stop explicitly where they mean to"
+        }
+    }
 }
 
 # Both Stop-* scripts carry the identical PID guard, so one It body covers them

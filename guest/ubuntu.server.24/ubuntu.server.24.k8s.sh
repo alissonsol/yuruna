@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.08.03
+# Version: 2026.08.04
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 set -euo pipefail
@@ -28,10 +28,9 @@ esac
 
 # --- REGION: https://yuruna.link/network#defining-yuruna-retry-lib
 . /usr/local/lib/yuruna/yuruna-retry.sh
-# Baked retry libs may default apt attempts to a wall-clock bound -- the
-# wrapped-apt teardown-hang trap class (apt blocks at end-of-transaction
-# under a timeout(1) parent). Force unbounded regardless of the image's
-# lib vintage; remove once no image predates the lib's unbounded default.
+# Baked retry libs may bound apt attempts on wall-clock -- the wrapped-apt
+# teardown-hang trap class (apt blocks at end-of-transaction under a timeout(1)
+# parent). Force unbounded until no image predates the lib's unbounded default.
 export YURUNA_APT_STALL_TIMEOUT_SECONDS=0
 
 # A tool that is present but not runnable is more dangerous than a missing one,
@@ -140,8 +139,8 @@ echo "deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.
 apt_retry sudo apt-get update -y
 apt_retry sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
 
-# Docker service starts automatically after installation;
-# enable + start as a safety net, tolerating errors in environments where systemd is not fully available
+# Docker starts automatically after install; enable + start as a safety net,
+# tolerating environments where systemd is not fully available.
 sudo systemctl enable docker 2>/dev/null || echo "Note: systemctl enable docker skipped (systemd may not be available)"
 sudo systemctl start docker 2>/dev/null || echo "Note: systemctl start docker skipped (systemd may not be available)"
 sudo systemctl is-active docker > /dev/null 2>&1 || echo "Note: Docker service status unknown"
@@ -281,13 +280,12 @@ server = "https://ghcr.io"
 [host."http://${CACHE_HOST}:5000"]
   capabilities = ["pull", "resolve"]
 HOSTSEOF
-# Bound a stalled pull. containerd's default no-progress window is long
-# enough that a dead tunnel parks the pod at Init:n/m past every downstream
-# wait without ever handing kubelet an error to retry on -- the pull just
-# hangs, so no ImagePullBackOff is ever recorded. Capping it makes a stalled
-# pull fail fast and get retried inside the rollout window below. Applied
-# only when the key exists, so a containerd whose config schema moved it
-# does not get a bogus line appended.
+# Bound a stalled pull. containerd's default no-progress window is long enough
+# that a dead tunnel parks the pod at Init:n/m past every downstream wait
+# without ever handing kubelet an error to retry on -- the pull just hangs, so
+# no ImagePullBackOff is recorded. Capping it makes a stalled pull fail fast and
+# get retried inside the rollout window below. Applied only when the key exists,
+# so a containerd whose config schema moved it gets no bogus line appended.
 CONTAINERD_PULL_PROGRESS_TIMEOUT="120s"
 if grep -q 'image_pull_progress_timeout' /etc/containerd/config.toml; then
     sudo sed -i "s|^\(\s*image_pull_progress_timeout\s*=\s*\).*|\1'${CONTAINERD_PULL_PROGRESS_TIMEOUT}'|" /etc/containerd/config.toml
@@ -297,11 +295,10 @@ fi
 sudo systemctl enable containerd
 sudo systemctl restart containerd
 
-# Pre-pull the kubeadm control-plane images through the zot mirror so the
-# subsequent `kubeadm init` lands fully cache-warm. Must run AFTER the
-# containerd mirror config above; otherwise the pulls bypass the cache
-# and hit upstream directly.
-# Best-effort: `kubeadm init` does its own pull check if this fails.
+# Pre-pull the kubeadm control-plane images through the zot mirror so
+# `kubeadm init` lands cache-warm. Must run AFTER the containerd mirror config
+# above, or the pulls bypass the cache and hit upstream directly. Best-effort:
+# `kubeadm init` does its own pull check if this fails.
 sudo kubeadm config images pull || echo "Note: kubeadm images pull may need to be run after kubeadm init"
 
 # Reset any existing kubeadm state so the script can be re-run safely

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.03
+.VERSION 2026.08.04
 .GUID 42e9c31b-7a06-4d52-8f14-6b27d90ae4c3
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -166,7 +166,7 @@ Describe 'The installer will not quit UTM out from under a service VM' {
         $text = Get-Content -Raw -LiteralPath $SuspendInstaller
         $gate = [regex]::Match($text, '(?ms)^is_service_vm_running\(\).*?\n\}').Value
         Assert-True ($gate.Length -gt 0) 'the gate function exists'
-        foreach ($vm in @('yuruna-caching-proxy-service', 'yuruna-stash-service', 'yuruna-pool-control-service')) {
+        foreach ($vm in @('yuruna-caching-proxy-service', 'yuruna-stash-service', 'yuruna-pool-control-service', 'yuruna-download-agent-service')) {
             Assert-True ($text -match [regex]::Escape($vm)) "the gate knows about $vm"
         }
         Assert-True ($gate -match 'YURUNA_SERVICE_VM_NAME') 'and iterates the shared name list'

@@ -1,7 +1,7 @@
 // LICENSEURI https://yuruna.link/license
 // Copyright (c) 2019-2026 by Alisson Sol et al.
-// Shared helpers for the stash UI. Vanilla JS, no framework. Untrusted stash content is ALWAYS placed via
-// textContent / safe DOM APIs, never innerHTML (§7.4).
+// Shared helpers for the stash UI. Vanilla JS, no framework. Untrusted stash
+// content is ALWAYS placed via textContent / safe DOM APIs, never innerHTML (§7.4).
 
 const Y = {
   // el builds an element with attributes + text/children, escaping by
@@ -105,14 +105,13 @@ const Y = {
   },
 
   // initFooter wires the shared bottom footer bar (server IPs, last-loaded
-  // time, refresh countdown) used by the stash UI's home page. Self-contained
-  // and page-agnostic: it pulls host facts from /api/hostinfo (so it needs no
-  // page-specific data), runs a visibility-aware countdown (default 60 s,
-  // matched to the status pages), and returns { markLoaded } so a page can
-  // stamp the "Loaded" time + reset the countdown whenever ITS own data
-  // refreshes. When the countdown reaches zero it invokes opts.refresh
-  // (default: a full reload). A no-op on a page without #footer-bar markup.
-  // Mirrors the status pages' footer (yuruna.common.js) for consistency.
+  // time, refresh countdown) used by the stash UI's home page. Page-agnostic:
+  // host facts come from /api/hostinfo, the countdown is visibility-aware
+  // (default 60 s, matched to the status pages), and { markLoaded } lets a page
+  // stamp the "Loaded" time + reset the countdown when ITS data refreshes. At
+  // zero it invokes opts.refresh (default: a full reload). A no-op on a page
+  // without #footer-bar markup. Mirrors the status pages' footer
+  // (yuruna.common.js).
   initFooter(opts) {
     opts = opts || {};
     const interval = opts.intervalSeconds > 0 ? opts.intervalSeconds : 60;
@@ -157,10 +156,10 @@ const Y = {
   },
 };
 
-// safeUrl gates href/src attribute values: only same-origin relative paths
-// and absolute http(s) URLs are allowed, so a javascript:/data:/vbscript:
-// value (e.g. a spoofed remoteStashUrl) can never
-// become an executable link. Returns null to drop the attribute.
+// safeUrl gates href/src attribute values: only same-origin relative paths and
+// absolute http(s) URLs are allowed, so a javascript:/data:/vbscript: value
+// (e.g. a spoofed remoteStashUrl) can never become an executable link.
+// Returns null to drop the attribute.
 function safeUrl(v) {
   const s = String(v).trim();
   if (s === '') return null;

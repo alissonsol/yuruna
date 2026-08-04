@@ -28,9 +28,9 @@ this order, when `$env:YURUNA_OCR_ENGINES` is unset:
 Why ordering matters: the default combine mode is `Or` (see
 `Get-OcrCombineMode` in
 [`Test.OcrMatch.psm1`](../test/modules/Test.OcrMatch.psm1)), which
-short-circuits on the first engine that finds the search pattern. So
-the first engine listed is the primary; later engines are fallbacks
-invoked only when the primary's text did not match.
+short-circuits on the first engine that finds the search pattern. The
+first engine listed is therefore the primary; later engines are
+fallbacks invoked only when the primary's text did not match.
 
 ## Operator overrides
 
@@ -42,13 +42,13 @@ invoked only when the primary's text did not match.
 
 ## Why a persistent WinRT worker
 
-`powershell.exe` cold-starts at 150-300 ms per spawn. A cycle with
-~1000 OCR polls would burn 3-5 minutes per cycle on process-start
-overhead alone. The persistent worker keeps one `powershell.exe`
-alive for the inner-runner lifetime and feeds image paths over stdin —
-the per-call latency drops to ~5-15 ms (a ~10-30× speedup). A worker failure
-falls back to the one-shot path for that single call, so a broken
-worker can never harden into a permanent OCR outage.
+`powershell.exe` cold-starts at 150-300 ms per spawn, so a cycle with
+~1000 OCR polls would burn 3-5 minutes on process-start overhead
+alone. The persistent worker keeps one `powershell.exe` alive for the
+inner-runner lifetime and feeds image paths over stdin — per-call
+latency drops to ~5-15 ms (a ~10-30× speedup). A worker failure falls
+back to the one-shot path for that single call, so a broken worker can
+never harden into a permanent OCR outage.
 
 **Wire protocol** (line-oriented, UTF-8):
 
@@ -72,8 +72,8 @@ owned by the parent pwsh process. Console Ctrl+C, watchdog kill, or
 any other path that terminates the parent (orderly exit, crash,
 `TerminateProcess`) closes the only handle to that job, and the OS
 kills the worker as a side effect. The graceful `OnRemove` path
-remains in place; the job is the safety net for everything that
-bypasses it. Job binding is best-effort: if `AssignProcessToJobObject`
+remains; the job is the safety net for everything that bypasses it.
+Job binding is best-effort: if `AssignProcessToJobObject`
 fails the spawned worker is killed and the call falls back to the
 one-shot path, so a degraded environment never leaks an orphaned
 worker.
@@ -84,7 +84,7 @@ Two non-obvious transforms protect every macOS UTM screenshot before
 `VNRecognizeTextRequest` sees it:
 
 1. **Densest-text-row crop.** UTM/screencapture writes 2898×1698 PNGs
-   where the actual login text fills only the top ~150 rows. Vision's
+   where the login text fills only the top ~150 rows. Vision's
    detector returns 0 observations on images where content fills <10%
    of the vertical extent. The script counts lit pixels per row, skips
    an all-white toolbar bar, and crops to the densest cluster.
@@ -92,13 +92,13 @@ Two non-obvious transforms protect every macOS UTM screenshot before
 2. **PNG round-trip to strip DisplayP3 + 144 DPI.** Vision's text
    detector silently returns 0 observations on wide-gamut, 144 DPI
    PNGs that it reads cleanly when re-encoded as sRGB / 72 DPI.
-   `CGImageDestination/PNG` strips both tags. Required after the
-   AVF/screencapture switch.
+   `CGImageDestination/PNG` strips both tags. Required for
+   AVF/screencapture output.
 
 `usesLanguageCorrection = false` is also load-bearing: console text
 (hostnames with dashes, cloud-init timestamps, `ttyl` vs `tty1`) is
-not natural language, and language correction was actively rewriting
-valid OCR into nonsense.
+not natural language, and language correction rewrites valid OCR into
+nonsense.
 
 ## Why Tesseract runs at --psm 6
 
@@ -116,7 +116,7 @@ Every neighboring mode drops text the harness depends on:
   bottom on retried boots -- PSM 4 picks ONE region as "the column" and
   silently drops the text in the other. The visible symptom is a
   `<hostname> login:` line missing from the OCR output even though the
-  screenshot plainly shows it.
+  screenshot shows it.
 - **`--psm 3`** (fully automatic, Tesseract's default): does its own
   multi-column detection and re-orders/merges adjacent UI regions, with
   the same `login:` drop-out as PSM 4.
@@ -136,7 +136,7 @@ Every neighboring mode drops text the harness depends on:
        -Invoke      { param([string]$ImagePath) Invoke-WhateverOcr -ImagePath $ImagePath } `
        -IsAvailable { [bool](Get-Command whatever -ErrorAction SilentlyContinue) }
    ```
-3. The capability matrix at startup will list it under `OCR:` when the
+3. The startup capability matrix lists it under `OCR:` when the
    `IsAvailable` check passes. See
    [Capability matrix](capability-matrix.md).
 
@@ -150,6 +150,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.03
+Last review: 2026.08.04
 
 Back to [Yuruna](../README.md)

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.03
+.VERSION 2026.08.04
 .GUID 42d2f4a5-b6c7-4890-1234-5d6e7f809102
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -252,17 +252,16 @@ function Confirm-WorkloadList {
     if (!($globalResult)) { return (New-YurunaValidationResult $false $globalResult.Reason); }
 
     if ($null -eq $yaml.workloads) { Write-Information "Workloads null or empty in file: $workloadsFile"; }
-    # A chart deploys as a helm release <installName> into <context>; two
-    # chart deployments sharing both keys hit the same release, so the second
-    # silently upgrades over the first instead of installing a distinct
-    # workload. The helm install lands before any folder is reused, so this
-    # is defense-in-depth -- flagging it pre-flight turns a confusing
-    # in-cluster overwrite into a clear config error.
     # Two workloads sharing a kube context collide: Publish-WorkloadList wipes
     # .yuruna/<subfolder>/workloads/<context> at the start of EACH workload, so
-    # the second silently clobbers the first's staged charts/values. Reject raw
-    # copy-paste duplicates and post-expansion collisions (distinct raw contexts
-    # that resolve to the same string), mirroring the resources.yml name dedup.
+    # the second silently clobbers the first's staged charts/values. A chart also
+    # deploys as helm release <installName> into <context>, so two chart
+    # deployments sharing both keys hit the same release and the second upgrades
+    # over the first instead of installing a distinct workload -- caught here as
+    # defense-in-depth (the helm install lands before any folder is reused),
+    # turning a confusing in-cluster overwrite into a clear config error. Reject
+    # raw copy-paste duplicates and post-expansion collisions (distinct raw
+    # values that resolve to the same string), mirroring the resources.yml dedup.
     $seenContexts = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
     $seenContextsExpanded = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
     $seenWorkloadReleases = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)

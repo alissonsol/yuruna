@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.03
+.VERSION 2026.08.04
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456810
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -29,10 +29,9 @@ $script:VaultDir       = Join-Path -Path $script:RepoRoot -ChildPath 'test' `
                             -AdditionalChildPath 'status', 'extension', 'authentication'
 $script:VaultPath      = Join-Path $script:VaultDir 'vault.yml'
 $script:LogPath        = Join-Path $script:VaultDir 'events.log'
-# users.yml lives alongside vault.yml under status/extension/authentication/.
-# The committed template ships next to this .psm1 under test/extension/
-# authentication/. Bootstrap-from-template runs on first Read-UsersConfig
-# so a fresh checkout works without an explicit operator copy step.
+# users.yml lives alongside vault.yml under status/extension/authentication/;
+# the committed template ships next to this .psm1. Bootstrap-from-template
+# runs on first Read-UsersConfig so a fresh checkout needs no operator copy.
 $script:UsersPath      = Join-Path $script:VaultDir 'users.yml'
 $script:UsersTemplate  = Join-Path $script:ExtensionDir 'users.yml.template'
 # Cached users.yml parse. Cleared by Reset-UsersConfigCache when callers
@@ -43,16 +42,15 @@ $script:Alphabet       = [char[]]('abcdefghijklmnopqrstuvwxyz' +
                                   '0123456789' +
                                   '!@#$%^&*()-_=+')
 # Leading-character alphabet: alphanumerics ONLY (no symbols). A symbol in the
-# first position -- notably a YAML indicator (! @ # % & *) -- forces the YAML
-# serializer to wrap the whole scalar in single quotes when the vault is
-# written. The cloud-init seed then substitutes the value UNQUOTED into
-# `password: <value>` via literal .Replace (New-CloudInitUserData), where a
-# leading indicator is an invalid/misparsed YAML scalar: it silently mangles the
-# guest's chpasswd (login becomes impossible) and can abort the cloud-config
-# stage so the VM never finishes cloud-init and never gets an IP. Interior
-# symbols are safe (the password has no spaces, so no `: ` / ` #` sequences form
-# and no serializer needs to quote), so only position 0 is constrained. The
-# quoting characters (' ") are already absent from $script:Alphabet.
+# first position -- notably a YAML indicator (! @ # % & *) -- makes the YAML
+# serializer single-quote the whole scalar when the vault is written. The
+# cloud-init seed then substitutes it UNQUOTED into `password: <value>` via
+# literal .Replace (New-CloudInitUserData), where a leading indicator is an
+# invalid scalar: it silently mangles the guest's chpasswd (login impossible)
+# and can abort the cloud-config stage, so the VM never finishes cloud-init and
+# never gets an IP. Interior symbols are safe -- the password has no spaces, so
+# no `: ` / ` #` sequence forms and nothing needs quoting -- and the quoting
+# characters (' ") are already absent from $script:Alphabet.
 $script:AlphabetLeading = [char[]]('abcdefghijklmnopqrstuvwxyz' +
                                    'ABCDEFGHIJKLMNOPQRSTUVWXYZ' +
                                    '0123456789')
@@ -82,10 +80,9 @@ function Write-VaultEvent {
         if ($Username) { $rec.username = $Username }
         if ($Detail)   { $rec.detail   = $Detail }
         $logPath = Get-VaultLogPath
-        # Byte-bounded rotation. The check itself is throttled by
-        # Test-LogRotationDue (60 s window) so a tight Write-Vault-
-        # Event loop doesn't pay a Get-Item on every emit. Caps the
-        # live file at LOG_BYTE_LIMIT (1 MB) and keeps .1..10 archives.
+        # Byte-bounded rotation: caps the live file at LOG_BYTE_LIMIT (1 MB)
+        # and keeps .1..10 archives. Test-LogRotationDue throttles the check
+        # to a 60 s window, so a tight Write-VaultEvent loop skips the Get-Item.
         if (Get-Command Invoke-LogRotation -ErrorAction SilentlyContinue) {
             $null = Invoke-LogRotation -Path $logPath -Confirm:$false
         }
@@ -147,6 +144,90 @@ function Write-VaultUnlocked {
 
 <#
 .SYNOPSIS
+    Adds template-declared, credential-free logical users that a
+    pre-existing runtime users.yml has never seen.
+.DESCRIPTION
+    The template is copied exactly once -- on the first call that finds no
+    runtime file. A host provisioned before a logical user was added to the
+    template therefore never learns that name, and strict mode refuses the
+    cycle over a name the operator was never asked about. Service VMs hit
+    this first, because each one arrives with its own administrator.
+
+    Only entries carrying no operator meaning are merged: empty vaultKey,
+    empty localOsPasswordRef, empty corporate fields. Anything an operator
+    could have curated is left alone, so this can neither overwrite a
+    mapping nor introduce a secret -- an entry whose template default is
+    inert (lab-auth-token with no vaultKey names an un-enrolled host)
+    arrives just as inert.
+
+    The append is textual rather than a YAML round-trip because the runtime
+    file is operator-editable and a re-render would discard its comments and
+    ordering. It is skipped unless 'users:' is the last top-level key, the
+    only shape in which appending at end-of-file lands inside that map.
+.OUTPUTS
+    None. Best-effort: any failure leaves the file untouched.
+#>
+function Merge-UsersTemplateEntry {
+    [CmdletBinding()]
+    param()
+    if (-not (Test-Path -LiteralPath $script:UsersPath)) { return }
+    if (-not (Test-Path -LiteralPath $script:UsersTemplate)) { return }
+    try {
+        $liveRaw = Get-Content -Raw -LiteralPath $script:UsersPath
+        if (-not $liveRaw -or -not $liveRaw.Trim()) { return }
+        $live = $liveRaw | ConvertFrom-Yaml -Ordered
+        $tmpl = Get-Content -Raw -LiteralPath $script:UsersTemplate | ConvertFrom-Yaml -Ordered
+        if ($live -isnot [System.Collections.IDictionary] -or $tmpl -isnot [System.Collections.IDictionary]) { return }
+        if (-not $tmpl.Contains('users') -or $tmpl['users'] -isnot [System.Collections.IDictionary]) { return }
+        if (-not $live.Contains('users') -or $live['users'] -isnot [System.Collections.IDictionary]) { return }
+        $liveUsers = $live['users']
+
+        $lines = $liveRaw -split "`r?`n"
+        $usersLine = -1
+        for ($i = 0; $i -lt $lines.Count; $i++) {
+            if ($lines[$i] -match '^users:\s*$') { $usersLine = $i; break }
+        }
+        if ($usersLine -lt 0) { return }
+        for ($i = $usersLine + 1; $i -lt $lines.Count; $i++) {
+            if ($lines[$i] -match '^[^\s#]') { return }
+        }
+
+        $added = New-Object System.Collections.Generic.List[string]
+        $block = New-Object System.Collections.Generic.List[string]
+        foreach ($name in $tmpl['users'].Keys) {
+            if ($liveUsers.Contains($name)) { continue }
+            $rec = $tmpl['users'][$name]
+            if ($rec -isnot [System.Collections.IDictionary]) { continue }
+            $vk = if ($rec.Contains('vaultKey')) { "$($rec['vaultKey'])".Trim() } else { '' }
+            $ref = if ($rec.Contains('localOsPasswordRef')) { "$($rec['localOsPasswordRef'])".Trim() } else { '' }
+            if ($vk -or $ref) { continue }
+            $corp = if ($rec.Contains('corporate')) { $rec['corporate'] } else { $null }
+            if ($corp -is [System.Collections.IDictionary]) {
+                $curated = @('domain', 'sam', 'upn') | Where-Object { $corp.Contains($_) -and "$($corp[$_])".Trim() }
+                if ($curated) { continue }
+            }
+            $osUser = if ($rec.Contains('localOsUser')) { "$($rec['localOsUser'])" } else { '' }
+            [void]$added.Add([string]$name)
+            [void]$block.Add("  ${name}:")
+            [void]$block.Add("    localOsUser: `"$osUser`"")
+            [void]$block.Add('    corporate:')
+            [void]$block.Add('      domain: ""')
+            [void]$block.Add('      sam: ""')
+            [void]$block.Add('      upn: ""')
+            [void]$block.Add('    vaultKey: ""')
+            [void]$block.Add('    localOsPasswordRef: ""')
+        }
+        if ($added.Count -eq 0) { return }
+        $prefix = if ($liveRaw.EndsWith("`n")) { '' } else { [Environment]::NewLine }
+        Add-Content -LiteralPath $script:UsersPath -Value ($prefix + ($block -join [Environment]::NewLine))
+        Write-VaultEvent -EventName 'init' -Outcome 'ok' -Detail "users.yml gained template entries: $($added -join ', ')"
+    } catch {
+        Write-Verbose "users.yml template merge skipped: $($_.Exception.Message)"
+    }
+}
+
+<#
+.SYNOPSIS
     Returns the parsed users.yml content (cached). On first call,
     bootstraps users.yml from the committed users.yml.template if the
     runtime file is missing.
@@ -155,10 +236,14 @@ function Write-VaultUnlocked {
     identities (Active Directory / Entra / etc.) and onto the vault
     keys that hold the corresponding passwords. The mapping is operator-
     curated; the template ships pre-seeded with the four bundled Yuruna
-    logical users (yuuser24, yuuser26, yauser1, ywuser1) plus the three
+    logical users (yuuser24, yuuser26, yauser1, ywuser1) plus the four
     service-VM administrators (caching-proxy-service-admin, pool-control-service-admin,
-    stash-admin), all with empty corporate fields so the out-of-the-box
-    behavior stays local-only.
+    stash-admin, download-agent-service-admin), all with empty corporate
+    fields so the out-of-the-box behavior stays local-only.
+
+    A runtime file that predates an entry gains it through
+    Merge-UsersTemplateEntry: the template copy happens only once, so later
+    additions would otherwise never reach a host that already has the file.
 
     The return shape:
         @{ strict = $true; users = @{ <name> = @{ ... } } }
@@ -173,9 +258,7 @@ function Read-UsersConfig {
     [OutputType([hashtable])]
     param()
     if ($script:UsersConfig) { return $script:UsersConfig }
-    # Bootstrap from template on first call. The template is committed
-    # in-tree under test/extension/authentication/; the runtime file
-    # lives under status/extension/authentication/ where vault.yml sits.
+    # Bootstrap from the committed template on first call.
     if (-not (Test-Path -LiteralPath $script:UsersPath)) {
         if (Test-Path -LiteralPath $script:UsersTemplate) {
             try {
@@ -189,6 +272,7 @@ function Read-UsersConfig {
             }
         }
     }
+    Merge-UsersTemplateEntry
     $cfg = [ordered]@{ strict = $true; users = [ordered]@{} }
     if (Test-Path -LiteralPath $script:UsersPath) {
         try {
@@ -222,13 +306,11 @@ function Reset-UsersConfigCache {
     $script:UsersConfig = $null
 }
 
-# Internal: resolve a logical user to its mapping entry. Returns a
-# normalized hashtable with every field present (empty string when
-# unset) so callers don't have to null-guard each branch. When the
-# logical user isn't declared in users.yml, returns a lenient
-# "local-only" entry (localOsUser = logical name, no corporate, no
-# vault overrides). Strict-mode enforcement happens in Test-Config;
-# at runtime this function never throws.
+# Internal: resolve a logical user to its mapping entry. Returns a normalized
+# hashtable with every field present (empty string when unset), so callers
+# never null-guard. An undeclared logical user yields a lenient "local-only"
+# entry (localOsUser = logical name, no corporate, no vault overrides).
+# Strict-mode enforcement happens in Test-Config; this never throws.
 function Resolve-UserMapping {
     [CmdletBinding()]
     [OutputType([hashtable])]
@@ -257,11 +339,10 @@ function Resolve-UserMapping {
         if ($entry.Contains('vaultKey'))           { $vaultKey = [string]$entry['vaultKey'] }
         if ($entry.Contains('localOsPasswordRef')) { $localRef = [string]$entry['localOsPasswordRef'] }
     }
-    # Render loginUser. DOMAIN\sam takes precedence over UPN when both
-    # are populated (mirrors what Windows login prompts expect when an
-    # operator typed both forms into users.yml). No corporate identity
-    # at all -> loginUser equals localOsUser, which keeps today's
-    # local-only behavior: ${loginUser} renders as e.g. "yuuser26".
+    # Render loginUser. DOMAIN\sam wins over UPN when both are populated
+    # (what Windows login prompts expect). With no corporate identity,
+    # loginUser is localOsUser, keeping the local-only behavior where
+    # ${loginUser} renders as e.g. "yuuser26".
     if ($corpDomain -and $corpSam) {
         $loginUser = "$corpDomain\$corpSam"
     } elseif ($corpSam) {
@@ -352,11 +433,11 @@ function Initialize-VaultConnection {
     chpasswd (login impossible) and stalling cloud-init (no guest IP).
     Interior positions keep the full symbol set.
 
-    The 'New-' verb is intentional even though the function does not
-    mutate system state -- it constructs a fresh value, matching the
-    PowerShell convention for object-creation helpers (New-Guid,
-    New-Object). PSUseShouldProcessForStateChangingFunctions is
-    suppressed for that reason.
+    The 'New-' verb is intentional even though nothing system-level
+    mutates: this constructs a fresh value, matching the PowerShell
+    convention for object-creation helpers (New-Guid, New-Object),
+    which is why PSUseShouldProcessForStateChangingFunctions is
+    suppressed.
 #>
 function New-RandomPassword {
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute(
@@ -376,15 +457,12 @@ function New-RandomPassword {
     return $sb.ToString()
 }
 
-# Internal: vault lookup keyed by an explicit vault key (NOT the
-# logical user name). Used by Get-Password and Get-LocalOsPassword
-# after they've resolved the right key via users.yml. AutoGenerate
-# controls whether a missing vault entry is filled in: $true (today's
-# default for the logical/local-OS path) creates a fresh
-# random password and stores it; $false (the corporate / operator-
-# supplied path) throws so Test-Config.ps1 can surface "you forgot
-# to populate vault[corp.alisson.sol]" instead of the cycle silently
-# inventing a random password the AD server will reject.
+# Internal: vault lookup keyed by an explicit vault key (NOT the logical user
+# name). Get-Password and Get-LocalOsPassword call it after resolving the key
+# via users.yml. AutoGenerate decides what a missing entry means: $true (the
+# logical/local-OS path) mints and stores a fresh random password; $false (the
+# corporate / operator-supplied path) throws, so Test-Config.ps1 surfaces the
+# unpopulated vault key instead of the cycle inventing a password AD rejects.
 function Get-PasswordByVaultKey {
     [CmdletBinding()]
     [OutputType([string])]
@@ -394,11 +472,9 @@ function Get-PasswordByVaultKey {
         [bool]$AutoGenerate = $true
     )
     $key = $VaultKey
-    # $LogicalUser and $AutoGenerate are consumed inside the -Action
-    # scriptblock below via closure capture (vault-event Username, the
-    # missing-entry throw path). PSReviewUnusedParameter doesn't follow
-    # scriptblock arguments back to the enclosing param block, so a
-    # body-level touch silences the false positive.
+    # $LogicalUser and $AutoGenerate are consumed inside the -Action scriptblock
+    # below via closure capture. PSReviewUnusedParameter doesn't follow
+    # scriptblock arguments back to the param block, so touch them here.
     $null = $LogicalUser
     $null = $AutoGenerate
     return (Invoke-WithVaultLock -Action {
@@ -477,11 +553,9 @@ function Get-LocalOsPassword {
     param([Parameter(Mandatory)][string]$Username)
     $m = Resolve-UserMapping -LogicalUser $Username
     $key = if ($m.localOsPasswordRef) { $m.localOsPasswordRef } else { $Username }
-    # Local OS account is always auto-genable -- if the operator named
-    # a specific vault key but didn't pre-populate it, mint one. This
-    # asymmetry vs Get-Password is intentional: the local account's
-    # password is something we OWN, not something we have to align
-    # with a corporate directory.
+    # The local OS account always auto-generates: a named-but-unpopulated
+    # vault key still mints one. The asymmetry vs Get-Password is intentional
+    # -- this password is ours to own, not one to align with a directory.
     return (Get-PasswordByVaultKey -VaultKey $key -LogicalUser $Username -AutoGenerate $true)
 }
 
@@ -509,12 +583,11 @@ function Get-LoginCredential {
 .DESCRIPTION
     Plaintext NewPassword is intentional: this vault is the per-cycle
     plaintext store from which cloud-init seeds, console rotation, and
-    SSH workloads derive credentials. SecureString cannot survive the
+    SSH workloads derive credentials, and SecureString cannot survive
     serialization to vault.yml on disk. The harness runs in a private
     development context (RFC1918 only, gitignored vault, no remote
-    serving). Set-Password also genuinely mutates state but the body is
-    a single atomic write under a mutex; no -WhatIf support is added
-    because the caller (sequence runner) cannot meaningfully cancel
+    serving). The body is a single atomic write under a mutex, and no
+    -WhatIf is offered: the caller (sequence runner) cannot cancel
     once the OS has already rotated the password.
 #>
 function Set-Password {
@@ -537,11 +610,10 @@ function Set-Password {
     Invoke-WithVaultLock -Action {
         $vault = Read-VaultUnlocked
         if (-not $vault.Contains('users')) { $vault.users = [ordered]@{} }
-        # Carry the outgoing password into previousPassword before
-        # overwriting it. A failed cycle leaves vault.yml on disk; that
-        # field then shows whether -- and from what -- the password was
-        # rotated after New-VM created the entry. Empty when this is the
-        # first time the user is written (Set-Password on a fresh user).
+        # Carry the outgoing password into previousPassword before overwriting.
+        # A failed cycle leaves vault.yml on disk, where that field shows
+        # whether -- and from what -- the password rotated after New-VM created
+        # the entry. Empty the first time a user is written.
         $priorPassword = ''
         if ($vault.users.Contains($user)) {
             $priorPassword = [string]$vault.users[$user].password

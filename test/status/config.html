@@ -17,10 +17,14 @@
        fallback for engines without dvh, which simply ignore the second. */
     body { min-height: 100vh; min-height: 100dvh; display: flex; flex-direction: column; }
 
+    /* Plain shorthand first as the fallback; the max()/env() longhand then holds
+       the tree clear of the notch in landscape, where viewport-fit=cover lets
+       <main> reach the display edge. env() is 0 without a safe area. */
     main {
       flex: 1; overflow-y: auto;
       max-width: 880px; width: 100%; margin: 0 auto;
       padding: 1.25rem 1.5rem;
+      padding: 1.25rem max(1.5rem, env(safe-area-inset-right)) 1.25rem max(1.5rem, env(safe-area-inset-left));
       font-family: var(--font-mono);
       font-size: .8125rem;
     }

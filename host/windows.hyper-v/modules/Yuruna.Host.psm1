@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.03
+.VERSION 2026.08.04
 .GUID 42a2b3c4-d5e6-4f78-9012-3a4b5c6d7e90
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -50,6 +50,10 @@ Import-Module (Join-Path $script:TestModulesDir 'Test.CachingProxyService.psm1')
 # The X509 chain-validation callback lives here verbatim; per-driver cache-host
 # discovery is injected via the -ResolveCacheHostIp scriptblock (see wrapper below).
 Import-Module (Join-Path $script:RepoRoot 'host\modules\Yuruna.HostDownload.psm1') -Force -DisableNameChecking -Global
+# Download-agent client. The Get-Image hooks feature-detect its two functions by
+# name, so this import is what decides whether the agent path exists at all on
+# this host; without it the agent is silently never consulted.
+Import-Module (Join-Path $script:RepoRoot 'host\modules\Yuruna.DownloadAgent.psm1') -Force -DisableNameChecking -Global
 # Shared per-guest provisioning helpers (the New-VM.ps1 child-runner +
 # the Get-Image log-line writer) common to all three drivers.
 Import-Module (Join-Path $script:RepoRoot 'host\modules\Yuruna.HostProvision.psm1') -Force -DisableNameChecking -Global
@@ -668,6 +672,302 @@ function Resolve-DegradedExternalSwitchFallback {
     return $null
 }
 
+function Get-YurunaBridgeableRouteAdapter {
+    <#
+    .SYNOPSIS
+        The PHYSICAL adapter currently carrying the default IPv4 route, when
+        Hyper-V could bridge it. $null when there is none worth binding to.
+    .DESCRIPTION
+        Resolves through a vEthernet: once an External switch exists with a
+        management-OS vNIC, the host's default route usually rides
+        'vEthernet (<switch>)' rather than the physical NIC underneath it, and
+        binding a switch to its own management adapter is not a thing that can
+        work. Wi-Fi and USB adapters are excluded for the reason
+        Test-WindowsUplinkNotBridgeable exists: Hyper-V cannot carry a bridged
+        guest MAC over either, so "repairing" onto one would trade a dead
+        bridge for a bridge that is dead in a subtler way.
+    .OUTPUTS
+        The Get-NetAdapter record, or $null.
+    #>
+    [CmdletBinding()]
+    [OutputType([object])]
+    param()
+    if (-not $IsWindows) { return $null }
+    $route = Get-NetRoute -AddressFamily IPv4 -DestinationPrefix '0.0.0.0/0' -ErrorAction SilentlyContinue |
+        Where-Object { $_.NextHop -ne '0.0.0.0' -and $_.NextHop -ne '::' } |
+        Sort-Object RouteMetric, InterfaceMetric |
+        Select-Object -First 1
+    if (-not $route) { return $null }
+    $nic = Get-NetAdapter -InterfaceIndex $route.InterfaceIndex -ErrorAction SilentlyContinue
+    if (-not $nic) { return $null }
+    if ($nic.InterfaceDescription -match 'Hyper-V Virtual Ethernet') {
+        $sw = Get-VMSwitch -ErrorAction SilentlyContinue |
+            Where-Object { $_.SwitchType -eq 'External' -and "vEthernet ($($_.Name))" -eq $nic.InterfaceAlias } |
+            Select-Object -First 1
+        if (-not $sw) { return $null }
+        $descriptions = @(Get-YurunaSwitchUplinkDescription -SwitchRecord $sw)
+        if ($descriptions.Count -eq 0) { return $null }
+        $nic = Get-NetAdapter -ErrorAction SilentlyContinue |
+            Where-Object { $descriptions -contains $_.InterfaceDescription } |
+            Select-Object -First 1
+        if (-not $nic) { return $null }
+    }
+    if ($nic.PhysicalMediaType -eq 'Native 802.11' -or $nic.PnPDeviceID -like 'USB\*') { return $null }
+    if ("$($nic.Status)" -ne 'Up') { return $null }
+    return $nic
+}
+
+function Test-YurunaSwitchRepairable {
+    <#
+    .SYNOPSIS
+        Split a bad uplink verdict into "stale binding, rebinding fixes it" and
+        "the link is genuinely down, rebinding changes nothing".
+    .DESCRIPTION
+        The distinction is the whole safety argument. 'uplink-down' today means
+        only "no bound NIC reports Up", which covers two opposite situations:
+
+          * the switch names an adapter that is down or gone WHILE a different
+            bridgeable adapter carries the default route -- a stale binding,
+            which a rebind repairs; and
+          * the bound adapter IS the one the host routes over and its link is
+            down, or nothing bridgeable has a route at all -- a real fault,
+            where a rebind accomplishes nothing and still costs the host a
+            networking drop.
+
+        Repairing the second class per cycle is how a degraded-but-working host
+        becomes an unreachable one, so it is refused here rather than left to a
+        guard further down.
+    .OUTPUTS
+        pscustomobject -- Repairable (bool), Adapter (record or $null), Reason.
+    #>
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param(
+        [Parameter(Mandatory)][string]$SwitchName,
+        [Parameter(Mandatory)][string]$Verdict
+    )
+    $no = { param($why) [pscustomobject]@{ Repairable = $false; Adapter = $null; Reason = $why } }
+    if ($Verdict -notin @('uplink-down', 'uplink-missing')) {
+        return (& $no "verdict '$Verdict' is not a binding fault")
+    }
+    $target = Get-YurunaBridgeableRouteAdapter
+    if (-not $target) {
+        return (& $no 'no bridgeable adapter currently carries the default route, so there is nothing to bind to')
+    }
+    $existing = Get-VMSwitch -Name $SwitchName -ErrorAction SilentlyContinue
+    if ($existing) {
+        $bound = @(Get-YurunaSwitchUplinkDescription -SwitchRecord $existing)
+        if ($bound -contains $target.InterfaceDescription) {
+            # Already bound to the adapter that holds the route, and the verdict
+            # is still bad: the link itself is the problem. Rebinding to the same
+            # NIC would drop host networking to achieve exactly nothing.
+            return (& $no "already bound to '$($target.InterfaceDescription)', which holds the route -- the link itself is down")
+        }
+    }
+    return [pscustomobject]@{
+        Repairable = $true
+        Adapter    = $target
+        Reason     = "bound elsewhere while '$($target.Name)' carries the default route"
+    }
+}
+
+function Test-YurunaRunnerSessionRemote {
+    <#
+    .SYNOPSIS
+        True when THIS process is running inside a remote (RDP) session.
+    .DESCRIPTION
+        The repair re-plumbs the NIC it is reached over. A runner started from
+        an RDP session would sever its own connection mid-rebind and take the
+        cycle down with it, so that case declines. An operator merely watching
+        from a second session is not detected here on purpose: refusing
+        whenever anyone is connected is how a lab host with a forgotten idle
+        session quietly never self-repairs.
+    #>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param()
+    if (-not $IsWindows) { return $false }
+    # SESSIONNAME is 'Console' for the physical/autologin session and
+    # 'RDP-Tcp#<n>' for a remote one.
+    return ("$env:SESSIONNAME" -like 'RDP-*')
+}
+
+function Get-YurunaSwitchRepairStatePath {
+    <#
+    .SYNOPSIS
+        Where the per-host repair attempt counter lives.
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param()
+    $dir = if ($env:YURUNA_RUNTIME_DIR) { $env:YURUNA_RUNTIME_DIR } else { [System.IO.Path]::GetTempPath() }
+    return (Join-Path $dir 'hyperv-switch-repair.json')
+}
+
+function Repair-YurunaExternalSwitch {
+    <#
+    .SYNOPSIS
+        Rebind a stale External vSwitch onto the adapter that currently carries
+        the default route. Verifies the host survived and rolls back if not.
+        Returns $true only when the switch ends healthy.
+    .DESCRIPTION
+        CALL THIS AT CYCLE START ONLY, before any guest exists. A rebind takes
+        carrier away from every guest already on the switch, and it drops host
+        networking on the target NIC for a moment -- both are acceptable at a
+        cycle boundary and neither is acceptable between two guest builds.
+
+        Set-VMSwitch rather than Remove + New: recreating loses the switch GUID,
+        so every VM attached to it needs re-attaching and any static config on
+        'vEthernet (<name>)' is gone. The rebind is the smaller hammer for the
+        same fault.
+
+        Bounded three ways, because the failure this guards against is a host
+        that cannot be reached to fix:
+          * only a stale binding is repaired (Test-YurunaSwitchRepairable);
+          * a verify-and-roll-back window -- if the host has no default route
+            after the rebind, the switch is put back the way it was, so a failed
+            repair costs a cycle rather than the machine;
+          * an attempt cap, so a permanent fault cannot become a permanent
+            re-plumb loop. The counter clears the moment the switch reports
+            healthy and ages out after a day, so a replaced cable recovers
+            without anyone editing a state file.
+    .PARAMETER SwitchName
+        External switch to repair. Default: Yuruna-External.
+    .PARAMETER MaxAttempts
+        Repairs tried before latching to the reported fallback.
+    .PARAMETER VerifySeconds
+        How long the host is given to get its default route back before the
+        repair is judged to have failed and is undone.
+    #>
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([bool])]
+    param(
+        [string]$SwitchName    = 'Yuruna-External',
+        [int]$MaxAttempts      = 3,
+        [int]$VerifySeconds    = 60,
+        [int]$ResetAfterHours  = 24
+    )
+    if (-not $IsWindows) { return $false }
+
+    $verdict = Test-YurunaExternalSwitchUplink -SwitchName $SwitchName
+    $statePath = Get-YurunaSwitchRepairStatePath
+    $state = $null
+    if (Test-Path -LiteralPath $statePath) {
+        try { $state = Get-Content -Raw -LiteralPath $statePath | ConvertFrom-Json -ErrorAction Stop } catch {
+            Write-Verbose "switch repair state unreadable ($($_.Exception.Message)); starting a fresh count."
+        }
+    }
+    # Healthy clears the count immediately: whatever was wrong is not wrong now,
+    # and the next fault deserves its own full budget rather than the remains of
+    # an older one.
+    if ($verdict -in $script:UplinkVerdictOk) {
+        if ($state) { Remove-Item -LiteralPath $statePath -Force -ErrorAction SilentlyContinue }
+        return $true
+    }
+
+    $attempts = 0
+    if ($state -and $state.switchName -eq $SwitchName) {
+        $attempts = [int]$state.attempts
+        $firstUtc = [datetime]::MinValue
+        if ($state.firstAttemptUtc -and [datetime]::TryParse("$($state.firstAttemptUtc)", [ref]$firstUtc)) {
+            if (((Get-Date).ToUniversalTime() - $firstUtc).TotalHours -ge $ResetAfterHours) {
+                Write-Verbose "switch repair budget aged out after $ResetAfterHours h; trying again."
+                $attempts = 0
+            }
+        }
+    }
+    if ($attempts -ge $MaxAttempts) {
+        Write-Verbose "'$SwitchName' repair already tried $attempts time(s) without success; leaving the reported fallback in place."
+        return $false
+    }
+
+    $r = Test-YurunaSwitchRepairable -SwitchName $SwitchName -Verdict $verdict
+    if (-not $r.Repairable) {
+        Write-Verbose "'$SwitchName' verdict '$verdict' is not repairable by rebinding: $($r.Reason)"
+        return $false
+    }
+    if (Test-YurunaRunnerSessionRemote) {
+        Write-Warning "External vSwitch '$SwitchName' needs a rebind onto '$($r.Adapter.Name)', but this runner is in a remote session and the rebind would sever it. Run the cycle from the console session, or rebind by hand: Set-VMSwitch -Name '$SwitchName' -NetAdapterName '$($r.Adapter.Name)' -AllowManagementOS `$true"
+        return $false
+    }
+    if (-not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]'Administrator')) {
+        Write-Warning "External vSwitch '$SwitchName' needs a rebind onto '$($r.Adapter.Name)', which needs Administrator. Continuing on the fallback."
+        return $false
+    }
+    # A rebind pulls carrier from anything already attached. At a cycle boundary
+    # there should be nothing; if there is, the cycle is not where we thought it
+    # was and re-plumbing under a live guest is not worth the recovery it buys.
+    $live = @(Get-VM -ErrorAction SilentlyContinue | Where-Object { $_.State -eq 'Running' } |
+              Get-VMNetworkAdapter -ErrorAction SilentlyContinue | Where-Object { $_.SwitchName -eq $SwitchName })
+    if ($live.Count -gt 0) {
+        Write-Warning "External vSwitch '$SwitchName' needs a rebind, but $($live.Count) running guest(s) are attached to it. Skipping: a rebind would drop their carrier."
+        return $false
+    }
+    if (-not $PSCmdlet.ShouldProcess($SwitchName, "Rebind External vSwitch to '$($r.Adapter.Name)'")) { return $false }
+
+    $existing = Get-VMSwitch -Name $SwitchName -ErrorAction SilentlyContinue
+    $priorDescriptions = if ($existing) { @(Get-YurunaSwitchUplinkDescription -SwitchRecord $existing) } else { @() }
+    $priorAdapterName = $null
+    if ($priorDescriptions.Count -gt 0) {
+        $priorAdapterName = (Get-NetAdapter -ErrorAction SilentlyContinue |
+            Where-Object { $priorDescriptions -contains $_.InterfaceDescription } |
+            Select-Object -First 1).Name
+    }
+
+    $attempts++
+    $record = [ordered]@{
+        switchName      = $SwitchName
+        attempts        = $attempts
+        firstAttemptUtc = if ($state -and $state.firstAttemptUtc -and $attempts -gt 1) { "$($state.firstAttemptUtc)" }
+                          else { (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'") }
+        lastVerdict     = $verdict
+    }
+    try {
+        [System.IO.File]::WriteAllText($statePath, ($record | ConvertTo-Json), [System.Text.UTF8Encoding]::new($false))
+    } catch { Write-Verbose "switch repair state not written: $($_.Exception.Message)" }
+
+    Write-Information -MessageData "  Rebinding External vSwitch '$SwitchName' onto '$($r.Adapter.Name)' (attempt $attempts of $MaxAttempts) -- $($r.Reason). Host networking on that NIC drops briefly." -InformationAction Continue
+    try {
+        Set-VMSwitch -Name $SwitchName -NetAdapterName $r.Adapter.Name -AllowManagementOS $true -ErrorAction Stop
+    } catch {
+        Write-Warning "Rebinding '$SwitchName' onto '$($r.Adapter.Name)' failed: $($_.Exception.Message). The switch is unchanged; guests stay on the fallback."
+        return $false
+    }
+
+    # Verify the host still has a way out, and undo if it does not. This window
+    # is the difference between self-healing and self-destroying: DHCP on the new
+    # management vNIC can take a few seconds, and can also never arrive.
+    $deadline = (Get-Date).AddSeconds([Math]::Max(5, $VerifySeconds))
+    $routeBack = $false
+    while ((Get-Date) -lt $deadline) {
+        Start-Sleep -Seconds 2
+        if (Get-NetRoute -AddressFamily IPv4 -DestinationPrefix '0.0.0.0/0' -ErrorAction SilentlyContinue |
+            Where-Object { $_.NextHop -ne '0.0.0.0' }) { $routeBack = $true; break }
+    }
+    if (-not $routeBack) {
+        Write-Warning "After rebinding '$SwitchName' onto '$($r.Adapter.Name)' the host had no default route within ${VerifySeconds}s. Rolling back so this host stays reachable."
+        try {
+            if ($priorAdapterName) {
+                Set-VMSwitch -Name $SwitchName -NetAdapterName $priorAdapterName -AllowManagementOS $true -ErrorAction Stop
+            } else {
+                Remove-VMSwitch -Name $SwitchName -Force -ErrorAction Stop
+            }
+        } catch {
+            Write-Warning "Roll-back of '$SwitchName' ALSO failed: $($_.Exception.Message). This host may be off the network -- it needs console access: Remove-VMSwitch -Name '$SwitchName' -Force"
+        }
+        return $false
+    }
+
+    $after = Test-YurunaExternalSwitchUplink -SwitchName $SwitchName
+    if ($after -in $script:UplinkVerdictOk) {
+        Remove-Item -LiteralPath $statePath -Force -ErrorAction SilentlyContinue
+        Write-Information -MessageData "  External vSwitch '$SwitchName' repaired: bridged on '$($r.Adapter.Name)', host route intact." -InformationAction Continue
+        return $true
+    }
+    Write-Warning "Rebound '$SwitchName' onto '$($r.Adapter.Name)' and the host kept its route, but the switch still reports '$after'. Guests stay on the fallback."
+    return $false
+}
+
 <#
 .SYNOPSIS
     Idempotently create (or return) the Yuruna External vSwitch bridged
@@ -715,10 +1015,10 @@ function Get-OrCreateYurunaExternalSwitch {
     # IMPORTANT: this function's only pipeline output is a single string
     # (switch name) or $null. All diagnostics MUST go through
     # Write-Verbose / Write-Information / Write-Warning / Write-Error so callers can
-    # safely assign with `$x = Get-OrCreateYurunaExternalSwitch`. A
-    # stray Write-Output here turned $x into a string[] and broke
-    # downstream `-SwitchName` parameter binding (System.Object[] ->
-    # System.String coercion failure).
+    # safely assign with `$x = Get-OrCreateYurunaExternalSwitch`. A stray
+    # Write-Output turns $x into a string[] and breaks downstream
+    # `-SwitchName` binding (System.Object[] -> System.String coercion
+    # failure).
 
     # --- REGION: https://yuruna.link/network#why-hyper-v-never-bridges-wi-fi-or-usb-uplinks
     # 0. Not-bridgeable-uplink divert: return $null so the caller falls back to the Default Switch (NAT + DHCP).
@@ -1816,8 +2116,6 @@ wininet.dll P/Invoke and is a no-op on non-Windows hosts when the
 type compiles (the runtime call simply returns $false).
 #>
 function Invoke-WinInetRefresh {
-    # Broadcast SETTINGS_CHANGED + REFRESH so already-running WinINet
-    # clients (Edge, Invoke-WebRequest) reload without a session restart.
     $sig = @'
 using System;
 using System.Runtime.InteropServices;
@@ -1967,10 +2265,6 @@ Remove-HostProxy already gates the prompt; calling it here would
 double-prompt the user.
 #>
 function Remove-WindowsHostProxy {
-    # Aggressive marker-LESS wipe: ProxyServer + ProxyOverride removed
-    # unconditionally even when no yuruna marker is present. Used by the
-    # contract Remove-HostProxy entry point; that one owns ShouldProcess
-    # so this private helper suppresses to avoid double-prompting.
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute(
         'PSUseShouldProcessForStateChangingFunctions', '',
         Justification = 'Module-private helper; public Remove-HostProxy gates ShouldProcess.')]
@@ -2009,8 +2303,6 @@ function Get-CachingProxyServiceForwarderScriptPath {
     [CmdletBinding()]
     [OutputType([string])]
     param()
-    # Forwarder script lives under host/macos.utm/ as the canonical copy;
-    # it's pure PowerShell so it runs on Windows as well.
     # $PSScriptRoot is host/windows.hyper-v/modules, so three levels up is repo root.
     $repoRoot = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))
     return (Join-Path $repoRoot 'host/macos.utm/Start-CachingProxyServiceForwarder.ps1')
@@ -2029,10 +2321,6 @@ and rewrite the rule when the loaded binary differs. Returns $null
 when pwsh.exe is not on PATH.
 #>
 function Get-PwshExePath {
-    # Best-guess for Defender's per-program rule. WindowsApps App Execution
-    # Alias is a reparse stub; Defender filters on the post-resolution path.
-    # After spawn, callers re-read Get-Process .Path and rewrite the rule
-    # if the loaded path differs.
     [CmdletBinding()]
     [OutputType([string])]
     param()
@@ -3295,10 +3583,8 @@ function Send-Key {
     # not resolvable from this module's scope).
     $sequenceEngine = Join-Path $script:TestModulesDir 'Test.SequenceEngine.psm1'
     if (Test-Path $sequenceEngine) {
-        # Import once and reuse. When the outer loop already loaded Invoke-Sequence -Global we must
-        # NOT re-import per call: a -Force re-import evicts/reinitializes the global module (and its
-        # nested modules + $script: state) the outer loop still calls, and doing it on every
-        # keystroke is pure overhead (feedback_module_force_import_evicts_global,
+        # Import once and reuse, never -Force per call -- same trap as Send-Text
+        # above (feedback_module_force_import_evicts_global,
         # feedback_module_script_state_reset_by_force_reimport).
         if (-not (Get-Module -Name Test.SequenceEngine)) { Import-Module $sequenceEngine -DisableNameChecking -Global }
         return [bool](Test.SequenceEngine\Send-Key -HostType $script:HostTag -VMName $VMName -KeyName $Key)
@@ -3321,10 +3607,8 @@ function Send-Click {
     )
     $sequenceEngine = Join-Path $script:TestModulesDir 'Test.SequenceEngine.psm1'
     if (Test-Path $sequenceEngine) {
-        # Import once and reuse. When the outer loop already loaded Invoke-Sequence -Global we must
-        # NOT re-import per call: a -Force re-import evicts/reinitializes the global module (and its
-        # nested modules + $script: state) the outer loop still calls, and doing it on every
-        # keystroke is pure overhead (feedback_module_force_import_evicts_global,
+        # Import once and reuse, never -Force per call -- same trap as Send-Text
+        # above (feedback_module_force_import_evicts_global,
         # feedback_module_script_state_reset_by_force_reimport).
         if (-not (Get-Module -Name Test.SequenceEngine)) { Import-Module $sequenceEngine -DisableNameChecking -Global }
         return [bool](Test.SequenceEngine\Send-Click -HostType $script:HostTag -VMName $VMName -X $X -Y $Y)
@@ -3682,8 +3966,8 @@ function Get-BestHostIp {
       2. State file (Read-CachingProxyServiceState).ipAddress -- the cache VM's
          IP written by Start-CachingProxyServiceVM.ps1 (our own VM).
 
-    No Hyper-V VM enumeration, no KVP/ARP discovery. Get-CacheVmCandidate-
-    Ip / Get-WorkingCachingProxyServiceUrl still exist for use by the producer
+    No Hyper-V VM enumeration, no KVP/ARP discovery. Get-CacheVmCandidateIp
+    and Get-WorkingCachingProxyServiceUrl still exist for use by the producer
     (guest.caching-proxy-service/New-VM.ps1) and Start-CachingProxyServiceVM.ps1 itself
     while the cache VM is being brought up -- they are not part of the
     steady-state discovery path. LAN-wide cache discovery is a separate
@@ -3911,7 +4195,7 @@ Export-ModuleMember -Function `
     Get-Image, Get-ImagePath, `
     Send-Text, Send-Key, Send-Click, Get-VMScreenshot, Get-VMConsoleHandle, `
     Wait-VMIp, Get-VMIp, Get-VMMac, `
-    Get-ExternalNetwork, New-ExternalNetwork, Test-CacheVMOnExternalNetwork, `
+    Get-ExternalNetwork, New-ExternalNetwork, Test-CacheVMOnExternalNetwork, Repair-YurunaExternalSwitch, `
     Add-PortMap, Remove-PortMap, Get-BestHostIp, Get-GuestReachableHostIp, `
     Test-CachingProxyServiceAvailable, Get-CachingProxyServiceVmIp, `
     Set-HostProxy, Clear-HostProxy, Remove-HostProxy, Get-HostProxyBackupPath, Assert-Virtualization, `

@@ -49,7 +49,7 @@
       }
       try {
         Y.clearNotice();
-        await Y.api('/api/pool/move-host', { method: 'POST', body: { hostId: h.hostId, poolId: to } });
+        await Y.mutate('/api/pool/move-host', { method: 'POST', body: { hostId: h.hostId, poolId: to } });
         await load();
       } catch (e) {
         sel.value = h.pool || '';
@@ -69,6 +69,7 @@
   async function load() {
     try {
       const d = await Y.api('/api/hosts');
+      chrome.markLoaded();
       pools = d.pools || [];
       targetPoolId = d.targetPoolId || '';
       const body = document.getElementById('host-rows');
@@ -85,5 +86,8 @@
   }
 
   document.getElementById('refresh').addEventListener('click', load);
+  // Header version + host id and the footer bar; its countdown re-reads the host
+  // list rather than reloading, so a pending pool choice in a row survives.
+  const chrome = Y.initChrome({ refresh: load });
   load();
 })();

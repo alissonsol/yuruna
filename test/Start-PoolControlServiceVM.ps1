@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.03
+.VERSION 2026.08.04
 .GUID 42e5f6a7-b8c9-4d01-8234-5f6a7b8c9d0e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -59,12 +59,25 @@ param(
     [string]$AggregatorUrl = ''
 )
 
-$ErrorActionPreference = 'Stop'
 $InformationPreference = 'Continue'
+
+# $ErrorActionPreference is deliberately left at its inherited 'Continue', and
+# must stay that way. A script-scoped 'Stop' is not scoped to the script: an
+# advanced function invoked from here runs under it too, so every helper this
+# bring-up calls would have its NON-terminating errors promoted to terminating
+# ones. Several of the steps below are built on exactly that tolerance -- the
+# pool-storage soft gate warns and proceeds when the share does not answer,
+# because the daemon degrades to no persistence rather than failing, and the UTM
+# port-forward and pool-intent alias steps are reported-never-fatal. Under 'Stop'
+# each of those designed outcomes ends the bring-up instead, and its reason is
+# left on a console that is gone by the time anyone reads the run log. The
+# sibling service bring-ups (stash, caching proxy) run at 'Continue' for the same
+# reason. Where a condition really must stop this script, it says so itself with
+# an explicit Write-Error + exit, as the pre-flight hard gates below do.
 
 # Honor the caller's logLevel, published as $env:YURUNA_LOG_LEVEL by whatever
 # entry point started this script (install/setup.ps1, a runner cycle). After the
-# line above on purpose: an explicit level is the operator's choice and replaces
+# lines above on purpose: an explicit level is the operator's choice and replaces
 # this script's own default. $InformationPreference is then re-read from the
 # global the cascade writes, because the script-scoped assignment above shadows
 # it for the rest of this file. See docs/loglevels.md.
@@ -287,7 +300,16 @@ NOTHING until this is fixed. If the password is stale, update it and rebuild:
     # /var/log/cloud-init-output.log (root-only -- a plain `tail` as
     # pool-control-service-admin returns Permission denied).
     Import-Module (Join-Path $ModulesDir 'Test.Ssh.psm1') -Global -Force
-    $vmIp = try { Get-VMIp -VMName $VMName } catch { Write-Verbose "Get-VMIp: $($_.Exception.Message)"; $null }
+    # Wait-VMIp, not a single Get-VMIp. A guest that has just been started has no
+    # address for the first several seconds -- on UTM Shared NAT it appears only
+    # once DHCP completes -- and a one-shot call there returns empty, which skips
+    # the readiness probe entirely and reports the service as failed seconds after
+    # the VM booted. "No address yet" and "daemon still building" are the same
+    # wait to an operator, so this draws from the same readiness budget as the
+    # port probe rather than being a separate, invisible give-up.
+    $ipWaitStart = (Get-Date)
+    $vmIp = try { Wait-VMIp -VMName $VMName -TimeoutSeconds 120 } catch { Write-Verbose "Wait-VMIp: $($_.Exception.Message)"; $null }
+    $ipWaitSeconds = [int]((Get-Date) - $ipWaitStart).TotalSeconds
 
     # Generous default so a slow first build (golang + pwsh install + go build over
     # the caching-proxy service) is not mis-reported as a failure; exits early the moment
@@ -375,7 +397,13 @@ path from this host to ${vmIp}:80:
         # host-side address-discovery gap, not a VM that failed to start. On UTM
         # a Bridged guest has no dhcpd lease and no guest agent, so this is the
         # normal path there rather than an anomaly.
-        Write-Warning "Could not resolve the VM's IP via the host contract (Get-VMIp); the VM IS running, so this is address discovery, not a boot failure. Skipping the :80 probe and going straight to guest diagnostics."
+        #
+        # The elapsed wait is named because the number is the diagnosis: seconds
+        # means address lookup is unsupported for this networking mode, the full
+        # budget means DHCP never completed. Quoting the nominal readiness
+        # timeout for a probe that never ran describes a wait that did not happen.
+        Write-Warning ("Could not resolve the VM's IP after waiting ${ipWaitSeconds}s (Wait-VMIp); the VM IS running, so this is " +
+                       "address discovery, not a boot failure. The :80 readiness probe never ran -- going straight to guest diagnostics.")
     }
 
     # Publish the marker + refresh registration (mirrors Start-StashServiceVM's publish
@@ -391,14 +419,9 @@ path from this host to ${vmIp}:80:
     # pool-control service that is not serving, and the dashboard would deep-link
     # operators to a dead UI.
     $poolControlServiceBaseUrl = if (-not $vmIp) { '' } elseif ($vmIp -match ':') { "http://[$vmIp]/" } else { "http://$vmIp/" }
-    $marker = [ordered]@{
-        active       = $daemonReady
-        vmName       = $VMName
-        hostType     = $HostType
-        startedAtUtc = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
-    }
-    if ($poolControlServiceBaseUrl) { $marker['poolControlServiceBaseUrl'] = $poolControlServiceBaseUrl }
-    [System.IO.File]::WriteAllText((Join-Path $runtimeDir 'pool-control-service.json'), ($marker | ConvertTo-Json), [System.Text.UTF8Encoding]::new($false))
+    Import-Module (Join-Path $ModulesDir 'Test.ExtensionService.psm1') -Global -Force
+    [void](Write-ExtensionServiceMarker -Area 'pool-control-service' -RuntimeDir $runtimeDir `
+        -Active $daemonReady -VMName $VMName -HostType $HostType -BaseUrl $poolControlServiceBaseUrl)
     try {
         Set-Variable -Name '__YurunaHostId' -Scope Global -Value (Get-YurunaHostId)
         Import-Module (Join-Path $ModulesDir 'Test.Capability.psm1') -Global -Force
@@ -440,7 +463,16 @@ path from this host to ${vmIp}:80:
     # it is the only login this VM has, and Get-GuestSshUser would otherwise return
     # a per-cycle cascade override that an earlier run in this same shell session
     # left registered for guest.pool-control-service.
-    Write-Warning "pool-control-service daemon is NOT serving on :80 (VM $vmIp) after $readyTimeoutMinutes min. Collecting in-guest diagnostics over the harness SSH key..."
+    # Says what ACTUALLY happened, not what the budget allowed. Two different
+    # failures reach this line -- an address that never appeared, and an address
+    # that never answered -- and quoting the nominal timeout for the first
+    # describes a wait that did not occur.
+    $failureDetail = if ($vmIp) {
+        "is NOT serving on :80 (VM $vmIp) after $readyTimeoutMinutes min"
+    } else {
+        "never got an address (no IP after ${ipWaitSeconds}s), so :80 was never probed"
+    }
+    Write-Warning "pool-control-service daemon $failureDetail. Collecting in-guest diagnostics over the harness SSH key..."
     $diagCmd = @(
         'echo "=== cloud-init status ==="; cloud-init status --long 2>&1 | head -n 20',
         'echo "=== systemctl status pool-control-service.service ==="; systemctl --no-pager --full status pool-control-service.service 2>&1 | head -n 25',
@@ -517,14 +549,10 @@ if ($PSCmdlet.ShouldProcess($binPath, "launch pool-control-service on :$Port")) 
     Start-Sleep -Seconds 1
     $localIp = try { (Test-Connection -TargetName ([System.Net.Dns]::GetHostName()) -Count 1 -ErrorAction SilentlyContinue).Address.IPAddressToString } catch { $null }
     if ([string]::IsNullOrWhiteSpace($localIp)) { $localIp = '127.0.0.1' }
-    $marker = [ordered]@{
-        active            = $true
-        pid               = $proc.Id
-        port              = $Port
-        poolControlServiceBaseUrl = "http://${localIp}:$Port/"
-        startedAtUtc      = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
-    }
-    [System.IO.File]::WriteAllText((Join-Path $runtimeDir 'pool-control-service.json'), ($marker | ConvertTo-Json), [System.Text.UTF8Encoding]::new($false))
+    Import-Module (Join-Path $ModulesDir 'Test.ExtensionService.psm1') -Global -Force
+    [void](Write-ExtensionServiceMarker -Area 'pool-control-service' -RuntimeDir $runtimeDir `
+        -Active $true -BaseUrl "http://${localIp}:$Port/" `
+        -Extra ([ordered]@{ pid = $proc.Id; port = $Port }))
     if (Get-Command Write-HostRegistrationRecord -ErrorAction SilentlyContinue) {
         try { Write-HostRegistrationRecord -HostType (Get-HostType) | Out-Null } catch { Write-Verbose "registration refresh: $($_.Exception.Message)" }
     }

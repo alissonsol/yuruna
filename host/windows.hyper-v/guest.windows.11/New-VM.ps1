@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.03
+.VERSION 2026.08.04
 .GUID 42d9e0f1-a2b3-4c45-d678-9e0f1a2b3c46
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -120,7 +120,6 @@ if ($existingVM) {
 
 # --- REGION: Create copies and files for VM
 
-# 512GB dynamically expanding VHDX
 $vmDir = Join-Path $downloadDir $VMName
 if (!(Test-Path -Path $vmDir)) {
     New-Item -ItemType Directory -Path $vmDir -Force | Out-Null

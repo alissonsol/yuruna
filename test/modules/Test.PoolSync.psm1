@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.03
+.VERSION 2026.08.04
 .GUID 42b1c2d3-e4f5-4a67-8b90-1c2d3e4f5a6b
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -361,7 +361,7 @@ function Write-YurunaPoolManifest {
         # autoEnrollment.targetPoolId from the intent doc, when the store
         # declares one. Supplied by the caller because only it has read the
         # document; empty on every store that has not opted into auto-enrolment,
-        # which makes the guard below inert -- exactly today's behaviour.
+        # which makes the guard below inert.
         [Parameter()][AllowEmptyString()][string]$AutoEnrolTargetPoolId = ''
     )
     $runtimeDir = $env:YURUNA_RUNTIME_DIR
@@ -395,10 +395,9 @@ function Write-YurunaPoolManifest {
             projectUrl   = [string]$testSet['projectUrl']
         }
         # `sequences` is the optional subset of the assigned project's top-level
-        # sequences (Phase A schema field). It is carried ONLY when non-empty:
-        # the inner runner treats an absent/empty key as "run the whole
-        # test.runner.yml", which is the pre-existing behaviour every store
-        # relies on, and an omitted key keeps this manifest byte-identical to
+        # sequences. It is carried ONLY when non-empty: the inner runner treats an
+        # absent/empty key as "run the whole test.runner.yml", which is what every
+        # store relies on, and an omitted key keeps this manifest byte-identical to
         # what older runners already parse.
         #
         # The manifest is the ONLY channel into the fresh inner-runner process,

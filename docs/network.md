@@ -1,9 +1,8 @@
 # Yuruna network workarounds
 
 This file collects rationale for network-related workarounds in guest
-scripts and the host harness. Centralizing the long explanations here
-keeps the source comments short and the workarounds discoverable from
-one place.
+scripts and the host harness. Centralizing the long explanations keeps
+source comments short and the workarounds discoverable from one place.
 
 Source files reference an entry with a single line of the form:
 
@@ -31,10 +30,9 @@ Guest provisioning scripts call `apt-get` (Ubuntu) and `dnf` (Amazon
 Linux 2023) to install workload dependencies, plus `curl` to fetch
 release tags, install scripts, GPG keys, and binaries from GitHub /
 filippo.io / dot.net / etc. All of these reach external mirrors and
-CDNs that occasionally fail on transient network conditions that
-recover within seconds. Without a wrapper, a single flaky lookup
-aborts the whole script via `set -e` and the cycle wastes its
-remaining budget.
+CDNs that occasionally fail on transient conditions that recover within
+seconds. Without a wrapper, a single flaky lookup aborts the whole
+script via `set -e` and the cycle wastes its remaining budget.
 
 **The failure modes that motivated this library.** Two examples:
 
@@ -65,7 +63,7 @@ The same pattern applies to apt: transient mirror flakes, DNS bounces
 on first-boot DHCP, `Hash Sum mismatch` from a half-refreshed mirror
 (transient, handled by the retry logic in `apt_retry`).
 
-**Library.** All three retry wrappers live in
+**Library.** All five retry wrappers live in
 [automation/yuruna-retry.sh](../automation/yuruna-retry.sh) — single
 source of truth. The library is deployed to every supported guest by
 cloud-init's `write_files:` (base64-encoded) at install time, landing
@@ -85,7 +83,7 @@ The library exports five functions:
 | `dnf_retry`  | `dnf …`     | Amazon Linux 2023 guests |
 | `curl_retry` | `curl …`    | Any caller; prepends `--retry 3 --retry-connrefused --retry-delay 5` so curl handles transient HTTP 5xx + connection-refused in-process before the outer attempt loop fires. Deliberately NOT `--retry-all-errors`: that would also retry 4xx (auth failures, 404s), which are non-transient and only waste attempts. |
 | `wget_try`   | `wget …`    | wget analogue of `curl_retry`: prepends `--tries=3 --waitretry=5 --retry-connrefused` for in-process transient handling and shares the transient/permanent gate below. |
-| `pwsh_retry` | `sudo pwsh …` | Body on stdin (here-doc), piped to `sudo pwsh -NoProfile -Command -`. All pwsh streams (stdout, stderr, verbose, warning, information) appended to a caller-supplied log file under `/var/log/yuruna/` with a UTC-stamped per-attempt header. The log is the failure-collector handoff — see [`Defining Get-SystemDiagnostic`](definition.md#defining-get-systemdiagnostic), GUEST PROVISIONING section. Body must `throw` / `exit 1` on its own failure conditions (retry is driven by pwsh's exit code). Stdin pipe instead of a positional `-Command` arg avoids both the [32 K CreateProcess cmdline cap](memory.md#why-the-bootstrap-installer-must-stay-ascii-only) class and the quote-escaping pit. |
+| `pwsh_retry` | `sudo pwsh …` | Body on stdin (here-doc), piped to `sudo pwsh -NoProfile -Command -`. All pwsh streams (stdout, stderr, verbose, warning, information) appended to a caller-supplied log file under `/var/log/yuruna/` with a UTC-stamped per-attempt header. The log is the failure-collector handoff — see [`Defining Get-SystemDiagnostic`](definition.md#defining-get-systemdiagnostic), GUEST PROVISIONING section. Body must `throw` / `exit 1` on its own failure conditions (retry is driven by pwsh's exit code). Stdin pipe instead of a positional `-Command` arg avoids both the argv-length-cap class (32 K on Windows `CreateProcess`, `ARG_MAX` on Linux) and the quote-escaping pit. |
 
 **Outer-loop behavior** (all five wrappers share `_yuruna_retry`):
 
@@ -130,9 +128,8 @@ first (sub-30 s for transient 5xx + ECONNREFUSED). Combined budget:
 5 outer × 3 inner = 15 effective attempts — still bounded, sized for
 a one-shot provisioning script under `set -euo pipefail`. 4xx
 responses are not retried by curl's inner `--retry`, and the outer
-loop's transient gate (item 6 above) now also fails fast on them
-rather than re-running the whole fetch 5 times — so a deterministic
-404 costs one attempt, not the full ~5-min ladder.
+loop's transient gate (item 6 above) also fails fast on them, so a
+deterministic 404 costs one attempt, not the full ~5-min ladder.
 
 **Call signature.** Generic — the wrapper takes the full command,
 including the caller's `sudo` and any options:
@@ -178,8 +175,8 @@ slowly to trip the client's own connect/read-gap timeout — otherwise
 hangs the attempt forever, and the retry loop never gets to retry on
 a fresh connection (the stalled-transfer trap class: apt InRelease
 fetches wedging mid-body behind a caching-proxy service). A malformed value
-fails LOUD and unbounded, not silently unbounded: the operator
-believes a bound is active.
+fails LOUD and unbounded, not silently unbounded — silence would leave
+the operator believing a bound is active.
 
 The bound mode is invariant across attempts: none | direct | sudo.
 `timeout(1)` can only exec real commands, so shell-function attempts
@@ -313,10 +310,10 @@ IPv6-via-RA needs no DHCP server, so its presence does not clear the
 flag. Other causes the banner names: the DHCP server is down, a
 VLAN/cabling fault, or the link is not forwarding yet.
 
-**All clear** is claimed only when at least one interface was actually
-examined and every one of them holds an IPv4 address. A walk that
-examined nothing prints "no non-loopback interface is carrier-up"
-instead — that is a finding, not a pass. The distinction is
+**All clear** is claimed only when at least one interface was examined
+and every one holds an IPv4 address. A walk that examined nothing
+prints "no non-loopback interface is carrier-up" instead — that is a
+finding, not a pass. The distinction is
 load-bearing: "all carrier-up interfaces hold an IPv4 address" is
 vacuously true on a guest whose only interface is DOWN, and this
 diagnostic is the sole artifact such a guest can still produce. Both
@@ -327,13 +324,12 @@ the only record and its correctness carries disproportionate weight.
 Output is bounded: the link-down verdict reports the total count and
 names only the first few interfaces, so the block stays a fixed number
 of lines however many interfaces exist. That matters because the
-diagnostic is
-printed immediately before the `NONZERO SCRIPT EXIT:` marker the host's
-OCR watches for, and an unbounded block can push the marker off the
-captured frame — turning a classified failure into an unclassified
-timeout. For the same reason no message in this file may contain the
-words "fetch" or "execute": they fuzzy-match the echoed command line
-and would close a healthy run's OCR wait early.
+diagnostic is printed immediately before the `NONZERO SCRIPT EXIT:`
+marker the host's OCR watches for, and an unbounded block can push the
+marker off the captured frame — turning a classified failure into an
+unclassified timeout. For the same reason no message in this file may
+contain the words "fetch" or "execute": they fuzzy-match the echoed
+command line and would close a healthy run's OCR wait early.
 
 `fetch-and-execute.sh` sources the library so a failing guest step can
 attach this diagnostic to its failure output.
@@ -341,7 +337,7 @@ attach this diagnostic to its failure output.
 `YURUNA_NET_SYSFS` overrides the sysfs root the walk reads (default
 `/sys/class/net`) so the function can be driven against a fixture tree
 in tests; production behavior with the variable unset is unchanged. It
-covers only the sysfs reads — the `ip` invocations are genuinely live.
+covers only the sysfs reads — the `ip` invocations are live.
 
 ### Defining network release
 
@@ -379,7 +375,7 @@ the host's neighbor entry is stale (the Hyper-V External vSwitch
 ARP-discovery trap; UTM has the vmnet analogue) and SSH times out for
 the full 180 s `Wait-SshReady` budget.
 
-The probe MUST match whichever manager actually owns the link: server
+The probe MUST match whichever manager owns the link: server
 spins default to systemd-networkd (where `nm-online` is absent), while
 NetworkManager spins ship `nm-online`. A probe keyed on the wrong
 manager silently no-ops — skipping the settle entirely — or blocks its
@@ -433,8 +429,7 @@ relaxing egress (`project_sslbump_ca_gating_durable_fix`):
   self-heal only supplies the trust anchor the bump already expects. The
   guest side is best-effort and non-fatal: a missing `host.env`, an
   unreachable host, or an empty body leaves the guest in the original
-  rc=60 state with a clear diagnostic — never a silent pass, and never an
-  abort of the update run by the self-heal itself.
+  rc=60 state with a clear diagnostic, never aborting the update run.
 
 On macOS UTM the fetch has an extra reason to run host-side: guests on VZ
 shared-NAT cannot reach the cache VM directly, but the host can. The UTM
@@ -547,21 +542,38 @@ host address whenever the resolved one is loopback or link-local, and
 the caching-proxy's `yuruna-config-fetch.sh` does the equivalent in the
 guest for the address the config service hands it at runtime.
 
-On **macos.utm** the mode itself is now resolved once per build by
+On **macos.utm** the mode is resolved once per build by
 `Resolve-UtmNetworkMode` and rendered into the bundle's
 `config.plist` (`__NETWORK_MODE__`), so the plist and the baked
-addresses cannot disagree. Before that, only the caching-proxy plist
-was parameterized: the stash and pool-control plists hardcoded
-`Bridged` while their `New-VM.ps1` still branched on
-`Test-MacUplinkNotBridgeable` — on a Wi-Fi host that produced a VM
-bridged onto an uplink vmnet cannot bridge (no DHCP lease, ever) with
-the VZ gateway baked in as the host address. Both are now Shared on
-Wi-Fi, with `Add-PortMap` publishing them to the LAN through the host.
-Both host ports are remapped, and neither choice is arbitrary: stash
-takes `:2222` because the Mac's own sshd owns `:22`, and pool-control
-takes `:8081` because the caching-proxy already forwards `:80` for its
-CA-cert endpoint — reusing it would publish the cache at the URL the
-pool-control bring-up prints.
+addresses cannot disagree. A plist hardcoding `Bridged` while its
+`New-VM.ps1` branches on `Test-MacUplinkNotBridgeable` yields, on a
+Wi-Fi host, a VM bridged onto an uplink vmnet cannot bridge (no DHCP
+lease, ever) with the VZ gateway baked in as the host address. Stash
+and pool-control are therefore Shared on Wi-Fi, with `Add-PortMap`
+publishing them to the LAN through the host — as is the download-agent
+service. No choice of port is arbitrary: stash takes `:2222` because the
+Mac's own sshd owns `:22`; pool-control takes `:8081` because the
+caching-proxy already forwards `:80` for its CA-cert endpoint —
+reusing it would publish the cache at the URL the
+pool-control bring-up prints; and the download-agent service takes
+`:8082`, the next free port clear of all three. Asking for one already
+taken would silently publish the wrong service at that URL, so the
+allocation is fixed per service rather than picked at run time:
+
+| Service | Host port on a Shared-NAT Mac | Guest port |
+|---|---|---|
+| caching-proxy service | `80` (plus its own squid/dashboard ports) | 80 |
+| stash service | `2222` | 22 |
+| pool-control service | `8081` | 80 |
+| download-agent service | `8082` | 80 |
+
+Because the beacon's announce is derived from the connection's source IP
+— NAT-internal, and unroutable from any peer — the download-agent
+service's **marker** carries the published endpoint instead:
+`downloadAgentServiceBaseUrl` is written as
+`http://<mac-lan-ip>:8082/` on a Shared-NAT bundle, and as the VM's own
+address on a bridged one. A Shared-NAT Mac is still a reduced-value
+placement for the agent; prefer a bridged host.
 
 ## Registry rate limits disguised as 400
 
@@ -569,7 +581,7 @@ pool-control bring-up prints.
 
 Workload scripts that `docker run` a local registry container detect
 upstream pull throttling in the failure output before deciding whether
-to retry. Two shapes must both match:
+to retry. Two shapes must both be recognized:
 
 - **Docker Hub** documents its throttle responses: the strings
   `pull rate limit`, `toomanyrequests`, and `429 Too Many Requests`.
@@ -615,14 +627,10 @@ allow-set of PRIMARY-key fingerprints before it is trusted:
 ## Helm installer fetch
 
 The Ubuntu `*.k8s.sh` scripts install Helm via upstream's **`get-helm-4`**
-installer, never `get-helm-3`: the v3 script resolves its default version
-from `get.helm.sh/helm3-latest-version`, so it can only ever land a 3.x
-binary no matter what `Yuruna.Requirement.yml` asks for — a guest
-provisioned with it could never satisfy the Helm requirement, however that
-requirement is bumped. Passing `DESIRED_VERSION=v$YURUNA_HELM_VERSION`
-pins the exact release (the installer verifies the tarball checksum) and
-keeps the guest off the unauthenticated "latest" lookup — see
-[`Defining yuruna versions pins`](#defining-yuruna-versions-pins).
+installer, never `get-helm-3`, passing
+`DESIRED_VERSION=v$YURUNA_HELM_VERSION` — see
+[`Defining yuruna versions pins`](#defining-yuruna-versions-pins) for why
+the v3 script and the unauthenticated "latest" lookup are both ruled out.
 
 The installer downloads the binary with its own un-retried curl/wget, so
 a single transient blip leaves helm uninstalled. The scripts therefore
@@ -714,7 +722,7 @@ host IP into its seed — strictly worse for diagnosis than declining the
 switch.
 
 **What a degraded verdict does.** The switch name is not returned. Both
-reuse branches return `$null`, which the seven `guest.*/New-VM.ps1`
+reuse branches return `$null`, which the eight `guest.*/New-VM.ps1`
 scripts already map to the built-in `Default Switch` (NAT + DHCP) —
 the same fully-working topology every Wi-Fi host runs on every cycle.
 Guests get no bridged LAN address, reach the host at the Default Switch
@@ -873,6 +881,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.03
+Last review: 2026.08.04
 
 Back to [Yuruna](../README.md)

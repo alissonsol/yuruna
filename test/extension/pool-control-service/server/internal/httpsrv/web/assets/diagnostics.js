@@ -100,11 +100,16 @@
   async function refresh() {
     try {
       render(await load());
+      chrome.markLoaded();
     } catch (err) {
       Y.notice('error', 'Could not collect diagnostics: ' + err.message);
     }
   }
 
   document.getElementById('refresh').addEventListener('click', refresh);
+  // Header version + host id and the footer bar. Re-running the checks is this
+  // page's refresh -- it is the page an operator leaves open during an outage,
+  // so the countdown re-probes rather than reloading.
+  const chrome = Y.initChrome({ refresh: refresh });
   refresh();
 })();

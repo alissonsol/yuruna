@@ -28,7 +28,7 @@ server/
 │   ├── sshsrv/{sshsrv,sftp,flush}.go     # crypto/ssh server, SFTP backend, NAS-offline flush (§4, §4.1, §8.4)
 │   ├── sshsrv/ingest.go                  # UI-facing ingest (paste/upload) + local delete (ui §5, §8)
 │   ├── detect/                           # content-type detection: pure-Go heuristic + magika build-tag adapter (ui §6.1)
-│   ├── beacon/                           # presence beacon: self-announce to the pool-aggregator-service (§4.7)
+│   ├── yex/                              # mirrored extension SDK: beacon (§4.7), labgate, pool
 │   └── httpsrv/                          # UI/API HTTP server, pool-wide index, host resolution, embedded web/ (ui §2–§9)
 └── *_test.go                             # unit tests for the pure-logic bits
 ```
@@ -55,9 +55,9 @@ sudo install -m 0755 stash-service /usr/local/bin/stash-service
 Content-type detection (`internal/detect`) defaults to a pure-Go heuristic
 (extension + content sniff + UTF-8 text check) — no cgo, no model, always
 built and tested. The richer **magika** backend
-([google/magika](https://github.com/google/magika/tree/main/go)) is built only with `-tags magika` and is EXCLUDED from the default
-build, so plain `go build` / `go test` stay pure-Go and offline. Enabling
-it requires, in the VM image build, all three of:
+([google/magika](https://github.com/google/magika/tree/main/go)) is built only with `-tags magika`,
+so plain `go build` / `go test` stay pure-Go and offline. Enabling it
+requires, in the VM image build, all three of:
 
 - the Go binding: `go get github.com/google/magika/go/magika`
 - ONNX Runtime: the native shared library (cgo links against it)
@@ -192,9 +192,12 @@ Coverage focuses on the spec-driven pure-logic bits:
   truncation, offline buffering, §4.1).
 - `internal/detect/` — heuristic classification (extension/sniff/text,
   SVG+HTML→download-only) (ui §6.1, §7.4).
-- `internal/beacon/` — hello/periodic/goodbye lifecycle, catch-up retry
-  until the first success, https→http downgrade only on transport errors
-  (§4.7).
+- `internal/yex/` — the shared extension SDK, mirrored from
+  [`test/extension/extension-sdk/`](../../extension-sdk/) and never edited
+  here. `beacon` covers the hello/periodic/goodbye lifecycle, catch-up retry
+  until the first success, and the https→http downgrade only on transport
+  errors (§4.7); `pool` is the aggregator read behind the remote-stash
+  deep-link (§3.4).
 - `internal/httpsrv/` — create→list→get→raw→delete round-trip, remote-host
   delete 403, pool-wide remote-sidecar aggregation, html-served-as-text,
   multi-file archive + listing, static pages (ui §3–§9).
@@ -232,6 +235,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.03
+Last review: 2026.08.04
 
 Back to [Yuruna](../../../../README.md)

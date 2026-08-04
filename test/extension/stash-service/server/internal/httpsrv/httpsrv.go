@@ -1,12 +1,12 @@
 // LICENSEURI https://yuruna.link/license
 // Copyright (c) 2019-2026 by Alisson Sol et al.
 
-// Package httpsrv serves the browser UI and JSON API for the stash service. It runs as a second listener inside the same Go
-// daemon as the SCP/SFTP sink (§2.1), sharing the ID allocator, storage
-// pipeline, and local index. It presents a POOL-WIDE view (§3): this host's
-// live local index merged with every other host's on-share sidecars. Writes
-// (create) go through the shared ingest pipeline; delete is local-host-only
-// and enforced server-side (§8).
+// Package httpsrv serves the browser UI and JSON API for the stash service. It
+// runs as a second listener inside the same Go daemon as the SCP/SFTP sink
+// (§2.1), sharing the ID allocator, storage pipeline, and local index. It
+// presents a POOL-WIDE view (§3): this host's live local index merged with
+// every other host's on-share sidecars. Writes (create) go through the shared
+// ingest pipeline; delete is local-host-only and enforced server-side (§8).
 package httpsrv
 
 import (
@@ -16,7 +16,6 @@ import (
 	"net/http"
 	"path/filepath"
 	"strconv"
-	"strings"
 	"time"
 
 	"stash-service/internal/config"
@@ -24,17 +23,25 @@ import (
 	"stash-service/internal/meta"
 	"stash-service/internal/sshsrv"
 	"stash-service/internal/store"
+	// Aliased: this package already calls the ARTIFACT index "pool", and the two
+	// meanings must not read as one.
+	poolapi "stash-service/internal/yex/pool"
 )
+
+// hostResolutionTTL bounds how long one pool snapshot backs the hostId->stash-UI
+// lookups, so a page rendering many remote stashes makes one aggregator request
+// rather than one per row.
+const hostResolutionTTL = 30 * time.Second
 
 // Server is the UI/API HTTP server.
 type Server struct {
-	ssh           *sshsrv.Server
-	stashRoot     string // parent of the share folder = <mount>/stash
-	localHostID   string // base of the share folder = this host's hostId
-	pool          *PoolIndex
-	aggregatorURL string
-	httpClient    *http.Client
-	resolver      *hostResolver
+	ssh         *sshsrv.Server
+	stashRoot   string // parent of the share folder = <mount>/stash
+	localHostID string // base of the share folder = this host's hostId
+	pool        *PoolIndex
+	// poolClient reads the pool-aggregator service, which is how a stash on
+	// another host becomes a link a browser can follow.
+	poolClient    *poolapi.Client
 	defaultLimit  int
 	version       string
 	listener      *http.Server
@@ -71,13 +78,17 @@ func New(sshServer *sshsrv.Server, opts Options) *Server {
 		defaultLimit = config.DefaultListLimit
 	}
 	s := &Server{
-		ssh:           sshServer,
-		stashRoot:     stashRoot,
-		localHostID:   localHostID,
-		pool:          NewPoolIndex(stashRoot, localHostID, opts.PoolWindowDays, opts.PoolRefresh),
-		aggregatorURL: strings.TrimRight(opts.AggregatorURL, "/"),
-		httpClient:    &http.Client{Timeout: 4 * time.Second},
-		resolver:      newHostResolver(),
+		ssh:         sshServer,
+		stashRoot:   stashRoot,
+		localHostID: localHostID,
+		pool:        NewPoolIndex(stashRoot, localHostID, opts.PoolWindowDays, opts.PoolRefresh),
+		// A short timeout: this read sits inside a page render, so an aggregator
+		// that has stopped answering must cost a deep-link, not the whole view.
+		poolClient: poolapi.New(poolapi.Options{
+			BaseURL:  opts.AggregatorURL,
+			Timeout:  4 * time.Second,
+			CacheTTL: hostResolutionTTL,
+		}),
 		defaultLimit:  defaultLimit,
 		version:       opts.Version,
 		deleteHostIPs: parseHostIPs(opts.HostIP),

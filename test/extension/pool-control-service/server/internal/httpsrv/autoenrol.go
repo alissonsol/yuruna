@@ -9,6 +9,8 @@ import (
 	"log"
 	"strings"
 	"time"
+
+	"pool-control-service/internal/yex/pool"
 )
 
 // The auto-enrolment sweep: a host that has enrolled its lab token, and is in no
@@ -41,9 +43,8 @@ import (
 
 // AutoEnrolOptions configures the sweep.
 type AutoEnrolOptions struct {
-	Enabled       bool
-	Interval      time.Duration
-	AggregatorURL string
+	Enabled  bool
+	Interval time.Duration
 }
 
 // RunAutoEnrolment sweeps until ctx is done. Safe to call when disabled: it
@@ -64,27 +65,19 @@ func (s *Server) RunAutoEnrolment(ctx context.Context, opts AutoEnrolOptions) {
 		case <-ctx.Done():
 			return
 		case <-tick.C:
-			s.sweepOnce(ctx, opts.AggregatorURL)
+			s.sweepOnce(ctx)
 		}
 	}
 }
 
 // sweepOnce performs one pass. Never panics out; every failure is a logged
 // no-op so a transient aggregator outage cannot corrupt intent.
-func (s *Server) sweepOnce(ctx context.Context, aggregatorURL string) {
-	base := strings.TrimSuffix(aggregatorURL, "/")
-	if base == "" {
+func (s *Server) sweepOnce(ctx context.Context) {
+	if !s.pool.Configured() {
 		return
 	}
-
-	var status struct {
-		Hosts []struct {
-			HostID  string `json:"hostId"`
-			Control string `json:"control"`
-		} `json:"hosts"`
-	}
-	client := aggregatorClient()
-	if err := getJSON(ctx, client, base+"/api/v1/pool-status", &status); err != nil {
+	status, err := s.pool.Status(ctx)
+	if err != nil {
 		log.Printf("auto-enrolment: aggregator unreachable (%v); skipping this tick", err)
 		return
 	}
@@ -128,7 +121,7 @@ func (s *Server) sweepOnce(ctx context.Context, aggregatorURL string) {
 		// `skew`, `unknown` and an absent field (omitempty, which is what a
 		// token-less proxy produces for every host) are all non-candidates, so a
 		// proxy with no token makes this a no-op. Fail-closed, which is wanted.
-		if h.Control != "ready" {
+		if h.Control != pool.ControlReady {
 			continue
 		}
 		candidates++

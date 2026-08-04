@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.03
+.VERSION 2026.08.04
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456709
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -801,6 +801,24 @@ if (-not (Test-Path $UsersPath)) {
     } else {
         Write-Fail "status/extension/authentication/users.yml AND its template are both missing. Restore $UsersTemplate from the repository." -FullPath $UsersTemplate
     }
+}
+
+# A runtime users.yml that predates a service VM lacks that service's logical
+# user, and the template is copied only when the file is absent -- so the strict
+# scan below would refuse a name the operator was never asked about. Loading the
+# authentication area reconciles the file first, using the same guarded import
+# this script applies to the vault cross-checks further down.
+if (Test-Path $UsersPath) {
+    try {
+        $authExtMod = Join-Path $ModulesDir 'Test.Extension.psm1'
+        if ((Test-Path $authExtMod) -and -not (Get-Command Import-Extension -ErrorAction SilentlyContinue)) {
+            Import-Module $authExtMod -Force -DisableNameChecking -ErrorAction SilentlyContinue
+        }
+        if (Get-Command Import-Extension -ErrorAction SilentlyContinue) {
+            $null = Import-Extension -Area 'authentication' -RequireSingle
+            if (Get-Command Read-UsersConfig -ErrorAction SilentlyContinue) { $null = Read-UsersConfig }
+        }
+    } catch { Write-Verbose "users.yml reconcile skipped: $($_.Exception.Message)" }
 }
 
 if (Test-Path $UsersPath) {

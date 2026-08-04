@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.03
+.VERSION 2026.08.04
 .GUID 424f932a-5ed9-4dec-8a02-8f7c8aa9234b
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -284,12 +284,12 @@ echo "$m $x $e $r"
 }
 
 Describe 'envelope name compatibility (guest side)' {
-    # The host types the short names, but a guest built from THIS commit can
-    # still meet an older host that types EXEC_*, and a hand-run guest has only
-    # the host.env values. All three levels must resolve, newest first, or the
-    # pairing breaks on a name mismatch rather than on anything real. (The
-    # opposite direction -- an old guest under a new host -- is what the
-    # unshortened EXEC_REQUIRE_SHA256 above keeps fail-closed.)
+    # The host types the short names, but a short-name guest can still meet an
+    # older host that types EXEC_*, and a hand-run guest has only the host.env
+    # values. All three levels must resolve, newest first, or the pairing breaks
+    # on a name mismatch rather than on anything real. (The opposite direction --
+    # an old guest under a new host -- is what the unshortened
+    # EXEC_REQUIRE_SHA256 above keeps fail-closed.)
     It 'resolves E_FB_REPO/REF first, then EXEC_FALLBACK_*, then host.env' {
         $bash = Get-Command bash -ErrorAction SilentlyContinue
         if (-not $bash) { Assert-True $true 'bash unavailable -- skipping shell check'; return }

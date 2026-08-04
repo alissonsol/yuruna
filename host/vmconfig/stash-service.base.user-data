@@ -3,10 +3,10 @@
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 #vim:syntax=yaml
 # --- REGION: https://yuruna.link/vmconfig and https://yuruna.link/stash-guide
-# Stash-service VM: mount the stash share (ystash-nas), fetch the framework, then
-# run the bring-up script that builds + launches the daemon (binds :22 SCP/SFTP sink
-# + :80 browser UI/API; the cloud image runs no host
-# firewall). `users:` without `- default` suppresses the ubuntu cloud-image user.
+# Stash-service VM: mount the stash share (ystash-nas), fetch the framework, then run
+# the bring-up script that builds + launches the daemon (binds :22 SCP/SFTP sink + :80
+# browser UI/API; the cloud image runs no host firewall). `users:` without `- default`
+# suppresses the ubuntu cloud-image user.
 hostname: yuruna-stash-service
 users:
   - name: stash-admin
@@ -34,9 +34,9 @@ packages:
   - iputils-ping
   # === YURUNA_OVERLAY_HOST_AGENT_PKG ===
 write_files:
-  # ystash-nas coordinates for the share backing the stash (§6.1). Values single-
-  # quoted (the host bake refuses a value carrying a single quote); read by the
-  # bring-up script via sed-extraction (never sourced).
+  # ystash-nas coordinates for the share backing the stash (§6.1). Values single-quoted (the
+  # host bake refuses a value carrying a single quote); read by the bring-up script
+  # via sed-extraction, never sourced.
   - path: /etc/yuruna/ystash-nas.env
     permissions: '0644'
     owner: root:root
@@ -111,8 +111,8 @@ write_files:
         echo "yuruna stash: stash storage not configured in the seed; the daemon will use local fallback storage." >&2
       fi
 
-      # 2) Fetch the framework from the host status service (resolution as in automation/
-      #    fetch-and-execute.sh / update.sh; coordinates sed-read, NOT sourced), falling
+      # 2) Fetch the framework from the host status service (resolution as in
+      #    automation/fetch-and-execute.sh; coordinates sed-read, NOT sourced), falling
       #    back to a github clone when the host is unreachable so a bring-up works off-LAN.
       set +e
       HF=/etc/yuruna/host.env

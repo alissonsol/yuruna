@@ -3,7 +3,7 @@
 Yuruna provisions VMs, deploys workloads to Kubernetes, and runs a
 test harness across host/guest combinations. This policy covers how
 to report vulnerabilities and the security expectations that come
-with the project's [Yuruna License](LICENSE.md).
+with the [Yuruna License](LICENSE.md).
 
 ## Supported versions
 
@@ -48,9 +48,9 @@ Out of scope:
 
 - Upstream components (Hyper-V, UTM, KVM/libvirt, Kubernetes,
   Docker, OpenTofu, container images, Linux/Windows guests).
-  Report those to their respective projects.
+  Report those to their own projects.
 - Findings that require local administrator/root on the host running
-  Yuruna — Yuruna assumes the operator already has that privilege.
+  Yuruna — Yuruna assumes the operator already has it.
 - Anything inside an example workload under `project/` (cloned from
   [yuruna-project](https://github.com/alissonsol/yuruna-project))
   beyond what is documented as supported.
@@ -70,7 +70,7 @@ following as your responsibility, not the project's:
 - **Cloud cost and blast radius** — see the cost warning in
   [Yuruna ...](README.md) and [Yuruna Resources Clean Up](docs/kubernetes.md#cleaning-up-cloud-resources).
 - **Verifying fetched scripts** — installer one-liners and
-  cloud-init pull from `main`. Pin to a commit SHA if you require
+  cloud-init pull from `main`. Pin to a commit SHA if you need
   reproducibility.
 
 ## Disclosure
@@ -92,6 +92,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.03
+Last review: 2026.08.04
 
 Back to [Yuruna](README.md)

@@ -1,9 +1,10 @@
 // LICENSEURI https://yuruna.link/license
 // Copyright (c) 2019-2026 by Alisson Sol et al.
 
-// Package detect classifies a stored artifact's content type. Detection runs server-side at upload/flush
-// so it runs ONCE per artifact (not per view) and classifies SCP- and
-// UI-created stashes identically — the classifier sees bytes, not origin.
+// Package detect classifies a stored artifact's content type. Detection runs
+// server-side at upload/flush: once per artifact rather than per view, and
+// identically for SCP- and UI-created stashes — the classifier sees bytes,
+// not origin.
 //
 // Two backends share one Detector interface:
 //
@@ -160,9 +161,9 @@ func mimeFromExtension(name string) string {
 }
 
 // ClassFromMime maps a (parameter-stripped) MIME type onto a UI content
-// class. SVG and HTML/XHTML are classed "other"
-// on purpose: they are active content the UI serves download-only (§7.4),
-// so they must never land in an inline-rendered class.
+// class. SVG and HTML/XHTML are classed "other" on purpose: they are active
+// content the UI serves download-only (§7.4), so they must never land in an
+// inline-rendered class.
 func ClassFromMime(mt string) string {
 	mt = strings.ToLower(strings.TrimSpace(mt))
 	switch mt {

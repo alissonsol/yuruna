@@ -785,9 +785,9 @@ try {
             throw
         }
 
-        # End-to-end miss-through-parent on both the plain and ssl-bump paths was
-        # already proven fatally inside the try above (Confirm-MigrationParentRelay);
-        # the remaining probe is informational and warn-only.
+        # Confirm-MigrationParentRelay inside the try above already proved the
+        # end-to-end miss-through-parent on both the plain and ssl-bump paths, and
+        # a failure there is fatal; the probe below is informational and warn-only.
         if ($script:NewAclIp) {
             $logProbe = Invoke-VmRoot -Vm $old -Command "tail -n 400 /var/log/squid/access.log 2>/dev/null | grep -Fc '$script:NewAclIp' || true" -TimeoutSeconds 45
             $hits = 0

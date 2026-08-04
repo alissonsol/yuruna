@@ -6,6 +6,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -343,5 +344,73 @@ func TestAnnounceDisabledByZeroTTL(t *testing.T) {
 	rec := postAnnounce(s, "10.0.0.7:5555", fmt.Sprintf(`{"hostId":%q,"targetPort":80}`, testHostID))
 	if rec.Code != 503 {
 		t.Errorf("status = %d, want 503 when announce is disabled", rec.Code)
+	}
+}
+
+// announceStateWithLoki returns a state pushing announces at lokiURL, with the
+// announced address pre-confirmed so the handler's own reachability probe short
+// -circuits -- these tests are about the push outcome, not about routing.
+func announceStateWithLoki(lokiURL string, client *http.Client) *poolState {
+	s := newPoolState("default", 8080)
+	s.lokiURL, s.httpClient = lokiURL, client
+	seedExtensionHealth(s, testHostID, stashArea, "http://10.0.0.7")
+	return s
+}
+
+// The Loki line is the only part of an announce that outlives this process, and
+// the announcer's beacon stops retrying the moment it is told 2xx. So an
+// announce whose push did not land must NOT read as success: answering 2xx
+// there buys a row that disappears at the next restart and does not come back
+// until the announcer's next period -- fifteen minutes of a healthy service
+// missing from the pool, for a retry that would have cost seconds.
+func TestAnnounceReportsAPushLokiRejected(t *testing.T) {
+	loki := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "loki not ready", http.StatusInternalServerError)
+	}))
+	defer loki.Close()
+
+	s := announceStateWithLoki(loki.URL, loki.Client())
+	rec := postAnnounce(s, "10.0.0.7:5555",
+		fmt.Sprintf(`{"hostId":%q,"area":"stash-service","targetPort":80,"active":true}`, testHostID))
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want 503 when the announce could not be persisted", rec.Code)
+	}
+	// The entry is deliberately KEPT: it is live and serving right now, so the
+	// row should show immediately; the retry the 503 provokes is what makes it
+	// durable.
+	s.mu.Lock()
+	av := s.announce[announceKey(testHostID, stashArea)]
+	s.mu.Unlock()
+	if av == nil {
+		t.Error("announce entry was dropped; an un-pushed announce is still a live service")
+	}
+}
+
+// The same push, accepted: nothing is owed, so the announcer settles into its
+// steady re-announce period.
+func TestAnnounceSucceedsOnceLokiAccepts(t *testing.T) {
+	loki := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer loki.Close()
+
+	s := announceStateWithLoki(loki.URL, loki.Client())
+	rec := postAnnounce(s, "10.0.0.7:5555",
+		fmt.Sprintf(`{"hostId":%q,"area":"stash-service","targetPort":80,"active":true}`, testHostID))
+	if rec.Code/100 != 2 {
+		t.Fatalf("status = %d, want 2xx once Loki accepted the line", rec.Code)
+	}
+}
+
+// A pool with no Loki configured keeps no announce history by choice, so there
+// is no durability to lose and nothing to retry for. Such a pool must still get
+// 2xx, or its beacons would retry forever against a collector behaving exactly
+// as configured.
+func TestAnnounceSucceedsWithoutLokiConfigured(t *testing.T) {
+	s := announceStateWithLoki("", nil)
+	rec := postAnnounce(s, "10.0.0.7:5555",
+		fmt.Sprintf(`{"hostId":%q,"area":"stash-service","targetPort":80,"active":true}`, testHostID))
+	if rec.Code/100 != 2 {
+		t.Fatalf("status = %d, want 2xx when the pool runs without Loki", rec.Code)
 	}
 }

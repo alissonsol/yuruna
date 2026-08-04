@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.03
+.VERSION 2026.08.04
 .GUID 4214c5d6-e7f8-4a91-b234-5c6d7e8f9a03
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -316,12 +316,10 @@ Write-Verbose "virsh destroy '$VMName' exit=$LASTEXITCODE output='$($destroyOut 
 $undefineOut = & virsh --connect $virshUri undefine --nvram --managed-save `
     --snapshots-metadata --checkpoints-metadata $VMName 2>&1
 Write-Verbose "virsh undefine '$VMName' exit=$LASTEXITCODE output='$($undefineOut -join '; ')'"
-# Post-condition: virsh destroy/undefine on a non-existing domain is
-# idempotent (returns non-zero; stderr captured and shown only at
-# -Verbose). But if either
-# op failed while the domain remains defined, the next virt-install
-# fails with "domain already defined" and the outer loop has no signal
-# to recover. Fail-loud now with dominfo so the operator can act.
+# Post-condition: destroy/undefine on a non-existing domain is harmlessly
+# non-zero, but a failure that leaves the domain defined makes the next
+# virt-install fail with "domain already defined", and the outer loop has
+# no signal to recover. Fail loud now with dominfo so the operator can act.
 $stillDefined = & virsh --connect $virshUri list --all --name 2>$null |
     Where-Object { $_.Trim() -eq $VMName }
 if ($stillDefined) {

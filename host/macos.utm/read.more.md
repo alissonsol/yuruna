@@ -42,28 +42,28 @@ git clone https://github.com/alissonsol/yuruna.git ~/git/yuruna
 
 ## 4) macOS Permissions for the Test Harness
 
-The harness sends keystrokes to UTM VMs without requiring focus via the
-Accessibility API (`AXUIElementPostKeyboardEvent`), which needs explicit
-permission.
+The harness sends keystrokes to UTM VMs without requiring focus, via
+the Accessibility API (`AXUIElementPostKeyboardEvent`), which needs
+explicit permission.
 
 Grant **Accessibility** to your terminal app at **System Settings >
 Privacy & Security > Accessibility**. Without it, the harness falls
-back to AppleScript/CGEvent — which needs UTM to be focused and breaks
-when other windows steal focus.
+back to AppleScript/CGEvent, which needs UTM focused and breaks when
+other windows steal focus.
 
 QEMU-backend guests can opt into a `-vnc` argument in
-`AdditionalArguments` to gain an additional VNC transport that sends
-keystrokes and reads the framebuffer over TCP, bypassing AppKit: no
-focus, no Space-pinning, no Accessibility prompt. `guest.windows.11`
-uses QEMU but ships with empty `AdditionalArguments` — to opt in,
-follow the comment in its `config.plist.template`.
+`AdditionalArguments` for a VNC transport that sends keystrokes and
+reads the framebuffer over TCP, bypassing AppKit: no focus, no
+Space-pinning, no Accessibility prompt. `guest.windows.11` uses QEMU
+but ships with empty `AdditionalArguments` — to opt in, follow the
+comment in its `config.plist.template`.
 
 ### Per-VM VNC port architecture
 
-A hardcoded `-vnc 127.0.0.1:0` (TCP 5900) on every VM let the capture
-path silently grab whichever QEMU bound 5900 first, so a stale VM
-could hijack a screenshot meant for another. The harness derives a
-unique display number from the VM name:
+A hardcoded `-vnc 127.0.0.1:0` (TCP 5900) on every VM would let the
+capture path silently grab whichever QEMU bound 5900 first, so a stale
+VM could hijack a screenshot meant for another. The harness therefore
+derives a unique display number from the VM name:
 
 - Producer: each guest's `New-VM.ps1` imports `Get-VncDisplayForVm`
   and substitutes `__VNC_DISPLAY__` (10..89, port 5910..5989) into its
@@ -137,6 +137,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.03
+Last review: 2026.08.04
 
 Back to [Yuruna](../../README.md)

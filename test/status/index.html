@@ -43,7 +43,14 @@
       flex: 1 1 auto; min-width: 0;
     }
 
-    main { max-width: 860px; width: 100%; margin: 1.75rem auto; padding: 0 1.5rem; }
+    /* Plain shorthand first as the fallback; the max()/env() longhand then holds
+       the content clear of the notch in landscape, where viewport-fit=cover lets
+       <main> reach the display edge. env() is 0 without a safe area. */
+    main {
+      max-width: 860px; width: 100%; margin: 1.75rem auto;
+      padding: 0 1.5rem;
+      padding: 0 max(1.5rem, env(safe-area-inset-right)) 0 max(1.5rem, env(safe-area-inset-left));
+    }
     section { margin-bottom: 2rem; }
 
     /* Refusal notice for a control action the host would not accept (403). */
@@ -201,9 +208,12 @@
       position: fixed; bottom: 0; left: 0; right: 0;
       background: var(--footer-bg); color: var(--footer-fg); font-size: .6875rem;
       padding: .35rem 1rem;
-      /* Lift the controls above the iPhone home-indicator gesture bar; the bar
-         is fixed to bottom:0 and viewport-fit=cover lets it sit under it. */
+      /* The bar is fixed to bottom:0 and viewport-fit=cover lets it sit under
+         the unsafe area, so pad by the insets: bottom clears the iPhone
+         home-indicator gesture bar, left/right clear the landscape notch. */
       padding-bottom: calc(.35rem + env(safe-area-inset-bottom));
+      padding-left: max(1rem, env(safe-area-inset-left));
+      padding-right: max(1rem, env(safe-area-inset-right));
       display: flex; justify-content: space-between;
       align-items: center;
     }
@@ -222,17 +232,18 @@
     }
     textarea#footer-ip-list::-webkit-scrollbar { display: none; }
 
-    /* Phone-class viewport: footer-bar gutters tighten further than the
-       shared .css max-width: 600px block does; #footer-ips claims its
-       own row so the IP textarea is legible at 320 px. */
+    /* Phone-class viewport: footer-bar gutters tighten further than the shared
+       .css max-width: 600px block does, and #footer-ips claims its own
+       full-width row so the IP textarea stays legible at 320 px. That makes the
+       bar two rows tall, so the body bottom reserve grows to clear both rows --
+       otherwise the bar covers the end of the history table. */
     @media (max-width: 600px) {
-      /* The footer wraps to two rows here (#footer-ips claims its own full-width
-         row), so the bar is taller than the single-row default reserve and would
-         otherwise overlap the bottom of the history table. Enlarge the body
-         bottom reserve to clear both rows; the plain value is the fallback and
-         the env() term keeps the same home-indicator inset as the wide layout. */
       body { padding-bottom: 4.5rem; padding-bottom: calc(4.5rem + env(safe-area-inset-bottom)); }
-      #footer-bar { padding-left: .5rem; padding-right: .5rem; flex-wrap: wrap; }
+      #footer-bar {
+        padding-left: .5rem; padding-left: max(.5rem, env(safe-area-inset-left));
+        padding-right: .5rem; padding-right: max(.5rem, env(safe-area-inset-right));
+        flex-wrap: wrap;
+      }
       #footer-ips { flex-basis: 100%; max-width: 100%; }
     }
   </style>

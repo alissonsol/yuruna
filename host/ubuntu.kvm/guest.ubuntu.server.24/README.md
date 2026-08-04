@@ -31,8 +31,7 @@ pwsh ./New-VM.ps1 -CachingProxyServiceUrl http://192.168.122.10:3128
 3. Creates an empty 64 G qcow2 install target.
 4. Defines + starts the VM via `virt-install` against `qemu:///system`,
    booting from the live-server ISO with the seed CD attached. After
-   subiquity finishes the install, the VM reboots and lands at the
-   text-mode login prompt.
+   subiquity finishes, the VM reboots to the text-mode login prompt.
 
 ## Defaults
 
@@ -46,10 +45,10 @@ pwsh ./New-VM.ps1 -CachingProxyServiceUrl http://192.168.122.10:3128
 | Net  | libvirt `default` (NAT 192.168.122.0/24) | (edit script) |
 
 The first-boot password is managed by the authentication extension
-(code at [`test/extension/authentication/`](../../../test/extension/authentication/);
-the per-cycle vault.yml is at `test/status/extension/authentication/vault.yml`)
-(see [Test Runner — Nerd-Level Details](../../../test/read.more.md) for the model)
-and is **expired** by the autoinstall late-commands, so the first
+(code at [`test/extension/authentication/`](../../../test/extension/authentication/),
+per-cycle vault.yml at `test/status/extension/authentication/vault.yml`;
+see [Test Runner — Nerd-Level Details](../../../test/read.more.md) for the
+model). The autoinstall late-commands expire it, so the first
 interactive login asks for current/new/retype before yielding a shell.
 For ad-hoc dev runs outside a cycle, set `$env:YURUNA_GUEST_PASSWORD`
 to bypass the vault and use a known plaintext value.
@@ -69,6 +68,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.03
+Last review: 2026.08.04
 
 Back to [Yuruna](../../../README.md)

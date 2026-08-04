@@ -2,12 +2,12 @@
 
 Every sequence step that drives the guest GUI (keystrokes, text input,
 mouse clicks) goes through a thin dispatcher in
-[`Test.SequenceEngine.psm1`](../test/modules/Test.SequenceEngine.psm1) — which
-in turn looks up the current host's backend in a registry exported by
+[`Test.SequenceEngine.psm1`](../test/modules/Test.SequenceEngine.psm1), which
+looks up the current host's backend in a registry exported by
 [`test/modules/Test.HostIO.psm1`](../test/modules/Test.HostIO.psm1).
 
 The registry pattern mirrors the OCR provider model
-([OCR providers](ocr.md)) and is the seed of the
+([OCR providers](ocr.md)) and seeds the
 [capability matrix](capability-matrix.md): every (host, action) pair
 is enumerable at startup.
 
@@ -26,16 +26,16 @@ Each dispatcher is a five-line `try { Invoke-HostIOAction … } catch
 
 The registry centralizes the `(HostType, Action)` binding in one
 lookup table. Adding a new host or a new action verb is a single
-`Register-HostIOProvider` call; nothing in the dispatcher needs to
-change. Adding the same host across three separate `if/elseif` chains
-(one per action) is a source of "Send-Key works on the new
-host but Send-Text was forgotten" drift — the registry makes every
+`Register-HostIOProvider` call; nothing in the dispatcher changes.
+Adding the same host across three separate `if/elseif` chains
+(one per action) invites "Send-Key works on the new host but
+Send-Text was forgotten" drift — the registry makes every
 pair enumerable at startup, so the
 [capability gate](capability-matrix.md) refuses cycles that reference
 an unwired backend rather than failing mid-step. The same pattern
 recurs across the workspace: [SequenceAction](handler-schema.md)
 (verb registry), [Component registry login](authentication.md#component-registry-login)
-and [Host-condition registry](host-condition-registry.md) (provider
+and [Host-condition registry](test-harness.md#host-condition-registry) (provider
 matrices), [Remediation dispatcher](failure-schema.md#remediation-dispatcher) (failure-class
 handlers). Four of the five share the
 [`New-YurunaRegistry`](../test/modules/Test.Registry.psm1) primitive
@@ -43,8 +43,8 @@ and surface through `Get-YurunaRegistryDirectory` for autonomous
 tooling; the component-login credential-provider registry uses the same
 eviction-safe global-anchor pattern but is hand-rolled in
 [`automation/Yuruna.CredentialProvider.psm1`](../automation/Yuruna.CredentialProvider.psm1)
-(so it is not in `Get-YurunaRegistryDirectory`) — keeping it out of
-`test/`, which `New-YurunaRegistry` lives under.
+(so it is not in `Get-YurunaRegistryDirectory`), which keeps it out of
+`test/`, where `New-YurunaRegistry` lives.
 
 ## Backends today
 
@@ -56,10 +56,10 @@ eviction-safe global-anchor pattern but is hand-rolled in
 
 The macOS Send-Key VNC-first / AppleScript-fallback decision lives in
 the registered scriptblock, in one place — not a branch repeated across
-three dispatchers. VNC comes first because
-`AXUIElementPostKeyboardEvent` was tested and UTM's SwiftUI VM display
-does not route Accessibility keyboard events into the guest — it reports
-success but the keys never reach the VM. `Send-Click` goes straight to
+three dispatchers. VNC comes first because UTM's SwiftUI VM display
+does not route Accessibility keyboard events into the guest:
+`AXUIElementPostKeyboardEvent` reports success but the keys never reach
+the VM. `Send-Click` goes straight to
 the AppleScript/CGEvent backend: UTM's QEMU does not expose mouse-state
 changes on its VNC channel reliably enough for a VNC pointer path.
 
@@ -88,8 +88,8 @@ Each `Implementation` is a `param([hashtable]$a)` scriptblock returning
 
 ## Adding a new host
 
-1. Implement the per-host backend functions (the actual keystroke
-   delivery mechanism — WMI / VNC / virsh / something new).
+1. Implement the per-host backend functions (the keystroke delivery
+   mechanism — WMI / VNC / virsh / something new).
 2. Add a per-host module `test/modules/Test.HostIO.<NewHost>.psm1`
    owning its `Register-HostIOProvider` calls (mirror
    `Test.HostIO.HyperV.psm1` / `Test.HostIO.Utm.psm1` /
@@ -103,10 +103,9 @@ Each `Implementation` is a `param([hashtable]$a)` scriptblock returning
    }
    # ... and Send-Text, Send-Click as applicable
    ```
-3. The startup capability matrix automatically picks up the new
-   registration; sequences referencing actions your backend does not
-   yet implement will fail the cycle gate with a list of what IS
-   available on the host.
+3. The startup capability matrix picks up the new registration;
+   sequences referencing actions your backend does not implement
+   fail the cycle gate with a list of what IS available on the host.
 
 ## Adding a new action
 
@@ -128,8 +127,7 @@ Each `Implementation` is a `param([hashtable]$a)` scriptblock returning
 `$global:YurunaHostIOProviders` so `-Force` re-imports of the module
 (triggered by sibling-module imports during cycle startup) do not
 empty the table. See repo memory
-`feedback_module_force_import_evicts_global.md` for the trap that
-caught this in development.
+`feedback_module_force_import_evicts_global.md` for the trap class.
 
 The paired provider registries (`Test.ScreenshotProvider`,
 `Test.VncProvider`, …) follow the same pattern: each delegates storage
@@ -139,7 +137,7 @@ in the cross-domain introspection directory
 (`Get-YurunaRegistryDirectory`/`Summary`), and each reuses a `$global:`
 anchor name (`$global:YurunaScreenshotProviders`,
 `$global:YurunaVncProviders`, …) as the backing store so registrations
-stay cross-module-eviction-safe and survive `-Force` re-imports.
+survive `-Force` re-imports and cross-module eviction.
 
 ## Backend module layout
 
@@ -162,10 +160,10 @@ per-host I/O backends consumed by the registry:
   `Send-ClickHyperV`, `Send-ClickUtm`.
 - **Send-ScanCode** — Hyper-V PS/2 scancode-burst primitive.
 
-The public surface is unchanged: `Test.SequenceEngine.psm1` exports the
-three dispatchers (`Send-Key`, `Send-Text`, `Send-Click`) and routes
-them through `Test.HostIO`'s registry; the registered scriptblocks in
-the per-host `Test.HostIO.<Host>.psm1` modules call the bare backend names above,
+`Test.SequenceEngine.psm1` exports the three dispatchers (`Send-Key`,
+`Send-Text`, `Send-Click`) and routes them through `Test.HostIO`'s
+registry; the registered scriptblocks in the per-host
+`Test.HostIO.<Host>.psm1` modules call the bare backend names above,
 which resolve via the global session table once `Test.Transport` is
 imported with `-Global`.
 
@@ -173,8 +171,8 @@ imported with `-Global`.
 
 `Test.Transport` reads transport-level defaults (`charDelayMs`,
 `vncPort`, …) from `test.config.yml` at module-load time via
-`Test.Config` (mtime-cached, so this is cheap even on re-import). The
-cycle re-imports modules every cycle so a freshly-committed
+`Test.Config` (mtime-cached, so this is cheap even on re-import).
+Modules are re-imported every cycle, so a freshly-committed
 `vmCommunication.charDelayMs` / `vmCommunication.vncPort` takes
 effect on the next step rather than requiring a runner restart. This
 mirrors the broader live-edit responsiveness contract — an operator
@@ -184,7 +182,7 @@ cycle at step 6, not wait for the next cycle.
 A per-step throttle collapses repeated `-Force` re-imports to a single
 parse. The `Read-TestConfig` mtime check short-circuits the parse when
 the file is unchanged, but the function call + `Test-Path` + `Get-Item`
-still cost ~1-2 ms each, which compounds across 8+ re-imports per step.
+still cost ~1-2 ms each, compounding across 8+ re-imports per step.
 
 ---
 
@@ -192,6 +190,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.03
+Last review: 2026.08.04
 
 Back to [Yuruna](../README.md)

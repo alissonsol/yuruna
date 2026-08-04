@@ -1,8 +1,8 @@
 # Test Runner — Nerd-Level Details
 
 The crisp version lives in [Yuruna Test ...](README.md); this file holds the
-full configuration table, sequence development, screenshot training,
-status service details, and SSH-server controls.
+full configuration table, the authentication vault, sequence development,
+logging knobs, and status-service details.
 
 ## Configuration keys
 
@@ -40,15 +40,15 @@ under `vmStart`, `vmImage`, `vmCommunication`, `repositories`, and
 
 At cycle start the runner overlays `test.config.yml.template` to pick up
 any newly added keys. If the on-disk `test.config.yml` no longer matches
-the nested node layout above — for example a checkout left over from the
-old flat layout — the runner does **not** silently migrate it. Instead it:
+the nested node layout above — for example a checkout still using the flat
+layout — the runner does **not** silently migrate it. Instead it:
 
 1. Copies the current file to `test.config.yml.backup`.
 2. Resets `test.config.yml` to the template defaults.
 3. Warns and stops the test.
 
 Copy any custom values from `test.config.yml.backup` into the new
-`test.config.yml` by hand, then restart — the test will proceed normally.
+`test.config.yml` by hand, then restart.
 
 ### Guest ordering and skipping
 
@@ -89,10 +89,10 @@ VM passwords come from the active extension under
 default extension keeps a YAML vault (`vault.yml`, gitignored) that
 SIMULATES an external authentication provider: users are never
 deleted and passwords never change without an explicit Set-Password
-call. The vault is persisted across cycles -- the "fake" behavior
-is the lazy-create branch in Get-Password (first reference for a
-username generates+stores a password; every later call returns the
-same stored value).
+call. The vault persists across cycles -- the "fake" behavior is the
+lazy-create branch in Get-Password (first reference for a username
+generates+stores a password; every later call returns the same stored
+value).
 
 - `Initialize-VaultConnection` ensures vault.yml exists. Idempotent:
   a no-op when the file is already present.
@@ -104,14 +104,14 @@ same stored value).
 - A named system mutex serializes read-modify-write so multiple guests
   provisioning in parallel cannot race.
 
-The caching-proxy-service `yuruna` user persists across cycles via
+The `caching-proxy-service-admin` user persists across cycles via
 `test/status/runtime/yuruna-caching-proxy-service.yml`
 (host-agnostic, gitignored, managed by
 [`test/modules/Test.CachingProxyService.psm1`](modules/Test.CachingProxyService.psm1)),
 which the caching-proxy-service `New-VM.ps1` writes back to the vault on each
-cycle start. The same file also carries the cache VM's IP, replacing
-the older per-platform `cache-ip.txt` breadcrumb near the VHD/raw
-image.
+cycle start. The same file also carries the cache VM's IP; the
+per-platform `cache-ip.txt` breadcrumb near the VHD/raw image is no
+longer read.
 
 The test user is configured per-guest in `test/sequences/**/*.yml`
 (under `variables.username`) and mirrored as the `-Username` default
@@ -121,17 +121,16 @@ logs: `yuuser24` for ubuntu.server.24, `yuuser26` for ubuntu.server.26.
 Other guests use the greppable `y[aw]user1` form encoding the family in
 the second character: `yauser1` for amazon.linux.2023, `ywuser1` for
 windows.11 -- intentionally unique/greppable versus the cloud-image
-defaults `ubuntu` and `ec2-user`. Trailing digits anticipate the
-multi-user future (a second user per guest, etc.) which will be defined
-in a manifest, not created on the fly.
+defaults `ubuntu` and `ec2-user`. Trailing digits anticipate a
+multi-user future (a second user per guest, etc.) defined in a
+manifest, not created on the fly.
 
 Sequence steps fetch live values via the inline `${ext:area.Method(args)}`
 substitution form, e.g. `${ext:authentication.GetPassword(${username})}` and
 `${ext:authentication.NewRandomPassword()}`. Each `${ext:...}` is invoked
-fresh on every reference — there is no caching. To pin a generated
-value across multiple steps (e.g. `New password:` and the matching
-`Retype:`), assign the call to a variable in the sequence's `variables:`
-block:
+fresh on every reference — no caching. To pin a generated value across
+multiple steps (e.g. `New password:` and the matching `Retype:`), assign
+the call to a variable in the sequence's `variables:` block:
 
 ```
 variables:
@@ -143,7 +142,7 @@ variables:
 Entries there are evaluated eagerly at sequence start, in file order, so
 each entry can reference earlier entries and the built-ins
 (`${vmName}`, `${hostType}`, `${guestKey}`). Use `$$` for a literal `$`
-(in particular `$${foo}` stores the four-character literal `${foo}`).
+(in particular `$${foo}` stores the six-character literal `${foo}`).
 
 ### Username cascade + corporate identity mapping
 
@@ -165,18 +164,18 @@ entire dependency chain. Example:
 
 The cascade applies to **any** key declared under `variables:` (not
 just `username`). For each key, the first non-empty value encountered
-walking the chain top-down wins. Sequences lower in the chain can
-declare defaults; sequences higher in the chain redefine them.
+walking the chain top-down wins, so a sequence lower in the chain
+declares a default that any sequence above it can redefine.
 
 Logical usernames map to corporate identities (Active Directory /
 Entra / SSSD-against-LDAP / ...) via
 `test/status/extension/authentication/users.yml`. The committed
 template at `test/extension/authentication/users.yml.template` ships
 pre-seeded with the four bundled logical users (`yuuser24`,
-`yuuser26`, `yauser1`, `ywuser1`) plus the cache-VM `yuruna` user,
-all with empty corporate fields → out of the box, behavior is
-identical to today's local-only flow (`${loginUser}` = `${username}`,
-vault auto-generates passwords).
+`yuuser26`, `yauser1`, `ywuser1`) plus the service-VM admin accounts,
+all with empty corporate fields → out of the box, behavior is the
+local-only flow (`${loginUser}` = `${username}`, vault auto-generates
+passwords).
 
 ```
 # Example users.yml entry that maps the logical user 'webuser' to a
@@ -210,9 +209,10 @@ Inside sequences, use:
     for the local OS account at cloud-init time. Routed through
     `users.yml`'s `localOsPasswordRef`.
 
-`users.yml` is validated with `strict: true` by default. Every logical
-username referenced by an active sequence MUST be declared, and every
-populated `vaultKey` MUST exist in `vault.yml` -- `Test-Config.ps1`
+`users.yml` validation defaults to `strict: true`; the shipped template
+sets it false. Every logical username referenced by an active sequence
+MUST be declared, and every populated `vaultKey` MUST exist in
+`vault.yml` -- `Test-Config.ps1`
 blocks the cycle on the first violation, and `Invoke-TestRunner.ps1`
 runs `Test-Config.ps1` automatically as a pre-cycle gate (bypass with
 `-NoConfigGate` for ad-hoc / in-progress edit runs).
@@ -240,9 +240,9 @@ is mounted as a sibling working tree, not cloned under
 `<RepoRoot>/project/`), skipping host-variant resolution. Both forms
 still walk the prerequisite chain. Sequences are flat and
 self-describing: each declares its own `keystrokeMechanism`, and an SSH
-variant is a distinct `<name>.ssh` sequence -- there is no gui/ssh
-fallback. Missing sequence → listing from `test/sequences/` and the
-project test tree.
+variant is a distinct `<name>.ssh` sequence -- no gui/ssh fallback.
+Missing sequence → listing from `test/sequences/` and the project test
+tree.
 When the path form points to a generic `.yml` and a
 `<name>.<hostShort>.yml` sibling exists, Invoke-TestSequence warns -- the
 runner would have picked the variant on this host, so the path form is
@@ -253,8 +253,8 @@ sequences (e.g. `workload.guest.ubuntu.server.24.k8s.text-to-sql.baseline`)
 auto-resolve to the existing `guest.ubuntu.server.24` folder. Pass
 `-GuestKey` to override the walk.
 
-To minimize surprises when a sequence is later wired into the runner,
-Invoke-TestSequence mirrors the relevant runner-side resolutions:
+So that a sequence behaves the same once wired into the runner,
+Invoke-TestSequence mirrors the runner-side resolutions:
 
 * **Resource chain walk** -- the same `Resolve-CyclePlan` logic the runner
   uses. When a sequence's `resource:` field declares prereqs, every
@@ -262,10 +262,8 @@ Invoke-TestSequence mirrors the relevant runner-side resolutions:
   before the named sequence. `-StartStep`/`-StopStep` index into the
   CONCATENATED step list across the whole chain, so step 1 is always
   the first step of the deepest prereq -- not the named sequence's
-  step 1. Both name form and path form walk the chain; the path form
-  just supplies the top-level file directly. Prereqs still resolve via
-  the standard search (framework `test/sequences/` and project
-  `<RepoRoot>/project/...`).
+  step 1. Prereqs resolve via the standard search (framework
+  `test/sequences/` and project `<RepoRoot>/project/...`).
 * `Test-Config.ps1` runs as a pre-cycle gate (same as Invoke-TestRunner).
   Pass `-NoConfigGate` to skip while iterating on test.config.yml,
   vault.yml, or users.yml edits.
@@ -284,7 +282,7 @@ Invoke-TestSequence mirrors the relevant runner-side resolutions:
 * `control.cycle-restart` is consumed at startup so leftover state from a
   Ctrl-C'd runner can't make a clean Invoke-TestSequence run look broken.
 * `-ShowSensitive` is OFF by default (matches Invoke-TestRunner's masked
-  output). Add the switch when local debugging actually needs cleartext.
+  output). Add the switch when local debugging needs cleartext.
 
 The script prints a numbered step list with run markers, grouped under
 each sequence in the chain; `-StopStep` leaves the VM running.
@@ -298,10 +296,9 @@ Parameters: `-SequenceName` (required), `-StartStep` (default 1),
 `-logLevel` accepts `Error|Warning|Information|Verbose|Debug`. Each level
 shows itself plus all higher-priority streams (Error is highest); the
 default is `Information`, so the runner's progress narration reaches the
-console. Three-state resolution (cmdline > `test.config.yml` >
-`Information`): omit the flag to read `test.config.yml`'s
-`logLevel`, or pass `-logLevel <level>` to override for the lifetime of
-the runner. The level maps to PowerShell's preference variables:
+console. Three-state resolution: cmdline `-logLevel <level>` (for the
+lifetime of the runner) > `logLevel` in `test.config.yml` >
+`Information`. The level maps to PowerShell's preference variables:
 
 | Level | Stream | Cmdlet | Use it for |
 |-------|--------|--------|-----|
@@ -333,6 +330,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.03
+Last review: 2026.08.04
 
 Back to [Yuruna](../README.md)

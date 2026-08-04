@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.03
+.VERSION 2026.08.04
 .GUID 42b0d2e3-f4a5-4678-9012-3b4c5d6e7f80
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -101,14 +101,13 @@ function Invoke-WorkloadChartDeployment {
     Write-Debug "Helm execute from: $workFolder"
     Push-Location $workFolder
 
-    # Per-chart helm stderr/stdout log + final-rc sidecar. Mirrors the
-    # tofu.stderr.log pattern from Set-Resource so
-    # Get-SystemDiagnostic.ps1's *.stderr.log glob picks it up on failure.
-    # Truncate at chart entry; per-helm-command output is appended
-    # with a "== <cmd> (exit=N) ==" header. helm.rc is rewritten
-    # after each helm call so the LAST observed exit code is what
-    # the diagnostic reports -- matches operator intuition ("did
-    # helm succeed?") and is what the gap-detector heuristic checks.
+    # Per-chart helm stderr/stdout log + final-rc sidecar. Mirrors Set-Resource's
+    # tofu.stderr.log pattern so Get-SystemDiagnostic.ps1's *.stderr.log glob
+    # picks it up on failure. Truncated at chart entry; each helm command's
+    # output is appended under a "== <cmd> (exit=N) ==" header. helm.rc is
+    # rewritten after each helm call so the LAST observed exit code is what the
+    # diagnostic reports -- matching operator intuition ("did helm succeed?")
+    # and what the gap-detector heuristic checks.
     $helmLogFile = Join-Path -Path $workFolder -ChildPath "helm.stderr.log"
     $helmRcFile  = Join-Path -Path $workFolder -ChildPath "helm.rc"
     Remove-Item -LiteralPath $helmLogFile -Force -ErrorAction SilentlyContinue
@@ -217,7 +216,9 @@ function Invoke-WorkloadToolDeployment {
         $deploymentVars,
         $sw
     )
-    # Push deploymentVars to the environment for command expansion
+    # Push deploymentVars to the environment: a non-chart deployment reads the
+    # same merged variable set a chart gets, but through ${env:<key>} in its
+    # command string rather than through values.yaml.
     foreach ($key in $deploymentVars.Keys) {
         $value = $deploymentVars[$key]
         Set-Item -Path Env:$key -Value ${value}
@@ -254,13 +255,12 @@ function Invoke-WorkloadToolDeployment {
     # docs/architecture.md#shared-transient-failure-retry-policy
     $transientPattern = Get-YurunaTransientPattern
     $retryable = $kind.Retryable
-    # Closures so the predicate and command survive being invoked
-    # from inside the Yuruna.Retry module scope. GetNewClosure pins
-    # $expression/$retryable/$transientPattern by value. The
-    # scriptblock runs in the retry module's session state, which
-    # cannot see this module's private import of
-    # Invoke-DynamicExpression by name -- so capture its CommandInfo
-    # here (where it IS visible) and invoke it via & instead.
+    # Closures so the predicate and command survive being invoked from inside
+    # the Yuruna.Retry module scope: GetNewClosure pins $expression /
+    # $retryable / $transientPattern by value, and Invoke-DynamicExpression is
+    # captured as a CommandInfo here (where it IS visible) then invoked via &,
+    # because the retry module's session state cannot see this module's private
+    # import by name.
     $dynExpr = Get-Command Invoke-DynamicExpression
     $execBlock = { & $dynExpr -Command $expression *>&1 }.GetNewClosure()
     $shouldRetryTransient = {
@@ -316,12 +316,6 @@ function Publish-WorkloadList {
     $sw = [Diagnostics.Stopwatch]::StartNew()
     if (!(Confirm-WorkloadList $project_root $config_subfolder)) { return (New-YurunaResultManifest -Success $false -ErrorMessage "Confirm-WorkloadList failed for $project_root / $config_subfolder" -FailureClass 'config_error' -DurationMs $sw.ElapsedMilliseconds); }
     Write-Debug "---- Publish Workloads"
-    # For each workload: switch to its kube context, run each deployment
-    # (chart | kubectl | helm | shell). For `chart`, copy to the .yuruna work
-    # folder, merge variables (resources globals + resources.output + workload
-    # globals + workload locals + deployment locals), write values.yaml, run
-    # helm install. Non-chart deployments read the same merged variables via
-    # ${env:vars}.
     $workloadsFile = Join-Path -Path $project_root -ChildPath "config/$config_subfolder/workloads.yml"
     if (-Not (Test-Path -Path $workloadsFile)) { Write-Information "File not found: $workloadsFile"; return (New-YurunaResultManifest -Success $false -ErrorMessage "File not found: $workloadsFile" -FailureClass 'config_error' -DurationMs $sw.ElapsedMilliseconds); }
     $workloadsYaml = ConvertFrom-File $workloadsFile

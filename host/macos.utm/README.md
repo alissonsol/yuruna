@@ -33,9 +33,9 @@ After the script finishes, follow the steps in
   to `false` so UTM activation during an AVF-guest keystroke doesn't
   yank you off another Space. One manual step the script doesn't
   automate (Dock plist edits are fragile): right-click UTM in the Dock
-  → Options → Assign To → All Desktops. With both, you can leave a
-  long `Invoke-TestRunner` running on Space 1 and debug in VS Code on
-  Space 2 without disruption. See
+  → Options → Assign To → All Desktops. With both, a long
+  `Invoke-TestRunner` can run on Space 1 while you debug in VS Code on
+  Space 2. See
   [macOS UTM Host Setup - Nerd-Level Details](read.more.md#running-across-macos-spaces-desktops).
 
 Manual walk-through of the installer: [macOS UTM Host Setup - Nerd-Level Details](read.more.md).
@@ -45,8 +45,8 @@ Manual walk-through of the installer: [macOS UTM Host Setup - Nerd-Level Details
 The installer's tested baseline is **macOS 26+ (Tahoe)**, **Apple
 Silicon (arm64)**, **16+ physical cores**, **32 GB+ RAM**, and
 **512 GB+ free disk**. A preflight check warns and prompts for
-confirmation if any of these is not met; continuing is permitted but
-UNTESTED. See [Installation — system-requirements preflight](../../docs/install.md#system-requirements-preflight).
+confirmation if any is unmet; continuing is permitted but UNTESTED.
+See [Installation — system-requirements preflight](../../docs/install.md#system-requirements-preflight).
 
 ## Optional: Squid cache VM
 
@@ -78,10 +78,8 @@ ports to it.
   allows it.
 
 `test/Repair-CachingProxyServiceForwarder.ps1` is a thin "verify reachable +
-refresh state file" tool; a bridged (Ethernet) cache needs no
-host-side forwarder layer — forwarders are only created for the Wi-Fi
-Shared-NAT build. `test/Stop-CachingProxyServiceVM.ps1` tears any forwarders
-down.
+refresh state file" tool; forwarders are created only for the Wi-Fi
+Shared-NAT build. `test/Stop-CachingProxyServiceVM.ps1` tears them down.
 
 ## Next: Create a Guest VM
 
@@ -99,6 +97,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.03
+Last review: 2026.08.04
 
 Back to [Yuruna](../../README.md)

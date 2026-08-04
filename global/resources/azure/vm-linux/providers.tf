@@ -4,14 +4,12 @@ provider "azurerm" {
 
   features {}
 
-  # More information on the authentication methods supported by
-  # the AzureRM Provider can be found here:
+  # Authentication methods supported by the AzureRM provider:
   # https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs
 
-  # azurerm 4.x no longer reads the subscription from the Azure CLI
-  # context: the subscription must be supplied explicitly, either as
-  # subscription_id below or via the ARM_SUBSCRIPTION_ID environment
-  # variable (set it before running the deployment).
+  # azurerm 4.x no longer reads the subscription from the Azure CLI context;
+  # supply it explicitly as subscription_id below or via the
+  # ARM_SUBSCRIPTION_ID environment variable before running the deployment.
 
   # subscription_id = "..."
   # client_id       = "..."

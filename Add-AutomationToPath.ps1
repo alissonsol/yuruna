@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.03
+.VERSION 2026.08.04
 .GUID 4206c748-f960-4178-9901-2341a0b2c3d4
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -36,7 +36,7 @@ if ($env:PATH -split [IO.Path]::PathSeparator -notcontains $automationPath) {
     Write-Output "Already in current session PATH: $automationPath"
 }
 
-# Persist to user-level PATH (survives reboots and new terminal windows)
+# Persist to user-level PATH.
 if ($IsWindows -or $env:OS -eq "Windows_NT") {
     $userPath = [System.Environment]::GetEnvironmentVariable("PATH", "User")
     $userPaths = $userPath -split ";"
@@ -48,9 +48,9 @@ if ($IsWindows -or $env:OS -eq "Windows_NT") {
         $newUserPath = ((@($userPath -split ';') + $automationPath) | Where-Object { $_ }) -join ';'
         [System.Environment]::SetEnvironmentVariable("PATH", $newUserPath, "User")
         Write-Output "Persisted to user PATH (Windows registry): $automationPath"
-        # SetEnvironmentVariable('User') writes the registry but does not broadcast
-        # into already-open shells, so the persisted entry only reaches terminals
-        # started afterward. The current session was already patched above.
+        # SetEnvironmentVariable('User') writes the registry but does not
+        # broadcast into open shells, so it only reaches terminals started
+        # afterward. The current session was already patched above.
         Write-Output "Open a new terminal for the persisted PATH change to take effect."
     } else {
         Write-Output "Already in user PATH (Windows registry): $automationPath"

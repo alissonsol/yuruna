@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.03
+.VERSION 2026.08.04
 .GUID 42d7e8f9-a0b1-4c23-8d45-7e8f9a0b1234
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -97,8 +97,8 @@ if (Test-Path -LiteralPath $poolsPath) {
 
         # The auto-enrolment target pool must carry NO test-set. This is the
         # AUTHORITATIVE check: the CLI refuses and the UI disables, but only
-        # this one catches a hand-edited file or a store written before the
-        # rule existed. It is a cross-field constraint (a pool named by ANOTHER
+        # this one catches a hand-edited file or a store written by an older
+        # release. It is a cross-field constraint (a pool named by ANOTHER
         # field), which JSON Schema cannot express.
         #
         # A violation FAILS rather than being silently stripped: stripping it

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.03
+.VERSION 2026.08.04
 .GUID 42f0a1b2-c3d4-4e56-f789-0a1b2c3d4e57
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -63,3 +63,10 @@ Write-Output "Hyper-V default VHDX folder: $($image.DownloadDir)"
 if (-not (Save-UbuntuExtensionImage -Image $image -Verbose:($VerbosePreference -ne 'SilentlyContinue'))) {
     exit 1
 }
+# Success must be an explicit exit 0. Start-CachingProxyServiceVM.ps1 invokes
+# this script in-process (& $GetImageScript) and reads $LASTEXITCODE; any
+# native command a helper ran along the way (qemu-img, discovery probes for
+# VMs that may legitimately be absent) leaves its exit code behind, and a
+# cache-hit run ends on cmdlets that never overwrite it. Falling off the end
+# here would report that stale code as this script's own exit status.
+exit 0

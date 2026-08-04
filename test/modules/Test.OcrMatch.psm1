@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.03
+.VERSION 2026.08.04
 .GUID 42a9b3c7-d1e5-4f02-9b8a-6c3d7e1f4a52
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -298,10 +298,10 @@ function Test-CombinedOcrMatch {
         [int]$FreshMatchTailLines = 0
     )
 
-    # Test.OcrEngine.psm1 is loaded by Wait-ForText (the only caller in the
-    # hot path) before the poll loop; importing it again here -- per poll --
-    # paid the cmdlet + path-resolution + timestamp-check cost on every
-    # iteration even though -Force is a no-op when nothing changed.
+    # No Import-Module here: Wait-ForText (the only caller in the hot path)
+    # already loaded Test.OcrEngine.psm1 before the poll loop, and re-importing
+    # per poll would pay the cmdlet + path-resolution + timestamp-check cost on
+    # every iteration even though -Force is a no-op when nothing changed.
 
     $combineMode = Get-OcrCombineMode
     $enabledProviders = Get-EnabledOcrProvider

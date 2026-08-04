@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.03
+.VERSION 2026.08.04
 .GUID 42a1b2c3-d4e5-4f67-8901-bc012345677a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -467,7 +467,7 @@ function Get-CycleOrchestrationList {
 
 <#
 .SYNOPSIS
-    Phase 4: resolve a POOL test-set manifest's sequences[] into the same cycle-plan
+    Resolves a POOL test-set manifest's sequences[] into the same cycle-plan
     entry shape Resolve-CyclePlan produces, applying per-guest overrides + the
     pool-planner host filter.
 .DESCRIPTION

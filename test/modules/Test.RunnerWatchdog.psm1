@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.03
+.VERSION 2026.08.04
 .GUID 42d4e5f6-a7b8-4c91-9234-5d6e7f8a9b0c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -44,17 +44,18 @@
         in its preamble (bootstrap, host detection, the caching-proxy
         gate and its port-map refresh, status-service start). None of
         that is legitimately slow, so the tight bound applies.
-      runner.phase ABSENT  -> StepTimeoutSeconds, unchanged. Either the
-        inner cleared it for a legitimately long stretch (the weekly
-        base-image download) or the sequence has taken over.
+      runner.phase ABSENT  -> StepTimeoutSeconds. Either the inner cleared
+        it for a legitimately long stretch (the weekly base-image
+        download) or the sequence has taken over.
 
     Why the split: the inner SEEDS runner.stepHeartbeat at startup, so
-    before this the preamble was nominally guarded but effectively
-    unguarded -- a preamble stall (the motivating case: a bare `sudo`
-    prompting on the inherited terminal with nobody present) burned the
-    full step budget while the dashboard still showed the previous
-    cycle's green. Absence of runner.phase reproduces the old behaviour
-    exactly, so the looser bound is always the failure direction.
+    without the tighter bound the preamble is nominally guarded but
+    effectively unguarded -- a preamble stall (the motivating case: a bare
+    `sudo` prompting on the inherited terminal with nobody present) burns
+    the full step budget while the dashboard still shows the previous
+    cycle's green. Absence of runner.phase restores the plain
+    step-timeout behaviour, so the looser bound is always the failure
+    direction.
 #>
 
 function Get-WatchdogInnerIdentityScript {
@@ -105,9 +106,8 @@ function Start-Watchdog {
         Tighter bound applied while runner.phase exists -- i.e. before the
         inner reaches its first sequence step. Defaults to 600 so an existing
         caller that has not been updated still gets the protection. Values <= 0
-        disable the tighter bound (StepTimeoutSeconds everywhere), which is the
-        pre-existing behaviour and the documented escape hatch for a host whose
-        preamble is genuinely slow.
+        disable the tighter bound (StepTimeoutSeconds everywhere) -- the
+        documented escape hatch for a host whose preamble is genuinely slow.
     #>
     [CmdletBinding(SupportsShouldProcess)]
     [OutputType([System.Management.Automation.Job])]

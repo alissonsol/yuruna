@@ -1,17 +1,16 @@
 #!/bin/bash
-# Version: 2026.08.03
+# Version: 2026.08.04
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 set -euo pipefail
 
-# Workload-phase update script for a macOS 26 guest. Mirrors the role
-# of ubuntu.server.24.update.sh / amazon.linux.2023.update.sh in the workload
-# step that follows a successful guest start. Not called by New-VM.ps1
-# (the host-side restore script): macOS 26 ships its kernel + system
-# in the IPSW restore that New-VM.ps1 already performs, so an apt-/yum-
-# style "update right after install" is redundant on first boot. This
-# script exists for the eventual sequence that runs against a
-# Setup-Assistant-completed guest.
+# Workload-phase update script for a macOS 26 guest. Mirrors the role of
+# ubuntu.server.24.update.sh / amazon.linux.2023.update.sh in the workload step
+# that follows a successful guest start. Not called by New-VM.ps1 (the host-side
+# restore script): macOS 26 ships its kernel + system in the IPSW restore that
+# New-VM.ps1 already performs, so an apt-/yum-style "update right after install"
+# is redundant on first boot. This script exists for the eventual sequence that
+# runs against a Setup-Assistant-completed guest.
 
 ARCH=$(uname -m)
 echo "Detected architecture: $ARCH"
@@ -27,12 +26,11 @@ case "$ARCH" in
 esac
 
 # --- REGION: https://yuruna.link/memory#why-ubuntu-guest-update-scripts-install-powershell-first
-# macOS pwsh ships as a .pkg from the PowerShell releases. Version is
-# discovered at install time by resolving the GitHub /releases/latest
-# redirect, so this stays current with what the Linux guests install
-# (which use the same discovery mechanism).
-# curl and installer are in base macOS; this step does not depend on
-# Command Line Developer Tools being installed first.
+# macOS pwsh ships as a .pkg from the PowerShell releases. The version is
+# discovered at install time by resolving the GitHub /releases/latest redirect,
+# the same mechanism the Linux guests use, so both stay in step. curl and
+# installer are in base macOS; this step does not need the Command Line
+# Developer Tools first.
 echo ""
 echo -e "\e[1;36m==== PowerShell ====\e[0m"
 if ! command -v pwsh >/dev/null 2>&1; then
@@ -174,11 +172,10 @@ if [ ! -d "$REAL_HOME/yuruna" ]; then
       echo "yuruna: repositories.frameworkUrl missing from test.config.yml - cannot clone framework" >&2
       exit 1
     fi
-    # git ships no stall detection (http.lowSpeedLimit/Time unset), so a
-    # clone stalled mid-transfer would hang this attempt forever and the
-    # retry ladder below it would never fire (the stalled-transfer trap
-    # class); the low-speed pair aborts a <1 KB/s-for-60s transfer into
-    # the retry path instead.
+    # git ships no stall detection (http.lowSpeedLimit/Time unset), so a clone
+    # stalled mid-transfer would hang forever and the retry ladder below would
+    # never fire (the stalled-transfer trap class); the low-speed pair aborts a
+    # <1 KB/s-for-60s transfer into the retry path instead.
     for attempt in 1 2 3; do
       git -c http.lowSpeedLimit=1024 -c http.lowSpeedTime=60 clone "$FRAMEWORK_URL" "$REAL_HOME/yuruna" && break
       echo "git clone attempt $attempt failed"

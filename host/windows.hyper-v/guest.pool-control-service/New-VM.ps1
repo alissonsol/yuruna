@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.03
+.VERSION 2026.08.04
 .GUID 42a1c2d3-e4f5-4a67-8901-b2c3d4e5f6a1
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -144,10 +144,10 @@ New-Item -ItemType Directory -Force -Path $SeedDir | Out-Null
 Copy-Item -Path (Join-Path $hostVmConfigDir 'pool-control-service.meta-data') -Destination "$SeedDir/meta-data"
 
 # --- REGION: Yuruna harness SSH key + vault password
-# Yuruna harness SSH key + the vault-managed password of THIS VM's own
-# administrator. The account name is per-VM-family: a name shared with the
-# caching-proxy-service and stash-service VMs would resolve to a single vault entry, and
-# whichever VM was built last would invalidate the others' credential.
+# The password belongs to THIS VM's own administrator. The account name is
+# per-VM-family: a name shared with the caching-proxy-service and stash-service
+# VMs would resolve to a single vault entry, and whichever VM was built last
+# would invalidate the others' credential.
 $_repoRoot = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))
 Import-Module (Join-Path $_repoRoot 'test/modules/Test.Ssh.psm1')       -Force -DisableNameChecking
 Import-Module (Join-Path $_repoRoot 'test/modules/Test.Extension.psm1') -Global -Force -Verbose:$false

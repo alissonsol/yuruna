@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.03
+.VERSION 2026.08.04
 .GUID 429f21c7-6d84-4a02-9e15-7c3a8b0d5f46
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -42,7 +42,8 @@
     Requires Administrator: powercfg, the policy key and the firewall rules all
     need it. The redirector's elevation gate applies before this runs.
 .PARAMETER StopServices
-    Also stop the caching-proxy, stash and pool-control VMs this host runs.
+    Also stop the caching-proxy, stash, pool-control and download-agent VMs
+    this host runs.
     Off by default: restoring host settings and tearing down services are
     different intentions, and doing both on one word surprises somebody.
 .EXAMPLE
@@ -210,7 +211,7 @@ if ($icmpKnob -and $icmpKnob.present) {
 
 # --- REGION: services (opt-in)
 if ($StopServices) {
-    foreach ($svc in @('CachingProxyService', 'StashService', 'PoolControlService')) {
+    foreach ($svc in @('CachingProxyService', 'StashService', 'PoolControlService', 'DownloadAgentService')) {
         $script = Join-Path $RepoRoot "test/Stop-${svc}VM.ps1"
         if (-not (Test-Path -LiteralPath $script)) { $skipped.Add("test/Stop-${svc}VM.ps1 not found"); continue }
         if ($PSCmdlet.ShouldProcess("$svc VM", 'Stop')) {
@@ -240,7 +241,7 @@ Write-DisableManualStep -What 'The Yuruna credential vault -- it holds credentia
     'Unregister-SecretVault -Name <name> # then delete its store on disk'
 )
 if (-not $StopServices) {
-    Write-DisableManualStep -What 'The caching-proxy / stash / pool-control VMs (re-run with -StopServices to stop them)'
+    Write-DisableManualStep -What 'The caching-proxy / stash / pool-control / download-agent VMs (re-run with -StopServices to stop them)'
 }
 
 $capturePath = Get-HostAutomationStatePath

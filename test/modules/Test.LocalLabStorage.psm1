@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.03
+.VERSION 2026.08.04
 .GUID 42b7d3e6-5c81-4a92-b0f4-6d5e8c1a7b23
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -888,10 +888,9 @@ function Set-LocalLabStorageHostAlias {
         } else {
             # Re-launched under sudo because the hosts file is root-owned and
             # Set-HostAlias refuses to run as an unprivileged user. The argument
-            # vector comes from Get-SudoPwshArgumentList: a bare 'pwsh' under a
-            # stripped environment is how this step used to die with a .NET
-            # "libhostfxr not found" exit 131, three steps before the vault and
-            # the config were written.
+            # vector comes from Get-SudoPwshArgumentList: a bare 'pwsh' under
+            # sudo's stripped environment dies with a .NET "libhostfxr not found"
+            # exit 131, three steps before the vault and the config are written.
             $aliasArgs = Get-SudoPwshArgumentList -ScriptPath $aliasScript `
                 -ScriptArgument @('-ComputerName', $n, '-IPAddress', $address)
             $aliasRun = Invoke-LocalLabStorageNative -FilePath 'sudo' -ArgumentList $aliasArgs -AllowFailure

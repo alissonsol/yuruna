@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.03
+.VERSION 2026.08.04
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456791
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -161,13 +161,13 @@ function Write-Warning {
         Forwards to Microsoft.PowerShell.Utility\Write-Warning and writes the
         HTML-encoded message text (tagged with the log-warning class) to
         $global:__YurunaLogFile. The transcript append is UNCONDITIONAL: a
-        warning is durable evidence of something the operator needs to see, so
-        it must persist in the HTML transcript even when the console is quiet
-        (WarningPreference=SilentlyContinue at a low logLevel). Gating the
+        warning is durable evidence the operator needs to see, so it must
+        persist even when the console is quiet
+        (WarningPreference=SilentlyContinue at a low logLevel) -- gating the
         mirror on console verbosity would silently erase warnings from the very
         artifact kept for post-hoc triage. The Information / Verbose / Debug
-        proxies still gate on their preferences -- those streams are chatty
-        progress noise, not evidence -- but a warning always reaches the file.
+        proxies do gate on their preferences: those streams are chatty progress
+        noise, not evidence.
     #>
     [CmdletBinding()]
     param(

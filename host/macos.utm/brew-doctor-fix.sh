@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.08.03
+# Version: 2026.08.04
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 # brew-doctor-fix.sh -- fixes common `brew doctor` issues on Apple Silicon:

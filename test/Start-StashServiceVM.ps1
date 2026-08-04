@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.03
+.VERSION 2026.08.04
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456760
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -249,16 +249,12 @@ if ($HostType -eq 'host.macos.utm') {
 # its own host. Stop-StashServiceVM.ps1 removes the marker. Best-effort throughout;
 # never fails the bring-up.
 Import-Module (Join-Path $ModulesDir 'Test.YurunaDir.psm1') -Global -Force
+Import-Module (Join-Path $ModulesDir 'Test.ExtensionService.psm1') -Global -Force
 $runtimeDir = $null
 try {
     $runtimeDir = Initialize-YurunaRuntimeDir
-    $marker = [ordered]@{
-        active       = $true
-        vmName       = $VMName
-        hostType     = $HostType
-        startedAtUtc = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
-    }
-    [System.IO.File]::WriteAllText((Join-Path $runtimeDir 'stash-service.json'), ($marker | ConvertTo-Json), [System.Text.UTF8Encoding]::new($false))
+    [void](Write-ExtensionServiceMarker -Area 'stash-service' -RuntimeDir $runtimeDir `
+        -Active $true -VMName $VMName -HostType $HostType)
     Write-Output "  Recorded stash-service marker -- this host will appear under Extension hosts."
 } catch { Write-Verbose "stash-service marker write: $($_.Exception.Message)" }
 

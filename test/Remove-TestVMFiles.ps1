@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.03
+.VERSION 2026.08.04
 .GUID 42c3d4e5-f6a7-4b89-0c12-de3f4a5b6c7d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -130,10 +130,10 @@ Write-Status ""
 if (-not (Test-HostRequirement -HostType $HostType -Quiet:$Quiet)) { exit 1 }
 
 # Wire the host driver so the contract (Get-VMName, Stop-VMForce,
-# Remove-VM, ...) is available. Enumeration was the only host-specific
-# part of a prefix sweep; with Get-VMName in the contract this script
-# names no hypervisor at all, so a fix to the removal logic lands on all
-# three hosts at once instead of needing three parallel edits.
+# Remove-VM, ...) is available. Enumeration is the only host-specific part
+# of a prefix sweep, and Get-VMName covers it, so this script names no
+# hypervisor at all: a fix to the removal logic lands on all three hosts at
+# once instead of needing three parallel edits.
 [void](Initialize-YurunaHost -RepoRoot $RepoRoot -HostType $HostType)
 
 # --- REGION: Stop and remove every matching VM
@@ -143,10 +143,10 @@ Write-Status ""
 
 # Track every VM we attempted, with a final disposition. Per-VM ops MUST
 # NOT abort the whole loop: on a long-running host, a single stuck VM
-# (locked .vhdx, wedged vmms, UTM helper holding a file handle) used to
-# throw under $ErrorActionPreference='Stop' and skip every later matching
-# VM, so survivors accumulated cycle after cycle. Each VM is wrapped in
-# try/catch with its own continue-on-failure path; survivors are reported
+# (locked .vhdx, wedged vmms, UTM helper holding a file handle) would
+# otherwise throw under $ErrorActionPreference='Stop' and skip every later
+# matching VM, so survivors accumulate cycle after cycle. Each VM is wrapped
+# in try/catch with its own continue-on-failure path; survivors are reported
 # at the end and the orphan-file cleanup still runs so we reclaim disk
 # even when one VM resists deletion.
 $survivors = [System.Collections.Generic.List[string]]::new()

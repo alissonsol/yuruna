@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.03
+.VERSION 2026.08.04
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456706
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -153,10 +153,10 @@ $TemplatePath = Join-Path $TestRoot "test.config.yml.template"
 # stop it and wipe stranded test VMs. The normal call path is the
 # outer spawning THIS inner with YURUNA_RUNNER_RELAUNCH=1 -- in which
 # case this whole block is skipped (the outer owns the pidfile). This
-# branch only fires when an operator invokes modules/Invoke-Test-
-# InnerRunner.ps1 directly (which they shouldn't -- it lives under
-# modules/ for that reason, but the guard is the safety net for when
-# they do).
+# branch only fires when an operator invokes
+# modules/Invoke-TestRunnerInnerLoop.ps1 directly (which they shouldn't --
+# it lives under modules/ for that reason, but the guard is the safety net
+# for when they do).
 # Shared implementation in Test.SingleInstance.psm1 -- same identity-
 # probe logic as outer, with the inner-specific cmdline pattern below
 # (matches only Invoke-TestRunner.ps1, never a sibling inner). Imported
@@ -690,6 +690,26 @@ if (Get-Command Restore-YurunaServiceVM -ErrorAction SilentlyContinue) {
         # Never fatal: a host that cannot check its service VMs still runs the
         # cycle, and the gates below report what is actually reachable.
         Write-Warning "service-VM restore sweep failed: $($_.Exception.Message). The cycle continues; the caching-proxy and stash gates below report what is reachable."
+    }
+}
+
+# --- REGION: Cycle-start External vSwitch repair (Hyper-V only)
+# HERE, and nowhere else in the cycle. A rebind takes carrier from every guest
+# on the switch and drops host networking on the target NIC for a moment -- both
+# are fine at a cycle boundary with no guests up, and neither is fine between
+# two guest builds. The switch helper called during a build stays detect-only.
+#
+# Get-Command-gated because only the Hyper-V driver defines this: a vSwitch that
+# outlives its uplink binding is a Windows-specific failure. The repair declines
+# itself on anything but a stale binding, caps its own attempts, and rolls back
+# if the host loses its default route -- see Repair-YurunaExternalSwitch.
+#
+# Best-effort by construction. A host that cannot repair its bridge still runs
+# the cycle on the Default Switch with port-forwarders, which is what it has
+# been doing; the repair only tries to win back the bridged path.
+if (Get-Command Repair-YurunaExternalSwitch -ErrorAction SilentlyContinue) {
+    try { [void](Repair-YurunaExternalSwitch -Confirm:$false) } catch {
+        Write-Warning "External vSwitch repair attempt failed: $($_.Exception.Message). The cycle continues on the Default Switch fallback."
     }
 }
 

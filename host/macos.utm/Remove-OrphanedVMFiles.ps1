@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.03
+.VERSION 2026.08.04
 .GUID 42a8d3f2-e5b6-4c71-9a04-2f3d4e5a6b7c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -76,24 +76,30 @@ if ($LASTEXITCODE -ne 0) {
     exit 1
 }
 
-# utmctl exits 0 even when Apple Events are denied (typical from SSH,
-# launchd, or any non-Automation-entitled host process). It just emits
-# the error to stderr and prints the header with zero data rows. This
-# script then would treat EVERY bundle as orphaned and -- with -Force --
-# delete them all even though UTM still has the VMs registered. Bail
-# loudly instead so the operator can launch from a Terminal session
-# with Automation -> System Events access.
+# utmctl exits 0 even when it could not ask UTM anything -- Apple Events
+# denied (typical from SSH, launchd, or any non-Automation-entitled host
+# process), a request that timed out, or any other Apple Event fault. It
+# just emits the error to stderr and prints the header with zero data
+# rows. This script would then treat EVERY bundle as orphaned and -- with
+# -Force -- delete them all even though UTM still has the VMs registered.
+# Bail loudly instead.
+#
+# Matched on ANY OSStatus code rather than an enumerated few: the set that
+# can appear here is open, the cost of missing one is a deleted VM disk,
+# and no OSStatus value has "believe the empty list" as its right reading.
 $utmText = ($utmOutput | ForEach-Object { "$_" }) -join "`n"
-if ($utmText -match 'OSStatus error -1743|utmctl does not work from SSH') {
+if ($utmText -match 'OSStatus error|couldn.t be completed|utmctl does not work from SSH') {
     Write-Error @"
-utmctl could not reach UTM (Apple Events permission denied):
+utmctl could not reach UTM:
 $utmText
 
-Refusing to proceed -- a permission-denied utmctl would mis-classify
+Refusing to proceed -- a utmctl that cannot ask UTM would mis-classify
 every registered VM as orphaned and -Force would delete the bundles.
 Run from a Terminal/iTerm session (NOT SSH), after UTM.app is launched
 and a user is logged in graphically. If prompted, grant pwsh access in
 System Settings -> Privacy & Security -> Automation -> pwsh -> UTM.
+If UTM is up and this persists, the request is timing out rather than
+being denied -- retry once UTM.app is responsive.
 "@
     exit 1
 }

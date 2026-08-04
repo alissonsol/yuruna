@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.03
+.VERSION 2026.08.04
 .GUID 42a9b8c7-d6e5-4f43-2109-87a6b5c4d3e2
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -19,10 +19,9 @@
     #
     # Auto-discovered by `Invoke-ScriptAnalyzer -Path . -Recurse`
     # (see CONTRIBUTING.md). Findings of every severity are reported:
-    # Information-severity (low-priority) results such as missing comment
-    # help, undeclared output types, and positional-parameter calls are
-    # NOT filtered out, so they surface in the same scan as Errors and
-    # Warnings.
+    # Information-severity results (missing comment help, undeclared
+    # output types, positional-parameter calls) are NOT filtered out, so
+    # they surface alongside Errors and Warnings.
 
     IncludeDefaultRules = $true
 

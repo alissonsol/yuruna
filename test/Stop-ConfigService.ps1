@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.03
+.VERSION 2026.08.04
 .GUID 42f9c4d6-8a2b-4e73-9d51-7c3e4f5a6b72
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -59,13 +59,12 @@ if (-not $proc) {
     Remove-Item $PidFile -Force -ErrorAction SilentlyContinue
     exit 0
 }
-# PID-reuse guard: the PID file persists across crashes and reboots and the OS
-# recycles PIDs, so confirm this PID is still the config service before force-
-# killing it. The service launched and then wrote this PID file, so a genuine
-# match started at/before the file's mtime; a process that reused the PID after
-# the service died started later. If the start time is unreadable we cannot
-# confirm identity, so treat the PID file as stale (remove it, no kill) rather
-# than risk force-killing an unrelated process.
+# PID-reuse guard: the PID file outlives crashes and reboots and the OS recycles
+# PIDs, so confirm this PID is still the config service before force-killing it.
+# The service wrote the PID file after launching, so a genuine match started
+# at/before the file's mtime while a process that reused the PID started later.
+# An unreadable start time cannot confirm identity, so the PID file is treated as
+# stale (removed, no kill) rather than risk killing an unrelated process.
 if (Test-PidFileIdentity -PidFile $PidFile -Process $proc) {
     Stop-Process -Id $id -Force
     Write-Output "config service stopped (PID $id)."

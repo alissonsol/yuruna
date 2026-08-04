@@ -4,15 +4,11 @@
 package httpsrv
 
 import (
-	"crypto/tls"
 	"encoding/json"
-	"fmt"
-	"io"
 	"net/http"
 	"net/url"
 	"sort"
 	"strings"
-	"time"
 
 	"pool-control-service/internal/intent"
 )
@@ -56,29 +52,16 @@ type aggPoolStats struct {
 	Hosts      []aggHostStat `json:"hosts"`
 }
 
-// aggHostView is the subset of /api/v1/pool-status the board needs: which hosts
-// the aggregator has actually heard from (for "reporting"), and where to fetch
-// each one's registration record from.
-type aggHostView struct {
-	HostID  string `json:"hostId"`
-	BaseURL string `json:"baseUrl"`
-	Control string `json:"control"`
-}
-
-type aggPoolStatus struct {
-	Hosts []aggHostView `json:"hosts"`
-}
-
 // boardCard is one pool as the board renders it.
 type boardCard struct {
-	PoolID    string `json:"poolId"`
-	PoolGUID  string `json:"poolGuid"`
-	Display   string `json:"displayName"`
-	HostsTotal int   `json:"hostsTotal"`
-	HostsReporting int `json:"hostsReporting"`
-	Passed    int64  `json:"passed"`
-	Failed    int64  `json:"failed"`
-	Total     int64  `json:"total"`
+	PoolID         string `json:"poolId"`
+	PoolGUID       string `json:"poolGuid"`
+	Display        string `json:"displayName"`
+	HostsTotal     int    `json:"hostsTotal"`
+	HostsReporting int    `json:"hostsReporting"`
+	Passed         int64  `json:"passed"`
+	Failed         int64  `json:"failed"`
+	Total          int64  `json:"total"`
 	// SuccessPct is a POINTER so "no terminal cycle in range" serializes as
 	// null and the UI can render n/a. A float 0 would render as 0.00%, and an
 	// idle pool must never read as catastrophically failing -- nor as a
@@ -100,46 +83,12 @@ type boardCard struct {
 
 // boardOffer is one assignable test set, as the picker shows it.
 type boardOffer struct {
-	Name         string `json:"name"`
-	DisplayName  string `json:"displayName"`
-	Description  string `json:"description"`
-	FrameworkURL string `json:"frameworkUrl"`
-	ProjectURL   string `json:"projectUrl"`
+	Name         string   `json:"name"`
+	DisplayName  string   `json:"displayName"`
+	Description  string   `json:"description"`
+	FrameworkURL string   `json:"frameworkUrl"`
+	ProjectURL   string   `json:"projectUrl"`
 	Sequences    []string `json:"sequences"`
-}
-
-// aggregatorClient builds the client used for every aggregator call.
-//
-// The aggregator's :9400 answers BOTH protocols on the one port and the seeded
-// base URL is https, presenting a leaf from the pool CA -- which is in no guest
-// trust store, so a default-transport client fails the handshake with
-// "certificate signed by unknown authority" and the board's numbers grey out
-// permanently. Transport posture is therefore the daemon's existing one: the
-// same trusted-LAN stance the beacon already takes, on a service that itself
-// serves plain HTTP. The payload is read-only cycle counts. Pinning the pool CA
-// is the documented upgrade path, not a silent assumption.
-func aggregatorClient() *http.Client {
-	return &http.Client{
-		Timeout:   15 * time.Second,
-		Transport: &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true, MinVersion: tls.VersionTLS12}},
-	}
-}
-
-// getJSON fetches and decodes one JSON document under a bounded timeout.
-func getJSON(ctx interface{ Done() <-chan struct{} }, client *http.Client, rawURL string, out any) error {
-	req, err := http.NewRequest(http.MethodGet, rawURL, nil)
-	if err != nil {
-		return err
-	}
-	resp, err := client.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("GET %s: status %d", rawURL, resp.StatusCode)
-	}
-	return json.NewDecoder(io.LimitReader(resp.Body, 8<<20)).Decode(out)
 }
 
 // intentDoc is the shape Get-PoolIntent.ps1 emits.
@@ -242,23 +191,15 @@ func (s *Server) handleBoard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	client := aggregatorClient()
-	base := strings.TrimSuffix(s.opts.AggregatorURL, "/")
-
 	// Stats are best-effort. A dead aggregator greys the NUMBERS; it must never
 	// stop an operator assigning work, because assignment goes through the
 	// intent CLIs and has no aggregator dependency at all.
 	var stats aggPoolStats
 	statsErr := ""
-	if base == "" {
-		statsErr = "no aggregator configured"
-	} else if err := getJSON(r.Context(), client, base+"/api/v1/pool-stats?range="+url.QueryEscape(window), &stats); err != nil {
+	if err := s.pool.Get(r.Context(), "/api/v1/pool-stats?range="+url.QueryEscape(window), &stats); err != nil {
 		statsErr = err.Error()
 	}
-	var status aggPoolStatus
-	if base != "" {
-		_ = getJSON(r.Context(), client, base+"/api/v1/pool-status", &status)
-	}
+	status, _ := s.pool.Status(r.Context())
 
 	passedBy := map[string]int64{}
 	failedBy := map[string]int64{}
@@ -284,7 +225,7 @@ func (s *Server) handleBoard(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		var reg hostRegistration
-		if err := getJSON(r.Context(), client, strings.TrimSuffix(burl, "/")+"/runtime/host.registration.json", &reg); err != nil {
+		if err := s.pool.GetURL(r.Context(), strings.TrimSuffix(burl, "/")+"/runtime/host.registration.json", &reg); err != nil {
 			continue
 		}
 		if reg.ProjectAccess != nil && reg.ProjectAccess.Status == "denied" {
@@ -432,13 +373,9 @@ func (s *Server) handleHosts(w http.ResponseWriter, r *http.Request) {
 	}
 	sort.Strings(pools)
 
-	client := aggregatorClient()
-	base := strings.TrimSuffix(s.opts.AggregatorURL, "/")
-	var status aggPoolStatus
+	status, err := s.pool.Status(r.Context())
 	statusErr := ""
-	if base == "" {
-		statusErr = "no aggregator configured"
-	} else if err := getJSON(r.Context(), client, base+"/api/v1/pool-status", &status); err != nil {
+	if err != nil {
 		statusErr = err.Error()
 	}
 
@@ -452,7 +389,7 @@ func (s *Server) handleHosts(w http.ResponseWriter, r *http.Request) {
 		}
 		if h.BaseURL != "" {
 			var reg hostRegistration
-			if err := getJSON(r.Context(), client, strings.TrimSuffix(h.BaseURL, "/")+"/runtime/host.registration.json", &reg); err == nil && reg.ProjectAccess != nil {
+			if err := s.pool.GetURL(r.Context(), strings.TrimSuffix(h.BaseURL, "/")+"/runtime/host.registration.json", &reg); err == nil && reg.ProjectAccess != nil {
 				row.Access = reg.ProjectAccess.Status
 			}
 		}

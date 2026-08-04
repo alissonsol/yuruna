@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.03
+.VERSION 2026.08.04
 .GUID 42c0d1e2-f3a4-4b67-c890-1d2e3f4a5b68
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -195,7 +195,6 @@ if (-not (Test-Path $TemplatePath)) {
     exit 1
 }
 
-# Generate UUIDs and MAC address for this VM
 $VmUuid = [guid]::NewGuid().ToString().ToUpper()
 $DiskId = [guid]::NewGuid().ToString().ToUpper()
 $IsoId = [guid]::NewGuid().ToString().ToUpper()

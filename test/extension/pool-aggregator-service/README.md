@@ -16,12 +16,19 @@ Every `-interval` (default 30s) it:
    host already in the view (so an idle host stays live).
 2. **Probes** each candidate IP's status service (`http://<ip>:8080/runtime/status.json`)
    and keeps the ones that answer with a `hostId`. Non-runners (guests, other
-   clients) don't serve it and are dropped.
+   clients) don't serve it and are dropped. Every host is also
+   asked `control/runner-status` — `status.json` is a record of what *ran*, so it
+   reads identically an hour after the runner went away, and only that route can
+   tell a live cycle from a green cell nobody is refreshing. A host whose
+   **step-pause** flag is armed gets one more, `runtime/current-action.json`, for
+   the single bit that says whether the runner has reached the step boundary yet
+   (see the pause statuses below); an unarmed host — nearly all of them, nearly
+   always — costs nothing extra.
 3. **Identifies on the stable `hostId`** (the persistent `runtime/host.uuid`), not the
-   IP. This makes the pool **DHCP-resilient**: a host that changes IP reappears
-   at the new IP and resolves to the **same** `hostId` (one member, not two); a
-   host that cycles through many IPs over short leases collapses to one `hostId`;
-   and there is **no DNS dependency** — everything keys off log IPs + `hostId`.
+   IP. This makes the pool **DHCP-resilient**: a host that changes IP — even one
+   cycling through many IPs over short leases — reappears at the new address and
+   still resolves to the **same** `hostId` (one member, not two); and there is
+   **no DNS dependency** — everything keys off log IPs + `hostId`.
 4. On a **cycle-status transition**, pushes one line to **Loki**
    (`/loki/api/v1/push` on `127.0.0.1:3100`) with labels `{pool,hostId,cycleStartUtc,src=cycle}`
    and the proxy-side **ingest clock** as the timestamp (defends against host
@@ -44,9 +51,10 @@ Every `-interval` (default 30s) it:
    the current cycle's short SHAs (framework, project) from `status.json`'s
    `gitCommits`, with `commitUrl`/`projectCommitUrl` the per-repo
    `…/commit/<sha>` deep-links the table's Commit column resolves; `control` is
-   the remote-control verdict of point 5c),
-   `yuruna_pool_host_status` (numeric 0–5:
-   unreachable/running/pass/fail/idle/paused), and `yuruna_pool_host_last_seen_seconds`.
+   the remote-control verdict of point 5e),
+   `yuruna_pool_host_status` (numeric 0–8:
+   unreachable/running/pass/fail/idle/paused/pausing-cycle/pausing-step/stopped),
+   and `yuruna_pool_host_last_seen_seconds`.
    Served at `/metrics`. The whole pool telemetry is **hostname-free** (see below).
 5b. **Discovers extension hosts (registration-driven).** Each poll it reads every
    pool host's `host.registration.json` (already fetched for poolId/gating) and, for
@@ -260,8 +268,8 @@ columns summed over the selected time range and **Success%** is
 `100 * Pass / (Pass + Fail)` over that same Loki transition log, to two
 decimals — `n/a` when the range holds no terminal cycle, so an idle pool
 cannot read as healthy. (`yuruna_pool_hosts_reachable` and
-`yuruna_pool_host_status` are still exported for alerting; they simply no
-longer have their own tiles.) That last tile carries TWO signals in one place:
+`yuruna_pool_host_status` are exported for alerting but have no tiles of their
+own.) That last tile carries TWO signals in one place:
 normally the 6-char lab connection token (point 9) on blue, but red **Collector
 down** — linked to [the fix](#when-the-lab-token-tile-reads-collector-down) —
 whenever `yuruna_pool_collector_up` is absent from the scrape. The collector
@@ -277,9 +285,8 @@ deep-links to each host's own status page and cycle folder), a **host × time st
 row (incidents · **failures by class & severity** · recent step failures · full
 cycle event stream · status transitions) over Loki. **Every** panel identifies
 each host by its opaque **Host ID** (the stable `hostId`, shown GUID-formatted)
-and its `hostType`, **not** its hostname — the entire pool view (table, timeline,
-and the drill-down incident/event/transition panels) is hostname-free, so it
-stays safe to expose unauthenticated; the hostname stays on each host's own
+and its `hostType`, **not** its hostname, so the whole pool view stays safe to
+expose unauthenticated; the hostname stays on each host's own
 (to-be-authenticated) status page. Deep-links point at each host's **own status
 server** — artifacts never leave the generating host.
 
@@ -304,8 +311,8 @@ unaffected (graceful degradation).
   lintable copy.** It is NOT fetched at boot; an identical copy ships inline via
   `write_files` in `host/vmconfig/caching-proxy-service.base.user-data` so the dashboard
   deploys even when the collector build fails or its source has not yet reached
-  public `yuruna`. Edit this file, then sync the inline copy (keep the two in
-  step). The timeline's "open cycle results" and "open host status page" data
+  public `yuruna`. Edit this file, then sync the inline copy.
+  The timeline's "open cycle results" and "open host status page" data
   links, and the Pool hosts table's **Control** cell, all target
   `${aggregator}`, a hidden constant variable holding this
   proxy's `/go/` base — routing every host click through `/go/host` is what
@@ -391,7 +398,7 @@ The **dashboard does not share this dependency** — it deploys inline via
 `write_files` regardless of the build, so the *Yuruna hosts* dashboard is present
 from first boot (showing "No data" until the collector comes up).
 
-After install (no config needed — discovery is automatic). `:9400` is HTTPS once the
+After install, no config is needed — discovery is automatic. `:9400` is HTTPS once the
 TLS leaf is minted (the default on a rebuilt proxy), so use `https` + `-k` (the leaf is
 signed by the pool CA, published at `http://<proxy>/yuruna-pool-ca.crt` for pinning):
 
@@ -415,7 +422,7 @@ failed scrape, so the tile means one thing: *this proxy's
 `pool-aggregator-service` is not answering.* Nothing on the pool is broken by
 it — the collector is read-only, so every runner keeps testing (the same
 graceful degradation as killing the daemon on purpose) — but no lab token can
-be minted, no host can enrol, and every other panel on the board is frozen at
+be minted, no host can enroll, and every other panel on the board is frozen at
 its last scrape.
 
 Fix it on the proxy VM (`ssh caching-proxy-service-admin@<proxy-ip>`, or
@@ -454,8 +461,7 @@ dashboard's 30s refresh, with no Grafana or dashboard action.
 ## MVP limits
 
 - **Initial** discovery is **proxy-traffic-driven**: a host first appears only
-  once it (or its guests) has pulled through the proxy. A host that has never
-  routed through the proxy won't be discovered (registration-driven
+  once it (or its guests) has pulled through the proxy (registration-driven
   discovery is planned). Once discovered, though, a host is remembered — re-probed at its
   last-known IP while idle (`hostTtl`) and re-seeded from Loki's presence beacon
   across a collector restart — so an idle / stash-only host stays on the dashboard
@@ -471,8 +477,8 @@ dashboard's 30s refresh, with no Grafana or dashboard action.
   `step_failure` events (not yet attached to the incident *object* itself). A
   collector restart re-derives fail windows + restores open incidents (per-host
   and pool-wide) from Loki's retained feeds; fails older than that retention
-  aren't reconstructed. Cross-host correlation is temporal only (K hosts in a
-  window) -- it does not yet require the SAME failure class across hosts.
+  aren't reconstructed. Cross-host correlation is temporal only -- it does not
+  yet require the SAME failure class across hosts.
 - Only the **current** cycle's events are tailed, so a cycle that completes and
   rolls to a new folder between 30s polls can drop its trailing events. A failed
   cycle lingers in the runner's failure-pause, so its `step_failure` is reliably
@@ -493,14 +499,13 @@ dashboard's 30s refresh, with no Grafana or dashboard action.
   pins the pool CA).
 - **Service-data durability:** the collector itself is stateless — it rehydrates
   counters + open incidents from Loki on restart (point 6) — and the underlying
-  Loki / Prometheus / Grafana stores on the proxy are now archived to the NAS by
+  Loki / Prometheus / Grafana stores on the proxy are archived to the NAS by
   networkStorage.pool* **service replication** (an hourly guest-side `ypool-nas-replicate.timer`),
   so a reimaged proxy can be restored. Squid + zot caches are excluded. See
   [docs/pool-storage.md](../../../docs/pool-storage.md) (Service replication +
   restore procedure).
-- The pool telemetry is **hostname-free**, so the unauthenticated dashboard never
-  renders a host's hostname: hosts are identified by `hostId` everywhere. The
-  `hostname` label is dropped from every metric; the transition (`src=cycle`) and
+- The pool telemetry is **hostname-free**: hosts are identified by `hostId`
+  everywhere. The `hostname` label is dropped from every metric; the transition (`src=cycle`) and
   incident (`src=incident`) Loki lines carry no hostname (cross-host incidents
   report affected hosts by `hostId`); and each forwarded NDJSON event
   (`src=event`) is run through `redactEventLine`, which strips the `hostname` field

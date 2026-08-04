@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.03
+.VERSION 2026.08.04
 .GUID 42d9c8b7-6f5e-4a23-9c81-7e4f3a2d1b50
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -67,10 +67,12 @@ function Get-RunnerInstanceState {
         [Parameter(Mandatory)][string]$RunnerPidFile,
         [string]$RunnerStartFile,
         # Cmdline regex applied as the identity fallback. Outer matches
-        # "Invoke-Test(?:Inner)?Runner.ps1" so a stranded inner is also
-        # taken over; inner restricts to "Invoke-TestRunner.ps1" so it
-        # never targets a sibling inner.
-        [string]$CmdLinePattern = 'Invoke-Test(?:Inner)?Runner\.ps1'
+        # both "Invoke-TestRunner.ps1" and "Invoke-TestRunnerInnerLoop.ps1"
+        # so a stranded inner that owns the pidfile is also taken over;
+        # inner restricts to "Invoke-TestRunner.ps1" so it never targets a
+        # sibling inner. "Invoke-TestCycleRunner.ps1" is deliberately not
+        # matched -- the outer owns the pidfile across its per-cycle children.
+        [string]$CmdLinePattern = 'Invoke-TestRunner(?:InnerLoop)?\.ps1'
     )
     if (-not (Test-Path -LiteralPath $RunnerPidFile)) {
         return @{ status='None'; pid=0; identityVia='none'; cmdline=$null }

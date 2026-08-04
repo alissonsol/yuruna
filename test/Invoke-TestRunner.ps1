@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.03
+.VERSION 2026.08.04
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456707
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -86,7 +86,7 @@ $script:StepTimeoutSecondsDefault = 2700        # watchdog: kill inner when hear
 # Tighter bound while the inner is still in its preamble (runner.phase present):
 # nothing before the first sequence step is legitimately slow, so a stall there
 # is a wedged runner, not long work. testCycle.preambleTimeoutSeconds overrides;
-# 0 opts out (stepTimeoutSeconds everywhere, the pre-existing behaviour).
+# 0 opts out, applying stepTimeoutSeconds everywhere.
 $script:PreambleTimeoutSecondsDefault = 600
 $script:WatchdogPollSeconds       = 30        # how often the watchdog re-checks the heartbeat file
 
@@ -280,9 +280,9 @@ $argList = New-InnerRunnerArgList -ScriptPath $InnerScript -Parameters $PSBoundP
 # git / config / watchdog / Sync-ForwardEnv / Write-OuterLog helpers all
 # live in two sibling modules so the entry point stays thin and the
 # heartbeat-watchdog + cycle dispatcher are unit-testable independent of
-# this file. See modules/Test.RunnerWatchdog.psm1 + modules/Test.Runner-
-# OuterLoop.psm1; both were loaded with -Global -Force by Initialize-
-# YurunaEntryPointModuleSet -For Outer above.
+# this file. See modules/Test.RunnerWatchdog.psm1 +
+# modules/Test.RunnerOuterLoop.psm1; both were loaded with -Global -Force by
+# Initialize-YurunaEntryPointModuleSet -For Outer above.
 
 # === Banner =================================================================
 # First line written to runtime/outer.log on every outer startup. If this line

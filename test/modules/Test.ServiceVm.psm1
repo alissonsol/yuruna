@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.03
+.VERSION 2026.08.04
 .GUID 42d5a90b-16c7-4e83-b0f2-5c9a7e34d118
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -41,17 +41,30 @@
 # one is called dead.
 $script:ServiceVmProbeTimeoutMs = 1500
 
+# The extension half of the roster comes from the area manifests. Imported here
+# rather than assumed in scope: this module is loaded on its own by the reboot
+# sweep and by cleanup paths, and an empty roster is the one failure that
+# matters -- it would leave a rebooted host's service VMs off and let a
+# prefix-matching cleanup treat them as ordinary test VMs.
+Import-Module (Join-Path $PSScriptRoot 'Test.ExtensionService.psm1') -Force -DisableNameChecking -Verbose:$false
+
 function Get-YurunaServiceVmRoster {
     <#
     .SYNOPSIS
         The service VMs this framework builds, as records. Pure: no I/O, no
         host contract, no config.
     .DESCRIPTION
-        The single source of truth for "which VMs are services". Until this
-        existed the three names lived only as parameter defaults inside their own
-        Start-*ServiceVM.ps1, so nothing else could enumerate them -- which is
-        why the reboot sweep could not exist and why no cleanup path could prove
-        it would never sweep a service VM by prefix.
+        The single source of truth for "which VMs are services". Without it the
+        names would live only as parameter defaults inside their own
+        Start-*ServiceVM.ps1, where nothing else could enumerate them -- the
+        reboot sweep could not exist and no cleanup path could prove it would
+        never sweep a service VM by prefix.
+
+        The extension services are DISCOVERED from their own area manifests
+        (test/extension/<area>/<area>.config.yml, `service:` block), so a new one
+        joins the sweep by existing rather than by an edit here. The caching
+        proxy is listed inline because it is not an extension area: it is the
+        machine the pool services run ON.
 
         HealthPort is what a CONSUMER connects to, deliberately, rather than
         whatever the guest happens to also listen on: :3128 is the squid port
@@ -76,21 +89,8 @@ function Get-YurunaServiceVmRoster {
             StartScript = 'Start-CachingProxyServiceVM.ps1'
             HealthPort  = 3128
         }
-        [pscustomobject]@{
-            Key         = 'stash'
-            VMName      = 'yuruna-stash-service'
-            DisplayName = 'stash service'
-            StartScript = 'Start-StashServiceVM.ps1'
-            HealthPort  = 80
-        }
-        [pscustomobject]@{
-            Key         = 'pool-control'
-            VMName      = 'yuruna-pool-control-service'
-            DisplayName = 'pool-control service'
-            StartScript = 'Start-PoolControlServiceVM.ps1'
-            HealthPort  = 80
-        }
     )
+    $all += @(Get-ExtensionServiceVmRoster)
     if (-not $Key -or @($Key | Where-Object { $_ }).Count -eq 0) { return [pscustomobject[]]$all }
     $wanted = @($Key | Where-Object { $_ } | ForEach-Object { "$_".Trim() })
     return [pscustomobject[]]@($all | Where-Object { $wanted -contains $_.Key })

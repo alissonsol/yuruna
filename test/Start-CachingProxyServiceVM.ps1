@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.03
+.VERSION 2026.08.04
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456742
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -326,16 +326,16 @@ if (-not $cpLock.Acquired) {
 }
 
 # Everything from here to the matching `} finally` is the locked critical section.
-# The try/finally is load-bearing, not defensive tidiness: the twelve `exit 1` paths
-# below (Get-Image / New-VM gates, the config-service gate, the UTM register+start
-# gates, the host-LAN-IP gate) each used to leave the lock file behind. That leak does NOT
-# self-heal the way a crashed runner's runner.pid does -- a .ps1 runs INSIDE the
-# caller's pwsh, so the recorded holder PID is the operator's long-lived interactive
-# shell. It stays alive, the stale-holder drain never fires, and every later run is
-# refused until that shell is killed. PowerShell 7 runs `finally` when a script calls
-# `exit` inside `try` and preserves the exit code, so the release is guaranteed.
-# The enclosed body is deliberately NOT re-indented: re-indenting ~720 lines would
-# bury this three-line fix inside a whitespace diff (CLAUDE.md IV, surgical changes).
+# The try/finally is load-bearing, not defensive tidiness: without it each of the
+# twelve `exit 1` paths below (Get-Image / New-VM gates, the config-service gate,
+# the UTM register+start gates, the host-LAN-IP gate) leaks the lock file. That leak
+# does NOT self-heal the way a crashed runner's runner.pid does -- a .ps1 runs INSIDE
+# the caller's pwsh, so the recorded holder PID is the operator's long-lived
+# interactive shell. It stays alive, the stale-holder drain never fires, and every
+# later run is refused until that shell is killed. PowerShell 7 runs `finally` when a
+# script calls `exit` inside `try` and preserves the exit code, so the release is
+# guaranteed. The enclosed body is deliberately NOT re-indented: re-indenting ~720
+# lines would bury the lock handling inside a whitespace diff.
 # Same shape as the runner's portmap hold in modules/Invoke-TestRunnerInnerLoop.ps1.
 try {
 
@@ -409,9 +409,9 @@ Write-Output "== Step 1: cleanup previous '$VMName' VM =="
 # Wipe any leftover host-proxy state BEFORE provisioning. Remove-HostProxy
 # (not Clear-HostProxy) is the right model: a previous cycle's WinINet
 # ProxyServer or HTTP_PROXY env var pointing at an IP that no longer hosts
-# squid is junk we want gone, not state we want to preserve. The earlier
-# snapshot/restore design captured whatever was on disk at first promotion
-# and faithfully reinstated it on each Stop, leaking stale IPs into every
+# squid is junk we want gone, not state we want to preserve. The snapshot/restore
+# alternative (Clear-HostProxy) captures whatever is on disk at first promotion
+# and faithfully reinstates it on each Stop, leaking stale IPs into every
 # subsequent Test-CachingProxyService probe. Symmetric with Stop-CachingProxyServiceVM.ps1.
 try {
     Import-Module (Join-Path $PSScriptRoot 'modules/Test.HostContract.psm1') -Force
@@ -539,9 +539,12 @@ $global:LASTEXITCODE = $null
 # -- and on a cache-hit re-run the artifact check below false-passes
 # because the image file already exists.
 $getImageInvokeOk = $?
-# $LASTEXITCODE is unreliable for a child .ps1 that ends on a cmdlet -- a cache-hit
-# Get-Image runs no native command, so $LASTEXITCODE still holds whatever a prior
-# native command left set. Reset it first and treat only a REAL non-zero as failure
+# $LASTEXITCODE is unreliable for a child .ps1 that ends on a cmdlet: it still
+# holds whatever the last native command left set -- and a cache-hit Get-Image
+# DOES run natives that legitimately fail (the download-agent discovery ladder
+# probes VMs that may be absent; virsh/utmctl exit non-zero there), which is why
+# every guest.caching-proxy-service Get-Image.ps1 ends its success path with an
+# explicit `exit 0`. Reset it first and treat only a REAL non-zero as failure
 # ($null = "the child set none"); the $ImageFile artifact check below is the
 # reliable secondary gate. feedback_lastexitcode_null_pure_ps_chain.
 # The reset MUST be $global:-qualified. A bare `$LASTEXITCODE = $null` creates a
@@ -1068,8 +1071,8 @@ if ($IsMacOS) {
 
 # --- REGION: Final summary
 # The caching-proxy-service-admin user's password is NOT printed in the banner -- the value
-# already lives in <track>/yuruna-caching-proxy-service.yml (written by squid-
-# cache's New-VM.ps1) and the vault. Reading it again here just to echo
+# already lives in <runtime>/yuruna-caching-proxy-service.yml (written by the
+# cache VM's New-VM.ps1) and the vault. Reading it again here just to echo
 # to the terminal leaks the secret into operator transcripts / scrollback
 # for no real gain. Operators who need it run:
 #     yq .password $PasswordFile        (or: Get-Content $PasswordFile)

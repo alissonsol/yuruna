@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.03
+.VERSION 2026.08.04
 .GUID 42b7c1d9-3e5a-4f26-9c84-6d1f0a7b2e53
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -141,14 +141,14 @@ function Get-YurunaGitHubSource {
         Token comes from test.config.yml's repositories.ghToken and is required
         only when the repository is private -- raw.githubusercontent.com and the
         Contents API both refuse an unauthenticated read of a private repo.
-    .PARAMETER RepoRoot
-        Absolute path to the repository root the host is serving.
         FrameworkUrl / ProjectUrl are the clone URLs, carried alongside so a guest
         that cannot reach the host has them too. A guest normally reads them from
         the host's /control/test-config -- which is exactly what a guest cut off
         from the host cannot do, leaving it able to FETCH its update script from
         GitHub but with no URL to CLONE the framework from. Baking them into the
         seed closes that gap.
+    .PARAMETER RepoRoot
+        Absolute path to the repository root the host is serving.
     .OUTPUTS
         [hashtable] @{ Repo = 'owner/repo'; Ref = '<sha>'; Token = '<token>';
                        FrameworkUrl = '<url>'; ProjectUrl = '<url>' }.

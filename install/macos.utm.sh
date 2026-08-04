@@ -1,7 +1,7 @@
 #!/bin/bash
 # Yuruna macOS UTM bootstrap installer.
 # LICENSEURI https://yuruna.link/license
-# Version: 2026.08.03  Copyright (c) 2019-2026 by Alisson Sol et al.
+# Version: 2026.08.04  Copyright (c) 2019-2026 by Alisson Sol et al.
 # --- REGION: https://yuruna.link/install/explained
 # One-liner: /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/install/macos.utm.sh)"
 
@@ -34,7 +34,6 @@ log()  { printf '\033[1;34m==>\033[0m %s\n' "$*"; }
 warn() { printf '\033[1;33m!! \033[0m %s\n' "$*" >&2; }
 die()  { printf '\033[1;31mXX \033[0m %s\n' "$*" >&2; exit 1; }
 
-# --- REGION: Install log
 # --- REGION: https://yuruna.link/install/explained#install-log
 if [[ -z "${YURUNA_INSTALL_LOG:-}" ]]; then
   _yuruna_log_dir="$HOME/Library/Logs/Yuruna"
@@ -213,26 +212,24 @@ if [[ -z "$BREW_PREFIX" ]]; then
   fi
 fi
 
-# HOMEBREW_NO_AUTO_UPDATE=1 silences the "fatal: not in a git directory"
-# + "update-report should not be called directly!" cascade that fires
-# INSIDE every `brew install` / `brew upgrade` when the prefix isn't a
-# proper git checkout. Without this, each per-package op spams ~10
-# lines of noise BEFORE doing its actual work, and the operator can't
-# tell real errors from auto-update fallout. The explicit `brew update`
-# step below is still run when the prefix IS a git checkout; auto-update
-# inside individual ops is redundant with that one explicit call.
+# HOMEBREW_NO_AUTO_UPDATE=1 silences the "fatal: not in a git directory" +
+# "update-report should not be called directly!" cascade that fires INSIDE
+# every `brew install` / `brew upgrade` when the prefix isn't a proper git
+# checkout -- ~10 lines of noise before each per-package op does its work,
+# indistinguishable from a real error. The explicit `brew update` step below
+# still runs when the prefix IS a git checkout, so per-op auto-update is
+# redundant with that one call.
 export HOMEBREW_NO_AUTO_UPDATE=1
-# HOMEBREW_NO_ENV_HINTS=1 suppresses the "Homebrew is run entirely by
-# unpaid volunteers" donations banner + similar one-shot hints that
-# accumulate across the half-dozen brew ops in this script. Cosmetic;
-# the install works either way.
+# HOMEBREW_NO_ENV_HINTS=1 suppresses the "Homebrew is run entirely by unpaid
+# volunteers" donations banner and similar one-shot hints that accumulate
+# across the half-dozen brew ops here. Cosmetic; the install works either way.
 export HOMEBREW_NO_ENV_HINTS=1
-# NONINTERACTIVE=1 keeps `brew install` / `brew upgrade` / `--cask` from
-# blocking on interactive confirmation prompts (e.g. a cask overwrite or
-# post-install confirmation) during the package phase. It is set inline
-# ABOVE only for the Homebrew bootstrap; without exporting it here the
-# per-package ops can stop and wait for a 'y'. The sudo keepalive already
-# handles the password, so this only suppresses Homebrew's own prompts.
+# NONINTERACTIVE=1 keeps `brew install` / `brew upgrade` / `--cask` from blocking
+# on an interactive confirmation (a cask overwrite, a post-install question)
+# during the package phase; it is set inline ABOVE only for the Homebrew
+# bootstrap, and without exporting it here the per-package ops can stop and wait
+# for a 'y'. The sudo keepalive already handles the password, so this suppresses
+# Homebrew's own prompts only.
 export NONINTERACTIVE=1
 
 BREW_SKIP_UPDATE=0
@@ -426,11 +423,11 @@ stop_yuruna_processes() {
 # Quitting UTM is never confined to the VM the installer cares about: UTM
 # saves the state of EVERY running VM on its way out, and they come back
 # suspended rather than started. That makes any running service VM -- the
-# caching proxy, the stash service, pool-control -- a reason not to quit,
-# not just the proxy whose spool would also be at risk from the
-# orphaned-bundle sweep.
+# caching proxy, the stash service, pool-control, the download agent -- a
+# reason not to quit, not just the proxy whose spool would also be at risk
+# from the orphaned-bundle sweep.
 SERVICE_VM_DETECT_REASON=""
-YURUNA_SERVICE_VM_NAME=(yuruna-caching-proxy-service yuruna-stash-service yuruna-pool-control-service)
+YURUNA_SERVICE_VM_NAME=(yuruna-caching-proxy-service yuruna-stash-service yuruna-pool-control-service yuruna-download-agent-service)
 
 is_service_vm_running() {
   local state_file="$YURUNA_DIR/test/status/runtime/yuruna-caching-proxy-service.yml"

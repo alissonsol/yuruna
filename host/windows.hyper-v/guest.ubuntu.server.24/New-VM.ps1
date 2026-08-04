@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.03
+.VERSION 2026.08.04
 .GUID 42d9e0f1-a2b3-4c45-d678-9e0f1a2b3c47
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -191,7 +191,7 @@ if (Test-Path -Path $vhdxFile) {
     Remove-Item -Path $vhdxFile -Force
 }
 # 64 GB dynamic VHDX is enough headroom for the k8s + dotnet build
-# workload yet stays a uniform cap across hosts.ubuntu.kvm /
+# workload yet stays a uniform cap across hosts: ubuntu.kvm /
 # windows.hyper-v / macos.utm. Paired with sizing-policy: all in
 # host/vmconfig/ubuntu.server.base.user-data so the root LV consumes the whole PV.
 Write-Verbose "Creating 64GB dynamically expanding VHDX..."

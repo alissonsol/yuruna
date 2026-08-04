@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.03
+.VERSION 2026.08.04
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456790
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -671,8 +671,8 @@ function Stop-LogFile {
                         Move-Item -LiteralPath $inProgress -Destination $final -Force -ErrorAction Stop
                         # Update cycleFolderUrl now that the on-disk
                         # name has changed. Soft import + soft call:
-                        # Test.Status not loaded in every caller (Test-
-                        # Sequence.ps1 drives Stop-LogFile too).
+                        # Test.Status is not loaded in every caller
+                        # (Invoke-TestSequence.ps1 drives Stop-LogFile too).
                         if (Get-Command Set-CycleFolderUrl -ErrorAction SilentlyContinue) {
                             $finalLeaf = Split-Path -Leaf $final
                             Set-CycleFolderUrl -RelativeUrl "log/$finalLeaf/" -ErrorAction SilentlyContinue

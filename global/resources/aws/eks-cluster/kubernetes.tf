@@ -2,10 +2,10 @@
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 # Kubernetes provider
 # https://learn.hashicorp.com/terraform/kubernetes/provision-eks-cluster#optional-configure-terraform-kubernetes-provider
-# To learn how to schedule deployments and services using the provider, go here: https://learn.hashicorp.com/terraform/kubernetes/deploy-nginx-kubernetes
+# Scheduling deployments and services: https://learn.hashicorp.com/terraform/kubernetes/deploy-nginx-kubernetes
 
-# The Kubernetes provider is included in this file so Kubernetes resources added to this workspace can authenticate against the cluster.
-# You should **not** schedule deployments and services in this workspace. This keeps workspaces modular (one for provisioning EKS, another for scheduling Kubernetes resources) as per best practices.
+# The provider is declared here so Kubernetes resources added to this workspace can authenticate against the cluster.
+# Do NOT schedule deployments and services in this workspace: keeping workspaces modular (one provisions EKS, another schedules Kubernetes resources) is the recommended practice.
 
 provider "kubernetes" {
   host                   = module.eks.cluster_endpoint

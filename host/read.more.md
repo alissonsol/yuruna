@@ -1,7 +1,7 @@
 # Hosts — Nerd-Level Details
 
-The crisp version lives in [Hosts — ...](README.md); this file holds the
-detail on macOS TCC grants, VM resizing, and IP discovery.
+The crisp version lives in [Hosts — ...](README.md); this file covers
+macOS TCC grants, VM resizing, and IP discovery.
 
 ## macOS TCC grants
 
@@ -16,7 +16,7 @@ permissions on macOS, granted to the terminal app at
   `tapOn` loops on "UTM window for `<vm>` not found".
 
 `Enable-TestAutomation.ps1` fires the consent dialog for each, but TCC
-forbids automating the toggle itself. Dismissed a dialog? Toggle
+forbids automating the toggle itself. Dismissed a dialog? Toggle it
 manually, then **fully quit and relaunch the terminal** — TCC grants
 don't apply to the running process.
 
@@ -25,7 +25,8 @@ don't apply to the running process.
 Most VMs are **12 GB RAM, 4 vCPU**; disks are dynamic/thin and vary by
 guest (64 GB for the Ubuntu Server guests, up to 512 GB for
 Windows 11 — see [README.md](README.md));
-the stash-service guest is smaller (8 GB; caching-proxy-service stays at 12 GB) and
+the stash-service, pool-control-service and download-agent-service
+guests are smaller (8 GB; caching-proxy-service stays at 12 GB) and
 the KVM guests are sized down further. Change for **new VMs**: edit
 `New-VM.ps1` (Hyper-V: replace `12288MB`; UTM: replace
 `__MEMORY_SIZE__`; KVM: replace `--memory`).
@@ -62,6 +63,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.03
+Last review: 2026.08.04
 
 Back to [Yuruna](../README.md)

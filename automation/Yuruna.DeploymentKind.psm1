@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.03
+.VERSION 2026.08.04
 .GUID 42c7d8e9-f0a1-4b23-8456-7c8d9e0f1a23
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -242,14 +242,11 @@ function Resolve-YurunaDeploymentKind {
     return $effective
 }
 
-# Built-in kinds. Registration order IS the precedence order and the
-# order the expected-text phrase is built in: chart first (its own
-# pipeline), then kubectl, helm, shell. Adding a pure tool-expression
-# kind is exactly one line here. kubectl/helm prepend their tool name +
-# a space to the value; shell runs the value verbatim ('' prefix).
-# kubectl/helm cross the network so they opt into the transient-fetch
-# retry; shell does not. chart never reaches the tool-expression branch
-# (IsChart routes it to the bespoke helm pipeline) so its CommandPrefix
+# Built-in kinds; registration order IS the precedence and the expected-text
+# order. kubectl/helm prepend their tool name + a space to the value and cross
+# the network, so they opt into the transient-fetch retry; shell runs the value
+# verbatim ('' prefix) and does not. chart never reaches the tool-expression
+# branch (IsChart routes it to the bespoke helm pipeline), so its CommandPrefix
 # is irrelevant and Retryable is $false.
 Register-YurunaDeploymentKind -Name 'chart'   -IsChart $true  -ToolName 'helm'    -CommandPrefix ''         -Retryable $false
 Register-YurunaDeploymentKind -Name 'kubectl' -IsChart $false -ToolName 'kubectl' -CommandPrefix 'kubectl ' -Retryable $true

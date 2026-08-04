@@ -1,4 +1,4 @@
-# stash service VM (Ubuntu KVM)
+# Stash service VM (Ubuntu KVM)
 
 Scripts and config in this folder:
 
@@ -18,6 +18,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.03
+Last review: 2026.08.04
 
 Back to [Yuruna](../../../README.md)

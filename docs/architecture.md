@@ -59,8 +59,8 @@ Test-Runtime.ps1
 - `Test-Requirement.ps1` — check required tools and versions.
 
 `config_subfolder` selects the cloud: `localhost`, `aws`, or `azure`
-(`gcp` is planned, not yet available). Cloud variants require
-a one-time auth step (`az login`, `aws configure`, `gcloud auth …`) — see
+(`gcp` is planned). Cloud variants require a one-time auth step
+(`az login`, `aws configure`, `gcloud auth …`) — see
 [Yuruna Authentication](authentication.md). Which streams reach the
 console is set by `-logLevel`: [Yuruna Log Levels](loglevels.md).
 
@@ -117,7 +117,7 @@ plus a `*.rc` sidecar holding the LAST observed exit code:
 `Get-SystemDiagnostic.ps1` cross-checks `*.rc` against in-cluster
 state to flag a silent success-without-effect (e.g. `helm.rc=0` but
 no helm releases). The scan uses `-Force` so recursion descends into
-the dot-prefixed `.yuruna/` working folders; without `-Force`,
+the dot-prefixed `.yuruna/` working folders; without it,
 helm/kubectl stderr files are hidden on Linux and a real failure
 shows as "no `*.stderr.log` — no phase has produced output" even when
 a 60-char-truncated excerpt of the error sits in the earlier "Errors,
@@ -150,14 +150,13 @@ malformed helm image references. See
 **SIGKILL recovery.** The rollback above is a PowerShell `catch`, so it
 only runs when `Move-Item` itself throws. A process kill (watchdog
 SIGTERM/SIGKILL, host shutdown, BSOD) landing between the two moves
-leaves only `<workFolder>.old` on disk and the `catch` never runs.
-Without an explicit guard the staging branch would then see
-`Test-Path $workFolderRoot == $false`, skip the `.terraform/` and
-`tofu.planfile` carry-over, and the next `tofu apply` would run against
-a freshly created folder with no provider state — usually destroying
-actual cloud resources. `Set-Resource` detects that signature (no live
-folder, `.old` present) and restores before any other staging step
-runs.
+leaves only `<workFolder>.old` on disk. Without an explicit guard the
+staging branch would then see `Test-Path $workFolderRoot == $false`,
+skip the `.terraform/` and `tofu.planfile` carry-over, and the next
+`tofu apply` would run against a freshly created folder with no
+provider state — usually destroying actual cloud resources.
+`Set-Resource` detects that signature (no live folder, `.old` present)
+and restores before any other staging step runs.
 
 ### Shared transient-failure retry policy
 
@@ -168,9 +167,8 @@ mirrored on the guest side by
 [Defining yuruna retry lib](network.md#defining-yuruna-retry-lib).
 
 **Defaults:** 5 attempts, 10s initial delay, `*= 2` backoff, ±25%
-jitter, 300s cap. This widens the retry window past github.com's
-typical 5xx blip so a transient provider download no longer fails the
-cycle.
+jitter, 300s cap. That window reaches past github.com's typical 5xx blip,
+so a transient provider download does not fail the cycle.
 
 **The classifier** is the single source of truth for "is this failure
 worth retrying?" across `tofu init/plan/apply/output` and helm/kubectl
@@ -189,9 +187,9 @@ A bare `500` sits alongside the gateway 5xx codes because the read-only
 manifest and chart fetches gated here (helm, `kubectl -f <URL>`, tofu
 provider/registry GETs) hit upstream CDNs and registries — GitHub
 release assets in particular return transient bare 500s that clear on
-retry. A genuinely deterministic 500 just burns the backoff budget and
-then fails, the same as any other code in the list, so including it
-costs at most one backoff cycle.
+retry. A genuinely deterministic 500 burns the backoff budget and then
+fails, like any other code in the list, so including it costs at most one
+backoff cycle.
 
 **Per-phase gating:**
 
@@ -223,6 +221,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.03
+Last review: 2026.08.04
 
 Back to [Yuruna](../README.md)

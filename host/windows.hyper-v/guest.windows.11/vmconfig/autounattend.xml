@@ -3,23 +3,20 @@
 <!-- Copyright (c) 2019-2026 by Alisson Sol et al. -->
 <unattend xmlns="urn:schemas-microsoft-com:unattend">
 
-    <!-- Aligned with host/ubuntu.kvm/guest.windows.11/vmconfig/autounattend.xml
-         and host/macos.utm/guest.windows.11/vmconfig/autounattend.xml so
-         the post-OOBE end state is comparable across the supported hosts. The only
-         intentional differences are platform-mandatory:
-           * processorArchitecture="amd64"  (matches ubuntu.kvm; macos.utm = arm64)
-           * `net user <user> /logonpasswordchg:yes` (force password change on
-             first login). Present here and on macos.utm; ubuntu.kvm excludes
-             it because that host drives the guest via Windows OpenSSH, and
-             SSH refuses logins with expired passwords (no password-change
-             challenge in the SSH protocol).
-         Items NOT in this file that DO appear in ubuntu.kvm:
-           * Microsoft-Windows-PnpCustomizationsWinPE / DriverPaths
-             (virtio-win bus drivers for QEMU/KVM only; Hyper-V ships native
-             disk drivers in the Windows ISO).
-           * Three extra FirstLogonCommands installing OpenSSH Server and
-             opening inbound :22 (KVM-only; Hyper-V uses vmconnect.exe for
-             console access instead of SSH). -->
+    <!-- Kept aligned with host/ubuntu.kvm/guest.windows.11/vmconfig/autounattend.xml
+         and host/macos.utm/guest.windows.11/vmconfig/autounattend.xml so the
+         post-OOBE end state is comparable across the supported hosts. Intentional,
+         platform-mandatory differences:
+           * processorArchitecture="amd64" (matches ubuntu.kvm; macos.utm = arm64).
+           * `net user <user> /logonpasswordchg:yes` forces a password change on
+             first login. Also on macos.utm; ubuntu.kvm omits it because that host
+             drives the guest over Windows OpenSSH, and SSH refuses logins with
+             expired passwords (the protocol has no password-change challenge).
+         In ubuntu.kvm but not here:
+           * Microsoft-Windows-PnpCustomizationsWinPE / DriverPaths (virtio-win bus
+             drivers for QEMU/KVM only; Hyper-V's disk drivers ship in the Windows ISO).
+           * Three extra FirstLogonCommands installing OpenSSH Server and opening
+             inbound :22 (Hyper-V uses vmconnect.exe for console access). -->
 
     <!-- === Pass 1: windowsPE - Runs during Windows Setup (before install) === -->
     <settings pass="windowsPE">
@@ -191,9 +188,7 @@
                 <LogonCount>1</LogonCount>
             </AutoLogon>
 
-            <!-- Run PowerShell commands on first logon -->
             <FirstLogonCommands>
-                <!-- Enable Remote Desktop -->
                 <SynchronousCommand wcm:action="add">
                     <Order>1</Order>
                     <CommandLine>powershell.exe -NoProfile -Command "Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name 'fDenyTSConnections' -Value 0"</CommandLine>
@@ -204,34 +199,28 @@
                     <CommandLine>powershell.exe -NoProfile -Command "Enable-NetFirewallRule -DisplayGroup 'Remote Desktop'"</CommandLine>
                     <Description>Allow Remote Desktop through firewall</Description>
                 </SynchronousCommand>
-                <!-- Set time zone automatically -->
                 <SynchronousCommand wcm:action="add">
                     <Order>3</Order>
                     <CommandLine>powershell.exe -NoProfile -Command "Set-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Services\tzautoupdate' -Name 'Start' -Value 3"</CommandLine>
                     <Description>Enable automatic time zone</Description>
                 </SynchronousCommand>
-                <!-- Disable auto-logon after first use -->
                 <SynchronousCommand wcm:action="add">
                     <Order>4</Order>
                     <CommandLine>powershell.exe -NoProfile -Command "Set-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon' -Name 'AutoAdminLogon' -Value '0'"</CommandLine>
                     <Description>Disable auto-logon after first boot</Description>
                 </SynchronousCommand>
-                <!-- Force password change on next login -->
                 <SynchronousCommand wcm:action="add">
                     <Order>5</Order>
                     <CommandLine>net user ywuser1 /logonpasswordchg:yes</CommandLine>
                     <Description>Expire default password so user must change it on next login</Description>
                 </SynchronousCommand>
-                <!--
-                  Put repositories.ghToken into the user's PowerShell profile and point
-                  git at it, so a private frameworkUrl/projectUrl clones unattended.
-
-                  Passed as -EncodedCommand because the bootstrap is a multi-line script
-                  full of quotes, '$', and redirection: spelling it inline here would mean
-                  XML-escaping shell metacharacters into a single unreadable line, and one
-                  bad escape produces a first-logon script that fails silently on a VM
-                  nobody is watching. New-VM.ps1 base64s the real script into this slot.
-                -->
+                <!-- Puts repositories.ghToken into the user's PowerShell profile and
+                     points git at it, so a private frameworkUrl/projectUrl clones
+                     unattended. Passed as -EncodedCommand because the bootstrap is a
+                     multi-line script full of quotes, '$' and redirection: inline, every
+                     shell metacharacter would have to be XML-escaped onto one line, where
+                     a single bad escape yields a first-logon script that fails silently
+                     on an unwatched VM. New-VM.ps1 base64s it into this slot. -->
                 <SynchronousCommand wcm:action="add">
                     <Order>6</Order>
                     <CommandLine>powershell.exe -NoProfile -ExecutionPolicy Bypass -EncodedCommand GH_BOOTSTRAP_B64_PLACEHOLDER</CommandLine>

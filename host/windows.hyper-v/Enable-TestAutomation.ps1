@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.03
+.VERSION 2026.08.04
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456755
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -67,11 +67,10 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-# Surface the module's action-taken messages (Set-WindowsHostConditionSet
-# reports each setting via Write-Information). Without Continue, the
-# display-scale + screen-lock + display-timeout decisions print nothing
-# and the operator can't tell what changed -- contradicting the script's
-# own header which promises to "inform" of each action.
+# Set-WindowsHostConditionSet reports each setting it touches via
+# Write-Information; without Continue the display-scale, screen-lock and
+# display-timeout decisions print nothing and the operator cannot tell what
+# changed.
 $InformationPreference = 'Continue'
 # Shared bootstrap (Test.HostContract import + powershell-yaml +
 # PSScriptAnalyzer install) lives in automation/Yuruna.HostSetup.psm1.
@@ -106,17 +105,12 @@ if ($SkipPoolStorage) {
     Invoke-PoolStorageSetupAndReclaim -RepoRoot $RepoRoot
 }
 
-# Closing guidance: the virtual display is opt-in (see header). On a host that
-# runs tests without a connected monitor -- a headless box, a closed laptop
-# lid, or a KVM switch that can yank the physical display mid-run -- DWM stops
-# painting the Hyper-V synthetic GPU and screen-capture/OCR goes all-black.
-# Setting YURUNA_VIRTUAL_DISPLAY makes each cycle attach a virtual display that
-# survives the monitor coming and going. It is deliberately NOT set here: it
-# changes the host's monitor topology / scaling, so it must stay an explicit
-# operator choice. See docs/host-hyperv.md.
-# Test-YurunaVirtualDisplayEnabled resolves the live process variable first,
-# then the persisted User/Machine scope -- so this reflects what the runner
-# will actually do, not just this shell's (possibly stale) process block.
+# The virtual display is opt-in (see header) and deliberately NOT set here: it
+# changes the host's monitor topology / scaling, so it stays an explicit
+# operator choice. Test-YurunaVirtualDisplayEnabled resolves the live process
+# variable first, then the persisted User/Machine scope, so this reflects what
+# the runner will actually do rather than this shell's (possibly stale)
+# process block. See docs/host-hyperv.md.
 if (Test-YurunaVirtualDisplayEnabled) {
     Write-Information "YURUNA_VIRTUAL_DISPLAY is enabled -- each test cycle will attach a virtual display, so screen-capture/OCR survives running without a connected monitor. To turn it off: [Environment]::SetEnvironmentVariable('YURUNA_VIRTUAL_DISPLAY', `$null, 'Machine'); `$env:YURUNA_VIRTUAL_DISPLAY = `$null"
 } else {

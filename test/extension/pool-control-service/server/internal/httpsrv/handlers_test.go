@@ -63,8 +63,14 @@ func (f *fakeIntent) DeleteTestSetDef(ctx context.Context, a string) intent.Resu
 	return f.ret
 }
 
+// testBearer stands in for the shared lab auth token. Every route that rewrites
+// pool configuration is gated on it, so these relay tests carry it: what they
+// are about is which CLI a route invokes with which arguments, and the gate has
+// its own coverage in board_test.go and in the SDK.
+const testBearer = "test-lab-auth-token"
+
 func newTestServer(f *fakeIntent) *httptest.Server {
-	return httptest.NewServer(New(f, Options{Version: "test"}).Handler())
+	return httptest.NewServer(New(f, Options{Version: "test", AuthToken: testBearer}).Handler())
 }
 
 func do(t *testing.T, method, url, body string) (*http.Response, map[string]any) {
@@ -74,6 +80,7 @@ func do(t *testing.T, method, url, body string) (*http.Response, map[string]any)
 		rdr = strings.NewReader(body)
 	}
 	req, _ := http.NewRequest(method, url, rdr)
+	req.Header.Set("Authorization", "Bearer "+testBearer)
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatalf("%s %s: %v", method, url, err)
@@ -157,7 +164,7 @@ func TestAssignForwardsTriple(t *testing.T) {
 func TestMutationAuditsAndHealthz(t *testing.T) {
 	f := &fakeIntent{ret: intent.Result{OK: true, Stdout: "ok"}}
 	store := state.New(filepath.Join(t.TempDir(), "pc"), time.Now())
-	srv := httptest.NewServer(New(f, Options{Store: store}).Handler())
+	srv := httptest.NewServer(New(f, Options{Store: store, AuthToken: testBearer}).Handler())
 	defer srv.Close()
 
 	if _, m := do(t, "POST", srv.URL+"/api/pool", `{"poolId":"lab"}`); m["ok"] != true {

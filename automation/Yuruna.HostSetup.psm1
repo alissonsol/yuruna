@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.03
+.VERSION 2026.08.04
 .GUID 42a7b8c9-d0e1-4f23-9456-78a9b0c1d2e3
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -25,10 +25,9 @@
     [host/ubuntu.kvm/Enable-TestAutomation.ps1](../host/ubuntu.kvm/Enable-TestAutomation.ps1))
     otherwise each hand-roll the same 10-line bootstrap: locate Test.HostContract.psm1
     two folders up, suppress -Verbose echo during the import, then install
-    powershell-yaml + PSScriptAnalyzer so the cycle planner and the lint
-    gate can resolve their dependencies. A new prerequisite would then need
-    three identical edits. This module collapses the bootstrap into a single
-    call so a new prerequisite is one edit.
+    powershell-yaml + PSScriptAnalyzer so the cycle planner and the lint gate can
+    resolve their dependencies. This module collapses that bootstrap into a single
+    call, so a new prerequisite is one edit instead of three identical ones.
 
     Linux callers also need to prime sudo BEFORE the long
     `Install-PowerShellYamlIfMissing` step so the password prompt fires

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.03
+.VERSION 2026.08.04
 .GUID 42a8b3c4-d5e6-4f78-9a0b-1c2d3e4f5a6b
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -130,6 +130,79 @@ if ($existingIso) {
     Write-Output "Done: $baseImageFile"
     exit 0
 }
+
+# --- REGION: https://yuruna.link/guest-image-setup#agent-first-image-downloads
+# Only reached with no ISO anywhere on this host: both existence short-circuits
+# and the drop-in adoption above have already run, so a local copy is never
+# traded for a LAN transfer. When the lab has an agent that holds the Windows
+# media, this spares a multi-gigabyte pull through Microsoft's short-lived
+# signed URL; when it does not, the Fido attempt below runs exactly as it always
+# has. The family is best effort by design (the agent mints its URL by running
+# this same Fido under Linux pwsh), so "the agent does not serve Windows 11" is
+# an ordinary answer and stays verbose -- only an agent that took the request
+# and then broke is worth a warning.
+#
+# No local fingerprint is sent: this script's sidecar is the 2-line
+# filename + URL form, which carries no byte count for the agent to compare, and
+# the existence checks above are already the local-copy decision.
+$agentIsoServed = $false
+$agentStagingFile = Join-Path $downloadDir "downloaded.iso"
+# The host driver carries the download-agent client. This script has no other
+# reason to load a driver, so the import is guarded: a driver that cannot load
+# is a host with no agent, not a failed image fetch.
+if (-not (Get-Command -Name Resolve-DownloadAgentEndpoint -ErrorAction SilentlyContinue)) {
+    try {
+        Import-Module -Name (Join-Path (Split-Path -Parent $PSScriptRoot) "modules/Yuruna.Host.psm1") -Force -ErrorAction Stop
+    } catch {
+        Write-Verbose "Host driver did not load ($($_.Exception.Message)); no download agent will be consulted."
+    }
+}
+if ((Get-Command -Name Resolve-DownloadAgentEndpoint -ErrorAction SilentlyContinue) -and
+    (Get-Command -Name Request-DownloadAgentImage -ErrorAction SilentlyContinue)) {
+    $agentBaseUrl = ''
+    try { $agentBaseUrl = [string](Resolve-DownloadAgentEndpoint) } catch { $agentBaseUrl = '' }
+    if (-not $agentBaseUrl) {
+        Write-Verbose "No download agent reachable; using the Fido path."
+    } else {
+        $agentResult = $null
+        try {
+            Remove-Item $agentStagingFile -Force -ErrorAction SilentlyContinue
+            $agentResult = Request-DownloadAgentImage -BaseUrl $agentBaseUrl -HostType 'windows.hyper-v' `
+                -ImageKey 'guest.windows.11' -Arch 'amd64' -Variant 'stable' `
+                -StagingPath $agentStagingFile -DeadlineSeconds 7200
+        } catch {
+            Write-Warning "Download agent at $agentBaseUrl failed ($($_.Exception.Message)); falling back to the Fido path."
+            $agentResult = $null
+        }
+        if ($agentResult -and $agentResult.outcome -eq 'downloaded') {
+            Write-Output "Download agent at $agentBaseUrl served verified $($agentResult.filename) to $agentStagingFile"
+            $previousFile = Join-Path $downloadDir "$baseImageName.previous.iso"
+            Remove-Item $previousFile -Force -ErrorAction SilentlyContinue
+            if (Test-Path -LiteralPath $baseImageFile) {
+                Move-Item -Path $baseImageFile -Destination $previousFile
+                Write-Output "  Previous image preserved as: $previousFile"
+            }
+            Move-Item -Path $agentStagingFile -Destination $baseImageFile -Force
+            # The 2-line sidecar (filename + URL) this family has always written;
+            # the 4-line sentinel reader is not wired up here, and an asymmetric
+            # writer would only produce a shape nothing reads.
+            $baseImageOrigin = Join-Path $downloadDir "$baseImageName.txt"
+            Set-Content -Path $baseImageOrigin -Value @([string]$agentResult.filename, [string]$agentResult.sourceUrl)
+            Write-Output "Recorded source filename and URL to: $baseImageOrigin"
+            Write-Output ""
+            Write-Output "== Download complete: $baseImageFile =="
+            $agentIsoServed = $true
+        } elseif ($agentResult -and $agentResult.outcome -eq 'failed') {
+            $detail = if ($agentResult.error) { ": $($agentResult.error)" } else { '' }
+            Write-Warning "Download agent at $agentBaseUrl answered 'failed'$detail; falling back to the Fido path."
+        } elseif ($agentResult) {
+            # 'unavailable' is what a working agent answers for a family it does
+            # not hold, which is the documented steady state for Windows 11.
+            Write-Verbose "Download agent at $agentBaseUrl answered '$($agentResult.outcome)'; using the Fido path."
+        }
+    }
+}
+if ($agentIsoServed) { exit 0 }
 
 # --- REGION: Try Fido (automated)
 Write-Output ""

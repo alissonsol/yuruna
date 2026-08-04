@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.03
+.VERSION 2026.08.04
 .GUID 42c2a1aa-2e97-414a-9393-0d097d2e2a2c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -82,7 +82,6 @@ try {
     Write-Warn "Could not resolve -YurunaDir '$YurunaDir' to a full path: $($_.Exception.Message)"
 }
 
-# --- REGION: Install log
 # --- REGION: https://yuruna.link/install/explained#install-log
 $script:InstallLogActive = $false
 
@@ -140,15 +139,14 @@ if (-not ($IsWindows -or $env:OS -eq 'Windows_NT')) {
 }
 
 # --- REGION: Preflight: Hyper-V-capable Windows edition (HARD requirement)
-# Distinct from the "tested baseline" warnings below. Those (low RAM, fewer
-# cores, an untested-but-Hyper-V-capable Windows version) are soft, and the
+# Distinct from the "tested baseline" warnings below: those (low RAM, fewer
+# cores, an untested-but-Hyper-V-capable Windows version) are soft and the
 # operator may continue past them. A Windows Home / S mode edition is not
-# negotiable: it ships no Hyper-V platform at all, so every VM the test harness
-# needs is impossible and there is nothing the elevated stage can enable to
-# change that. Catch it HERE -- before the UAC elevation and the winget
-# installs -- and abort naming the real cause, rather than running on to a
-# misleading "INSTALL RESULT: SUCCESS" whose only hint is a buried "feature not
-# available on this SKU" warning emitted mid-run.
+# negotiable -- it ships no Hyper-V platform at all, so nothing the elevated
+# stage can enable makes the harness's VMs possible. Catch it HERE, before the
+# UAC elevation and the winget installs, and abort naming the real cause rather
+# than running on to a misleading "INSTALL RESULT: SUCCESS" whose only hint is a
+# buried "feature not available on this SKU" warning emitted mid-run.
 function Assert-HyperVCapableEdition {
     $os = $null
     try {
@@ -620,7 +618,6 @@ function Stop-YurunaProcess {
     }
 }
 
-# --- REGION: Directory rename that stays a rename
 # --- REGION: https://yuruna.link/install/explained#directory-rename-that-stays-a-rename
 # Invariant: always [System.IO.Directory]::Move; sibling destinations only.
 function Move-YurunaDirectory {

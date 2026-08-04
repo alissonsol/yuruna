@@ -17,10 +17,9 @@ locals {
   default_ami_type       = "AL2023_x86_64_STANDARD"
   default_instance_types = ["m6i.large", "m5.large", "m5n.large", "m5zn.large"]
 
-  # Parse the comma-separated CIDR allow-list (a single tfvars string, since
-  # the pipeline emits every variable as a quoted string) into the list the
-  # EKS module wants. trimspace + drop-empties tolerates trailing commas and
-  # spaces.
+  # Split the comma-separated CIDR allow-list (one tfvars string, since the
+  # pipeline emits every variable quoted) into the list the EKS module wants.
+  # trimspace + drop-empties tolerates trailing commas and spaces.
   authorized_cidrs = [for c in split(",", var.apiServerAuthorizedCidrs) : trimspace(c) if trimspace(c) != ""]
 }
 
@@ -40,8 +39,8 @@ module "eks" {
   endpoint_public_access  = true
 
   # Restrict the public API endpoint to the pinned admin CIDRs instead of the
-  # module default 0.0.0.0/0 (whole internet). Private access stays on for
-  # in-VPC node/pod traffic; the external kubectl/helm deploy uses this list.
+  # module default 0.0.0.0/0. Private access stays on for in-VPC node/pod
+  # traffic; the external kubectl/helm deploy uses this list.
   endpoint_public_access_cidrs = local.authorized_cidrs
 
   # EKS does not grant the cluster-creating identity Kubernetes API access on
@@ -75,7 +74,6 @@ module "eks" {
   vpc_id     = module.vpc.vpc_id
   subnet_ids = module.vpc.private_subnets
 
-  # Extend cluster security group rules
   security_group_additional_rules = {
     egress_nodes_ephemeral_ports_tcp = {
       description                = "To node 1025-65535"
@@ -87,7 +85,6 @@ module "eks" {
     }
   }
 
-  # Extend node-to-node security group rules
   node_security_group_additional_rules = {
     ingress_self_all = {
       description = "Node to node all ports/protocols"
@@ -111,8 +108,8 @@ module "eks" {
   eks_managed_node_groups = {
     # Default node group - as provided by AWS EKS
     default_node_group = {
-      # By default, the module creates a launch template to ensure tags are propagated to instances, etc.,
-      # so we need to disable it to use the default template provided by the AWS EKS managed node group service
+      # The module creates a launch template by default so tags propagate to
+      # instances; disable it to use the AWS EKS managed node group default.
       use_custom_launch_template = false
 
       ami_type       = local.default_ami_type
@@ -128,8 +125,8 @@ module "eks" {
 
     # Default node group - as provided by AWS EKS using Bottlerocket
     bottlerocket_default = {
-      # By default, the module creates a launch template to ensure tags are propagated to instances, etc.,
-      # so we need to disable it to use the default template provided by the AWS EKS managed node group service
+      # The module creates a launch template by default so tags propagate to
+      # instances; disable it to use the AWS EKS managed node group default.
       use_custom_launch_template = false
 
       ami_type       = "BOTTLEROCKET_x86_64"
@@ -152,7 +149,6 @@ module "eks" {
 
     # Custom AMI, using module provided bootstrap data
     bottlerocket_custom = {
-      # Current bottlerocket AMI
       ami_id         = data.aws_ami.eks_default_bottlerocket.image_id
       ami_type       = "BOTTLEROCKET_x86_64"
       instance_types = local.default_instance_types
@@ -191,11 +187,9 @@ module "eks" {
       # Current default AMI used by managed node groups - pseudo "custom"
       ami_id = data.aws_ami.eks_default_arm.image_id
 
-      # This will ensure the bootstrap user data is used to join the node
       # When an AMI ID is specified, EKS managed node groups supply no
-      # bootstrap user data; this adds it back in using the nodeadm
-      # NodeConfig template provided by the module
-      # Note: this assumes the AMI provided is an EKS optimized AMI derivative
+      # bootstrap user data; this adds it back via the module's nodeadm
+      # NodeConfig template. Assumes an EKS-optimized AMI derivative.
       enable_bootstrap_user_data = true
 
       instance_types = ["t4g.medium"]
@@ -362,11 +356,11 @@ module "eks" {
   tags = local.tags
 }
 
-# References to resources that do not exist yet when creating a cluster will cause a plan failure due to https://github.com/hashicorp/terraform/issues/4149
-# There are two options users can take
-# 1. Create the dependent resources before the cluster => `terraform apply -target <your policy or your security group> and then `terraform apply`
-#   Note: this is the route users will have to take for adding additional security groups to nodes since there isn't a separate "security group attachment" resource
-# 2. For additional IAM policies, users can attach the policies outside of the cluster definition as demonstrated below
+# References to resources that do not exist yet when creating a cluster fail at plan time: https://github.com/hashicorp/terraform/issues/4149
+# Two options:
+# 1. Create the dependent resources first => `terraform apply -target <your policy or your security group>`, then `terraform apply`.
+#   Required for additional node security groups, since there is no separate "security group attachment" resource.
+# 2. Attach additional IAM policies outside the cluster definition, as below.
 resource "aws_iam_role_policy_attachment" "additional" {
   for_each = module.eks.eks_managed_node_groups
 
@@ -511,12 +505,13 @@ data "aws_iam_policy_document" "ebs" {
   }
 }
 
-# This is based on the LT that EKS would create if no custom one is specified (aws ec2 describe-launch-template-versions --launch-template-id xxx)
-# there are several more options one could set but you probably don't need to modify them
-# you can take the default and add your custom AMI and/or custom tags
+# Based on the LT that EKS would create if no custom one is specified
+# (aws ec2 describe-launch-template-versions --launch-template-id xxx). Many more
+# options exist but rarely need changing: take the default and add a custom AMI
+# and/or tags.
 #
-# Trivia: AWS transparently creates a copy of your LaunchTemplate and actually uses that copy then for the node group. If you DON'T use a custom AMI,
-# then the default user-data for bootstrapping a cluster is merged in the copy.
+# AWS copies the LaunchTemplate and uses that copy for the node group; without a
+# custom AMI, the default cluster-bootstrap user-data is merged into the copy.
 
 resource "aws_launch_template" "external" {
   name_prefix            = "external-eks-ex-"
@@ -545,9 +540,9 @@ resource "aws_launch_template" "external" {
   # if you want to use a custom AMI
   # image_id      = var.ami_id
 
-  # If you use a custom AMI, you need to supply via user-data the bootstrap configuration (nodeadm NodeConfig on AL2023 AMIs) as EKS DOESN'T merge its managed user-data then
-  # you can add more than the minimum code you see in the template, e.g. install SSM agent, see https://github.com/aws/containers-roadmap/issues/593#issuecomment-577181345
-  # (optionally you can use https://registry.terraform.io/providers/hashicorp/cloudinit/latest/docs/data-sources/cloudinit_config to render the script, example: https://github.com/terraform-aws-modules/terraform-aws-eks/pull/997#issuecomment-705286151)
+  # With a custom AMI, EKS does NOT merge its managed user-data, so the bootstrap configuration (nodeadm NodeConfig on AL2023 AMIs) must be supplied here.
+  # The template can do more than the minimum, e.g. install the SSM agent: https://github.com/aws/containers-roadmap/issues/593#issuecomment-577181345
+  # Optionally render the script with https://registry.terraform.io/providers/hashicorp/cloudinit/latest/docs/data-sources/cloudinit_config (example: https://github.com/terraform-aws-modules/terraform-aws-eks/pull/997#issuecomment-705286151)
   # user_data = base64encode(templatefile("${path.module}/launch-template-userdata.sh.tpl", { cluster_name = local.name }))
 
   tag_specifications {

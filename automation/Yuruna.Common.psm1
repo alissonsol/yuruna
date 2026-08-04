@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.03
+.VERSION 2026.08.04
 .GUID 4288bcbc-ede3-4dda-bb77-b9782c7615ad
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -484,7 +484,7 @@ function Test-IpAddress {
     family -- operator-set env vars, parameters, files written by the
     harness. Internally combines Test-Ipv4Address and Test-Ipv6Address;
     rejects the same edge cases each does (out-of-range octets, garbage
-    hex, URL-bracket forms, shortened-IPv4 forms, etc).
+    hex, URL-bracket forms, shortened-IPv4 forms, etc.).
 .OUTPUTS
     [bool]
 #>
@@ -1406,11 +1406,13 @@ function Get-YurunaServiceVmName {
     cycle creates and destroys.
 .DESCRIPTION
     Concurrency guards exist to keep leftover TEST guests from competing with a
-    cycle. These three are the opposite kind of VM: the cycle consumes them. The
+    cycle. These four are the opposite kind of VM: the cycle consumes them. The
     caching proxy serves every guest install, the stash service receives the
-    build's binaries, and the pool-control service serves the intent store.
+    build's binaries, the pool-control service serves the intent store, and the
+    download agent serves the guest images every host would otherwise fetch
+    from the origin itself.
     Stopping one at cycle start -- or refusing to start because one is running --
-    does not free the host, it removes something the cycle is about to require.
+    does not free the host; it removes something the cycle is about to require.
 
     There is one definition because there is more than one guard, and a name
     present in one list and missing from the other produces the worst outcome of
@@ -1423,7 +1425,7 @@ function Get-YurunaServiceVmName {
     [CmdletBinding()]
     [OutputType([string[]])]
     param()
-    return [string[]]@('yuruna-caching-proxy-service', 'yuruna-stash-service', 'yuruna-pool-control-service')
+    return [string[]]@('yuruna-caching-proxy-service', 'yuruna-stash-service', 'yuruna-pool-control-service', 'yuruna-download-agent-service')
 }
 
 function Select-NameByPrefix {

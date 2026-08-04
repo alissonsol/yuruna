@@ -3,24 +3,29 @@
   LICENSEURI https://yuruna.link/license
   Copyright (c) 2019-2026 by Alisson Sol et al.
 
-  The expert entry point. The board took "/", so the pages that used to hang off
-  it are gathered here. Every one of them keeps its own URL, so an existing
-  bookmark still works -- except Assign, which WAS "/" and is now /assign.
+  The expert entry point: everything that is not the day-to-day board. Each page
+  keeps its own URL, so a bookmark to one stays valid. Assign lives at /assign
+  because the root slot serves the board.
 -->
 <html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Pool-control service &mdash; Advanced</title>
+  <title>Yuruna Pool Control &mdash; Advanced</title>
   <link rel="stylesheet" href="/assets/style.css">
 </head>
-<body>
+<body class="has-footer-bar">
   <header class="app">
-    <span class="brand">Yuruna pool-control service</span>
+    <div class="brand">
+      <span>Yuruna Pool Control</span>
+      <span class="version" id="header-version"></span>
+    </div>
     <nav>
       <a href="/">Board</a>
       <a href="/advanced" class="active">Advanced</a>
     </nav>
+    <span class="spacer"></span>
+    <span class="machine" id="machine"></span>
   </header>
   <main>
     <h1>Advanced</h1>
@@ -36,5 +41,12 @@
       <li><a href="/diagnostics">Diagnostics</a> &mdash; this daemon's own view of its dependencies.</li>
     </ul>
   </main>
+  <footer id="footer-bar">
+    <span id="footer-ips"><span class="label">IPs:</span><textarea id="footer-ip-list" readonly rows="1" spellcheck="false" inputmode="none" autocorrect="off" autocapitalize="off" aria-label="Server IP addresses">—</textarea></span>
+    <span>Loaded: <span id="last-loaded">—</span></span>
+    <span><a id="footer-refresh" href="#">Refresh</a>: <span id="countdown">60</span>s · <a href="https://yuruna.link/pool-control">guide</a></span>
+  </footer>
+  <script src="/assets/common.js"></script>
+  <script src="/assets/advanced.js"></script>
 </body>
 </html>

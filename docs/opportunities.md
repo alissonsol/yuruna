@@ -14,7 +14,7 @@ tracked are now mostly shipped (see
 [Recently shipped](#recently-shipped)).
 
 Status: 🚧 in progress · ⏸ deferred / parked · no marker = open.
-Priorities are re-ranked against an 860-cycle single-host corpus
+Priorities are ranked against an 860-cycle single-host corpus
 (2026-05-21 → 06-08): 53 real failures, dominated by SSH readiness (16)
 and OCR/capture (4+); several a-priori "big" items (IP-pool exhaustion,
 proxy 5xx, disk) show **zero** occurrences on one host and only become
@@ -25,8 +25,7 @@ real under multi-host fan-out — which is why they sit in Low ROI.
 **Yuruna asserts resources are configured to verify components against
 anticipated workloads.** The horizons below are coarse product
 milestones (dates are targets); the ROI-ranked sections that follow
-track the finer-grained infrastructure and reliability work in
-parallel.
+track finer-grained infrastructure and reliability work.
 
 ### Horizon: 1-2 months (target 2026-07)
 
@@ -58,22 +57,22 @@ validation, or small changes against real recurring pain.
   pull through the squid proxy, then confirm `:9400/healthz`, that
   `/api/v1/pool-status` lists discovered hosts, the Prometheus target is
   UP, Loki streams flow, the dashboard renders across ≥2 hosts, and killing
-  the collector leaves every runner still testing. This is the only part of
-  the pool MVP not statically checkable, and it validates the
+  the collector leaves every runner still testing. The only part of the
+  pool MVP not statically checkable; it validates the
   `(hostId, runId, cycleStartUtc)` join keys on real data.
 - **Archive `last_failure.json` per-cycle.** Copy it into each cycle folder
   so matched-pattern / label / OCR-tail detail survives history. Today only
-  the flattened `step_failure` event persists, which is the one corpus
-  blind spot (it prevents measuring real-vs-false `pattern_matched_failure`)
-  and is the prerequisite for predictive tuning. Cheap, no-regrets.
+  the flattened `step_failure` event persists — the one corpus blind spot
+  (it prevents measuring real-vs-false `pattern_matched_failure`) and the
+  prerequisite for predictive tuning. Cheap, no-regrets.
 - **SSH connectivity across hosts.** Wire uniform host-to-host SSH so
   cross-host operations work; foundational for the multi-host pool harness.
 - **Windows startup + minimal-workload test sequence.** Give Windows guests
   the same end-to-end startup-plus-workload exercise other platforms have,
-  closing a test-matrix coverage gap.
+  closing a test-matrix gap.
 - **Validate config for duplicate resource / context names.** Detect
-  repeated resource names and duplicate context names at preflight, before
-  they cause ambiguous or overwriting behavior mid-cycle. Fits the existing
+  repeated resource and context names at preflight, before they cause
+  ambiguous or overwriting behavior mid-cycle. Fits the existing
   config-validation gate; low effort.
 - **Fix the wrong time zone in Ubuntu guests.** Set the correct time zone
   during provisioning so timestamps and time-sensitive logic are accurate.
@@ -91,8 +90,8 @@ validation, or small changes against real recurring pain.
   `irm | iex` run on a fresh PS5.1 host before relying on it. Closes the
   supply-chain window where the elevated child re-fetched a moving `main`.
 - **Enforce the ASCII/no-BOM gate at release time.** 🚧 The check exists
-  and runs per-cycle and in a per-clone pre-commit hook; the remaining work
-  is invoking it as a hard precondition in the release script (the
+  and runs per-cycle and in a per-clone pre-commit hook; what remains is
+  invoking it as a hard precondition in the release script (the
   authoritative backstop). A UTF-8 BOM on `windows.hyper-v.ps1` makes PS5.1
   `irm | iex` die at line 1 — denial-of-bootstrap on every fresh host.
 
@@ -177,13 +176,12 @@ only when the enabling condition arrives.
   registration and pool planner already reserve, so they are data-population
   exercises, not re-architecture. Deferred because the failure classes they
   address (DHCP/IP exhaustion, proxy 5xx, full disk) show **zero**
-  occurrences on a single host — they only become real under multi-host
-  fan-out. Gate on the pool harness.
+  occurrences on a single host. Gate on the pool harness.
 - **Quorum-gated failure-pause break (consensus control).** ⏸ Making a
   pool's advisory `degraded` flag actually pause/break a host's
   failure-pause loop needs cross-host consensus, which the atomic
-  single-instance runner model deliberately avoids. Hardest item in the
-  design; tackle only with a clear consensus design.
+  single-instance runner model deliberately avoids. Hardest item here;
+  tackle only with a clear consensus design.
 - **Write-side control beyond polled intent.** ⏸ The git intent store,
   pull-sync shim, and admin CLI already give decentralized `desiredState`
   control. Keep any expansion intent-based (pull) — a central
@@ -220,13 +218,13 @@ only when the enabling condition arrives.
 
 ## Recently shipped
 
-Large workstreams completed since these opportunities were first scoped —
-kept here for context (details in the linked docs / code):
+Completed large workstreams, kept for context (details in the linked
+docs / code):
 
 - **Autonomous-remediation infrastructure** — failure-class dispatcher,
   NDJSON schema validator, cycle correlation IDs, and the runner state
-  machine; together they convert the existing telemetry surface into
-  something a remediation loop can act on.
+  machine; together they turn the telemetry surface into something a
+  remediation loop can act on.
 - **State-recovery primitives** — the atomic `Write-YurunaStateFile`
   helper and the boot-time recovery sweep, so every state class either
   has an atomic write helper or a startup detection + archive path.
@@ -268,6 +266,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.03
+Last review: 2026.08.04
 
 Back to [Yuruna](../README.md)

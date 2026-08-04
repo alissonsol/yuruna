@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.03
+.VERSION 2026.08.04
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456740
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -356,10 +356,27 @@ if ($IsMacOS) {
         }
     }
     if ($hasRootForwarder) {
-        Write-Output "  Root-owned caching-proxy forwarder detected -- the port-map refresh below must stop it, which needs sudo (you may be prompted for your password)..."
-        & sudo -v
-        if ($LASTEXITCODE -ne 0) {
-            Write-Warning "  sudo -v failed -- the root-owned forwarder may not be stopped cleanly."
+        # This script is reached IN-PROCESS by all four service bring-ups
+        # (Start-YurunaStatusServiceIfEnabled), and those run with their output
+        # captured by whatever started them -- install/setup.ps1, a runner cycle.
+        # A password prompt there is invisible: the text goes to a log and the
+        # run waits on a keystroke nobody knows to press. So when the caller has
+        # declared the run non-interactive, probe with -n and report instead of
+        # asking. The trigger is a root-owned forwarder from an earlier
+        # bring-up, i.e. precisely the re-run case, which is why this fires on
+        # the machines least able to answer it.
+        if ($env:YURUNA_NONINTERACTIVE -eq '1') {
+            & sudo -n -v 2>$null
+            if ($LASTEXITCODE -ne 0) {
+                Write-Warning ("  Root-owned caching-proxy forwarder detected and this run is non-interactive, so it cannot be stopped: " +
+                               "sudo has no live authorization. Run 'sudo -v' and re-run, or stop it by hand. Continuing without it.")
+            }
+        } else {
+            Write-Output "  Root-owned caching-proxy forwarder detected -- the port-map refresh below must stop it, which needs sudo (you may be prompted for your password)..."
+            & sudo -v
+            if ($LASTEXITCODE -ne 0) {
+                Write-Warning "  sudo -v failed -- the root-owned forwarder may not be stopped cleanly."
+            }
         }
     }
 }
@@ -666,9 +683,9 @@ Import-Module (Join-Path `$repoRoot 'test/modules/Test.SingleInstance.psm1') -Fo
 # orphaned server must be killed manually -- deliberate trade-off.
 # Log per-iteration exceptions so we can see why the server died. On
 # Windows, Start-Process -WindowStyle Hidden has no stderr redirection,
-# so without this file an unhandled throw dies silently -- the exact
-# prior failure mode where the server vanished mid-run with no trace.
-# Bounded so it can't fill the status dir indefinitely.
+# so without this file an unhandled throw dies silently and the server
+# vanishes mid-run with no trace. Bounded so it can't fill the status
+# dir indefinitely.
 function Write-ServerErr {
     param([string]`$msg)
     try {
@@ -722,9 +739,9 @@ function Send-JsonError {
 # Re-import a module a route depends on, on demand, when its commands are not in
 # this runspace. The startup imports above are best-effort by design
 # (-ErrorAction SilentlyContinue keeps one bad module from aborting the whole
-# server), but nothing retried them: a runspace that came up without a module
-# answered its routes with a hard 500 for the ENTIRE life of the process -- and
-# this server is long-lived, so the only cure was an operator restart. That is
+# server), and nothing else retries them: a runspace that came up without a
+# module answers its routes with a hard 500 for the ENTIRE life of the process --
+# and this server is long-lived, so only an operator restart cures it. That is
 # how a peer running Sync-HostConfiguration gets told 'not loaded in the server
 # runspace' and silently falls back to prompting the operator for values this
 # host could have served. Routes call this immediately before they need a
@@ -827,7 +844,7 @@ function Test-RunnerAlive {
     # StartTime sidecar or cmdline regex); 'None'/'Self'/'Stale' are not.
     `$running = (`$state -and `$state.status -eq 'OtherRunner')
     # Preserve the prior null-when-absent contract: the file PID is reported
-    # only when a pidfile actually named one (0 means missing/unparsable).
+    # only when a pidfile actually named one (0 means missing/unparseable).
     `$pidVal = if (`$state -and `$state.pid -gt 0) { [int]`$state.pid } else { `$null }
     [pscustomobject]@{ Running = `$running; RunnerPid = `$pidVal }
 }
@@ -1661,7 +1678,7 @@ try {
             }
 
             # --- REGION: /control/runner-status: is Invoke-TestRunner actually alive?
-            # Verifies <track>/runner.pid really is the outer runner
+            # Verifies <runtime>/runner.pid really is the outer runner
             # (runner.start StartTime sidecar preferred; cmdline-regex
             # fallback) and returns { running: bool, pid: int|null }.
             # See docs/control-routes.md (GET /control/runner-status).
@@ -1675,8 +1692,8 @@ try {
                 # "A runner process exists" is NOT "the runner is progressing".
                 # runner.heartbeat is written by a threadpool timer that keeps
                 # ticking through a wedged runspace, so a host blocked on an
-                # unanswerable prompt looked healthy here and the dashboard kept
-                # showing the previous cycle's green. runner.stepHeartbeat is
+                # unanswerable prompt would look healthy here and the dashboard
+                # would keep showing the previous cycle's green. runner.stepHeartbeat is
                 # written from the runspace itself, so its AGE is the real
                 # progress signal -- and this detached server is the only Yuruna
                 # process still live mid-cycle, so it is the only place that can
@@ -2475,26 +2492,10 @@ try {
             }
 
             # --- REGION: /log-upload/<rel>: write a diagnostic file under `$logDir
-            # Failed-install diagnostic sink. Subiquity's error-commands
-            # block runs INSIDE the installer environment (not the half-
-            # built target) when the install aborts, and POSTs
-            # /var/log/installer/* here before the VM dies. Without this
-            # endpoint the only failure evidence is the screen OCR; the
-            # underlying apt stderr / curtin trace is lost when the
-            # installer drops to shell. Mirrors the static /log/ GET
-            # route so an uploaded file appears in the dashboard's
-            # cycle-log listing as soon as it lands.
-            #
-            # Scoped narrowly to keep the write surface tight:
-            #   * Method:    PUT or POST only.
-            #   * Path:      log-upload/<rel> with no '..' segments.
-            #   * Extension: .log .txt .json .err .crash (matches what
-            #                /var/log/installer/* actually produces;
-            #                rejects e.g. .ps1 / .exe upload attempts).
-            #   * Body cap:  4 MB (a typical curtin-install.log tail is
-            #                ~200 KB; full file ~1-2 MB).
-            # Path is normalized + range-checked against `$logDir so
-            # nothing escapes the log mount.
+            # Failed-install diagnostic sink. Method, path, extension and body-cap
+            # limits below keep the write surface tight; the path is normalized and
+            # range-checked against `$logDir so nothing escapes the log mount.
+            # --- REGION: https://yuruna.link/memory#why-the-status-service-exposes-a-log-upload-write-endpoint
             if (`$path -like 'log-upload/*') {
                 `$res.ContentType = 'application/json; charset=utf-8'
                 `$res.Headers.Add('Cache-Control', 'no-store')
@@ -2850,8 +2851,8 @@ try {
                 `$res.OutputStream.Write(`$body, 0, `$body.Length)
                 # /yuruna-repo/* 404s are operationally distinct from
                 # generic dashboard 404s: they signal the working-tree
-                # rename race (memory note feedback_status_server_
-                # working_tree_rename_race.md) where a guest's mid-cycle
+                # rename race (memory note
+                # feedback_status_server_working_tree_rename_race.md) where a guest's mid-cycle
                 # fetch-and-execute resolves to a path the host has just
                 # renamed/deleted. Log the requested path + resolved file
                 # so the operator can correlate a wget exit 8 in the

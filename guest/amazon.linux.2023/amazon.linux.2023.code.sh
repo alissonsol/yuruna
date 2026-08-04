@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.08.03
+# Version: 2026.08.04
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 set -euo pipefail
@@ -22,11 +22,10 @@ esac
 
 # --- REGION: https://yuruna.link/network#defining-yuruna-retry-lib
 . /usr/local/lib/yuruna/yuruna-retry.sh
-# Baked retry libs may default dnf attempts to a wall-clock bound -- the
-# wrapped-apt teardown-hang trap class (the package manager blocks at
-# end-of-transaction under a timeout(1) parent). Force unbounded regardless
-# of the image's lib vintage; remove once no image predates the lib's
-# unbounded default.
+# Baked retry libs may bound dnf attempts on wall-clock -- the wrapped-apt
+# teardown-hang trap class (the package manager blocks at end-of-transaction
+# under a timeout(1) parent). Force unbounded until no image predates the
+# lib's unbounded default.
 export YURUNA_DNF_STALL_TIMEOUT_SECONDS=0
 
 echo ""
@@ -49,10 +48,10 @@ fi
 
 echo ""
 echo -e "\e[1;36m==== .NET SDK ====\e[0m"
-# Use Microsoft's official dotnet-install.sh script instead of RPM repos.
-# The CentOS 8/9 repo configs are incompatible with Amazon Linux 2023 (Fedora-based).
-# dotnet-install.sh auto-detects architecture (x86_64/aarch64) and works reliably.
-# Install libicu dependency required by .NET for globalization support.
+# Use Microsoft's official dotnet-install.sh instead of RPM repos: the CentOS
+# 8/9 repo configs are incompatible with Amazon Linux 2023 (Fedora-based), and
+# the script auto-detects architecture (x86_64/aarch64). libicu is the .NET
+# globalization dependency.
 dnf_retry sudo dnf install -y libicu
 sudo mkdir -p /usr/local/dotnet
 curl_retry -sSL "https://dot.net/v1/dotnet-install.sh${YurunaCacheContent:+?nocache=${YurunaCacheContent}}" -o /tmp/dotnet-install.sh
@@ -60,7 +59,6 @@ chmod +x /tmp/dotnet-install.sh
 sudo bash /tmp/dotnet-install.sh --channel LTS --install-dir /usr/local/dotnet
 rm -f /tmp/dotnet-install.sh
 
-# Make dotnet available system-wide
 sudo ln -sf /usr/local/dotnet/dotnet /usr/local/bin/dotnet
 if ! grep -q 'export DOTNET_ROOT=/usr/local/dotnet' /etc/bashrc 2>/dev/null; then
   echo 'export DOTNET_ROOT=/usr/local/dotnet' | sudo tee -a /etc/bashrc
@@ -71,11 +69,10 @@ echo ""
 echo -e "\e[1;36m==== VS Code ====\e[0m"
 # The VS Code yum repo provides both x86_64 and aarch64 packages.
 # --- REGION: https://yuruna.link/network#apt-signing-key-fingerprint-verification
-# Fetch the Microsoft signing key, fingerprint-pin it BEFORE trusting it,
-# then rpm --import the VERIFIED local copy and point the repo gpgkey at that
-# local file -- instead of blindly `rpm --import`-ing the URL (swallowing failure
-# with `|| true`) and letting gpgcheck=1 re-fetch the same unverified URL. Fail
-# closed on a mismatch. Mirrors the ubuntu code.sh apt path.
+# Fetch the Microsoft signing key, fingerprint-pin it BEFORE trusting it, then
+# rpm --import the VERIFIED local copy and point the repo gpgkey at that local
+# file, so gpgcheck=1 never re-fetches an unverified URL. Fail closed on a
+# mismatch. Mirrors the ubuntu code.sh apt path.
 # arg1 = key file; remaining args = ALLOWED primary fingerprints, FIRST also required.
 _yuruna_verify_key_fpr() {
     local keyfile="$1"; shift

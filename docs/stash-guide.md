@@ -2,8 +2,7 @@
 
 The **stash** is a shared drop box for files and snippets. You put content
 in from the command line (`scp`) or from the browser, then browse, view,
-download, or delete it in the web UI. A stash is the same object however it
-was created.
+download, or delete it in the web UI.
 
 > **Access.** The stash runs on a trusted network with **no login** —
 > anyone who can reach it can add, read, and delete stashes. Don't put
@@ -19,7 +18,7 @@ Two addresses for the same VM:
 ## Stash from the command line
 
 Use a normal `scp`. **Any** username works and **no** password or key is
-needed — the username is just recorded as a label.
+needed — the username is recorded only as a label.
 
 ```bash
 # One file
@@ -45,11 +44,11 @@ terminal:
 YURUNA-STASH-ID: a1b2
 ```
 
-Without `-O` the ID isn't printed — just open the web UI; your upload is at
-the top of the list.
+Without `-O` the ID isn't printed — open the web UI; your upload is at the
+top of the list.
 
 `sftp` works too (it's what modern `scp` uses under the hood). Downloads
-over scp/sftp are not allowed — the command line is for **putting in**;
+over scp/sftp are not allowed: the command line is for **putting in**;
 take things out from the UI.
 
 ---
@@ -62,7 +61,7 @@ Open `http://<vm-ip>/` and click **+ New stash**:
   *title/filename* (e.g. `notes.md`, which also picks the file type) and an
   *author*.
 - **Upload file(s)** — choose one or more files. Several files become one
-  `.zip` stash, exactly like `scp -O`.
+  `.zip` stash, like `scp -O`.
 
 Click **Create** and you land on the new stash.
 
@@ -90,7 +89,7 @@ On a stash's page:
 
 ## Short links
 
-Every stash has a short link — just the host and its 4-character ID:
+Every stash has a short link — the host and its 4-character ID:
 
 ```
 http://<vm-ip>/h775
@@ -102,7 +101,7 @@ too). The stash's page shows its short link under the details.
 ## Download
 
 Every stash has a **Download** button that always gives you the complete
-file (or the `.zip` for a multi-file / folder stash) — regardless of type
+file (or the `.zip` for a multi-file / folder stash), regardless of type
 or status.
 
 ---
@@ -125,7 +124,7 @@ host's stash UI to delete it there.
 - **Durable.** Stashes live on shared pool storage, so they survive a VM
   restart or rebuild.
 - **Type detection** is automatic from the content, so a file's type is
-  recognized even without an extension.
+  recognized without an extension.
 
 ---
 
@@ -133,6 +132,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.03
+Last review: 2026.08.04
 
 Back to [Yuruna](../README.md)

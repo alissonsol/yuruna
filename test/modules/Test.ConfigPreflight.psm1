@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.03
+.VERSION 2026.08.04
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456723
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -66,14 +66,13 @@ function Invoke-ConfigGate {
         Write-Information "[$CallerName] Pre-cycle config gate SKIPPED (-NoConfigGate)." -InformationAction Continue
         return @{ passed = $true; exitCode = 0; skipped = $true }
     }
-    # Hidden-mode invocation: Test-Config's ~80-line transcript is
-    # captured silently and ONLY surfaces if the gate fails (the failures
-    # block is re-emitted under the gate-failed banner below). On a green
-    # gate the caller sees nothing from this helper -- matches every
-    # other pre-flight check in the harness (silent when healthy).
-    # The captured stream still includes 2>&1 so child stderr lands in
-    # the same list and the FAILURES-block extractor sees the full
-    # transcript regardless of which stream Test-Config used.
+    # Hidden-mode invocation: Test-Config's ~80-line transcript is captured
+    # silently and surfaces ONLY when the gate fails (the failures block is
+    # re-emitted under the gate-failed banner below), so a green gate shows the
+    # caller nothing -- matching every other pre-flight check in the harness.
+    # The capture includes 2>&1 so child stderr joins the same list and the
+    # FAILURES-block extractor sees the full transcript whichever stream
+    # Test-Config wrote to.
     # Resolve the running pwsh via the shared, macOS-hardened resolver: a
     # bare (Get-Process -Id $PID).Path is null on macOS (no /proc) and a
     # null child-pwsh path makes the spawn below throw. The Sequence entry

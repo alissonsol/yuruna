@@ -1,15 +1,15 @@
 # poolStorage (ypool-nas) — NAS-backed durable replication
 
 Hosts in the Yuruna pool are **reimageable at any time**, exactly like the guests
-they test. So host-local storage is treated as fast, local, and **ephemeral**, and
+they test. So host-local storage is treated as fast and **ephemeral**, and
 the durable tier is an **optional** Network-Attached Storage share — the *yuruna
 pool storage path* (**ypool-nas**). When enabled, each host replicates its finished
 test-cycle output to the share over **SMB3** (the one network-file protocol uniform
 across Windows, macOS, and Linux). Nothing host-local is load-bearing: wipe a host
 and its archived cycles still live on the NAS.
 
-This document is the **architecture + operations** reference. For the
-`test.config.yml` parameter reference (and how to set the SMB password in the
+This document is the **architecture + operations** reference. For
+`test.config.yml` parameters (and how to set the SMB password in the
 vault) see [test-config.md](test-config.md).
 
 **No NAS?** `pwsh test/New-LocalLabStorage.ps1` turns the machine you are
@@ -29,18 +29,22 @@ which have to be created on the device itself. See
 ## The model
 
 - **Local stays local.** The runner writes cycle folders to `test/status/log/`
-  exactly as before. poolStorage never changes the live data path or its
-  performance.
-- **Stash storage is isolated.** The stash service has its own separate tier
-  under `networkStorage.stash*` (its own NAS share + account); it no longer
-  shares the pool's share or credential. This page covers only the **pool**
+  unchanged. poolStorage never changes the live data path or its performance.
+- **Stash storage is isolated.** The stash service has its own tier under
+  `networkStorage.stash*` — its own NAS share and account, not the pool's share
+  or credential. This page covers only the **pool**
   side (`networkStorage.pool*` + `networkReplicate`); for the stash storage
   reference see [test-config.md](test-config.md) and the stash guide.
-- **The NAS is a cold archive.** Replication is a one-way **copy** of immutable,
-  finished cycle folders — not a live data directory on the share. There is no
-  live reader of the share (the pool dashboard reads each host's own HTTP status
-  server, not the NAS), so the share is a durable backup an operator or a future
-  tool can browse, not a hot path.
+- **Replication is a cold archive.** It is a one-way **copy** of
+  immutable, finished cycle folders — not a live data directory — and the pool
+  dashboard reads each host's own HTTP status server, not the NAS. So the
+  replicated `<hostId>/` roots stay a durable backup an operator or a future tool
+  can browse, not a hot path. **The share as a whole is not cold**, though: the
+  pool services keep their own live subtrees beside the archive — the
+  pool-control service its audit log and status, and the download-agent service
+  the guest-image **Download pool** it continuously writes, re-verifies and
+  serves to hosts over HTTP (see [On-share layout](#on-share-layout)). Sizing and
+  retention are therefore a live concern, not just an archival one.
 - **Per-host namespacing.** Each host writes under `<poolStorageLocalPath>/<hostId>/…`, keyed
   on the stable opaque `hostId` (`runtime/host.uuid`), so many hosts share one
   share without collision.
@@ -59,8 +63,7 @@ replicator; the orchestration lives in `Invoke-PoolStorageDrain`
 **Asynchronous — never delays the loop.** The drain runs in its own process
 (Windows `Start-Process` with an empty stdin sink + hidden window; macOS/Linux
 `nohup` in its own process group), so however long a copy takes — or however dead
-the NAS is — the cycle loop is never blocked. The outer loop fires it and waits
-for nothing.
+the NAS is — the cycle loop is never blocked.
 
 **Fail-fast.** Before mounting, the drain probes `<server>:445` (a bounded TCP
 connect, ~5 s). An unreachable NAS is detected in seconds, recorded in the local
@@ -101,7 +104,7 @@ otherwise silently stall replication forever). Same hardening as the runner's
 **Loud-fail vault pre-check.** Before mounting, the drain confirms a real SMB
 credential exists for `poolStorageNetworkUser`. If the user has an empty `vaultKey` **and**
 no stored vault entry, mounting would make `Get-Password` auto-generate a random
-password the NAS will reject — so instead the drain **warns and bails** (no mount,
+password the NAS will reject — so the drain **warns and bails** (no mount,
 no junk vault entry). The check is read-only
 ([Test-VaultEntry](../test/extension/authentication/default.psm1) — it never
 writes the vault or auto-generates). The fix is the recommended vault setup in
@@ -120,7 +123,31 @@ map a non-empty `vaultKey` and `Set-Password` it.
       .yuruna-complete                      # sentinel: copy committed
     000124.2026-06-10.14-39-51.<hostId>/
       …
+  images/                                   # the Download pool (download-agent service)
+    .agent-lease.json                       # single-writer lease {hostId, vmName, renewedAtUtc}
+    <hostType>/<imageKey>/                  # ubuntu.kvm/guest.ubuntu.server.26/, …
+      current.<arch>.<variant>.json         # servable pointer — written LAST
+      <upstreamFilename>.<sha256[:12]>            # generation artifact
+      <upstreamFilename>.<sha256[:12]>.meta.json  # its metadata sidecar
+      .staging/                             # agent-private temp area (PID-suffixed)
+  download-agent-service/
+    audit.jsonl                             # one line per UI/API mutation
+    status.json                             # last-write / heartbeat snapshot
 ```
+
+`images/` and `download-agent-service/` belong to the **download-agent service**
+VM, which CIFS-mounts this same share at `/mnt/yuruna-pool`. Artifacts are
+stored under generation names (the upstream filename plus the first 12 hex chars
+of its SHA-256) so a refresh writes a new file rather than renaming over one a
+host may be streaming; the tiny `current.<arch>.<variant>.json` pointer is
+written last and is the only thing whose replacement changes what is served. The
+current generation plus one previous is retained per
+`(hostType, imageKey, arch, variant)`. The state directory sits *beside*
+`images/` rather than inside it so the images tree stays artifacts-only, and pool
+walkers skip dot-prefixed entries (`.agent-lease.json`, `.staging/`). Sizing:
+these are full guest ISOs and cloud images, so budget for the families the lab's
+host types use — the UI's totals row reports the current draw. See
+[pool-admin.md](pool-admin.md#download-agent-service).
 
 Each drain also refreshes `hosts/info.<hostId>.yml` with this host's uuid + a
 hardware fingerprint, so a reimaged box can **reclaim** its prior `hostId` instead
@@ -128,7 +155,7 @@ of re-keying — see [Host identity & reimage reclaim](#host-identity--reimage-r
 A host that declines the reclaim (or whose hardware no longer matches) re-keys with
 a new `runtime/host.uuid`, so its later cycles land under a new `<hostId>/` root and
 old archives are never overwritten. Orphaned roots from retired hosts accrete on the
-share over time; pruning them is a manual housekeeping task (no automatic cleanup).
+share; pruning them is a manual housekeeping task (no automatic cleanup).
 
 ## The local ledger
 
@@ -237,8 +264,8 @@ directly as `Set-PoolStorageSudoers`.
   be churn with no durability value.
 - **Service data (caching-proxy-service):** the proxy's **Loki, Prometheus, and Grafana**
   data — archived to ypool-nas by the guest itself (see *Service replication* below).
-  The **stash** service is deferred (no data dir yet). Zot's OCI cache and squid's
-  cache are excluded (rebuildable).
+  The **stash** service is deferred (no data dir yet); Zot's OCI cache is excluded
+  too (rebuildable).
 
 ## Service replication (caching-proxy-service)
 
@@ -253,7 +280,7 @@ the share over cifs, and an hourly `ypool-nas-replicate.timer` rsyncs the data d
   WAL sqlite can restore corrupt) plus an rsync of the rest. **Excluded:** squid +
   zot (caches), promtail (tail cursor).
 - **Account (`networkStorage.poolStorageNetworkUser`).** The proxy mounts with the **single**
-  `poolStorageNetworkUser` — the same account the host uses for cycle replication. There is no
+  `poolStorageNetworkUser` — the same account the host uses for cycle replication, with no
   separate guest credential. **Operator prerequisite:** scope `poolStorageNetworkUser`
   **storage-only** on the NAS — write access to `poolStorageNetworkPath` and nothing else — and
   `Set-Password` its vault entry. **The password is NOT baked into the seed:** the proxy
@@ -265,7 +292,7 @@ the share over cifs, and an hourly `ypool-nas-replicate.timer` rsyncs the data d
   (no host login, no other service). Empty `poolStorageNetworkUser` ⇒ service replication stays off.
 - **Enablement** is baked at VM-create time: the seed gets `YPOOL_NAS_REPLICATE=true`
   whenever poolStorage is **configured** (`poolStorageNetworkPath` + `poolStorageNetworkUser` set) — the
-  password no longer needs to exist at bake time. Until the vault entry is set, the Config
+  password need not exist at bake time. Until the vault entry is set, the Config
   Service answers `503` for `/v1/nas/pool`, the credential file stays empty, the mount
   fails (`nofail`), and replication no-ops — self-healing on the next hourly run once you
   `Set-Password`. Activating the dynamic fetch requires a baked **client certificate**
@@ -345,10 +372,10 @@ What it does, in order:
    derived from the token, so nothing crosses the plain-HTTP LAN in
    cleartext. Because that gate is mandatory, **credentials sync only once a
    `lab-auth-token` is provisioned on BOTH hosts** — the reference (so it
-   will serve) and this host (so it can unlock). Before asking the operator
-   for anything, the sync probes the reference: a reference with no token of
-   its own says so in one actionable line (naming
-   `Set-LabToken.ps1`) instead of prompting for a token and then a
+   will serve) and this host (so it can unlock). Before prompting, the sync
+   probes the reference: one with no token of its own says so in one
+   actionable line (naming
+   `Set-LabToken.ps1`) instead of asking for a token and then a
    password it could never have used. With the token in place a re-run
    **refreshes a rotated password** — the fetched value is compared to the
    stored one and rewritten only when they differ. A user that already has a
@@ -358,20 +385,20 @@ What it does, in order:
    the last resort, only for a missing entry the reference cannot serve.
 4. **Mount prerequisite (Linux).** Offers to install the passwordless-sudo
    drop-in the poolStorage mount needs, so validation's mount succeeds instead
-   of warning and the runner buffering locally. See the Linux precondition
+   of warning while the runner buffers locally. See the Linux precondition
    above; no-op on macOS/Windows and when already configured.
 5. **Validate.** Runs `pwsh test/Test-Config.ps1` (skippable with
    `-SkipValidation`) so a wrong password / share typo / missing sudo rule
    surfaces immediately — the same gate described below. Its framework/project
    freshness and `projectUrl` reachability checks authenticate to github.com
    with `GH_TOKEN` when set (plain `git` does not read `GH_TOKEN` on its own),
-   so a private remote no longer fails the check or blocks it on a credential
+   so a private remote neither fails the check nor blocks on a credential
    prompt.
 
 `-NonInteractive` never prompts (skips with warnings instead);
-`-WhatIf` previews. A repeat run with nothing to change writes nothing — the
-sync is idempotent and re-runnable to pull updated values (a moved NAS, a
-rotated password) from the reference host.
+`-WhatIf` previews. A repeat run with nothing to change writes nothing; re-run
+it to pull updated values (a moved NAS, a rotated password) from the reference
+host.
 
 ## Operating & troubleshooting
 
@@ -379,7 +406,7 @@ rotated password) from the reference host.
 networkStorage pool block (all three pool paths set, a usable vault credential so
 the mount won't auto-generate a junk password, and SMB `:445` reachability) before
 a cycle runs. When the credential is configured **and** the server is reachable, it
-goes one step further and **actively mounts `poolStorageLocalPath` and creates the per-host
+**actively mounts `poolStorageLocalPath` and creates the per-host
 folder `<poolStorageLocalPath>/<hostId>`** — the same write the replicator does — so a wrong
 SMB password, a share-name typo, a missing Linux passwordless-sudo rule, or a
 read-only share is caught here instead of failing silently in the detached drain.
@@ -389,9 +416,9 @@ cycle** (the gate refuses to start until it is fixed, or you bypass it with
 NAS (no answer on `:445`) stays a WARN — the loop retries it each cycle, so it
 never blocks a healthy run.
 
-This is the same gate `Invoke-TestRunner`, `Invoke-TestSequence`, and `Invoke-TestProject`
-all run at startup, so all three refuse to begin when `networkReplicate` is on and the
-share is not actually writable.
+`Invoke-TestRunner`, `Invoke-TestSequence`, and `Invoke-TestProject` all run this
+same gate at startup, so all three refuse to begin when `networkReplicate` is on
+and the share is not writable.
 
 Everything the drain writes lives under the runtime directory:
 
@@ -448,7 +475,7 @@ Common findings:
   `sudo pwpolicy -u yuruna-pool -sethashtypes SMB-NT on` then
   `sudo sysadminctl -resetPasswordFor yuruna-pool -newPassword '<lab-vault password>'`.
   `New-LocalLabStorage.ps1` does this itself and proves it with an `smbutil`
-  probe; this is for accounts created before that.
+  probe; the manual fix is for accounts it did not create.
 - **In a guest: `cifs_mount failed w/return code = -111`** — not a credential
   problem. `-111` is a refused TCP connection, so the guest *did* get an address
   and dialled it: classically the share's server name resolving to something
@@ -465,9 +492,9 @@ The SMB password lives only in the per-host, git-ignored vault
 (`test/status/extension/authentication/vault.yml`), never in `test.config.yml`. It
 is passed in-process (Windows) or through a transient `0600` credentials file
 (Linux); on macOS it is briefly on the `mount_smbfs` argv (the one residual
-exposure, documented above). The replicator changes no security posture — the
-vault pre-check is purely read-only and the password alphabet/length/storage are
-untouched.
+exposure, documented above). The vault pre-check is purely read-only: the
+replicator neither writes the vault nor alters the password alphabet, length,
+or storage.
 
 ---
 
@@ -495,6 +522,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.03
+Last review: 2026.08.04
 
 Back to [Yuruna](../README.md)

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.03
+.VERSION 2026.08.04
 .GUID 42b8e6a4-3d17-4c92-8f05-6a1b9d2e7c40
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -315,13 +315,12 @@ function Invoke-CachingProxyServiceAvailableProbe {
             Write-Warning "YURUNA_CACHING_PROXY_SERVICE_IP='$externIp' is not a valid IPv4 or IPv6 address -- ignoring."
             return $null
         }
-        # 3s/attempt cap, not 1s: this is the EXTERNAL/remote proxy path. A
-        # cross-host cache (e.g. a UTM/macOS squid over bridged networking, or a
-        # kvm cache reached over the host's systemd socket-proxy forwarder into
-        # libvirt NAT) routinely takes 600ms-1s+ to ACCEPT a TCP connection, so a
-        # 1s cap false-negatives and the runner reports a healthy remote cache as
-        # "did not answer." The cap is free for a fast cache (connect returns on
-        # accept); it only delays the verdict for a genuinely-down one.
+        # 3s/attempt cap, not 1s: on the EXTERNAL/remote proxy path a cross-host
+        # cache (a UTM/macOS squid over bridged networking, or a kvm cache behind
+        # the host's systemd socket-proxy forwarder into libvirt NAT) routinely
+        # takes 600ms-1s+ to ACCEPT, so a 1s cap makes the runner report a healthy
+        # remote cache as "did not answer." The cap is free for a fast cache
+        # (connect returns on accept); it only delays a genuinely-down verdict.
         $lastOutcome = $null
         for ($attempt = 1; $attempt -le $ConnectAttempts; $attempt++) {
             if ($attempt -gt 1) { Start-Sleep -Milliseconds $ConnectBackoffMs }
@@ -338,14 +337,13 @@ function Invoke-CachingProxyServiceAvailableProbe {
         return $null
     }
 
-    # Local cache: probe only the IP we recorded ourselves at the last
+    # Local cache: probe only the IP recorded at the last
     # Start-CachingProxyServiceVM.ps1. Empty state -> no cache (the explicit
     # contract after Stop-CachingProxyServiceVM.ps1). State-set-but-unreachable
-    # is loud (Write-Warning) because the inner runner's bootstrap
-    # detection runs ONCE per cycle -- a silently-failed probe means
-    # the whole cycle's guests download direct from the internet, and
-    # we want the operator to see "why" alongside the headline
-    # "Caching-proxy service: not detected" line in Invoke-TestRunner output.
+    # warns loudly because the inner runner's bootstrap detection runs ONCE per
+    # cycle: a silently-failed probe sends the whole cycle's guests direct to the
+    # internet under a bare "Caching-proxy service: not detected" headline in
+    # Invoke-TestRunner output, with no "why" beside it.
     $stateIp = (Read-CachingProxyServiceState).ipAddress
     if (-not $stateIp -or -not (Test-IpAddress $stateIp)) {
         Write-Warning "Test-CachingProxyServiceAvailable: state.ipAddress is empty -- no locally-owned cache. Set `$Env:YURUNA_CACHING_PROXY_SERVICE_IP to point at a remote cache, or run Start-CachingProxyServiceVM.ps1."
@@ -362,13 +360,13 @@ function Invoke-CachingProxyServiceAvailableProbe {
             return "http://$(if ($NoBracketHost) { $stateIp } else { Format-IpUrlHost $stateIp }):${httpPort}"
         }
     }
-    # Name the CAUSE when the host can be asked for it. "Re-run
-    # Start-CachingProxyServiceVM.ps1 (a new DHCP lease)" is the right guess only
-    # when the VM is actually up; after a host reboot the VM is registered and
-    # powered OFF, and that is fixed by starting it -- seconds, and the warm squid
-    # cache survives -- not by the ~15-minute rebuild the generic hint sends the
-    # operator to. Every host driver implements Get-VMState, and it is resolved by
-    # name so a caller without a driver loaded just gets the generic text.
+    # Name the CAUSE when the host can be asked for it. The generic "re-run
+    # Start-CachingProxyServiceVM.ps1 (a new DHCP lease)" guess fits only a
+    # running VM; after a host reboot the VM is registered and POWERED OFF, fixed
+    # by starting it in seconds with the warm squid cache intact rather than by
+    # the ~15-minute rebuild that hint implies. Every host driver implements
+    # Get-VMState, resolved by name so a caller with no driver loaded still gets
+    # the generic text.
     $cause = " If not, re-run Start-CachingProxyServiceVM.ps1 (the VM may have restarted with a new DHCP lease)."
     if (Get-Command Get-VMState -ErrorAction SilentlyContinue) {
         $cacheVmName = 'yuruna-caching-proxy-service'

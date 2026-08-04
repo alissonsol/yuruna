@@ -1,0 +1,114 @@
+<!doctype html>
+<!--
+  LICENSEURI https://yuruna.link/license
+  Copyright (c) 2019-2026 by Alisson Sol et al.
+
+  The Download pool: what the agent holds, how fresh it is, and what is eating
+  the share. One page, polling the same /api/v1/images the hosts read -- the UI
+  has no private endpoints.
+
+  Script and style ship as same-origin /assets files, NOT inline: the CSP served
+  with this page is `script-src 'self'` with no nonce and no hash, so an inline
+  <script> would be blocked and the page would render as a dead skeleton.
+-->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Yuruna Download Agent</title>
+  <link rel="stylesheet" href="/assets/style.css">
+</head>
+<body class="has-footer-bar">
+  <header class="app">
+    <div class="brand">
+      <span>Yuruna Download Agent</span>
+      <span class="version" id="header-version"></span>
+    </div>
+    <span class="spacer"></span>
+    <span class="machine" id="machine"></span>
+  </header>
+
+  <main>
+    <h1>Download pool</h1>
+
+    <!-- Lab token prompt. Hidden unless /api/session reports an unlock this
+         device has not been through; the read-only view below renders
+         regardless. The field is plain text, not a password: the code is on a
+         dashboard tile and on the aggregator's open /metrics, and hiding it
+         while typing only makes it harder to copy correctly. -->
+    <section id="login" class="login" hidden>
+      <form id="login-form" class="row">
+        <input id="lab-token" type="text" maxlength="6" size="8"
+               autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false"
+               placeholder="Lab token" aria-label="Six-character lab token from the dashboard">
+        <button type="submit" class="primary">Unlock actions</button>
+        <span id="login-error" class="muted"></span>
+      </form>
+      <p class="muted">
+        The 6-character code on the Yuruna hosts dashboard's <em>Lab token</em>
+        tile; upper or lower case both work. The pool aggregator checks it, and
+        it rotates, so a code noted down last week will not open anything.
+      </p>
+    </section>
+    <p id="gate-unconfigured" class="muted" hidden>
+      No aggregator URL and no lab auth token are configured, so Force refresh,
+      Delete and Prune are disabled. Set <code>--aggregator-url</code> (which
+      lets the dashboard's Lab token unlock them) or
+      <code>--auth-token-file</code> on the daemon to enable them.
+    </p>
+
+    <div id="notice" class="notice"></div>
+
+    <section class="cards" id="agent-header">
+      <div class="card"><span class="card-label">Version</span><span class="card-value" id="ag-version">&mdash;</span></div>
+      <div class="card"><span class="card-label">Pool</span><span class="card-value" id="ag-pool">&mdash;</span><span class="card-sub" id="ag-pooldir"></span></div>
+      <div class="card"><span class="card-label">Lease</span><span class="card-value" id="ag-lease">&mdash;</span><span class="card-sub" id="ag-lease-sub"></span></div>
+      <div class="card"><span class="card-label">Scanner</span><span class="card-value" id="ag-scan">&mdash;</span><span class="card-sub" id="ag-scan-sub"></span></div>
+      <div class="card"><span class="card-label">Auto-seed</span><span class="card-value" id="ag-seed">&mdash;</span><span class="card-sub" id="ag-seed-sub"></span></div>
+      <!-- Best-effort families need tooling the agent VM may not have. Saying so
+           here is what separates "this agent cannot serve Windows 11" from "the
+           ISO has not been fetched yet"; in the table alone the two look the
+           same. -->
+      <div class="card"><span class="card-label">Best effort</span><span class="card-value" id="ag-besteffort">&mdash;</span><span class="card-sub" id="ag-besteffort-sub"></span></div>
+      <div class="card"><span class="card-label">Pool bytes</span><span class="card-value" id="ag-bytes">&mdash;</span><span class="card-sub" id="ag-bytes-sub"></span></div>
+    </section>
+
+    <div class="row">
+      <button id="refresh-view">Refresh view</button>
+      <span id="as-of" class="muted"></span>
+    </div>
+
+    <!-- Every header but Actions sorts. The control inside each one is a real
+         <button>, so Enter and Space activate it without this page
+         reimplementing key handling, and aria-sort on the th itself is what a
+         screen reader announces. -->
+    <table>
+      <thead>
+        <tr>
+          <th data-sort="state" aria-sort="none"><button type="button" class="th-sort">State<span class="sort-arrow" aria-hidden="true"></span></button></th>
+          <th data-sort="image" aria-sort="none"><button type="button" class="th-sort">Image<span class="sort-arrow" aria-hidden="true"></span></button></th>
+          <th data-sort="artifact" aria-sort="none"><button type="button" class="th-sort">Artifact<span class="sort-arrow" aria-hidden="true"></span></button></th>
+          <th data-sort="size" aria-sort="none"><button type="button" class="th-sort">Size (current / previous)<span class="sort-arrow" aria-hidden="true"></span></button></th>
+          <th data-sort="verified" aria-sort="none"><button type="button" class="th-sort">Verified<span class="sort-arrow" aria-hidden="true"></span></button></th>
+          <th data-sort="checksum" aria-sort="none"><button type="button" class="th-sort">Checksum<span class="sort-arrow" aria-hidden="true"></span></button></th>
+          <th data-sort="source" aria-sort="none"><button type="button" class="th-sort">Source<span class="sort-arrow" aria-hidden="true"></span></button></th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody id="image-rows"></tbody>
+      <tfoot id="image-totals"></tfoot>
+    </table>
+    <p id="empty" class="muted" hidden>No pool entries yet. The scanner seeds the pool on its next pass, or use Force refresh on a row to start one now.</p>
+  </main>
+
+  <footer id="footer-bar">
+    <span id="footer-ips"><span class="label">IPs:</span><textarea id="footer-ip-list" readonly rows="1" spellcheck="false" inputmode="none" autocorrect="off" autocapitalize="off" aria-label="Server IP addresses">—</textarea></span>
+    <span>Loaded: <span id="last-loaded">—</span></span>
+    <span><a id="footer-refresh" href="#">Refresh</a>: <span id="countdown">60</span>s · <a href="https://yuruna.link/download-agent">guide</a></span>
+  </footer>
+
+  <script src="/assets/common.js"></script>
+  <script src="/assets/sort.js"></script>
+  <script src="/assets/images.js"></script>
+</body>
+</html>

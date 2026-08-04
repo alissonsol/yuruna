@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.03
+.VERSION 2026.08.04
 .GUID 42e5f6a7-b8c9-4d12-9345-6e7f8a9b0c1d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -316,10 +316,9 @@ function Get-OuterPreambleTimeoutSeconds {
         dashboard over a host that is doing nothing.
 
         0 (or any non-positive value) opts out: Start-Watchdog then applies
-        stepTimeoutSeconds everywhere, which is exactly the pre-existing
-        behaviour. That is the escape hatch for a host whose preamble really is
-        slow, and it is why the knob defaults into effect rather than requiring
-        opt-in.
+        stepTimeoutSeconds everywhere. That is the escape hatch for a host whose
+        preamble really is slow, and it is why the knob defaults into effect
+        rather than requiring opt-in.
     #>
     [CmdletBinding()]
     [OutputType([int])]
@@ -649,7 +648,7 @@ function Write-OuterLog {
     }
     # Every attempt failed. Warn ONCE per session (not per cycle) so a broken
     # runtime dir surfaces without spamming the console; further failures still
-    # drop to Verbose. Verbose-only-forever was the masking behavior being fixed.
+    # drop to Verbose, which on its own would mask a vanishing outer.log.
     if (-not $script:OuterLogWriteWarned) {
         $script:OuterLogWriteWarned = $true
         Write-Warning "outer.log write to '$logPath' failed after $maxAttempts attempts (non-fatal; further failures logged at Verbose only): $($lastErr.Exception.Message)"
@@ -767,10 +766,9 @@ function Invoke-RunnerOuterCycle {
             $null = Set-RunnerState -To 'cycle-start' -Reason "cycle $cycle starting" -Confirm:$false
         }
 
-        # 1. Outer git pull (framework repo). Skip on -NoGitPull,
-        #    mirroring the prior runner's flag. A failure here is
-        #    treated as transient: short sleep + retry, so the loop
-        #    doesn't burn CPU thrashing on a transient git error.
+        # 1. Outer git pull (framework repo). Skip on -NoGitPull. A
+        #    failure here is treated as transient: short sleep + retry,
+        #    so the loop doesn't burn CPU thrashing on a transient git error.
         if (-not $State.NoGitPull) {
             Write-Output ""
             Write-Output "[outer cycle $cycle] git pull (framework)"

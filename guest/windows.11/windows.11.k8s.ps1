@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.03
+.VERSION 2026.08.04
 .GUID 42f0a1b2-c3d4-4e56-f789-0a1b2c3d4e11
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -176,9 +176,9 @@ if (Test-Path $certKey) {
 }
 Write-Output "<<< HTTPS development certificate complete."
 
-# Install the mkcert root CA silently into the LocalMachine trusted root store.
-# We avoid 'mkcert -install' because it shows an unavoidable Windows Security Warning dialog.
-# Import-Certificate into LocalMachine\Root is silent when running as Administrator.
+# Install the mkcert root CA silently into the LocalMachine trusted root store:
+# 'mkcert -install' shows an unavoidable Windows Security Warning dialog, while
+# Import-Certificate into LocalMachine\Root is silent when run as Administrator.
 Write-Output ""
 Write-Output ">>> Installing mkcert root CA into trusted store..."
 $caRoot = & mkcert -CAROOT 2>$null

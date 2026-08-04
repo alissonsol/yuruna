@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.03
+.VERSION 2026.08.04
 .GUID 42d5e6f7-a8b9-4c01-9234-ef6789012abc
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -77,12 +77,11 @@ function Get-PoolAggregatorServiceManifest {
     'pool-control-service'), or '' when the pool knows none.
 
 .DESCRIPTION
-    A host that needs the stash service, or pool-control service, usually does not run
-    it: the service lives on another host, often on another subnet, at an
-    address DHCP is free to change. Nothing in this host's config knows where it
-    is, and a hard-coded literal is only correct until the service moves --
-    which is how a cycle ends up spending its timeouts on a machine that no
-    longer exists.
+    A host that needs the stash or pool-control service usually does not run it:
+    the service lives on another host, often on another subnet, at an address
+    DHCP is free to change. Nothing in this host's config knows where it is, and
+    a hard-coded literal is only correct until the service moves -- which is how
+    a cycle spends its timeouts on a machine that no longer exists.
 
     The pool already collects the answer. Every extension service registers
     through its owning host and self-announces to the aggregator, which is how
@@ -177,10 +176,10 @@ function Get-PoolExtensionHostFrom {
         if ($response.StatusCode -eq 404) {
             # Two different 404s land here and both mean "cannot answer": this
             # handler's "no live host for that extension area", and the Go mux's
-            # own "404 page not found" from an aggregator built before the route
-            # existed. The fallback is identical either way, so they are not
-            # worth branching on -- but the body tells them apart for anyone
-            # looking, and the second one is fixed by redeploying the collector.
+            # "404 page not found" from an aggregator too old to have the route.
+            # The fallback is identical, so they are not worth branching on --
+            # but the body tells them apart, and the second is fixed by
+            # redeploying the collector.
             Write-Verbose "Get-PoolExtensionHost: 404 for area '$Area' -- $(($response.Content | Out-String).Trim())"
             return ''
         }

@@ -45,11 +45,20 @@ requirements:
     # `docker --version` is local (no daemon roundtrip) -- avoids the
     # ~30 s hang `docker version -f json` would trigger when dockerd is
     # unreachable, which is the failure mode the diagnostic catches.
+    #
+    # Tracks the engine Docker Desktop bundles, NOT the newest standalone
+    # Docker Engine on download.docker.com. Desktop trails the engine repo by
+    # a release or two, and nothing here installs an engine separately, so a
+    # floor above what Desktop ships fails this check on a correctly
+    # provisioned machine -- same coupling as the npm/Node LTS entry below.
     command: |-
       ((docker --version) -replace '^Docker version ','' -replace ',\s*build.*$','')
     version: "29.6.2"
     releases: "https://docs.docker.com/desktop/"
   - tool: "Docker buildx"
+    # Ships as a CLI plugin inside Docker Desktop, so the floor follows the
+    # Desktop-bundled plugin rather than the newest upstream buildx tag; see
+    # the Docker entry above for why an upstream-leading floor misfires.
     command: |-
       ((docker buildx version) -split '\s+')[1]
     version: "v0.35.0"
@@ -79,7 +88,7 @@ requirements:
     releases: "https://github.com/filosottile/mkcert/releases"
   - tool: "node"
     command: "node --version"
-    version: "v24.18.0"
+    version: "v24.19.0"
     releases: "https://nodejs.org/en/download"
   - tool: "npm"
     # Tracks whatever the pinned Node LTS bundles, NOT npm's newest
@@ -87,7 +96,7 @@ requirements:
     # fail this check on a correctly provisioned machine, since nothing
     # in the framework or the guest scripts installs npm separately.
     command: "npm --version"
-    version: "11.16.0"
+    version: "11.17.0"
     releases: "https://docs.npmjs.com/cli/v11/configuring-npm/install"
   - tool: "curl"
     # First line is `curl X.Y.Z (build/triplet) libcurl/X.Y.Z ...`; the
@@ -116,11 +125,11 @@ requirements:
     # the first whitespace is environment context, not version.
     command: |-
       ((aws --version) -replace '\s.*$','')
-    version: "aws-cli/2.36.10"
+    version: "aws-cli/2.36.15"
     releases: "https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html"
   - tool: "Azure cli"
     command: "($(az version) | ConvertFrom-Json).\"azure-cli\""
-    version: "2.88.0"
+    version: "2.89.0"
     releases: "https://learn.microsoft.com/en-us/cli/azure/install-azure-cli"
   - tool: "Google Cloud"
     # No `-q` and no 2>&1 capture: a broken bundled-python install fails

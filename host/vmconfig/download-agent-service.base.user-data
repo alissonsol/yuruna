@@ -1,0 +1,248 @@
+#cloud-config
+# LICENSEURI https://yuruna.link/license
+# Copyright (c) 2019-2026 by Alisson Sol et al.
+#vim:syntax=yaml
+# --- REGION: https://yuruna.link/vmconfig and https://yuruna.link/download-agent-service
+# Download-agent service VM: fetch the framework, then run the bring-up script that builds +
+# launches the daemon under systemd (binds :80 UI/API on the bridged LAN; the cloud
+# image runs no host firewall). Mirrors pool-control-service.base.user-data; the bring-up
+# script (not this seed) CIFS-mounts the pool NAS that holds the download pool. `users:`
+# without `- default` suppresses the ubuntu cloud-image user.
+hostname: yuruna-download-agent-service
+users:
+  - name: download-agent-service-admin
+    gecos: download-agent service user
+    sudo: ALL=(ALL) NOPASSWD:ALL
+    shell: /bin/bash
+    lock_passwd: false
+    # --- REGION: https://yuruna.link/vmconfig#unlocked-account-needs-plain_text_passwd
+    plain_text_passwd: PASSWORD_PLACEHOLDER
+    ssh_authorized_keys:
+      - SSH_AUTHORIZED_KEY_PLACEHOLDER
+chpasswd:
+  expire: false
+  users:
+    - name: download-agent-service-admin
+      password: PASSWORD_PLACEHOLDER
+      type: text
+ssh_pwauth: true
+package_update: true
+packages:
+  # cifs-utils: the bring-up script's pool-NAS SMB3 mount (that script installs golang-go itself).
+  - cifs-utils
+  # Network debugging tools for interactive triage via console/SSH.
+  - net-tools
+  - iputils-ping
+write_files:
+  # Pool coordinates, sed-read (`s/^KEY=//p`) by the bring-up script, so values are
+  # UNQUOTED here (unlike stash's single-quoted env; the host bake refuses single
+  # quotes). poolStorageNetworkPath/poolStorageNetworkUser match Test.PoolStorage networkStorage.
+  - path: /etc/yuruna/pool.env
+    permissions: '0644'
+    owner: root:root
+    content: |
+      YURUNA_AGGREGATOR_URL=YURUNA_AGGREGATOR_URL_PLACEHOLDER
+      YURUNA_POOL_NETWORK_PATH=POOL_NAS_NETWORK_PATH_PLACEHOLDER
+      YURUNA_POOL_NETWORK_IP=POOL_NAS_NETWORK_IP_PLACEHOLDER
+      YURUNA_POOL_NETWORK_USER=POOL_NAS_NETWORK_USER_PLACEHOLDER
+  # cifs credentials (0600 root) for the bring-up script's pool-NAS mount; the
+  # networkUser is the single pool-NAS account -- scope it storage-only on the NAS.
+  - path: /etc/yuruna/pool-nas.cifs.cred
+    permissions: '0600'
+    owner: root:root
+    content: |
+      username=POOL_NAS_NETWORK_USER_PLACEHOLDER
+      password=POOL_NAS_PASSWORD_PLACEHOLDER
+  # Host coordinates: YURUNA_HOST_ID is the daemon --host-id; IP/PORT are the
+  # status service the framework fetch below reads. Empty IP/PORT falls back to
+  # the public github mirror.
+  - path: /etc/yuruna/host.env
+    permissions: '0644'
+    owner: root:root
+    content: |
+      YURUNA_HOST_ID=YURUNA_HOST_ID_PLACEHOLDER
+      YURUNA_STATUS_SERVICE_IP=YURUNA_STATUS_SERVICE_IP_PLACEHOLDER
+      YURUNA_STATUS_SERVICE_PORT=YURUNA_STATUS_SERVICE_PORT_PLACEHOLDER
+  # Agent tunables. Durations are already Go-parseable (`900s`), so the bring-up
+  # script hands them to the daemon verbatim. An empty cache-proxy IP means no
+  # reachable cache, and the daemon downloads straight from the origin.
+  - path: /etc/yuruna/download-agent.env
+    permissions: '0600'
+    owner: root:root
+    content: |
+      DOWNLOAD_AGENT_SCAN_INTERVAL=DOWNLOAD_AGENT_SCAN_INTERVAL_PLACEHOLDER
+      DOWNLOAD_AGENT_FRESHNESS=DOWNLOAD_AGENT_FRESHNESS_PLACEHOLDER
+      DOWNLOAD_AGENT_PREFETCH_LEAD=DOWNLOAD_AGENT_PREFETCH_LEAD_PLACEHOLDER
+      DOWNLOAD_AGENT_AUTO_SEED=DOWNLOAD_AGENT_AUTO_SEED_PLACEHOLDER
+      YURUNA_CACHE_PROXY_IP=YURUNA_CACHE_PROXY_IP_PLACEHOLDER
+  # Operator note; the env files above carry the live coordinates.
+  - path: /etc/yuruna/README.download-agent-service
+    permissions: '0644'
+    owner: root:root
+    content: |
+      Download-agent service VM. /etc/yuruna/pool.env + host.env + download-agent.env +
+      pool-nas.cifs.cred are written by New-VM.ps1 into the seed. The bring-up script
+      reads them. The board's "Unlock actions" prompt takes the 6-character Lab
+      token shown on the Yuruna hosts dashboard; the daemon validates it against
+      the pool aggregator, so nothing about it is stored on this VM.
+runcmd:
+  # 1) Squid CA breadcrumb. The daemon pins RootCAs to this PEM when it pushes
+  #    byte downloads through the ssl-bump port; without it the bumped chain is
+  #    untrusted and every HTTPS fetch fails verification. Best-effort on purpose:
+  #    a missing file only means the daemon fetches from origins directly.
+  - |
+    set +e
+    CACHE_IP=$(sed -nE 's/^YURUNA_CACHE_PROXY_IP=(.*)$/\1/p' /etc/yuruna/download-agent.env 2>/dev/null | head -n1)
+    CA_PEM=/etc/yuruna/yuruna-squid-ca.crt
+    if [ -n "$CACHE_IP" ]; then
+      if wget --no-proxy -q --tries=2 --timeout=10 -O "$CA_PEM" "http://$CACHE_IP/yuruna-squid-ca.crt" &&
+         [ -s "$CA_PEM" ] && grep -q 'BEGIN CERTIFICATE' "$CA_PEM"; then
+        chmod 0644 "$CA_PEM"
+        # Also trust it system-wide so the go toolchain and wget agree with the
+        # daemon about the bumped chain.
+        install -m 0644 "$CA_PEM" /usr/local/share/ca-certificates/yuruna-squid-ca.crt
+        update-ca-certificates >/dev/null 2>&1
+        echo "yuruna download-agent-service: squid CA installed from http://$CACHE_IP/yuruna-squid-ca.crt"
+      else
+        # wget leaves a zero-byte file behind on failure, and a zero-byte PEM
+        # would be handed to the daemon as a valid --proxy-ca.
+        rm -f "$CA_PEM"
+        echo "yuruna download-agent-service: no squid CA at http://$CACHE_IP/; the daemon downloads direct." >&2
+      fi
+    fi
+  # 2) Fetch the framework from the host status service (resolution as in automation/
+  #    fetch-and-execute.sh; coordinates sed-read, NOT sourced), falling back to a
+  #    github clone when the host is unreachable so a bring-up still works off-LAN.
+  - |
+    set +e
+    HF=/etc/yuruna/host.env
+    YR_HOST=$(sed -nE 's/^YURUNA_STATUS_SERVICE_IP=(.*)$/\1/p' "$HF" 2>/dev/null | head -n1)
+    YR_PORT=$(sed -nE 's/^YURUNA_STATUS_SERVICE_PORT=(.*)$/\1/p' "$HF" 2>/dev/null | head -n1)
+    DEST=/home/download-agent-service-admin/yuruna
+    mkdir -p "$DEST"
+    OK=0
+    if [ -n "$YR_HOST" ] && [ -n "$YR_PORT" ] && wget -q --no-proxy --tries=1 --timeout=5 -O /dev/null "http://$YR_HOST:$YR_PORT/livecheck"; then
+      if wget --no-proxy -qO- "http://$YR_HOST:$YR_PORT/yuruna-archive.tar.gz" | tar -xz -C "$DEST"; then
+        OK=1; echo "yuruna download-agent-service: framework extracted from host http://$YR_HOST:$YR_PORT"
+      fi
+    fi
+    if [ "$OK" -eq 0 ]; then
+      echo "yuruna download-agent-service: host status service unreachable; cloning the public github mirror." >&2
+      rm -rf "$DEST"
+      git clone --depth 1 https://github.com/alissonsol/yuruna "$DEST" && OK=1
+    fi
+    chown -R download-agent-service-admin:download-agent-service-admin "$DEST" 2>/dev/null || true
+    [ "$OK" -eq 1 ] || echo "yuruna download-agent-service: could not obtain the framework source; run the bring-up manually." >&2
+  # 3) PowerShell, for the Windows 11 family only -- best effort, never fails the build.
+  # --- REGION: https://yuruna.link/vmconfig#powershell-install-is-best-effort
+  - |
+    set +e
+    if command -v pwsh >/dev/null 2>&1; then
+      echo "yuruna download-agent-service: pwsh already present ($(pwsh --version 2>/dev/null))."
+    else
+      PS_OK=0
+      # Microsoft's prod apt repo first; the candidate is CHECKED, not assumed,
+      # with the distro-independent release tarball as the fallback.
+      VERSION_ID=''
+      . /etc/os-release 2>/dev/null
+      if [ -n "$VERSION_ID" ] &&
+         wget --no-proxy -q --tries=2 --timeout=20 -O /tmp/packages-microsoft-prod.deb \
+           "https://packages.microsoft.com/config/ubuntu/$VERSION_ID/packages-microsoft-prod.deb"; then
+        dpkg -i /tmp/packages-microsoft-prod.deb >/dev/null 2>&1
+        apt-get update -y >/dev/null 2>&1
+        if apt-cache policy powershell 2>/dev/null | grep -qE 'Candidate: *[0-9]'; then
+          DEBIAN_FRONTEND=noninteractive apt-get install -y powershell >/dev/null 2>&1 && PS_OK=1
+          [ "$PS_OK" -eq 1 ] && echo "yuruna download-agent-service: PowerShell installed from packages.microsoft.com (ubuntu $VERSION_ID)."
+        else
+          echo "yuruna download-agent-service: packages.microsoft.com has no powershell candidate for ubuntu $VERSION_ID; falling back to the release tarball." >&2
+        fi
+      fi
+      rm -f /tmp/packages-microsoft-prod.deb
+      if [ "$PS_OK" -eq 0 ]; then
+        PS_ARCH=''
+        case "$(uname -m)" in
+          x86_64)  PS_ARCH=x64 ;;
+          aarch64) PS_ARCH=arm64 ;;
+        esac
+        command -v curl >/dev/null 2>&1 || DEBIAN_FRONTEND=noninteractive apt-get install -y curl >/dev/null 2>&1
+        # Resolve latest-stable by following /releases/latest, not the GitHub
+        # API: unauthenticated API calls are capped at 60/hr lab-wide.
+        PS_TAG=$(curl -fsSLI -o /dev/null -w '%{url_effective}' --retry 3 --retry-delay 5 \
+                 https://github.com/PowerShell/PowerShell/releases/latest 2>/dev/null)
+        PS_TAG="${PS_TAG##*/}"
+        if [ -n "$PS_ARCH" ] && echo "$PS_TAG" | grep -qE '^v[0-9]+\.[0-9]+\.[0-9]+$'; then
+          PS_VER="${PS_TAG#v}"
+          PS_PKG="powershell-$PS_VER-linux-$PS_ARCH.tar.gz"
+          if curl -fsSL --retry 3 --retry-delay 5 -o /tmp/powershell.tar.gz \
+               "https://github.com/PowerShell/PowerShell/releases/download/$PS_TAG/$PS_PKG"; then
+            # Verify before unpacking. MISMATCH aborts; an unfetchable hashes file only warns.
+            # --- REGION: https://yuruna.link/vmconfig#powershell-tarball-hash-verification
+            PS_VERDICT=unverified
+            if curl -fsSL --retry 2 --retry-delay 5 -o /tmp/pwsh-hashes.sha256 \
+                 "https://github.com/PowerShell/PowerShell/releases/download/$PS_TAG/hashes.sha256"; then
+              PS_B2=$(od -An -tx1 -N2 /tmp/pwsh-hashes.sha256 2>/dev/null | tr -d ' \n')
+              if [ "$PS_B2" = "fffe" ] || [ "$PS_B2" = "feff" ]; then
+                iconv -f UTF-16 -t UTF-8 /tmp/pwsh-hashes.sha256 2>/dev/null | tr -d '\r' > /tmp/pwsh-hashes.norm
+              else
+                tr -d '\r' < /tmp/pwsh-hashes.sha256 > /tmp/pwsh-hashes.norm
+              fi
+              PS_WANT=$(LC_ALL=C awk -v p="$PS_PKG" 'index($0,p){print $1; exit}' /tmp/pwsh-hashes.norm 2>/dev/null)
+              PS_GOT=$(sha256sum /tmp/powershell.tar.gz 2>/dev/null | awk '{print $1}')
+              if [ -n "$PS_WANT" ] && [ -n "$PS_GOT" ]; then
+                [ "$PS_WANT" = "$PS_GOT" ] && PS_VERDICT=verified || PS_VERDICT=mismatch
+              fi
+              rm -f /tmp/pwsh-hashes.sha256 /tmp/pwsh-hashes.norm
+            fi
+            if [ "$PS_VERDICT" = "mismatch" ]; then
+              echo "yuruna download-agent-service: PowerShell $PS_VER tarball SHA-256 mismatch; NOT installed." >&2
+            else
+              mkdir -p /opt/microsoft/powershell/7
+              if tar zxf /tmp/powershell.tar.gz -C /opt/microsoft/powershell/7 &&
+                 chmod +x /opt/microsoft/powershell/7/pwsh &&
+                 ln -sf /opt/microsoft/powershell/7/pwsh /usr/bin/pwsh; then
+                PS_OK=1
+                echo "yuruna download-agent-service: PowerShell $PS_VER ($PS_ARCH, $PS_VERDICT) installed from the release tarball."
+              fi
+            fi
+          fi
+          rm -f /tmp/powershell.tar.gz
+        fi
+      fi
+      [ "$PS_OK" -eq 1 ] || echo "yuruna download-agent-service: no PowerShell could be installed; the Windows 11 family stays unavailable." >&2
+    fi
+  # 4) Fido, pinned + hash-verified. FIDO_PS1 must stay a path the daemon searches
+  #    when --fido-script is empty, or the family goes silently unavailable.
+  # --- REGION: https://yuruna.link/vmconfig#fido-pinned-tag-and-hash
+  - |
+    set +e
+    FIDO_URL=https://raw.githubusercontent.com/pbatard/Fido/v1.70/Fido.ps1
+    FIDO_SHA256=24c86067fa399d2fd75ef0693a2ec79ca8db162827f808caac03541cbf640c13
+    FIDO_PS1=/etc/yuruna/Fido.ps1
+    rm -f "$FIDO_PS1"
+    if wget --no-proxy -q --tries=3 --timeout=30 -O "$FIDO_PS1" "$FIDO_URL" && [ -s "$FIDO_PS1" ]; then
+      FIDO_GOT=$(sha256sum "$FIDO_PS1" 2>/dev/null | awk '{print $1}')
+      if [ "$FIDO_GOT" = "$FIDO_SHA256" ]; then
+        chmod 0644 "$FIDO_PS1"
+      else
+        rm -f "$FIDO_PS1"
+        echo "yuruna download-agent-service: Fido SHA-256 mismatch (pinned v1.70: want $FIDO_SHA256, got $FIDO_GOT); NOT installed." >&2
+      fi
+    else
+      rm -f "$FIDO_PS1"
+      echo "yuruna download-agent-service: could not fetch $FIDO_URL." >&2
+    fi
+    if command -v pwsh >/dev/null 2>&1 && [ -s "$FIDO_PS1" ]; then
+      echo "yuruna download-agent-service: Windows 11 family ENABLED (best effort) -- $(pwsh --version 2>/dev/null) with verified Fido v1.70 at $FIDO_PS1."
+    else
+      echo "yuruna download-agent-service: Windows 11 family UNAVAILABLE (pwsh: $(command -v pwsh || echo none), Fido: $([ -s "$FIDO_PS1" ] && echo "$FIDO_PS1" || echo none)); hosts keep the Windows 11 path they use today." >&2
+    fi
+  # 5) Build + launch the daemon (the script installs deps, mounts the pool NAS
+  #    that holds the download pool, writes the systemd unit, and starts it).
+  - |
+    set +e
+    SCRIPT=/home/download-agent-service-admin/yuruna/guest/ubuntu.server.26/ubuntu.server.26.download-agent-service.sh
+    if [ -f "$SCRIPT" ]; then
+      bash "$SCRIPT" || echo "yuruna download-agent-service: bring-up script exited non-zero; see cloud-init-output.log." >&2
+    else
+      echo "yuruna download-agent-service: bring-up script not found at $SCRIPT (framework not fetched?)." >&2
+    fi

@@ -31,7 +31,7 @@ order:
 
 ### Automatic provisioning
 
-`test/Start-CachingProxyServiceVM.ps1` auto-creates `yuruna-external` for you.
+`test/Start-CachingProxyServiceVM.ps1` auto-creates `yuruna-external`.
 On first invocation it:
 
 1. Resolves the host's default-route NIC (refuses Wi-Fi).
@@ -48,13 +48,12 @@ On first invocation it:
    (autostart on). A bridge that never got its uplink is rolled back
    instead of being handed to libvirt.
 
-The helper is idempotent — re-running `Start-CachingProxyServiceVM.ps1` after
-the bridge already exists is a no-op for host networking, and if the
-bridge exists but lost its LAN uplink the helper heals it (or rebuilds
-it from scratch). The bridge build does cause a brief network outage
-(typically 1–5 s) while DHCP migrates the IP from the bare NIC onto
-the bridge; SSH sessions over the NIC will reconnect once the lease
-arrives.
+The helper is idempotent — re-running `Start-CachingProxyServiceVM.ps1`
+once the bridge exists is a no-op for host networking, and a bridge
+that lost its LAN uplink is healed (or rebuilt from scratch). The
+bridge build causes a brief network outage (typically 1–5 s) while DHCP
+migrates the IP from the bare NIC onto the bridge; SSH sessions over
+the NIC reconnect once the lease arrives.
 
 Set `YURUNA_EXTERNAL_BRIDGE_SKIP=1` before `Start-CachingProxyServiceVM.ps1` if
 you intend to keep the cache VM host-only (libvirt's NAT `default`
@@ -62,8 +61,8 @@ network).
 
 ### Manual provisioning
 
-If you'd rather build the bridge yourself, or the auto-create path
-doesn't fit (custom routing, multi-NIC bond, VLAN trunk, etc.):
+To build the bridge yourself, or when the auto-create path doesn't fit
+(custom routing, multi-NIC bond, VLAN trunk, etc.):
 
 ```
 # 1. Build the bridge. Substitute eno1 for `ip -br link` output.
@@ -91,11 +90,10 @@ sudo virsh net-list --all
 
 ### Rollback
 
-If the bridge causes networking problems and you want to revert, run
-ALL of the blocks below **in this order** — connectivity is restored
-FIRST so an SSH session survives the teardown steps. A previous run may
-have left artifacts from either backend; each command is a no-op when
-its artifact is absent.
+To revert, run ALL of the blocks below **in this order** — connectivity
+is restored FIRST so an SSH session survives the teardown steps.
+Artifacts from either backend may be present; each command is a no-op
+when its artifact is absent.
 
 ```
 # 1. Restore the NIC's own connection BEFORE tearing anything down.
@@ -126,28 +124,28 @@ If the cache is created without the bridge in place, New-VM.ps1 falls
 back to libvirt's NAT `default` network. The cache still works for
 guests on the same host, but remote LAN clients can't reach it at its
 libvirt IP without a host-side port forwarder (Start-CachingProxyServiceVM.ps1
-will set one up automatically for ports 80 / 3000 / 9302 / 9400 / 3128 /
+sets one up automatically for ports 80 / 3000 / 9302 / 9400 / 3128 /
 3129).
 
 **The multi-host pool dashboard requires the bridge.** On the NAT
 fallback the forwarder is `systemd-socket-proxyd`, a userspace TCP proxy
 that re-originates every connection from the host — so squid records a
 single client IP (the NAT gateway `192.168.122.1`) for the whole LAN.
-The pool-aggregator-service discovers hosts by their real client IP in squid's
-log, so on NAT it discovers none and `…/d/yuruna-pool/yuruna-hosts`
-shows "No data" no matter how many hosts point at the proxy. Bridging is
-the only reliable fix (the macOS UTM and Hyper-V cache VMs are bridged,
-which is why their pool dashboards populate); forwarding `:9400` exposes
-the aggregator API but cannot recover the client IPs the forwarder
-already erased.
+The pool-aggregator-service discovers hosts by their real client IP in
+squid's log, so on NAT it discovers none and
+`…/d/yuruna-pool/yuruna-hosts` shows "No data" however many hosts point
+at the proxy. Bridging is the only reliable fix (the macOS UTM and
+Hyper-V cache VMs are bridged, which is why their pool dashboards
+populate); forwarding `:9400` exposes the aggregator API but cannot
+recover the client IPs the forwarder already erased.
 
 ## Cross-host state
 
 The cache VM's `yuruna` password is persisted (so reboots and rebuilds
 keep the same credentials) at
 `test/status/runtime/yuruna-caching-proxy-service.yml` — the same file written
-by the Hyper-V and macOS UTM caching-proxy-service hosts. This is host-agnostic
-state managed by `test/modules/Test.CachingProxyService.psm1`.
+by the Hyper-V and macOS UTM caching-proxy-service hosts. This
+host-agnostic state is managed by `test/modules/Test.CachingProxyService.psm1`.
 
 ---
 
@@ -155,6 +153,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.03
+Last review: 2026.08.04
 
 Back to [Yuruna](../../../README.md)

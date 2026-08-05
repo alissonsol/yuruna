@@ -82,6 +82,22 @@ small body END TO END per mirror origin with revalidation forced
 upstream fetch instead of a cache hit. A healthy CONNECT column plus
 failures on this probe isolates the wedge to the GET/cache path.
 
+The object it fetches is the suite `InRelease` for the guest's own
+`VERSION_CODENAME` — the exact URL apt blocks on — not a `dists/`
+directory index. An index is small and rarely revalidated, so a cache
+answers it in single-digit milliseconds while the `InRelease` beside it
+stalls; probing the index reports the path healthy during the outage
+this probe exists to catch. Guests with no codename (non-Ubuntu) fall
+back to the index and the output says so.
+
+Two things are reported that a plain pass/fail would hide. Squid's
+`X-Cache` header is printed when present: a HIT means the upstream was
+never contacted, so the timing is not evidence about origin health.
+And a fetch that succeeds but takes longer than 5 s is flagged `SLOW`
+and raises a problem — apt blocks on these fetches, so an origin
+answering in tens of seconds exhausts a step's timeout exactly as an
+unreachable one does.
+
 ## Section-by-section rationale
 
 ### 1. HOST — software-probe resilience
@@ -200,6 +216,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.04
+Last review: 2026.08.05
 
 Back to [Yuruna](../README.md)

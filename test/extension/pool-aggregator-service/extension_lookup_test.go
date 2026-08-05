@@ -158,6 +158,36 @@ func TestExtensionHostsRehydratedAnnounceLosesToRegistration(t *testing.T) {
 	}
 }
 
+// ...unless the registration names no address at all. A host that runs an area
+// on a hypervisor-private network withholds the address on purpose (no other
+// host could route to it), publishing presence alone -- and the service's own
+// announce, which this aggregator has probed, is what is meant to carry it.
+// Preferring the empty registration would destroy that address in the merge and
+// leave the area unresolvable for a whole beacon period after every restart,
+// which is precisely the window this fallback exists to cover.
+func TestExtensionHostsRehydratedAnnounceBeatsAddresslessRegistration(t *testing.T) {
+	s := newPoolState("default", 8080)
+	hid := "422dd0cac87e4cc6831c3228f12ae689"
+	now := time.Now()
+	s.hosts[hid] = &hostView{
+		HostId:           hid,
+		ActiveExtensions: []string{stashArea}, // runs it, publishes no address
+		LastSeenUnixMs:   now.UnixMilli(),
+	}
+	s.announce[announceKey(hid, stashArea)] = &announceView{
+		HostId: hid, Area: stashArea, Target: "http://10.0.0.5",
+		LastSeenUnixMs: now.UnixMilli(), // sourceIP unset: rehydrated, not live
+	}
+	seedExtensionHealth(s, hid, stashArea, "http://10.0.0.5")
+	entries := s.resolveExtensionHostsLocked(now)
+	if got := entries[stashArea].Host; got != "10.0.0.5" {
+		t.Errorf("host = %q, want the announced 10.0.0.5 -- the registration named none", got)
+	}
+	if got := entries[stashArea].Source; got != extSourceAnnounce {
+		t.Errorf("source = %q, want announce", got)
+	}
+}
+
 // A beacon that stopped two TTLs ago must not be handed out just because the
 // poll that reaps it has not run yet.
 func TestExtensionHostsSkipsExpiredAnnounce(t *testing.T) {

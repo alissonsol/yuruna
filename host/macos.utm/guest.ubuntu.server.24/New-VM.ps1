@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.04
+.VERSION 2026.08.05
 .GUID 42b5c6d7-e8f9-4a01-b234-5c6d7e8f9a02
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -325,18 +325,12 @@ To intentionally skip the cache:
 # feedback_macos_utm_apt_block_resolute_curtin_trap.md). The primary URI is
 # the ports mirror because macOS UTM is always aarch64.
 # --- REGION: https://yuruna.link/vmconfig#apt-proxy-block
-$AptProxyLine = if ($CachingProxyServiceUrl) { "`n    proxy: $CachingProxyServiceUrl" } else { "" }
-$AptProxyBlock = @"
-  apt:
-    geoip: false
-    primary:
-      - arches: [default]
-        uri: http://ports.ubuntu.com/ubuntu-ports$($AptProxyLine)
-    conf: |
-      Acquire::Retries "5";
-      Acquire::http::Timeout "120";
-      Acquire::https::Timeout "120";
-"@
+# Shared builder (automation/Yuruna.GuestSeed.psm1); UTM pins the aarch64 ports
+# mirror. The apt Acquire tuning it emits is a step-budget bound, so it has to be
+# identical on every host driver -- three copies of the literal drift, and a
+# mirror stall then burns a step budget on whichever host was missed.
+Import-Module (Join-Path $RepoRoot 'automation/Yuruna.GuestSeed.psm1') -Force
+$AptProxyBlock = New-AptProxyBlock -PrimaryUri 'http://ports.ubuntu.com/ubuntu-ports' -CachingProxyServiceUrl $CachingProxyServiceUrl
 
 # --- REGION: Fetch caching-proxy-service CA cert (base64-embedded in seed)
 # --- REGION: https://yuruna.link/network#caching-proxy-service-ca-cert-rc60-gate

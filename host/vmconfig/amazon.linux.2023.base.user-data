@@ -3,7 +3,7 @@
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 #vim:syntax=yaml
 # NoCloud user-data for Amazon Linux 2023 (parity with hyperv/kvm/utm siblings).
-# chpasswd default expire=true is LOAD-BEARING (first-login Current/New/Retype prompt) -- docs/vmconfig.md.
+# chpasswd default expire=true is LOAD-BEARING: it fires the first-login Current/New/Retype prompt.
 users:
   - default
   - name: USERNAME_PLACEHOLDER

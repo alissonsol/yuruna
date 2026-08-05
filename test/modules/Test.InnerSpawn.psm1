@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.04
+.VERSION 2026.08.05
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456722
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -26,9 +26,9 @@
 #   $PROFILE in the launching shell can re-set YURUNA_* env vars in the
 #   child AFTER the parent's snapshot pinned the right values.
 # Why a helper module:
-#   The same single-quote escaping + -Command construction lived in both
-#   Invoke-TestRunner.ps1 and Invoke-TestProject.ps1; a quoting-edge-case fix in
-#   one wouldn't reach the other.
+#   Invoke-TestRunner.ps1, Invoke-TestProject.ps1 and Invoke-TestCycleRunner.ps1
+#   all need the same single-quote escaping + -Command construction; duplicated,
+#   a quoting-edge-case fix in one would not reach the others.
 
 function New-InnerRunnerArgList {
     <#

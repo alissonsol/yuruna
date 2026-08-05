@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.08.04
+# Version: 2026.08.05
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 set -euo pipefail
@@ -25,10 +25,31 @@ esac
 
 # --- REGION: https://yuruna.link/network#defining-yuruna-retry-lib
 . /usr/local/lib/yuruna/yuruna-retry.sh
-# Baked retry libs may bound apt attempts on wall-clock -- the wrapped-apt
-# teardown-hang trap class (apt blocks at end-of-transaction under a timeout(1)
-# parent). Force unbounded until no image predates the lib's unbounded default.
+# Default every apt call that runs a dpkg transaction to unbounded: killing one
+# on wall-clock is the wrapped-apt teardown-hang trap class (apt blocks after
+# the last trigger under a timeout(1) parent), and the recovery is a dpkg
+# repair rather than a retry. `apt-get update` is bounded separately below; it
+# fetches indexes and runs no transaction, so that trap cannot apply to it.
 export YURUNA_APT_STALL_TIMEOUT_SECONDS=0
+
+# Bound how long apt will sit on a single index fetch. apt's own
+# Acquire::http::Timeout covers a silent socket, not a mirror that answers and
+# then trickles, so a degraded origin can hold `apt-get update` open for as
+# long as the step allows -- which is how one stalled InRelease consumed an
+# entire 30-minute step budget with the guest at 0% CPU and nothing in the log
+# after the last Get: line. These values make apt give up and hand the failure
+# to the retry ladder while the step still has time to report it.
+#
+# Written here rather than relied on from the autoinstall seed: this runs on
+# every cycle and does not depend on the installer having applied the seed's
+# apt block. 99- sorts after curtin's own drop-ins, and none of these keys
+# overlap the proxy one it writes.
+sudo tee /etc/apt/apt.conf.d/99yuruna-acquire >/dev/null <<'EOF'
+Acquire::Retries "2";
+Acquire::http::Timeout "30";
+Acquire::https::Timeout "30";
+Acquire::Languages "none";
+EOF
 
 # --- REGION: https://yuruna.link/network#caching-proxy-service-ca-cert-rc60-gate
 # CA self-heal: an untrusted SSL-bump (empty CA baked at seed time) would rc=60
@@ -229,7 +250,32 @@ EOF
 
 echo ""
 echo -e "\e[1;36m==== system packages update ====\e[0m"
+# Index fetches only -- no dpkg transaction here, so a wall-clock kill costs a
+# re-fetch rather than a half-applied package state, and the retry ladder can
+# absorb it. 300s is ~5x a healthy full update against a cold cache; a mirror
+# that has not finished by then is degraded, and every further second is taken
+# from the steps after this one. The bound is requested only when the sourced
+# retry lib advertises the safe wrapper (timeout --foreground, hoisted inside
+# sudo); against an older baked lib the expansion is empty and apt_retry falls
+# back to unbounded, exactly as before.
+#
+# The outer ladder is capped for this call because it is not the only retry in
+# play: Acquire::Retries above already re-fetches each index 3 times inside a
+# single run, so the default 5 outer attempts would mean 15 tries per index.
+# The cost is what rules it out rather than the redundancy -- 5 bounded
+# attempts plus the doubling backoff is ~1575-1650s of an 1800s step, leaving
+# nothing for dist-upgrade and the clones that follow, so a persistent stall
+# would still fail the step after spending the whole budget. Two attempts cost
+# ~610s and leave most of it, and a stall that outlasts both is an outage the
+# next cycle should retry rather than something to keep hammering here.
+export YURUNA_APT_STALL_TIMEOUT_SECONDS="${YURUNA_RETRY_LIB_SAFE_STALL:+300}"
+export YURUNA_RETRY_MAX_ATTEMPTS=2
 apt_retry sudo apt-get update;
+# Back to unbounded, default-ladder for everything below: these run dpkg
+# transactions. Unset rather than re-assigning 5, so the lib stays the single
+# place the default attempt count is written.
+export YURUNA_APT_STALL_TIMEOUT_SECONDS=0
+unset YURUNA_RETRY_MAX_ATTEMPTS
 # dist-upgrade is a superset of upgrade; running both repeats resolver work.
 apt_retry sudo apt-get -o APT::Get::Always-Include-Phased-Updates=true dist-upgrade -y;
 apt_retry sudo apt-get autoclean -y;

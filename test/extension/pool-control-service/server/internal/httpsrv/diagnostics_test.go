@@ -229,7 +229,7 @@ func TestCheckIntentStoreWarnsOnPullOnlyHTTP(t *testing.T) {
 }
 
 // The report must show what the NEXT call will use, not what startup was told,
-// now that the runner re-resolves per invocation.
+// because the runner re-resolves per invocation.
 func TestDiagnosticsReportsLiveIntentURL(t *testing.T) {
 	f := &fakeIntentWithURL{fakeIntent: fakeIntent{}, url: "/mnt/yuruna-pool/pool-intent.git"}
 	d := New(f, Options{Version: "test", IntentGitURL: "/stale/from/launch.git"}).

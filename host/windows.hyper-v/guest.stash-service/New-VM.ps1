@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.04
+.VERSION 2026.08.05
 .GUID 42f1b2c3-d4e5-4f67-8901-a2b3c4d5e680
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -141,6 +141,13 @@ if (Test-Path -LiteralPath $SeedDir) { Remove-Item -LiteralPath $SeedDir -Recurs
 New-Item -ItemType Directory -Force -Path $SeedDir | Out-Null
 
 Copy-Item -Path (Join-Path $hostVmConfigDir 'stash-service.meta-data') -Destination "$SeedDir/meta-data"
+# network-config, shipped alongside meta-data on the same seed: it pins the
+# guest DHCP client identity to the interface MAC. Without it the guest
+# identifies itself by a machine-id-derived DUID, which cloud-init changes
+# mid-boot, so the DHCP server sees a new client and leases a different address
+# -- and every host-side artifact aimed at the first address (port-forwarder,
+# readiness probe, published URL) is left pointing at one the guest abandoned.
+Copy-Item -Path (Join-Path $hostVmConfigDir 'extension-service.network-config') -Destination "$SeedDir/network-config"
 
 # --- REGION: Yuruna harness SSH key + vault password
 # The password belongs to THIS VM's own administrator. The account name is
@@ -251,13 +258,16 @@ Write-Output "  and log in with the credentials above to inspect cloud-init stat
 Write-Output ""
 
 # --- REGION: Create and configure Hyper-V VM
-# 8 GB RAM, 4 vCPU. Sized for the SCP receive + SQLite metadata writer
-# + future in-VM UI. Roughly 4x caching-proxy-service's working-set baseline at
-# 1/3 of its cache_mem allocation -- room to grow without locking the
-# operator into the heaviest profile from day one.
+# 4 GB RAM, 4 vCPU. Sized for the SCP receive + SQLite metadata writer
+# + in-VM UI, none of which holds a large resident working set: the transfers
+# stream to disk rather than buffering whole artifacts. One baseline across all
+# three extension VMs. Memory here is pinned (no dynamic balloon), so every GB
+# is committed on the host for the life of the VM -- the extension VMs share
+# one machine with the cache VM on a standalone host, and their pinned total is
+# what constrains how many test guests can still start.
 Write-Output "Creating new VM '$VMName' on switch '$switchName'..."
-Hyper-V\New-VM -Name $VMName -Generation 2 -MemoryStartupBytes 8GB -SwitchName $switchName -VHDPath $vhdxFile | Out-Null
-Set-VM -Name $VMName -MemoryStartupBytes 8GB -MemoryMinimumBytes 8GB -MemoryMaximumBytes 8GB -AutomaticCheckpointsEnabled $false | Out-Null
+Hyper-V\New-VM -Name $VMName -Generation 2 -MemoryStartupBytes 4GB -SwitchName $switchName -VHDPath $vhdxFile | Out-Null
+Set-VM -Name $VMName -MemoryStartupBytes 4GB -MemoryMinimumBytes 4GB -MemoryMaximumBytes 4GB -AutomaticCheckpointsEnabled $false | Out-Null
 Set-VMMemory -VMName $VMName -DynamicMemoryEnabled $false
 Set-VMFirmware -VMName $VMName -EnableSecureBoot Off | Out-Null
 Add-VMDvdDrive -VMName $VMName -Path $SeedIso | Out-Null

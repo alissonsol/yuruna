@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.04
+.VERSION 2026.08.05
 .GUID 423e1a49-2b85-4d60-9f12-6a0d5c8e2b74
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -69,6 +69,41 @@ echo "$r"
         $out = ($script | & $bash.Source 2>$null | Select-Object -Last 1 | Out-String).Trim()
         # rc7=transient(0) rc3=permanent(1) 404=permanent(1) 503=transient(0) 429=transient(0) | 1 attempt | jitter-in-band
         Assert-Equal -Actual $out -Expected '0 1 1 0 0 1 J' -Because "classifier/gate/jitter result was: '$out'"
+    }
+    It 'advertises the safe-stall marker and wraps a bounded call in timeout --foreground' {
+        # The marker is what lets a guest script ask for a wall-clock bound
+        # without knowing which copy of this lib its image baked. It certifies
+        # two properties, so both are asserted here rather than trusted:
+        # --foreground (a bounded command that touches the console tty is
+        # otherwise stopped by SIGTTIN/SIGTTOU) and the --kill-after backstop.
+        # If the wrapper ever loses those flags the marker becomes a lie, and
+        # every guest that gated on it starts killing apt the unsafe way.
+        $bash = Get-Command bash -ErrorAction SilentlyContinue
+        if (-not $bash) { Assert-True $true 'bash unavailable -- skipping shell check'; return }
+        $lib = Get-Content -Raw -LiteralPath $libPath
+        $driver = @'
+
+r=""
+[ "${YURUNA_RETRY_LIB_SAFE_STALL:-}" = "1" ] && r="${r}M " || r="${r}m(${YURUNA_RETRY_LIB_SAFE_STALL:-unset}) "
+# A stubbed timeout records the exact argv the wrapper builds.
+timeout() { echo "TARGS:$*"; return 0; }
+o=$(YURUNA_RETRY_STALL_TIMEOUT_SECONDS=300 _yuruna_retry t /bin/true 2>&1)
+case "$o" in
+  *"TARGS:--foreground --kill-after=30 300 /bin/true"*) r="${r}B " ;;
+  *) r="${r}b($o) " ;;
+esac
+# Default (no stall requested) must not wrap at all: that is the state an
+# older baked lib's callers rely on, and the gate expands to empty for them.
+o=$(_yuruna_retry t /bin/true 2>&1)
+case "$o" in
+  *TARGS:*) r="${r}u($o)" ;;
+  *) r="${r}U" ;;
+esac
+echo "$r"
+'@
+        $script = $lib + "`n" + $driver
+        $out = ($script | & $bash.Source 2>$null | Select-Object -Last 1 | Out-String).Trim()
+        Assert-Equal -Actual $out -Expected 'M B U' -Because "marker/wrap/no-wrap result was: '$out'"
     }
     It 'classifies wget exit codes (incl. re-probe on exit 8) and emits one YURUNA_RETRY marker per failed attempt' {
         $bash = Get-Command bash -ErrorAction SilentlyContinue

@@ -74,7 +74,7 @@ up a test machine.
 - **[capability-matrix.md](capability-matrix.md)** — the per-cycle banner naming
   what the harness can actually do on the current host (OCR engines, host I/O,
   and more).
-- **[extensions-api.md](extensions-api.md)** — the five classes of swappable
+- **[extensions-api.md](extensions-api.md)** — the seven classes of swappable
   behavior under `test/extension/` and the contract each area implements.
 - **[ocr.md](ocr.md)** — how the guest framebuffer is polled for text, and the
   three pluggable matching providers behind `waitForText` and friends.
@@ -224,6 +224,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.04
+Last review: 2026.08.05
 
 Back to [Yuruna](../README.md)

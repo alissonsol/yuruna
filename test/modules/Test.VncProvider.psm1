@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.04
+.VERSION 2026.08.05
 .GUID 4295730e-1cff-47df-b4d6-b3fd3578c818
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -16,7 +16,7 @@
 
 #requires -version 7
 
-# VNC connection provider registry + recovery primitive, second of four paired registry+recovery modules.
+# VNC connection provider registry + recovery primitive.
 #
 # Today Test.Transport caches a single VNC handle ($script:CachedVnc,
 # $script:CachedVncVM) and reuses it across steps. The cache is fast

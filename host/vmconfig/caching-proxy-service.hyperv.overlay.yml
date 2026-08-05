@@ -6,7 +6,7 @@
   # NOTE: hyperv-daemons (hv_kvp_daemon) is installed via runcmd with
   # `|| true`, not here. Its dep on linux-cloud-tools-$(uname -r) matching
   # the running cloud-image kernel isn't always satisfiable until a fresh
-  # `apt-get update` lands, and a hard failure was aborting the ENTIRE
+  # `apt-get update` lands, and a hard failure here aborts the ENTIRE
   # packages phase (grafana/prometheus/squid included). If hv-kvp-daemon
   # doesn't come up, Get-VMNetworkAdapter on the host returns empty and
   # discovery falls back to ARP -- slower but works.

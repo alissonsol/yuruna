@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.08.04
+# Version: 2026.08.05
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 set -euo pipefail
@@ -283,7 +283,7 @@ sudo kubeadm config images pull || echo "Note: kubeadm images pull may need to b
 # Reset any existing kubeadm state so the script can be re-run safely
 # Reference: https://k8s.io/docs/reference/setup-tools/kubeadm/kubeadm-reset/
 if [ -f /etc/kubernetes/manifests/kube-apiserver.yaml ] || [ -d /etc/kubernetes/pki ]; then
-    echo "Existing Kubernetes cluster detected — resetting before re-initialization"
+    echo "Existing Kubernetes cluster detected -- resetting before re-initialization"
     sudo kubeadm reset -f --cri-socket unix:///var/run/containerd/containerd.sock
     sudo rm -rf /etc/cni/net.d
     # Clean up network filtering rules left by the previous cluster.
@@ -397,7 +397,7 @@ echo "==== Flannel DaemonSet Status ===="
 echo "Waiting for Flannel pods to be ready..."
 sleep 15
 kubectl --kubeconfig="${REAL_HOME}/.kube/config" -n kube-flannel rollout status daemonset/kube-flannel-ds --timeout=180s \
-    || echo "Note: Flannel rollout status check timed out — pods may still be starting"
+    || echo "Note: Flannel rollout status check timed out -- pods may still be starting"
 
 # Wait for the node to report Ready (networking must be up for this to succeed).
 # Fatal, not a note: a NotReady node cannot schedule anything, so every

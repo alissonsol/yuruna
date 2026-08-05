@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.08.04
+# Version: 2026.08.05
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 set -euo pipefail
@@ -110,8 +110,8 @@ echo "Git: $(git --version 2>&1 || echo 'version probe failed')"
 echo "Java: $(javac -version 2>&1 || echo 'version probe failed')"
 echo "PowerShell: $(pwsh --version 2>&1 || echo 'version probe failed')"
 if [ -z "${TMPDIR:-}" ]; then
-	TMPDIR=$(mktemp -d)
+    TMPDIR=$(mktemp -d)
     export TMPDIR
-	echo "TMPDIR not set. Created and set TMPDIR to $TMPDIR"
+    echo "TMPDIR not set. Created and set TMPDIR to $TMPDIR"
 fi
 echo "Visual Studio Code: $(code --version --no-sandbox --user-data-dir "$TMPDIR" 2>&1 || echo 'installed, version probe failed')"

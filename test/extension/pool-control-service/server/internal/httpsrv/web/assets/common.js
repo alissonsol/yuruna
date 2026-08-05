@@ -201,5 +201,51 @@
 
     return { markLoaded: markLoaded, stamp: stamp };
   };
+
+  // initMenu wires the header's page menu: the button toggles the panel, and a
+  // click outside it or Escape closes it. The links are static markup, so every
+  // page stays reachable even if this never runs.
+  //
+  // Wired here rather than from each page's script because not every page in
+  // every Yuruna service calls initChrome, and the menu is how you leave a page.
+  Y.initMenu = function () {
+    const button = document.getElementById('menu-button');
+    const panel = document.getElementById('menu-panel');
+    if (!button || !panel) return;
+
+    const setOpen = function (open) {
+      panel.hidden = !open;
+      button.setAttribute('aria-expanded', open ? 'true' : 'false');
+    };
+    setOpen(false);
+
+    button.addEventListener('click', function () {
+      const open = button.getAttribute('aria-expanded') === 'true';
+      setOpen(!open);
+      if (!open) {
+        const first = panel.querySelector('a');
+        if (first) first.focus();
+      }
+    });
+    // The button's own handler runs first (target phase), so by the time this
+    // bubble-phase listener sees the same click the panel is already open --
+    // hence the button check, which stops it closing again immediately.
+    document.addEventListener('click', function (e) {
+      if (panel.hidden || panel.contains(e.target) || button.contains(e.target)) return;
+      setOpen(false);
+    });
+    document.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape' && !panel.hidden) { setOpen(false); button.focus(); }
+    });
+  };
+
+  // Scripts load at the end of <body>, so the DOM is normally parsed already;
+  // the guard covers a page that ever moves them into <head>.
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', Y.initMenu);
+  } else {
+    Y.initMenu();
+  }
+
   window.Y = Y;
 })();

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.04
+.VERSION 2026.08.05
 .GUID 42f1b2c3-d4e5-4f67-8901-a2b3c4d5e681
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -123,6 +123,13 @@ New-Item -ItemType Directory -Force -Path $SeedDir | Out-Null
 # meta-data is shared under host/vmconfig/ (byte-identical across all 3 host platforms).
 $hostVmConfigDir = Join-Path (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $ScriptDir))) 'host/vmconfig'
 Copy-Item -Path (Join-Path $hostVmConfigDir 'stash-service.meta-data') -Destination "$SeedDir/meta-data"
+# network-config, shipped alongside meta-data on the same seed: it pins the
+# guest DHCP client identity to the interface MAC. Without it the guest
+# identifies itself by a machine-id-derived DUID, which cloud-init changes
+# mid-boot, so the DHCP server sees a new client and leases a different address
+# -- and every host-side artifact aimed at the first address (port-forwarder,
+# readiness probe, published URL) is left pointing at one the guest abandoned.
+Copy-Item -Path (Join-Path $hostVmConfigDir 'extension-service.network-config') -Destination "$SeedDir/network-config"
 
 # --- REGION: Yuruna harness SSH key + vault password
 Import-Module (Join-Path $_repoRoot 'test/modules/Test.Ssh.psm1')       -Force -DisableNameChecking
@@ -242,8 +249,12 @@ if ($NetworkMode -eq 'Shared') {
     Write-Output "Bridge interface: $BridgeInterface (stash-service VM will request DHCP on this LAN)"
 }
 
-# 8 GB RAM, 4 vCPU. Sized for the SCP receive + SQLite metadata writer
-# + future in-VM UI.
+# 4 GB RAM, 4 vCPU. Sized for the SCP receive + SQLite metadata writer
+# + in-VM UI, none of which holds a large resident working set: the transfers
+# stream to disk rather than buffering whole artifacts. One baseline across all
+# three extension VMs. UTM's MemorySize is a fixed allocation with no balloon,
+# so the whole amount stays committed on the host -- the extension VMs share one
+# machine with the cache VM on a standalone host.
 # --- REGION: https://yuruna.link/definition#defining-the-vm-core-count-policy
 $hostCores = [int](& /usr/sbin/sysctl -n hw.physicalcpu)
 if ($hostCores -lt 4) {
@@ -263,7 +274,7 @@ $PlistContent = (Get-Content -Raw $TemplatePath) `
     -replace '__SEED_IMAGE_NAME__',    'seed.iso' `
     -replace '__VNC_DISPLAY__',        "$VncDisplay" `
     -replace '__CPU_COUNT__',          "$vmCores" `
-    -replace '__MEMORY_SIZE__',        '8192'
+    -replace '__MEMORY_SIZE__',        '4096'
 
 # Bridged mode needs the physical NIC name; Shared NAT carries no
 # BridgedInterface key (matches the sibling Shared templates), so drop the

@@ -1,0 +1,42 @@
+# Guest network config for the extension service VMs (stash, download-agent,
+# pool-control). Shipped on the cidata seed alongside user-data / meta-data, and
+# read by cloud-init's NoCloud datasource before networking is configured.
+#
+# The one thing this file exists to set is dhcp-identifier: mac.
+#
+# systemd-networkd defaults to identifying itself to the DHCP server with a DUID
+# derived from /etc/machine-id. cloud-init SETS the machine-id and the hostname
+# during first boot and restarts networking, so the guest re-requests under a
+# client identity it did not have moments earlier. The server has no way to know
+# it is the same machine: it treats each identity as a new client and leases a
+# DIFFERENT address to each. A guest therefore moves address two or three times
+# within the first seconds of its first boot.
+#
+# That churn is invisible from inside the guest and expensive outside it. macOS
+# `bootpd` never prunes lease blocks, so every abandoned address stays on file
+# under this guest's name; a host that resolves the address once then aims a
+# port-forwarder, a readiness probe and a published URL at an address the guest
+# has already left. Keying on the interface MAC -- which is fixed in the VM
+# bundle and survives every machine-id and hostname change -- makes the guest one
+# client for its whole life, so it takes one address and keeps it, on this boot
+# and on every later one.
+#
+# Matched by name pattern rather than by MAC: this file is shared by every
+# extension guest on every host type, and the interface is enp0s1 on UTM, eth0 on
+# Hyper-V and enp1s0 on KVM. The two entries mirror cloud-init's own fallback
+# network config, so a guest whose NIC matches neither is no worse off than it
+# would have been with no file here at all.
+version: 2
+ethernets:
+  yuruna-en:
+    match:
+      name: "en*"
+    dhcp4: true
+    dhcp6: true
+    dhcp-identifier: mac
+  yuruna-eth:
+    match:
+      name: "eth*"
+    dhcp4: true
+    dhcp6: true
+    dhcp-identifier: mac

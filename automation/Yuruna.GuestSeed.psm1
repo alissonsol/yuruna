@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.04
+.VERSION 2026.08.05
 .GUID 42b7c8d9-e0f1-4a23-9b45-6c7d8e9f0a12
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -21,7 +21,7 @@
     Platform-agnostic guest-seed helpers shared by the three per-guest
     New-VM.ps1 scripts (Hyper-V, KVM, UTM).
 .DESCRIPTION
-    Each host platform's guest.ubuntu.server.26/New-VM.ps1 builds the same
+    Each host platform's guest.ubuntu.server.<release>/New-VM.ps1 builds the same
     autoinstall seed from the same inputs, differing only in platform knobs
     (mirror URI, image name, VM-creation calls). A step that is identical across
     all three drifts whenever a fix lands in one copy and not the others -- the
@@ -68,6 +68,30 @@ function New-AptProxyBlock {
         [Parameter()][AllowNull()][AllowEmptyString()][string]$CachingProxyServiceUrl
     )
     $AptProxyLine = if ($CachingProxyServiceUrl) { "`n    proxy: $CachingProxyServiceUrl" } else { "" }
+    # Acquire tuning is a step-budget decision, not a networking preference.
+    # apt blocks on each index fetch, and a sequence step that waits for a
+    # completion marker has a fixed timeout (10-30 min). Retries 5 x Timeout 120
+    # allows ~12 minutes of stalling PER INDEX, so a single unreachable mirror
+    # consumed an entire step budget and the step failed with the guest still
+    # wedged inside apt -- no marker, no error, nothing to read but a truncated
+    # log. Three attempts at 30s bounds one index to ~90s, which leaves the
+    # failure legible and the remaining budget available to the rest of the
+    # script. Timeout is an inactivity timeout, not a transfer deadline, so a
+    # large .deb that keeps streaming is unaffected.
+    #
+    # Languages "none" drops the Translation-* indexes: fewer objects to fetch
+    # means fewer chances to stall, and the guests never read localized
+    # descriptions.
+    #
+    # These values are NOT the guest's only copy, and must not be treated as
+    # proof the installed system has them: whether the installer applies this
+    # block is its business, and an unapplied block is indistinguishable from
+    # an applied one without dumping apt's config on the guest. The ubuntu
+    # update scripts write the same keys to /etc/apt/apt.conf.d/99yuruna-acquire
+    # on every run, which is what the runtime behavior actually rests on. This
+    # block still earns its place: it is the only one of the two that exists
+    # during the install itself, before any guest script has run.
+    #
     # The closing "@ must stay on its own line at column 0; inlining $(...)"@
     # raises "The string is missing the terminator" (PowerShell here-string rule).
     return @"
@@ -77,9 +101,10 @@ function New-AptProxyBlock {
       - arches: [default]
         uri: $PrimaryUri$($AptProxyLine)
     conf: |
-      Acquire::Retries "5";
-      Acquire::http::Timeout "120";
-      Acquire::https::Timeout "120";
+      Acquire::Retries "2";
+      Acquire::http::Timeout "30";
+      Acquire::https::Timeout "30";
+      Acquire::Languages "none";
 "@
 }
 

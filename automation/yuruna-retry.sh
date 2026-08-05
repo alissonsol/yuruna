@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.08.04
+# Version: 2026.08.05
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 #
@@ -8,6 +8,17 @@
 # cloud-init deploys this file at install time.
 #
 # --- REGION: https://yuruna.link/network#defining-yuruna-retry-lib
+
+# Capability marker for the callers that ask for a wall-clock stall bound.
+# Setting one is only safe against a lib that wraps with `timeout --foreground`
+# hoisted INSIDE sudo: without --foreground the bounded command is stopped by
+# SIGTTIN/SIGTTOU the moment it touches the console tty (the background-pgrp
+# tty-stop trap), and without the hoist the signal lands on sudo instead of the
+# tool. This file does both, so a caller that sees this marker may request a
+# bound; one that does not see it is sourcing an older baked copy and must stay
+# unbounded. Gating on the marker rather than on a version string means guests
+# self-select as images roll over, with no dated "safe after" rule to maintain.
+export YURUNA_RETRY_LIB_SAFE_STALL=1
 
 _yuruna_retry() {
     local label="$1"; shift

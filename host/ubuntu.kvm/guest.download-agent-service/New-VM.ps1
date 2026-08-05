@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.04
+.VERSION 2026.08.05
 .GUID 42415d43-f59b-4fe5-bf94-4151fb133409
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -273,10 +273,19 @@ $seedDir = Join-Path $vmDir 'seed.src'
 New-Item -ItemType Directory -Force -Path $seedDir | Out-Null
 Set-Content -LiteralPath (Join-Path $seedDir 'user-data') -Value $userData -NoNewline
 Set-Content -LiteralPath (Join-Path $seedDir 'meta-data') -Value $metaData -NoNewline
+# network-config, on the same seed: it pins the guest DHCP client identity to
+# the interface MAC. Without it the guest identifies itself by a
+# machine-id-derived DUID, which cloud-init changes mid-boot, so the DHCP server
+# sees a new client and leases a different address -- and every host-side
+# artifact aimed at the first address (port-forwarder, readiness probe,
+# published URL) is left pointing at one the guest abandoned.
+Copy-Item -Path (Join-Path $repoRoot 'host/vmconfig/extension-service.network-config') `
+    -Destination (Join-Path $seedDir 'network-config')
 
 # --- REGION: Generate cloud-init seed ISO
 & genisoimage -output $seedImg -volid cidata -joliet -rock `
-    (Join-Path $seedDir 'user-data') (Join-Path $seedDir 'meta-data') 2>&1 | Out-Null
+    (Join-Path $seedDir 'user-data') (Join-Path $seedDir 'meta-data') `
+    (Join-Path $seedDir 'network-config') 2>&1 | Out-Null
 if ($LASTEXITCODE -ne 0) {
     Write-Error "genisoimage failed (exit $LASTEXITCODE)"
     exit 1
@@ -310,8 +319,11 @@ if ($LASTEXITCODE -eq 0) {
     }
 }
 
-# 8 GB RAM, 4 vCPU. Sized for the Go daemon streaming multi-GB artifacts
-# between the origins and the pool share.
+# 4 GB RAM, 4 vCPU. Sized for the Go daemon streaming multi-GB artifacts
+# between the origins and the pool share -- it streams to the share rather than
+# holding an artifact in RAM, so the resident set stays far below this. Matches
+# the stash-service and pool-control-service VMs. The domain has no balloon
+# target below this, so the whole amount stays committed on the host.
 # --- REGION: https://yuruna.link/definition#defining-the-vm-core-count-policy
 $hostCores = [int](& nproc --all)
 if ($hostCores -lt 4) {
@@ -323,7 +335,7 @@ $vmCores = [math]::Max(4, [math]::Floor($hostCores / 2))
 $installArgs = @(
     '--connect',    $virshUri,
     '--name',       $VMName,
-    '--memory',     '8192',
+    '--memory',     '4096',
     '--vcpus',      "$vmCores",
     '--cpu',        'host-passthrough',
     '--os-variant', $osVariant,

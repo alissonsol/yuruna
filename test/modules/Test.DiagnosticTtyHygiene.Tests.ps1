@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.04
+.VERSION 2026.08.05
 .GUID 42d1e2f3-a4b5-4c67-89ab-cd0e1f2a3b52
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -65,6 +65,14 @@ $TtyStub = [pscustomobject]@{
     Log         = [System.Collections.Generic.List[string]]::new()
     ThrowOnKey  = $false
     ThrowOnText = $false
+    # Fail ONE named key (throw) or make it report $false, leaving the others
+    # working. A whole-transport failure cannot express the case that matters:
+    # a restore whose first chord dies must still send its second, and a
+    # retype whose keystrokes are refused must not be read as a verdict about
+    # the guest. Both need per-key control.
+    ThrowOnKeyName = $null
+    FalseOnKeyName = $null
+    FalseOnText    = $false
     # When set, the Enter that submits the one-liner writes this path,
     # standing in for the guest running the command and POSTing its capture
     # back. The file has to appear DURING the wait, not before it: the rung
@@ -84,6 +92,8 @@ function global:Send-Key {
     if ($Mechanism -ne 'gui') { throw "Send-Key stub: tty hygiene must use the gui mechanism, got '$Mechanism'" }
     $TtyStub.Log.Add("key:$Key")
     if ($TtyStub.ThrowOnKey) { throw 'simulated keystroke failure' }
+    if ($TtyStub.ThrowOnKeyName -eq $Key) { throw "simulated keystroke failure for '$Key'" }
+    if ($TtyStub.FalseOnKeyName -eq $Key) { return $false }
     if ($Key -eq 'Enter' -and $TtyStub.UploadPath) {
         Set-Content -LiteralPath $TtyStub.UploadPath -Value 'captured' -Encoding utf8
     }
@@ -96,6 +106,7 @@ function global:Send-Text {
     if ($Text -notmatch 'curl') { throw 'Send-Text stub: expected the diagnostics one-liner' }
     $TtyStub.Log.Add('text')
     if ($TtyStub.ThrowOnText) { throw 'simulated keystroke injection failure' }
+    if ($TtyStub.FalseOnText) { return $false }
     return $true
 }
 
@@ -200,6 +211,37 @@ Describe 'Reset-GuestTtyPrompt' {
             $TtyStub.ThrowOnKey = $false
         }
     }
+    It 'still sends Enter when Ctrl-C throws' {
+        # The two chords repair different things, so one try around both would
+        # let a dead Ctrl-C silently cancel the Enter and turn the whole
+        # restore into a no-op -- leaving the pending line for the next
+        # sequence step's text to extend.
+        $TtyStub.ThrowOnKeyName = 'CtrlC'
+        try {
+            Invoke-TtyHelper -Name 'Reset-GuestTtyPrompt' | Out-Null
+            Assert-Equal -Expected 'key:CtrlC,key:Enter' -Actual ($TtyStub.Log -join ',') `
+                -Because 'a throw on the first chord must not skip the second'
+        } finally {
+            $TtyStub.ThrowOnKeyName = $null
+        }
+    }
+    It 'reports failure when a chord is refused rather than thrown' {
+        # Send-Key reports transport failure by returning $false, not by
+        # throwing. A restore that reads only the exception path calls that a
+        # success and the caller never learns the tty is still dirty.
+        $TtyStub.FalseOnKeyName = 'CtrlC'
+        try {
+            $r = Invoke-TtyHelper -Name 'Reset-GuestTtyPrompt'
+            Assert-Equal -Expected $false -Actual ([bool]$r) `
+                -Because 'a refused Ctrl-C means the pending line was never discarded'
+        } finally {
+            $TtyStub.FalseOnKeyName = $null
+        }
+    }
+    It 'reports success only when both chords land' {
+        $r = Invoke-TtyHelper -Name 'Reset-GuestTtyPrompt'
+        Assert-Equal -Expected $true -Actual ([bool]$r)
+    }
 }
 
 Describe 'Console rung tty bracket' {
@@ -264,6 +306,29 @@ Describe 'Console rung echo-corruption recovery' {
                 -Because 'Ctrl-U precedes the retype, and the recovered line is submitted with one Enter'
         } finally {
             $TtyStub.UploadPath = $null
+        }
+    }
+
+    It 'abandons on a refused retype without asking for a second verdict' {
+        # The retype keystrokes are refused, so the console still holds exactly
+        # what the first verdict read. Re-measuring that unchanged screen can
+        # only return 'corrupt' again, which would blame the guest for a
+        # malformed command when nothing was ever sent. Only ONE verdict is
+        # queued: if the rung consumes a second, the stub falls through to
+        # 'unknown' and the rung would submit -- so an Enter in the log is
+        # proof the guard did not hold.
+        $TtyStub.FalseOnText = $true
+        try {
+            $r = Invoke-EchoVerdictQueue -Verdicts @('corrupt') `
+                -FolderPath $TtyFolder -FileName 'never.arrives.txt'
+            Assert-Equal -Expected $false -Actual $r.success
+            $joined = $TtyStub.Log -join ','
+            Assert-Equal -Expected 'key:CtrlU,text,key:CtrlU,text,key:CtrlC,key:Enter' -Actual $joined `
+                -Because 'the rung abandons after the refused retype and restores the prompt'
+            Assert-True ($joined.IndexOf('key:Enter') -gt $joined.IndexOf('key:CtrlC')) `
+                'the only Enter must be the restore Enter: nothing may be submitted'
+        } finally {
+            $TtyStub.FalseOnText = $false
         }
     }
 

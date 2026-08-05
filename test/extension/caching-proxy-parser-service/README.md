@@ -29,7 +29,7 @@ served as JSON + a self-contained HTML page.
 
 ## How it gets onto the caching-proxy-service VM
 
-The caching-proxy-service VM's cloud-init `runcmd` (in 
+The caching-proxy-service VM's cloud-init `runcmd` (in
 [user-data](../../../host/vmconfig/caching-proxy-service.base.user-data)):
 
 1. wgets `main.go`, `go.mod`, `caching-proxy-parser-service.service` from the
@@ -104,6 +104,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.04
+Last review: 2026.08.05
 
 Back to [Yuruna](../../../README.md)

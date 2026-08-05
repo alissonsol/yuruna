@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.04
+.VERSION 2026.08.05
 .GUID 42a1c2d3-e4f5-4a67-8901-b2c3d4e5f6a1
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -142,6 +142,13 @@ if (Test-Path -LiteralPath $SeedDir) { Remove-Item -LiteralPath $SeedDir -Recurs
 New-Item -ItemType Directory -Force -Path $SeedDir | Out-Null
 
 Copy-Item -Path (Join-Path $hostVmConfigDir 'pool-control-service.meta-data') -Destination "$SeedDir/meta-data"
+# network-config, shipped alongside meta-data on the same seed: it pins the
+# guest DHCP client identity to the interface MAC. Without it the guest
+# identifies itself by a machine-id-derived DUID, which cloud-init changes
+# mid-boot, so the DHCP server sees a new client and leases a different address
+# -- and every host-side artifact aimed at the first address (port-forwarder,
+# readiness probe, published URL) is left pointing at one the guest abandoned.
+Copy-Item -Path (Join-Path $hostVmConfigDir 'extension-service.network-config') -Destination "$SeedDir/network-config"
 
 # --- REGION: Yuruna harness SSH key + vault password
 # The password belongs to THIS VM's own administrator. The account name is
@@ -259,12 +266,15 @@ Write-Output "  and log in with the credentials above to inspect cloud-init stat
 Write-Output ""
 
 # --- REGION: Create and configure Hyper-V VM
-# 8 GB RAM, 4 vCPU. Sized for the Go daemon + the pwsh pool-admin CLIs it
-# shells out to + future in-VM UI. Matches the stash-service VM profile so the
-# operator learns one sizing baseline across the extension VMs.
+# 4 GB RAM, 4 vCPU. Sized for the Go daemon + the pwsh pool-admin CLIs it
+# shells out to + the in-VM UI: the CLIs are short-lived and the daemon serves
+# registry reads rather than bulk data, so the resident set stays well under
+# this. Matches the stash-service and download-agent-service VMs so the operator
+# learns one sizing baseline across the extension VMs. Memory is pinned (no
+# dynamic balloon), so every GB is committed on the host for the life of the VM.
 Write-Output "Creating new VM '$VMName' on switch '$switchName'..."
-Hyper-V\New-VM -Name $VMName -Generation 2 -MemoryStartupBytes 8GB -SwitchName $switchName -VHDPath $vhdxFile | Out-Null
-Set-VM -Name $VMName -MemoryStartupBytes 8GB -MemoryMinimumBytes 8GB -MemoryMaximumBytes 8GB -AutomaticCheckpointsEnabled $false | Out-Null
+Hyper-V\New-VM -Name $VMName -Generation 2 -MemoryStartupBytes 4GB -SwitchName $switchName -VHDPath $vhdxFile | Out-Null
+Set-VM -Name $VMName -MemoryStartupBytes 4GB -MemoryMinimumBytes 4GB -MemoryMaximumBytes 4GB -AutomaticCheckpointsEnabled $false | Out-Null
 Set-VMMemory -VMName $VMName -DynamicMemoryEnabled $false
 Set-VMFirmware -VMName $VMName -EnableSecureBoot Off | Out-Null
 Add-VMDvdDrive -VMName $VMName -Path $SeedIso | Out-Null

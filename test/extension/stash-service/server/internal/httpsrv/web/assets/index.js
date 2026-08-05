@@ -48,8 +48,6 @@
     $('status').textContent = 'Loading…';
     try {
       const data = await Y.api('/api/stashes?' + filterQuery());
-      if (data.localHostId) $('machine').textContent = 'Host: ' + Y.shortHost(data.localHostId);
-      if (data.version) $('header-version').textContent = 'v' + data.version;
       lastTotal = data.total;
       for (const v of data.stashes) {
         $('rows').append(row(v));

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.04
+.VERSION 2026.08.05
 .GUID 42e5f6a7-b8c9-4d12-9345-6e7f8a9b0c1d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -697,6 +697,13 @@ function Clear-TerminalNotifierJob {
 # descriptors outright, so nothing crosses the exec there.
 $script:LastOuterCycleResult = $null
 
+# Below this, a non-zero cycle child that reported no outcome is treated as having
+# aborted on the way in rather than as a failed cycle. Sized well under anything a
+# real cycle can do -- the inner's own preamble budget alone is 600s -- so a
+# genuine failure can never be swallowed by it, while the observed abort signature
+# (a console that broke under the child) lands in single-digit seconds.
+$script:CycleAbortSeconds = 30
+
 function Get-LastOuterCycleResult {
     <#
     .SYNOPSIS
@@ -1347,8 +1354,16 @@ function Invoke-OuterCycleDispatch {
     # contains a space never completes one. Same pre-quoting as the detached
     # drain / push spawns above and Start-StatusService.ps1.
     $cycleScriptQuoted = '"' + $cycleScript + '"'
-    $argList = @('-NoLogo', '-NoProfile', '-File', $cycleScriptQuoted, '-Cycle', "$Cycle")
+    # -NonInteractive: this child shares the operator's terminal (-NoNewWindow),
+    # and a pwsh that loses its script context there falls into the console input
+    # loop, whose first act is to ask the terminal for the cursor position. On a
+    # terminal another process is also reading, that query never gets its answer
+    # and PowerShell answers a failed console read with Environment.FailFast --
+    # the process dies outright, mid-cycle. A cycle child has no business
+    # prompting for anything, so the input loop is refused rather than survived.
+    $argList = @('-NoLogo', '-NoProfile', '-NonInteractive', '-File', $cycleScriptQuoted, '-Cycle', "$Cycle")
     $proc = $null
+    $spawnedAt = Get-Date
     try {
         $proc = Start-Process -FilePath $State.PwshExe -ArgumentList $argList -NoNewWindow -PassThru -ErrorAction Stop
     } catch {
@@ -1368,15 +1383,36 @@ function Invoke-OuterCycleDispatch {
     $childExit = $proc.ExitCode
 
     $outcome = 'completed'
+    $reportedOutcome = $false
     if (Test-Path -LiteralPath $outcomeFile) {
         try {
             $doc = Get-Content -LiteralPath $outcomeFile -Raw | ConvertFrom-Json
-            if ($doc -and $doc.outcome) { $outcome = [string]$doc.outcome }
+            if ($doc -and $doc.outcome) { $outcome = [string]$doc.outcome; $reportedOutcome = $true }
             if ($doc -and $null -ne $doc.exitCode) { $childExit = [int]$doc.exitCode }
         } catch {
             Write-Verbose "[outer cycle $Cycle] unreadable cycle outcome: $($_.Exception.Message)"
         }
         Remove-Item -LiteralPath $outcomeFile -Force -ErrorAction SilentlyContinue
+    }
+    # A child that died young, non-zero, without ever reporting an outcome did not
+    # run a cycle -- it aborted on the way in. Scoring that as a cycle FAIL is a
+    # lie in the direction that costs the most: it points an operator at the tests
+    # and the dashboard for a fault that is upstream of both. The observed shape is
+    # a console that broke under it (a second process on the same terminal, a
+    # closed pty), which kills the child in seconds and produces exactly this
+    # signature: no outcome file, non-zero exit, no time to have done anything.
+    #
+    # Threshold, not exit code alone: a cycle that ran for minutes and then exited
+    # non-zero DID run, and its failure is real and must keep its verdict. Only the
+    # implausibly short ones are reclassified, and they are reported loudly as
+    # their own thing rather than folded into either verdict.
+    $ranForSeconds = [int]((Get-Date) - $spawnedAt).TotalSeconds
+    if (-not $reportedOutcome -and $childExit -ne 0 -and $ranForSeconds -lt $script:CycleAbortSeconds) {
+        Write-Warning ("[outer cycle $Cycle] the cycle process exited $childExit after ${ranForSeconds}s without reporting an outcome -- " +
+                       "it aborted before running a cycle, so this is NOT a test failure. Most often the console it inherited broke " +
+                       "under it (another process on the same terminal, or a closed session). Retrying after a short hold.")
+        Write-OuterLog "[outer cycle $Cycle] cycle-aborted: exit $childExit after ${ranForSeconds}s with no outcome file"
+        return [pscustomobject]@{ Outcome = 'cycle-aborted'; ExitCode = $childExit }
     }
     return [pscustomobject]@{ Outcome = $outcome; ExitCode = $childExit }
 }
@@ -1448,11 +1484,16 @@ function Invoke-RunnerOuterLoop {
         }
         # Transient, non-fault outcomes: hold, then re-enter. The hold is sliced so
         # a Ctrl+C during it is seen within a few seconds instead of at the end.
-        if ($outcome -in @('pull-error','paused','spawn-failed')) {
+        # 'cycle-aborted' joins these: the cycle never ran, so there is no verdict
+        # to print and nothing for the failure machinery to act on. Holding and
+        # re-entering is right for the same reason it is right for a failed spawn --
+        # the condition is upstream of the tests and usually momentary.
+        if ($outcome -in @('pull-error','paused','spawn-failed','cycle-aborted')) {
             $holdSeconds = switch ($outcome) {
-                'pull-error'   { $State.OuterPullErrorSleepSeconds }
-                'spawn-failed' { $State.InnerSpawnErrorSleepSeconds }
-                default        { 30 }
+                'pull-error'    { $State.OuterPullErrorSleepSeconds }
+                'spawn-failed'  { $State.InnerSpawnErrorSleepSeconds }
+                'cycle-aborted' { $State.InnerSpawnErrorSleepSeconds }
+                default         { 30 }
             }
             Wait-OuterInterruptible -Seconds $holdSeconds -ShutdownState $State.ShutdownState
             continue

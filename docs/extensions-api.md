@@ -214,6 +214,23 @@ own `markerBaseUrlKey`, because a consumer built before the uniform key reads
 only the per-service one and a host can run a framework newer than the
 aggregator it reports to.
 
+**Active and the address are separate verdicts.** The daemon answering *inside*
+the guest is the service being up; this host being able to open a socket to it
+is a separate, local convenience. So the marker goes active for both, but the
+address is published only when this host confirmed it end-to-end: advertising
+one that leads through a forwarder which accepts and then cannot connect hangs
+every peer that follows it for a full timeout. Presence with no address is a
+state the pool handles — the daemon's own announce carries the address, and the
+aggregator confirms it by probing
+([below](#only-an-address-the-pool-has-reached-is-answered)).
+
+**"Still building" is deliberately not part of the marker.** A guest that is
+still compiling its daemon is not serving yet, so the marker must not claim it
+is. The bring-up still exits *successfully*: the VM was created and started,
+which is what that step is for, and the daemon finishes and announces itself
+without further help. Failing there would report a broken service over one that
+is merely unfinished.
+
 [`Write-HostRegistrationRecord`](../test/modules/Test.Capability.psm1) turns
 `Get-ActiveExtensionService` into the record's `activeExtensions` /
 `extensionTargets` — no hardcoded block per service, so a new extension reaches

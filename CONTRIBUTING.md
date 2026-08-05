@@ -49,7 +49,7 @@ Likely the best path for command-line use and environments like Linux.
   - Edit `~/.bashrc` to add this line:
     ```
     export GH_TOKEN="ghp_YourGeneratedTokenGoesHere"
-    ``` 
+    ```
   - This command appends it to the file from the Bash shell.
     ```
     echo 'export GH_TOKEN="ghp_YourGeneratedTokenGoesHere"' >> ~/.bashrc && source ~/.bashrc
@@ -249,7 +249,7 @@ the empty `ghToken: ""` in the template is.
 
   - Start the Yuruna caching-proxy service
     - Locally: `test/Start-CachingProxyServiceVM.ps1`
-    - For a remote cache: set `vmStart.cachingProxyIp` in `test/test.config.yml` (probed first), or `$env:YURUNA_CACHING_PROXY_SERVICE_IP = 'x.y.z.p'` when the config key is empty
+    - For a remote cache: set `vmStart.cachingProxyIp` in `test/test.config.yml` (probed first), or `$env:YURUNA_CACHING_PROXY_SERVICE_IP = 'x.y.z.a'` when the config key is empty
     - Test: `test/Test-CachingProxyService.ps1`
   - Single test loop: `test/Invoke-TestProject.ps1`
   - For unattended tests, see the [Test Runner](docs/test-runner.md) documentation.
@@ -334,7 +334,7 @@ changes. **Revert before opening a PR.**
 
 ## Contributors
 
-Thanks to everyone who has contributed to developing, testing, and improving yuruna:
+Thanks to everyone who has contributed to developing, testing, and improving Yuruna:
 
 - [Alisson Sol](https://github.com/alissonsol)
 - [Chris Hawblitzel](https://github.com/Chris-Hawblitzel)
@@ -352,6 +352,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.04
+Last review: 2026.08.05
 
 Back to [Yuruna](README.md)

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.04
+.VERSION 2026.08.05
 .GUID 42d9c8b7-6f5e-4a23-9c81-7e4f3a2d1b50
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -123,6 +123,62 @@ function Get-RunnerInstanceState {
     return @{ status='Stale'; pid=$filePid; identityVia='none'; cmdline=[string]$cmd }
 }
 
+function Stop-YurunaProcessTree {
+    <#
+    .SYNOPSIS
+        Stop a process and everything it spawned, politely first.
+    .DESCRIPTION
+        Defined here rather than imported: this module is the single-instance
+        guard both runner entry points load before anything else, and pulling in
+        the outer loop's module for one helper would drag the whole runner
+        machinery into a path that runs before a runner exists.
+
+        Children first, then the parent. A parent killed first has its children
+        re-parented to init, which dissolves the process group that a group signal
+        would have reached -- so the sweep has to happen while the parent is still
+        holding them together.
+
+        TERM, a grace period, then KILL. TERM is what lets a shell-hosted child
+        restore the terminal it was drawing on; going straight to KILL leaves the
+        console in whatever mode the victim had it in, which is how a takeover
+        corrupts the terminal it is taking over. KILL still follows, because a
+        wedged process that ignores TERM is exactly the case a takeover exists for.
+
+        Best-effort throughout: every signal is advisory, a process may exit
+        between the check and the signal, and a takeover that cannot kill
+        something must still continue to the VM cleanup.
+    #>
+    [CmdletBinding(SupportsShouldProcess)]
+    param(
+        [Parameter(Mandatory)][int]$ProcessId,
+        [int]$GraceMilliseconds = 2000
+    )
+    if ($ProcessId -le 0 -or $ProcessId -eq $PID) { return }
+    if (-not $PSCmdlet.ShouldProcess("PID $ProcessId", 'Stop process tree')) { return }
+    try {
+        if ($IsWindows) {
+            # taskkill /T walks the tree itself; there is no separate TERM.
+            & taskkill /PID $ProcessId /T /F 2>&1 | Out-Null
+            return
+        }
+        # Full path for kill: `kill` is also a PowerShell alias for Stop-Process,
+        # which would target the wrong thing wherever the alias wins name
+        # resolution.
+        & pkill -TERM -P $ProcessId 2>&1 | Out-Null
+        & '/bin/kill' -TERM $ProcessId 2>&1 | Out-Null
+        $waited = 0
+        while ($waited -lt $GraceMilliseconds) {
+            if (-not (Get-Process -Id $ProcessId -ErrorAction SilentlyContinue)) { break }
+            Start-Sleep -Milliseconds 250
+            $waited += 250
+        }
+        & pkill -KILL -P $ProcessId 2>&1 | Out-Null
+        & '/bin/kill' -KILL $ProcessId 2>&1 | Out-Null
+    } catch {
+        Write-Verbose "Stop-YurunaProcessTree($ProcessId) swallowed: $($_.Exception.Message)"
+    }
+}
+
 function Stop-StaleRunner {
     <#
     .SYNOPSIS
@@ -139,10 +195,39 @@ function Stop-StaleRunner {
         [Parameter(Mandatory)][int]$ProcessId,
         [Parameter(Mandatory)][string]$TestRoot,
         [string]$CleanupPrefix = 'test-',
-        [int]$WaitForExitMs = 10000
+        [int]$WaitForExitMs = 10000,
+        [string]$RuntimeDir = $env:YURUNA_RUNTIME_DIR
     )
     if (-not $PSCmdlet.ShouldProcess("PID $ProcessId", 'Stop stale runner + clear orphan VMs')) { return }
-    Stop-Process -Id $ProcessId -Force -ErrorAction SilentlyContinue
+    # The TREE, not the PID. A runner spawns its cycle process, that spawns the
+    # inner, and every one of them inherits the terminal (they are started
+    # -NoNewWindow). Killing only the runner leaves those children alive, holding
+    # the console the NEW runner is about to write to -- and two processes on one
+    # terminal is not a cosmetic problem: each side's cursor-position query
+    # (ESC[6n) gets its reply consumed by the other, so the report text leaks into
+    # the output as stray ";1R" and the side that asked fails the read. PowerShell
+    # answers a failed console read with Environment.FailFast, which kills the
+    # process outright. The orphaned inner also keeps driving VMs with nothing
+    # supervising it.
+    #
+    # TERM before KILL, and children before the parent: a parent killed first
+    # re-parents its children to init and loses the group that would have reached
+    # them. The grace period is what lets the old runner put the terminal back the
+    # way it found it; the KILL sweep afterwards is for whatever ignored TERM.
+    Stop-YurunaProcessTree -ProcessId $ProcessId -GraceMilliseconds 2000
+    # The inner publishes its own pidfile, which is the one handle on a child that
+    # survived a re-parent (its group is gone, so no group signal can find it).
+    if ($RuntimeDir) {
+        $innerPidFile = Join-Path $RuntimeDir 'inner.pid'
+        if (Test-Path -LiteralPath $innerPidFile) {
+            $innerPid = 0
+            try { $innerPid = [int]((Get-Content -LiteralPath $innerPidFile -Raw -ErrorAction Stop).Trim()) } catch { $innerPid = 0 }
+            if ($innerPid -gt 0 -and $innerPid -ne $PID -and (Get-Process -Id $innerPid -ErrorAction SilentlyContinue)) {
+                Write-Verbose "Stop-StaleRunner: inner.pid $innerPid outlived its runner; stopping it too."
+                Stop-YurunaProcessTree -ProcessId $innerPid -GraceMilliseconds 1000
+            }
+        }
+    }
     $deadline = [DateTime]::UtcNow.AddMilliseconds($WaitForExitMs)
     while ([DateTime]::UtcNow -lt $deadline) {
         if (-not (Get-Process -Id $ProcessId -ErrorAction SilentlyContinue)) { break }
@@ -266,4 +351,4 @@ function Write-RunnerPidFile {
     return $true
 }
 
-Export-ModuleMember -Function Get-RunnerInstanceState, Stop-StaleRunner, Write-RunnerPidFile
+Export-ModuleMember -Function Get-RunnerInstanceState, Stop-StaleRunner, Write-RunnerPidFile, Stop-YurunaProcessTree

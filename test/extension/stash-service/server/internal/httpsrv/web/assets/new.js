@@ -6,14 +6,6 @@
 (function () {
   const $ = (id) => document.getElementById(id);
 
-  // The daemon version, under the service name. This page has no data feed of
-  // its own — the create form posts and leaves — so it reads the same host-facts
-  // endpoint the home page's footer uses. A failure leaves the slot empty
-  // rather than blocking the form.
-  Y.api('/api/hostinfo')
-    .then((d) => { if (d && d.version) $('header-version').textContent = 'v' + d.version; })
-    .catch(() => { /* version is decoration; the form still works without it */ });
-
   function showTab(which) {
     const text = which === 'text';
     $('tab-text').classList.toggle('active', text);

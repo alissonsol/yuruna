@@ -19,27 +19,12 @@ import (
 // SHIPPED OFF (--auto-enrol). Turn it on once the pieces it depends on are
 // observed working.
 //
-// Safety properties, each deliberate:
+// --- REGION: https://yuruna.link/pool-admin#auto-enrolment
 //
-//   - Candidates are `control == "ready"` on the WIRE. "remote"/"onsite" are
-//     Grafana display mappings of that field and appear nowhere in the API; a
-//     predicate written against them matches zero hosts forever and looks
-//     exactly like "nothing needed enrolling".
-//   - Only hosts in ZERO pools are added, which preserves "a host belongs to at
-//     most one pool" by construction and means the sweep can never move a host
-//     an operator placed deliberately.
-//   - autoEnrollment.excluded[] is honoured: a host an operator removed from the
-//     target pool is never re-added, or the operator and a 60-second timer would
-//     fight forever.
-//   - Nothing to do means NOTHING happens: no commit, no push, no audit row.
-//   - Every tick logs the candidate count, so "never enrols anyone" is
-//     distinguishable from "nothing to enrol". Without that, a broken predicate
-//     is invisible.
-//
-// Failure is bounded, not atomic: each host is its own CLI run, commit and push,
-// so a failure partway leaves earlier hosts enrolled. Enrolment is idempotent
-// and resumable, so the next tick finishes the job; this does not pretend to be
-// transactional.
+// Two invariants the `inAPool || excluded` skip below encodes: a host already
+// in a pool is never touched, which keeps "a host belongs to at most one pool"
+// true by construction; and a host an operator removed from the target pool is
+// never re-added, or the operator and a 60-second timer would fight forever.
 
 // AutoEnrolOptions configures the sweep.
 type AutoEnrolOptions struct {

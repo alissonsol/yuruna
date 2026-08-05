@@ -352,10 +352,9 @@ write_files:
               prefix: index_
               period: 24h
       limits_config:
-        # Default 30d (transitions src=cycle + incidents src=incident: the
-        # count_over_time Pass/Fail source + incident history). Per-step events
-        # (src=event) keep the shorter 7d window below -- "24h hot + longer
-        # aggregate history" per the retention design.
+        # 30d default covers transitions (src=cycle) and incidents (src=incident) --
+        # the count_over_time Pass/Fail source plus incident history; per-step events
+        # (src=event) keep the shorter 7d window below.
         retention_period: 720h
         retention_stream:
           - selector: '{src="event"}'
@@ -1310,25 +1309,15 @@ write_files:
       #!/usr/bin/env python3
       """Size the Yuruna hosts dashboard's per-host panels to the live host count.
 
-      Grafana has no "fit to content" height, so this recomputes gridPos.h for the
-      three per-host panels and rewrites the provisioned dashboard in place; the
-      dashboard provider re-reads that directory (updateIntervalSeconds: 30), so the
-      resize lands without a Grafana restart.
-
-      Geometry: a 30px grid cell plus an 8px vertical margin makes a panel of h units
-      (38h - 8) px tall, less the chrome, the table header row and -- on the timeline
-      -- the x-axis and value legend. Heights round UP: a panel a few px too tall
-      shows blank space, one a few px too short shows a scrollbar, and only the
-      scrollbar is a defect.
+      Rewrites the provisioned dashboard in place; the dashboard provider re-reads
+      that directory (updateIntervalSeconds: 30), so the resize lands without a
+      Grafana restart.
 
       Counts come from Prometheus and Loki, and the row count is their UNION: the Pool
       hosts table merges a Prometheus frame with two Loki frames, so a host with cycles
-      in the window but no live Prometheus series still lands a row. Rows track the
-      dashboard's DEFAULT 24h window; a wider range picked in the time picker can still
-      surface an older host and scroll. A zero or unavailable count leaves the file
-      untouched -- a down collector reports no hosts, which is indistinguishable from
-      an empty pool, and collapsing every panel to its header would hide that.
+      in the window but no live Prometheus series still lands a row.
 
+      Grid geometry, the round-UP rule, the 24h-window caveat and the zero-count no-op:
       https://yuruna.link/vmconfig/caching-proxy-service#yuruna-hosts-dashboard-panel-autofit
       """
 
@@ -2268,8 +2257,7 @@ runcmd:
         echo "== YURUNA: caching-proxy-parser-service build failed -- Recent 100 requests view will be unavailable =="
     fi
     # pool-aggregator-service: read-only multi-host pool view. Source under
-    # test/extension/pool-aggregator-service/ in the yuruna repo. The Grafana dashboard
-    # ships inline via write_files (does NOT depend on this build).
+    # test/extension/pool-aggregator-service/ in the yuruna repo.
     mkdir -p /opt/pool-aggregator-service
     cd /opt/pool-aggregator-service
     PA_OK=1

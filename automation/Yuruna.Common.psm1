@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.04
+.VERSION 2026.08.05
 .GUID 4288bcbc-ede3-4dda-bb77-b9782c7615ad
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -510,8 +510,8 @@ function ConvertTo-Sha512CryptHash {
     Wraps `openssl passwd -6` with two non-negotiable guarantees:
 
     1. The plaintext is passed AFTER the `--` end-of-options marker.
-       `New-RandomPassword` draws from an alphabet that includes `-`,
-       so ~1/72 of generated passwords start with `-`. Without `--`,
+       A plaintext may legitimately begin with `-` (an operator-supplied
+       vault password, for one). Without `--`,
        `openssl passwd -6 -4aWj*CRw` parses `-4aWj*CRw` as an unknown
        option flag, prints `passwd: Use -help for summary` to stderr,
        returns nothing on stdout, and exits non-zero. The cycle then

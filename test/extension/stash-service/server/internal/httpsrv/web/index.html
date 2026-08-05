@@ -7,20 +7,31 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <title>Yuruna Stash</title>
+  <title>Stashes &mdash; Yuruna Stash</title>
   <link rel="stylesheet" href="/assets/style.css">
 </head>
 <body class="has-footer-bar">
   <header class="app">
     <div class="brand">
-      <h1><a href="/">Yuruna Stash</a></h1>
+      <span class="name"><a href="/">Yuruna Stash</a></span>
       <span class="version" id="header-version"></span>
     </div>
     <span class="spacer"></span>
     <span class="machine" id="machine"></span>
     <a class="btn primary" href="/new">+ New stash</a>
+    <div class="menu">
+      <button type="button" class="menu-button" id="menu-button" aria-haspopup="true" aria-expanded="false" aria-controls="menu-panel">
+        <span class="menu-icon" aria-hidden="true">&#9776;</span><span class="menu-label">Menu</span>
+      </button>
+      <nav class="menu-panel" id="menu-panel" aria-label="Pages" hidden>
+        <a href="/" aria-current="page">Stashes</a>
+        <a href="/new">New stash</a>
+        <a class="menu-out" href="https://yuruna.link/stash-guide">Guide</a>
+      </nav>
+    </div>
   </header>
   <main>
+    <h1>Stashes</h1>
     <div class="toolbar">
       <input type="search" id="q" placeholder="Search id, filename, user, path…" autocomplete="off">
       <select id="class">

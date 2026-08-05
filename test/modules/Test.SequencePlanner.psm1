@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.04
+.VERSION 2026.08.05
 .GUID 42a1b2c3-d4e5-4f67-8901-bc012345677a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -640,7 +640,7 @@ function Get-CyclePlanSequencesForGuest {
 .DESCRIPTION
     Resolve-CyclePlan keys off project/test/test.runner.yml, which the
     runner consumes but Invoke-TestSequence does not. This sibling takes a top-
-    level sequence NAME directly (the same name a Invoke-TestSequence operator
+    level sequence NAME directly (the same name an Invoke-TestSequence operator
     types) and produces the same per-entry shape Resolve-CyclePlan would
     have emitted for that sequence:
       topLevel / guestKey / fullChain / startSequences / workloadSequences

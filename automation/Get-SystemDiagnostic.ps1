@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.04
+.VERSION 2026.08.05
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456720
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -1297,14 +1297,63 @@ try {
                 } catch { $null = $_ }
             }
         }
-        if ($plainProxyUrl) {
-            Write-Sub "Plain-HTTP proxy path (http_proxy GET/cache route)"
-            Write-Output ("http_proxy is {0}; fetching one small body per package-mirror origin through it (revalidation forced)." -f $plainProxyUrl)
-            $plainTargets = @(
-                'http://ports.ubuntu.com/ubuntu-ports/dists/',
-                'http://archive.ubuntu.com/ubuntu/dists/',
-                'http://security.ubuntu.com/ubuntu/dists/'
-            )
+        # Runs with or without a proxy. Gating this on http_proxy made it a
+        # guest-only probe, and a guest that dies during OS install never runs
+        # this script at all -- the host capture is then the ONLY record of
+        # mirror health for that cycle, and it recorded nothing beyond a bare
+        # "endpoint unreachable" line among 22 unrelated targets. Probing the
+        # origins here names the failing mirror at cycle start, which is what
+        # separates a broken lab from an upstream outage when the only other
+        # evidence is an installer frozen on the console.
+        if ($true) {
+            if ($plainProxyUrl) {
+                Write-Sub "Package-mirror origins (http_proxy GET/cache route)"
+                Write-Output ("http_proxy is {0}; fetching one small body per package-mirror origin through it (revalidation forced)." -f $plainProxyUrl)
+            } else {
+                Write-Sub "Package-mirror origins (direct -- no http_proxy in env)"
+                Write-Output 'No http_proxy is set, so these go direct. Guests fetch the same objects through the caching proxy; a direct failure here means the origin itself, not the cache.'
+            }
+            # Probe the exact objects apt fetches, not a directory index. An
+            # index is small, rarely revalidated, and typically answered from
+            # cache in single-digit milliseconds, so it stays green while the
+            # InRelease object beside it stalls -- the probe then reports this
+            # path healthy during the very outage it exists to catch. The
+            # release codename is read from the guest so the URL is the one
+            # this guest's own apt requests.
+            $codename = $null
+            foreach ($osRelease in '/etc/os-release', '/usr/lib/os-release') {
+                if (-not (Test-Path -LiteralPath $osRelease)) { continue }
+                try {
+                    $line = Get-Content -LiteralPath $osRelease -ErrorAction Stop |
+                        Where-Object { $_ -match '^\s*VERSION_CODENAME\s*=' } |
+                        Select-Object -First 1
+                    if ($line) { $codename = ($line -split '=', 2)[1].Trim().Trim('"') }
+                } catch { $null = $_ }
+                if ($codename) { break }
+            }
+            $plainTargets = if ($codename) {
+                @(
+                    "http://ports.ubuntu.com/ubuntu-ports/dists/$codename/InRelease",
+                    "http://archive.ubuntu.com/ubuntu/dists/$codename/InRelease",
+                    "http://security.ubuntu.com/ubuntu/dists/$codename-security/InRelease"
+                )
+            } else {
+                # No codename to build an object URL from (non-Ubuntu host or
+                # guest). The index still proves the origin answers, but it
+                # cannot exercise the object path, so it is weaker evidence.
+                @(
+                    'http://ports.ubuntu.com/ubuntu-ports/dists/',
+                    'http://archive.ubuntu.com/ubuntu/dists/',
+                    'http://security.ubuntu.com/ubuntu/dists/'
+                )
+            }
+            # Emitted AFTER the assignment, never inside it: a Write-Output in
+            # either branch of an `if` used as an expression becomes part of the
+            # assigned value, so the note itself would be added to the target
+            # list and then probed as a URL -- reported as a failed origin.
+            if (-not $codename) {
+                Write-Output '  (no VERSION_CODENAME found: probing directory indexes, which a cache can answer without reaching the origin)'
+            }
             # One SHARED 10s budget across all targets, like the CONNECT
             # matrix's shared deadline above: the diagnostic runs inside a
             # per-SSH-command wall cap, and three independent 10s timeouts
@@ -1312,30 +1361,102 @@ try {
             # capture past that cap and lose the artifact in exactly the
             # scenario this probe exists to diagnose.
             $plainFailures = @()
-            $plainDeadline = [System.Environment]::TickCount + 10000
+            # Slow IS the failure mode here: apt blocks on this fetch, so an
+            # origin answering in tens of seconds exhausts a step's timeout just
+            # as surely as one that never answers. Printing "HTTP 200" for a
+            # 22-second fetch and calling the path healthy hides the outage.
+            $plainSlow      = @()
+            $plainSlowMs    = 5000
+            $plainDeadline  = [System.Environment]::TickCount + 10000
+            # A per-target cap as well as the shared deadline: without it the
+            # first stalled origin eats the whole budget and the rest report
+            # SKIPPED, losing the healthy-vs-stalled comparison across origins
+            # that separates one bad mirror from a wedged proxy.
+            $plainPerTargetMs = 4000
             foreach ($t in $plainTargets) {
                 $remainMs = $plainDeadline - [System.Environment]::TickCount
                 if ($remainMs -lt 1000) {
-                    Write-Output ("  {0,-48} SKIPPED (shared 10s probe budget exhausted by earlier stalls)" -f $t)
+                    Write-Output ("  {0,-64} SKIPPED (shared 10s probe budget exhausted by earlier stalls)" -f $t)
                     $plainFailures += $t
                     continue
                 }
+                $budgetMs = [math]::Min($remainMs, $plainPerTargetMs)
                 $sw = [System.Diagnostics.Stopwatch]::StartNew()
                 try {
-                    $resp = Invoke-WebRequest -Uri $t -Proxy $plainProxyUrl -UseBasicParsing `
-                        -TimeoutSec ([int][math]::Ceiling($remainMs / 1000)) `
-                        -Headers @{ 'Cache-Control' = 'no-cache' } -ErrorAction Stop
+                    # -Proxy only when one is configured: passing $null selects
+                    # the system proxy rather than "no proxy", which would make
+                    # the direct/proxied distinction this probe reports untrue.
+                    $probeArgs = @{
+                        Uri             = $t
+                        UseBasicParsing = $true
+                        TimeoutSec      = [int][math]::Ceiling($budgetMs / 1000)
+                        Headers         = @{ 'Cache-Control' = 'no-cache' }
+                        ErrorAction     = 'Stop'
+                    }
+                    if ($plainProxyUrl) { $probeArgs['Proxy'] = $plainProxyUrl }
+                    $resp = Invoke-WebRequest @probeArgs
                     $sw.Stop()
-                    Write-Output ("  {0,-48} HTTP {1}, {2} bytes in {3} ms" -f $t, [int]$resp.StatusCode, $resp.RawContentLength, $sw.ElapsedMilliseconds)
+                    # A cache HIT means the upstream was never contacted, so the
+                    # elapsed time says nothing about origin health. Surface the
+                    # header so a fast number is not read as proof the mirror is
+                    # reachable -- that misreading is what makes this probe look
+                    # green while package fetches hang.
+                    $cacheNote = ''
+                    foreach ($h in 'X-Cache', 'X-Cache-Lookup') {
+                        $key = @($resp.Headers.Keys) | Where-Object { $_ -ieq $h } | Select-Object -First 1
+                        if ($key) { $cacheNote = " [{0}: {1}]" -f $key, (@($resp.Headers[$key]) -join ','); break }
+                    }
+                    $slowNote = if ($sw.ElapsedMilliseconds -ge $plainSlowMs) { '  <-- SLOW' } else { '' }
+                    Write-Output ("  {0,-64} HTTP {1}, {2} bytes in {3} ms{4}{5}" -f $t, [int]$resp.StatusCode, $resp.RawContentLength, $sw.ElapsedMilliseconds, $cacheNote, $slowNote)
+                    if ($sw.ElapsedMilliseconds -ge $plainSlowMs) { $plainSlow += $t }
                 } catch {
                     $sw.Stop()
-                    Write-Output ("  {0,-48} FAILED after {1} ms: {2}" -f $t, $sw.ElapsedMilliseconds, $_.Exception.Message)
+                    Write-Output ("  {0,-64} FAILED after {1} ms: {2}" -f $t, $sw.ElapsedMilliseconds, $_.Exception.Message)
                     $plainFailures += $t
                 }
             }
+            # Name the path in the problem text. "mirror unreachable" means very
+            # different things depending on whether the request went through the
+            # cache or straight out, and the reader of a problems summary has no
+            # other way to tell which was measured.
+            $plainPathLabel = if ($plainProxyUrl) { "the caching proxy at $plainProxyUrl" } else { 'a direct connection (no http_proxy)' }
             if ($plainFailures.Count -gt 0) {
-                Add-Problem ("NETWORK: plain-HTTP proxy (GET/cache) path via {0} failed for {1}/{2} mirror origin(s): {3} -- package fetches use this path even when the CONNECT probes above look healthy." -f `
-                    $plainProxyUrl, $plainFailures.Count, $plainTargets.Count, ($plainFailures -join ', '))
+                Add-Problem ("NETWORK: package-mirror fetch over {0} failed for {1}/{2} origin(s): {3} -- guests install and update over this path, so a failure here breaks OS installs before any guest diagnostic can run." -f `
+                    $plainPathLabel, $plainFailures.Count, $plainTargets.Count, ($plainFailures -join ', '))
+            }
+            if ($plainSlow.Count -gt 0) {
+                Add-Problem ("NETWORK: package-mirror fetch over {0} answered but took over {1}s for {2}/{3} origin(s): {4} -- apt blocks on these fetches, so a slow origin exhausts a step's timeout the same way an unreachable one does." -f `
+                    $plainPathLabel, [int]($plainSlowMs / 1000), $plainSlow.Count, $plainTargets.Count, ($plainSlow -join ', '))
+            }
+        }
+
+        # apt's effective Acquire settings decide how long a stalled mirror can
+        # hold a step open, so they belong in the capture beside the mirror
+        # timings above. Without them, a guest that hung in apt cannot be told
+        # apart from one whose retry/timeout config never reached it -- the two
+        # look identical in every other artifact and need opposite fixes.
+        # apt-config reports the MERGED view across /etc/apt/apt.conf.d, which
+        # is the only thing that answers "what will apt actually do here".
+        if (Get-Command apt-config -ErrorAction SilentlyContinue) {
+            Write-Sub "apt Acquire settings (merged view of /etc/apt/apt.conf.d)"
+            $aptKeys = @('Acquire::Retries', 'Acquire::http::Timeout', 'Acquire::https::Timeout',
+                         'Acquire::http::Proxy', 'Acquire::https::Proxy', 'Acquire::Languages')
+            try {
+                # 2>$null: apt-config writes locale/permission chatter to stderr
+                # on some guests, which would otherwise land mid-table.
+                $aptDump = @(& apt-config dump 2>$null)
+                foreach ($k in $aptKeys) {
+                    # Prefix match with the '::' boundary so Acquire::Languages
+                    # also catches its list form (Acquire::Languages:: "en";).
+                    $hits = @($aptDump | Where-Object { $_ -like "$k *" -or $_ -like "${k}:: *" })
+                    if ($hits.Count -gt 0) {
+                        foreach ($h in $hits) { Write-Output ("  {0}" -f $h) }
+                    } else {
+                        Write-Output ("  {0,-28} (not set -- apt uses its built-in default)" -f $k)
+                    }
+                }
+            } catch {
+                Write-Output "  apt-config dump failed: $($_.Exception.Message)"
             }
         }
     }

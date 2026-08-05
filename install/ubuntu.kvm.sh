@@ -1,7 +1,8 @@
 #!/bin/bash
-# Yuruna Ubuntu KVM/libvirt bootstrap installer.
+# Version: 2026.08.05
 # LICENSEURI https://yuruna.link/license
-# Version: 2026.08.04  Copyright (c) 2019-2026 by Alisson Sol et al.
+# Copyright (c) 2019-2026 by Alisson Sol et al.
+# Yuruna Ubuntu KVM/libvirt bootstrap installer.
 # --- REGION: https://yuruna.link/install/explained
 # One-liner: bash <(curl -fsSL https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/install/ubuntu.kvm.sh)
 # Supported target: Ubuntu 26.04 (Resolute) or newer on x86_64 (aarch64 supported but UNTESTED -- see preflight).

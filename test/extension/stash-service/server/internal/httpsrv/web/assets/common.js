@@ -154,7 +154,69 @@ const Y = {
 
     return { markLoaded };
   },
+
+  // initHeader fills the shared header's two variable slots: the daemon version
+  // under the service name, and this host's id. Page-agnostic -- both facts come
+  // from /api/hostinfo, so a page gets them by carrying the markup. A failure
+  // leaves the slots empty rather than blocking the page: they are decoration,
+  // and every page here works without them.
+  initHeader() {
+    Y.api('/api/hostinfo').then((d) => {
+      if (!d) return;
+      const ver = document.getElementById('header-version');
+      if (ver && d.version) ver.textContent = 'v' + d.version;
+      const machine = document.getElementById('machine');
+      if (machine && d.localHostId) machine.textContent = 'Host: ' + Y.shortHost(d.localHostId);
+    }).catch(() => { /* decoration only */ });
+  },
+
+  // initMenu wires the header's page menu: the button toggles the panel, and a
+  // click outside it or Escape closes it. The links are static markup, so every
+  // page stays reachable even if this never runs.
+  initMenu() {
+    const button = document.getElementById('menu-button');
+    const panel = document.getElementById('menu-panel');
+    if (!button || !panel) return;
+
+    const setOpen = (open) => {
+      panel.hidden = !open;
+      button.setAttribute('aria-expanded', open ? 'true' : 'false');
+    };
+    setOpen(false);
+
+    button.addEventListener('click', () => {
+      const open = button.getAttribute('aria-expanded') === 'true';
+      setOpen(!open);
+      if (!open) {
+        const first = panel.querySelector('a');
+        if (first) first.focus();
+      }
+    });
+    // The button's own handler runs first (target phase), so by the time this
+    // bubble-phase listener sees the same click the panel is already open --
+    // hence the button check, which stops it closing again immediately.
+    document.addEventListener('click', (e) => {
+      if (panel.hidden || panel.contains(e.target) || button.contains(e.target)) return;
+      setOpen(false);
+    });
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && !panel.hidden) { setOpen(false); button.focus(); }
+    });
+  },
 };
+
+// The header and its menu are on every page of this service, and not every page
+// has a script that would wire them, so they are wired here instead of being
+// left to each one. Scripts load at the end of <body>, so the DOM is normally
+// parsed already; the guard covers a page that ever moves them into <head>.
+function initPageChrome() { Y.initHeader(); Y.initMenu(); }
+if (typeof document !== 'undefined' && typeof document.addEventListener === 'function') {
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initPageChrome);
+  } else {
+    initPageChrome();
+  }
+}
 
 // safeUrl gates href/src attribute values: only same-origin relative paths and
 // absolute http(s) URLs are allowed, so a javascript:/data:/vbscript: value

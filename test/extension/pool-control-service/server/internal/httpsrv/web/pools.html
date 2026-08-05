@@ -6,36 +6,47 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Yuruna Pool Control &mdash; Pools</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Pools &mdash; Yuruna Pool Control</title>
   <link rel="stylesheet" href="/assets/style.css">
 </head>
 <body class="has-footer-bar">
   <header class="app">
     <div class="brand">
-      <span>Yuruna Pool Control</span>
+      <span class="name"><a href="/">Yuruna Pool Control</a></span>
       <span class="version" id="header-version"></span>
     </div>
-    <nav>
-      <a href="/assign">Assign</a>
-      <a href="/pools" class="active">Pools</a>
-      <a href="/test-sets">Test sets</a>
-    </nav>
     <span class="spacer"></span>
     <span class="machine" id="machine"></span>
+    <div class="menu">
+      <button type="button" class="menu-button" id="menu-button" aria-haspopup="true" aria-expanded="false" aria-controls="menu-panel">
+        <span class="menu-icon" aria-hidden="true">&#9776;</span><span class="menu-label">Menu</span>
+      </button>
+      <nav class="menu-panel" id="menu-panel" aria-label="Pages" hidden>
+        <a href="/">Board</a>
+        <a href="/assign">Assign</a>
+        <a href="/hosts">Hosts</a>
+        <a href="/pools" aria-current="page">Pools</a>
+        <a href="/test-sets">Test sets</a>
+        <a href="/advanced">Advanced</a>
+        <a href="/diagnostics">Diagnostics</a>
+        <a class="menu-out" href="https://yuruna.link/pool-control">Guide</a>
+      </nav>
+    </div>
   </header>
   <main>
     <h1>Pools</h1>
-    <p class="muted">A pool groups hosts and carries a stable Pool ID (GUID). A host belongs to at most one pool.</p>
+    <p class="muted">A pool groups hosts and carries a stable Pool ID (GUID). A host belongs to at most one pool.
+      <strong>Pool Status</strong> drives every member the way its own status page would: it reads what the
+      members are doing now, and choosing a value applies it to each of them.</p>
     <div id="notice" class="notice"></div>
     <div class="row">
       <input id="new-poolid" placeholder="pool-id (lowercase, dns-safe)" size="26">
       <input id="new-display" placeholder="display name (optional)" size="24">
-      <select id="new-state"><option value="run">run</option><option value="paused">paused</option><option value="drain">drain</option></select>
       <button id="create" class="primary">Create pool</button>
     </div>
     <table>
-      <thead><tr><th>Pool</th><th>Pool ID</th><th>Name</th><th>Members</th><th>State</th><th>Actions</th></tr></thead>
+      <thead><tr><th>Pool</th><th>Pool ID</th><th>Name</th><th>Members</th><th>Pool Status</th><th>Actions</th></tr></thead>
       <tbody id="pool-rows"></tbody>
     </table>
   </main>

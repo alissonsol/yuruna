@@ -1,7 +1,8 @@
 #!/bin/bash
-# Yuruna macOS UTM bootstrap installer.
+# Version: 2026.08.05
 # LICENSEURI https://yuruna.link/license
-# Version: 2026.08.04  Copyright (c) 2019-2026 by Alisson Sol et al.
+# Copyright (c) 2019-2026 by Alisson Sol et al.
+# Yuruna macOS UTM bootstrap installer.
 # --- REGION: https://yuruna.link/install/explained
 # One-liner: /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/install/macos.utm.sh)"
 

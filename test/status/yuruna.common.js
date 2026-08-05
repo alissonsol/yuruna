@@ -1,7 +1,7 @@
 /*
   LICENSEURI https://yuruna.link/license
   Copyright (c) 2019-2026 by Alisson Sol et al.
-  Version: 2026.08.04
+  Version: 2026.08.05
 
   Shared helpers for the Yuruna status pages. Mounted on window.Yuruna.
   --- REGION: https://yuruna.link/definition#defining-the-status-page-browser-baseline
@@ -10,7 +10,7 @@
 (function() {
   'use strict';
 
-  var VERSION = '2026.08.04';
+  var VERSION = '2026.08.05';
 
   // --- REGION: https://yuruna.link/control-proof
   // A Grafana deep-link routes through the caching-proxy service's /go/host, which appends a
@@ -1605,7 +1605,7 @@
           '<strong>' + staleCycleCount + ' cycle' + (staleCycleCount === 1 ? '' : 's') + ' lack per-step timing</strong> ' +
           '— drawn as a single gray bar. ' +
           'This usually means the detached status-service process predates the ' +
-          '<code>/control/perf-aggregates</code> icicle change. Restart it with: ' +
+          'per-step timing in <code>/control/perf-aggregates</code>. Restart it with: ' +
           '<code>pwsh test/Stop-StatusService.ps1 ; pwsh test/Start-StatusService.ps1</code>' +
           ', then reload this page.';
         body.insertBefore(warn, body.firstChild);

@@ -61,7 +61,7 @@ func main() {
 		Addr: *httpAddr, Version: version, Store: store,
 		PwshPath: *pwshPath, RepoDir: *repoDir, StateDir: *stateDir,
 		AggregatorURL: *aggregatorURL, HostID: *hostID, IntentGitURL: *intentGitURL,
-		AuthToken: authToken,
+		AuthToken: authToken, AuthTokenFile: *authTokenFile,
 	})
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)

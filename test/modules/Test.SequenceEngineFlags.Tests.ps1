@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.04
+.VERSION 2026.08.05
 .GUID 42e6a1d3-9b74-4c28-8f10-6a5b4c3d2e1f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -44,6 +44,10 @@ $enginePsm  = Join-Path $here 'Test.SequenceEngine.psm1'
 # Test.SequenceAction and calls Register-SequenceAction at load), so
 # Get-SequenceAction below reads the live registry the engine reads.
 Import-Module $handlerPsm -Force -DisableNameChecking -Global -ErrorAction SilentlyContinue -WarningAction SilentlyContinue
+# Warm-resume owns the transient-class allow-list. A verb's registered failure
+# class and that allow-list are one decision, not two: a class chosen for its
+# retryability that the allow-list rejects yields a suggestion nothing acts on.
+Import-Module (Join-Path $here 'Test.WarmResume.psm1') -Force -DisableNameChecking -Global -ErrorAction SilentlyContinue -WarningAction SilentlyContinue
 
 function Assert-Equal { param($Expected, $Actual, [string]$Because='') if ($Expected -ne $Actual) { throw "Expected [$Expected] got [$Actual]. $Because" } }
 function Assert-True  { param($Condition, [string]$Because='') if (-not $Condition) { throw "Expected true. $Because" } }
@@ -110,6 +114,30 @@ Describe 'CapturesOwnFailureScreenshot flag matches the former screenshot-skip v
             Assert-True ($null -ne $e) "'$verb' must be registered"
             Assert-Equal -Expected $false -Actual ([bool]$e.CapturesOwnFailureScreenshot) -Because "'$verb' must let the engine capture (behavior identity with the former literal list)"
         }
+    }
+}
+
+Describe 'Registered failure class matches what the verb actually failed as' {
+    It "registers fetchAndExecute as a timeout, not a script-reported failure" {
+        # A verb's registered class is its DEFAULT -- what it failed as when no
+        # failPattern matched. For fetchAndExecute that is the completion marker
+        # never arriving (a wait_timeout), most often because the fetched script
+        # is blocked on a stalled package mirror. Registering
+        # pattern_matched_failure here asserted the opposite -- that the wrapper
+        # printed its failure tag -- and nothing downstream re-checks it, so a
+        # plain timeout was reported as a script error, routed to
+        # pause_and_inspect ("auto-retry would just re-trigger it") and excluded
+        # from the warm-resume allow-list. That turned a transient upstream
+        # stall into a dead cycle needing an operator.
+        # Build-SequenceFailureRecord still reclassifies to
+        # pattern_matched_failure when a pattern really matched.
+        $e = Get-SequenceAction -Name 'fetchAndExecute'
+        Assert-True ($null -ne $e) 'fetchAndExecute must be registered'
+        Assert-Equal -Expected 'wait_timeout' -Actual ([string]$e.FailureClass)
+        Assert-True (@($e.SuggestedRecoveries) -contains 'retry_with_backoff') `
+            'a marker timeout is worth a backed-off retry'
+        Assert-True (Test-WarmResumeEligibleClass -FailureClass ([string]$e.FailureClass)) `
+            'the class must be warm-resume eligible, or the retry never happens in-place'
     }
 }
 

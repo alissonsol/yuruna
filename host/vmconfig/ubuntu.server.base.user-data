@@ -278,6 +278,47 @@ APT_PROXY_BLOCK_PLACEHOLDER
                   echo "yuruna error-commands: wget PUT failed for $SRC -> $DEST" >&2
           fi
       }
+      # Network state at failure time, captured BEFORE the uploads so it ships
+      # even when every log file below is missing. The installer's own logs say
+      # which fetch failed but never why the address was unreachable, and that
+      # is the whole question: errno 101 (Network is unreachable) means this
+      # guest lost its route, while a refusal or a timeout means the far end.
+      # Those two send a reader to opposite places, and telling them apart
+      # otherwise costs an unpack of a multi-megabyte crash tarball.
+      NETSNAP=$(mktemp 2>/dev/null || echo /tmp/yuruna-netsnap.txt)
+      {
+          echo "== captured (UTC) =="; date -u
+          echo; echo "== ip addr =="; ip addr 2>&1
+          echo; echo "== ip route (a missing default route IS the errno-101 answer) =="; ip route 2>&1
+          echo; echo "== /etc/resolv.conf =="; cat /etc/resolv.conf 2>&1
+          echo; echo "== apt proxy configuration =="; grep -rs -i proxy /etc/apt/apt.conf.d/ 2>&1
+          echo; echo "== reachability =="
+          APT_PROXY=$(grep -rhs -o 'http://[^"/]*' /etc/apt/apt.conf.d/ 2>/dev/null | head -1)
+          if [ -n "$APT_PROXY" ]; then
+              curl --silent --max-time 10 -o /dev/null \
+                  -w "via apt proxy ${APT_PROXY}: http=%{http_code} time=%{time_total}s\n" \
+                  -x "$APT_PROXY" http://archive.ubuntu.com/ubuntu/dists/ 2>&1 \
+                  || echo "via apt proxy ${APT_PROXY}: FAILED (see curl exit above)"
+          else
+              echo "no apt proxy configured"
+          fi
+          for U in http://archive.ubuntu.com/ubuntu/dists/ http://security.ubuntu.com/ubuntu/dists/; do
+              curl --silent --max-time 10 -o /dev/null --noproxy '*' \
+                  -w "direct ${U}: http=%{http_code} time=%{time_total}s\n" "$U" 2>&1 \
+                  || echo "direct ${U}: FAILED"
+          done
+          echo; echo "== host status service (${HOST_IP}:${HOST_PORT}) =="
+          curl --silent --max-time 10 -o /dev/null --noproxy '*' \
+              -w "livecheck: http=%{http_code} time=%{time_total}s\n" \
+              "http://${HOST_IP}:${HOST_PORT}/livecheck" 2>&1 || echo "livecheck: FAILED"
+      } > "$NETSNAP" 2>&1
+      put_file "$NETSNAP" "network-at-failure.txt"
+      # curtin-errors.tar is the error_tarfile curthooks is configured to write.
+      # It carries subiquity-curtin-install.log and curtin-install/main.log --
+      # both named below, and both routinely absent at error time, which is why
+      # a real failure could only be read out of the crash report's embedded
+      # copy. Uploading the tar makes the curtin logs available directly.
+      put_file /var/log/installer/curtin-errors.tar curtin-errors.tar
       for SRC in \
           /var/log/installer/subiquity-curtin-install.log \
           /var/log/installer/subiquity-server-debug.log \

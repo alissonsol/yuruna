@@ -19,9 +19,10 @@ strip everything that isn't `[a-z0-9_ -]`, then replace spaces with
 hyphens. So `### Why we patch virt-install's phase-1 XML on KVM` becomes
 `#why-we-patch-virt-installs-phase-1-xml-on-kvm`.
 
-Siblings of this file: [Yuruna definitions](definition.md) (terminology)
-and [vmconfig topic reference](vmconfig.md) (`user-data` topic
-rationale). All three use the same `# --- REGION:` convention.
+Siblings of this file: [Yuruna definitions](definition.md) (terminology),
+[vmconfig topic reference](vmconfig.md) (`user-data` topic rationale),
+and [Yuruna network workarounds](network.md) (network-specific
+rationale). All four use the same `# --- REGION:` convention.
 
 Adding a new entry:
 
@@ -1189,7 +1190,7 @@ Source:
 provider cache shared across resources and cycles. Once `tofu init`
 has fetched a provider, later inits reuse the cached plugin instead of
 round-tripping to github.com — guarding against the
-registry-5xx-burst class where releases.github.com /
+registry-5xx-burst class where releases.opentofu.org /
 registry.opentofu.org returns the same 5xx within a tight retry
 window: a per-attempt retry loop cannot survive the burst, but a
 cached plugin sidesteps it.
@@ -1364,6 +1365,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.04
+Last review: 2026.08.05
 
 Back to [Yuruna](../README.md)

@@ -73,9 +73,9 @@ ports to it.
   summary line of `test/Start-CachingProxyServiceVM.ps1`.
 - **If the cache VM is `started` but no `:3128` answer is found on the
   host's LAN `/24`**, `New-VM.ps1` exits 1 rather than silently falling
-  back — typically a Wi-Fi AP that filters the cache's locally-
-  administered MAC. Switch to Ethernet or rebuild on a network that
-  allows it.
+  back — typically a Wi-Fi AP that filters the cache's
+  locally-administered MAC. Switch to Ethernet or rebuild on a network
+  that allows it.
 
 `test/Repair-CachingProxyServiceForwarder.ps1` is a thin "verify reachable +
 refresh state file" tool; forwarders are created only for the Wi-Fi
@@ -97,6 +97,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.04
+Last review: 2026.08.05
 
 Back to [Yuruna](../../README.md)

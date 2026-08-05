@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.04
+.VERSION 2026.08.05
 .GUID 42a2b3c4-d5e6-4f78-9012-3a4b5c6d7e95
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -217,18 +217,13 @@ if (Test-Path -LiteralPath $cfg) {
 # Always emit `geoip: false` + a pinned `primary:` mirror (deterministic
 # election; `primary:` not `sources_list:`).
 # --- REGION: https://yuruna.link/vmconfig#apt-proxy-block
-$AptProxyLine = if ($CachingProxyServiceUrl) { "`n    proxy: $CachingProxyServiceUrl" } else { "" }
-$AptProxyBlock = @"
-  apt:
-    geoip: false
-    primary:
-      - arches: [default]
-        uri: $primaryUri$($AptProxyLine)
-    conf: |
-      Acquire::Retries "5";
-      Acquire::http::Timeout "120";
-      Acquire::https::Timeout "120";
-"@
+# Shared builder (automation/Yuruna.GuestSeed.psm1); $primaryUri is the
+# arch-appropriate mirror resolved above. The apt Acquire tuning it emits is a
+# step-budget bound, so it has to be identical on every host driver -- three
+# copies of the literal drift, and a mirror stall then burns a step budget on
+# whichever host was missed.
+Import-Module (Join-Path $repoRoot 'automation/Yuruna.GuestSeed.psm1') -Force
+$AptProxyBlock = New-AptProxyBlock -PrimaryUri $primaryUri -CachingProxyServiceUrl $CachingProxyServiceUrl
 
 # --- REGION: Fetch caching-proxy-service CA cert (base64-embedded in seed)
 # --- REGION: https://yuruna.link/network#caching-proxy-service-ca-cert-rc60-gate

@@ -368,7 +368,7 @@ installer, or to repair a partial install. Run
 used in testing
 ([`automation/Yuruna.Requirement.yml`](../automation/Yuruna.Requirement.yml)).
 
-- Install [PowerShell Core](https://github.com/powershell/powershell) 7.0+.
+- Install [PowerShell Core](https://github.com/powershell/powershell) 7.6.4+ — the floor in [`Yuruna.Requirement.yml`](../automation/Yuruna.Requirement.yml); anything older fails `Test-Requirement.ps1`.
   On Windows, from an Administrator PowerShell:
   - `Set-ExecutionPolicy -ExecutionPolicy RemoteSigned` (see [execution policies](https://go.microsoft.com/fwlink/?LinkID=135170))
   - `Install-Module -Name powershell-yaml`
@@ -702,6 +702,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.04
+Last review: 2026.08.05
 
 Back to [Yuruna](../README.md)

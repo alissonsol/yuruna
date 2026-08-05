@@ -10,11 +10,9 @@
   color-scheme: light dark;
   --bg-primary: #f9fafb;
   --bg-elevated: #ffffff;
-  --bg-header: #111827;
   --bg-hover: #f3f4f6;
   --bg-code: #f3f4f6;
   --fg-primary: #111827;
-  --fg-header: #ffffff;
   --fg-muted: #6b7280;
   --fg-faint: #9ca3af;
   --border: #e5e7eb;
@@ -36,19 +34,24 @@
   --destructive-bg: #f97316;
   --destructive-fg: #ffffff;
   --destructive-hover-bg: #ea580c;
-  --footer-bg: #111827;
-  --footer-fg: #9ca3af;
-  --footer-input-bg: #0b1220;
-  --footer-input-border: #374151;
+  /* The --chrome-* set is the shared one: see the page-chrome block below for
+     why it must not drift between services. */
+  --chrome-bg: #111827;
+  --chrome-fg: #f9fafb;
+  --chrome-muted: #9ca3af;
+  --chrome-line: #374151;
+  --chrome-raised: #1f2937;
+  --chrome-hover: #374151;
+  --chrome-input-bg: #0b1220;
   --touch-min: 2.75rem;
-  --font-mono: 'Menlo', 'Consolas', monospace;
+  --mono: ui-monospace, Menlo, Consolas, monospace;
+  --font-mono: var(--mono);
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
     --bg-primary: #0b1220;
     --bg-elevated: #111827;
-    --bg-header: #030712;
     --bg-hover: #1f2937;
     --bg-code: #1f2937;
     --fg-primary: #e5e7eb;
@@ -67,14 +70,22 @@
     --running-bg: #1e3a8a;
     --running-fg: #93c5fd;
     --link: #74b8ff;
-    --footer-bg: #030712;
-    --footer-fg: #94a3b8;
-    --footer-input-bg: #020617;
-    --footer-input-border: #1f2937;
+    --chrome-bg: #030712;
+    --chrome-muted: #94a3b8;
+    --chrome-line: #1f2937;
+    --chrome-raised: #111827;
+    --chrome-hover: #1f2937;
+    --chrome-input-bg: #020617;
   }
 }
 
 * { box-sizing: border-box; }
+
+/* The menu panel toggles on the `hidden` ATTRIBUTE. A class rule that sets
+   `display:` on the same element outranks the user-agent
+   `[hidden] { display: none }` on specificity, so `el.hidden = true` would
+   become a silent no-op. Keep this ahead of every layout rule. */
+[hidden] { display: none !important; }
 
 /* iOS Safari boosts text inside any block wider than the viewport, which the
    8-column stash table and the `white-space: pre` viewer both are on a phone
@@ -88,37 +99,155 @@ html, body {
   padding: 0;
   background: var(--bg-primary);
   color: var(--fg-primary);
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
-  font-size: 15px;
-  line-height: 1.5;
+  font: 15px/1.5 -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
 }
 
 a { color: var(--link); text-decoration: none; }
 a:hover { text-decoration: underline; }
 
-header.app {
-  background: var(--bg-header);
-  color: var(--fg-header);
-  /* Fold iPhone safe-area-inset into horizontal padding so the full-bleed
-     header bar stays readable under the notch when viewport-fit=cover is
-     set; env() is 0 on non-notched devices. */
-  padding: 0.75rem 1rem;
-  padding: 0.75rem max(1rem, env(safe-area-inset-right)) 0.75rem max(1rem, env(safe-area-inset-left));
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-}
-/* Space children with margins, not flex `gap` (Safari/iOS 14.5+ only), to hold
-   the older-iOS baseline this UI targets; matches the status pages' idiom. */
-header.app > * + * { margin-left: 1rem; }
-header.app h1 { font-size: 1.1rem; margin: 0; }
-header.app h1 a { color: var(--fg-header); }
-header.app .brand { display: flex; flex-direction: column; line-height: 1.15; }
-header.app .version { color: var(--fg-faint); font-family: var(--font-mono); font-size: 0.72rem; }
-header.app .spacer { flex: 1; }
-header.app .machine { color: var(--fg-faint); font-family: var(--font-mono); font-size: 0.8rem; }
+/* ===========================================================================
+   PAGE CHROME -- the black header bar, its menu, and the black footer bar.
+   Header and footer are one surface, and every Yuruna service UI carries the
+   same one: same tokens, same type scale, same menu in the same corner, so the
+   set reads as one product rather than three lookalikes.
 
-main { max-width: 1100px; margin: 0 auto; padding: 1rem; padding: 1rem max(1rem, env(safe-area-inset-right)) 1rem max(1rem, env(safe-area-inset-left)); }
+   Keep this block, and the --chrome-* tokens it reads, byte-identical across the
+   three services' style.css. Each daemon embeds its own copy because //go:embed
+   cannot reach outside its own module -- the duplication is forced, so drift is
+   the thing to watch for, and Test.ExtensionUiChrome.Tests.ps1 fails when the
+   three copies stop matching.
+   =========================================================================== */
+header.app {
+  background: var(--chrome-bg); color: var(--chrome-fg);
+  display: flex; align-items: center; flex-wrap: nowrap;
+  /* Fold the iPhone safe-area-inset into the horizontal padding so the
+     full-bleed bar stays readable under the notch (every page sets
+     viewport-fit=cover); env() resolves to 0 on non-notched devices. */
+  padding: .55rem 1rem;
+  padding: .55rem max(1rem, env(safe-area-inset-right)) .55rem max(1rem, env(safe-area-inset-left));
+}
+/* Space flex children with margins, not `gap` (flex gap is Safari/iOS 14.5+ only). */
+header.app > * + * { margin-left: 1rem; }
+/* Service name with its version stacked underneath, so the two read as one
+   identity block rather than two unrelated header items. */
+header.app .brand { display: flex; flex-direction: column; line-height: 1.15; min-width: 0; }
+header.app .brand .name { font-size: 1rem; font-weight: 600; white-space: nowrap; }
+header.app .brand a { color: inherit; text-decoration: none; }
+header.app .version { color: var(--chrome-muted); font-family: var(--mono); font-size: .72rem; font-weight: 400; }
+header.app .spacer { flex: 1; }
+/* The host id is the header's one variable-width item, so it is the one that
+   gives: it truncates rather than pushing the menu button off a phone. */
+header.app .machine { color: var(--chrome-muted); font-family: var(--mono); font-size: .8rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* A plain header action sits on the black bar and cannot inherit the page's
+   light button styling. :not(.primary) leaves the accent-filled ones alone --
+   they already read on black. Scoped to .btn, never to bare `button`: a
+   `header.app button` selector would outrank .menu-button's own rules below and
+   flatten its open state. */
+header.app .btn:not(.primary) {
+  background: transparent; color: var(--chrome-fg); border-color: var(--chrome-line);
+}
+header.app .btn:not(.primary):hover { background: var(--chrome-raised); }
+
+/* Right-hand page menu. Every service carries the same control in the same
+   corner, so moving between pages does not change from one Yuruna UI to the
+   next. The links are static markup, not built in JS, so they survive a script
+   failure; common.js only wires open/close. */
+.menu { position: relative; flex-shrink: 0; }
+.menu-button {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-height: 2rem; padding: .3rem .6rem;
+  font: inherit; font-size: .85rem; line-height: 1;
+  color: var(--chrome-fg); background: transparent;
+  border: 1px solid var(--chrome-line); border-radius: 6px; cursor: pointer;
+}
+.menu-button:hover, .menu-button[aria-expanded="true"] { background: var(--chrome-raised); }
+.menu-button .menu-icon { font-size: 1rem; line-height: 1; }
+.menu-button .menu-icon + .menu-label { margin-left: .4rem; }
+.menu-panel {
+  position: absolute; top: calc(100% + .45rem); right: 0;
+  min-width: 12rem; padding: .3rem;
+  background: var(--chrome-raised); color: var(--chrome-fg);
+  border: 1px solid var(--chrome-line); border-radius: 8px;
+  box-shadow: 0 10px 28px rgba(0,0,0,.45);
+  /* Above the fixed footer bar (3), any sticky page furniture (1) and the
+     board's confirm sheet (10); below the unlock overlay (20), which stays
+     modal even when the menu was left open behind it. */
+  z-index: 15;
+}
+.menu-panel a {
+  display: block; padding: .5rem .6rem; border-radius: 6px;
+  color: var(--chrome-fg); font-size: .9rem; text-decoration: none; white-space: nowrap;
+}
+.menu-panel a:hover, .menu-panel a:focus { background: var(--chrome-hover); text-decoration: none; }
+.menu-panel a[aria-current="page"] { font-weight: 600; }
+.menu-panel a[aria-current="page"]::after { content: "\2713"; float: right; margin-left: 1.5rem; }
+/* The trailing link leaves the service; the rule says so before it is followed. */
+.menu-panel .menu-out { margin-top: .3rem; padding-top: .4rem; border-top: 1px solid var(--chrome-line); border-radius: 0 0 6px 6px; }
+
+/* Footer bar (server IPs · loaded · refresh countdown), the same surface as the
+   header above -- fixed at the bottom, with a readonly mono textarea for the
+   (possibly long) IP list. main pads its bottom so the fixed bar never covers
+   the last row of a table. margin-top/text-align are restated because one page
+   carries this id on a <footer class="app"> that centres its flow content. */
+#footer-bar {
+  position: fixed; bottom: 0; left: 0; right: 0;
+  background: var(--chrome-bg); color: var(--chrome-muted);
+  margin-top: 0; text-align: left;
+  /* Fixed bar: pad left/right and bottom by the safe-area-inset so it clears
+     the iPhone home indicator and the landscape notch. */
+  padding: .35rem 1rem;
+  padding: .35rem max(1rem, env(safe-area-inset-right)) max(.35rem, env(safe-area-inset-bottom)) max(1rem, env(safe-area-inset-left));
+  font-size: .6875rem;
+  display: flex; justify-content: space-between; align-items: center;
+  z-index: 3;
+}
+#footer-bar > * + * { margin-left: .75rem; }
+#footer-bar a { color: var(--chrome-muted); }
+#footer-ips { flex: 0 1 33%; max-width: 33%; min-width: 0; display: flex; align-items: center; }
+#footer-ips > * + * { margin-left: .5rem; }
+#footer-ips .label { flex-shrink: 0; }
+textarea#footer-ip-list {
+  flex: 1 1 auto; min-width: 0;
+  font-family: var(--mono); font-size: .6875rem;
+  color: var(--chrome-muted); background: var(--chrome-input-bg); border: 1px solid var(--chrome-line);
+  border-radius: 3px; padding: .15rem .35rem;
+  resize: none; overflow: auto; white-space: pre;
+  line-height: 1.25; vertical-align: middle;
+  scrollbar-width: none;
+}
+textarea#footer-ip-list::-webkit-scrollbar { display: none; }
+/* body class (not :has()) so the fixed-footer clearance works on Firefox and
+   iOS Safari < 15.4, which predate :has(). */
+body.has-footer-bar main { padding-bottom: 3rem; padding-bottom: calc(3rem + env(safe-area-inset-bottom)); }
+
+/* Phone: the menu is how you leave a page, so it keeps a full touch target
+   while its label drops -- the glyph alone survives a 320px viewport. */
+@media (max-width: 600px) {
+  .menu-button { min-height: var(--touch-min); min-width: var(--touch-min); font-size: 16px; }
+  .menu-button .menu-label { display: none; }
+  .menu-panel a { padding: .65rem .6rem; }
+  header.app .btn { padding: .4rem .6rem; font-size: .85rem; }
+}
+/* === end page chrome ====================================================== */
+
+/* The in-flow footer of a page with no data feed of its own (create, detail).
+   Same surface as the header, so a short page still ends on the chrome colour
+   instead of trailing off into the page background. */
+footer.app {
+  background: var(--chrome-bg); color: var(--chrome-muted);
+  padding: .75rem 1rem;
+  padding: .75rem max(1rem, env(safe-area-inset-right)) max(.75rem, env(safe-area-inset-bottom)) max(1rem, env(safe-area-inset-left));
+  margin-top: 2rem; font-size: .8rem; text-align: center;
+}
+footer.app a { color: var(--chrome-muted); }
+
+main {
+  max-width: 1100px; margin: 0 auto;
+  padding: 1.25rem;
+  padding: 1.25rem max(1.25rem, env(safe-area-inset-right)) 1.25rem max(1.25rem, env(safe-area-inset-left));
+}
+h1 { font-size: 1.15rem; margin: 0 0 1rem; }
+h2 { font-size: 1rem; margin: 1.75rem 0 .25rem; }
 
 .toolbar { display: flex; flex-wrap: wrap; align-items: center; margin-bottom: 1rem; }
 .toolbar > * + * { margin-left: 0.5rem; }
@@ -159,10 +288,10 @@ table.stashes { width: 100%; border-collapse: collapse; background: var(--bg-ele
 table.stashes th, table.stashes td { text-align: left; padding: 0.5rem 0.6rem; border-bottom: 1px solid var(--border); font-size: 0.9rem; }
 table.stashes th { color: var(--fg-muted); font-weight: 600; }
 table.stashes tr:hover td { background: var(--bg-hover); cursor: pointer; }
-table.stashes .mono { font-family: var(--font-mono); }
+table.stashes .mono { font-family: var(--mono); }
 table.stashes .num { text-align: right; white-space: nowrap; }
 
-.badge { display: inline-block; padding: 0.05rem 0.45rem; border-radius: 999px; font-size: 0.72rem; font-weight: 600; font-family: var(--font-mono); }
+.badge { display: inline-block; padding: 0.05rem 0.45rem; border-radius: 999px; font-size: 0.72rem; font-weight: 600; font-family: var(--mono); }
 .badge.complete { background: var(--pass-bg); color: var(--pass-fg); }
 .badge.pending { background: var(--pending-bg); color: var(--pending-fg); }
 .badge.partial, .badge.truncated { background: var(--warn-bg); color: var(--warn-fg); }
@@ -172,9 +301,9 @@ table.stashes .num { text-align: right; white-space: nowrap; }
 .card { background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 8px; padding: 1rem; margin-bottom: 1rem; }
 .kv { display: grid; grid-template-columns: max-content 1fr; grid-gap: 0.25rem 1rem; gap: 0.25rem 1rem; font-size: 0.9rem; }
 .kv dt { color: var(--fg-muted); }
-.kv dd { margin: 0; font-family: var(--font-mono); word-break: break-all; }
+.kv dd { margin: 0; font-family: var(--mono); word-break: break-all; }
 
-pre.viewer { background: var(--bg-code); padding: 0.75rem; border-radius: 6px; overflow: auto; max-height: 70vh; font-family: var(--font-mono); font-size: 0.85rem; white-space: pre; }
+pre.viewer { background: var(--bg-code); padding: 0.75rem; border-radius: 6px; overflow: auto; max-height: 70vh; font-family: var(--mono); font-size: 0.85rem; white-space: pre; }
 pre.viewer.wrap { white-space: pre-wrap; word-break: break-word; }
 .viewer-img { max-width: 100%; height: auto; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-code); }
 .viewer-frame { width: 100%; height: 75vh; border: 1px solid var(--border); border-radius: 6px; }
@@ -190,7 +319,7 @@ form.create input[type="text"], form.create textarea, form.create input[type="fi
   color: var(--fg-primary);
   font-family: inherit;
 }
-form.create textarea { min-height: 16rem; font-family: var(--font-mono); font-size: 0.85rem; }
+form.create textarea { min-height: 16rem; font-family: var(--mono); font-size: 0.85rem; }
 
 .tabs { display: flex; margin-bottom: 0.5rem; }
 .tabs > * + * { margin-left: 0.5rem; }
@@ -206,45 +335,6 @@ form.create textarea { min-height: 16rem; font-family: var(--font-mono); font-si
 .right { text-align: right; }
 .actions { display: flex; flex-wrap: wrap; margin: 1rem 0; }
 .actions > * + * { margin-left: 0.5rem; }
-
-footer.app { background: var(--footer-bg); color: var(--footer-fg); padding: 0.75rem 1rem; padding: 0.75rem max(1rem, env(safe-area-inset-right)) max(0.75rem, env(safe-area-inset-bottom)) max(1rem, env(safe-area-inset-left)); margin-top: 2rem; font-size: 0.8rem; text-align: center; }
-
-/* Shared footer bar (server IPs · loaded · refresh countdown), mirroring the
-   status pages' #footer-bar (yuruna.common.css) — fixed at the bottom, with a
-   readonly mono textarea for the (possibly long) IP list. Reuses the
-   footer.app background/color; #footer-bar (id) overrides the centered flow
-   layout above. main pads its bottom so the fixed bar never covers the last
-   row / Load more button. */
-#footer-bar {
-  position: fixed; bottom: 0; left: 0; right: 0;
-  margin-top: 0;
-  /* Fixed bar: pad left/right and bottom by the safe-area-inset so it clears
-     the iPhone home indicator and the landscape notch. */
-  padding: 0.35rem 1rem;
-  padding: 0.35rem max(1rem, env(safe-area-inset-right)) max(0.35rem, env(safe-area-inset-bottom)) max(1rem, env(safe-area-inset-left));
-  font-size: 0.6875rem;
-  display: flex; justify-content: space-between; align-items: center;
-  text-align: left;
-}
-#footer-bar > * + * { margin-left: 0.75rem; }
-#footer-bar a { color: var(--footer-fg); }
-#footer-ips { flex: 0 1 33%; max-width: 33%; min-width: 0; display: flex; align-items: center; }
-#footer-ips > * + * { margin-left: 0.5rem; }
-#footer-ips .label { flex-shrink: 0; }
-textarea#footer-ip-list {
-  flex: 1 1 auto; min-width: 0;
-  font-family: var(--font-mono); font-size: 0.6875rem;
-  color: var(--footer-fg); background: var(--footer-input-bg); border: 1px solid var(--footer-input-border);
-  border-radius: 3px; padding: 0.15rem 0.35rem;
-  resize: none; overflow: auto; white-space: pre;
-  line-height: 1.25; vertical-align: middle;
-  scrollbar-width: none;
-}
-textarea#footer-ip-list::-webkit-scrollbar { display: none; }
-/* body class (not :has()) so the fixed-footer clearance works on Firefox and
-   iOS Safari < 15.4, which predate :has(). Set on the only page that renders
-   #footer-bar (index.html). */
-body.has-footer-bar main { padding-bottom: 3rem; padding-bottom: calc(3rem + env(safe-area-inset-bottom)); }
 
 @media (max-width: 600px) {
   #footer-bar { padding-left: 0.5rem; padding-left: max(0.5rem, env(safe-area-inset-left)); padding-right: 0.5rem; padding-right: max(0.5rem, env(safe-area-inset-right)); flex-wrap: wrap; }

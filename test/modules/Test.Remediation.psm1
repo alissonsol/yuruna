@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.04
+.VERSION 2026.08.05
 .GUID 42d6f5e4-b3a2-4c91-8076-2e3f4a5b6c92
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -561,6 +561,24 @@ function Register-BuiltinRecoveryHandler {
 
     Register-RecoveryHandler -FailureClass 'wait_timeout' -Handler {
         param([hashtable]$c)
+        # Two verbs reach this class and they need opposite advice. A bare wait
+        # is independent of guest state, so retrying it costs nothing. A
+        # fetchAndExecute timeout means a script was still running in the guest
+        # when the marker deadline passed -- usually blocked on a package mirror
+        # -- so the useful move is a backoff (give the upstream time to recover)
+        # rather than an immediate re-run that races the same stall.
+        if ($c.Context.actionVerb -eq 'fetchAndExecute') {
+            return @{
+                Recommendation = 'retry_with_backoff'
+                Rationale      = "wait_timeout on $($c.Context.vmName): the fetchAndExecute completion marker never appeared, so the guest script was still running (or wedged) at the deadline -- most often blocked on a slow or stalled package mirror. No failure tag was printed, so this is not a script-reported error; a backoff commonly clears it."
+                Actions        = @(
+                    "Open the cycle folder's last-fetch-and-execute.log and check where it stops -- a log with no '# exit code:' trailer means the script never returned",
+                    'Check the NETWORK section of the guest diagnostic for stalled or slow package-mirror origins',
+                    'Back off, then re-run the failing step (the guest install scripts are idempotent)',
+                    'If it stalls at the same URL every cycle, treat it as an upstream mirror outage rather than a guest fault'
+                )
+            }
+        }
         return @{
             Recommendation = 'retry_immediately'
             Rationale      = "wait_timeout on $($c.Context.vmName): waitForSeconds elapsed without an observable change. The wait is independent of guest state; an immediate retry is safe."

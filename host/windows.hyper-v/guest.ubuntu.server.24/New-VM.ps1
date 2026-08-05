@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.04
+.VERSION 2026.08.05
 .GUID 42d9e0f1-a2b3-4c45-d678-9e0f1a2b3c47
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -299,24 +299,12 @@ To intentionally skip the cache:
 # see feedback_macos_utm_apt_block_resolute_curtin_trap.md).
 # --- REGION: https://yuruna.link/vmconfig#apt-proxy-block
 #
-# `$AptProxyLine` is appended to the end of the `uri:` line below: when a
-# proxy is configured we want a leading newline + 4-space indent so the
-# YAML lands at the same level as `geoip:` / `primary:`; when there's no
-# proxy the whole expansion is empty. The closing `"@` MUST stay on its
-# own line at column 0 -- required by PowerShell's here-string parser
-# (inlining `$(...)"@` raises "The string is missing the terminator").
-$AptProxyLine = if ($CachingProxyServiceUrl) { "`n    proxy: $CachingProxyServiceUrl" } else { "" }
-$AptProxyBlock = @"
-  apt:
-    geoip: false
-    primary:
-      - arches: [default]
-        uri: http://archive.ubuntu.com/ubuntu$($AptProxyLine)
-    conf: |
-      Acquire::Retries "5";
-      Acquire::http::Timeout "120";
-      Acquire::https::Timeout "120";
-"@
+# Shared builder (automation/Yuruna.GuestSeed.psm1). Hyper-V pins the amd64
+# archive mirror. The apt Acquire tuning it emits is a step-budget bound, so it
+# has to be identical on every host driver -- three copies of the literal drift,
+# and a mirror stall then burns a step budget on whichever host was missed.
+Import-Module (Join-Path $RepoRoot 'automation/Yuruna.GuestSeed.psm1') -Force
+$AptProxyBlock = New-AptProxyBlock -PrimaryUri 'http://archive.ubuntu.com/ubuntu' -CachingProxyServiceUrl $CachingProxyServiceUrl
 
 # Pick a vSwitch FIRST -- prefer Yuruna-External (LAN-bridged) so the
 # install VM gets a real LAN IP via DHCP and can reach the squid cache

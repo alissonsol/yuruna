@@ -604,7 +604,7 @@ stop squid, `rm -rf /var/spool/squid/*`, `squid -z`.
 
 ## Access / credentials
 
-Cloud-init creates a single `yuruna` debug user (replaces the cloud
+Cloud-init creates a single `caching-proxy-service-admin` debug user (replaces the cloud
 image's default `ubuntu` — `users:` without a `- default` entry
 suppresses ubuntu creation):
 
@@ -656,7 +656,7 @@ and the access log.
 Both platforms preserve the source IP, via different plumbing forced by
 what each host's network stack allows.
 
-##### macOS: pwsh forwarder + PROXY v1
+#### macOS: pwsh forwarder + PROXY v1
 
 Apple VZ shared-NAT isolates guest↔guest traffic on `192.168.64.0/24`,
 so LAN clients can't reach the cache VM directly. The Mac host runs
@@ -666,7 +666,7 @@ opens an upstream connection to the cache VM's `:3138` / `:3139` (Squid
 binds with `require-proxy-header`), prepends the PROXY v1 line, and
 bridges bytes. Squid logs the supplied client IP.
 
-##### Windows: External vSwitch (bridged cache VM)
+#### Windows: External vSwitch (bridged cache VM)
 
 On Hyper-V the userspace pwsh forwarder is **silently dropped on
 inbound LAN traffic**, even with port-scope and per-program Defender
@@ -733,7 +733,7 @@ vSwitch.
 only. The macOS host forwarder is on a private network, but the
 deny-by-default posture costs nothing.
 
-##### Windows fallback: Default Switch + netsh portproxy
+#### Windows fallback: Default Switch + netsh portproxy
 
 When `Get-OrCreateYurunaExternalSwitch` cannot bridge the uplink (no
 LAN-routable NIC; a not-bridgeable uplink — Wi-Fi or a USB Ethernet
@@ -748,7 +748,7 @@ a fallback, not a default. The runtime detection switch is
 on `Test-CacheVmOnYurunaExternalSwitch` in
 [`host/windows.hyper-v/modules/Yuruna.Host.psm1`](../host/windows.hyper-v/modules/Yuruna.Host.psm1).
 
-##### Windows: App Execution Alias self-heal (latent)
+#### Windows: App Execution Alias self-heal (latent)
 
 `Add-PortMap` in
 [`host/windows.hyper-v/modules/Yuruna.Host.psm1`](../host/windows.hyper-v/modules/Yuruna.Host.psm1)
@@ -1066,7 +1066,7 @@ upward, raise the VM total proportionally.
 
 ### Cache-VM password persistence
 
-The squid-cache VM's `yuruna` user password must survive cache-VM rebuilds
+The squid-cache VM's `caching-proxy-service-admin` user password must survive cache-VM rebuilds
 on any host. The vault (external-auth simulation) persists across cycles,
 but the password also lives in `<track>/yuruna-caching-proxy-service.yml`
 (host-agnostic, under the framework's status/runtime dir, managed by
@@ -1519,7 +1519,7 @@ restores the exact prior state of both VMs.
 - Control machine: PowerShell 7 and OpenSSH client 8.4+ (any machine;
   no hypervisor access needed). The script is standalone — no harness
   modules required.
-- Both cache VMs reachable over SSH with password login (`yuruna`
+- Both cache VMs reachable over SSH with password login (`caching-proxy-service-admin`
   user by default) and sudo rights.
 - VM-to-VM reachability: the new cache must reach the old cache's
   `:3128`/`:3130` **directly**. Both VMs should sit on bridged/LAN
@@ -1535,7 +1535,7 @@ pwsh test/Move-CachingProxyService.ps1 -Start -OldAddress 192.168.68.13 -NewAddr
 ```
 
 Prompts (masked) for both passwords; `-OldUser`/`-NewUser` default to
-`yuruna`, and `-OldPassword`/`-NewPassword` exist for scripted use.
+`caching-proxy-service-admin`, and `-OldPassword`/`-NewPassword` exist for scripted use.
 The script then:
 
 1. Opens SSH sessions to both VMs and probes sudo (NOPASSWD or
@@ -1649,6 +1649,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.04
+Last review: 2026.08.05
 
 Back to [Yuruna](../README.md)

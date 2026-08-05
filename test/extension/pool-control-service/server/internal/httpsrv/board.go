@@ -4,7 +4,6 @@
 package httpsrv
 
 import (
-	"encoding/json"
 	"net/http"
 	"net/url"
 	"sort"
@@ -180,14 +179,9 @@ func (s *Server) handleBoard(w http.ResponseWriter, r *http.Request) {
 
 	// Intent first: it is the authority for which cards exist, and the board is
 	// still useful (and still assignable) when the aggregator is unreachable.
-	res := s.intent.State(r.Context())
-	if !res.OK {
-		writeErr(w, http.StatusInternalServerError, firstNonEmpty(res.Error, res.Stderr, "pool intent read failed"))
-		return
-	}
-	var doc intentDoc
-	if err := json.Unmarshal([]byte(strings.TrimSpace(res.Stdout)), &doc); err != nil {
-		writeErr(w, http.StatusInternalServerError, "could not parse pool intent: "+err.Error())
+	doc, err := s.readIntentDoc(r.Context())
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 
@@ -351,14 +345,9 @@ type boardHost struct {
 // was not auto-enrolled, and "it never enrolled a lab token" is only visible if
 // the host appears at all.
 func (s *Server) handleHosts(w http.ResponseWriter, r *http.Request) {
-	res := s.intent.State(r.Context())
-	if !res.OK {
-		writeErr(w, http.StatusInternalServerError, firstNonEmpty(res.Error, res.Stderr, "pool intent read failed"))
-		return
-	}
-	var doc intentDoc
-	if err := json.Unmarshal([]byte(strings.TrimSpace(res.Stdout)), &doc); err != nil {
-		writeErr(w, http.StatusInternalServerError, "could not parse pool intent: "+err.Error())
+	doc, err := s.readIntentDoc(r.Context())
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	poolOf := map[string]string{}
@@ -429,14 +418,9 @@ func (s *Server) handleMoveHost(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "hostId is required")
 		return
 	}
-	res := s.intent.State(r.Context())
-	if !res.OK {
-		writeErr(w, http.StatusInternalServerError, firstNonEmpty(res.Error, res.Stderr, "pool intent read failed"))
-		return
-	}
-	var doc intentDoc
-	if err := json.Unmarshal([]byte(strings.TrimSpace(res.Stdout)), &doc); err != nil {
-		writeErr(w, http.StatusInternalServerError, "could not parse pool intent: "+err.Error())
+	doc, err := s.readIntentDoc(r.Context())
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	current := ""

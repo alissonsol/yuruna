@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.04
+.VERSION 2026.08.05
 .GUID 4239d599-3701-465c-b5ee-af4da9b7f14d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -61,8 +61,16 @@ $script:DownloadAgentServicePort = 80
 
 # A first boot installs the Go toolchain, builds the daemon, and mounts the pool
 # share before anything binds :80. Minutes, not seconds -- and slower still when
-# the apt traffic goes through a cold caching proxy.
-$script:DownloadAgentServiceReadyTimeoutSeconds = 900
+# the apt traffic goes through a cold caching proxy: measured at roughly half an
+# hour on an Apple Silicon UTM guest against a cold mirror, against the ten to
+# fifteen a warm x86 host takes.
+#
+# Sized for the slow end rather than the typical one. The probe returns the
+# instant :80 accepts, so a budget the fast host never spends costs it nothing,
+# while one sized for the fast host fails the slow host over a build that was
+# progressing normally. The wait extends itself past this while cloud-init
+# reports it is still working, so this is the floor rather than the whole story.
+$script:DownloadAgentServiceReadyTimeoutSeconds = 2700
 
 function Get-DownloadAgentServiceMarkerPath {
     <#

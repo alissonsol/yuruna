@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.04
+.VERSION 2026.08.05
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456702
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -20,7 +20,7 @@ $script:Doc  = $null
 $script:File = $null
 # Owner-side gate for nested-cycle support (see the "Nested-cycle support"
 # region below). Stays $false for a run with no nested children -- then
-# Write-StatusJson behaves EXACTLY as before (no lock, no re-read), so the
+# Write-StatusJson takes the plain path (no lock, no re-read), so the
 # common standalone / in-process path is untouched. Publish-CycleContext
 # flips it $true the moment the owner may spawn a nested child.
 $script:PreserveNested = $false
@@ -871,7 +871,7 @@ function Get-GuestProvenance {
 }
 
 # === Nested-cycle support =================================================
-# A Invoke-TestSequence run either OWNS status.json (standalone, or the outermost
+# An Invoke-TestSequence run either OWNS status.json (standalone, or the outermost
 # orchestration) or runs NESTED inside another run's process tree -- a
 # host-action step that re-enters Invoke-TestSequence.ps1 in a child pwsh (e.g.
 # Set-Resource.ps1 fanning out per-stage guest builds). Exactly ONE process --

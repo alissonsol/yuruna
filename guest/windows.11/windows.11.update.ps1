@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.04
+.VERSION 2026.08.05
 .GUID 42f0a1b2-c3d4-4e56-f789-0a1b2c3d4e10
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -165,7 +165,7 @@ Write-Output "<<< Windows Update module ready."
 
 Write-Output ""
 Write-Output ">>> Checking for Windows updates..."
-# Bound Windows Update with a wall-clock timeout: run it in a job so a hung WU session can not
+# Bound Windows Update with a wall-clock timeout: run it in a job so a hung WU session cannot
 # stall the whole guest-provisioning cycle. Log and continue on timeout rather than blocking
 # forever (the job runspace re-imports PSWindowsUpdate; jobs do not inherit the parent's modules).
 $wuTimeoutSeconds = 1800

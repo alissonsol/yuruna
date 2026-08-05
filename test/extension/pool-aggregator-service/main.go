@@ -93,18 +93,7 @@ const (
 	defaultAnnounceTtl = 45 * time.Minute
 	maxAnnounce        = 512     // distinct (hostId,area) announce entries kept in memory
 	maxAnnounceBody    = 4 << 10 // bytes read from one announce POST
-	// Extension-target health. NO address is advertised to the pool until this
-	// aggregator has itself reached it at <target>/healthz, and every advertised
-	// address is re-confirmed each poll.
-	//
-	// The registration path carries an address the OWNING host resolved, and a
-	// host can only see its own machine: a service VM that came up on a
-	// hypervisor-private network (the macOS shared vmnet, a Hyper-V Default
-	// Switch, libvirt's virbr0) answers its host and nothing else, so the host
-	// confirms it in good faith and every other member of the pool then spends
-	// its timeout budget on an address that cannot be routed to. The aggregator
-	// sits where the consumers sit, so its own probe is the only check that
-	// speaks for the pool rather than for one host.
+	// --- REGION: https://yuruna.link/extensions-api#only-an-address-the-pool-has-reached-is-answered
 	//
 	// A confirmed target that goes quiet is kept for extensionHealthGrace -- a
 	// service restart, a lost packet or a DHCP renewal must not empty the panel
@@ -1232,7 +1221,7 @@ func fetchCurrentAction(client *http.Client, base string) (bool, error) {
 // served by the status service at /yuruna-repo/VERSION -- the SAME source the
 // host's own status pages read for their header (their getHostInfo() fetches
 // yuruna-repo/VERSION via JS, so the version is not embedded in the HTML). A tiny
-// plain-text file (one CalVer line, e.g. "2026.08.04"), so it is lighter than any
+// plain-text file (one CalVer line, e.g. "2026.08.05"), so it is lighter than any
 // status HTML page and fetchable server-side without a JS engine. Returns
 // ("", err) on any failure; the caller keeps the prior version on a transient
 // miss (the version is stable across polls). The value is capped + first-line
@@ -1762,7 +1751,7 @@ func (s *poolState) seedHostStubLocked(hostID, baseURL string, now time.Time) bo
 // change required. Querying terminal lines also restores `seen` for already-
 // terminal cycles, so a host still reporting a finished cycle is not re-pushed
 // or double-counted. Best-effort: on any Loki error the collector starts with
-// empty counts (prior behavior) and rebuilds as cycles complete.
+// empty counts and rebuilds as cycles complete.
 func (s *poolState) rehydrateFromLoki(lokiPushURL, pool string, window time.Duration, now time.Time) {
 	queryURL := queryRangeURL(lokiPushURL)
 	params := url.Values{}
@@ -2031,7 +2020,7 @@ func (s *poolState) applyIncidentLines(streams [][][2]string, now time.Time) int
 // so emits no {src=cycle} transition for rehydrateFromLoki to seed from). Without
 // this a restart drops such a host from the dashboard until it next pulls through
 // the proxy -- the discovery-liveness gap. Best-effort: any Loki error leaves the
-// view to rebuild from the squid log as before.
+// view to rebuild from the squid log.
 func (s *poolState) rehydrateHostPresenceFromLoki(lokiPushURL, pool string, window time.Duration, now time.Time) {
 	queryURL := queryRangeURL(lokiPushURL)
 	params := url.Values{}
@@ -2203,16 +2192,6 @@ func (s *poolState) applyAnnounceLines(streams [][][2]string, now time.Time) int
 	return restored
 }
 
-// tailEvents pulls a host's current-cycle NDJSON event file
-// (<baseUrl>/<cycleFolderUrl>cycle.events.ndjson) and ships any lines beyond the
-// per-host byte cursor to Loki under {pool,hostId,src=event}. This is the
-// incident drill-down feed: step_failure/step_end and the typed sub-
-// events become queryable cross-host. The Loki entry timestamp is the event's
-// OWN `timestamp`, so a collector restart that re-pushes the in-flight cycle is
-// idempotent (Loki drops exact (ts,line) duplicates). The cursor avoids
-// re-pushing within a running instance and resets when the cycleStartUtc changes.
-// Best-effort + bounded: a missing/oversized file or a Loki error is logged
-// and skipped; it never blocks the poll.
 // hostnameEventKeys are the NDJSON event fields scrubbed from each forwarded
 // event line: the literal `hostname`, and `cycleFolder`. New cycle folders are
 // named with the opaque hostId, so cycleFolder is hostname-free at the source;
@@ -2251,6 +2230,16 @@ func redactEventLine(ln string) string {
 	return string(b)
 }
 
+// tailEvents pulls a host's current-cycle NDJSON event file
+// (<baseUrl>/<cycleFolderUrl>cycle.events.ndjson) and ships any lines beyond the
+// per-host byte cursor to Loki under {pool,hostId,src=event}. This is the
+// incident drill-down feed: step_failure/step_end and the typed sub-events
+// become queryable cross-host. The Loki entry timestamp is the event's
+// OWN `timestamp`, so a collector restart that re-pushes the in-flight cycle is
+// idempotent (Loki drops exact (ts,line) duplicates). The cursor avoids
+// re-pushing within a running instance and resets when the cycleStartUtc changes.
+// Best-effort + bounded: a missing/oversized file or a Loki error is logged
+// and skipped; it never blocks the poll.
 func (s *poolState) tailEvents(client *http.Client, lokiURL, poolLabel, hostID, baseURL, cycleID, cycleFolderURL string, now time.Time) {
 	u := strings.TrimRight(baseURL, "/") + "/" + strings.TrimLeft(cycleFolderURL, "/")
 	if !strings.HasSuffix(u, "/") {
@@ -3054,9 +3043,26 @@ func extensionSourceRank(e extensionHostEntry) int {
 // has reached beats one it has not, whoever named it. Ranking evidence is how to
 // choose between two addresses that could both work; it is not a reason to
 // prefer a better-sourced address that demonstrably does not.
+//
+// Having an address at all is part of usability, which is why it is settled
+// before the source ranking too. A host that runs an area but publishes no
+// address for it is a normal, permanent state -- a service VM on a
+// hypervisor-private network is withheld from the pool deliberately, because no
+// other host could route to it -- and the service's OWN announce is what is
+// meant to carry it, confirmed by this aggregator's probe. Ranking a
+// presence-only entry above an address-bearing one would void exactly that
+// fallback: the merge keeps one candidate per (hostId, area), so the empty entry
+// does not merely outrank the address, it destroys it, and area resolution
+// (which drops entries with no host) is then left with nothing to fall back to.
 func betterExtensionCandidate(a, b extensionHostEntry) bool {
 	if a.Suppressed != b.Suppressed {
 		return !a.Suppressed
+	}
+	// Only ever compares two UNSUPPRESSED candidates: a suppressed one already
+	// lost above, and two suppressed ones both carry a blank Target (suppression
+	// moves it to SuppressedTarget), so this is a no-op for them.
+	if (a.Target == "") != (b.Target == "") {
+		return a.Target != ""
 	}
 	if ra, rb := extensionSourceRank(a), extensionSourceRank(b); ra != rb {
 		return ra < rb

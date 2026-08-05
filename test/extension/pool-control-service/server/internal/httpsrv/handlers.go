@@ -34,12 +34,20 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("GET /api/hosts", s.handleHosts)
 	mux.HandleFunc("GET /api/state", s.handleState)
 	mux.HandleFunc("GET /api/diagnostics", s.handleDiagnostics)
+	// What each pool's members are currently doing. A read of the same
+	// status.json every host already serves openly to the LAN.
+	mux.HandleFunc("GET /api/pool/host-control", s.handleHostControlState)
 
 	// Mutations: lab-token session or lab-auth-token bearer. Every one of these
 	// rewrites pool configuration.
 	mux.HandleFunc("POST /api/pool", s.gate.Require(s.handleNewPool))
 	mux.HandleFunc("DELETE /api/pool", s.gate.Require(s.handleRemovePool))
 	mux.HandleFunc("POST /api/pool/desired-state", s.gate.Require(s.handleDesiredState))
+	// Pool-wide host control drives other machines rather than this service's
+	// own configuration, but it takes the same gate as the rest: it only ever
+	// pauses or continues work that is already running, and an operator holding
+	// the dashboard's rotating code is exactly who needs it mid-cycle.
+	mux.HandleFunc("POST /api/pool/host-control", s.gate.Require(s.handleHostControlApply))
 	mux.HandleFunc("POST /api/pool/host", s.gate.Require(s.handleAddHost))
 	mux.HandleFunc("DELETE /api/pool/host", s.gate.Require(s.handleRemoveHost))
 	mux.HandleFunc("POST /api/pool/move-host", s.gate.Require(s.handleMoveHost))

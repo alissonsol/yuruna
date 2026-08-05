@@ -13,15 +13,7 @@ import (
 
 // The write gate in front of the operator board.
 //
-// Everything this service mutates IS pool configuration: which pools exist,
-// which hosts belong to them, which test set each one runs. A stranger on the
-// LAN who can reach the board can repoint the whole lab, so those routes carry
-// the credential the lab already has -- the rotating lab token an operator reads
-// off the Yuruna hosts dashboard, or the shared lab auth token as a bearer for
-// automation. Not a second, service-local secret: one more shared string to
-// distribute and rotate buys nothing a rotating pool-wide code does not already
-// give, and it would be the only credential in the lab that no other service
-// understands.
+// --- REGION: https://yuruna.link/extensions-api#the-lab-token-rule
 //
 // Deliberately NOT per-user auth. It stops a stranger on the LAN and an
 // accidental visitor; it does not tell you WHO assigned something, which is why

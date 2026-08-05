@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.04
+.VERSION 2026.08.05
 .GUID 42a1b2c3-d4e5-4f67-8901-bc012345672a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -936,8 +936,19 @@ function Get-FetchExecuteEnvPrefix {
     return $prefix
 }
 
+# The registered class is the DEFAULT -- what this verb failed as when no
+# failPattern matched. That is the completion marker never arriving, i.e. a
+# wait_timeout; the fetched script hanging on a stalled package mirror is the
+# common cause. Registering 'pattern_matched_failure' here asserted the
+# opposite: that the wrapper printed its failure tag. Nothing re-checked it,
+# so a plain timeout was reported as a script-reported failure, routed to
+# pause_and_inspect ("auto-retry would just re-trigger it") and excluded from
+# warm resume -- turning a transient upstream stall into a dead cycle needing
+# an operator. Build-SequenceFailureRecord still reclassifies to
+# pattern_matched_failure when a pattern actually matched, so that case keeps
+# its own label and its no-retry routing.
 Register-SequenceAction -Name 'fetchAndExecute' -HostIORequirement @('Send-Text', 'Send-Key') -OcrRequired $true `
-    -FailureClass 'pattern_matched_failure' -Severity 'hard' -SuggestedRecoveries @('restart_from_snapshot','pause_and_inspect') `
+    -FailureClass 'wait_timeout' -Severity 'hard' -SuggestedRecoveries @('retry_with_backoff','pause_and_inspect') `
     -CapturesOwnFailureScreenshot $true `
     -Description 'Type a command + Enter then wait for a freshMatch completion pattern.' `
     -FailureLabel { param($c) "fetchAndExecute: `"$(& $c.ExpandVariable $c.Step.text $c.Vars)`"" } `

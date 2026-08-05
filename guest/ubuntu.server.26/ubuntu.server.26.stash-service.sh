@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.08.04
+# Version: 2026.08.05
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 #
@@ -332,4 +332,4 @@ fi
 echo "  systemd    : sudo systemctl status stash-service.service"
 echo "  logs       : sudo journalctl -u stash-service.service -f"
 echo "  Exercise   : scp ./file alice@<vm-ip>:/scratch"
-echo "               (any username / any password / any key accepted; §4.3)"
+echo "               (any username / any password / any key accepted)"

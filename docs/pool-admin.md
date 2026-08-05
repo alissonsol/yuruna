@@ -202,13 +202,59 @@ and the command line cannot diverge.
 - **Assign** (`/`) &mdash; assign a test-set (a framework/project repo pair) to each
   pool; show members and the copy-config-from-a-peer command.
 - **Pools** (`/pools`) &mdash; create a pool (mints its stable `poolGuid`, the
-  dashboard "Pool ID"), set desiredState (run/paused/drain), add/remove hosts (a
-  host belongs to at most one pool), delete an empty pool.
+  dashboard "Pool ID"), drive every member's **Pool Status** (below), add/remove
+  hosts (a host belongs to at most one pool), delete an empty pool.
 - **Test sets** (`/test-sets`) &mdash; CRUD the named-triple library
   (`test-sets.yml`). GH_TOKEN is **never** stored here &mdash; it stays host-local.
 
 Assigning copies the chosen library triple into the pool's inline `testSet`;
 members then behave exactly as on the CLI path in Steps 3-4 above.
+
+### Pool Status &mdash; pausing and continuing every member at once
+
+The **Pool Status** column on `/pools` is the Pause/Continue buttons of every
+member's own status page, driven from one place. It offers exactly what a single
+host offers:
+
+| Choice | What each member does |
+| --- | --- |
+| **Continue** | carry on with whatever it was doing (both pause switches cleared) |
+| **Pause after cycle** | finish the cycle in flight, then hold |
+| **Pause after step** | finish the step in flight, then hold |
+
+A host has two independent pause switches, and choosing one of the three here
+leaves **exactly one** of them armed on every member &mdash; so the column always
+names something a host is really doing. The cell shows what the members report
+right now: one of the three when they all agree, **Mixed** when they differ or a
+member did not answer (the disagreeing hosts are then listed under the
+selector), `—` when none answered. Hosts stay individually controllable from
+their own status pages; this changes them all and then reads them back.
+
+This is **not** the pool's `desiredState` (`run`/`paused`/`drain`), which is a
+different mechanism: that one is durable intent in git, reconciled at a cycle
+boundary, and `drain` ends the runner process. Pool Status acts on the live
+pause switches instead &mdash; what "hold the lab now, then let it carry on"
+means mid-cycle. `desiredState` has no page of its own; write it with
+`Set-PoolDesiredState.ps1` (table above).
+
+Driving another host's control routes needs a **control proof** (see
+[control-routes.md](control-routes.md)), which the service obtains one of two
+ways, in order:
+
+1. the shared `lab-auth-token` from `--auth-token-file`
+   (default `/etc/yuruna/lab-auth.token`), if present &mdash; no round trip; or
+2. the pool aggregator's `/go/host` redirect, the identical proof a browser
+   receives from a dashboard host link.
+
+Nothing bakes that token file into a service VM, so path 2 is what normally
+carries this. When neither is available the change is refused **once**, naming
+the file, rather than collecting one `403` per host.
+
+Members are driven individually and reported individually: `2 applied, 1 failed
+— 42ab12cd (the host holds no lab token …)`. A host that was never enrolled, is
+powered off, or holds a different lab token fails on its own without costing the
+others their change. Every fan-out is written to the audit log with how much of
+it landed.
 
 ### Architecture
 
@@ -222,6 +268,11 @@ A small Go daemon (`test/extension/pool-control-service/server`, module `pool-co
   git + YAML + schema validation + commit/push in Go &mdash; one authoritative
   implementation. A failed push surfaces to the UI as an error (never a silent
   success).
+- **Drives the members' own control routes** for Pool Status
+  (`/api/pool/host-control`): the one thing here that acts on other machines
+  rather than on the intent store. Membership comes from intent and addresses
+  from the aggregator, because the aggregator's notion of a pool is a label a
+  host self-advertises &mdash; it cannot say who belongs.
 - **Self-announces** to the pool-aggregator service (beacon, area `pool-control-service`) and, via
   the `runtime/pool-control-service.json` marker + `host.registration.json`, appears in the
   Extension hosts table (shown as "Pool-control service"). Either path alone paints the row.
@@ -298,6 +349,37 @@ pwsh test/Start-PoolControlServiceVM.ps1 -HostSideProof [-Port 8090] [-Aggregato
 `-HostSideProof` builds + runs the daemon directly on this host instead of a VM.
 Needs `go` + `pwsh` on PATH and the framework checkout (the CLIs live at
 `<repo>/test/*.ps1`).
+
+### Auto-enrolment
+
+A host that has enrolled its lab token, and is in **no pool at all**, can join a
+pool without you adding it. It **ships off**: the sweep runs only when an
+`autoEnrollment` block in the intent store's `pools.yml` names a target pool
+*and* the daemon runs with `--auto-enrol` (`--auto-enrol-interval`, default 60s,
+sets the cadence). Until both are true, an enrolled host joins nothing on its
+own.
+
+Once on, each tick does exactly this and no more:
+
+- **Candidates are hosts whose `control` field is `ready` on the wire.**
+  "Remote" and "onsite" are Grafana *display* mappings of that same field and
+  appear nowhere in the API &mdash; a predicate written against those words
+  matches zero hosts forever, and looks exactly like "nothing needed enrolling".
+- **Only hosts in zero pools are added.** That preserves "a host belongs to at
+  most one pool" by construction, and means the sweep can never move a host you
+  placed deliberately.
+- **`autoEnrollment.excluded[]` is honoured**, so a host you removed from the
+  target pool is never re-added &mdash; otherwise you and a 60-second timer would
+  fight forever.
+- **Nothing to do means nothing happens**: no commit, no push, no audit row.
+- **Every tick logs the candidate count**, so "never enrols anyone" reads
+  differently from "nothing to enrol". Without that line, a predicate that
+  matches nobody is invisible.
+
+Failure is **bounded, not atomic**. Each host is its own CLI run, commit and
+push, so a failure partway through leaves the earlier hosts enrolled. Enrolment
+is idempotent and resumable, so the next tick finishes the job; this does not
+pretend to be transactional.
 
 ## Download-agent service
 
@@ -434,6 +516,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.04
+Last review: 2026.08.05
 
 Back to [Yuruna](../README.md)

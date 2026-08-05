@@ -1,6 +1,6 @@
 # Windows Hyper-V host — troubleshooting
 
-## Cleaning Up Old Files
+## Cleaning up old files
 
 Run `Remove-OrphanedVMFiles.ps1`. It removes per-VM artifacts (VHDX, seed ISOs, NVRAM, etc.) for any VM that no longer exists in Hyper-V. Downloaded base images (named `host.windows.hyper-v.guest.<name>.*`) are KEPT so later `Get-Image.ps1` runs don't re-download them; refresh a base image with the matching `Get-Image.ps1`.
 
@@ -256,6 +256,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.04
+Last review: 2026.08.05
 
 Back to [Yuruna](../README.md)

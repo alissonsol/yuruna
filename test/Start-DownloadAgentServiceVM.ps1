@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.04
+.VERSION 2026.08.05
 .GUID 42f3caf7-8560-4882-9123-5ffeec757e6c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -317,64 +317,72 @@ $readyTimeoutSeconds = Get-DownloadAgentServiceReadyTimeoutSeconds
 $readyTimeoutMinutes = [int]($readyTimeoutSeconds / 60)
 
 $daemonReady = $false
+$listeningButUnreachable = $false
+$stillBuilding = $false
+# The wait resolves the guest's address on EVERY poll rather than trusting the
+# one resolved above: a guest re-requests DHCP under a changed client identity
+# while cloud-init runs, so the address discovered at boot is frequently one the
+# guest abandons seconds later. Following it also keeps the host-side forwarder
+# pointed at the live address instead of leaving it dialing an abandoned one --
+# a forwarder that accepts and cannot connect is worse than one that is down,
+# because callers hang for a full timeout instead of failing fast.
 if ($vmIp) {
-    Write-Information "VM '$VMName' is at $vmIp. Waiting up to $readyTimeoutMinutes min for the download-agent-service daemon to serve on :80 (first boot builds it in-guest)..." -InformationAction Continue
-    $readyDeadline = (Get-Date).AddSeconds($readyTimeoutSeconds)
-    $probeStart    = Get-Date
-    $nextTick      = 30
-    # Two very different faults look identical from out here -- a daemon still
-    # building in-guest, and a daemon that has been serving for minutes on an
-    # address this host cannot reach. Waiting helps the first and can never help
-    # the second, so once the guest is far enough along to answer SSH, ask IT
-    # whether anything is listening. Deferred to $reachabilityCheckAfterSeconds
-    # because sshd is not up instantly and an early no-answer would prove nothing.
-    $reachabilityCheckAfterSeconds = 120
-    $reachabilityChecked = $false
-    $listeningButUnreachable = $false
-    while ((Get-Date) -lt $readyDeadline) {
-        if (Test-DownloadAgentServicePort -Address $vmIp -Port 80 -TimeoutMilliseconds 1000) { $daemonReady = $true; break }
-        $elapsed = [int]((Get-Date) - $probeStart).TotalSeconds
-        if ($elapsed -ge $nextTick) {
-            # Floor, not [int]: the cast rounds half-to-even, so 90s printed as
-            # "02m30s" and the tick sequence read as though it went backwards
-            # (04m30s before 04m00s).
-            Write-Information ("  [{0:D2}m{1:D2}s / {2}m] still waiting for the daemon on :80..." -f [int][math]::Floor($elapsed / 60), ($elapsed % 60), $readyTimeoutMinutes) -InformationAction Continue
-            $nextTick += 30
-        }
-        if (-not $reachabilityChecked -and $elapsed -ge $reachabilityCheckAfterSeconds -and
-            (Get-Command Invoke-GuestSsh -ErrorAction SilentlyContinue)) {
-            $inGuest = $null
-            try {
-                $inGuest = Invoke-GuestSsh -VMName $VMName -GuestKey 'guest.download-agent-service' `
-                    -User 'download-agent-service-admin' -TimeoutSeconds 30 `
-                    -Command 'ss -ltn 2>/dev/null | grep -qE "(^|[^0-9]):80\b" && echo YURUNA_LISTENING || echo YURUNA_NOT_LISTENING'
-            } catch { Write-Verbose "download-agent-service in-guest listener probe: $($_.Exception.Message)" }
-            # Only a completed answer settles anything. SSH that did not connect
-            # means the guest is still coming up, so leave the check unmade and
-            # let a later pass ask again.
-            if ($inGuest -and "$($inGuest.output)" -match 'YURUNA_(NOT_)?LISTENING') {
-                $reachabilityChecked = $true
-                if ("$($inGuest.output)" -match 'YURUNA_LISTENING') {
-                    $listeningButUnreachable = $true
-                    break
-                }
-                Write-Information "  (reachable over SSH; the daemon has not bound :80 in-guest yet -- still building)" -InformationAction Continue
+    Write-Information "VM '$VMName' is at $vmIp. Waiting up to $readyTimeoutMinutes min for the download-agent-service daemon to serve on :80 (first boot builds it in-guest)." -InformationAction Continue
+    Write-Information "  The wait extends itself while the guest reports it is still building; progress is printed as it happens." -InformationAction Continue
+    Write-Information "  Override the budget with YURUNA_DOWNLOAD_AGENT_SERVICE_READY_TIMEOUT_SECONDS." -InformationAction Continue
+    $repointForwarder = {
+        param($newAddress)
+        $script:vmIp = $newAddress
+        if ($HostType -eq 'host.macos.utm' -and $bundleMode -eq 'Shared') {
+            if (Add-PortMap -VMIp $newAddress -Port @() -PortRemap @{ 8082 = 80 } -Confirm:$false) {
+                $script:hostAddress = [string](Get-BestHostIp)
+                Write-Information "  Re-pointed host :8082 -> ${newAddress}:80." -InformationAction Continue
             }
         }
-        Start-Sleep -Seconds 3
+    }
+    $endpoint = Wait-YurunaServiceVmEndpoint -VMName $VMName -Port 80 `
+        -TimeoutSeconds $readyTimeoutSeconds -Address $vmIp `
+        -GuestKey 'guest.download-agent-service' -User 'download-agent-service-admin' `
+        -ProgressLabel 'building the download-agent-service daemon' `
+        -OnAddressChanged $repointForwarder
+    $daemonReady = $endpoint.Ready
+    $listeningButUnreachable = $endpoint.Unreachable
+    $stillBuilding = $endpoint.StillBuilding
+    if ($endpoint.Address) { $vmIp = $endpoint.Address }
+    if ($endpoint.ExtendedSeconds -gt 0) {
+        Write-Information ("  Waited $([int]($endpoint.WaitedSeconds / 60)) min in total -- the budget was extended by " +
+                           "$([int]($endpoint.ExtendedSeconds / 60)) min because the guest reported it was still building.") -InformationAction Continue
+    }
+    if ($stillBuilding) {
+        # Not a failure: the guest is working, it just needs longer than any
+        # budget this script is willing to hold the operator for. It finishes on
+        # its own, and the daemon registers with the pool through its own
+        # announce -- so the honest report is "not yet", not "broken".
+        Write-Warning @"
+The download-agent-service guest is STILL BUILDING after $([int]($endpoint.WaitedSeconds / 60)) min (cloud-init: $($endpoint.CloudInitStatus)).
+$(if ($endpoint.LastProgress) { "Last step seen: $($endpoint.LastProgress)`n" })
+Nothing is broken and nothing needs fixing -- a first boot installs a Go toolchain
+and compiles the daemon, which runs long on a slow arch or a cold package mirror.
+The build finishes on its own and the daemon then registers itself with the pool.
+
+The bring-up is NOT failed over this, so the run continues. To confirm once it is up:
+  test/Start-DownloadAgentServiceVM.ps1     # adopts a VM that is already serving
+To hold this script longer next time:
+  `$env:YURUNA_DOWNLOAD_AGENT_SERVICE_READY_TIMEOUT_SECONDS = '5400'
+"@
     }
     if ($listeningButUnreachable) {
-        $waited = [int]((Get-Date) - $probeStart).TotalSeconds
         Write-Warning @"
-The download-agent-service daemon IS serving on :80 inside the guest, but this host
-cannot open a connection to ${vmIp}:80 (gave up after ${waited}s; SSH to the same
-guest works, so the VM is up and the daemon is running).
+The download-agent-service daemon IS serving on :80 inside the guest, and this host
+cannot open a connection to ${vmIp}:80 (asked the guest directly after $($endpoint.WaitedSeconds)s).
 
-Waiting longer cannot fix this -- the daemon is already up. What is broken is the
-path from this host to ${vmIp}:80:
-  * $vmIp may not be this VM's current address. A stale DHCP lease resolves to
-    whichever guest holds that address now; check the guest console's own
-    "eth0: <ip>" line against $vmIp.
+The service is UP -- this is a host-to-guest path problem, not a bring-up failure,
+so the bring-up is reported as a success. What it costs: this host cannot use the
+agent locally, so its own Get-Image calls fall back to fetching from the origin.
+Peers are unaffected -- the daemon registers itself with the pool through its own
+announce, whose address the aggregator confirms by probing.
+
+Worth checking if you want the local path back:
   * The guest firewall may be dropping :80 from outside (ufw).
   * On UTM Shared NAT, the host reaches the guest through the 192.168.64.0/24
     gateway only -- a bridged-mode address is not routable from here.
@@ -392,7 +400,26 @@ path from this host to ${vmIp}:80:
     # nominal readiness timeout here instead -- for a probe that never ran --
     # is what made an eight-second failure read as a fifteen-minute one.
     Write-Warning ("Could not resolve the VM's IP after waiting ${ipWaitSeconds}s (Wait-VMIp); the VM IS running, so this is address " +
-                   "discovery, not a boot failure. The :80 readiness probe never ran -- going straight to guest diagnostics.")
+                   "discovery, not a boot failure. Asking the guest itself whether the daemon is up.")
+    # Address discovery failing is not the same as the service failing, and the
+    # two must not share a verdict. SSH resolves the guest by NAME through its
+    # own path, so it can still get in where the lease lookup found nothing --
+    # and the daemon's answer is the fact that matters. A service confirmed up
+    # here is advertised by presence alone (no host-side URL to offer), and its
+    # own announce is what carries the address to the pool.
+    if (Get-Command Invoke-GuestSsh -ErrorAction SilentlyContinue) {
+        $inGuest = $null
+        try {
+            $inGuest = Invoke-GuestSsh -VMName $VMName -GuestKey 'guest.download-agent-service' `
+                -User 'download-agent-service-admin' -TimeoutSeconds 30 `
+                -Command 'ss -ltn 2>/dev/null | grep -qE "(^|[^0-9]):80\b" && echo YURUNA_LISTENING || echo YURUNA_NOT_LISTENING'
+        } catch { Write-Verbose "download-agent-service in-guest listener probe: $($_.Exception.Message)" }
+        if ($inGuest -and "$($inGuest.output)" -match 'YURUNA_LISTENING') {
+            $listeningButUnreachable = $true
+            Write-Warning ("The daemon IS serving on :80 inside the guest -- only this host's address discovery failed. " +
+                           "Reported as a success: peers reach the service through its own announce, which the pool confirms by probing.")
+        }
+    }
 }
 
 # Publish the marker + refresh registration: write
@@ -405,24 +432,48 @@ path from this host to ${vmIp}:80:
 # forwarded port). The registration refresh is best-effort telemetry and must
 # never fail the bring-up. Write-HostRegistrationRecord reads
 # $global:__YurunaHostId; Set-Variable -Scope Global keeps PSAvoidGlobalVars quiet.
-# active tracks the READINESS VERDICT, not the fact that this script ran: a
-# bring-up that ends at the failure exit below would otherwise advertise a
-# download-agent service that is not serving, and hosts would route image
-# requests at a dead endpoint instead of falling back to their own download path.
-$downloadAgentServiceBaseUrl = Resolve-DownloadAgentServiceBaseUrl -VMIp ([string]$vmIp) -NetworkMode $bundleMode -HostAddress $hostAddress
-[void](Write-DownloadAgentServiceMarker -RuntimeDir $runtimeDir -Active $daemonReady -VMName $VMName -HostType $HostType -BaseUrl $downloadAgentServiceBaseUrl)
+#
+# --- REGION: https://yuruna.link/extensions-api#3-the-host-side-module--the-runtime-marker
+#
+# Here the readiness verdict decides whether peers route image requests at an
+# endpoint that is not serving instead of falling back to their own download
+# path.
+$serviceUp = $daemonReady -or $listeningButUnreachable
+$downloadAgentServiceBaseUrl = if ($daemonReady) {
+    Resolve-DownloadAgentServiceBaseUrl -VMIp ([string]$vmIp) -NetworkMode $bundleMode -HostAddress $hostAddress
+} else { '' }
+[void](Write-DownloadAgentServiceMarker -RuntimeDir $runtimeDir -Active $serviceUp -VMName $VMName -HostType $HostType -BaseUrl $downloadAgentServiceBaseUrl)
 try {
     Set-Variable -Name '__YurunaHostId' -Scope Global -Value (Get-YurunaHostId)
     Import-Module (Join-Path $ModulesDir 'Test.Capability.psm1') -Global -Force
     [void](Write-HostRegistrationRecord -HostType $HostType -RepoRoot $repoRoot)
 } catch { Write-Verbose "registration refresh: $($_.Exception.Message)" }
 
-if ($daemonReady) {
+if ($stillBuilding) {
     Write-Information "" -InformationAction Continue
-    Write-Information "== download-agent-service is READY (daemon serving on :80) ==" -InformationAction Continue
+    Write-Information "== download-agent-service is STILL BUILDING (VM up, daemon not serving yet) ==" -InformationAction Continue
     Write-Information "  VM:   $VMName ($HostType)" -InformationAction Continue
-    Write-Information "  UI:   $downloadAgentServiceBaseUrl  (pool inspection, Force refresh / Delete / Prune previous)" -InformationAction Continue
-    Write-Information "  SSH:  ssh download-agent-service-admin@$vmIp  (harness key authorized)" -InformationAction Continue
+    if ($vmIp) { Write-Information "  SSH:  ssh download-agent-service-admin@$vmIp  (harness key authorized)" -InformationAction Continue }
+    Write-Information "  Watch: ssh download-agent-service-admin@$vmIp 'sudo tail -f /var/log/cloud-init-output.log'" -InformationAction Continue
+    Write-Information "  Then:  test/Start-DownloadAgentServiceVM.ps1   (adopts it once it serves)" -InformationAction Continue
+    exit $ExitOk
+}
+
+if ($serviceUp) {
+    Write-Information "" -InformationAction Continue
+    if ($daemonReady) {
+        Write-Information "== download-agent-service is READY (daemon serving on :80) ==" -InformationAction Continue
+    } else {
+        Write-Information "== download-agent-service is RUNNING (daemon serving on :80 in-guest; not reachable from this host) ==" -InformationAction Continue
+    }
+    Write-Information "  VM:   $VMName ($HostType)" -InformationAction Continue
+    if ($downloadAgentServiceBaseUrl) {
+        Write-Information "  UI:   $downloadAgentServiceBaseUrl  (pool inspection, Force refresh / Delete / Prune previous)" -InformationAction Continue
+    } else {
+        Write-Information "  UI:   not published -- this host cannot reach the daemon, so no URL is advertised. The pool still" -InformationAction Continue
+        Write-Information "        resolves the service from its own announce; the Yuruna hosts dashboard links it there." -InformationAction Continue
+    }
+    if ($vmIp) { Write-Information "  SSH:  ssh download-agent-service-admin@$vmIp  (harness key authorized)" -InformationAction Continue }
     Write-Information "  Stop: test/Stop-DownloadAgentServiceVM.ps1" -InformationAction Continue
     Write-Information "  Unlock the UI's actions with the 6-character Lab token from the Yuruna hosts dashboard (docs/download-agent.md)." -InformationAction Continue
     exit $ExitOk
@@ -446,6 +497,11 @@ $failureDetail = if ($vmIp) {
 }
 Write-Warning "download-agent-service daemon $failureDetail. Collecting in-guest diagnostics over the harness SSH key..."
 $diagCmd = @(
+    # First, because it is the fact that settles the most common confusion here:
+    # when the guest's own address differs from the one this host probed, the
+    # daemon was never the problem. Printing both side by side names that
+    # immediately instead of leaving it to be inferred from a service journal.
+    "echo `"=== guest addresses (this host probed: $(if ($vmIp) { $vmIp } else { '<none resolved>' })) ===`"; ip -4 -o addr show scope global 2>&1 | awk '{print `$2, `$4}'",
     'echo "=== cloud-init status ==="; cloud-init status --long 2>&1 | head -n 20',
     'echo "=== systemctl status download-agent-service.service ==="; systemctl --no-pager --full status download-agent-service.service 2>&1 | head -n 25',
     'echo "=== journalctl -u download-agent-service.service (last 40) ==="; sudo journalctl -u download-agent-service.service --no-pager -n 40 2>&1',
@@ -454,7 +510,10 @@ $diagCmd = @(
     'echo "=== /var/log/cloud-init-output.log (tail 120) ==="; sudo tail -n 120 /var/log/cloud-init-output.log 2>&1'
 ) -join "`n"
 $diag = $null
-if ($vmIp -and (Get-Command Invoke-GuestSsh -ErrorAction SilentlyContinue)) {
+# Not gated on $vmIp: SSH resolves the guest by name through its own path, so it
+# often gets in when the lease lookup found nothing -- and "no address" is
+# exactly the failure whose diagnosis lives inside the guest.
+if (Get-Command Invoke-GuestSsh -ErrorAction SilentlyContinue) {
     try { $diag = Invoke-GuestSsh -VMName $VMName -GuestKey 'guest.download-agent-service' -User 'download-agent-service-admin' -Command $diagCmd -TimeoutSeconds 120 }
     catch { Write-Verbose "guest diagnostics ssh: $($_.Exception.Message)" }
 }

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.04
+.VERSION 2026.08.05
 .GUID 42ab19c1-07c0-4d84-be69-80c4f1c780a8
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -262,7 +262,7 @@ function Initialize-YurunaEntryPointModuleSet {
             'Test.Config.psm1', 'Test.YurunaDir.psm1',
             'Test.ConfigPreflight.psm1', 'Test.HostContract.psm1', 'Test.InnerSpawn.psm1',
             # Test.SingleInstance lets Assert-NoOtherRunner see runner.pid so
-            # a Invoke-TestProject run refuses to race a live Invoke-TestRunner
+            # an Invoke-TestProject run refuses to race a live Invoke-TestRunner
             # instead of silently overlapping it on the same runtime dir.
             'Test.SingleInstance.psm1',
             # Test.Recovery is loaded so Invoke-TestProject can archive any stale
@@ -303,7 +303,7 @@ function Initialize-YurunaEntryPointModuleSet {
             # Test.Perf must be loaded wherever Invoke-Sequence runs: its
             # perf calls are Get-Command-guarded, so an absent module is not
             # an error, it is a silently unmeasured run. That covers both
-            # shapes of a Invoke-TestSequence process -- a standalone run opening
+            # shapes of an Invoke-TestSequence process -- a standalone run opening
             # its own perf cycle, and a nested one (a host action re-entering
             # us in a child pwsh) adopting the owner's published cycle handle.
             'Test.Perf.psm1',

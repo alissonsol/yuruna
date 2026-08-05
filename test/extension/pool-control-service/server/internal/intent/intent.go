@@ -179,7 +179,11 @@ func (r *Runner) RemovePool(ctx context.Context, poolID string, force bool) Resu
 }
 
 func (r *Runner) SetDesiredState(ctx context.Context, poolID, state string) Result {
-	return r.exec(ctx, "Set-PoolDesiredState.ps1", "-PoolId", poolID, "-DesiredState", state)
+	// -State, not -DesiredState: the CLI names the parameter after the value it
+	// takes, while New-Pool.ps1 (which sets the same field as one of several
+	// properties) names it -DesiredState. A mismatch here is invisible until an
+	// operator flips a pool and pwsh rejects the parameter at bind time.
+	return r.exec(ctx, "Set-PoolDesiredState.ps1", "-PoolId", poolID, "-State", state)
 }
 
 func (r *Runner) AddHost(ctx context.Context, poolID, hostID string) Result {

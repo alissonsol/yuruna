@@ -1,7 +1,7 @@
 /*
   LICENSEURI https://yuruna.link/license
   Copyright (c) 2019-2026 by Alisson Sol et al.
-  Version: 2026.08.04
+  Version: 2026.08.05
   --- REGION: https://yuruna.link/definition#defining-the-status-page-browser-baseline
   --- REGION: https://yuruna.link/definition#defining-the-status-page-header-anatomy
   --- REGION: https://yuruna.link/definition#defining-the-status-page-mobile-and-dark-mode-hardening
@@ -159,6 +159,13 @@
 }
 
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+/* iOS Safari boosts text inside any block wider than the viewport, and the
+   status pages deliberately let content be wider than a phone so it scrolls
+   itself: index.html's four-column history table inside .table-wrap, and
+   performance.html's 560 px chart rows. Without this pin those paint at a
+   different size from the rest of the page. Prefixed form is the one Safari
+   implements; the standard form covers the others. */
+html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
 body {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   background: var(--bg-primary); color: var(--fg-primary); font-size: 14px; line-height: 1.5;

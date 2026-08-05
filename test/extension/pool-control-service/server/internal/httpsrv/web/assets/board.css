@@ -80,7 +80,7 @@
    which is why style.css carries the `!important` [hidden] guard: without it
    this full-viewport overlay renders on load and swallows every tap. */
 .sheet { position: fixed; top: 0; right: 0; bottom: 0; left: 0; background: rgba(0,0,0,0.45); display: flex; align-items: flex-end; z-index: 10; }
-.sheet-box { width: 100%; background: var(--bg, #fff); border-radius: 16px 16px 0 0; padding: 1.25rem; }
+.sheet-box { width: 100%; background: var(--bg, #fff); border-radius: 16px 16px 0 0; padding: 1.25rem; padding-bottom: calc(1.25rem + env(safe-area-inset-bottom)); }
 .sheet-box h2 { margin: 0 0 0.6rem; font-size: 1.1rem; }
 .sheet-box p { margin: 0 0 1.1rem; line-height: 1.45; }
 .sheet-actions { display: flex; }
@@ -97,19 +97,14 @@
   }
 }
 
+/* Only the colours with no token behind them are restated here. Everything
+   keyed off --bg / --line / --fg follows the scheme from style.css, which every
+   page in this service now shares. */
 @media (prefers-color-scheme: dark) {
-  .board, .periods, .card select, .sheet-box { --bg: #0d1117; }
-  .board { background: #0d1117; color: #e6edf3; }
-  .periods { background: #0d1117; }
-  /* The shared header is styled light-only in style.css (the desktop pages have
-     no dark scheme). Only the board honours the device preference, so its dark
-     values are set here rather than there. */
-  header.app { border-color: #30363d; --muted: #8b949e; --accent: #4493f8; }
-  .card, .periods button, .card select, .sheet-actions .ghost { border-color: #30363d; }
-  .sheet-box { background: #161b22; }
-  .stats-banner { background: #341a00; color: #f0b72f; }
-  .card .blocked { background: #3c1618; color: #ff9492; }
-  .hero.good .pct { color: #3fb950; }
-  .hero.warn .pct { color: #d29922; }
-  .hero.bad  .pct { color: #f85149; }
+  .sheet-box { background: #111827; }
+  .stats-banner { background: #78350f; color: #fde68a; }
+  .card .blocked { background: #7f1d1d; color: #fecaca; }
+  .hero.good .pct { color: #4ade80; }
+  .hero.warn .pct { color: #fcd34d; }
+  .hero.bad  .pct { color: #fca5a5; }
 }

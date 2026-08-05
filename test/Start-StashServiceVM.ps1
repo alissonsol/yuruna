@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.04
+.VERSION 2026.08.05
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456760
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -264,12 +264,103 @@ try {
 # briefly; if it is not up yet the link stays absent until a later refresh (the
 # per-cycle runner call, or a re-run) populates it. Uses the host contract Get-VMIp
 # wired by Initialize-YurunaHost above.
+# --- REGION: wait for the stash daemon to actually serve
+# Returning as soon as the VM is registered used to end this script roughly
+# fifteen to thirty minutes before the service existed: a first boot installs a
+# Go toolchain and compiles the daemon, and until that finishes there is nothing
+# listening. Everything downstream inherited that gap. The dashboard's Extension
+# cell has no link, because the address a link needs comes from the daemon's own
+# announce and there is no daemon yet to announce -- this host withholds its own
+# copy of the address whenever the VM sits on a hypervisor-private network, which
+# is every Wi-Fi UTM host. So the operator finished a "successful" run and found
+# an unlinked row, with nothing to tell them it was merely early.
+#
+# Waiting here costs the build's wall-clock and buys two things: the link is live
+# when the run ends, and a guest that never finishes building is reported instead
+# of passing silently. The wait extends itself while cloud-init reports progress
+# and reports the guest's current step, so the time is visible rather than blank.
+$stashReadyTimeoutSeconds = 2700
+if ($env:YURUNA_STASH_SERVICE_READY_TIMEOUT_SECONDS) {
+    $parsedStashTimeout = 0
+    if ([int]::TryParse($env:YURUNA_STASH_SERVICE_READY_TIMEOUT_SECONDS, [ref]$parsedStashTimeout) -and $parsedStashTimeout -gt 0) {
+        $stashReadyTimeoutSeconds = $parsedStashTimeout
+    } else {
+        Write-Verbose "YURUNA_STASH_SERVICE_READY_TIMEOUT_SECONDS='$($env:YURUNA_STASH_SERVICE_READY_TIMEOUT_SECONDS)' is not a positive integer; using $stashReadyTimeoutSeconds."
+    }
+}
+$stashEndpoint = $null
+if ($runtimeDir) {
+    Import-Module (Join-Path $ModulesDir 'Test.Ssh.psm1') -Global -Force
+    Write-Output "Waiting up to $([int]($stashReadyTimeoutSeconds / 60)) min for the stash-service daemon to serve on :80 (first boot builds it in-guest)."
+    Write-Output "  The wait extends itself while the guest reports it is still building; override with YURUNA_STASH_SERVICE_READY_TIMEOUT_SECONDS."
+    $stashEndpoint = Wait-YurunaServiceVmEndpoint -VMName $VMName -Port 80 `
+        -TimeoutSeconds $stashReadyTimeoutSeconds `
+        -Address ([string]$stashVmIp) `
+        -GuestKey 'guest.stash-service' -User 'stash-admin' `
+        -ProgressLabel "building the stash-service daemon" `
+        -OnAddressChanged {
+            param($newAddress)
+            if ($HostType -eq 'host.macos.utm' -and $bundleMode -eq 'Shared') {
+                if (Add-PortMap -VMIp $newAddress -Port @() -PortRemap @{ 2222 = 22 } -Confirm:$false) {
+                    Write-Output "  Re-pointed host :2222 -> ${newAddress}:22."
+                }
+            }
+        }
+    if ($stashEndpoint.ExtendedSeconds -gt 0) {
+        Write-Output ("  Waited $([int]($stashEndpoint.WaitedSeconds / 60)) min in total -- extended by " +
+                      "$([int]($stashEndpoint.ExtendedSeconds / 60)) min because the guest reported it was still building.")
+    }
+    if ($stashEndpoint.Ready) {
+        Write-Output "  Stash daemon is serving on :80 -- the pool resolves it and the dashboard cell links to it."
+    } elseif ($stashEndpoint.Unreachable) {
+        Write-Warning ("The stash daemon IS serving on :80 inside the guest, and this host cannot open a connection to it. " +
+                       "The service is UP and reaches the pool through its own announce; only this host's direct path is missing.")
+    } elseif ($stashEndpoint.StillBuilding) {
+        Write-Warning @"
+The stash-service guest is STILL BUILDING after $([int]($stashEndpoint.WaitedSeconds / 60)) min (cloud-init: $($stashEndpoint.CloudInitStatus)).
+$(if ($stashEndpoint.LastProgress) { "Last step seen: $($stashEndpoint.LastProgress)`n" })
+Nothing is broken -- a first boot installs a Go toolchain and compiles the daemon.
+It finishes on its own and then registers itself with the pool, at which point the
+dashboard's Extension cell links to it. The bring-up is NOT failed over this.
+"@
+    } else {
+        Write-Warning ("The stash daemon did not come up on :80 within $([int]($stashEndpoint.WaitedSeconds / 60)) min and cloud-init is no longer running " +
+                       "(status: $($stashEndpoint.CloudInitStatus)). Check the guest: ssh stash-admin@$($stashEndpoint.Address) 'sudo tail -n 120 /var/log/cloud-init-output.log'")
+    }
+    if ($stashEndpoint.Address) { $stashVmIp = $stashEndpoint.Address }
+}
+
 if ($runtimeDir) {
     try {
         $stashUrl = Update-StashServiceMarkerAddress -RuntimeDir $runtimeDir -VMName $VMName -TimeoutSeconds 180
         if ($stashUrl) { Write-Output "  Stash VM address: $stashUrl (Extension cell deep-links here)." }
         else { Write-Output "  Stash VM address not resolved yet -- the Extension deep-link populates on a later refresh." }
     } catch { Write-Verbose "stash address resolve: $($_.Exception.Message)" }
+
+    # Re-point the forwarder at whatever address the guest SETTLED on. The map
+    # above was built from the first address discovery returned, and a guest
+    # re-requests DHCP under a changed client identity while cloud-init runs --
+    # so that first answer is frequently one the guest abandons seconds later.
+    # The resolve above already waited for the guest to answer, which makes this
+    # the first point where the address is known to be the live one.
+    #
+    # Re-pointing matters more than it looks: a forwarder left aimed at an
+    # abandoned address still ACCEPTS on the host and only then fails to
+    # connect, so every caller hangs for a full timeout instead of failing fast
+    # -- strictly worse than no forwarder at all.
+    if ($HostType -eq 'host.macos.utm' -and $bundleMode -eq 'Shared') {
+        try {
+            $settledIp = Get-VMIp -VMName $VMName
+            if ($settledIp -and $settledIp -ne $stashVmIp) {
+                Write-Output "  '$VMName' settled on $settledIp (was $stashVmIp) -- re-pointing host :2222."
+                if (Add-PortMap -VMIp $settledIp -Port @() -PortRemap @{ 2222 = 22 } -Confirm:$false) {
+                    Write-Output "  Shared NAT: peers reach this stash service at $(Get-BestHostIp):2222 (forwarded to ${settledIp}:22)."
+                } else {
+                    Write-Warning "Could not re-point host port 2222 to ${settledIp}:22. Peers following the old address will hang until it is corrected; re-run this script to retry."
+                }
+            }
+        } catch { Write-Verbose "stash forwarder re-point: $($_.Exception.Message)" }
+    }
 }
 
 # Publish the marker NOW: regenerate host.registration.json so the aggregator sees

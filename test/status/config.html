@@ -306,6 +306,13 @@
          same reason: at ~26px they are well under the 44px touch minimum. */
       .tree-input { font-size: 16px; }
       .ydd, .ydd-item { min-height: var(--touch-min); }
+      /* The switch label is the only target for a boolean value and draws
+         2.4rem x 1.2rem (~38x19 px), far under the same touch minimum. Give the
+         label the full touch height and hold the track at its drawn size,
+         centred inside it, so the hit area grows without the control changing
+         shape or the knob's offsets moving. */
+      .tree-bool-switch { height: var(--touch-min); }
+      .tree-bool-track  { top: 50%; bottom: auto; height: 1.2rem; margin-top: -.6rem; }
     }
   </style>
 </head>

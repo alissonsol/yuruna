@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"time"
 
+	"pool-control-service/internal/hostctl"
 	"pool-control-service/internal/intent"
 	"pool-control-service/internal/state"
 	"pool-control-service/internal/yex/labgate"
@@ -60,6 +61,10 @@ type Options struct {
 	// that change pool configuration. Empty leaves the dashboard's lab token as
 	// the only way in; it never leaves those routes open.
 	AuthToken string
+	// AuthTokenFile is where AuthToken was read from. Carried so the one error
+	// an operator can act on -- "this service can prove control to no host" --
+	// names the file THIS daemon was launched with rather than the default.
+	AuthTokenFile string
 }
 
 // Server is the pool-control-service UI/API HTTP server.
@@ -70,7 +75,10 @@ type Server struct {
 	gate   *labgate.Gate
 	// pool reads the aggregator for the board's cycle counts and the
 	// auto-enrolment sweep's candidate list.
-	pool    *pool.Client
+	pool *pool.Client
+	// hostctl drives the pause switches on the hosts themselves, for the
+	// pool-wide selector on the Pools page.
+	hostctl *hostctl.Client
 	httpSrv *http.Server
 	started time.Time
 }
@@ -87,6 +95,7 @@ func New(api IntentAPI, opts Options) *Server {
 	// NoCache: the board is the operator's live view of the lab, and a cached
 	// snapshot would hold a just-enrolled host off the page for the window.
 	s.pool = pool.New(pool.Options{BaseURL: opts.AggregatorURL, Timeout: aggregatorTimeout, CacheTTL: pool.NoCache})
+	s.hostctl = hostctl.New(hostctl.Options{})
 	s.httpSrv = &http.Server{
 		Addr:              opts.Addr,
 		Handler:           s.routes(),

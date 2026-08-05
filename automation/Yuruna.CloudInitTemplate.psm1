@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.04
+.VERSION 2026.08.05
 .GUID 42c9d0e1-b3a4-4f56-9b67-78c2e3f4d5a6
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -171,10 +171,9 @@ function Get-YurunaGuestScriptBase64 {
         and yuruna-network.sh -- and return them as a hashtable keyed by purpose.
     .DESCRIPTION
         Centralizes the `[Convert]::ToBase64String([File]::ReadAllBytes(...))`
-        read otherwise duplicated across all six New-VM.ps1 scripts
-        (3 platforms x {24, 26}) for the same files, so the eventual
-        swap to a signed-bundle distribution (or another guest-side
-        script) is one edit.
+        read otherwise duplicated in every per-guest New-VM.ps1 that
+        bakes a cloud-init seed, so the eventual swap to a signed-bundle
+        distribution (or another guest-side script) is one edit.
     .PARAMETER RepoRoot
         Absolute path to the repository root. The scripts live under
         $RepoRoot/automation/.
@@ -209,8 +208,8 @@ function Resolve-CloudInitPlaceholder {
         template with the matching value from -Replacement.
     .DESCRIPTION
         Centralizes the placeholder iteration otherwise spelled as a
-        600-character `.Replace(...).Replace(...)...` chain in each of
-        the six New-VM.ps1 scripts, which buried the placeholder list
+        600-character `.Replace(...).Replace(...)...` chain in every
+        per-guest New-VM.ps1, which buried the placeholder list
         in one line. Pulling the iteration here lets each caller
         spell out the substitution map line-by-line, AND adds an
         unresolved-placeholder safety net: after the substitution, any

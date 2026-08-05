@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.04
+.VERSION 2026.08.05
 .GUID 42c1f70a-8d35-4e63-9a27-5b48c1e07d92
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -201,8 +201,7 @@ Describe 'A failed VM start is never reported as success' {
         Assert-True ($body -match 'Find-FreeVncDisplay') 'start picks a free display'
         Assert-True ($body -match 'Set-VncDisplayInBundle') 'and records it in the bundle'
         # Anchored on however the start is ISSUED, not on the utmctl verb, which
-        # now lives in the retrying helper Start-UtmVM delegates to. The ordering
-        # this protects is unchanged.
+        # lives in the retrying helper Start-UtmVM delegates to.
         $startMatch = [regex]::Match($body, 'Invoke-UtmVMStartWithRetry|utmctl start')
         Assert-True ($startMatch.Success) 'the start is still there'
         $resolveAt = $body.IndexOf('Find-FreeVncDisplay')

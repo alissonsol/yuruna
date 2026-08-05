@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.04
+.VERSION 2026.08.05
 .GUID 42a2b3c4-d5e6-4f78-9012-3a4b5c6d7e90
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -34,6 +34,35 @@ $script:HostTag        = 'host.windows.hyper-v'
 $script:RepoRoot       = (Resolve-Path (Join-Path $PSScriptRoot '..\..\..')).Path
 $script:TestModulesDir = Join-Path $script:RepoRoot 'test\modules'
 $script:HostFolder     = Join-Path $script:RepoRoot 'host\windows.hyper-v'
+
+<#
+.SYNOPSIS
+    Returns this driver's host tag, repairing it if module state was lost.
+.DESCRIPTION
+    $script: state does not survive this module being -Force re-imported
+    (feedback_module_script_state_reset_by_force_reimport). A caller holding
+    an already-resolved reference to a contract function keeps running against
+    the evicted instance, whose session state has been torn down, and
+    $script:HostTag then reads as an empty string.
+
+    That empty string is load-bearing: binding it to the dispatcher's
+    -HostType fails with "Cannot bind argument to parameter 'HostType'
+    because it is an empty string", so the keystroke types nothing while the
+    caller sees only a non-terminating error and carries on. A console line
+    left half-typed that way stays in the tty and the next text sent to the
+    guest is appended to it, surfacing much later as a command nobody wrote.
+
+    The tag is a compile-time constant for this driver, so resolving it
+    through a literal fallback makes the empty binding impossible regardless
+    of module lifetime, and restores the variable for any other reader that
+    can still reach this scope.
+#>
+function Resolve-HostTag {
+    [OutputType([string])]
+    param()
+    if ([string]::IsNullOrWhiteSpace($script:HostTag)) { $script:HostTag = 'host.windows.hyper-v' }
+    return $script:HostTag
+}
 
 # The supporting test/modules become callable from our function bodies;
 # Export-ModuleMember below decides which of OUR functions become visible
@@ -3556,7 +3585,7 @@ function Send-Text {
         # keystroke is pure overhead (feedback_module_force_import_evicts_global,
         # feedback_module_script_state_reset_by_force_reimport).
         if (-not (Get-Module -Name Test.SequenceEngine)) { Import-Module $sequenceEngine -DisableNameChecking -Global }
-        return [bool](Test.SequenceEngine\Send-Text -HostType $script:HostTag -VMName $VMName -Text $Text -CharDelayMs $CharDelayMs)
+        return [bool](Test.SequenceEngine\Send-Text -HostType (Resolve-HostTag) -VMName $VMName -Text $Text -CharDelayMs $CharDelayMs)
     }
     Write-Warning "Send-Text -Mechanism gui: Test.SequenceEngine.psm1 not found at '$sequenceEngine'."
     return $false
@@ -3587,7 +3616,7 @@ function Send-Key {
         # above (feedback_module_force_import_evicts_global,
         # feedback_module_script_state_reset_by_force_reimport).
         if (-not (Get-Module -Name Test.SequenceEngine)) { Import-Module $sequenceEngine -DisableNameChecking -Global }
-        return [bool](Test.SequenceEngine\Send-Key -HostType $script:HostTag -VMName $VMName -KeyName $Key)
+        return [bool](Test.SequenceEngine\Send-Key -HostType (Resolve-HostTag) -VMName $VMName -KeyName $Key)
     }
     Write-Warning "Send-Key -Mechanism gui: Test.SequenceEngine.psm1 not found at '$sequenceEngine'."
     return $false
@@ -3611,7 +3640,7 @@ function Send-Click {
         # above (feedback_module_force_import_evicts_global,
         # feedback_module_script_state_reset_by_force_reimport).
         if (-not (Get-Module -Name Test.SequenceEngine)) { Import-Module $sequenceEngine -DisableNameChecking -Global }
-        return [bool](Test.SequenceEngine\Send-Click -HostType $script:HostTag -VMName $VMName -X $X -Y $Y)
+        return [bool](Test.SequenceEngine\Send-Click -HostType (Resolve-HostTag) -VMName $VMName -X $X -Y $Y)
     }
     Write-Warning "Send-Click: Test.SequenceEngine.psm1 not found at '$sequenceEngine'."
     return $false
@@ -3668,7 +3697,10 @@ function Wait-VMIp {
     param(
         [Parameter(Mandatory)][string]$VMName,
         [int]$TimeoutSeconds = 30,
-        [int]$PollSeconds    = 3
+        [int]$PollSeconds    = 3,
+        # Forwarded so a caller can widen or waive the shared poller's settle
+        # window; its default applies when this is not bound.
+        [int]$StableForSeconds = 8
     )
     # Get-Command runs in THIS driver's scope, so the shared poller resolves
     # our Get-VMIp; a bare name would resolve in the shared module's scope.

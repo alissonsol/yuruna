@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.04
+.VERSION 2026.08.05
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456712
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -550,17 +550,25 @@ function Clear-GuestTtyLine {
     Never throws -- cleanup must not convert a soft diagnostic failure
     into a thrown exception, and a failed clear must not stop the
     payload from being typed.
+
+    Returns whether the chord actually reached the guest. Callers that
+    only need best-effort hygiene can ignore it; callers whose next step
+    depends on the line really being empty (the retype branch) must not,
+    because a clear that never landed leaves the previous characters in
+    place and makes everything measured afterwards describe a stale line.
 .PARAMETER VMName
     Guest VM whose console receives the chord.
 #>
     [CmdletBinding()]
-    [OutputType([void])]
+    [OutputType([bool])]
     param([Parameter(Mandatory)][string]$VMName)
     try {
-        [void](Send-Key -VMName $VMName -Key 'CtrlU' -Mechanism gui)
+        $sent = [bool](Send-Key -VMName $VMName -Key 'CtrlU' -Mechanism gui)
         Start-Sleep -Milliseconds 200
+        return $sent
     } catch {
         Write-Verbose "  Diagnostics: console line-buffer clear (Ctrl-U) failed: $($_.Exception.Message)"
+        return $false
     }
 }
 
@@ -590,23 +598,46 @@ function Reset-GuestTtyPrompt {
     command for no benefit.
 
     Never throws.
+
+    Each chord is sent from its own try, and neither is skipped because
+    the other failed. The two keys repair different things -- Ctrl-C
+    discards the pending line, Enter redraws the prompt -- so a single
+    try around both turns any failure of the first into a total no-op,
+    silently leaving the tty in exactly the state this function exists to
+    prevent. Returns whether both chords reached the guest.
 .PARAMETER VMName
     Guest VM whose console receives the chords.
 #>
     [CmdletBinding()]
-    [OutputType([void])]
+    [OutputType([bool])]
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute(
         'PSUseShouldProcessForStateChangingFunctions', '',
         Justification = 'Best-effort console cleanup on an already-dirty tty inside the soft-failing diagnostics path; a -Confirm prompt would stall an unattended failure path and leave the guest console dirty.')]
     param([Parameter(Mandatory)][string]$VMName)
+    $interrupted = $false
+    $redrawn     = $false
     try {
-        [void](Send-Key -VMName $VMName -Key 'CtrlC' -Mechanism gui)
+        $interrupted = [bool](Send-Key -VMName $VMName -Key 'CtrlC' -Mechanism gui)
         Start-Sleep -Milliseconds 200
-        [void](Send-Key -VMName $VMName -Key 'Enter' -Mechanism gui)
-        Write-Verbose "  Diagnostics: console tty restored (Ctrl-C + Enter) after a failed console rung."
     } catch {
-        Write-Verbose "  Diagnostics: console tty restore (Ctrl-C + Enter) failed: $($_.Exception.Message)"
+        Write-Verbose "  Diagnostics: console tty restore (Ctrl-C) failed: $($_.Exception.Message)"
     }
+    try {
+        $redrawn = [bool](Send-Key -VMName $VMName -Key 'Enter' -Mechanism gui)
+    } catch {
+        Write-Verbose "  Diagnostics: console tty restore (Enter) failed: $($_.Exception.Message)"
+    }
+    if ($interrupted -and $redrawn) {
+        Write-Verbose "  Diagnostics: console tty restored (Ctrl-C + Enter) after a failed console rung."
+        return $true
+    }
+    # Warned, not just traced: the guest is now holding a partially typed
+    # command, and the next text sent to it will be appended to that line
+    # rather than run on its own. The resulting command surfaces far from
+    # here -- as a step that reports success while its text was swallowed as
+    # trailing arguments -- so this is the only place it can be named.
+    Write-Warning ("Reset-GuestTtyPrompt: console tty restore did not land (Ctrl-C sent={0}, Enter sent={1}); the guest may still hold a partial line that the next step's text will extend." -f $interrupted, $redrawn)
+    return $false
 }
 
 # Tuning constants for the pre-Enter console echo check. Named rather than
@@ -1024,8 +1055,13 @@ function Invoke-RemoteDiagnosticsConsole {
         # Pre-type: discard anything already sitting in the tty's line
         # buffer. Without this, residue concatenates with the first
         # characters of the one-liner and the command is malformed before
-        # it is ever submitted.
-        Clear-GuestTtyLine -VMName $VMName
+        # it is ever submitted. The result is deliberately discarded: a
+        # clear that did not land is not a reason to skip the payload, and
+        # the echo check below is what decides whether the line is usable.
+        # It must still be captured: an uncaptured [bool] joins this
+        # function's output stream and turns the returned hashtable into a
+        # two-element array, whose .success then reads $null.
+        [void](Clear-GuestTtyLine -VMName $VMName)
 
         # Send-Text returns $true on success per the host facade; we tolerate
         # $false because some hosts (KVM virsh send-key) don't bubble up a
@@ -1054,9 +1090,23 @@ function Invoke-RemoteDiagnosticsConsole {
                 # Ctrl-U discards the corrupted line without submitting it.
                 # An Enter here would execute exactly the malformed command
                 # we just detected.
-                Clear-GuestTtyLine -VMName $VMName
-                [void](Send-Text -VMName $VMName -Text $cmd -Mechanism gui)
+                $cleared = [bool](Clear-GuestTtyLine -VMName $VMName)
+                $retyped = [bool](Send-Text -VMName $VMName -Text $cmd -Mechanism gui)
                 Start-Sleep -Milliseconds 200
+                if (-not ($cleared -and $retyped)) {
+                    # Neither chord nor text reached the guest, so the console
+                    # still holds exactly the characters the first verdict
+                    # read. Asking for a second verdict here would re-measure
+                    # an unchanged screen and is therefore guaranteed to
+                    # return 'corrupt' again -- a verdict about the transport
+                    # wearing the costume of a verdict about the guest. Report
+                    # the transport instead: "the retype never happened" and
+                    # "the guest echoed a malformed command" need different
+                    # fixes, and conflating them sends the reader to the
+                    # console when the keystroke path is what is broken.
+                    Write-Warning ("Invoke-RemoteDiagnosticsConsole: retype did not reach the guest (Ctrl-U sent={0}, text sent={1}); abandoning the console path without submitting." -f $cleared, $retyped)
+                    return $failResult
+                }
                 $verdict = Get-ConsoleEchoVerdict -VMName $VMName -Expected $cmd
                 if ($verdict -eq 'corrupt') {
                     # A second corrupted echo means the tty is not taking
@@ -1108,7 +1158,12 @@ function Invoke-RemoteDiagnosticsConsole {
         # by itself, so an interrupt would be gratuitous. Only a failed rung
         # leaves something on the line worth discarding.
         if ($typed -and -not $succeeded) {
-            Reset-GuestTtyPrompt -VMName $VMName
+            # Captured, not emitted: output written from a finally still joins
+            # the function's output stream, and a stray [bool] there would turn
+            # the returned hashtable into a two-element array whose .success
+            # reads $null -- a failed restore would then also corrupt the
+            # result of every rung that succeeded.
+            [void](Reset-GuestTtyPrompt -VMName $VMName)
         }
     }
 }

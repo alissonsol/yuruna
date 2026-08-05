@@ -47,6 +47,13 @@ before it lapses rather than letting a long edit fail at Save.
 
 A host with **no** `lab-auth-token` is not broken — it accepts control from loopback only.
 
+The **Pool control service** presents the same proof when its *Pool Status* column pauses or
+continues every member of a pool at once ([pool-admin.md](pool-admin.md#pool-status--pausing-and-continuing-every-member-at-once)).
+It mints one from its own copy of the token when it has one, and otherwise reads the fragment
+off `/go/host` without following the redirect — the same proof, obtained the same way a
+browser obtains it. So the enrollment state that decides whether a host's buttons work also
+decides whether pool-wide control reaches it, and the `reason` table below explains both.
+
 ## Enabling remote control on a host
 
 Every host **and** the caching-proxy service must hold the **same** token value: a proof
@@ -329,6 +336,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.04
+Last review: 2026.08.05
 
 Back to [Yuruna](../README.md)

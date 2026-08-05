@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.04
+.VERSION 2026.08.05
 .GUID 42b8e6a4-3d17-4c92-8f05-6a1b9d2e7c40
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -166,6 +166,27 @@ function Invoke-WaitVmIp {
         driver runs Get-Command Get-VMIp in ITS scope). The discovery is
         driver-private and unresolvable by name from this module's session
         state, so it must be injected rather than called directly.
+
+        The FIRST address a booting guest is seen at is frequently not the one
+        it keeps. A guest's DHCP client identity is derived from its machine-id
+        and hostname by default, and cloud-init changes both -- so
+        systemd-networkd re-requests under a new identity, the server treats it
+        as a different client, and the guest moves to another address, two or
+        three times within the first seconds. Returning on the first answer
+        therefore hands the caller an address the guest is about to abandon, and
+        every artifact built from it (a port-forwarder, a probe target, a
+        published URL) is wrong for the rest of the run.
+
+        So a candidate has to hold still before it is returned: once one is
+        seen, resolution keeps going for -StableForSeconds, and any change
+        restarts that window. The cost is bounded and small next to a guest boot;
+        the whole settle stays inside the caller's -TimeoutSeconds budget, and a
+        budget too small for it degrades to the old first-answer behavior rather
+        than overrunning.
+    .PARAMETER StableForSeconds
+        How long a candidate must stay unchanged before it is trusted. 0 returns
+        the first answer, which is what a caller wants only when it re-resolves
+        on its own afterwards.
     #>
     [CmdletBinding()]
     [OutputType([string])]
@@ -173,12 +194,31 @@ function Invoke-WaitVmIp {
         [Parameter(Mandatory)][string]$VMName,
         [int]$TimeoutSeconds = 30,
         [int]$PollSeconds    = 3,
+        [int]$StableForSeconds = 8,
         [Parameter(Mandatory)]$ResolveVmIp
     )
     $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
     while ((Get-Date) -lt $deadline) {
         $candidate = & $ResolveVmIp -VMName $VMName
-        if ($candidate) { return [string]$candidate }
+        if ($candidate) {
+            $settled = [string]$candidate
+            if ($StableForSeconds -le 0) { return $settled }
+            $settleUntil = (Get-Date).AddSeconds($StableForSeconds)
+            while ((Get-Date) -lt $settleUntil -and (Get-Date) -lt $deadline) {
+                Start-Sleep -Seconds ([Math]::Max(1, [Math]::Min($PollSeconds, $StableForSeconds)))
+                $again = & $ResolveVmIp -VMName $VMName
+                # Only a DIFFERENT address restarts the window. A resolver that
+                # momentarily returns nothing is not evidence the guest moved --
+                # it is the lease file being rewritten under us -- so an empty
+                # answer leaves the current candidate and its window alone.
+                if ($again -and [string]$again -ne $settled) {
+                    Write-Verbose "Invoke-WaitVmIp: '$VMName' moved $settled -> $again; restarting the ${StableForSeconds}s settle window."
+                    $settled = [string]$again
+                    $settleUntil = (Get-Date).AddSeconds($StableForSeconds)
+                }
+            }
+            return $settled
+        }
         # The resolver call itself can be slow (a Get-VMIp that waits on KVP/ARP);
         # re-check the deadline before sleeping so we neither nap a full PollSeconds
         # past an already-expired budget nor spin one extra resolver call past it.

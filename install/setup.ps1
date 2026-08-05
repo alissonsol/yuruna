@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.04
+.VERSION 2026.08.05
 .GUID 426d4f21-8a35-49be-b7e0-3d18f52a9c6b
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -843,8 +843,20 @@ function Invoke-RepoScript {
         [switch]$TolerateFailure
     )
     if (-not (Test-Path -LiteralPath $Path)) { throw "script not found: $Path" }
+    # A $null element must never reach ArgumentList below: it is added as an
+    # EMPTY argv entry, which the child binds to its first POSITIONAL parameter
+    # -- a script defaulting that parameter to a real value silently receives ''
+    # instead. $Arguments is itself $null whenever a caller passes a statement
+    # whose branch produced no output ([string[]] binding turns that into a real
+    # $null, discarding the @() default above), and `@(...) + $null` appends the
+    # null rather than being a no-op. Filtered, not merely counted: an
+    # intentional empty-string argument is still passed through. Done before the
+    # EXEC line so the log shows the argv the child actually receives -- a
+    # trailing empty entry renders as nothing there, which is what makes this
+    # class of fault invisible in a log that looks correct.
+    $childArguments = @($Arguments | Where-Object { $null -ne $_ })
     $leaf = [IO.Path]::GetFileName($Path)
-    Write-SetupLogLine -Level 'EXEC' -Message "$Path $($Arguments -join ' ')"
+    Write-SetupLogLine -Level 'EXEC' -Message "$Path $($childArguments -join ' ')"
     $transcriptDir = Get-ChildTranscriptDirectory -Leaf $leaf
     $startInfo = [System.Diagnostics.ProcessStartInfo]::new()
     $startInfo.FileName = Get-CurrentPwshPath
@@ -869,7 +881,7 @@ function Invoke-RepoScript {
     # -NonInteractive on the child pwsh itself, so an engine-level prompt (a
     # mandatory parameter nobody bound, an unsuppressed confirmation) is an error
     # rather than a wait.
-    foreach ($argument in (@('-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', $Path) + $Arguments)) {
+    foreach ($argument in (@('-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', $Path) + $childArguments)) {
         [void]$startInfo.ArgumentList.Add($argument)
     }
     $code = 1
@@ -1264,28 +1276,38 @@ function Read-Text {
 function Write-DashboardHint {
 <#
 .SYNOPSIS
-    One line pointing at the Yuruna hosts dashboard, when there is one to point at.
+    Where to look at what this run built, and when its service links go live.
 .DESCRIPTION
     A run that ends "ready" tells the operator what it built but not where to
     look at it. The hosts dashboard is that place, and it is useful even on a
     standalone host -- it shows this machine and its extension services, which
     is exactly what someone re-running setup was trying to confirm.
 
-    Silent when a step failed or no proxy address was resolved: a link to a
-    dashboard that cannot load is worse than no link, because it reads as one
-    more thing broken rather than as the run declining to guess.
+    The second line is the one that prevents a support question. A service VM is
+    created and started in under a minute, but its daemon does not exist until
+    the guest has installed a Go toolchain and compiled it -- ten minutes to the
+    better part of an hour. Until then the dashboard has a row for the service
+    and no link on it, because the address a link needs comes from the daemon's
+    own announce, and there is no daemon yet to announce. Nothing is wrong at
+    that moment and nothing needs doing; saying so here is cheaper than an
+    operator concluding the run half-failed and starting over.
+
+    Gated on the proxy address alone, and not on whether a step failed: that
+    address is READ FROM the proxy's own state, so having one means the proxy
+    came up and Grafana is there to answer. A run that failed elsewhere is
+    exactly when an operator wants to see what did come up.
 
     http, not https. Grafana in the proxy guest serves plain HTTP on :3000 --
     the aggregator is the service that uses TLS, on :9400 -- so an https link
     here would simply fail to connect.
 #>
     param(
-        [AllowEmptyString()][string]$ProxyIp = '',
-        [bool]$HadFailures = $false
+        [AllowEmptyString()][string]$ProxyIp = ''
     )
-    if ($HadFailures -or -not $ProxyIp) { return }
+    if (-not $ProxyIp) { return }
     Write-SetupMessage ''
     Write-SetupMessage "Yuruna hosts dashboard: http://${ProxyIp}:3000/d/yuruna-pool/yuruna-hosts"
+    Write-SetupMessage 'Links to services will become active after their initialization.'
 }
 
 function Write-SetupReport {
@@ -1877,9 +1899,14 @@ $proxyIp = ''
 # happens only when the reuse check (or -Rebuild) says the VM is not worth
 # keeping, and -ForceRebuild is forwarded so the Start script does not re-adopt
 # what setup just decided to replace.
+# @(if ...) rather than $(if ... else { @() }): a branch that emits an empty
+# array emits NO output, and the subexpression collapses to $null on the way
+# into a [string[]] parameter -- which then appends an empty argv entry the
+# child binds to its first positional parameter. The array-subexpression form
+# yields a real empty array, so the not-rebuilding case passes no argument.
 Invoke-ServiceVMEnsure -Service 'caching-proxy service' -RosterKey 'caching-proxy' -Critical `
     -StopScript 'Stop-CachingProxyServiceVM.ps1' -StartScript 'Start-CachingProxyServiceVM.ps1' `
-    -StartArguments $(if ($Script:Rebuild) { @('-ForceRebuild') } else { @() })
+    -StartArguments @(if ($Script:Rebuild) { '-ForceRebuild' })
 if (-not $WhatIfPreference) {
     Import-SetupModule (Join-Path $TestRoot 'modules/Test.CachingProxyService.psm1')
     try {
@@ -2112,7 +2139,7 @@ if ($isLab) {
         Write-SetupMessage '  pwsh test/Invoke-TestRunner.ps1'
     }
 }
-Write-DashboardHint -ProxyIp $proxyIp -HadFailures $hadFailures
+Write-DashboardHint -ProxyIp $proxyIp
 Write-SetupMessage ''
 
 # The config gate is deliberately non-critical -- a validation failure should not

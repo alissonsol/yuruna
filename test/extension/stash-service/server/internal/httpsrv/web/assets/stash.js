@@ -151,11 +151,12 @@
       const data = await Y.api(apiPath());
       const v = data.stash;
       state.inlineTextCap = data.inlineTextCap || 0;
-      document.title = (v.originalFilename || v.id) + ' · Yuruna Stash';
+      // Page first, service second, so a row of open tabs stays tellable apart.
+      document.title = (v.originalFilename || v.id) + ' — Yuruna Stash';
       const detail = $('detail');
       detail.className = '';
       Y.replace(detail,
-        Y.el('h2', { text: v.originalFilename || v.id }),
+        Y.el('h1', { text: v.originalFilename || v.id }),
         actions(v),
         await renderViewer(v),
         Y.el('div', { class: 'card' }, meta(v)),

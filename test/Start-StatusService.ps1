@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.04
+.VERSION 2026.08.05
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456740
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -2495,6 +2495,12 @@ try {
             # Failed-install diagnostic sink. Method, path, extension and body-cap
             # limits below keep the write surface tight; the path is normalized and
             # range-checked against `$logDir so nothing escapes the log mount.
+            # .tar is allowed alongside the log extensions to carry curtin's
+            # error_tarfile, which holds the curtin logs that are routinely absent
+            # as standalone files at error time -- without it their only copy is
+            # the one embedded in a multi-megabyte crash report. The service
+            # writes and serves these bytes and never unpacks or runs them, so an
+            # archive is no more privileged here than a log.
             # --- REGION: https://yuruna.link/memory#why-the-status-service-exposes-a-log-upload-write-endpoint
             if (`$path -like 'log-upload/*') {
                 `$res.ContentType = 'application/json; charset=utf-8'
@@ -2509,9 +2515,9 @@ try {
                 if ([string]::IsNullOrWhiteSpace(`$uploadRel))             { `$uploadDeny = `$true }
                 elseif (`$uploadRel -match '(^|/)\.\.(/|`$)')              { `$uploadDeny = `$true }
                 elseif (`$uploadRel -match '^/')                           { `$uploadDeny = `$true }
-                elseif (-not (`$uploadRel -match '\.(log|txt|json|err|crash)`$')) { `$uploadDeny = `$true }
+                elseif (-not (`$uploadRel -match '\.(log|txt|json|err|crash|tar)`$')) { `$uploadDeny = `$true }
                 if (`$uploadDeny) {
-                    Send-JsonError -Response `$res -StatusCode 400 -Json '{"ok":false,"error":"invalid upload path (must end in .log/.txt/.json/.err/.crash, no traversal)"}'
+                    Send-JsonError -Response `$res -StatusCode 400 -Json '{"ok":false,"error":"invalid upload path (must end in .log/.txt/.json/.err/.crash/.tar, no traversal)"}'
                     continue
                 }
                 if (`$req.ContentLength64 -gt 4MB) {
@@ -2889,10 +2895,10 @@ try {
 # "The filename or extension is too long" which is obscure and easy to
 # misread as a path problem. -File sidesteps the size limit entirely:
 # pwsh reads the script from disk instead of its command line.
-# Reap the legacy generated server script (.status-service.ps1, distinct
-# from today's .status-service.ps1) and its stdout log so an upgrade does not
-# leave a stale, misleading copy under the runtime dir that an inspector could
-# mistake for the live server. Runs before the current script is written below.
+# Drop the previously generated server script (.status-service.ps1) and its
+# stdout log (server.out) so an upgrade does not leave a stale, misleading copy
+# under the runtime dir that an inspector could mistake for the live server.
+# Runs before the current script is written below.
 Remove-Item (Join-Path $RuntimeDir '.status-service.ps1') -Force -ErrorAction SilentlyContinue
 Remove-Item (Join-Path $RuntimeDir 'server.out') -Force -ErrorAction SilentlyContinue
 

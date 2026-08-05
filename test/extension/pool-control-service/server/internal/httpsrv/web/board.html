@@ -13,23 +13,34 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Yuruna Pool Control</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Board &mdash; Yuruna Pool Control</title>
   <link rel="stylesheet" href="/assets/style.css">
   <link rel="stylesheet" href="/assets/board.css">
 </head>
 <body class="board has-footer-bar">
   <header class="app">
     <div class="brand">
-      <span>Yuruna Pool Control</span>
+      <span class="name"><a href="/">Yuruna Pool Control</a></span>
       <span class="version" id="header-version"></span>
     </div>
-    <nav>
-      <a href="/" class="active">Board</a>
-      <a href="/advanced">Advanced</a>
-    </nav>
     <span class="spacer"></span>
     <span class="machine" id="machine"></span>
+    <div class="menu">
+      <button type="button" class="menu-button" id="menu-button" aria-haspopup="true" aria-expanded="false" aria-controls="menu-panel">
+        <span class="menu-icon" aria-hidden="true">&#9776;</span><span class="menu-label">Menu</span>
+      </button>
+      <nav class="menu-panel" id="menu-panel" aria-label="Pages" hidden>
+        <a href="/" aria-current="page">Board</a>
+        <a href="/assign">Assign</a>
+        <a href="/hosts">Hosts</a>
+        <a href="/pools">Pools</a>
+        <a href="/test-sets">Test sets</a>
+        <a href="/advanced">Advanced</a>
+        <a href="/diagnostics">Diagnostics</a>
+        <a class="menu-out" href="https://yuruna.link/pool-control">Guide</a>
+      </nav>
+    </div>
   </header>
 
   <!-- Reads are open, so the board renders for anyone on the LAN. The Lab-token

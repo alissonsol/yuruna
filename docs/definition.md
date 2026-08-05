@@ -16,9 +16,10 @@ everything that isn't `[a-z0-9_ -]`, then replace spaces with hyphens —
 `### Defining the two-source scheme` becomes
 `#defining-the-two-source-scheme`.
 
-Siblings: [Yuruna memory](memory.md) (historical / incident rationale)
-and [vmconfig topic reference](vmconfig.md) (`user-data` topic
-rationale). All three use the same `# --- REGION:` convention.
+Siblings: [Yuruna memory](memory.md) (historical / incident rationale),
+[vmconfig topic reference](vmconfig.md) (`user-data` topic rationale),
+and [Yuruna network workarounds](network.md) (network-specific
+rationale). All four use the same `# --- REGION:` convention.
 
 **Out of scope for this file:**
 
@@ -895,9 +896,9 @@ the exceptions are deliberate.
 | `ubuntu.server.26`  | 12 GB   | 12 GB            | 8 GB       |
 | `windows.11`        | 12 GB   | 12 GB            | 8 GB       |
 | `caching-proxy-service`     | 12 GB   | 12 GB            | 12 GB      |
-| `stash-service`     | 8 GB    | 8 GB             | 8 GB       |
-| `download-agent-service` | 8 GB | 8 GB           | 8 GB       |
-| `pool-control-service` | 8 GB  | 8 GB             | 8 GB       |
+| `stash-service`     | 4 GB    | 4 GB             | 4 GB       |
+| `download-agent-service` | 4 GB | 4 GB           | 4 GB       |
+| `pool-control-service` | 4 GB  | 4 GB             | 4 GB       |
 | `macos.26`          | —       | 8 GB (`-MemoryMb`) | —        |
 
 **Rationale.** 12 GB carries the heaviest guest workload the cycles run: a
@@ -921,6 +922,25 @@ match: squid's `cache_mem` is tuned to 7 GB (58 % of the VM) with 2 GB left
 for the zot registry cache, and swap is masked, so an OOM is unrecoverable.
 Tune VM RAM, `cache_mem`, and zot together — see
 [caching.md](caching.md#caching-proxy-service--test-harness-operator-reference).
+
+**The extension services share one 4 GB baseline**, a working-set fit
+rather than a budget. None of the three holds a large resident set: the
+stash streams an SCP receive to disk next to a SQLite metadata writer,
+the download agent streams artifacts through to the pool share instead
+of buffering them in RAM, and pool-control serves registry reads beside
+short-lived pwsh CLI invocations. Because all three hosts pin the
+allocation, the number that matters on a host carrying several of these
+at once — a standalone host runs the caching proxy, the stash, and the
+download agent on one machine — is their **sum**, committed whether or
+not the guests touch it. Every GB left in them subtracts directly from
+what the test guests on the same machine can start with. The caching
+proxy is the one service that cannot join the baseline, for the
+`cache_mem` reason above.
+
+Headroom is real but no longer generous: each guest is an Ubuntu Server
+cloud image whose bring-up script installs `golang-go` and compiles the
+service in-guest on first boot, with no swap configured. That build is
+the peak, not steady state.
 
 **Changing it.** Edit the guest's `New-VM.ps1`; the value is expressed
 differently per host — Hyper-V takes `-MemoryStartupBytes` /
@@ -1999,6 +2019,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.04
+Last review: 2026.08.05
 
 Back to [Yuruna](../README.md)

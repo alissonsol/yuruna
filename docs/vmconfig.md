@@ -1214,8 +1214,18 @@ stalled fetch stalls with it -- clients hang mid-body with headers
 already received, exactly where no client-side connect or read-gap
 timeout fires (the stalled-transfer trap class). The timeout is
 inactivity-based and resets on every packet received, so a slow-but-moving
-large object is never cut off; only a genuinely silent upstream is. Two
-minutes matches the `Acquire::http::Timeout` the guests are seeded with.
+large object is never cut off; only a genuinely silent upstream is.
+
+Squid's two minutes deliberately OUTLASTS the guests' `Acquire::http::Timeout`
+(30 s, up to three attempts — see `New-AptProxyBlock`). The guest gives up on a
+stalled index first so the failure lands inside the sequence step's budget
+while there is still time to report it, and `quick_abort_min -1 KB` above means
+that giving up does not cancel the fetch: squid keeps pulling the object for
+the rest of its own timeout. If the origin comes back within that window the
+object is cached, so the harness's `retry_with_backoff` on the step gets a hit
+instead of racing the same stall. Shortening squid to match the guest would
+throw away the in-flight object every time and turn each retry into a fresh
+upstream attempt.
 
 **`collapsed_forwarding on`** pools concurrent identical fetches: when N
 machines start the same uncached ISO at once, squid forwards ONE request
@@ -1931,6 +1941,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.04
+Last review: 2026.08.05
 
 Back to [Yuruna](../README.md)

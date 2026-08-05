@@ -26,8 +26,8 @@ pwsh ./Get-Image.ps1
 Apple does not publish a stable IPSW URL, so the script asks
 `VZMacOSRestoreImage.fetchLatestSupported` (Virtualization framework)
 for the latest macOS 26 build for this host's hardware bucket and
-downloads it (~15-20 GB) into `~/yuruna/image/macos.env/`. The skip-
-if-same-source guard avoids re-downloading the same build.
+downloads it (~15-20 GB) into `~/yuruna/image/macos.env/`. The
+skip-if-same-source guard avoids re-downloading the same build.
 
 ## For each VM
 
@@ -67,6 +67,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.04
+Last review: 2026.08.05
 
 Back to [Yuruna](../../../README.md)

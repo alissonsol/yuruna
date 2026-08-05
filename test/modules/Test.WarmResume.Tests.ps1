@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.04
+.VERSION 2026.08.05
 .GUID 429c3e7a-2d84-4f16-9c05-7a1e3b6d0f42
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -47,6 +47,17 @@ function New-WRTempDir {
     return $p
 }
 
+# Fixtures must sit ABOVE THE FIRST Describe, not merely at file scope. Only
+# top-level statements executed before the first Describe land in the session
+# state the run phase reuses; a top-level assignment placed after one is
+# evaluated during discovery and then discarded, so every later It reads $null.
+# Declaring this inside the Describe body has the same effect for the same
+# reason. It is a silent failure: an empty workload list refuses a resume just
+# as surely as the condition each test means to check, so four of the five
+# tests below -- including the two asserting a specific .Reason -- kept passing
+# for the wrong reason while the list was empty.
+$WarmResumeWorkload = @('ubuntu.server.26.update', 'ubuntu.server.26.k8s')
+
 Describe 'Warm-resume class eligibility' {
     It 'accepts exactly the transient allow-list' {
         foreach ($c in 'network_timeout','wait_timeout','instrumentation_failure','host_io_blocked') {
@@ -79,10 +90,9 @@ Describe 'Get-WarmResumeCheckpointFromRecord' {
 }
 
 Describe 'Get-WarmResumeDecision' {
-    $ws = @('ubuntu.server.26.update', 'ubuntu.server.26.k8s')
     It 'resumes an eligible transient failure whose sequence is in the workload list' {
-        $d = Get-WarmResumeDecision -Enabled $true -FailureClass 'network_timeout' -SequenceName 'ubuntu.server.26.k8s' -ResumeFromStep 27 -WorkloadSequences $ws
-        Assert-True $d.ShouldResume 'eligible + in list'
+        $d = Get-WarmResumeDecision -Enabled $true -FailureClass 'network_timeout' -SequenceName 'ubuntu.server.26.k8s' -ResumeFromStep 27 -WorkloadSequences $WarmResumeWorkload
+        Assert-True $d.ShouldResume "eligible + in list (reason: $($d.Reason))"
         Assert-Equal -Expected 'ubuntu.server.26.k8s' -Actual $d.ResumeSequence
     }
     It 'matches by base name when the workload entry carries a subdir + .yml' {
@@ -91,18 +101,18 @@ Describe 'Get-WarmResumeDecision' {
         Assert-Equal -Expected 'gui/ubuntu.server.26.k8s.yml' -Actual $d.ResumeSequence -Because 'returns the verbatim list entry'
     }
     It 'refuses when disabled' {
-        Assert-Equal -Expected $false -Actual (Get-WarmResumeDecision -Enabled $false -FailureClass 'network_timeout' -SequenceName 'ubuntu.server.26.k8s' -ResumeFromStep 5 -WorkloadSequences $ws).ShouldResume
+        Assert-Equal -Expected $false -Actual (Get-WarmResumeDecision -Enabled $false -FailureClass 'network_timeout' -SequenceName 'ubuntu.server.26.k8s' -ResumeFromStep 5 -WorkloadSequences $WarmResumeWorkload).ShouldResume
     }
     It 'refuses a hard failure class' {
-        $d = Get-WarmResumeDecision -Enabled $true -FailureClass 'script_error' -SequenceName 'ubuntu.server.26.k8s' -ResumeFromStep 5 -WorkloadSequences $ws
+        $d = Get-WarmResumeDecision -Enabled $true -FailureClass 'script_error' -SequenceName 'ubuntu.server.26.k8s' -ResumeFromStep 5 -WorkloadSequences $WarmResumeWorkload
         Assert-Equal -Expected $false -Actual $d.ShouldResume
         Assert-True ($d.Reason -like 'class-not-eligible*') 'reason names the class'
     }
     It 'refuses without a resume step (>= 1)' {
-        Assert-Equal -Expected $false -Actual (Get-WarmResumeDecision -Enabled $true -FailureClass 'wait_timeout' -SequenceName 'ubuntu.server.26.k8s' -ResumeFromStep 0 -WorkloadSequences $ws).ShouldResume
+        Assert-Equal -Expected $false -Actual (Get-WarmResumeDecision -Enabled $true -FailureClass 'wait_timeout' -SequenceName 'ubuntu.server.26.k8s' -ResumeFromStep 0 -WorkloadSequences $WarmResumeWorkload).ShouldResume
     }
     It 'refuses when the failed sequence is not in the workload list' {
-        $d = Get-WarmResumeDecision -Enabled $true -FailureClass 'wait_timeout' -SequenceName 'not.a.workload.seq' -ResumeFromStep 5 -WorkloadSequences $ws
+        $d = Get-WarmResumeDecision -Enabled $true -FailureClass 'wait_timeout' -SequenceName 'not.a.workload.seq' -ResumeFromStep 5 -WorkloadSequences $WarmResumeWorkload
         Assert-Equal -Expected $false -Actual $d.ShouldResume
         Assert-True ($d.Reason -like 'sequence-not-in-workload*') 'reason names the mismatch'
     }

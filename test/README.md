@@ -108,7 +108,7 @@ Setup, monitoring, SSL-bump, and offline replay:
 ```
 pwsh test/Invoke-TestRunner.ps1                       # default
 pwsh test/Invoke-TestRunner.ps1 -NoGitPull            # dev mode
-pwsh test/Invoke-TestRunner.ps1 -NoStatusService       # headless
+pwsh test/Invoke-TestRunner.ps1 -NoStatusService      # headless
 pwsh test/Invoke-TestRunner.ps1 -CycleDelaySeconds 60
 pwsh test/Invoke-TestRunner.ps1 -logLevel Debug
 ```
@@ -151,6 +151,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.04
+Last review: 2026.08.05
 
 Back to [Yuruna](../README.md)

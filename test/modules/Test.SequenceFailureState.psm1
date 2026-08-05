@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.04
+.VERSION 2026.08.05
 .GUID 42d5e8a2-b1c4-4f09-a6d3-7e8f0a1b2c3d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -155,7 +155,17 @@ function New-SequenceFailureRecord {
         $desc  = if ($fail.LastFailureDescription) { [string]$fail.LastFailureDescription } else { '(crash before step completion)' }
     } else {
         # Wait-ForText short-circuit on a hard-block pattern reclassifies the step.
-        if ($matchedFailPattern) { $failureClass = 'pattern_matched_failure' }
+        # The recoveries move with the class: the verb registry's hint describes
+        # its DEFAULT failure (a completion marker that never arrived, which is
+        # worth retrying), and a matched failure pattern is the opposite case --
+        # the guest script announced its own failure, so a retry only re-runs a
+        # command already known to fail. Leaving the registry's retry hint in
+        # place here would advertise a retry for exactly the failure that cannot
+        # benefit from one.
+        if ($matchedFailPattern) {
+            $failureClass = 'pattern_matched_failure'
+            [string[]]$suggested = @('pause_and_inspect')
+        }
         $label = $fail.LastFailureLabel
         $desc  = $fail.LastFailureDescription
     }

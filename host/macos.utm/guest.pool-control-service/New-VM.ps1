@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.04
+.VERSION 2026.08.05
 .GUID 42a3c4d5-f6a7-4c89-0123-d4e5f6a7b8c3
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -124,6 +124,13 @@ New-Item -ItemType Directory -Force -Path $SeedDir | Out-Null
 # meta-data is shared under host/vmconfig/ (byte-identical across all 3 host platforms).
 $hostVmConfigDir = Join-Path (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $ScriptDir))) 'host/vmconfig'
 Copy-Item -Path (Join-Path $hostVmConfigDir 'pool-control-service.meta-data') -Destination "$SeedDir/meta-data"
+# network-config, shipped alongside meta-data on the same seed: it pins the
+# guest DHCP client identity to the interface MAC. Without it the guest
+# identifies itself by a machine-id-derived DUID, which cloud-init changes
+# mid-boot, so the DHCP server sees a new client and leases a different address
+# -- and every host-side artifact aimed at the first address (port-forwarder,
+# readiness probe, published URL) is left pointing at one the guest abandoned.
+Copy-Item -Path (Join-Path $hostVmConfigDir 'extension-service.network-config') -Destination "$SeedDir/network-config"
 
 # --- REGION: Yuruna harness SSH key + vault password
 Import-Module (Join-Path $_repoRoot 'test/modules/Test.Ssh.psm1')       -Force -DisableNameChecking
@@ -250,8 +257,12 @@ if ($NetworkMode -eq 'Shared') {
     Write-Output "Bridge interface: $BridgeInterface (pool-control-service VM will request DHCP on this LAN)"
 }
 
-# 8 GB RAM, 4 vCPU. Sized for the Go daemon + the pwsh pool-admin CLIs it
-# shells out to + future in-VM UI.
+# 4 GB RAM, 4 vCPU. Sized for the Go daemon + the pwsh pool-admin CLIs it
+# shells out to + the in-VM UI: the CLIs are short-lived and the daemon serves
+# registry reads rather than bulk data, so the resident set stays well under
+# this. Matches the stash-service and download-agent-service VMs. UTM's
+# MemorySize is a fixed allocation with no balloon, so the whole amount stays
+# committed on the host.
 # --- REGION: https://yuruna.link/definition#defining-the-vm-core-count-policy
 $hostCores = [int](& /usr/sbin/sysctl -n hw.physicalcpu)
 if ($hostCores -lt 4) {
@@ -271,7 +282,7 @@ $PlistContent = (Get-Content -Raw $TemplatePath) `
     -replace '__SEED_IMAGE_NAME__',    'seed.iso' `
     -replace '__VNC_DISPLAY__',        "$VncDisplay" `
     -replace '__CPU_COUNT__',          "$vmCores" `
-    -replace '__MEMORY_SIZE__',        '8192'
+    -replace '__MEMORY_SIZE__',        '4096'
 
 # Bridged mode needs the physical NIC name; Shared NAT carries no
 # BridgedInterface key (matches the sibling Shared templates), so drop the

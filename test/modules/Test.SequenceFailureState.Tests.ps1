@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.04
+.VERSION 2026.08.05
 .GUID 42b1f7c4-3a8e-4d52-9c61-0e7a2b3c4d5f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -128,6 +128,32 @@ Describe 'New-SequenceFailureRecord classificationSource discrimination' {
         $r = New-SequenceFailureRecord -Reason step -VMName 'v' -GuestKey 'g' -HostType 'h' -SequencePath $seqPath -LogDir 'd' -TotalSteps 5
         Assert-Equal -Expected 'pattern-match' -Actual $r.File.classificationSource -Because 'pattern-match source'
         Assert-Equal -Expected 'pattern_matched_failure' -Actual $r.File.failureClass -Because 'reclassified to pattern_matched_failure'
+    }
+    It 'swaps the recovery hint to pause_and_inspect when reclassifying' {
+        # The recoveries must move with the class. The registry's hint describes
+        # the verb's DEFAULT failure -- for the timeout-style verbs that is
+        # something worth retrying -- but a matched failure pattern is the
+        # opposite case: the guest announced its own failure, so a retry only
+        # re-runs a command already known to fail. The stub registry hands
+        # waitForText a 'reconnect' hint, so this asserts the reclassification
+        # REPLACES a registry hint rather than merely appending to an empty one.
+        $f = Reset-FailState
+        $f.WaitForTextMatchedFailurePattern = 'NONZERO SCRIPT EXIT:'
+        $r = New-SequenceFailureRecord -Reason step -VMName 'v' -GuestKey 'g' -HostType 'h' -SequencePath $seqPath -LogDir 'd' -TotalSteps 5
+        Assert-Equal -Expected 'pattern_matched_failure' -Actual $r.File.failureClass
+        $sugg = @($r.File.suggestedRecoveries)
+        Assert-Equal -Expected 1 -Actual $sugg.Count -Because "expected only pause_and_inspect; got: $($sugg -join ', ')"
+        Assert-Equal -Expected 'pause_and_inspect' -Actual $sugg[0]
+    }
+    It 'keeps the registry recovery hint when no pattern matched' {
+        # The counterpart: with no failure pattern, nothing is reclassified and
+        # the verb's own hint must survive untouched. Without this, a swap that
+        # fired unconditionally would look correct in the test above.
+        $null = Reset-FailState
+        $r = New-SequenceFailureRecord -Reason step -VMName 'v' -GuestKey 'g' -HostType 'h' -SequencePath $seqPath -LogDir 'd' -TotalSteps 5
+        Assert-Equal -Expected 'ocr_timeout' -Actual $r.File.failureClass
+        Assert-Equal -Expected 'verb-registry' -Actual $r.File.classificationSource
+        Assert-Equal -Expected 'reconnect' -Actual (@($r.File.suggestedRecoveries)[0]) -Because 'the registry hint is preserved'
     }
 }
 

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.04
+.VERSION 2026.08.05
 .GUID 42311df0-0dfd-4fd8-ad78-0a91997848c5
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -513,7 +513,7 @@ Describe 'Test.DownloadAgentService readiness' {
         $saved = $env:YURUNA_DOWNLOAD_AGENT_SERVICE_READY_TIMEOUT_SECONDS
         try {
             $env:YURUNA_DOWNLOAD_AGENT_SERVICE_READY_TIMEOUT_SECONDS = ''
-            Assert-Equal 900 (Get-DownloadAgentServiceReadyTimeoutSeconds) -Because 'a first boot builds the daemon in-guest'
+            Assert-Equal 2700 (Get-DownloadAgentServiceReadyTimeoutSeconds) -Because 'a first boot installs a Go toolchain and compiles the daemon in-guest, which runs to roughly half an hour on a slow arch against a cold mirror'
             $env:YURUNA_DOWNLOAD_AGENT_SERVICE_READY_TIMEOUT_SECONDS = '120'
             Assert-Equal 120 (Get-DownloadAgentServiceReadyTimeoutSeconds) -Because 'a quick re-check can shorten the wait'
         } finally {
@@ -526,7 +526,7 @@ Describe 'Test.DownloadAgentService readiness' {
         try {
             foreach ($bad in @('abc', '0', '-30', '90s')) {
                 $env:YURUNA_DOWNLOAD_AGENT_SERVICE_READY_TIMEOUT_SECONDS = $bad
-                Assert-Equal 900 (Get-DownloadAgentServiceReadyTimeoutSeconds) -Because "'$bad' is not a usable budget, so the default stands"
+                Assert-Equal 2700 (Get-DownloadAgentServiceReadyTimeoutSeconds) -Because "'$bad' is not a usable budget, so the default stands"
             }
         } finally {
             $env:YURUNA_DOWNLOAD_AGENT_SERVICE_READY_TIMEOUT_SECONDS = $saved

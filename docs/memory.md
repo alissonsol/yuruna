@@ -215,6 +215,37 @@ disabling `geoip` makes the mirror election succeed on the first try.
 Source:
 [`host/macos.utm/guest.ubuntu.server.24/New-VM.ps1`](../host/macos.utm/guest.ubuntu.server.24/New-VM.ps1).
 
+### Why the guest seed's apt Acquire retries are 3 x 30s?
+
+Acquire tuning is a step-budget decision, not a networking preference.
+apt blocks on each index fetch, and a sequence step that waits for a
+completion marker has a fixed timeout (10–30 min). `Retries 5` x
+`Timeout 120` allows ~12 minutes of stalling PER INDEX, so a single
+unreachable mirror consumed an entire step budget and the step failed
+with the guest still wedged inside apt — no marker, no error, nothing
+to read but a truncated log. Three attempts at 30s bounds one index to
+~90s, which leaves the failure legible and the remaining budget
+available to the rest of the script. `Timeout` is an inactivity
+timeout, not a transfer deadline, so a large `.deb` that keeps
+streaming is unaffected.
+
+`Languages "none"` drops the `Translation-*` indexes: fewer objects to
+fetch means fewer chances to stall, and the guests never read localized
+descriptions.
+
+These values are NOT the guest's only copy, and must not be treated as
+proof the installed system has them: whether the installer applies this
+block is its business, and an unapplied block is indistinguishable from
+an applied one without dumping apt's config on the guest. The ubuntu
+update scripts write the same keys to
+`/etc/apt/apt.conf.d/99yuruna-acquire` on every run, which is what the
+runtime behavior actually rests on. This block still earns its place:
+it is the only one of the two that exists during the install itself,
+before any guest script has run.
+
+Source:
+[`automation/Yuruna.GuestSeed.psm1`](../automation/Yuruna.GuestSeed.psm1).
+
 ### Why osinfo-db variant detection parses canonical-token-first?
 
 Ubuntu 24.04 may not be in the host's `osinfo-db` yet (the shipped
@@ -528,6 +559,41 @@ The cache key is absolute path + `LastWriteTimeUtc` + a SHA-256 of the first 64 
 
 Source: [`test/modules/Test.Config.psm1`](../test/modules/Test.Config.psm1).
 
+### Why the preflight gate child gets empty-pipeline stdin plus -NonInteractive?
+
+No-prompt discipline, the same two measures every other child in the
+harness gets, and neither is redundant.
+
+The empty pipeline input is what redirects the child's stdin. Without
+it a native command on the SOURCE side of a pipeline has its stdout
+captured and its stdin INHERITED, so inside the child
+`[Console]::IsInputRedirected` is `$false` and every prompt guard that
+consults it concludes an operator is present — while the question it
+then asks goes into the captured-output buffer, which is printed only
+on a non-zero exit. A blocked child never exits, so that is a run
+parked forever on a question nobody was shown. `@()` rather than `''`
+so the child reads EOF immediately instead of one blank line: a blank
+line is an answer, and an invented answer to a consent question is a
+silent yes-or-no.
+
+`-NonInteractive` makes an engine-level prompt an error rather than a
+wait, which covers the reads that never consult a guard at all. That
+error is NOT terminating: the read returns nothing and the child
+carries on, so the switch bounds the damage to a wrong answer recorded
+in the transcript, and the guards inside the child are still what
+decide.
+
+The native-command pipeline is kept deliberately: `$LASTEXITCODE` is
+set only by a native command, and a hand-rolled two-pipe drain would
+re-introduce the deadlock that a child filling one 64K buffer while the
+reader blocks on the other produces. Converting this to
+`[Diagnostics.Process]` means changing the exit-code read in the SAME
+edit — a stale `$LASTEXITCODE` of 0 turns a FAILING gate into
+`passed = $true`, which is worse than the hang.
+
+Source:
+[`test/modules/Test.ConfigPreflight.psm1`](../test/modules/Test.ConfigPreflight.psm1).
+
 ### Why the SSH readiness probe runs in-process with its own wall-clock cap?
 
 `ConnectTimeout=5` only bounds TCP setup. If the SSH banner /
@@ -737,6 +803,35 @@ pipeline shape avoids three traps:
 
 Source:
 [`host/windows.hyper-v/modules/Yuruna.Host.psm1`](../host/windows.hyper-v/modules/Yuruna.Host.psm1).
+
+### Why stash-service bring-up waits for the daemon, not just the VM?
+
+Returning as soon as the VM is registered used to end
+`Start-StashServiceVM.ps1` roughly fifteen to thirty minutes before the
+service existed: a first boot installs a Go toolchain and compiles the
+daemon, and until that finishes there is nothing listening. Everything
+downstream inherited that gap. The dashboard's Extension cell has no
+link, because the address a link needs comes from the daemon's own
+announce and there is no daemon yet to announce — this host withholds
+its own copy of the address whenever the VM sits on a
+hypervisor-private network, which is every Wi-Fi UTM host. So the
+operator finished a "successful" run and found an unlinked row, with
+nothing to tell them it was merely early.
+
+Waiting here costs the build's wall-clock and buys two things: the link
+is live when the run ends, and a guest that never finishes building is
+reported instead of passing silently. The budget is extended only on
+the guest's own answer that cloud-init is still running, and the wait's
+progress line quotes what was measured rather than naming a step
+nothing observed.
+
+The wait is NOT conditional on the runtime dir: the marker is a
+dashboard concern, while readiness is the question of whether the
+script's whole purpose was achieved. A host that could not open its
+runtime dir must still be told its daemon never started.
+
+Source:
+[`test/Start-StashServiceVM.ps1`](../test/Start-StashServiceVM.ps1).
 
 ### Why Set-HostAlias writes the hosts file via a staged sibling swap?
 
@@ -1365,6 +1460,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.05
+Last review: 2026.08.06
 
 Back to [Yuruna](../README.md)

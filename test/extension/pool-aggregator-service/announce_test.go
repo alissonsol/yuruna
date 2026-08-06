@@ -44,8 +44,9 @@ func TestAnnounceCreatesExtensionRow(t *testing.T) {
 	m := httptest.NewRecorder()
 	s.handleMetrics(m, httptest.NewRequest("GET", "/metrics", nil))
 	// The target derives from the SOURCE address (port 80 -> no port suffix);
-	// baseUrl is empty because the owning host is not in the view.
-	want := "yuruna_pool_host_extension{pool=\"default\",hostId=\"" + testHostID + "\",area=\"stash-service\",baseUrl=\"\",target=\"http://10.0.0.7\"} 1"
+	// baseUrl is empty because the owning host is not in the view. goPath is the
+	// dashboard's ready-made link for the row.
+	want := "yuruna_pool_host_extension{pool=\"default\",hostId=\"" + testHostID + "\",area=\"stash-service\",baseUrl=\"\",target=\"http://10.0.0.7\",goPath=\"/go/stash?host=" + testHostID + "&area=stash-service\"} 1"
 	if !strings.Contains(m.Body.String(), want) {
 		t.Errorf("/metrics missing the announce-sourced row.\nwant: %s\ngot:\n%s", want, m.Body.String())
 	}

@@ -380,7 +380,19 @@ The VM runs these services alongside squid:
 | zot             | 5000 | 0.0.0.0                  | OCI registry pull-through cache. |
 
 **Grafana (primary UI)** — `http://<caching-proxy-service-vm-ip>:3000`. Anonymous
-Viewer. Pre-provisioned "Yuruna caching-proxy service" dashboard:
+Viewer.
+
+On a **standalone** machine `setup.ps1` also publishes a hosts-file alias,
+`yuruna-dash`, pointing at that VM — so the Yuruna hosts dashboard is
+`http://yuruna-dash:3000/d/yuruna-pool/yuruna-hosts` and stays that URL across a
+cache-VM rebuild, where the IP does not. It is rewritten on every run from the
+same proxy state that sets `vmStart.cachingProxyIp`, so the two cannot disagree;
+a run that finds it already correct reports the step as done. The port stays in
+the URL because `:80` on that VM is Apache, serving the CA cert a guest installer
+fetches. A lab gets no alias: its proxy is shared, and the other machines find it
+through `vmStart.cachingProxyIp`.
+
+Pre-provisioned "Yuruna caching-proxy service" dashboard:
 
 - Client HTTP(S) data served (kB/s): total vs cached — Total:
   `rate(squid_client_http_kbytes_out_kbytes_total[5m])`,
@@ -1557,7 +1569,7 @@ It ends by printing the guidance to **go to the clients and switch
 them to the new cache VM**:
 
 - Harness machines: set `vmStart.cachingProxyIp: <new>` in
-  `test/test.config.yml` (or the status page's Edit config). That key
+  `test/test.config.yml` (or the status page's Config menu entry). That key
   is probed **first** at cycle start, and while the warm-up hierarchy
   runs the old cache still answers — so a stale old IP persisted there
   keeps winning no matter what the env var says. Only machines whose
@@ -1649,6 +1661,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.05
+Last review: 2026.08.06
 
 Back to [Yuruna](../README.md)

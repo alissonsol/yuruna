@@ -8,7 +8,7 @@ in the slot-owning module — so the record and the event stream cannot
 drift on classification or fields. The
 [remediation dispatcher](#remediation-dispatcher) routes on `failureClass`; the
 class/severity/recovery vocabulary comes from each verb's registration
-(see [handler schema](handler-schema.md)).
+(see [handler contract](test-sequences.md#handler-contract)).
 
 ## `last_failure.json` (schema v2)
 
@@ -365,7 +365,7 @@ validator that gates the cycle event stream.
 
 ## Related
 
-- [Handler schema](handler-schema.md) — where the class / severity / recovery vocabulary is declared.
+- [Handler contract](test-sequences.md#handler-contract) — where the class / severity / recovery vocabulary is declared.
 - [Test harness](test-harness.md) — overall architecture.
 - [Watchdog and heartbeat protocol](runner-outer-loop.md#watchdog-and-heartbeat-protocol) — the kill side of self-healing.
 - [Runner state machine](runner-outer-loop.md#runner-state-machine) — the lifecycle that surfaces a fault transition.
@@ -377,6 +377,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.05
+Last review: 2026.08.06
 
 Back to [Yuruna](../README.md)

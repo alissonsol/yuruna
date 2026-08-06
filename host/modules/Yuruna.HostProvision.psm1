@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.05
+.VERSION 2026.08.06
 .GUID 42b8e6a4-3d17-4c92-8f05-6a1b9d2e7c40
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -335,6 +335,17 @@ function Invoke-CachingProxyServiceAvailableProbe {
         not be built). Default 1 (single shot) preserves the win/mac probe
         exactly; the kvm driver passes 3. A healthy cache answers on the first
         attempt, so the extra attempts run only on failure.
+
+        -Quiet drops every "no cache" diagnostic below to the verbose stream and
+        returns $null exactly as before. It is for callers that merely DECORATE
+        with the cache URL when one happens to exist -- the status service's
+        dashboard banner, and any bring-up that is itself about to create the
+        cache. For them "no cache is recorded yet" is the normal state, and
+        warning about it (worse, telling them to set
+        YURUNA_CACHING_PROXY_SERVICE_IP) describes a problem they do not have.
+        The runner's own per-cycle bootstrap probe deliberately does NOT pass it:
+        there, a missing cache silently sends the whole cycle's guests direct to
+        the internet, so the warning is the only place that "why" appears.
     #>
     [CmdletBinding()]
     [OutputType([string])]
@@ -342,8 +353,16 @@ function Invoke-CachingProxyServiceAvailableProbe {
         [Parameter(Mandatory)][string]$VerifyHint,
         [switch]$NoBracketHost,
         [int]$ConnectAttempts = 1,
-        [int]$ConnectBackoffMs = 200
+        [int]$ConnectBackoffMs = 200,
+        [switch]$Quiet
     )
+    # One spelling of "report that no cache answered", so a -Quiet caller cannot
+    # be left a diagnostic that a later edit adds on the loud stream only.
+    $noCacheIsNews = -not $Quiet
+    $reportNoCache = {
+        param([string]$Message)
+        if ($noCacheIsNews) { Write-Warning $Message } else { Write-Verbose $Message }
+    }
     $httpPort = Get-CachingProxyServicePort -Scheme http
     # External cache override -- $Env:YURUNA_CACHING_PROXY_SERVICE_IP short-circuits
     # local discovery and points at a remote squid. If the remote doesn't
@@ -352,7 +371,7 @@ function Invoke-CachingProxyServiceAvailableProbe {
     if ($Env:YURUNA_CACHING_PROXY_SERVICE_IP) {
         $externIp = $Env:YURUNA_CACHING_PROXY_SERVICE_IP.Trim()
         if (-not (Test-IpAddress $externIp)) {
-            Write-Warning "YURUNA_CACHING_PROXY_SERVICE_IP='$externIp' is not a valid IPv4 or IPv6 address -- ignoring."
+            & $reportNoCache "YURUNA_CACHING_PROXY_SERVICE_IP='$externIp' is not a valid IPv4 or IPv6 address -- ignoring."
             return $null
         }
         # 3s/attempt cap, not 1s: on the EXTERNAL/remote proxy path a cross-host
@@ -373,7 +392,7 @@ function Invoke-CachingProxyServiceAvailableProbe {
         # and sends the operator to the uplink; a refusal in tens of ms is the
         # cache VM answering that its proxy is not running -- a different search
         # entirely, and the common one right after a cache rebuild.
-        Write-Warning "YURUNA_CACHING_PROXY_SERVICE_IP=${externIp} set but the cache did not accept: $(Get-TcpOutcomeExplanation -Outcome $lastOutcome -Endpoint "${externIp}:${httpPort}")"
+        & $reportNoCache "YURUNA_CACHING_PROXY_SERVICE_IP=${externIp} set but the cache did not accept: $(Get-TcpOutcomeExplanation -Outcome $lastOutcome -Endpoint "${externIp}:${httpPort}")"
         return $null
     }
 
@@ -386,7 +405,7 @@ function Invoke-CachingProxyServiceAvailableProbe {
     # Invoke-TestRunner output, with no "why" beside it.
     $stateIp = (Read-CachingProxyServiceState).ipAddress
     if (-not $stateIp -or -not (Test-IpAddress $stateIp)) {
-        Write-Warning "Test-CachingProxyServiceAvailable: state.ipAddress is empty -- no locally-owned cache. Set `$Env:YURUNA_CACHING_PROXY_SERVICE_IP to point at a remote cache, or run Start-CachingProxyServiceVM.ps1."
+        & $reportNoCache "Test-CachingProxyServiceAvailable: state.ipAddress is empty -- no locally-owned cache. Set `$Env:YURUNA_CACHING_PROXY_SERVICE_IP to point at a remote cache, or run Start-CachingProxyServiceVM.ps1."
         return $null
     }
     # 1500 ms matches test/Test-CachingProxyService.ps1's CLI probe so a
@@ -430,7 +449,7 @@ function Invoke-CachingProxyServiceAvailableProbe {
             }
         }
     }
-    Write-Warning "Test-CachingProxyServiceAvailable: state.ipAddress=${stateIp} did not answer :${httpPort} within 1500 ms; treating cache as unavailable. Verify with '$($VerifyHint -f $stateIp, $httpPort)'; if it answers, the cache is running and the next runner cycle will pick it up.$cause"
+    & $reportNoCache "Test-CachingProxyServiceAvailable: state.ipAddress=${stateIp} did not answer :${httpPort} within 1500 ms; treating cache as unavailable. Verify with '$($VerifyHint -f $stateIp, $httpPort)'; if it answers, the cache is running and the next runner cycle will pick it up.$cause"
     return $null
 }
 

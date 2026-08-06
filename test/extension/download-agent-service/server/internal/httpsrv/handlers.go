@@ -27,6 +27,9 @@ func (s *Server) routes() http.Handler {
 	// The session route must be open, or the login prompt could not render.
 	mux.HandleFunc("GET /api/session", s.handleSession)
 	mux.HandleFunc("POST /api/login", s.handleLogin)
+	// Open for the same reason as /api/login: it is how a credential is
+	// presented, this one carried in from the dashboard's own redirect.
+	mux.HandleFunc("POST /api/unlock-proof", s.handleUnlockProof)
 
 	// Reads: unconditionally open on the trusted LAN.
 	mux.HandleFunc("GET /api/hostinfo", s.handleHostInfo)

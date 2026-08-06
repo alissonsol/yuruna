@@ -5,11 +5,16 @@ package httpsrv
 
 import (
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/base64"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"pool-control-service/internal/intent"
 	"pool-control-service/internal/yex/labgate"
@@ -287,6 +292,38 @@ func TestTheBearerOpensThePoolConfigWrites(t *testing.T) {
 	s.routes().ServeHTTP(rec, req)
 	if rec.Code == http.StatusUnauthorized {
 		t.Error("the shared lab auth token must open a pool-config write")
+	}
+}
+
+// An operator who reached this UI by clicking it out of the Yuruna hosts
+// dashboard arrives holding a control proof in the URL fragment instead of a
+// code, and the page spends it on /api/unlock-proof. What is covered here is the
+// wiring -- that the route is mounted and its session opens the same writes; the
+// proof's own rules (window, ceiling, forgery, who verifies it) live in the SDK.
+func TestAControlProofFromTheDashboardOpensThePoolConfigWrites(t *testing.T) {
+	const labAuthToken = "shared-lab-auth-token"
+	s := New(&boardIntent{doc: intentTwoPools}, Options{AuthToken: labAuthToken})
+
+	expiry := strconv.FormatInt(time.Now().Add(15*time.Minute).Unix(), 10)
+	mac := hmac.New(sha256.New, []byte(labAuthToken))
+	mac.Write([]byte("yuruna-control|proof|" + expiry))
+	proof := expiry + "." + base64.StdEncoding.EncodeToString(mac.Sum(nil))
+
+	rec := httptest.NewRecorder()
+	s.routes().ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/unlock-proof",
+		strings.NewReader(`{"proof":`+strconv.Quote(proof)+`}`)))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("unlock with a fresh proof = %d, want 200", rec.Code)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/pool/move-host", strings.NewReader("{}"))
+	for _, c := range rec.Result().Cookies() {
+		req.AddCookie(c)
+	}
+	rec2 := httptest.NewRecorder()
+	s.routes().ServeHTTP(rec2, req)
+	if rec2.Code == http.StatusUnauthorized {
+		t.Error("the proof session must open a pool-config write")
 	}
 }
 

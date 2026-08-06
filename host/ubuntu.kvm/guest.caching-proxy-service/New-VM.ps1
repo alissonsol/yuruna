@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.05
+.VERSION 2026.08.06
 .GUID 42f4e5f6-a7b8-4c9d-0123-4e5f6a7b8c9d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -55,12 +55,31 @@ param(
     [Parameter(Position = 0)]
     [string]$VMName = 'yuruna-caching-proxy-service',
     [Parameter()]
-    [string]$MacAddress
+    [string]$MacAddress,
+    # Sizing travels as a pair. Swap is masked in the guest, so a cache_mem that
+    # outgrows its VM is an unrecoverable OOM rather than a slowdown -- passing
+    # one without the other is the mistake these two parameters exist to make
+    # visible. The defaults are the lab profile, and they stay literal because
+    # the setup preflight reads the committed size out of this source.
+    [Parameter()]
+    [int]$MemoryMb = 12288,
+    [Parameter()]
+    [string]$SquidCacheMem = '7 GB'
 )
 
 # Honor logLevel from Invoke-TestRunner.ps1 via $env:YURUNA_LOG_LEVEL. See docs/loglevels.md.
+# Load only when absent, never -Force. Start-CachingProxyServiceVM.ps1 runs this
+# script IN-PROCESS, so a forced re-import from here tears down and rebuilds the
+# module instance its caller is already using, taking whatever that instance keeps
+# in module scope with it and narrating a dozen import lines into the run's
+# transcript at Verbose (feedback_module_force_import_evicts_global). Tradeoff: an
+# edit to the module mid-session is not picked up here, which is acceptable for a
+# leaf script that only reads the level.
 $_logLevelMod = Join-Path $PSScriptRoot '../../../test/modules/Test.LogLevel.psm1'
-if (Test-Path $_logLevelMod) { Import-Module $_logLevelMod -Global -Force; Use-LogLevelFromEnv }
+if (-not (Get-Command Use-LogLevelFromEnv -ErrorAction SilentlyContinue) -and (Test-Path $_logLevelMod)) {
+    Import-Module $_logLevelMod -Global
+}
+if (Get-Command Use-LogLevelFromEnv -ErrorAction SilentlyContinue) { Use-LogLevelFromEnv }
 
 if ($VMName -notmatch '^[a-zA-Z0-9._-]+$') {
     Write-Error "Invalid VMName '$VMName'. Only alphanumerics, dots, hyphens, underscores."
@@ -361,6 +380,7 @@ $userData = New-CloudInitUserData `
     -OverlayPath $overlayUserData `
     -RepoRoot    $repoRoot `
     -Replacement @{
+        SQUID_CACHE_MEM_PLACEHOLDER    = $SquidCacheMem
         SSH_AUTHORIZED_KEY_PLACEHOLDER = $SshAuthorizedKey
         PASSWORD_PLACEHOLDER           = $AdminPassword
         YURUNA_STATUS_SERVICE_IP_PLACEHOLDER     = $YurunaHostIp
@@ -506,7 +526,7 @@ $vmCores = [math]::Max(4, [math]::Floor($hostCores / 2))
 $installArgs = @(
     '--connect',    $virshUri,
     '--name',       $VMName,
-    '--memory',     '12288',
+    '--memory',     "$MemoryMb",
     '--vcpus',      "$vmCores",
     '--cpu',        'host-passthrough',
     '--os-variant', $osVariant,

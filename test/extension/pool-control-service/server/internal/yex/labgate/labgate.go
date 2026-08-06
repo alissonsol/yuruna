@@ -4,12 +4,17 @@
 // Package labgate is the write gate every Yuruna extension service puts in
 // front of a route that changes host or pool configuration.
 //
-// Two ways through one door. An operator reads the rotating 6-character lab
+// Three ways through one door. An operator reads the rotating 6-character lab
 // token off the Yuruna hosts dashboard and exchanges it once per device for a
-// signed session cookie; automation sends the shared lab auth token as a
-// bearer. Both guard the same routes, because a second credential store buys
-// nothing here: neither tells you WHO made a change, which is why every mutation
-// is also audited.
+// signed session cookie; an operator who followed a link FROM that dashboard
+// arrives holding a short-lived control proof instead, and exchanges that; and
+// automation sends the shared lab auth token as a bearer. All three guard the
+// same routes, because a second credential store buys nothing here: none of them
+// tells you WHO made a change, which is why every mutation is also audited.
+//
+// The proof is the weakest of the three and deliberately so: minted for one
+// visit, valid for minutes, and worth nothing but a session here -- unlike the
+// 6-character code, which can be redeemed for the lab auth token itself.
 //
 // The lab token is public on the LAN by construction -- the aggregator publishes
 // it on its open /metrics and paints it on a dashboard tile. It is a
@@ -35,6 +40,7 @@ import (
 	"crypto/sha256"
 	"crypto/subtle"
 	"crypto/tls"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"io"
@@ -65,6 +71,18 @@ const (
 	// labTokenPath is the aggregator's exchange route.
 	labTokenPath = "/api/v1/lab-token"
 
+	// controlProofPath is the aggregator's proof VERIFIER, asked only by a
+	// service that holds no lab auth token of its own.
+	controlProofPath = "/api/v1/control-proof"
+
+	// ControlProofMaxTTL is the ceiling on how far ahead a proof's expiry may
+	// sit. It is held strictly above the aggregator's 15-minute mint, and that
+	// surplus is the whole clock-skew tolerance: an equal bound would refuse a
+	// freshly minted proof on any machine whose clock trails the proxy. The
+	// minted expiry still governs how long one lives. Same value as the
+	// host-side verifier (Test.ConfigServiceSync\Test-YurunaControlProof).
+	ControlProofMaxTTL = 20 * time.Minute
+
 	// labTokenTimeout bounds the outbound check. The login route holds a client
 	// connection while it waits, so an aggregator that accepts a connection and
 	// then says nothing must not be able to wedge unlocking.
@@ -87,6 +105,11 @@ const (
 // a typo from costing a round trip -- and, more importantly, from spending one
 // of the lab's shared per-source attempts.
 var labTokenRE = regexp.MustCompile(`^[a-z0-9]{6}$`)
+
+// controlProofRE is the wire shape of a control proof, "<expiry>.<base64 HMAC>".
+// Checking it locally keeps a truncated fragment from costing a round trip, and
+// from spending one of the lab's shared per-source attempts.
+var controlProofRE = regexp.MustCompile(`^[0-9]{1,20}\.[A-Za-z0-9+/]{4,128}={0,2}$`)
 
 // Options configures a Gate.
 type Options struct {
@@ -182,6 +205,14 @@ func (g *Gate) LabTokenEnabled() bool {
 // BearerEnabled reports whether the automation route into the gate exists.
 func (g *Gate) BearerEnabled() bool { return g != nil && g.bearer != "" }
 
+// ProofUnlockEnabled reports whether the control-proof route into the gate
+// exists. A proof can be judged either against a lab auth token this service
+// holds or by the aggregator that owns it, so either one is enough; without a
+// signing key there is no session to grant even after a good verdict.
+func (g *Gate) ProofUnlockEnabled() bool {
+	return g != nil && len(g.signKey) > 0 && (g.bearer != "" || g.aggregatorURL != "")
+}
+
 // Configured reports whether ANY way through the gate exists. False means the
 // service refuses every mutation rather than running one ungated.
 func (g *Gate) Configured() bool { return g.LabTokenEnabled() || g.BearerEnabled() }
@@ -195,8 +226,14 @@ func (g *Gate) Authed(r *http.Request) bool {
 	return g.bearerAuthed(r) || g.sessionAuthed(r)
 }
 
+// sessionAuthed turns on whether this gate can check its OWN signature, not on
+// which door minted the cookie. Two now do -- the lab token and the control
+// proof -- and a service configured for only the second (it holds the lab auth
+// token, but has no aggregator URL) would otherwise hand out a session cookie it
+// then ignored on every subsequent request: an unlock that reports success and
+// changes nothing.
 func (g *Gate) sessionAuthed(r *http.Request) bool {
-	if !g.LabTokenEnabled() {
+	if g == nil || len(g.signKey) == 0 {
 		return false
 	}
 	c, err := r.Cookie(g.cookieName)
@@ -339,6 +376,91 @@ func (g *Gate) verify(ctx context.Context, code string) (Verdict, string) {
 	}
 }
 
+// verifyControlProof decides whether a wire proof "<expiry>.<base64 HMAC>" was
+// minted from token and is still inside its window: now <= expiry <= now+maxTTL
+// (a far-future expiry is refused, so a captured token cannot mint an eternal
+// pass), then a constant-time compare of HMAC-SHA256(token,
+// "yuruna-control|proof|<expiry>"). Byte-for-byte the same rule as the
+// aggregator's mint and the host-side PowerShell verifier -- one proof format,
+// three implementations, no dialect between them.
+//
+// Any malformed, expired or mismatched input is false, never an error a caller
+// could mistake for a verdict.
+func verifyControlProof(token, wire string, now time.Time, maxTTL time.Duration) bool {
+	if strings.TrimSpace(token) == "" || strings.TrimSpace(wire) == "" {
+		return false
+	}
+	dot := strings.IndexByte(wire, '.')
+	if dot <= 0 || dot >= len(wire)-1 {
+		return false
+	}
+	expiry, err := strconv.ParseInt(wire[:dot], 10, 64)
+	if err != nil {
+		return false
+	}
+	unix := now.Unix()
+	if expiry < unix || expiry > unix+int64(maxTTL/time.Second) {
+		return false
+	}
+	given, err := base64.StdEncoding.DecodeString(wire[dot+1:])
+	if err != nil {
+		return false
+	}
+	mac := hmac.New(sha256.New, []byte(token))
+	mac.Write([]byte("yuruna-control|proof|" + strconv.FormatInt(expiry, 10)))
+	return hmac.Equal(mac.Sum(nil), given)
+}
+
+// verifyProof judges an arriving control proof, locally when it can and by
+// asking the aggregator when it cannot.
+//
+// A service holding the lab auth token has the whole answer in hand: the proof
+// is signed by that token or it is not, and a round trip could only disagree by
+// being wrong. A service VM is normally NOT given that token -- nothing bakes
+// the file into its seed -- and then the aggregator that minted the proof is
+// asked, which is the same division of labour the 6-character code already
+// follows: validation stays with the daemon that owns the secret.
+func (g *Gate) verifyProof(ctx context.Context, wire string) (Verdict, string) {
+	if g.bearer != "" {
+		if verifyControlProof(g.bearer, wire, time.Now(), ControlProofMaxTTL) {
+			return Valid, ""
+		}
+		return Rejected, ""
+	}
+	if g.aggregatorURL == "" {
+		return Unavailable, "no lab auth token and no aggregator URL configured"
+	}
+	body, err := json.Marshal(map[string]string{"proof": wire})
+	if err != nil {
+		return Unavailable, "request encoding failed"
+	}
+	ctx, cancel := context.WithTimeout(ctx, labTokenTimeout)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, g.aggregatorURL+controlProofPath, bytes.NewReader(body))
+	if err != nil {
+		return Unavailable, "malformed aggregator URL"
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := g.client.Do(req)
+	if err != nil {
+		return Unavailable, "unreachable"
+	}
+	// Drained rather than abandoned, so the connection stays reusable. The
+	// status is the entire verdict; the body says nothing the status does not.
+	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 1<<16))
+	resp.Body.Close()
+	switch resp.StatusCode {
+	case http.StatusOK:
+		return Valid, ""
+	case http.StatusUnauthorized, http.StatusForbidden:
+		return Rejected, ""
+	default:
+		// 503 (the aggregator holds no token either), 400, anything else: no
+		// answer about the proof, which is never the same as "not valid".
+		return Unavailable, "aggregator answered HTTP " + strconv.Itoa(resp.StatusCode)
+	}
+}
+
 // Session is what a UI needs to decide between prompting for the lab token,
 // saying only automation can mutate, and explaining that nothing is configured.
 type Session struct {
@@ -427,6 +549,81 @@ func (g *Gate) HandleLogin(w http.ResponseWriter, r *http.Request) {
 		MaxAge:   int(g.sessionTTL / time.Second),
 	})
 	g.auditLogin(ip, "ok", "")
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
+// HandleProofUnlock exchanges a short-lived control proof for this service's
+// session cookie. Services mount it at POST /api/unlock-proof, open for the same
+// reason as the login route: it is how the credential is presented.
+//
+// It exists so that arriving through the Yuruna hosts dashboard is enough. The
+// aggregator's /go/stash redirect leaves the proof in the URL fragment -- never
+// sent to a server, never in an access log -- and the UI posts it here on load.
+// Without it an operator who followed a dashboard link that only the dashboard
+// could have produced is still asked to go back to the dashboard and copy the
+// rotating code off it, which is a password prompt guarding a door the operator
+// already came through.
+//
+// A proof is strictly weaker than that code: it is minted for one visit, expires
+// in minutes, and cannot be redeemed for the lab auth token the way the
+// 6-character code can. The session it grants is the ordinary one, so what an
+// unlocked operator may do is unchanged.
+func (g *Gate) HandleProofUnlock(w http.ResponseWriter, r *http.Request) {
+	ip := ClientIP(r)
+	if !g.ProofUnlockEnabled() {
+		writeReason(w, http.StatusServiceUnavailable, ReasonUnavailable,
+			"no lab auth token and no aggregator URL are configured, so a control proof cannot be checked; actions stay locked")
+		return
+	}
+	// Same bucket as the lab token. A forged proof and a guessed code are the
+	// same act against the same gate, and counting them separately would hand a
+	// guesser a second allowance.
+	if g.throttled(ip) {
+		g.auditLogin(ip, "throttled", "control proof")
+		writeErr(w, http.StatusTooManyRequests, "too many attempts; wait a few minutes")
+		return
+	}
+	var body struct {
+		Proof string `json:"proof"`
+	}
+	if err := json.NewDecoder(io.LimitReader(r.Body, maxLoginBody)).Decode(&body); err != nil {
+		writeErr(w, http.StatusBadRequest, "malformed request body")
+		return
+	}
+	proof := strings.TrimSpace(body.Proof)
+	if !controlProofRE.MatchString(proof) {
+		// Not a failed attempt: a truncated fragment never reached a verifier, so
+		// it neither counts toward the throttle nor spends the lab's attempts.
+		writeErr(w, http.StatusBadRequest, "not a control proof")
+		return
+	}
+	switch verdict, detail := g.verifyProof(r.Context(), proof); verdict {
+	case Unavailable:
+		g.auditLogin(ip, "unavailable", "control proof: "+detail)
+		writeReason(w, http.StatusServiceUnavailable, ReasonUnavailable,
+			"the control proof could not be checked ("+detail+"); actions stay locked")
+		return
+	case Rejected:
+		g.recordFail(ip)
+		g.auditLogin(ip, "refused", "control proof")
+		// An expired proof is the common case here -- a tab left open, or a link
+		// followed an hour late -- and the UI turns this into its lab-token
+		// prompt, so the operator is told what to do rather than why it failed.
+		writeErr(w, http.StatusUnauthorized, "the control proof is expired or not from this pool")
+		return
+	}
+	http.SetCookie(w, &http.Cookie{
+		Name:     g.cookieName,
+		Value:    g.mint(time.Now()),
+		Path:     "/",
+		HttpOnly: true,
+		// Lax for the same reason as the login cookie: the dashboard deep-links
+		// these services from another origin, and that navigation is exactly how
+		// an operator gets here.
+		SameSite: http.SameSiteLaxMode,
+		MaxAge:   int(g.sessionTTL / time.Second),
+	})
+	g.auditLogin(ip, "ok", "control proof")
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 

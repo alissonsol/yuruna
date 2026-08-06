@@ -100,11 +100,59 @@
     });
   };
 
+  // --- REGION: https://yuruna.link/control-proof
+  // takeControlProof lifts the short-lived control proof the aggregator's
+  // /go/stash redirect leaves in the URL fragment (#yctl=<expiry>.<proof>) and
+  // strips it from the address bar, so it is not shoulder-surfed or pasted
+  // onward with the URL. A fragment never reaches a server and never lands in an
+  // access log, which is why the proof travels there and not in the query.
+  //
+  // Read once by construction: the second call finds no fragment. The value is
+  // taken raw, not decodeURIComponent'd -- it is "<digits>.<standard base64>",
+  // which has nothing to decode and a stray % would only make it throw.
+  const takeControlProof = function () {
+    try {
+      const m = (window.location.hash || '').match(/(?:^#|[#&])yctl=([^&]+)/);
+      if (!m || !m[1]) return '';
+      if (window.history && window.history.replaceState) {
+        window.history.replaceState(null, document.title, window.location.pathname + window.location.search);
+      }
+      return m[1];
+    } catch (e) {
+      // No history API: the proof still works, it just stays in the address bar.
+      return '';
+    }
+  };
+
+  // unlockFromProof exchanges that proof for this service's session, so arriving
+  // through a link on the Yuruna hosts dashboard is enough to act — the operator
+  // is not sent back to the dashboard to copy the rotating code off a tile.
+  //
+  // Resolves false on anything short of a granted session (no fragment, expired
+  // proof, aggregator unreachable), which leaves the lab-token prompt as the way
+  // in exactly as before. It is a shortcut, never the only door.
+  const unlockFromProof = async function () {
+    const proof = takeControlProof();
+    if (!proof) return false;
+    try {
+      await Y.api('/api/unlock-proof', { method: 'POST', body: { proof: proof } });
+      return true;
+    } catch (e) {
+      return false;
+    }
+  };
+
+  // Started at load rather than on first use, so the session is in hand before
+  // anything is clicked. Y.mutate awaits it, which is what stops a fast click
+  // racing past the exchange into a lab-token prompt it did not need.
+  const proofUnlock = unlockFromProof();
+
   // Y.mutate is Y.api for a request that CHANGES pool configuration: on a gate
   // refusal it prompts for the lab token and, if the unlock lands, sends the
   // same request again. Every mutating call site goes through it, so no page
   // has to decide for itself what a 401 means.
   Y.mutate = async function (path, opts) {
+    await proofUnlock;
     try {
       return await Y.api(path, opts);
     } catch (e) {
@@ -126,6 +174,82 @@
     if (n) { n.style.display = 'none'; n.textContent = ''; }
   };
   Y.shortHost = function (h) { return h ? String(h).slice(0, 8) : '?'; };
+
+  // hostInfo memoizes the one /api/hostinfo read every page needs. The chrome
+  // takes the version and host id from it; the tables take the aggregator URL
+  // they build /go/host links from. Memoized because those facts do not change
+  // for the life of the page, and deliberately non-rejecting: a caller gets {}
+  // and renders what it can rather than losing its whole table to a failed
+  // furniture fetch.
+  let hostInfoPromise = null;
+  Y.hostInfo = function () {
+    if (!hostInfoPromise) {
+      hostInfoPromise = Y.api('/api/hostinfo')
+        .then(function (d) { return d || {}; })
+        .catch(function () { return {}; });
+    }
+    return hostInfoPromise;
+  };
+
+  // Y.hostLink renders a host id as its first 8 characters, linked to that
+  // host's own status page through the aggregator's /go/host redirect -- the
+  // same hop the Yuruna hosts dashboard's Control column takes, which resolves
+  // the host's CURRENT IP server-side (so the link survives a DHCP change) and
+  // hands the browser a short-lived control proof.
+  //
+  // With no aggregator to redirect through, the id renders as unlinked text: a
+  // link that cannot resolve reads as a broken page, while a bare id still
+  // identifies the host. The full id is always on the title, because 8
+  // characters identify but do not copy.
+  //
+  // goBaseUrl comes from /api/hostinfo already reduced to the plain-http form a
+  // browser must follow -- see goBaseURL in hostinfo.go for why an https hop
+  // here would put a proxy-CA interstitial in front of every host link.
+  Y.hostLink = function (hostId, poolId, goBaseUrl) {
+    const full = String(hostId || '');
+    if (!full) return Y.el('span', { class: 'muted', text: '—' });
+    const base = httpBase(goBaseUrl);
+    if (!base) return Y.el('span', { class: 'mono', text: Y.shortHost(full), title: full });
+    const url = base + '/go/host?host=' + encodeURIComponent(full) + '&pool=' + encodeURIComponent(poolId || '');
+    return Y.el('a', { class: 'mono', href: url, target: '_blank', rel: 'noopener', title: full }, Y.shortHost(full));
+  };
+
+  // httpBase gates what may become an href: an absolute http origin, trailing
+  // slashes trimmed, or '' to render the id unlinked. The daemon already forces
+  // the scheme, so this is the second of two checks rather than the only one --
+  // it is here because the value reaches an href, and neither a javascript:/data:
+  // URL from a mistyped flag nor an https one that would raise a certificate
+  // warning should get there on the strength of a single guard.
+  function httpBase(v) {
+    const s = String(v || '').trim().replace(/\/+$/, '');
+    if (!s) return '';
+    try {
+      return new URL(s).protocol === 'http:' ? s : '';
+    } catch (e) {
+      return '';
+    }
+  }
+
+  // Y.idCell renders an opaque id (a pool GUID) as its first 8 characters --
+  // the same prefix the header's "Host:" shows, and enough to tell two apart at
+  // a glance -- expanding to the full value on click, because quoting one into
+  // a command needs all of it.
+  //
+  // A <button>, not a click handler on a <span>: it is an interactive control,
+  // so keyboard activation and the screen-reader announcement have to come with
+  // it rather than be reimplemented.
+  Y.idCell = function (id) {
+    const full = String(id || '');
+    if (!full) return Y.el('span', { class: 'muted', text: '—' });
+    const short = Y.shortHost(full);
+    const btn = Y.el('button', { type: 'button', class: 'id-toggle mono', text: short, title: 'Show the full id' });
+    btn.addEventListener('click', function () {
+      const expanded = btn.textContent === full;
+      btn.textContent = expanded ? short : full;
+      btn.title = expanded ? 'Show the full id' : 'Show only the first 8 characters';
+    });
+    return btn;
+  };
 
   // initChrome wires the shared page chrome: the header's version + host id and
   // the bottom footer bar (server IPs, last-loaded time, refresh countdown).
@@ -165,20 +289,21 @@
     };
     const markLoaded = function () { stamp(); countdown = interval; };
 
-    Y.api('/api/hostinfo').then(function (d) {
-      d = d || {};
+    Y.hostInfo().then(function (d) {
       const ver = $('header-version');
       if (ver && d.version) ver.textContent = 'v' + d.version;
       const machine = $('machine');
       if (machine && d.localHostId) machine.textContent = 'Host: ' + Y.shortHost(d.localHostId);
+      // A failed read resolves to {}, so this renders the em-dash placeholder
+      // rather than needing a rejection path of its own.
       renderIps(d.serverIps);
       // Stamp here, not only from a page's data load: a page with no feed of its
-      // own (a static link list) would otherwise show the em-dash forever. A page
-      // that does fetch overwrites this a moment later with its own load time.
-      // stamp, not markLoaded — arriving host facts must not restart the
-      // countdown a caller may already be running.
+      // own would otherwise show the em-dash forever. A page that does fetch
+      // overwrites this a moment later with its own load time. stamp, not
+      // markLoaded — arriving host facts must not restart the countdown a
+      // caller may already be running.
       stamp();
-    }).catch(function () { renderIps(''); });
+    });
 
     const link = $('footer-refresh');
     if (link) link.addEventListener('click', function (e) { e.preventDefault(); location.reload(); });

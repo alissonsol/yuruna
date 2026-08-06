@@ -1,7 +1,7 @@
 /*
   LICENSEURI https://yuruna.link/license
   Copyright (c) 2019-2026 by Alisson Sol et al.
-  Version: 2026.08.05
+  Version: 2026.08.06
   --- REGION: https://yuruna.link/definition#defining-the-status-page-browser-baseline
   --- REGION: https://yuruna.link/definition#defining-the-status-page-header-anatomy
   --- REGION: https://yuruna.link/definition#defining-the-status-page-mobile-and-dark-mode-hardening
@@ -16,20 +16,15 @@
 
   --bg-primary:   #f9fafb;
   --bg-elevated:  #ffffff;
-  --bg-header:    #111827;
   --bg-hover:     #f3f4f6;
   --bg-code:      #f3f4f6;
   --fg-primary:   #111827;
   --fg-header:    #ffffff;
   --fg-muted:     #6b7280;
   --fg-faint:     #6b7280;
-  --fg-version:   #9ca3af;
   --border:       #e5e7eb;
   --border-soft:  #f3f4f6;
   --border-input: #d1d5db;
-  --border-cta:   #4b5563;
-  --cta-fg:       #d1d5db;
-  --cta-hover-bg: #1f2937;
   /* Translucent-white overlays for affordances hosted ON the status banner
      (e.g. performance.html #perf-recalc). They ride whatever saturated banner color
      is behind, so they stay theme-neutral -- one definition keeps banner
@@ -58,10 +53,15 @@
   --running-fg:   #1d4ed8;
   --skipped-bg:   #fef9c3;
   --skipped-fg:   #a16207;
-  --footer-bg:    #111827;
-  --footer-fg:    #9ca3af;
-  --footer-input-bg: #0b1220;
-  --footer-input-border: #374151;
+  /* The --chrome-* set is the shared one: see the page-chrome block below for
+     why it must not drift between the status pages and the service UIs. */
+  --chrome-bg:    #111827;
+  --chrome-fg:    #f9fafb;
+  --chrome-muted: #9ca3af;
+  --chrome-line:  #374151;
+  --chrome-raised: #1f2937;
+  --chrome-hover: #374151;
+  --chrome-input-bg: #0b1220;
   --section-link: #2563eb;
   --link:         #0366d6;
   --link-strong:  #1e40af;
@@ -83,27 +83,26 @@
   --touch-min:    2.75rem;
   /* Single source of truth for the monospace stack used by badges,
      timestamps, IP fields, code blocks, and chart axis labels.
-     Safari 9.1+ / iOS 9.3+ resolve var() in font-family. */
-  --font-mono:    'Menlo','Consolas',monospace;
+     Safari 9.1+ / iOS 9.3+ resolve var() in font-family.
+     --mono is the name the shared page-chrome block below reads; the two are
+     one stack under two names so the header version and the footer IP field
+     render in the same face here as they do in the service UIs. */
+  --font-mono:    ui-monospace, Menlo, Consolas, monospace;
+  --mono:         var(--font-mono);
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
     --bg-primary:   #0b1220;
     --bg-elevated:  #111827;
-    --bg-header:    #030712;
     --bg-hover:     #1f2937;
     --bg-code:      #1f2937;
     --fg-primary:   #e5e7eb;
     --fg-muted:     #94a3b8;
     --fg-faint:     #7c8899;
-    --fg-version:   #6b7280;
     --border:       #1f2937;
     --border-soft:  #111827;
     --border-input: #334155;
-    --border-cta:   #475569;
-    --cta-fg:       #cbd5e1;
-    --cta-hover-bg: #1e293b;
     --pass-bg:      #14532d;
     --pass-fg:      #4ade80;
     --warn-bg:      #78350f;
@@ -131,10 +130,12 @@
     --running-fg:   #93c5fd;
     --skipped-bg:   #422006;
     --skipped-fg:   #fcd34d;
-    --footer-bg:    #030712;
-    --footer-fg:    #94a3b8;
-    --footer-input-bg: #020617;
-    --footer-input-border: #1f2937;
+    --chrome-bg:    #030712;
+    --chrome-muted: #94a3b8;
+    --chrome-line:  #1f2937;
+    --chrome-raised: #111827;
+    --chrome-hover: #1f2937;
+    --chrome-input-bg: #020617;
     /* Link colors in dark mode: #60a5fa scored ~3.2:1 against the page
        background, below WCAG AA's 4.5:1 floor for normal text. #74b8ff
        lifts contrast to ~4.5:1 without losing the blue-link affordance. */
@@ -159,6 +160,13 @@
 }
 
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+/* The menu panel toggles on the `hidden` ATTRIBUTE. A class or element rule
+   that sets `display:` on the same element outranks the user-agent
+   `[hidden] { display: none }` on specificity, so `el.hidden = true` would
+   become a silent no-op. Keep this ahead of every layout rule. */
+[hidden] { display: none !important; }
+
 /* iOS Safari boosts text inside any block wider than the viewport, and the
    status pages deliberately let content be wider than a phone so it scrolls
    itself: index.html's four-column history table inside .table-wrap, and
@@ -167,51 +175,190 @@
    implements; the standard form covers the others. */
 html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
 body {
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  /* Same family list as the service UIs, so the chrome's `font: inherit`
+     controls -- the menu button above all -- resolve to one face everywhere. */
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
   background: var(--bg-primary); color: var(--fg-primary); font-size: 14px; line-height: 1.5;
 }
 
-.page-header {
-  background: var(--bg-header); color: var(--fg-header);
-  /* Horizontal padding folds in iPhone safe-area-inset so content stays
-     readable under the notch when viewport-fit=cover lets the header
-     background extend edge-to-edge. env() falls back to 0 on
-     non-notched devices. The plain-value line first is the fallback for
-     engines without max()/env() (Safari < 11.2): they keep the 2rem gutter
-     instead of dropping the whole declaration and rendering flush to the edge. */
-  padding: .75rem 2rem;
-  padding: .75rem max(2rem, env(safe-area-inset-right)) .75rem max(2rem, env(safe-area-inset-left));
-  display: flex; align-items: center; flex-wrap: wrap;
+/* ===========================================================================
+   PAGE CHROME -- the black header bar, its menu, and the black footer bar.
+   Header and footer are one surface, and every Yuruna UI carries the same one:
+   same tokens, same type scale, same menu in the same corner, so the host
+   status pages and the service UIs read as one product rather than four
+   lookalikes.
+
+   Keep this block, and the --chrome-* tokens it reads, byte-identical across
+   the status pages' yuruna.common.css and the three services' style.css. Each
+   daemon embeds its own copy because //go:embed cannot reach outside its own
+   module -- the duplication is forced, so drift is the thing to watch for, and
+   Test.ExtensionUiChrome.Tests.ps1 fails when the copies stop matching.
+   =========================================================================== */
+header.app {
+  background: var(--chrome-bg); color: var(--chrome-fg);
+  display: flex; align-items: center; flex-wrap: nowrap;
+  /* Fold the iPhone safe-area-inset into the horizontal padding so the
+     full-bleed bar stays readable under the notch (every page sets
+     viewport-fit=cover); env() resolves to 0 on non-notched devices. */
+  padding: .55rem 1rem;
+  padding: .55rem max(1rem, env(safe-area-inset-right)) .55rem max(1rem, env(safe-area-inset-left));
 }
-.page-header h1 {
-  font-size: 1.25rem; font-weight: 700; letter-spacing: -.02em;
+/* Space flex children with margins, not `gap` (flex gap is Safari/iOS 14.5+ only). */
+header.app > * + * { margin-left: 1rem; }
+/* Service name with its version stacked underneath, so the two read as one
+   identity block rather than two unrelated header items. */
+header.app .brand { display: flex; flex-direction: column; line-height: 1.15; min-width: 0; }
+header.app .brand .name { font-size: 1rem; font-weight: 600; white-space: nowrap; }
+header.app .brand a { color: inherit; text-decoration: none; }
+header.app .version { color: var(--chrome-muted); font-family: var(--mono); font-size: .72rem; font-weight: 400; }
+header.app .spacer { flex: 1; }
+/* The host id is the header's one variable-width item, so it is the one that
+   gives: it truncates rather than pushing the menu button off a phone. */
+header.app .machine { color: var(--chrome-muted); font-family: var(--mono); font-size: .8rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* A plain header action sits on the black bar and cannot inherit the page's
+   light button styling. :not(.primary) leaves the accent-filled ones alone --
+   they already read on black. Scoped to .btn, never to bare `button`: a
+   `header.app button` selector would outrank .menu-button's own rules below and
+   flatten its open state. */
+header.app .btn:not(.primary) {
+  background: transparent; color: var(--chrome-fg); border-color: var(--chrome-line);
 }
-#header-version {
-  display: block; line-height: 1;
-  color: var(--fg-version); font-size: .5rem;
-  font-family: var(--font-mono);
-  font-weight: 400; letter-spacing: 0;
+header.app .btn:not(.primary):hover { background: var(--chrome-raised); }
+
+/* Right-hand page menu. Every service carries the same control in the same
+   corner, so moving between pages does not change from one Yuruna UI to the
+   next. The links are static markup, not built in JS, so they survive a script
+   failure; common.js only wires open/close. */
+.menu { position: relative; flex-shrink: 0; }
+.menu-button {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-height: 2rem; padding: .3rem .6rem;
+  font: inherit; font-size: .85rem; line-height: 1;
+  color: var(--chrome-fg); background: transparent;
+  border: 1px solid var(--chrome-line); border-radius: 6px; cursor: pointer;
 }
-#header-machine {
-  margin-left: auto; color: var(--fg-version); font-size: .75rem;
-  font-family: var(--font-mono);
-  display: inline-flex; align-items: center;
+.menu-button:hover, .menu-button[aria-expanded="true"] { background: var(--chrome-raised); }
+.menu-button .menu-icon { font-size: 1rem; line-height: 1; }
+.menu-button .menu-icon + .menu-label { margin-left: .4rem; }
+.menu-panel {
+  position: absolute; top: calc(100% + .45rem); right: 0;
+  min-width: 12rem; padding: .3rem;
+  background: var(--chrome-raised); color: var(--chrome-fg);
+  border: 1px solid var(--chrome-line); border-radius: 8px;
+  box-shadow: 0 10px 28px rgba(0,0,0,.45);
+  /* Above the fixed footer bar (3), any sticky page furniture (1) and the
+     board's confirm sheet (10); below the unlock overlay (20), which stays
+     modal even when the menu was left open behind it. */
+  z-index: 15;
 }
-#header-machine > * + * { margin-left: .5rem; }
+.menu-panel a {
+  display: block; padding: .5rem .6rem; border-radius: 6px;
+  color: var(--chrome-fg); font-size: .9rem; text-decoration: none; white-space: nowrap;
+}
+.menu-panel a:hover, .menu-panel a:focus { background: var(--chrome-hover); text-decoration: none; }
+.menu-panel a[aria-current="page"] { font-weight: 600; }
+.menu-panel a[aria-current="page"]::after { content: "\2713"; float: right; margin-left: 1.5rem; }
+/* The trailing link leaves the service; the rule says so before it is followed. */
+.menu-panel .menu-out { margin-top: .3rem; padding-top: .4rem; border-top: 1px solid var(--chrome-line); border-radius: 0 0 6px 6px; }
+
+/* Footer bar (server IPs · loaded · refresh countdown), the same surface as the
+   header above -- fixed at the bottom, with a readonly mono textarea for the
+   (possibly long) IP list. main pads its bottom so the fixed bar never covers
+   the last row of a table. margin-top/text-align are restated because one page
+   carries this id on a <footer class="app"> that centres its flow content. */
+#footer-bar {
+  position: fixed; bottom: 0; left: 0; right: 0;
+  background: var(--chrome-bg); color: var(--chrome-muted);
+  margin-top: 0; text-align: left;
+  /* Fixed bar: pad left/right and bottom by the safe-area-inset so it clears
+     the iPhone home indicator and the landscape notch. */
+  padding: .35rem 1rem;
+  padding: .35rem max(1rem, env(safe-area-inset-right)) max(.35rem, env(safe-area-inset-bottom)) max(1rem, env(safe-area-inset-left));
+  font-size: .6875rem;
+  /* A floor above what either footer variant needs, so the bar that holds the
+     IP control and the bar that holds one line of text are the same height --
+     content-derived heights would otherwise differ by a few px per platform,
+     from the textarea's own font metrics. */
+  min-height: 2.25rem;
+  display: flex; justify-content: space-between; align-items: center;
+  z-index: 3;
+}
+#footer-bar > * + * { margin-left: .75rem; }
+#footer-bar a { color: var(--chrome-muted); }
+#footer-ips { flex: 0 1 33%; max-width: 33%; min-width: 0; display: flex; align-items: center; }
+#footer-ips > * + * { margin-left: .5rem; }
+#footer-ips .label { flex-shrink: 0; }
+textarea#footer-ip-list {
+  flex: 1 1 auto; min-width: 0;
+  font-family: var(--mono); font-size: .6875rem;
+  color: var(--chrome-muted); background: var(--chrome-input-bg); border: 1px solid var(--chrome-line);
+  border-radius: 3px; padding: .15rem .35rem;
+  resize: none; overflow: auto; white-space: pre;
+  line-height: 1.25; vertical-align: middle;
+  scrollbar-width: none;
+}
+textarea#footer-ip-list::-webkit-scrollbar { display: none; }
+/* body class (not :has()) so the fixed-footer clearance works on Firefox and
+   iOS Safari < 15.4, which predate :has(). */
+body.has-footer-bar main { padding-bottom: 3rem; padding-bottom: calc(3rem + env(safe-area-inset-bottom)); }
+
+/* The in-flow footer of a page with no data feed of its own (create, detail).
+   Same surface, same padding and same type scale as the fixed bar above, so a
+   page that ends early ends on a bar of identical height and colour instead of
+   trailing off into the page background. */
+footer.app {
+  background: var(--chrome-bg); color: var(--chrome-muted);
+  /* Deliberately NOT a flex container: this variant holds a run of inline text
+     around its link, and flex would promote each text run to its own anonymous
+     item and eat the spaces at their edges. The taller padding centres that one
+     line inside the shared min-height instead. */
+  padding: .6rem 1rem;
+  padding: .6rem max(1rem, env(safe-area-inset-right)) max(.6rem, env(safe-area-inset-bottom)) max(1rem, env(safe-area-inset-left));
+  margin-top: 2rem; font-size: .6875rem; text-align: center;
+  /* Same floor as the fixed bar above -- these are one bar in two placements. */
+  min-height: 2.25rem;
+}
+footer.app a { color: var(--chrome-muted); }
+
+/* Phone: the menu is how you leave a page, so it keeps a full touch target
+   while its label drops -- the glyph alone survives a 320px viewport. */
+@media (max-width: 600px) {
+  .menu-button { min-height: var(--touch-min); min-width: var(--touch-min); font-size: 16px; }
+  .menu-button .menu-label { display: none; }
+  .menu-panel a { padding: .65rem .6rem; }
+  header.app .btn { padding: .4rem .6rem; font-size: .85rem; }
+  #footer-bar {
+    padding-left: .5rem; padding-left: max(.5rem, env(safe-area-inset-left));
+    padding-right: .5rem; padding-right: max(.5rem, env(safe-area-inset-right));
+    flex-wrap: wrap;
+  }
+  /* #footer-ips claims its own row here, so the bar is two rows tall and the
+     3rem single-row reserve above no longer clears it -- the last rows of a
+     table and the "Load more" button end up under the fixed bar. Only bites
+     where the home-indicator inset adds to the bar height. */
+  #footer-ips { flex-basis: 100%; max-width: 100%; }
+  body.has-footer-bar main { padding-bottom: 4.5rem; padding-bottom: calc(4.5rem + env(safe-area-inset-bottom)); }
+}
+/* === end page chrome ====================================================== */
+
+/* The status pages put a two-line host identity where a service UI puts one
+   line of host id: the machine name links to the host diagnostic, with the
+   host type under it. It rides inside header.app .machine, so it inherits that
+   element's colour, mono face and truncation. */
 .hm-stack {
   display: inline-flex; flex-direction: column; align-items: flex-end;
   line-height: 1.2;
 }
 .hm-stack .hm-host { opacity: .75; }
 a.hm-name { color: inherit; text-decoration: none; }
-a.hm-name:hover { color: var(--fg-header); text-decoration: underline; }
+a.hm-name:hover { color: var(--chrome-fg); text-decoration: underline; }
 
-/* Touch-friendly CTA / button base. Per-page .meta-btn / .delete-array
-   / etc. inherit min-height + min-width from .yuruna-touchable; pages
-   that need a smaller density still get the floor so an operator on
-   a phone can hit them reliably. */
+/* Touch-friendly button base. Per-page .meta-btn / .delete-array / etc.
+   inherit min-height + min-width from .yuruna-touchable; pages that need a
+   smaller density still get the floor so an operator on a phone can hit them
+   reliably. The chrome's own .menu-button opts out with its own, narrower
+   metrics -- it is the same control on every Yuruna UI and is sized there. */
 .yuruna-touchable,
-.header-cta,
 .meta-btn,
 button {
   min-height: var(--touch-min);
@@ -220,15 +367,6 @@ button {
      comfortable touch target rather than a 28 px sliver. */
   padding: .5rem 1rem;
 }
-.header-cta {
-  color: var(--cta-fg); text-decoration: none;
-  border: 1px solid var(--border-cta);
-  border-radius: .25rem;
-  font-size: .75rem;
-  min-width: 7rem; text-align: center; box-sizing: border-box;
-  display: inline-flex; align-items: center; justify-content: center;
-}
-.header-cta:hover { background: var(--cta-hover-bg); color: var(--fg-header); }
 
 /* Cycle / status banner shared by index, test.config, perf, hostinfo.
    Page-specific sub-elements (#banner-dash-row, #banner-user-row,
@@ -236,9 +374,11 @@ button {
    is shared so narrow-viewport behavior stays in lockstep. */
 #banner {
   display: flex; align-items: center;
-  /* Same safe-area-inset pattern as .page-header, plain-value fallback first. */
-  padding: .75rem 2rem;
-  padding: .75rem max(2rem, env(safe-area-inset-right)) .75rem max(2rem, env(safe-area-inset-left)); font-weight: 600; font-size: .875rem;
+  /* Same safe-area-inset pattern and the same 1rem gutter as the header bar
+     above, so the banner text starts on the same vertical line as the title.
+     Plain-value fallback first, for engines without max()/env(). */
+  padding: .75rem 1rem;
+  padding: .75rem max(1rem, env(safe-area-inset-right)) .75rem max(1rem, env(safe-area-inset-left)); font-weight: 600; font-size: .875rem;
   transition: background .3s;
 }
 #banner > * + * { margin-left: .625rem; }
@@ -279,27 +419,6 @@ button {
 @-webkit-keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.25} }
 @keyframes pulse         { 0%,100%{opacity:1} 50%{opacity:.25} }
 
-/* Narrow viewport: header padding shrinks in lockstep with the banner
-   (see the #banner block in the @media (max-width: 600px) below) so the
-   two horizontal strips line up at any small-screen width. Row vs.
-   column is left to the flex-wrap on .page-header so the header only
-   breaks to a second line when the title + machine info actually
-   collide. */
-@media (max-width: 600px) {
-  .page-header {
-    padding: .75rem .75rem;
-    padding: .75rem max(.75rem, env(safe-area-inset-right)) .75rem max(.75rem, env(safe-area-inset-left));
-  }
-  #header-machine {
-    font-size: .7rem;
-    /* Flex `gap`/`row-gap` only lands in Safari 14.1 / iOS 14.5; this margin
-       reproduces the wrapped-row spacing on the older-iOS baseline.
-       #header-machine carries margin-left:auto so it is the child that wraps
-       to the second line when the title and machine info collide. */
-    margin-top: .35rem;
-  }
-}
-
 /* Narrow-viewport hardening. Two layers:
      - <600 px: drop the 860 px / 1100 px <main> caps so cards span the
        full width and shrink the side padding so a 320 px iPhone can
@@ -315,10 +434,11 @@ button {
     padding-left: .75rem !important;
     padding-right: .75rem !important;
   }
-  #banner {
-    padding-left: .75rem; padding-right: .75rem;
-    flex-wrap: wrap;
-  }
+  /* The gutter is NOT tightened here: the banner keeps the header bar's 1rem
+     so the two strips stay flush at every width. Only the wrap changes, so a
+     banner with a trailing control breaks to a second line instead of
+     squeezing its text. */
+  #banner { flex-wrap: wrap; }
 }
 
 /* Responsive sequence/guest-card grid. iOS 9 Safari lacks grid; without the

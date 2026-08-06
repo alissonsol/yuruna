@@ -605,7 +605,7 @@ func TestGitCommitsTolerantDecode(t *testing.T) {
 // two deep-links resolve.
 func TestHostInfoCommitLabels(t *testing.T) {
 	s := newPoolState("default", 8080)
-	hv := &hostView{HostId: "4253419c", BaseURL: "http://192.168.7.13:8080", Reachable: true, Version: "2026.08.05", PoolId: "lab", PoolGuid: "42a1b2c3-d4e5-4f60-8a1b-2c3d4e5f6071"}
+	hv := &hostView{HostId: "4253419c", BaseURL: "http://192.168.7.13:8080", Reachable: true, Version: "2026.08.06", PoolId: "lab", PoolGuid: "42a1b2c3-d4e5-4f60-8a1b-2c3d4e5f6071"}
 	hv.Status = &hostStatus{HostId: "4253419c", Host: "host.windows.hyper-v", CycleStartUtc: "c1", OverallStatus: "pass"}
 	hv.Status.GitCommits = append(hv.Status.GitCommits,
 		struct {
@@ -1104,6 +1104,64 @@ func TestHandleGoCycle(t *testing.T) {
 		w := get(s, "host="+hid+"&t=1000")
 		if w.Code != http.StatusFound || w.Header().Get("Location") != "http://10.0.0.9:8080" {
 			t.Fatalf("(d) degrade-to-root: code=%d loc=%q", w.Code, w.Header().Get("Location"))
+		}
+	}
+}
+
+// The share link resolves the host and the cycle exactly as /go/cycle does --
+// one resolver, so "share this" can never archive a different cycle than "open
+// this" would show -- and lands on the host's own share page for that folder.
+func TestHandleGoCycleShare(t *testing.T) {
+	const hid = "4253419c1f0b45a08260f36a1521a857"
+	leaf := "000001.2026-06-12.10-48-00." + hid
+	get := func(s *poolState, qs string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodGet, "/go/cycle-share?"+qs, nil)
+		w := httptest.NewRecorder()
+		s.handleGoCycleShare(w, req)
+		return w
+	}
+	// (a) missing host -> 400, same as the two redirects beside it.
+	if w := get(newPoolState("default", 8080), ""); w.Code != http.StatusBadRequest {
+		t.Fatalf("(a) missing host want 400, got %d", w.Code)
+	}
+	// (b) host not in the live view -> 404.
+	if w := get(newPoolState("default", 8080), "host="+hid); w.Code != http.StatusNotFound {
+		t.Fatalf("(b) unknown host want 404, got %d", w.Code)
+	}
+	// (c) current cycle: 302 to the LIVE base + the share page, carrying the
+	// folder LEAF. The share page and the host's archive route both name a
+	// results folder that way, so the "log/" the producers spell it with is
+	// dropped here rather than at each of them.
+	{
+		s := newPoolState("default", 8080)
+		s.hosts[hid] = &hostView{HostId: hid, BaseURL: "http://10.0.0.5:8080",
+			Status: &hostStatus{CycleStartUtc: "c1", CycleFolderUrl: "log/" + leaf + "/", StartedAt: "2026-06-12T10:48:00Z"}}
+		w := get(s, "host="+hid)
+		want := "http://10.0.0.5:8080/share-cycle.html?cycle=" + leaf
+		if w.Code != http.StatusFound || w.Header().Get("Location") != want {
+			t.Fatalf("(c) share page: code=%d loc=%q want %q", w.Code, w.Header().Get("Location"), want)
+		}
+	}
+	// (e) a still-running cycle keeps its .incomplete suffix: the folder on disk
+	// carries it, so an archive URL built without it would 404 on the host.
+	{
+		s := newPoolState("default", 8080)
+		s.hosts[hid] = &hostView{HostId: hid, BaseURL: "http://10.0.0.5:8080",
+			Status: &hostStatus{CycleStartUtc: "c1", CycleFolderUrl: "log/" + leaf + ".incomplete/", StartedAt: "2026-06-12T10:48:00Z"}}
+		w := get(s, "host="+hid)
+		want := "http://10.0.0.5:8080/share-cycle.html?cycle=" + leaf + ".incomplete"
+		if w.Header().Get("Location") != want {
+			t.Fatalf("(e) incomplete cycle: loc=%q want %q", w.Header().Get("Location"), want)
+		}
+	}
+	// (d) where /go/cycle degrades to the host's status root, this 404s: a share
+	// page that does not know which cycle it is sharing would only move the
+	// failure to a button.
+	{
+		s := newPoolState("default", 8080)
+		s.hosts[hid] = &hostView{HostId: hid, BaseURL: "http://10.0.0.9:8080"}
+		if w := get(s, "host="+hid+"&t=1000"); w.Code != http.StatusNotFound {
+			t.Fatalf("(d) unresolved folder want 404, got %d", w.Code)
 		}
 	}
 }

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.05
+.VERSION 2026.08.06
 .GUID 42a2b3c4-d5e6-4f78-9012-3a4b5c6d7e90
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -4008,12 +4008,14 @@ function Get-BestHostIp {
 function Test-CachingProxyServiceAvailable {
     [CmdletBinding()]
     [OutputType([string])]
-    param()
+    param([switch]$Quiet)
     # Thin wrapper over the shared probe; the only platform variable is the
     # operator verify-command template embedded in the unreachable-cache
     # warning (Test-NetConnection on Windows). The kvm driver keeps its own
     # probe (it omits Format-IpUrlHost's IPv6 bracketing the guests rely on).
-    Invoke-CachingProxyServiceAvailableProbe -VerifyHint 'Test-NetConnection {0} -Port {1}'
+    # -Quiet drops the "no cache" diagnostics to verbose for callers that only
+    # decorate with a cache URL when one exists.
+    Invoke-CachingProxyServiceAvailableProbe -VerifyHint 'Test-NetConnection {0} -Port {1}' -Quiet:$Quiet
 }
 
 <#

@@ -192,12 +192,29 @@ exits through the canonical Ok/Failure contract, like every other exit
 path in the entry point: the exit surface is binary (0 = ran a cycle loop,
 1 = refused or failed) so CI consumers need no per-script code lookup.
 
+`Invoke-ConfigGate` returns the child's whole transcript as `lines` on
+every path, including a green one. The console still sees nothing on a
+pass — a green gate is silent, like every other pre-flight — but a caller
+that keeps a run log can file it there. `install/setup.ps1` does exactly
+that, at `CHILD` level, so the warnings the gate raised about the machine
+(an unreachable server, a missing vault credential, a skipped active
+pre-flight) survive the terminal. A caller with nowhere to file a
+transcript simply ignores the field.
+
+`-ExpectStorageConfigured` is a caller telling the gate that shared
+storage was supposed to have been stood up before it ran. An absent or
+half-populated `networkStorage` pool tier is ordinary on a host that never
+asked for shared storage, and is proof that nothing landed on one that
+did; the gate cannot tell those apart by reading the file. Only
+`install/setup.ps1` passes it, and only when `storage.kind` is not
+`none` — an operator running `Test-Config.ps1` by hand is unaffected.
+
 ---
 
 LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.05
+Last review: 2026.08.06
 
 Back to [Yuruna](../README.md)

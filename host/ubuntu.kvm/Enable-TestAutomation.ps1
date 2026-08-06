@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.05
+.VERSION 2026.08.06
 .GUID 42a2b3c4-d5e6-4f78-9012-3a4b5c6d7e93
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -30,9 +30,17 @@
       * yuruna VM image directory created under $HOME/yuruna/{image,vms}
       * GNOME idle / lock / dim disabled when running on a desktop session
         (no-op on a headless server -- gsettings just isn't present)
-      * sudo can be cached for the run (the calling installer primed it)
+
+    Every elevated step probes whether root is reachable without a password and
+    then runs `sudo -n`, so a host that cannot elevate names the command to run
+    instead of raising a prompt on a terminal nobody is watching.
 
     Run this before Invoke-TestRunner.ps1. Idempotent -- safe to re-run.
+
+    Exits 0 when every condition is in place and 2 when configuration was
+    applied but something still needs an operator (root this process cannot
+    get, or a group membership that needs a re-login). A missing-package host is
+    not a 2: that is pass one of the documented two-pass install.
 
 .PARAMETER WhatIf
     Shows what would change without applying any settings.
@@ -65,6 +73,8 @@ if (-not $IsLinux) {
 # (YURUNA_SUDO_PRIMED=1) Initialize-SudoCache returns silently.
 $RepoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 Import-Module (Join-Path $RepoRoot 'automation/Yuruna.HostSetup.psm1') -Force
+# Test-YurunaCanPrompt: the one predicate for "can a question reach a person".
+Import-Module (Join-Path $RepoRoot 'automation/Yuruna.Common.psm1') -Force -DisableNameChecking
 Initialize-HostSetupModule -RepoRoot $RepoRoot -BoundParameters $PSBoundParameters -SudoCacheReason @(
     'systemctl enable + start libvirtd / virtlogd',
     'virsh net-{list,start,autostart} default',
@@ -140,6 +150,71 @@ function Invoke-Step {
     }
 }
 
+# Conditions this run wanted and could not establish. Counted at the end and
+# turned into a distinct exit code, because the exit code is the only failure
+# channel across the child-process boundary and a warning in a captured log
+# reaches no report.
+$Script:Unmet = [System.Collections.Generic.List[string]]::new()
+
+function Test-UbuntuSudoAvailable {
+    <#
+    .SYNOPSIS
+        Whether this process can run one privileged command right now without a
+        password prompt.
+    .DESCRIPTION
+        Only sudo can answer. A credential timestamp expires on its own clock,
+        the long apt phase above is exactly the kind of step that outlives one,
+        and an /etc/sudoers.d NOPASSWD rule grants elevation with no timestamp
+        at all -- none of which any environment variable records.
+
+        Asking matters because sudo reads its password from /dev/tty, not from
+        stdin: a child whose output is captured to a log can still raise a
+        prompt on the terminal its parent has taken over, where nothing shows it
+        and nothing answers it.
+    .OUTPUTS
+        [bool]
+    #>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param()
+    # Pinned locally: a non-zero exit IS the answer this function returns, and
+    # with $PSNativeCommandUseErrorActionPreference true a cold timestamp throws
+    # instead -- so the probe written to keep a host from stalling would itself
+    # abort the configuration pass on exactly the hosts it was written for.
+    $PSNativeCommandUseErrorActionPreference = $false
+    if (-not (Get-Command sudo -ErrorAction SilentlyContinue)) { return $false }
+    & sudo -n true 2>$null | Out-Null
+    return ($LASTEXITCODE -eq 0)
+}
+
+function Invoke-HostSudo {
+    <#
+    .SYNOPSIS
+        Run one privileged host-configuration command through `sudo -n`, and
+        report whether it took.
+    .DESCRIPTION
+        -n unconditionally, including in front of an operator: the capability
+        probe that admitted the block ran seconds earlier against a timestamp
+        that can expire inside it, and the fallback for an expired one has to be
+        an exit code rather than an unexplained second password box.
+    .OUTPUTS
+        [bool] $true when sudo ran the command and it exited 0.
+    #>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param([Parameter(Mandatory)][string[]]$Argument)
+    # Pinned locally: this function reports a failed step through its return
+    # value, and the caller turns that into a named unmet condition. With
+    # $PSNativeCommandUseErrorActionPreference true the non-zero exit throws
+    # first, which Invoke-Step catches as a generic step failure -- losing both
+    # the command that failed and the count the exit code is built from.
+    $PSNativeCommandUseErrorActionPreference = $false
+    $out = & sudo -n @Argument 2>&1
+    if ($LASTEXITCODE -eq 0) { return $true }
+    Write-Warning ("sudo {0} failed (exit {1}): {2}" -f ($Argument -join ' '), $LASTEXITCODE, ("$($out | Out-String)".Trim()))
+    return $false
+}
+
 # --- REGION: pre-automation capture
 # BEFORE anything is changed: record what these knobs were, so
 # Disable-TestAutomation can put them back. Written once and never overwritten
@@ -167,14 +242,21 @@ if ($missingPkgs.Count -gt 0) {
     }
     $aptLine = "sudo apt-get install -y $(($missingPkgs | ForEach-Object { $_.Package }) -join ' ')"
 
-    $canPrompt = $false
-    try { $canPrompt = ([Environment]::UserInteractive -and -not [Console]::IsInputRedirected) } catch { $canPrompt = $false }
+    # The shared predicate, not a local console probe. On Linux
+    # [Environment]::UserInteractive is unconditionally $true, so a probe built
+    # from it answers "an operator is present" for a runner cycle spawned with an
+    # inherited terminal -- and the offer below then blocks the host on a
+    # question nobody is watching for.
+    $canPrompt = Test-YurunaCanPrompt
     $installed = $false
     if ($canPrompt -and -not $WhatIfPreference) {
         $ans = Read-Host "Install them now with apt-get? [y/N]"
         if ($ans -match '^\s*(y|yes)\s*$') {
-            # sudo is invoked directly (not through a stream-redirecting helper) so
-            # its password prompt and apt's progress reach the operator's terminal.
+            # The one place a sudo password prompt is legitimate: this branch is
+            # reached only after a person answered a question at this terminal,
+            # so they can see the prompt and type into it. sudo is invoked
+            # directly (not through Invoke-HostSudo) for the same reason -- its
+            # prompt and apt's progress both belong on that terminal.
             & sudo apt-get update -q
             & sudo apt-get install -y @($missingPkgs | ForEach-Object { $_.Package })
             if ($LASTEXITCODE -eq 0) {
@@ -198,56 +280,63 @@ if ($missingPkgs.Count -gt 0) {
 }
 
 # --- REGION: libvirt services + default network
-# When invoked from install/ubuntu.kvm.sh (YURUNA_SUDO_PRIMED=1), the bash
-# wrapper has ALREADY done every sudo step in this block:
-#   sudo systemctl enable --now libvirtd / virtlogd
-#   sudo virsh net-start default
-#   sudo virsh net-autostart default
-# Re-running them here would burn the sudo cache for no operational reason
-# AND, if the cache went cold during the long apt install phase, prompt
-# the operator a second time. Trust the wrapper; only verify with non-sudo
-# checks. On a standalone `pwsh ./Enable-TestAutomation.ps1` invocation
-# (no wrapper) we still do the writes so the script works on its own.
-$wrapperPrimed = ($env:YURUNA_SUDO_PRIMED -eq '1')
+# Whether these steps run is decided by whether root is reachable RIGHT NOW,
+# never by who started the run. Only install/ubuntu.kvm.sh performs these
+# commands ahead of time; every other caller does not, so a gate keyed on the
+# caller's identity leaves libvirtd disabled on those hosts while claiming a
+# wrapper already handled it.
+#
+# Re-running them after the bash wrapper already did is safe: systemctl enable
+# --now, virsh net-start and virsh net-autostart are all idempotent, and paying
+# for that is the price of not guessing. Every call goes out with `sudo -n`, so
+# a cold credential is an exit code rather than a password prompt on a terminal
+# whose output is being captured.
+$canSudo = Test-UbuntuSudoAvailable
 
 if (-not $libvirtReady) {
     # Reported once by the package gate above; per-step warnings here would only
     # restate it in terms that point away from the cause.
     Write-Verbose 'libvirt packages missing -- skipping the service + default-network steps.'
-} elseif ($wrapperPrimed) {
+} elseif (-not $canSudo) {
+    # Verify what can be verified unelevated, and name the commands rather than
+    # asserting that something else already ran them.
     foreach ($unit in @('libvirtd', 'virtlogd')) {
         $raw = & systemctl is-active $unit 2>$null
         $active = if ($raw) { "$raw".Trim() } else { '' }
         if ($active -ne 'active') {
-            Write-Warning "$unit not active despite install/ubuntu.kvm.sh wrapper -- check 'systemctl status $unit'."
+            Write-Warning "$unit is not active and root is not reachable without a password. Run 'sudo systemctl enable --now $unit', then re-run this script."
+            $Script:Unmet.Add("$unit not running")
         }
     }
 } else {
     Invoke-Step -Description 'Enable + start libvirtd' -Action {
-        & sudo systemctl enable --now libvirtd | Out-Null
-        if ($LASTEXITCODE -ne 0) { Write-Warning "systemctl enable --now libvirtd failed (exit $LASTEXITCODE); check 'systemctl status libvirtd'." }
+        if (-not (Invoke-HostSudo -Argument @('systemctl', 'enable', '--now', 'libvirtd'))) {
+            Write-Warning "libvirtd could not be enabled; check 'systemctl status libvirtd'."
+            $Script:Unmet.Add('libvirtd not enabled')
+        }
     }
     Invoke-Step -Description 'Enable + start virtlogd' -Action {
-        & sudo systemctl enable --now virtlogd | Out-Null
-        if ($LASTEXITCODE -ne 0) { Write-Warning "systemctl enable --now virtlogd failed (exit $LASTEXITCODE); check 'systemctl status virtlogd'." }
+        if (-not (Invoke-HostSudo -Argument @('systemctl', 'enable', '--now', 'virtlogd'))) {
+            Write-Warning "virtlogd could not be enabled; check 'systemctl status virtlogd'."
+            $Script:Unmet.Add('virtlogd not enabled')
+        }
     }
 
-    $netListed = & sudo virsh net-list --name 2>$null
+    $netListed = & sudo -n virsh net-list --name 2>$null
     if (-not ($netListed -match '^default$')) {
         Invoke-Step -Description "Start libvirt 'default' network" -Action {
-            & sudo virsh net-start default 2>$null | Out-Null
-            if ($LASTEXITCODE -ne 0) { Write-Warning "virsh net-start default failed (exit $LASTEXITCODE)." }
+            [void](Invoke-HostSudo -Argument @('virsh', 'net-start', 'default'))
         }
     }
     Invoke-Step -Description "Set libvirt 'default' network to autostart" -Action {
-        & sudo virsh net-autostart default 2>$null | Out-Null
-        if ($LASTEXITCODE -ne 0) { Write-Warning "virsh net-autostart default failed (exit $LASTEXITCODE)." }
+        [void](Invoke-HostSudo -Argument @('virsh', 'net-autostart', 'default'))
     }
     # Verify the 'default' network is actually active before declaring success -- a failed
     # net-start above otherwise leaves guests on the default network with no address.
-    $netActive = & sudo virsh net-list --name 2>$null
+    $netActive = & sudo -n virsh net-list --name 2>$null
     if (-not ($netActive -match '^default$')) {
         Write-Warning "libvirt 'default' network is not active after net-start/net-autostart; check 'sudo virsh net-list --all'."
+        $Script:Unmet.Add("libvirt 'default' network not active")
     }
 }
 
@@ -348,8 +437,7 @@ if (Test-Path -LiteralPath $cfgPath) {
                     New-Item -ItemType Directory -Force -Path $mountPoint -ErrorAction Stop | Out-Null
                 } catch {
                     $grp = (& id -gn).Trim()
-                    & sudo install -d -o $env:USER -g $grp $mountPoint
-                    if ($LASTEXITCODE -ne 0) {
+                    if (-not (Invoke-HostSudo -Argument @('install', '-d', '-o', "$env:USER", '-g', $grp, $mountPoint))) {
                         Write-Warning "Could not create networkStorage pool mount point '$mountPoint'. Create it manually: sudo install -d -o $env:USER -g $grp '$mountPoint'."
                     }
                 }
@@ -434,21 +522,21 @@ foreach ($grp in @('libvirt','kvm')) {
         # primed for this run. Telling the operator to go run usermod themselves
         # leaves the host broken for no reason.
         Invoke-Step -Description "usermod -aG $grp $env:USER" -Action {
-            & sudo usermod -aG $grp $env:USER
-            if ($LASTEXITCODE -ne 0) {
-                Write-Warning "'sudo usermod -aG $grp $env:USER' failed (exit $LASTEXITCODE). Run it manually, then re-run this script."
-            } else {
+            if (Invoke-HostSudo -Argument @('usermod', '-aG', $grp, "$env:USER")) {
                 Write-Output "  added $env:USER to '$grp'; log out and back in (or 'newgrp $grp') before the next interactive pwsh call."
+            } else {
+                Write-Warning "'sudo usermod -aG $grp $env:USER' failed. Run it manually, then re-run this script."
+                $Script:Unmet.Add("$env:USER not in group '$grp'")
             }
         }
     }
-    elseif (-not $wrapperPrimed -and $activeGroups -notcontains $grp) {
-        # Standalone invocation only. When called via install/ubuntu.kvm.sh, the
-        # wrapper's final-summary block (NEEDS_RELOG_HINT) reports the same
-        # condition once, at the end, with the better "Step 0: refresh your
-        # shell" framing -- duplicating it here lands two near-identical
-        # reminders in one transcript. Functionally the stale set is harmless
-        # under the wrapper: every virsh call in this script is sudo'd.
+    elseif ($activeGroups -notcontains $grp) {
+        # Reported for every caller. install/ubuntu.kvm.sh says the same thing
+        # once more in its own closing summary, and that duplication is the
+        # cheaper mistake: suppressing the reminder for callers that publish a
+        # particular environment variable suppresses it for every caller that
+        # publishes it, including the ones that print no such reminder of their
+        # own -- and virsh then fails for a reason nothing on screen explains.
         Write-Output "  '$grp' membership is in /etc/group; this shell's group set is stale. Log out and back in (or 'newgrp $grp') before the next interactive pwsh call so virsh / virt-install work without sudo."
     }
 }
@@ -468,3 +556,28 @@ if ($SkipPoolStorage) {
 }
 
 Write-Output "Yuruna host configuration applied."
+
+# --- REGION: outcome
+# The exit code is the only failure channel across the child-process boundary:
+# every warning this script writes goes to a captured log the orchestrator does
+# not read, so an explicit exit is the one way a host with libvirtd dead is
+# distinguishable from a clean success. Falling off the end gives 0.
+#
+#   0  every condition is in place
+#   1  the script threw (ErrorActionPreference stops it before this line)
+#   2  configuration was applied and some condition remains unmet
+#
+# The missing-package state is deliberately NOT counted: its own warning says
+# "re-run this script afterwards", so it is pass one of a documented two-pass
+# install, not a degraded host. Everything that IS counted needs either root
+# this process cannot get or a change of group membership that needs a re-login.
+#
+# A preview changed nothing, so it has nothing to report as unmet: the steps
+# above only described themselves, and the probe-only branches describe a host
+# this run did not attempt to fix.
+if ($WhatIfPreference) { exit 0 }
+if ($Script:Unmet.Count -gt 0) {
+    Write-Warning "Host configuration applied, but $($Script:Unmet.Count) condition(s) still need an operator: $($Script:Unmet -join ', ')."
+    exit 2
+}
+exit 0

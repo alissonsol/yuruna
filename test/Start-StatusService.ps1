@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.05
+.VERSION 2026.08.06
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456740
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -165,7 +165,15 @@ if (Test-Path $PidFile) {
 # Resolve port conflicts from untracked orphan detached servers.
 # Why it's needed and the Test.PortOwner.psm1 dispatch contract:
 # https://yuruna.link/test/harness
-$portResolution = Resolve-PortOrphan -Port $Port -PidFile $PidFile -Confirm:$false
+#
+# -Elevate: take the port even when the holder is one this account cannot stop.
+# The holder in that case is almost always a status service this same harness
+# left behind as ROOT during an earlier sudo run -- invisible to an unprivileged
+# lsof, immune to an unprivileged kill. Handing that back as instructions makes
+# the operator finish a cleanup the harness caused and can do itself; it already
+# has (or can ask once for) the authorization. Every target is named as it is
+# stopped, and this process, its ancestors and pid 1 are never candidates.
+$portResolution = Resolve-PortOrphan -Port $Port -PidFile $PidFile -Elevate -Confirm:$false
 # 'PrivilegeRequired' refuses for the same reason a conflict does -- this process
 # cannot bind the wildcard prefix, and neither can the server -- but the port is
 # EMPTY, so it must not be reported as one that is in use. Handled with Conflict
@@ -408,7 +416,15 @@ try {
         # entry-point module set (that set covers the probe, not the write),
         # so it is imported here next to its only consumer.
         Import-Module (Join-Path $ModulesDir 'Test.CachingProxyServiceLock.psm1') -Global -Force -DisableNameChecking -Verbose:$false
-        $cachingProxyUrl = Test-CachingProxyServiceAvailable
+        # -Quiet: this probe DECORATES the dashboard banner with the cache URL
+        # when a cache exists. Having none is an ordinary state -- and it is the
+        # GUARANTEED state when the caller is Start-CachingProxyServiceVM.ps1,
+        # which starts this service in the step right before it creates the
+        # cache. Warning there, and telling the operator to point
+        # YURUNA_CACHING_PROXY_SERVICE_IP at a remote cache, describes a problem
+        # nobody has. The runner's own bootstrap probe stays loud: a missing
+        # cache there silently costs the whole cycle its downloads.
+        $cachingProxyUrl = Test-CachingProxyServiceAvailable -Quiet
         if ($cachingProxyUrl) {
             # Port mapping so the status-page banner reports the same
             # state as Invoke-TestRunner's console output.
@@ -662,6 +678,16 @@ Import-Module (Join-Path `$repoRoot 'test/modules/Test.Extension.psm1')      -Fo
 # each re-deriving that logic. This detached server has its own runspace,
 # so the module must be imported here for the command to resolve.
 Import-Module (Join-Path `$repoRoot 'test/modules/Test.SingleInstance.psm1') -Force -DisableNameChecking -Verbose:`$false -ErrorAction SilentlyContinue
+# A name-keyed deny-list only protects the name it knows. Every secret this
+# server refuses has derivative forms carrying the same bytes under a different
+# name -- a parsed JSON snapshot of the file, or the pre-write backup taken
+# before each update. Those are generated next to the originals, so they are
+# matched by shape rather than enumerated one at a time.
+#
+# Defined once, above every consumer: both file-serving deny-lists read it, and
+# so does the /archive route, which packs a whole folder in one response and
+# would otherwise carry out in bulk exactly what the per-file lists refuse.
+`$secretNameShapes = @('*.snapshot.json', '*.snapshot.*.json', '*.backup', '*.bak', '*.tmp')
 `$stepPauseFile  = Join-Path `$runtimeDir 'control.step-pause'
 `$cyclePauseFile = Join-Path `$runtimeDir 'control.cycle-pause'
 `$statusJsonFile = Join-Path `$runtimeDir 'status.json'
@@ -2636,6 +2662,94 @@ try {
                 continue
             }
 
+            # --- REGION: /archive/<cycle-folder>.tar.gz: one cycle's results, packed
+            # A cycle folder is a tree -- transcripts, the events feed, a
+            # subfolder per guest -- so sending one to a colleague meant
+            # picking files out of a directory listing one at a time. This
+            # serves the whole folder as a single archive, which is what
+            # share-cycle.html hands to the operator's mail client.
+            #
+            # The leaf is matched against the cycle-folder grammar rather than
+            # sanitised: the only thing this route may ever name is one results
+            # folder directly under log/, and no path separator survives that
+            # match, so the archive cannot be aimed anywhere else on disk. The
+            # same grammar the aggregator's listing parser uses to find these
+            # folders (pickFolderFromListing), plus the .incomplete suffix a
+            # running cycle carries.
+            if (`$path -like 'archive/*') {
+                `$leaf = `$path.Substring(8)
+                if (`$leaf -notmatch '^(\d{6}\.(\d{4}-\d{2}-\d{2})\.(\d{2}-\d{2}-\d{2})\.([0-9a-fA-F]{32})(?:\.incomplete)?)\.tar\.gz`$') {
+                    `$res.StatusCode = 404
+                    `$res.ContentType = 'text/plain; charset=utf-8'
+                    `$body = [System.Text.Encoding]::UTF8.GetBytes('Not a cycle results archive name.')
+                    `$res.ContentLength64 = `$body.Length
+                    if (`$req.HttpMethod -ne 'HEAD') { `$res.OutputStream.Write(`$body, 0, `$body.Length) }
+                    `$res.OutputStream.Close()
+                    continue
+                }
+                `$cycleFolder = `$Matches[1]
+                # Download name, derived here so a direct hit on this URL saves
+                # something an operator can recognise months later. The share
+                # page builds the same name from the same folder for the mail
+                # attachment; both read it out of the folder, which already
+                # carries the UTC start (Format-CycleFolderBaseName) and the
+                # host id -- so neither has to be told.
+                `$archiveName = '{0}.{1}T{2}Z.tar.gz' -f `$Matches[4].Substring(0,8), `$Matches[2], `$Matches[3]
+                `$srcDir = Join-Path `$logDir `$cycleFolder
+                if (-not (Test-Path -LiteralPath `$srcDir -PathType Container)) {
+                    `$res.StatusCode = 404
+                    `$res.ContentType = 'text/plain; charset=utf-8'
+                    `$body = [System.Text.Encoding]::UTF8.GetBytes("No cycle results folder `$cycleFolder on this host.")
+                    `$res.ContentLength64 = `$body.Length
+                    if (`$req.HttpMethod -ne 'HEAD') { `$res.OutputStream.Write(`$body, 0, `$body.Length) }
+                    `$res.OutputStream.Close()
+                    continue
+                }
+                # tar writes the archive to a file rather than to a pipe: a
+                # PowerShell pipeline is text-oriented and would re-encode the
+                # bytes of a gzip stream on the way through. bsdtar ships in-box
+                # on Windows 10 1803+ and on macOS; Linux has GNU tar. -C keeps
+                # the archive rooted at the cycle folder instead of recording
+                # the host's whole log path inside it.
+                `$tmpArchive = Join-Path `$runtimeDir ("share-cycle." + [guid]::NewGuid().ToString('N') + '.tar.gz')
+                try {
+                    # One response carrying a whole folder is a bulk read, and the
+                    # deny-list that guards the per-file reads runs further down
+                    # this dispatch -- so it never sees these bytes. Pack under the
+                    # same rule instead: a shape the server refuses to serve on its
+                    # own is not one it may hand over inside an archive. --exclude
+                    # is understood by both bsdtar and GNU tar.
+                    `$tarArgs = @()
+                    foreach (`$shape in `$secretNameShapes) { `$tarArgs += "--exclude=`$shape" }
+                    `$tarArgs += @('-czf', `$tmpArchive, '-C', `$logDir, `$cycleFolder)
+                    `$tarErr = & tar @tarArgs 2>&1
+                    if (`$LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath `$tmpArchive)) {
+                        throw "tar exited `${LASTEXITCODE}: `$(`$tarErr -join ' ')"
+                    }
+                    `$archiveBytes = [System.IO.File]::ReadAllBytes(`$tmpArchive)
+                    `$res.StatusCode = 200
+                    `$res.ContentType = 'application/gzip'
+                    `$res.Headers.Add('Content-Disposition', ('attachment; filename="' + `$archiveName + '"'))
+                    `$res.Headers.Add('Cache-Control', 'no-store')
+                    `$res.ContentLength64 = `$archiveBytes.Length
+                    if (`$req.HttpMethod -ne 'HEAD') { `$res.OutputStream.Write(`$archiveBytes, 0, `$archiveBytes.Length) }
+                } catch {
+                    # Naming the cycle and the tar failure is the difference
+                    # between "this host has no tar" and "that cycle is gone",
+                    # which the share page shows the operator verbatim.
+                    Write-ServerErr "archive `$cycleFolder failed: `$(`$_.Exception.Message)"
+                    `$res.StatusCode = 500
+                    `$res.ContentType = 'text/plain; charset=utf-8'
+                    `$body = [System.Text.Encoding]::UTF8.GetBytes("Could not pack `${cycleFolder}: `$(`$_.Exception.Message)")
+                    `$res.ContentLength64 = `$body.Length
+                    if (`$req.HttpMethod -ne 'HEAD') { `$res.OutputStream.Write(`$body, 0, `$body.Length) }
+                } finally {
+                    Remove-Item -LiteralPath `$tmpArchive -Force -ErrorAction SilentlyContinue
+                }
+                `$res.OutputStream.Close()
+                continue
+            }
+
             # Dispatch file serving by URL prefix (yuruna-repo/ ->
             # `$repoRoot, runtime/ -> `$runtimeDir, log/ -> `$logDir,
             # else `$statusDir); each branch pins the path under its
@@ -2666,7 +2780,7 @@ try {
                     'test/status/runtime/yuruna-caching-proxy-service.yml',
                     '*.events.log',
                     '*-password.txt'
-                )
+                ) + `$secretNameShapes
                 `$denied = (`$denyExact -contains `$relNorm)
                 if (-not `$denied) {
                     foreach (`$pat in `$denyLike) {
@@ -2709,7 +2823,7 @@ try {
                     '*/yuruna-caching-proxy-service.yml',
                     'yuruna-caching-proxy-service.yml',
                     '*-password.txt'
-                )
+                ) + `$secretNameShapes
                 `$denied = `$false
                 foreach (`$pat in `$denyLikeStatus) {
                     if (`$relNorm -like `$pat) { `$denied = `$true; break }
@@ -2904,6 +3018,25 @@ Remove-Item (Join-Path $RuntimeDir 'server.out') -Force -ErrorAction SilentlyCon
 
 $serverScriptFile = Join-Path $RuntimeDir ".status-service.ps1"
 Set-Content -Path $serverScriptFile -Value $serverScript -Encoding UTF8BOM
+
+# The server body above is a here-string: THIS process only ever parses it as
+# text, and the detached child is the first thing that parses it as code. So a
+# syntax slip that survives the escaping -- "$var:" (a colon right after a
+# variable name reads as a scope qualifier), a `" that collapsed into a bare
+# quote -- costs nothing at write time and kills the child on its first line.
+# Without this gate the operator sees none of that: the launch "succeeds", the
+# readiness probe below burns its full budget, and the report names the PORT,
+# sending the search to port ownership when the real defect is a typo in the
+# generated file. Parse it here, where the error is exact and instant.
+$serverScriptParseError = $null
+$null = [System.Management.Automation.Language.Parser]::ParseFile($serverScriptFile, [ref]$null, [ref]$serverScriptParseError)
+if ($serverScriptParseError -and $serverScriptParseError.Count) {
+    foreach ($parseError in ($serverScriptParseError | Select-Object -First 5)) {
+        Write-Output ("  line $($parseError.Extent.StartLineNumber), column $($parseError.Extent.StartColumnNumber): $($parseError.Message)")
+    }
+    throw ("The generated status-service script has $($serverScriptParseError.Count) syntax error(s) and would die on startup; refusing to launch it. " +
+           "The generated file is $serverScriptFile -- each error above is a line IN THAT FILE, produced by the server here-string in $PSCommandPath.")
+}
 
 if ($IsWindows) {
     # Explicit stdio redirection on Windows is REQUIRED for outer-runner

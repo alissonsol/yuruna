@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.05
+.VERSION 2026.08.06
 .GUID 42a2b3c4-d5e6-4f78-9012-3a4b5c6d7e91
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -349,8 +349,12 @@ function Start-CachingProxyServiceForwarder {
         return $true
     }
 
+    # -n on the sudo spawn: this is a DETACHED process whose stdout and stderr
+    # are redirected to files, so a password prompt would be written to a log
+    # and the forwarder would sit there unbound until something noticed. With -n
+    # a missing credential fails immediately and the bind wait below reports it.
     $spawnFile = if ($needsSudo) { 'sudo' } else { 'pwsh' }
-    $spawnArgs = if ($needsSudo) { @('-E', 'pwsh') + $procArgs } else { $procArgs }
+    $spawnArgs = if ($needsSudo) { @('-n', '-E', 'pwsh') + $procArgs } else { $procArgs }
 
     try {
         $proc = Start-Process -FilePath $spawnFile `
@@ -474,7 +478,14 @@ function Stop-CachingProxyServiceForwarder {
     try { $meIsRoot = ((& '/usr/bin/id' -u) -eq '0') } catch { Write-Verbose "id -u check failed, assuming non-root: $_" }
     $useSudo   = ($procOwner -eq 'root') -and (-not $meIsRoot)
     if ($useSudo) {
-        & sudo '/bin/kill' $forwarderPid 2>$null | Out-Null
+        # -n: this runs inside teardown paths whose console belongs to a caller,
+        # and sudo takes its password from /dev/tty regardless of how stdin was
+        # set up -- so a cold credential here would stall the teardown on a
+        # prompt nobody sees, rather than reporting that root was unavailable.
+        & sudo -n '/bin/kill' $forwarderPid 2>$null | Out-Null
+        if ($LASTEXITCODE -ne 0 -and -not $Quiet) {
+            Write-Warning "Could not signal root-owned forwarder $forwarderPid without a password. Run: sudo kill $forwarderPid"
+        }
     } else {
         & '/bin/kill' $forwarderPid 2>$null | Out-Null
     }
@@ -488,7 +499,10 @@ function Stop-CachingProxyServiceForwarder {
     }
     if (-not $Quiet) { Write-Warning "Forwarder $forwarderPid did not exit after SIGTERM -- sending SIGKILL." }
     if ($useSudo) {
-        & sudo '/bin/kill' -9 $forwarderPid 2>$null | Out-Null
+        & sudo -n '/bin/kill' -9 $forwarderPid 2>$null | Out-Null
+        if ($LASTEXITCODE -ne 0 -and -not $Quiet) {
+            Write-Warning "Could not SIGKILL root-owned forwarder $forwarderPid without a password. Run: sudo kill -9 $forwarderPid"
+        }
     } else {
         & '/bin/kill' -9 $forwarderPid 2>$null | Out-Null
     }
@@ -1466,6 +1480,19 @@ function Read-MacProxyState {
 #>
 function Invoke-MacElevationIfNeeded {
     if ((& '/usr/bin/id' -u).Trim() -eq '0') { return }
+    # Ask the machine before asking a person: an already-warm credential needs
+    # neither the notice nor the prompt, and `sudo -n -v` refreshes it silently.
+    & sudo -n -v 2>$null | Out-Null
+    if ($LASTEXITCODE -eq 0) { return }
+    # sudo reads its password from /dev/tty, which neither a closed stdin nor
+    # -NonInteractive can redirect. The proxy teardown paths call this
+    # unconditionally and run inside children whose console belongs to a parent,
+    # so a bare `sudo -v` there raises a prompt nothing displays and nothing
+    # answers, and the step waits forever. Fail with the remedy instead.
+    if (-not (Test-YurunaCanPrompt)) {
+        throw ("networksetup needs root and this run cannot ask for a password. Run 'sudo -v' in the terminal that owns this run " +
+               "before starting it, or grant this account a passwordless rule for /usr/sbin/networksetup in /etc/sudoers.d.")
+    }
     Write-Output "  macOS networksetup requires root -- caching sudo credentials (you may be prompted for your password)..."
     & sudo -v
     if ($LASTEXITCODE -ne 0) {
@@ -1481,9 +1508,16 @@ function Invoke-MacNetworksetup {
     param([string[]]$Arguments)
     if ((& '/usr/bin/id' -u).Trim() -eq '0') {
         & networksetup @Arguments | Out-Null
-    } else {
-        & sudo networksetup @Arguments | Out-Null
+        if ($LASTEXITCODE -ne 0) { Write-Warning "networksetup $($Arguments -join ' ') exited $LASTEXITCODE." }
+        return
     }
+    # -n, because Invoke-MacElevationIfNeeded has already established that root
+    # is reachable and every caller runs a short sequence of these. If the
+    # timestamp expires mid-sequence the honest outcome is an exit code: a
+    # password prompt here lands on a console the caller may not own, and the
+    # operator was told they would be asked once.
+    & sudo -n networksetup @Arguments | Out-Null
+    if ($LASTEXITCODE -ne 0) { Write-Warning "sudo networksetup $($Arguments -join ' ') exited $LASTEXITCODE." }
 }
 
 <#
@@ -1633,30 +1667,60 @@ function Get-VncDisplayFromBundle {
 
 <#
 .SYNOPSIS
+    Return a VM bundle's network descriptor -- plist path, network mode and
+    MAC -- or $null when the host has no such bundle.
+.DESCRIPTION
+    The bundle is the authority on how a VM is attached and what MAC it
+    boots with: both are fixed when it is BUILT, and the guest's seed
+    carries addresses derived for them, so what the bundle says -- not what
+    this host's uplink would choose today -- is what the running VM is
+    actually on. Address discovery reads both together because it needs
+    both to pick a rung, and one plutil invocation answers for the pair.
+.OUTPUTS
+    [pscustomobject] with VMName, PlistPath, Mode ('Bridged' / 'Shared' /
+    '' when unreadable) and MacAddress ('' when absent), or $null.
+#>
+function Get-UtmBundleNetwork {
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param([Parameter(Mandatory)][string]$VMName)
+    $configPath = "$HOME/yuruna/guest.nosync/$VMName.utm/config.plist"
+    if (-not (Test-Path -LiteralPath $configPath)) { return $null }
+    $mode = ''
+    $mac  = ''
+    try {
+        $json = & plutil -convert json -o - $configPath 2>$null | ConvertFrom-Json
+        $nic  = @($json.Network)[0]
+        $mode = "$($nic.Mode)".Trim()
+        $mac  = "$($nic.MacAddress)".Trim()
+    } catch {
+        Write-Debug "Get-UtmBundleNetwork: could not read $configPath`: $($_.Exception.Message)"
+    }
+    return [pscustomobject]@{
+        VMName     = $VMName
+        PlistPath  = $configPath
+        Mode       = $mode
+        MacAddress = $mac
+    }
+}
+
+<#
+.SYNOPSIS
     Return the network mode recorded in a VM bundle's config.plist
     ('Bridged' / 'Shared'), or '' when the bundle or the key is absent.
 .DESCRIPTION
-    The mode is fixed when the bundle is BUILT, and the guest's seed carries
-    addresses derived for it, so what the bundle says -- not what this host's
-    uplink would choose today -- is what the running VM is actually on. A
-    caller compares the two to detect a host that has moved between Wi-Fi and
-    Ethernet since the VM was created, and decides whether to forward host
-    ports (Shared) or expect a LAN address (Bridged).
+    A caller compares this against what the host's uplink would choose today
+    to detect a host that has moved between Wi-Fi and Ethernet since the VM
+    was created, and decides whether to forward host ports (Shared) or
+    expect a LAN address (Bridged).
 #>
 function Get-UtmNetworkModeFromBundle {
     [CmdletBinding()]
     [OutputType([string])]
     param([Parameter(Mandatory)][string]$VMName)
-    $configPath = "$HOME/yuruna/guest.nosync/$VMName.utm/config.plist"
-    if (-not (Test-Path -LiteralPath $configPath)) { return '' }
-    try {
-        $json = & plutil -convert json -o - $configPath 2>$null | ConvertFrom-Json
-        $mode = "$(@($json.Network)[0].Mode)".Trim()
-        if ($mode) { return $mode }
-    } catch {
-        Write-Debug "Get-UtmNetworkModeFromBundle: could not read $configPath`: $($_.Exception.Message)"
-    }
-    return ''
+    $bundleNetwork = Get-UtmBundleNetwork -VMName $VMName
+    if (-not $bundleNetwork) { return '' }
+    return [string]$bundleNetwork.Mode
 }
 
 <#
@@ -3096,67 +3160,393 @@ function Wait-VMIp {
 <#
 .SYNOPSIS
     Return the guest's host-side IPv4, or null if not yet discoverable.
+
+.DESCRIPTION
+    Three rungs, cheapest first. Each answers for a different class of
+    guest, and the order is part of the contract: a rung runs only when
+    every rung above it declined, so a Shared-NAT guest -- which the lease
+    file answers for in milliseconds -- never pays for the LAN sweep a
+    bridged guest needs.
+
+      1. utmctl ip-address -- the guest's own report, via qemu-guest-agent.
+         Free when it answers and silent for every guest this repo seeds,
+         because the seeds do not install the agent.
+      2. /var/db/dhcpd_leases -- the lease file of the macOS SHARED-NAT
+         DHCP server. Authoritative for a Shared guest, and structurally
+         blind to a bridged one, which leases from the LAN router and
+         never appears in it.
+      3. The bundle's MAC in the host ARP table. The only rung that can see
+         a bridged guest, and the reason this chain has three rungs: with
+         just the first two, a healthy bridged guest serving traffic is
+         indistinguishable from a VM that does not exist, and every caller
+         waits out its whole budget against $null.
+
+    Each decline is narrated to the verbose stream naming the rung and why
+    it could not answer. Three sources that all return $null otherwise
+    report "no address yet" in exactly the same words as "no such VM",
+    which is the difference between a 30-second diagnosis and a 30-minute
+    one when a run is examined afterwards.
+
+    Safe to call from a polling loop, which is what rung 3 is shaped
+    around. A guest that is up and has exchanged traffic with the host
+    answers from the ARP table in well under a second; a guest that is
+    not running is declined for the cost of one state query; and the ICMP
+    sweep -- the only part measured in seconds -- runs at most once per
+    minute per VM, so no caller can turn its poll interval into a sweep
+    interval.
 #>
 function Get-VMIp {
     [CmdletBinding()]
     [OutputType([string])]
     param([Parameter(Mandatory)][string]$VMName)
-    # Primary: utmctl ip-address (Apple Virtualization integration-services).
-    if (Get-Command utmctl -ErrorAction SilentlyContinue) {
+    $ip = Get-UtmAgentReportedIp -VMName $VMName
+    if ($ip) { return $ip }
+    # Read the bundle once and hand it to both rungs that need it: each
+    # would otherwise shell out to plutil for the same file.
+    $bundleNetwork = Get-UtmBundleNetwork -VMName $VMName
+    $ip = Get-UtmSharedLeaseIp -VMName $VMName -BundleNetwork $bundleNetwork
+    if ($ip) { return $ip }
+    $ip = Get-UtmBridgedGuestIp -VMName $VMName -BundleNetwork $bundleNetwork
+    if ($ip) { return $ip }
+    Write-Verbose "Get-VMIp: all three rungs declined for '$VMName' (guest agent, shared-NAT lease file, bundle MAC in ARP); each said why above."
+    return $null
+}
+
+<#
+.SYNOPSIS
+    Rung 1: the address the guest reports through utmctl, or $null.
+.PARAMETER UtmctlLine
+    Pre-captured `utmctl ip-address` output. The live command is run when
+    this is not bound; supplying it keeps the parsing testable with no VM.
+#>
+function Get-UtmAgentReportedIp {
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        [Parameter(Mandatory)][string]$VMName,
+        [AllowEmptyCollection()][string[]]$UtmctlLine
+    )
+    $output = $UtmctlLine
+    if (-not $PSBoundParameters.ContainsKey('UtmctlLine')) {
+        if (-not (Get-Command utmctl -ErrorAction SilentlyContinue)) {
+            Write-Verbose "Get-VMIp rung 'guest agent' declined for '$VMName': utmctl is not on PATH."
+            return $null
+        }
         try {
             $output = & utmctl ip-address $VMName 2>&1
-            if ($LASTEXITCODE -eq 0) {
-                # Accept either IPv4 or IPv6; exclude loopback (127., ::1)
-                # and link-local (169.254., fe80:) for both families. v4 is
-                # preferred only by output ordering -- utmctl emits the v4
-                # row first today, so callers that expect a connectable
-                # address still get one. If only v6 is present, take it.
-                $ipPick = ($output -split "`r?`n") |
-                    ForEach-Object { $_.Trim() } |
-                    Where-Object { Test-IpAddress $_ } |
-                    Where-Object { $_ -notmatch '^(127\.|169\.254\.)' -and $_ -inotmatch '^(::1$|fe80:)' } |
-                    Select-Object -First 1
-                if ($ipPick) { return [string]$ipPick }
+            # utmctl exits 0 even when the guest has no agent to ask, writing
+            # its complaint to stderr, so the exit code cannot be the test for
+            # "an address came back" -- only the parse below can be.
+            if ($LASTEXITCODE -ne 0) {
+                Write-Verbose "Get-VMIp rung 'guest agent' declined for '$VMName': utmctl ip-address exited $LASTEXITCODE."
+                return $null
             }
         } catch {
-            Write-Debug "Get-VMIp: utmctl ip-address failed for ${VMName}: $_"
+            Write-Verbose "Get-VMIp rung 'guest agent' declined for '$VMName': utmctl ip-address failed: $($_.Exception.Message)"
+            return $null
         }
     }
-    # Fallback: macOS shared-NAT DHCP server's lease file. The DHCP server
-    # keys each block on the name the GUEST sent, which is the VM name only
-    # when no sequence pinned variables.hostname; a pinned hostname makes the
-    # guest register under that instead. A VM-name lookup therefore does not
-    # come back empty when a hostname is pinned -- it matches leftover blocks
-    # filed under the VM name by predecessors and hands back a dead address,
-    # often on a subnet the host no longer serves, which costs a full SSH
-    # connect-timeout budget per attempt. Both keys are tried, pinned
-    # hostname first, and Select-DhcpLeaseIpAddress discards any candidate
-    # that is not on a live host-interface subnet.
-    $leaseFile = '/var/db/dhcpd_leases'
-    if (Test-Path $leaseFile) {
+    # Accept either IPv4 or IPv6; exclude loopback (127., ::1)
+    # and link-local (169.254., fe80:) for both families. v4 is
+    # preferred only by output ordering -- utmctl emits the v4
+    # row first today, so callers that expect a connectable
+    # address still get one. If only v6 is present, take it.
+    $ipPick = ($output -split "`r?`n") |
+        ForEach-Object { $_.Trim() } |
+        Where-Object { Test-IpAddress $_ } |
+        Where-Object { $_ -notmatch '^(127\.|169\.254\.)' -and $_ -inotmatch '^(::1$|fe80:)' } |
+        Select-Object -First 1
+    if ($ipPick) { return [string]$ipPick }
+    Write-Verbose "Get-VMIp rung 'guest agent' declined for '$VMName': utmctl reported no usable address (the seeds do not install qemu-guest-agent, so this is the normal answer)."
+    return $null
+}
+
+<#
+.SYNOPSIS
+    Rung 2: the guest's address in the macOS shared-NAT lease file, or $null.
+.DESCRIPTION
+    The DHCP server keys each block on the name the GUEST sent, which is the
+    VM name only when no sequence pinned variables.hostname; a pinned hostname
+    makes the guest register under that instead. A VM-name lookup therefore
+    does not come back empty when a hostname is pinned -- it matches leftover
+    blocks filed under the VM name by predecessors and hands back a dead
+    address, often on a subnet the host no longer serves, which costs a full
+    SSH connect-timeout budget per attempt. Both keys are tried, pinned
+    hostname first, and Select-DhcpLeaseIpAddress discards any candidate that
+    is not on a live host-interface subnet.
+
+    A guest whose bundle says Bridged is skipped outright. This file belongs
+    to the shared-NAT DHCP server; a bridged guest takes its lease from the
+    LAN router and cannot legitimately appear here, so any block bearing its
+    name is a predecessor's from when the name was last built on Shared NAT.
+    Those blocks parse, sit on-link while the vmnet bridge is up, and look
+    exactly like a good answer -- returning one would hide the guest's real
+    LAN address behind a dead 192.168.64.x for the rest of the run.
+.PARAMETER BundleNetwork
+    The bundle's network descriptor (Get-UtmBundleNetwork). Read here when
+    not supplied; Get-VMIp supplies it so one plist read serves the chain.
+.PARAMETER LeaseText
+    Pre-captured lease-file text. The live file is read when this is not
+    bound; supplying it keeps the selection testable with no guests running.
+.PARAMETER OnLinkVerdict
+    Forwarded to Select-DhcpLeaseIpAddress, which judges each candidate
+    against the host's live interface subnets by default. Supplying a
+    verdict fixes that judgement, so a lease fixture reads the same on a
+    host that serves the vmnet subnet and on one that does not.
+#>
+function Get-UtmSharedLeaseIp {
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        [Parameter(Mandatory)][string]$VMName,
+        [psobject]$BundleNetwork,
+        [AllowEmptyString()][AllowNull()][string]$LeaseText,
+        [scriptblock]$OnLinkVerdict
+    )
+    if (-not $PSBoundParameters.ContainsKey('BundleNetwork')) { $BundleNetwork = Get-UtmBundleNetwork -VMName $VMName }
+    if ($BundleNetwork -and $BundleNetwork.Mode -eq 'Bridged') {
+        Write-Verbose "Get-VMIp rung 'shared-NAT lease file' declined for '$VMName': the bundle is Bridged, so its lease comes from the LAN router and any block under this name belongs to a predecessor."
+        return $null
+    }
+    $content = $LeaseText
+    if (-not $PSBoundParameters.ContainsKey('LeaseText')) {
+        $leaseFile = '/var/db/dhcpd_leases'
+        if (-not (Test-Path $leaseFile)) {
+            Write-Verbose "Get-VMIp rung 'shared-NAT lease file' declined for '$VMName': $leaseFile does not exist (no guest has ever taken a shared-NAT lease on this host)."
+            return $null
+        }
         try {
             $content = Get-Content $leaseFile -Raw -ErrorAction Stop
-            $pinnedHostname = Get-UtmGuestSeedHostname -VMName $VMName
-            $leaseNames = @($pinnedHostname)
-            if ($pinnedHostname -ne $VMName) { $leaseNames += $VMName }
-            $bestIp = Select-DhcpLeaseIpAddress -LeaseText $content -Name $leaseNames
-            if ($bestIp) { return $bestIp }
         } catch {
-            Write-Debug "Get-VMIp: dhcpd_leases lookup failed for ${VMName}: $_"
+            Write-Verbose "Get-VMIp rung 'shared-NAT lease file' declined for '$VMName': could not read $leaseFile`: $($_.Exception.Message)"
+            return $null
         }
     }
+    $pinnedHostname = Get-UtmGuestSeedHostname -VMName $VMName
+    $leaseNames = @($pinnedHostname)
+    if ($pinnedHostname -ne $VMName) { $leaseNames += $VMName }
+    $selectArgs = @{ LeaseText = $content; Name = $leaseNames }
+    if ($PSBoundParameters.ContainsKey('OnLinkVerdict')) { $selectArgs['OnLinkVerdict'] = $OnLinkVerdict }
+    $bestIp = Select-DhcpLeaseIpAddress @selectArgs
+    if ($bestIp) { return [string]$bestIp }
+    Write-Verbose "Get-VMIp rung 'shared-NAT lease file' declined for '$VMName': no on-link lease filed under $($leaseNames -join ' or ')."
+    return $null
+}
+
+<#
+.SYNOPSIS
+    Rung 3: the guest's bundle MAC matched in the host ARP table, or $null.
+
+.DESCRIPTION
+    The rung a bridged guest depends on. It sits on the host's LAN with an
+    address from the LAN's own DHCP server, so neither the guest agent nor
+    the shared-NAT lease file can name it -- but it answers ARP, and the
+    bundle's MAC identifies it unambiguously among everything else on that
+    LAN, including a sibling host's identically-named VM.
+
+    Two passes, and the order is the whole reason this is affordable in a
+    hot path. The passive pass reads `arp -an` and matches: ~20 ms, and it
+    is what steady state costs, because a guest that has exchanged any
+    traffic with the host is already in the table. Only when the table has
+    nothing does the ICMP sweep run -- a full /24 at 32-way parallelism is
+    SECONDS (measured at ~8 s on a 253-address subnet), which is why it is
+    one attempt with no retry loop: Get-VMIp is called per cycle by the
+    runner and inside Wait-VMIp's poll loop, and a rung that blocked for
+    minutes there would be worse than the discovery hole it closes. The
+    poll loop is the retry.
+
+    Two further guards bound what the sweep can cost a REPEAT caller, because
+    the passive pass only protects a guest that is already on the LAN:
+
+      * a VM that is not RUNNING is never swept for. Nothing powered off
+        answers ICMP, so the sweep could only come back empty -- and this is
+        the common shape, not an edge case: a bundle outlives its guest, so
+        every lookup for a service whose VM is down would otherwise pay full
+        price to learn what one state query already knows;
+      * an empty sweep is remembered briefly, so a caller polling every few
+        seconds through a guest's boot sweeps on a cadence of its own rather
+        than once per poll. A found address retires the memo at once, and the
+        memo suppresses only the ESCALATION -- the passive read still runs on
+        every call, so a guest that appears mid-cooldown is picked up by the
+        very next poll at ~20 ms.
+
+    A guest whose bundle says Shared is skipped: it lives on the vmnet
+    subnet, not the host's LAN, so the sweep could not match it and rung 2
+    already answered for it. A bundle with no readable mode still gets both
+    passes -- an unreadable mode is not evidence the guest is on NAT.
+.PARAMETER BundleNetwork
+    The bundle's network descriptor (Get-UtmBundleNetwork). Read here when
+    not supplied; Get-VMIp supplies it so one plist read serves the chain.
+.PARAMETER SubnetPrefix
+    The dot-terminated /24 to match and, if needed, sweep. Derived from the
+    host's own default-route interface when not supplied -- a bridged guest
+    is on the host's LAN by construction, so that is where it must be
+    looked for, on whatever subnet this host happens to sit on.
+.PARAMETER HostIp
+    The host's address on that subnet, skipped by the sweep. Derived
+    alongside -SubnetPrefix when not supplied.
+.PARAMETER ArpLine
+    Pre-captured `arp -an` output. The live table is read when this is not
+    bound; supplying it keeps the match testable with no guests running.
+#>
+# How long an empty sweep suppresses the next one, per VM. Long enough that a
+# 3-second poll loop cannot turn every poll into a /24 of ICMP, short enough
+# that a guest finishing its DHCP exchange is swept for again while the caller
+# that wants it is still waiting.
+$script:UtmBridgedSweepCooldownSeconds = 60
+$script:UtmBridgedSweepMiss = @{}
+
+function Get-UtmBridgedGuestIp {
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        [Parameter(Mandatory)][string]$VMName,
+        [psobject]$BundleNetwork,
+        [string]$SubnetPrefix,
+        [string]$HostIp,
+        [AllowEmptyCollection()][string[]]$ArpLine
+    )
+    if (-not $PSBoundParameters.ContainsKey('BundleNetwork')) { $BundleNetwork = Get-UtmBundleNetwork -VMName $VMName }
+    if (-not $BundleNetwork) {
+        Write-Verbose "Get-VMIp rung 'bundle MAC in ARP' declined for '$VMName': no readable .utm bundle on this host, so there is no MAC to match."
+        return $null
+    }
+    if ($BundleNetwork.Mode -eq 'Shared') {
+        Write-Verbose "Get-VMIp rung 'bundle MAC in ARP' declined for '$VMName': the bundle is on Shared NAT, which the lease file answers for; this rung looks on the host's LAN."
+        return $null
+    }
+    $macNeedle = ConvertTo-ArpMacNeedle -MacAddress $BundleNetwork.MacAddress
+    if (-not $macNeedle) {
+        Write-Verbose "Get-VMIp rung 'bundle MAC in ARP' declined for '$VMName': the bundle carries no usable MacAddress."
+        return $null
+    }
+    if (-not ($PSBoundParameters.ContainsKey('SubnetPrefix') -and $PSBoundParameters.ContainsKey('HostIp'))) {
+        # One default-route read answers both. Get-HostLanPrefix is
+        # Get-BestHostIp plus a regex, so resolving them independently spawns
+        # `route` and `ipconfig` twice per call on a path Wait-VMIp polls --
+        # and lets the prefix and the host address come from different uplinks
+        # when the default route changes between the two reads.
+        $lanIp = Get-BestHostIp
+        if (-not $PSBoundParameters.ContainsKey('HostIp'))       { $HostIp = $lanIp }
+        if (-not $PSBoundParameters.ContainsKey('SubnetPrefix')) { $SubnetPrefix = Get-HostLanPrefix -HostIp $lanIp }
+    }
+    if (-not $SubnetPrefix) {
+        Write-Verbose "Get-VMIp rung 'bundle MAC in ARP' declined for '$VMName': this host has no default-route IPv4, so there is no LAN to look on."
+        return $null
+    }
+    if (-not $PSBoundParameters.ContainsKey('ArpLine')) { $ArpLine = @(& /usr/sbin/arp -an 2>$null) }
+    $ip = Select-ArpIpByMac -ArpLine $ArpLine -MacNeedle $macNeedle -SubnetPrefix $SubnetPrefix
+    if ($ip) {
+        # A hit retires any memo: whatever kept the guest off the LAN is over,
+        # and the next call must be free to escalate again the moment it is not.
+        $script:UtmBridgedSweepMiss.Remove($VMName)
+        Write-Verbose "Get-VMIp rung 'bundle MAC in ARP' resolved '$VMName' to $ip from the host's existing ARP table."
+        return [string]$ip
+    }
+
+    # Everything below escalates. The guards are ordered by what they cost:
+    # the memo is a hashtable read, the state query one utmctl call, the sweep
+    # seconds -- so the cheapest thing that can rule the sweep out runs first.
+    $lastMiss = $script:UtmBridgedSweepMiss[$VMName]
+    if ($lastMiss -and ((Get-Date) - $lastMiss).TotalSeconds -lt $script:UtmBridgedSweepCooldownSeconds) {
+        Write-Verbose "Get-VMIp rung 'bundle MAC in ARP' declined for '$VMName': a sweep of ${SubnetPrefix}0/24 found nothing $([int]((Get-Date) - $lastMiss).TotalSeconds)s ago and the host's ARP table still has no entry, so another one now would cost seconds to learn the same thing."
+        return $null
+    }
+    $state = Get-VMState -VMName $VMName
+    if ($state -ne 'running') {
+        Write-Verbose "Get-VMIp rung 'bundle MAC in ARP' declined for '$VMName': the VM is '$state', not running -- a guest that is not up answers no ICMP, so there is nothing for a sweep to find."
+        return $null
+    }
+
+    Write-Verbose "Get-VMIp rung 'bundle MAC in ARP': MAC $($BundleNetwork.MacAddress) is not in the host's ARP table yet; sweeping ${SubnetPrefix}0/24 ONCE to populate it (seconds)."
+    $swept = Resolve-UtmGuestIpByMac -PlistPath $BundleNetwork.PlistPath -SubnetPrefix $SubnetPrefix -HostIp $HostIp -MaxAttempt 1
+    if ($swept) {
+        $script:UtmBridgedSweepMiss.Remove($VMName)
+        return [string]$swept
+    }
+    $script:UtmBridgedSweepMiss[$VMName] = Get-Date
+    Write-Verbose "Get-VMIp rung 'bundle MAC in ARP' declined for '$VMName': the sweep of ${SubnetPrefix}0/24 matched no entry carrying MAC $($BundleNetwork.MacAddress). The guest is running but not on this LAN yet; the next $($script:UtmBridgedSweepCooldownSeconds)s of calls read the ARP table without re-sweeping."
     return $null
 }
 
 <#
 .SYNOPSIS
     Return the guest's MAC address, or null if not available.
+.DESCRIPTION
+    utmctl exposes no MAC, so the bundle is the source: it is where UTM
+    records the address the VM boots with, and it is readable whether or
+    not the VM is running.
 #>
 function Get-VMMac {
     [CmdletBinding()]
     [OutputType([string])]
     param([Parameter(Mandatory)][string]$VMName)
-    Write-Verbose "Get-VMMac on host.macos.utm: not implemented for '$VMName' (utmctl does not expose MAC; would require config.plist parsing)."
+    $bundleNetwork = Get-UtmBundleNetwork -VMName $VMName
+    if (-not $bundleNetwork -or -not $bundleNetwork.MacAddress) {
+        Write-Verbose "Get-VMMac on host.macos.utm: no MacAddress in the bundle for '$VMName'."
+        return $null
+    }
+    return ([string]$bundleNetwork.MacAddress).ToUpperInvariant()
+}
+
+<#
+.SYNOPSIS
+    Normalize a MAC to the form `arp -an` prints it, or $null when the
+    input is not six hex octets.
+.DESCRIPTION
+    macOS prints ARP entries lowercase with the leading zero of each octet
+    stripped ('0F' -> 'f'), while the bundle stores the canonical
+    'E6:01:BC:6D:21:CD'. Comparing the two forms directly never matches, so
+    every ARP lookup normalizes through here rather than carrying its own
+    copy of the rule.
+#>
+function ConvertTo-ArpMacNeedle {
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([AllowEmptyString()][AllowNull()][string]$MacAddress)
+    if ([string]::IsNullOrWhiteSpace($MacAddress)) { return $null }
+    $octets = @($MacAddress -split ':')
+    if ($octets.Count -ne 6) { return $null }
+    try {
+        return (($octets | ForEach-Object { ([Convert]::ToInt32($_, 16)).ToString('x') }) -join ':')
+    } catch {
+        Write-Debug "ConvertTo-ArpMacNeedle: '$MacAddress' is not six hex octets: $($_.Exception.Message)"
+        return $null
+    }
+}
+
+<#
+.SYNOPSIS
+    Return the IPv4 in $SubnetPrefix whose ARP entry carries $MacNeedle,
+    or $null when the table holds no such entry.
+.DESCRIPTION
+    The match is required to be IN the given subnet, not just any ARP entry
+    carrying that MAC. `arp -an` lists EVERY interface, so a stale or
+    foreign entry with the same MAC (a recreated bundle MAC still cached on
+    another NIC) printed first would otherwise be selected -- and, since
+    the first match wins, re-selected on every poll, wedging a caller
+    against the wrong address until its timeout.
+
+    $SubnetPrefix is dot-terminated (e.g. '192.168.64.'), so the prefix test
+    cannot false-match a sibling /24 like 192.168.640.x.
+.PARAMETER ArpLine
+    Lines as `arp -an` prints them.
+#>
+function Select-ArpIpByMac {
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        [Parameter(Mandatory)][AllowEmptyCollection()][string[]]$ArpLine,
+        [Parameter(Mandatory)][string]$MacNeedle,
+        [Parameter(Mandatory)][string]$SubnetPrefix
+    )
+    foreach ($line in $ArpLine) {
+        if ($line -match '^\? \(([\d.]+)\) at (\S+)' -and
+            $matches[2] -eq $MacNeedle -and
+            $matches[1].StartsWith($SubnetPrefix)) {
+            return [string]$matches[1]
+        }
+    }
     return $null
 }
 
@@ -3180,7 +3570,8 @@ function Get-VMMac {
     answers ICMP from cloud-init early, before squid binds), then matches
     OUR MAC. When -ProbePort > 0, the candidate must also answer that TCP
     port before it is accepted, so the returned IP is one squid is already
-    serving on. Polls until found or -TimeoutMinutes elapses.
+    serving on. Polls until found, until -TimeoutMinutes elapses, or until
+    -MaxAttempt sweeps have been made.
 
 .PARAMETER PlistPath
     Path to the bundle's config.plist (holds <key>MacAddress</key>).
@@ -3196,6 +3587,14 @@ function Get-VMMac {
     If > 0, require this TCP port to answer on the MAC-matched IP before
     accepting it (e.g. squid's 3128). 0 = accept on MAC match alone.
 
+.PARAMETER MaxAttempt
+    Cap on sweep-and-match rounds. 0 (the default) means "as many as
+    -TimeoutMinutes allows" -- the bring-up scripts wait out a whole guest
+    boot that way. 1 makes this a single bounded probe that returns in the
+    time one sweep takes, which is what a caller in a per-cycle path needs:
+    for it the surrounding poll loop is the retry, and blocking here for
+    minutes would cost far more than the answer is worth.
+
 .OUTPUTS
     [string] the matched IPv4, or $null on timeout / missing-MAC.
 #>
@@ -3208,7 +3607,8 @@ function Resolve-UtmGuestIpByMac {
         [string]$HostIp,
         [int]$ProbePort = 0,
         [int]$TimeoutMinutes = 15,
-        [int]$PollSeconds = 5
+        [int]$PollSeconds = 5,
+        [int]$MaxAttempt = 0
     )
     if (-not (Test-Path -LiteralPath $PlistPath)) {
         Write-Warning "Resolve-UtmGuestIpByMac: bundle plist not found at $PlistPath -- cannot identify the VM by MAC."
@@ -3220,18 +3620,25 @@ function Resolve-UtmGuestIpByMac {
         return $null
     }
     $ourMacRaw = $matches[1]
-    # Normalize to the form `arp -an` prints: lowercase, leading zero per
-    # octet stripped (e.g. '0F' -> 'f') so the table lookup matches directly.
-    $macNeedle = (($ourMacRaw -split ':') |
-        ForEach-Object { ([Convert]::ToInt32($_, 16)).ToString('x') }) -join ':'
+    $macNeedle = ConvertTo-ArpMacNeedle -MacAddress $ourMacRaw
+    if (-not $macNeedle) {
+        Write-Warning "Resolve-UtmGuestIpByMac: MacAddress '$ourMacRaw' in $PlistPath is not six hex octets -- cannot identify the VM by MAC."
+        return $null
+    }
     Write-Verbose "Resolve-UtmGuestIpByMac: matching MAC $ourMacRaw (needle '$macNeedle') on ${SubnetPrefix}0/24."
 
     $deadline = (Get-Date).AddMinutes($TimeoutMinutes)
     $found = $null
-    while ((Get-Date) -lt $deadline -and -not $found) {
+    $attempt = 0
+    # A do-loop, so one round always happens: -MaxAttempt 1 has to mean
+    # "sweep once and answer", and a while-first shape would decide the
+    # deadline had passed before ever looking.
+    do {
+        $attempt++
         # ICMP-sweep the /24 in parallel to populate the host ARP cache.
         # -t 1 keeps packets on-LAN (TTL 1); -W 200 caps per-host wait at
-        # 200 ms; ThrottleLimit 32 keeps a sweep ~2 s on a typical LAN.
+        # 200 ms; ThrottleLimit 32 holds a 253-address sweep to seconds --
+        # measured at ~8 s, so this is never on a path that cannot spare it.
         2..254 |
             Where-Object { "$SubnetPrefix$_" -ne $HostIp } |
             ForEach-Object -Parallel {
@@ -3239,23 +3646,8 @@ function Resolve-UtmGuestIpByMac {
                 try { & /sbin/ping -c 1 -W 200 -t 1 $c *>$null } catch { $null = $_ }
             } -ThrottleLimit 32 | Out-Null
 
-        $candidateIp = $null
-        foreach ($line in (& /usr/sbin/arp -an 2>$null)) {
-            # Require the matched IP to be in the swept subnet, not just any
-            # ARP entry carrying our MAC. `arp -an` lists EVERY interface, so
-            # a stale/foreign entry with the same MAC (e.g. a recreated bundle
-            # MAC cached on another NIC) printed first would otherwise be
-            # selected and -- because of the break -- re-selected every poll,
-            # wedging the ProbePort wait against the wrong IP until timeout.
-            # $SubnetPrefix is always dot-terminated (e.g. '192.168.64.'), so
-            # StartsWith won't false-match a sibling /24 like 192.168.640.x.
-            if ($line -match '^\? \(([\d.]+)\) at (\S+)' -and
-                $matches[2] -eq $macNeedle -and
-                $matches[1].StartsWith($SubnetPrefix)) {
-                $candidateIp = $matches[1]
-                break
-            }
-        }
+        $candidateIp = Select-ArpIpByMac -ArpLine @(& /usr/sbin/arp -an 2>$null) `
+            -MacNeedle $macNeedle -SubnetPrefix $SubnetPrefix
         if ($candidateIp) {
             if ($ProbePort -le 0) { $found = $candidateIp; break }
             $tcp = New-Object System.Net.Sockets.TcpClient
@@ -3270,8 +3662,15 @@ function Resolve-UtmGuestIpByMac {
             } finally { $tcp.Close() }
             Write-Verbose "Resolve-UtmGuestIpByMac: MAC match at $candidateIp but :$ProbePort not listening yet -- waiting."
         }
-        if (-not $found) { Start-Sleep -Seconds $PollSeconds }
-    }
+        if ($MaxAttempt -gt 0 -and $attempt -ge $MaxAttempt) {
+            Write-Verbose "Resolve-UtmGuestIpByMac: no match after $attempt attempt(s); the caller asked for at most $MaxAttempt."
+            break
+        }
+        # Sleep only when another round will follow, so a run that is out of
+        # budget returns now instead of one poll interval from now.
+        if ((Get-Date).AddSeconds($PollSeconds) -ge $deadline) { break }
+        Start-Sleep -Seconds $PollSeconds
+    } while ((Get-Date) -lt $deadline)
     return $found
 }
 
@@ -3608,27 +4007,31 @@ function Get-GuestReachableHostIp {
     Returns the host's LAN /24 prefix (e.g. '192.168.7.') based on the
     default-route interface, or $null when the host has no default route.
 .DESCRIPTION
-    Used by Start-CachingProxyServiceVM.ps1 Step 5 to locate the just-booted
-    bridged caching-proxy-service VM by walking the same /24 the host sits on,
-    and reserved for a future LAN-wide cache-discovery feature. (It is
-    NOT consulted by Test-CachingProxyServiceAvailable, which is restricted to
-    state-file + YURUNA_CACHING_PROXY_SERVICE_IP discovery.) Returns the first
-    three octets with a trailing dot so the caller can append
-    "$prefix$octet" without further string surgery. /24 is an assumption
-    -- it matches the home/office DHCP setups the repo targets; a /23
-    LAN would silently miss half the address space. Acceptable trade-off
-    given the alternative is parsing the netmask from `ifconfig` output
-    for what is, in practice, a /24 99% of the time.
+    This is the /24 a bridged guest is looked for on: it sits on the host's
+    LAN by construction, so the host's own default-route subnet is where its
+    address must be. (It is NOT consulted by
+    Test-CachingProxyServiceAvailable, which is restricted to state-file +
+    YURUNA_CACHING_PROXY_SERVICE_IP discovery.) Returns the first three
+    octets with a trailing dot so the caller can append "$prefix$octet"
+    without further string surgery. /24 is an assumption -- it matches the
+    home/office DHCP setups the repo targets; a /23 LAN would silently miss
+    half the address space. Acceptable trade-off given the alternative is
+    parsing the netmask from `ifconfig` output for what is, in practice, a
+    /24 99% of the time.
+.PARAMETER HostIp
+    The host address to take the prefix from. Resolved with Get-BestHostIp
+    when not supplied; a caller that already has it passes it so the
+    default-route lookup (two process spawns) is not repeated.
 .OUTPUTS
     [string] e.g. '192.168.7.' (with trailing dot), or $null.
 #>
 function Get-HostLanPrefix {
     [CmdletBinding()]
     [OutputType([string])]
-    param()
-    $hostIp = Get-BestHostIp
-    if (-not $hostIp) { return $null }
-    if ($hostIp -notmatch '^(\d+\.\d+\.\d+)\.(\d+)$') { return $null }
+    param([AllowEmptyString()][AllowNull()][string]$HostIp)
+    if (-not $PSBoundParameters.ContainsKey('HostIp')) { $HostIp = Get-BestHostIp }
+    if (-not $HostIp) { return $null }
+    if ($HostIp -notmatch '^(\d+\.\d+\.\d+)\.(\d+)$') { return $null }
     return ($matches[1] + '.')
 }
 
@@ -3660,12 +4063,14 @@ function Get-HostLanPrefix {
 function Test-CachingProxyServiceAvailable {
     [CmdletBinding()]
     [OutputType([string])]
-    param()
+    param([switch]$Quiet)
     # Thin wrapper over the shared probe; the only platform variable is the
     # operator verify-command template embedded in the unreachable-cache
     # warning (nc on macOS). The kvm driver keeps its own probe (it omits
-    # Format-IpUrlHost's IPv6 bracketing the guests rely on).
-    Invoke-CachingProxyServiceAvailableProbe -VerifyHint 'nc -G 2 -z {0} {1}'
+    # Format-IpUrlHost's IPv6 bracketing the guests rely on). -Quiet drops the
+    # "no cache" diagnostics to verbose for callers that only decorate with a
+    # cache URL when one exists.
+    Invoke-CachingProxyServiceAvailableProbe -VerifyHint 'nc -G 2 -z {0} {1}' -Quiet:$Quiet
 }
 
 <#

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.05
+.VERSION 2026.08.06
 .GUID 42f1b2c3-d4e5-4f67-8901-a2b3c4d5e6f9
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -53,12 +53,31 @@ param(
     [Parameter(Position = 0)]
     [string]$VMName = "yuruna-caching-proxy-service",
     [Parameter()]
-    [string]$MacAddress
+    [string]$MacAddress,
+    # Sizing travels as a pair. Swap is masked in the guest, so a cache_mem that
+    # outgrows its VM is an unrecoverable OOM rather than a slowdown -- passing
+    # one without the other is the mistake these two parameters exist to make
+    # visible. The defaults are the lab profile, and they stay literal because
+    # the setup preflight reads the committed size out of this source.
+    [Parameter()]
+    [int]$MemoryMb = 12288,
+    [Parameter()]
+    [string]$SquidCacheMem = '7 GB'
 )
 
 # Honor logLevel from Invoke-TestRunner.ps1 via $env:YURUNA_LOG_LEVEL. See docs/loglevels.md.
+# Load only when absent, never -Force. Start-CachingProxyServiceVM.ps1 runs this
+# script IN-PROCESS, so a forced re-import from here tears down and rebuilds the
+# module instance its caller is already using, taking whatever that instance keeps
+# in module scope with it and narrating a dozen import lines into the run's
+# transcript at Verbose (feedback_module_force_import_evicts_global). Tradeoff: an
+# edit to the module mid-session is not picked up here, which is acceptable for a
+# leaf script that only reads the level.
 $_logLevelMod = Join-Path $PSScriptRoot '../../../test/modules/Test.LogLevel.psm1'
-if (Test-Path $_logLevelMod) { Import-Module $_logLevelMod -Global -Force; Use-LogLevelFromEnv }
+if (-not (Get-Command Use-LogLevelFromEnv -ErrorAction SilentlyContinue) -and (Test-Path $_logLevelMod)) {
+    Import-Module $_logLevelMod -Global
+}
+if (Get-Command Use-LogLevelFromEnv -ErrorAction SilentlyContinue) { Use-LogLevelFromEnv }
 
 if ($VMName -notmatch '^[a-zA-Z0-9._-]+$') {
     Write-Output "Invalid VMName '$VMName'. Only alphanumeric characters, dots, hyphens, and underscores are allowed."
@@ -325,6 +344,7 @@ $UserData = New-CloudInitUserData `
     -OverlayPath (Join-Path $_repoRootForExt 'host/vmconfig/caching-proxy-service.utm.overlay.yml') `
     -RepoRoot    $_repoRootForExt `
     -Replacement @{
+        SQUID_CACHE_MEM_PLACEHOLDER    = $SquidCacheMem
         SSH_AUTHORIZED_KEY_PLACEHOLDER = $SshAuthorizedKey
         PASSWORD_PLACEHOLDER           = $AdminPassword
         YURUNA_STATUS_SERVICE_IP_PLACEHOLDER     = $YurunaHostIp
@@ -439,7 +459,7 @@ $PlistContent = (Get-Content -Raw $TemplatePath) `
     -replace '__SEED_IMAGE_NAME__',    'seed.iso' `
     -replace '__VNC_DISPLAY__',        "$VncDisplay" `
     -replace '__CPU_COUNT__',          "$vmCores" `
-    -replace '__MEMORY_SIZE__',        '12288'
+    -replace '__MEMORY_SIZE__',        "$MemoryMb"
 
 # Bridged mode needs the physical NIC name; Shared NAT carries no
 # BridgedInterface key (matches the sibling Shared templates, e.g.
@@ -513,8 +533,8 @@ verify all three checks below before starting guest installs):
        ssh caching-proxy-service-admin@$ip "squidclient mgr:storedir"    # StoreEntries > 0
 
 If step 4 reports 'squid DOWN' after 15 minutes, access the VM:
-  * UTM window:  login 'caching-proxy-service-admin' / password '__PASSWORD__'
-                 (password also at __PASSWORD_FILE__; does NOT expire)
+  * UTM window:  login 'caching-proxy-service-admin'
+                 (password at __PASSWORD_FILE__; does NOT expire)
   * SSH:         ssh caching-proxy-service-admin@$ip   (uses the yuruna harness key
                                    at test/status/ssh/yuruna_ed25519; passwordless)
 
@@ -532,10 +552,14 @@ If that's inconclusive, fall back to:
 this Mac's public IP while cloud-init tried to install squid.
 Wait 15-30 min and rebuild by re-running this script.
 '@
+# The credential is named by LOCATION, never substituted into the text. This
+# banner is captured verbatim into the setup and cycle logs, which are kept long
+# after the VM is gone and are read by anyone diagnosing a run -- a password
+# printed here outlives the machine it belongs to. The password file is
+# permissioned; the log is not.
 Write-Output ($guidance.
     Replace('__VM_NAME__', $VMName).
     Replace('__UTM_DIR__', $UtmDir).
-    Replace('__PASSWORD__', $AdminPassword).
     Replace('__PASSWORD_FILE__', $PasswordFile))
 
 # --- REGION: hand root-run artifacts back to the operator

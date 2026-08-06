@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.05
+.VERSION 2026.08.06
 .GUID 42f1b2c3-d4e5-4f67-8901-a2b3c4d5e6f8
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -53,7 +53,16 @@ param(
     [Parameter(Position = 0)]
     [string]$VMName = "yuruna-caching-proxy-service",
     [Parameter()]
-    [string]$MacAddress
+    [string]$MacAddress,
+    # Sizing travels as a pair. Swap is masked in the guest, so a cache_mem that
+    # outgrows its VM is an unrecoverable OOM rather than a slowdown -- passing
+    # one without the other is the mistake these two parameters exist to make
+    # visible. The defaults are the lab profile, and they stay literal because
+    # the setup preflight reads the committed size out of this source.
+    [Parameter()]
+    [int]$MemoryMb = 12288,
+    [Parameter()]
+    [string]$SquidCacheMem = '7 GB'
 )
 
 if ($VMName -notmatch '^[a-zA-Z0-9._-]+$') {
@@ -356,6 +365,7 @@ $UserData = New-CloudInitUserData `
     -OverlayPath (Join-Path $_repoRootForExt 'host/vmconfig/caching-proxy-service.hyperv.overlay.yml') `
     -RepoRoot    $_repoRootForExt `
     -Replacement @{
+        SQUID_CACHE_MEM_PLACEHOLDER    = $SquidCacheMem
         SSH_AUTHORIZED_KEY_PLACEHOLDER = $SshAuthorizedKey
         PASSWORD_PLACEHOLDER           = $AdminPassword
         YURUNA_STATUS_SERVICE_IP_PLACEHOLDER     = $YurunaHostIp
@@ -396,7 +406,7 @@ Write-Output ""
 # 12 GB RAM, 4 vCPU on all three hosts, budgeted around squid's cache_mem;
 # swap is masked, so undersizing is an unrecoverable OOM.
 Write-Output "Creating new VM '$VMName' on switch '$switchName'..."
-Hyper-V\New-VM -Name $VMName -Generation 2 -MemoryStartupBytes 12GB -SwitchName $switchName -VHDPath $vhdxFile | Out-Null
+Hyper-V\New-VM -Name $VMName -Generation 2 -MemoryStartupBytes ($MemoryMb * 1MB) -SwitchName $switchName -VHDPath $vhdxFile | Out-Null
 if ($MacAddress) {
     # Pin the NIC's MAC before first start so the very first DHCP request
     # already carries it -- an operator DHCP reservation keyed to this MAC
@@ -405,7 +415,7 @@ if ($MacAddress) {
     Set-VMNetworkAdapter -VMName $VMName -StaticMacAddress ($MacAddress -replace ':', '') | Out-Null
     Write-Output "  NIC pinned to static MAC $MacAddress"
 }
-Set-VM -Name $VMName -MemoryStartupBytes 12GB -MemoryMinimumBytes 12GB -MemoryMaximumBytes 12GB -AutomaticCheckpointsEnabled $false | Out-Null
+Set-VM -Name $VMName -MemoryStartupBytes ($MemoryMb * 1MB) -MemoryMinimumBytes ($MemoryMb * 1MB) -MemoryMaximumBytes ($MemoryMb * 1MB) -AutomaticCheckpointsEnabled $false | Out-Null
 Set-VMMemory -VMName $VMName -DynamicMemoryEnabled $false
 Set-VMFirmware -VMName $VMName -EnableSecureBoot Off | Out-Null
 Add-VMDvdDrive -VMName $VMName -Path $SeedIso | Out-Null

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.05
+.VERSION 2026.08.06
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456743
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -167,10 +167,23 @@ if ($IsMacOS) {
         }
     }
     if ($hasRootForwarder) {
-        Write-Output "  Root-owned legacy forwarder detected -- caching sudo credentials (you may be prompted for your password)..."
-        & sudo -v
-        if ($LASTEXITCODE -ne 0) {
-            Write-Warning "  sudo -v failed -- legacy port 80 forwarder may not be stopped cleanly."
+        # A bare `sudo -v` takes the password from /dev/tty, which a closed stdin
+        # and -NonInteractive both leave untouched -- so under a captured child it
+        # parks the run on a prompt whose text went to a log nobody is watching.
+        # Probing instead turns a cold timestamp into an answer the operator can
+        # act on, at the cost of leaving one forwarder for them to stop by hand.
+        if ($env:YURUNA_NONINTERACTIVE -eq '1') {
+            & sudo -n -v 2>$null
+            if ($LASTEXITCODE -ne 0) {
+                Write-Warning ("  Root-owned legacy forwarder detected and this run is non-interactive, so it cannot be stopped: " +
+                               "sudo has no live authorization. Run 'sudo -v' and re-run, or stop it by hand. Continuing without it.")
+            }
+        } else {
+            Write-Output "  Root-owned legacy forwarder detected -- caching sudo credentials (you may be prompted for your password)..."
+            & sudo -v
+            if ($LASTEXITCODE -ne 0) {
+                Write-Warning "  sudo -v failed -- legacy port 80 forwarder may not be stopped cleanly."
+            }
         }
     }
     Write-Output "  Tearing down any legacy host-side forwarders..."

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.05
+.VERSION 2026.08.06
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456742
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -47,7 +47,14 @@ param(
     # Default (adopt-if-healthy) skips the ~15-min rebuild when the current VM
     # is running and its squid / ssl-bump / CA probe passes. Pass this after a
     # base-image or config change to guarantee a fresh build.
-    [switch]$ForceRebuild
+    [switch]$ForceRebuild,
+    # Size the cache for a host that runs the whole lab by itself. A standalone
+    # host carries this VM beside the stash and the download agent, so every
+    # gigabyte here is one the test guests on the same machine cannot have. The
+    # RAM and squid's cache_mem are resolved together and passed together --
+    # swap is masked in the guest, so moving one without the other is an
+    # unrecoverable OOM rather than a slowdown.
+    [switch]$Standalone
 )
 
 $global:InformationPreference = "Continue"
@@ -182,6 +189,8 @@ if ($IsMacOS -or $IsLinux) {
         Write-Output "    * if needed, build/heal the 'yuruna-external' libvirt bridge"
         Write-Output "      (nmcli or netplan, plus cleanup of any half-built leftovers)"
     }
+    Write-Output "    * if needed, stop whatever still holds the status-service port"
+    Write-Output "      (a root-owned server from an earlier run keeps this one from binding)"
 }
 
 if ($IsMacOS) {
@@ -299,6 +308,12 @@ $proxyWipeReason = if ($IsMacOS) {
     "wipe machine-wide host proxy config (/etc/environment, apt)"
 }
 $sudoReasons = @($proxyWipeReason)
+# Step 2.5 starts the status service, and the port it needs can still be held by
+# a root-owned server from an earlier run -- which only root can stop. Priming
+# for it HERE keeps the promise the preflight prints ("proceeding unattended, no
+# further prompts"): without it, the takeover would have to raise a second
+# password prompt in the middle of the bring-up, or give up and refuse.
+$sudoReasons += 'stop a leftover root-owned holder of the status-service port, if one is still there'
 if ($IsLinux -and $plannedBridge -and $plannedBridge.WillChangeHostNetworking) {
     # The reuse-network plan branch flags a heal/rebuild without always
     # resolving the NIC -- don't render an empty '' into the prompt.
@@ -582,7 +597,28 @@ $cpStatusScript = Join-Path $PSScriptRoot 'Start-StatusService.ps1'
 $cpConfig = Read-TestConfig -Path (Join-Path $PSScriptRoot 'test.config.yml')
 $cpStatusDecision = Start-YurunaStatusServiceIfEnabled -Config $cpConfig -StartScript $cpStatusScript
 if ($cpStatusDecision.ShouldStart) {
-    Write-Output "  status service up on :$($cpStatusDecision.Port) -- the cache VM will build from http://<host>:$($cpStatusDecision.Port)/yuruna-repo/"
+    # "ShouldStart" is a decision, not an outcome: it says the config asked for
+    # the service, and stays true whether or not the port ever answered. A
+    # headline printed off it can therefore claim the service is up in the same
+    # breath as the launch reports that it is not. Verify the port the way Step
+    # 2.6 verifies the config service, and say which of the two actually happened.
+    $cpStatusUp = $false
+    $cpStatusProbe = [System.Net.Sockets.TcpClient]::new()
+    try {
+        $cpStatusAr = $cpStatusProbe.BeginConnect('127.0.0.1', [int]$cpStatusDecision.Port, $null, $null)
+        $cpStatusUp = ($cpStatusAr.AsyncWaitHandle.WaitOne(3000) -and $cpStatusProbe.Connected)
+    } catch { $cpStatusUp = $false } finally { $cpStatusProbe.Dispose() }
+    if ($cpStatusUp) {
+        Write-Output "  status service up on :$($cpStatusDecision.Port) -- the cache VM will build from http://<host>:$($cpStatusDecision.Port)/yuruna-repo/"
+    } else {
+        # Not fatal, unlike the config service: the guest's build block falls back
+        # to the public github mirror when the local repo is unreachable, so the VM
+        # still comes up -- just built from mirrored source rather than this
+        # working tree. Say exactly that instead of claiming the service is up.
+        Write-Warning "  status service is NOT answering on :$($cpStatusDecision.Port) -- the cache VM will build collector/parser source from github instead of this working tree."
+        $cpStatusRuntimeDir = if ($env:YURUNA_RUNTIME_DIR) { $env:YURUNA_RUNTIME_DIR } else { Join-Path $PSScriptRoot 'status/runtime' }
+        Write-Warning "  Server error log: $(Join-Path $cpStatusRuntimeDir 'server.err')"
+    }
 } else {
     Write-Output "  statusService disabled (test.config.yml) -- the cache VM will fall back to github for collector/parser source."
 }
@@ -653,6 +689,16 @@ $global:LASTEXITCODE = $null
 # random-MAC default.
 $newVmParams = @{ VMName = $VMName }
 if ($MacAddress) { $newVmParams.MacAddress = $MacAddress }
+# Both or neither: the profile is the only place these two are chosen, so a
+# caller cannot shrink the VM and leave squid budgeted for the larger one.
+# Imported here rather than relying on the -MacAddress branch above, which only
+# loads the module when the operator pinned a MAC.
+Import-Module (Join-Path $RepoRoot 'automation/Yuruna.Common.psm1') -Force -DisableNameChecking
+$cacheProfile = Get-CachingProxyMemoryProfile -Standalone:$Standalone
+$newVmParams.MemoryMb      = $cacheProfile.VmMemoryMb
+$newVmParams.SquidCacheMem = $cacheProfile.SquidCacheMem
+Write-Output ("  Cache VM sizing: {0} MB RAM, squid cache_mem {1} ({2} profile)." -f `
+    $cacheProfile.VmMemoryMb, $cacheProfile.SquidCacheMem, $(if ($Standalone) { 'standalone' } else { 'lab' }))
 & $NewVMScript @newVmParams
 # $? must be captured on the VERY next statement; any intervening command
 # overwrites it.
@@ -823,8 +869,20 @@ if ($IsMacOS) {
             if (Get-Command Initialize-SudoCache -ErrorAction SilentlyContinue) {
                 [void](Initialize-SudoCache -Reasons @("bind host port 80 to forward the cache VM's CA-cert page to remote LAN clients"))
             } elseif ((& /usr/bin/id -u).Trim() -ne '0') {
-                Write-Output "  Re-priming sudo (the :80 forwarder needs root to bind a sub-1024 port)..."
-                & sudo -v
+                # Same reason the branch above prefers Initialize-SudoCache: a bare
+                # `sudo -v` reads the password from /dev/tty, which a captured child
+                # cannot show and cannot answer. The forwarder is a remote-LAN
+                # convenience, so declining to prompt costs only that.
+                if ($env:YURUNA_NONINTERACTIVE -eq '1') {
+                    & sudo -n -v 2>$null
+                    if ($LASTEXITCODE -ne 0) {
+                        Write-Warning ("  sudo has no live authorization and this run is non-interactive, so the :80 forwarder " +
+                                       "will be skipped. Remote LAN clients can still fetch the CA cert from the VM directly.")
+                    }
+                } else {
+                    Write-Output "  Re-priming sudo (the :80 forwarder needs root to bind a sub-1024 port)..."
+                    & sudo -v
+                }
             }
             $cacheForwarded = [bool](Add-PortMap -VMIp $cacheIp `
                     -Port (Get-CachingProxyServiceExposedPort -HttpPort $httpPort -HttpsPort $httpsPort) `

@@ -1519,7 +1519,7 @@ pool-aggregator-service TLS leaf: mint a server cert for the aggregator's :9400 
 
 ### Resolve pool dashboard aggregator URL
 
-Resolve the Yuruna hosts dashboard's aggregator base URL. The timeline's "open cycle results" data link points at this proxy's /go/cycle redirect, which resolves each host's CURRENT IP server-side, so the link survives a host IP change. The proxy's own LAN IP is known only at boot (DHCP), so substitute it here. Idempotent: a re-run finds no placeholder. The dashboard provider re-syncs the edited file, so this may land before or after grafana-server starts.
+Resolve the Yuruna hosts dashboard's aggregator base URL. The timeline's "open cycle results" and "share cycle results" data links point at this proxy's /go/cycle and /go/cycle-share redirects, which resolve each host's CURRENT IP server-side, so the links survive a host IP change. The proxy's own LAN IP is known only at boot (DHCP), so substitute it here. Idempotent: a re-run finds no placeholder. The dashboard provider re-syncs the edited file, so this may land before or after grafana-server starts.
 
 **Always plain http, even once the aggregator has its TLS leaf.** The dashboard links only reach the aggregator's `/go/*` redirects, which land the operator's browser on plain-http host status pages. An https hop here would put a proxy-CA interstitial (operator browsers do not trust the proxy CA) in front of every host click while protecting nothing the next hop does not already carry in clear. The aggregator answers both protocols on :9400, so token-bearing clients keep their TLS.
 
@@ -1941,6 +1941,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.05
+Last review: 2026.08.06
 
 Back to [Yuruna](../README.md)

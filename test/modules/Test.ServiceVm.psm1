@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.05
+.VERSION 2026.08.06
 .GUID 42d5a90b-16c7-4e83-b0f2-5c9a7e34d118
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -133,6 +133,29 @@ function Test-YurunaServiceVmPort {
     }
 }
 
+function Get-YurunaServiceVmAddress {
+    <#
+    .SYNOPSIS
+        The address this host would dial to reach a service VM, or '' when none
+        could be resolved. Never throws.
+    .DESCRIPTION
+        Resolved through the host driver's Get-VMIp, which is the same answer
+        every consumer of a service is handed. Absence is a legitimate reading
+        rather than an error: a Bridged UTM guest has no lease file and no guest
+        agent, so a host can genuinely be unable to name a VM it is running.
+        Callers decide what that means for them -- which is why it comes back as
+        an empty string instead of a throw.
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([Parameter(Mandatory)][string]$VMName)
+    if (-not (Get-Command Get-VMIp -ErrorAction SilentlyContinue)) { return '' }
+    try { return [string](Get-VMIp -VMName $VMName) } catch {
+        Write-Verbose "Get-YurunaServiceVmAddress('$VMName'): $($_.Exception.Message)"
+        return ''
+    }
+}
+
 function Restore-YurunaServiceVM {
     <#
     .SYNOPSIS
@@ -163,17 +186,36 @@ function Restore-YurunaServiceVM {
     .PARAMETER HealthTimeoutSeconds
         Additional budget for the service port to answer once the VM is running.
         0 skips the health wait entirely.
+    .PARAMETER ProbeRunning
+        Also probe the health port of a VM that was ALREADY running, and report
+        Healthy from what answered.
+
+        Off by default, and that default is what keeps the per-cycle sweep the
+        cheap thing it is: on a healthy host it stays one state query per
+        service, and the sweep's only job is to START what is off -- a VM that
+        is already on is nothing for it to do either way.
+
+        A caller deciding whether to REUSE that VM is asking a different
+        question, and powered-on is not an answer to it. A bring-up that fails
+        deliberately leaves its guest running so the evidence survives, so
+        'running' is exactly the state a broken service is found in. Switching
+        the probe on here rather than writing a second one at the call site is
+        what keeps one definition of "this service is usable".
     .OUTPUTS
         pscustomobject[] -- Key, VMName, DisplayName, StateBefore, Outcome,
         Healthy, Message. Outcome is one of: no-host-driver, absent, running,
         started, start-failed, start-timeout.
+
+        Healthy on a 'running' record means "answered its health port" only when
+        -ProbeRunning was passed; without it the port was not asked.
     #>
     [CmdletBinding(SupportsShouldProcess)]
     [OutputType([pscustomobject[]])]
     param(
         [string[]]$Key,
         [int]$StartTimeoutSeconds  = 120,
-        [int]$HealthTimeoutSeconds = 90
+        [int]$HealthTimeoutSeconds = 90,
+        [switch]$ProbeRunning
     )
     $results = [System.Collections.Generic.List[pscustomobject]]::new()
     $roster = @(Get-YurunaServiceVmRoster -Key $Key)
@@ -210,10 +252,28 @@ function Restore-YurunaServiceVM {
             continue
         }
         if ($state -eq 'running') {
+            $healthy = $true
+            $message = 'already running'
+            if ($ProbeRunning) {
+                # One connect, no retry loop. A VM that is already up has had all
+                # the time it is going to get; waiting again here would only make
+                # a caller pay a fresh budget for a service that has been silent
+                # since whenever it was started.
+                $address = Get-YurunaServiceVmAddress -VMName $svc.VMName
+                if (-not $address) {
+                    $healthy = $false
+                    $message = 'running, but no address could be resolved for it, so :' + $svc.HealthPort + ' could not be probed'
+                } elseif (Test-YurunaServiceVmPort -Address $address -Port $svc.HealthPort) {
+                    $message = "already running; :$($svc.HealthPort) answering at $address"
+                } else {
+                    $healthy = $false
+                    $message = "running, but :$($svc.HealthPort) did not answer at $address"
+                }
+            }
             $results.Add([pscustomobject]@{
                 Key = $svc.Key; VMName = $svc.VMName; DisplayName = $svc.DisplayName
-                StateBefore = $state; Outcome = 'running'; Healthy = $true
-                Message = 'already running'
+                StateBefore = $state; Outcome = 'running'; Healthy = $healthy
+                Message = $message
             })
             continue
         }
@@ -271,12 +331,7 @@ function Restore-YurunaServiceVM {
         $healthy = $false
         $message = 'started'
         if ($HealthTimeoutSeconds -gt 0) {
-            $address = ''
-            if (Get-Command Get-VMIp -ErrorAction SilentlyContinue) {
-                try { $address = [string](Get-VMIp -VMName $svc.VMName) } catch {
-                    Write-Verbose "Restore-YurunaServiceVM: Get-VMIp('$($svc.VMName)'): $($_.Exception.Message)"
-                }
-            }
+            $address = Get-YurunaServiceVmAddress -VMName $svc.VMName
             if ($address) {
                 $healthDeadline = (Get-Date).AddSeconds($HealthTimeoutSeconds)
                 while ((Get-Date) -lt $healthDeadline) {
@@ -324,4 +379,4 @@ function Write-YurunaServiceVmRestoreReport {
 }
 
 Export-ModuleMember -Function Get-YurunaServiceVmRoster, Test-YurunaServiceVmPort, `
-    Restore-YurunaServiceVM, Write-YurunaServiceVmRestoreReport
+    Get-YurunaServiceVmAddress, Restore-YurunaServiceVM, Write-YurunaServiceVmRestoreReport

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.05
+.VERSION 2026.08.06
 .GUID 42f0a1b2-c3d4-4e56-8a78-9b0c1d2e3f40
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -38,6 +38,10 @@
     It blocks, so this runs under Pester 4.10.1.
 #>
 
+[Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidGlobalVars', '',
+    Justification = 'The ProgressPreference capture slot under test is a runspace global by design; a test that reset a copy elsewhere would assert nothing.')]
+param()
+
 $here      = Split-Path -Parent $PSCommandPath
 $logLevel  = Join-Path $here 'Test.LogLevel.psm1'
 $logRot    = Join-Path $here 'Test.LogRotation.psm1'
@@ -49,15 +53,18 @@ function Assert-Equal { param($Expected, $Actual, [string]$Because='') if ($Expe
 # Unqualified (not $script:-qualified) file-scope names: an It block runs in a
 # fresh script scope, so `$script:Foo` there resolves to that new scope and reads
 # back $null even when the file assigned it -- only an unqualified name walks the
-# scope chain out to the file's variables. The $script: qualifier INSIDE the
-# module scriptblock below is a different scope entirely (Test.LogLevel's own)
-# and must stay.
-$LogLevelModule = Import-Module $logLevel -Force -DisableNameChecking -PassThru
+# scope chain out to the file's variables.
+Import-Module $logLevel -Force -DisableNameChecking
 Import-Module $logRot -Force -DisableNameChecking
 
 # Scriptblock (not a Verb-Noun function) so PSUseShouldProcessForStateChangingFunctions
 # does not fire on a trivial test-state reset.
-$ResetSavedProgress = { & $LogLevelModule { $script:SavedProgressPreference = $null } }
+#
+# The capture slot is a RUNSPACE global, not module state, so the reset reaches it
+# by name from here. Reaching into the module's own scope instead would clear a
+# variable nothing reads and leave the real slot holding the previous test's
+# value -- a reset that silently resets nothing.
+$ResetSavedProgress = { $global:YurunaSavedProgressPreference = $null }
 
 Describe 'Set-LogLevelPreference restores ProgressPreference symmetrically' {
     It 'restores the captured value when the level rises above Verbose' {

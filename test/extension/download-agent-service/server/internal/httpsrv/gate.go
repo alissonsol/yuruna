@@ -57,3 +57,11 @@ func (s *Server) handleSession(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	s.gate.HandleLogin(w, r)
 }
+
+// handleUnlockProof exchanges the short-lived control proof the aggregator's
+// /go/stash redirect leaves in the URL fragment for a session cookie, so an
+// operator who arrived by clicking this service out of the Yuruna hosts
+// dashboard is not sent back to it to copy a code off a tile.
+func (s *Server) handleUnlockProof(w http.ResponseWriter, r *http.Request) {
+	s.gate.HandleProofUnlock(w, r)
+}

@@ -38,15 +38,16 @@ body { font: 15px/1.5 -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Hel
 
 /* ===========================================================================
    PAGE CHROME -- the black header bar, its menu, and the black footer bar.
-   Header and footer are one surface, and every Yuruna service UI carries the
-   same one: same tokens, same type scale, same menu in the same corner, so the
-   set reads as one product rather than three lookalikes.
+   Header and footer are one surface, and every Yuruna UI carries the same one:
+   same tokens, same type scale, same menu in the same corner, so the host
+   status pages and the service UIs read as one product rather than four
+   lookalikes.
 
-   Keep this block, and the --chrome-* tokens it reads, byte-identical across the
-   three services' style.css. Each daemon embeds its own copy because //go:embed
-   cannot reach outside its own module -- the duplication is forced, so drift is
-   the thing to watch for, and Test.ExtensionUiChrome.Tests.ps1 fails when the
-   three copies stop matching.
+   Keep this block, and the --chrome-* tokens it reads, byte-identical across
+   the status pages' yuruna.common.css and the three services' style.css. Each
+   daemon embeds its own copy because //go:embed cannot reach outside its own
+   module -- the duplication is forced, so drift is the thing to watch for, and
+   Test.ExtensionUiChrome.Tests.ps1 fails when the copies stop matching.
    =========================================================================== */
 header.app {
   background: var(--chrome-bg); color: var(--chrome-fg);
@@ -129,6 +130,11 @@ header.app .btn:not(.primary):hover { background: var(--chrome-raised); }
   padding: .35rem 1rem;
   padding: .35rem max(1rem, env(safe-area-inset-right)) max(.35rem, env(safe-area-inset-bottom)) max(1rem, env(safe-area-inset-left));
   font-size: .6875rem;
+  /* A floor above what either footer variant needs, so the bar that holds the
+     IP control and the bar that holds one line of text are the same height --
+     content-derived heights would otherwise differ by a few px per platform,
+     from the textarea's own font metrics. */
+  min-height: 2.25rem;
   display: flex; justify-content: space-between; align-items: center;
   z-index: 3;
 }
@@ -151,6 +157,24 @@ textarea#footer-ip-list::-webkit-scrollbar { display: none; }
    iOS Safari < 15.4, which predate :has(). */
 body.has-footer-bar main { padding-bottom: 3rem; padding-bottom: calc(3rem + env(safe-area-inset-bottom)); }
 
+/* The in-flow footer of a page with no data feed of its own (create, detail).
+   Same surface, same padding and same type scale as the fixed bar above, so a
+   page that ends early ends on a bar of identical height and colour instead of
+   trailing off into the page background. */
+footer.app {
+  background: var(--chrome-bg); color: var(--chrome-muted);
+  /* Deliberately NOT a flex container: this variant holds a run of inline text
+     around its link, and flex would promote each text run to its own anonymous
+     item and eat the spaces at their edges. The taller padding centres that one
+     line inside the shared min-height instead. */
+  padding: .6rem 1rem;
+  padding: .6rem max(1rem, env(safe-area-inset-right)) max(.6rem, env(safe-area-inset-bottom)) max(1rem, env(safe-area-inset-left));
+  margin-top: 2rem; font-size: .6875rem; text-align: center;
+  /* Same floor as the fixed bar above -- these are one bar in two placements. */
+  min-height: 2.25rem;
+}
+footer.app a { color: var(--chrome-muted); }
+
 /* Phone: the menu is how you leave a page, so it keeps a full touch target
    while its label drops -- the glyph alone survives a 320px viewport. */
 @media (max-width: 600px) {
@@ -158,6 +182,17 @@ body.has-footer-bar main { padding-bottom: 3rem; padding-bottom: calc(3rem + env
   .menu-button .menu-label { display: none; }
   .menu-panel a { padding: .65rem .6rem; }
   header.app .btn { padding: .4rem .6rem; font-size: .85rem; }
+  #footer-bar {
+    padding-left: .5rem; padding-left: max(.5rem, env(safe-area-inset-left));
+    padding-right: .5rem; padding-right: max(.5rem, env(safe-area-inset-right));
+    flex-wrap: wrap;
+  }
+  /* #footer-ips claims its own row here, so the bar is two rows tall and the
+     3rem single-row reserve above no longer clears it -- the last rows of a
+     table and the "Load more" button end up under the fixed bar. Only bites
+     where the home-indicator inset adds to the bar height. */
+  #footer-ips { flex-basis: 100%; max-width: 100%; }
+  body.has-footer-bar main { padding-bottom: 4.5rem; padding-bottom: calc(4.5rem + env(safe-area-inset-bottom)); }
 }
 /* === end page chrome ====================================================== */
 
@@ -220,11 +255,6 @@ code { font-family: var(--mono); font-size: .85rem; word-break: break-all; }
 .actions button { margin: 0 .25rem .25rem 0; }
 
 @media (max-width: 700px) {
-  /* #footer-ips claims its own row here, so the bar is two rows tall and the
-     3rem single-row reserve above no longer clears it. */
-  #footer-bar { padding-left: .5rem; padding-left: max(.5rem, env(safe-area-inset-left)); padding-right: .5rem; padding-right: max(.5rem, env(safe-area-inset-right)); flex-wrap: wrap; }
-  #footer-ips { flex-basis: 100%; max-width: 100%; }
-  body.has-footer-bar main { padding-bottom: 4.5rem; padding-bottom: calc(4.5rem + env(safe-area-inset-bottom)); }
   /* The 8-column table overflows a phone; scroll the table itself instead of
      the whole page (the stash UI's .table-wrap idiom). */
   table { display: block; overflow-x: auto; -webkit-overflow-scrolling: touch; }

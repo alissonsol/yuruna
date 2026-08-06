@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.05
+.VERSION 2026.08.06
 .GUID 42c1f7a4-8e05-49bd-9d36-3f7ab2c48e91
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -177,6 +177,11 @@ Import-Module (Join-Path $paths.ModulesDir 'Test.Lab.psm1') -Global -Force
 Import-Module (Join-Path $paths.ModulesDir 'Test.StateFile.psm1') -Global -Force
 Import-Module (Join-Path $paths.ModulesDir 'Test.PoolStorage.psm1') -Global -Force
 Import-Module (Join-Path $paths.ModulesDir 'Test.Config.psm1') -Global -Force -ErrorAction SilentlyContinue
+# Test-YurunaCanPrompt / Assert-YurunaPromptable. Test.LocalLabStorage.psm1
+# already pulls this in -Global, but this script asks the two questions that
+# decide whether it runs at all, so it states the dependency itself rather than
+# inheriting it from a module that could stop needing it.
+Import-Module (Join-Path $paths.RepoRoot 'automation/Yuruna.Common.psm1') -Global -Force -DisableNameChecking
 
 $authExtension = Join-Path $paths.RepoRoot 'test/extension/authentication/default.psm1'
 if (-not (Test-Path -LiteralPath $authExtension)) {
@@ -207,6 +212,12 @@ function Confirm-Step {
         [bool]$DefaultYes = $false
     )
     if ($SkipPrompt) { return $true }
+    # A consent gate must never answer itself. This script runs as a child of
+    # install/setup.ps1 with stdin closed, where Read-Host returns EOF -- an
+    # empty answer, which falls through to $DefaultYes and reads as a decision
+    # somebody made. Nobody made it, and the cancel path exits 0, so the caller
+    # would record a clean PASS over a step that created nothing.
+    Assert-YurunaPromptable -Question $Question -ParameterName '-Force'
     $suffix = if ($DefaultYes) { '[Y/n]' } else { '[y/N]' }
     $answer = Read-Host "$Question $suffix"
     if ([string]::IsNullOrWhiteSpace($answer)) { return $DefaultYes }
@@ -308,21 +319,41 @@ if ($WhatIfPreference) {
         throw "sudo not found on PATH. macOS / Ubuntu: sudo is required to create accounts and shares."
     }
     $invokingUser = if ($env:USER) { $env:USER } else { (& id -un) }
-    Write-Information ""
-    Write-Information "sudo will prompt for YOUR login password ($invokingUser) -- NOT for either storage account."
-    Write-Information "  Elevation is needed to:"
-    Write-Information "    * create the '$PoolAccount' and '$StashAccount' local OS accounts"
-    Write-Information "    * enable the SMB server and publish both shares"
-    Write-Information "    * add the storage server aliases to /etc/hosts"
-    Write-Information ""
-    & sudo -v
+    # Ask the machine before asking the operator. `sudo -n -v` neither prompts
+    # nor fails on an already-warm credential, so a run started by a caller that
+    # primed sudo passes straight through and the banner below is not printed at
+    # all -- the operator has already answered it once.
+    & sudo -n -v 2>$null | Out-Null
     if ($LASTEXITCODE -ne 0) {
-        throw "sudo authentication failed (exit $LASTEXITCODE)."
+        # sudo reads its password from /dev/tty, so neither the closed stdin nor
+        # -NonInteractive that a parent gives this child can stop a bare
+        # `sudo -v` from raising a prompt on a console the parent has taken over,
+        # where it is invisible and waits forever. Fail with the remedy instead.
+        if (-not (Test-YurunaCanPrompt)) {
+            throw ("Creating accounts, shares and hosts entries needs root, and this run cannot ask for a password. " +
+                   "Run 'sudo -v' in the same terminal first, or start this through install/setup.ps1, which takes the run's one authorization up front.")
+        }
+        Write-Information ""
+        Write-Information "sudo will prompt for YOUR login password ($invokingUser) -- NOT for either storage account."
+        Write-Information "  Elevation is needed to:"
+        Write-Information "    * create the '$PoolAccount' and '$StashAccount' local OS accounts"
+        Write-Information "    * enable the SMB server and publish both shares"
+        Write-Information "    * add the storage server aliases to /etc/hosts"
+        Write-Information ""
+        & sudo -v
+        if ($LASTEXITCODE -ne 0) {
+            throw "sudo authentication failed (exit $LASTEXITCODE)."
+        }
     }
 }
 
 # --- REGION: Storage root
 if ([string]::IsNullOrWhiteSpace($Root)) {
+    # No self-defaulting here. The suggestion below is a good one for a person
+    # to accept, but accepting it on their behalf creates OS accounts, SMB
+    # shares and mounts at a path nobody chose -- and on a single-drive Windows
+    # host that path is the system drive this script's own caution warns off.
+    Assert-YurunaPromptable -Question "Where should the lab's storage live?" -ParameterName '-Root'
     $dataDrive = if ($Platform -eq 'windows') { Get-LocalLabStorageWindowsDataDrive } else { '' }
     $suggested = Get-LocalLabStorageDefaultRoot -Platform $Platform -DataDrive $dataDrive
     if ($Platform -eq 'windows') {
@@ -544,7 +575,15 @@ Write-LabStorageStep -Number 8 -Title 'Mount'
 if ($IsLinux) {
     # The cifs mount runs `sudo -n`, which never prompts; without the drop-in it
     # fails and the runner buffers locally instead of archiving.
-    $sudoers = Set-PoolStorageSudoers -WhatIf:$WhatIfPreference
+    #
+    # -NonInteractive is bound from the same predicate every other question in
+    # this script uses, because installing the drop-in writes /etc/sudoers.d
+    # through a bare `sudo tee`. sudo takes its password from /dev/tty, so under
+    # a caller that has taken the console -- stdin closed, stdout captured -- that
+    # write raises a prompt nothing displays and nothing answers, and the run
+    # stops there having already created the accounts and the shares. Declined,
+    # the call returns the exact commands to install the drop-in by hand.
+    $sudoers = Set-PoolStorageSudoers -NonInteractive:(-not (Test-YurunaCanPrompt)) -WhatIf:$WhatIfPreference
     Write-Information "      passwordless sudo for mount: $($sudoers.Action) -- $($sudoers.Message)"
 }
 $mounted = @{}

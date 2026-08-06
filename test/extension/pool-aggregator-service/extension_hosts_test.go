@@ -76,11 +76,13 @@ func TestExtensionMetricFromActiveExtensions(t *testing.T) {
 	rec := httptest.NewRecorder()
 	s.handleMetrics(rec, httptest.NewRequest("GET", "/metrics", nil))
 	body := rec.Body.String()
-	// baseUrl + target ride as labels (string columns carry no field labels); the
-	// dashboard hides both columns and deep-links Extension -> target. baseUrl is
-	// exported but NOT linked: an extension host that runs no cycles has no status
-	// page, so a Host ID link would land on /go/host's "host not known to the pool".
-	want := "yuruna_pool_host_extension{pool=\"default\",hostId=\"" + hid + "\",area=\"stash-service\",baseUrl=\"http://10.0.0.1:8080\",target=\"http://10.0.0.5\"} 1"
+	// baseUrl, target and goPath ride as labels (string columns carry no field
+	// labels); the dashboard hides all three and deep-links Extension -> goPath,
+	// which routes through the aggregator so the redirect can hand the service UI
+	// a control proof. baseUrl is exported but NOT linked: an extension host that
+	// runs no cycles has no status page, so a Host ID link would land on
+	// /go/host's "host not known to the pool".
+	want := "yuruna_pool_host_extension{pool=\"default\",hostId=\"" + hid + "\",area=\"stash-service\",baseUrl=\"http://10.0.0.1:8080\",target=\"http://10.0.0.5\",goPath=\"/go/stash?host=" + hid + "&area=stash-service\"} 1"
 	if !strings.Contains(body, want) {
 		t.Errorf("/metrics missing the extension row.\nwant: %s", want)
 	}
@@ -181,7 +183,7 @@ func TestStatusLabelPaused(t *testing.T) {
 // The current-action sidecar is read for exactly one bit: is the runner sitting at
 // a step boundary. A sidecar that has not been written this cycle answers 404,
 // which is a definite "not parked" -- so an armed host between sequences reports
-// "will pause" instead of failing the read and inheriting whatever it last saw.
+// "pausing" instead of failing the read and inheriting whatever it last saw.
 func TestFetchCurrentActionStepPause(t *testing.T) {
 	cases := []struct {
 		name string

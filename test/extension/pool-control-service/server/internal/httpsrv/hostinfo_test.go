@@ -50,6 +50,54 @@ func TestHostInfo(t *testing.T) {
 	}
 }
 
+// The tables link every host id at the aggregator's /go/host redirect, and the
+// value they build that link from has to be plain http even though the
+// configured aggregator URL is https. Those redirects land on a host's own
+// plain-http status page, so https protects nothing the next hop does not
+// already carry in clear -- while an operator's browser, which has no reason to
+// trust the proxy CA, would raise a certificate interstitial in front of every
+// host link. The aggregator answers both protocols on the same port.
+func TestHostInfoHandsTheBrowserAPlainHTTPAggregatorBase(t *testing.T) {
+	srv := httptest.NewServer(New(&fakeIntent{}, Options{
+		Version: "test", HostID: testHostID,
+		AggregatorURL: "https://10.0.0.2:9400",
+	}).Handler())
+	defer srv.Close()
+
+	_, m := do(t, "GET", srv.URL+"/api/hostinfo", "")
+	if got := m["goBaseUrl"]; got != "http://10.0.0.2:9400" {
+		t.Fatalf("goBaseUrl = %v, want the https base downgraded to http", got)
+	}
+	// The configured value stays untouched where it describes configuration:
+	// this daemon's own calls to the aggregator should keep their TLS.
+	_, d := do(t, "GET", srv.URL+"/api/diagnostics", "")
+	env, _ := d["environment"].(map[string]any)
+	if env == nil || env["aggregatorUrl"] != "https://10.0.0.2:9400" {
+		t.Fatalf("diagnostics must report the CONFIGURED url, got %v", d["environment"])
+	}
+}
+
+func TestGoBaseURL(t *testing.T) {
+	for _, c := range []struct{ in, want string }{
+		{"https://10.0.0.2:9400", "http://10.0.0.2:9400"},
+		{"http://10.0.0.2:9400", "http://10.0.0.2:9400"},
+		{"https://10.0.0.2:9400/", "http://10.0.0.2:9400"},
+		{"  https://proxy.lan:9400//  ", "http://proxy.lan:9400"},
+		// No aggregator configured: the UI renders host ids unlinked rather than
+		// pointing them at nothing.
+		{"", ""},
+		// Only a mistyped flag produces these, and an unlinked id beats a dead
+		// or dangerous href.
+		{"javascript:alert(1)", ""},
+		{"ftp://10.0.0.2", ""},
+		{"not a url", ""},
+	} {
+		if got := goBaseURL(c.in); got != c.want {
+			t.Errorf("goBaseURL(%q) = %q, want %q", c.in, got, c.want)
+		}
+	}
+}
+
 // TestEveryPageServesChrome verifies that every page of this service carries the
 // shared header and footer markup, and that the module driving it ships in
 // common.js — i.e. the chrome is wired end-to-end on all of them, not just on
@@ -62,7 +110,7 @@ func TestEveryPageServesChrome(t *testing.T) {
 		`id="header-version"`, `id="machine"`, `Yuruna Pool Control`,
 		`id="footer-bar"`, `id="footer-ip-list"`, `id="last-loaded"`, `id="countdown"`,
 	}
-	for _, path := range []string{"/", "/assign", "/pools", "/test-sets", "/hosts", "/advanced", "/diagnostics"} {
+	for _, path := range []string{"/", "/assign", "/pools", "/test-sets", "/hosts", "/diagnostics"} {
 		body := getText(t, srv.URL+path)
 		for _, w := range want {
 			if !strings.Contains(body, w) {

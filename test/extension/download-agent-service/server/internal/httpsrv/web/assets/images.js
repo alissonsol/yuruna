@@ -29,7 +29,6 @@
 
   function renderStatus(st) {
     const ag = st.agent || {};
-    setCard('ag-version', st.version || '—');
     setCard('ag-pool', ag.poolAvailable ? 'available' : 'unavailable');
     const pd = document.getElementById('ag-pooldir');
     if (pd) pd.textContent = ag.imagesDir || ag.poolDir || '';
@@ -294,6 +293,10 @@
 
   async function loadSession() {
     try {
+      // Awaited, not raced: a proof carried in from the dashboard has to be
+      // spent before the gate is read, or this would render the lab-token
+      // prompt for a device that was about to be unlocked anyway.
+      await Y.proofUnlock;
       const s = await Y.api('/api/session');
       gateConfigured = !!s.configured;
       labTokenGate = !!s.labToken;

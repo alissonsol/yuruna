@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.05
+.VERSION 2026.08.06
 .GUID 42b7c3e1-9d05-4a82-bf46-2e18c74a0d93
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -48,6 +48,29 @@
 #requires -version 7
 
 Set-StrictMode -Version Latest
+
+# The version of the capture FORMAT, and equally of what its readers mean. Bump
+# it whenever a reader starts being able to see something it could not see
+# before, because "present = $false" is the answer a reader gives BOTH when the
+# knob was genuinely unset and when it could not read the knob at all. A capture
+# written by an older reader is trustworthy about the values it holds and not
+# trustworthy about the ones it calls absent, and Invoke-HostKnobRestore is
+# where that distinction has to be enforced -- removal is the branch an
+# unreadable knob lands in, and a removal cannot be undone.
+$script:HostAutomationStateSchemaVersion = 2
+
+function Get-HostAutomationStateSchemaVersion {
+<#
+.SYNOPSIS
+    The capture-format version this module writes and restores against.
+.OUTPUTS
+    [int]
+#>
+    [CmdletBinding()]
+    [OutputType([int])]
+    param()
+    return $script:HostAutomationStateSchemaVersion
+}
 
 function Get-HostAutomationStatePath {
 <#
@@ -243,6 +266,17 @@ function Get-MacPreAutomationState {
     $knobs = @{}
     if (-not $IsMacOS) { return $knobs }
 
+    # The apply side owns both the guard list and the `defaults` argument order,
+    # so this capture reads them from there rather than restating either. A
+    # capture that spells a command differently from the write it is recording
+    # is a capture of the wrong thing.
+    if (-not (Get-Command Get-MacDefaultsCommandArgument -ErrorAction SilentlyContinue)) {
+        $macModule = Join-Path $PSScriptRoot 'Test.HostCondition.Mac.psm1'
+        if (Test-Path -LiteralPath $macModule) {
+            Import-Module $macModule -Global -Force -DisableNameChecking -Verbose:$false
+        }
+    }
+
     # `pmset -g custom` prints an AC Power block and a Battery Power block; the
     # same key appears in both with different values, so the block has to be
     # tracked while parsing rather than the first match taken.
@@ -270,12 +304,6 @@ function Get-MacPreAutomationState {
         }
     }
 
-    if (-not (Get-Command Get-MacPmsetGuardList -ErrorAction SilentlyContinue)) {
-        $macModule = Join-Path $PSScriptRoot 'Test.HostCondition.Mac.psm1'
-        if (Test-Path -LiteralPath $macModule) {
-            Import-Module $macModule -Global -Force -DisableNameChecking -Verbose:$false
-        }
-    }
     if (Get-Command Get-MacPmsetGuardList -ErrorAction SilentlyContinue) {
         foreach ($guard in (Get-MacPmsetGuardList)) {
             $key = $guard.Key
@@ -308,9 +336,21 @@ function Get-MacPreAutomationState {
         @{ Key = 'utm/KeepRunningAfterLastWindowClosed'       ; Args = @('com.utmapp.UTM', 'KeepRunningAfterLastWindowClosed') }
         @{ Key = 'global/AppleSpacesSwitchOnActivation'       ; Args = @('NSGlobalDomain', 'AppleSpacesSwitchOnActivation') }
     )) {
-        $defaultsArgs = $spec.Args
-        $knobs["defaults/$($spec.Key)"] = Invoke-CaptureRead -Name "defaults read $($defaultsArgs -join ' ')" -Reader {
-            $v = & defaults read @defaultsArgs 2>$null
+        # The host selector belongs AHEAD of the verb; emitted verb-first,
+        # `defaults` binds '-currentHost' as the domain and reports every ByHost
+        # knob as absent -- so a capture built that way records "there was
+        # nothing here" for three knobs that hold real values, and the restore
+        # then deletes them.
+        #
+        # The argv is assembled INSIDE the reader so that resolving the builder
+        # is covered by Invoke-CaptureRead's catch. This capture runs in the
+        # seconds before the host is changed, and an install that cannot reach
+        # the apply-side module has to record "could not be read" and let the
+        # setup continue, not abort the setup for the sake of recording it.
+        $specArgs = @($spec.Args)
+        $knobs["defaults/$($spec.Key)"] = Invoke-CaptureRead -Name "defaults: $($specArgs -join ' ')" -Reader {
+            $defaultsArgs = @(Get-MacDefaultsCommandArgument -Verb 'read' -DefaultsArgs $specArgs)
+            $v = & defaults @defaultsArgs 2>$null
             # Exit code, not emptiness: a key legitimately holding "" is not the
             # same as a key that does not exist, and only the exit code says which.
             if ($LASTEXITCODE -ne 0) { return $null }
@@ -517,7 +557,7 @@ function Save-HostAutomationState {
     }
 
     $doc = [ordered]@{
-        schemaVersion = 1
+        schemaVersion = $script:HostAutomationStateSchemaVersion
         platform      = $Platform
         capturedUtc   = [datetime]::UtcNow.ToString('o')
         capturedBy    = $(if ($env:USER) { $env:USER } elseif ($env:USERNAME) { $env:USERNAME } else { 'unknown' })
@@ -606,6 +646,32 @@ function Assert-SafeToDisable {
     return (Assert-NoOtherRunner -RuntimeDir $RuntimeDir -CallerName 'Disable-TestAutomation')
 }
 
+function Test-HostRestorePreviewOnly {
+<#
+.SYNOPSIS
+    Whether the operator asked for a preview, read from the CALLER's scope.
+.DESCRIPTION
+    ShouldProcess can only speak for the cmdlet object it belongs to, and that
+    object knows it is previewing only when -WhatIf was BOUND to it. A per-host
+    Disable script binds the switch; the local helper it calls one frame down
+    does not, so the helper's cmdlet has no bound value and falls back to
+    $WhatIfPreference -- resolved, at the moment ShouldProcess is asked, in
+    whatever session state is current. Asked from inside this module that is the
+    MODULE's copy, which is $false, and every restore then runs for real against
+    a host the operator only asked to describe.
+
+    $Cmdlet.GetVariableValue reaches the caller's own scope instead of this
+    module's, which is the one place the answer is true regardless of which
+    frame supplied the cmdlet.
+.OUTPUTS
+    [bool]
+#>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param([Parameter(Mandatory)]$Cmdlet)
+    try { return [bool]$Cmdlet.GetVariableValue('WhatIfPreference') } catch { return $false }
+}
+
 function Invoke-HostKnobRestore {
 <#
 .SYNOPSIS
@@ -649,9 +715,32 @@ function Invoke-HostKnobRestore {
     $knob = Get-HostAutomationKnob -State $State -Name $Name
     if (-not $knob) { $Skipped.Add("$Description (not captured)"); return }
 
+    # ShouldProcess stays the primary gate -- it is what narrates a preview in
+    # the operator's own words. The preview probe is the veto that catches the
+    # case ShouldProcess cannot see, and it costs nothing on a real run because
+    # it is only consulted after ShouldProcess has already said yes.
+    $preview = Test-HostRestorePreviewOnly -Cmdlet $Cmdlet
+
     if (-not $knob.present) {
         if (-not $Absent) { $Skipped.Add("$Description (nothing was set before; left as it is)"); return }
+        # "Absent" is the same answer a reader gives when it could not read the
+        # knob, so it is only safe to act on when the reader that produced it is
+        # the one this code ships with. An older capture's absent records are
+        # left alone and reported: removing a value the host has held all along
+        # is not reversible, and the report gives the operator the one thing
+        # that is -- knowing which knob was skipped and why.
+        $captureVersion = 0
+        if ($State -and $State.PSObject.Properties['schemaVersion']) { $captureVersion = [int]$State.schemaVersion }
+        if ($captureVersion -lt $script:HostAutomationStateSchemaVersion) {
+            $Skipped.Add("$Description (recorded as absent by an older capture, which cannot tell 'was not set' from 'could not be read'; check and clear it by hand)")
+            return
+        }
         if ($Cmdlet.ShouldProcess($Description, 'Remove (nothing was set before automation)')) {
+            # Reported through the caller's own list rather than an information
+            # stream: a preference variable does not follow a call into this
+            # module, so a line written here would be discarded and the veto
+            # would look like a knob that simply needed nothing.
+            if ($preview) { $Skipped.Add("$Description (preview only -- would be removed; nothing was changed)"); return }
             try {
                 & $Absent
                 $Restored.Add("$Description -> removed (was unset)")
@@ -666,6 +755,7 @@ function Invoke-HostKnobRestore {
     }
 
     if ($Cmdlet.ShouldProcess($Description, "Restore to '$($knob.value)'")) {
+        if ($preview) { $Skipped.Add("$Description (preview only -- would be restored to '$($knob.value)'; nothing was changed)"); return }
         try {
             & $Apply $knob.value
             $Restored.Add("$Description -> $($knob.value)")
@@ -766,7 +856,8 @@ function Write-DisableManualStep {
     foreach ($c in $Command) { Write-Output "      $c" }
 }
 
-Export-ModuleMember -Function Get-HostAutomationStatePath, Read-HostAutomationState, Save-HostAutomationState,
+Export-ModuleMember -Function Get-HostAutomationStatePath, Get-HostAutomationStateSchemaVersion,
+    Test-HostRestorePreviewOnly, Read-HostAutomationState, Save-HostAutomationState,
     Get-LinuxPreAutomationState, Get-MacPreAutomationState, Get-WindowsPreAutomationState,
     Get-HostAutomationKnob, Assert-SafeToDisable, Write-DisableManualStep,
     Invoke-HostKnobRestore, Write-DisableReport, Get-PoolStorageManualTeardown

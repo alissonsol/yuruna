@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.05
+.VERSION 2026.08.06
 .GUID 42c5e8a1-9b3d-4f27-8a6c-1d2e3f4a5b6c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -324,13 +324,20 @@ function ConvertFrom-PoolStorageMountLine {
 
 <#
 .SYNOPSIS
-Returns the mounts that must be torn down before OUR share can be mounted where we want it: anything standing on LocalPath, and anything else held against the SAME SERVER NAME. Each result carries a Reason. Pure + testable.
+Every live mount that belongs to one storage tier: the one standing on LocalPath, and any other mount held against the SAME SERVER NAME. Each carries a Reason -- 'current' (our share, at our point), 'mount-point' (something else standing where we mount), 'server-session' (a mount elsewhere that pins the server's session). Pure + testable.
 .DESCRIPTION
+One enumerator behind two questions that must never disagree. A mount asks which
+of these have to GO first (everything but 'current'). A takeover asks which
+mounts the tier is CURRENTLY carried by, and there 'current' is the whole point:
+our share, at our mount point, answered by a server that is not this machine is
+exactly what a repointed host alias leaves behind, and leaving it out of the list
+is what makes such a machine read as "nothing to do".
+
 The server-name half is the one that is not obvious. An SMB client keeps ONE session per server name and reuses it for every later mount of that name -- so once a name has been dialled, the hosts file no longer decides where it goes. Repoint 'ypool-nas' from a NAS to this machine while a share from the old NAS is still mounted under that name, and the new mount is served by the OLD session: it looks for our share on the NAS, does not find it, and mount_smbfs reports "No such file or directory". Every visible detail -- alias, share path, account, mount point -- is correct while that happens, which is why the message is so hard to read backwards.
 
 The mount-point half is ordinary: whatever is standing there has to go, whether or not it is ours, because the share path a mount point carried before is not the one being asked for now.
 #>
-function Find-PoolStorageSupersededMount {
+function Find-PoolStorageTierMount {
     [CmdletBinding()]
     [OutputType([object[]])]
     param(
@@ -348,17 +355,84 @@ function Find-PoolStorageSupersededMount {
         if (-not $parsed) { continue }
         $reason = ''
         if ((Get-PoolStorageComparableMountPoint -Path $parsed.MountPoint) -eq $wantPoint) {
-            # Already exactly what we want, at the point we want it: leave it be,
-            # so a converged re-run does not churn a healthy mount.
-            if ($parsed.RemoteBare -ieq $wantBare) { continue }
-            $reason = 'mount-point'
+            $reason = if ($parsed.RemoteBare -ieq $wantBare) { 'current' } else { 'mount-point' }
         } elseif ($wantHost -and $parsed.HostName -and ($parsed.HostName -ieq $wantHost)) {
             $reason = 'server-session'
         }
         if (-not $reason) { continue }
-        $out.Add([pscustomobject]@{ MountPoint = $parsed.MountPoint; Remote = $parsed.Remote; Reason = $reason })
+        $out.Add([pscustomobject]@{
+            MountPoint = $parsed.MountPoint
+            Remote     = $parsed.Remote
+            HostName   = $parsed.HostName
+            ShareSub   = $parsed.ShareSub
+            Reason     = $reason
+        })
     }
     return $out.ToArray()
+}
+
+<#
+.SYNOPSIS
+Returns the mounts that must be torn down before OUR share can be mounted where we want it: the tier's mounts (Find-PoolStorageTierMount) minus the one that is already exactly what we want. Pure + testable.
+.DESCRIPTION
+'current' is our share, already at our point, and it is dropped here so a
+converged re-run does not churn a healthy mount.
+#>
+function Find-PoolStorageSupersededMount {
+    [CmdletBinding()]
+    [OutputType([object[]])]
+    param(
+        [Parameter()][AllowNull()][string[]]$MountLines,
+        [Parameter(Mandatory)][string]$LocalPath,
+        [Parameter(Mandatory)][string]$NetworkPath
+    )
+    return @(Find-PoolStorageTierMount -MountLines $MountLines -LocalPath $LocalPath -NetworkPath $NetworkPath |
+        Where-Object { $_.Reason -ne 'current' })
+}
+
+<#
+.SYNOPSIS
+The live mount table as text lines, in the "<remote> on <point>" shape ConvertFrom-PoolStorageMountLine parses. Empty when it cannot be read. Best-effort; never throws.
+.DESCRIPTION
+One listing for every mount enumerator here, so a platform quirk fixed in one
+of them cannot go on being wrong in the others. Windows has no `mount`, so the
+SMB mappings are rendered into the same shape and bounded -- the redirector has
+no timeout of its own and can stall for tens of seconds against an unreachable
+server.
+#>
+function Get-PoolStorageMountLine {
+    [CmdletBinding()]
+    [OutputType([string[]])]
+    param()
+    try {
+        if ($IsWindows) {
+            $r = Invoke-PoolStorageBoundedScript -TimeoutSeconds $script:PoolStorageSmbCmdletTimeoutSeconds -ScriptBlock {
+                Get-SmbMapping -ErrorAction SilentlyContinue | ForEach-Object { "$($_.RemotePath) on $($_.LocalPath)" }
+            }
+            if ($r.TimedOut -or -not $r.Result) { return [string[]]@() }
+            return [string[]]@($r.Result | ForEach-Object { [string]$_ })
+        }
+        # Resolve the native binary explicitly -- a bare `mount` is a PowerShell
+        # alias for New-PSDrive. Listing kernel mounts is local + instant even
+        # when a cifs mount is wedged, so it needs no wall-clock cap.
+        $mountExe = (Get-Command -CommandType Application -Name 'mount' -ErrorAction SilentlyContinue | Select-Object -First 1).Source
+        if (-not $mountExe) { return [string[]]@() }
+        return [string[]]@(& $mountExe 2>$null | ForEach-Object { [string]$_ })
+    } catch {
+        Write-Verbose "Get-PoolStorageMountLine: $($_.Exception.Message)"
+        return [string[]]@()
+    }
+}
+
+<#
+.SYNOPSIS
+OS-aware wrapper over Find-PoolStorageTierMount: every live mount this tier is carried by, including the one that is already correct. Best-effort; never throws.
+#>
+function Get-PoolStorageTierMount {
+    [CmdletBinding()]
+    [OutputType([object[]])]
+    param([Parameter(Mandatory)][pscustomobject]$Config)
+    return (Find-PoolStorageTierMount -MountLines (Get-PoolStorageMountLine) -LocalPath $Config.LocalPath -NetworkPath $Config.NetworkPath)
 }
 
 <#
@@ -369,22 +443,7 @@ function Get-PoolStorageSupersededMount {
     [CmdletBinding()]
     [OutputType([object[]])]
     param([Parameter(Mandatory)][pscustomobject]$Config)
-    try {
-        $lines = @()
-        if ($IsWindows) {
-            $r = Invoke-PoolStorageBoundedScript -TimeoutSeconds $script:PoolStorageSmbCmdletTimeoutSeconds -ScriptBlock {
-                Get-SmbMapping -ErrorAction SilentlyContinue | ForEach-Object { "$($_.RemotePath) on $($_.LocalPath)" }
-            }
-            if (-not $r.TimedOut -and $r.Result) { $lines = @($r.Result | ForEach-Object { [string]$_ }) }
-        } else {
-            $mountExe = (Get-Command -CommandType Application -Name 'mount' -ErrorAction SilentlyContinue | Select-Object -First 1).Source
-            if ($mountExe) { $lines = @(& $mountExe 2>$null | ForEach-Object { [string]$_ }) }
-        }
-        return (Find-PoolStorageSupersededMount -MountLines $lines -LocalPath $Config.LocalPath -NetworkPath $Config.NetworkPath)
-    } catch {
-        Write-Verbose "Get-PoolStorageSupersededMount: $($_.Exception.Message)"
-        return @()
-    }
+    return (Find-PoolStorageSupersededMount -MountLines (Get-PoolStorageMountLine) -LocalPath $Config.LocalPath -NetworkPath $Config.NetworkPath)
 }
 
 <#
@@ -436,25 +495,7 @@ function Get-PoolStorageConflictingMount {
     [CmdletBinding()]
     [OutputType([object[]])]
     param([Parameter(Mandatory)][pscustomobject]$Config)
-    try {
-        $lines = @()
-        if ($IsWindows) {
-            $r = Invoke-PoolStorageBoundedScript -TimeoutSeconds $script:PoolStorageSmbCmdletTimeoutSeconds -ScriptBlock {
-                Get-SmbMapping -ErrorAction SilentlyContinue | ForEach-Object { "$($_.RemotePath) on $($_.LocalPath)" }
-            }
-            if (-not $r.TimedOut -and $r.Result) { $lines = @($r.Result | ForEach-Object { [string]$_ }) }
-        } else {
-            # Resolve the native binary explicitly -- a bare `mount` is a PowerShell
-            # alias for New-PSDrive. Listing kernel mounts is local + instant even
-            # when a cifs mount is wedged, so it needs no wall-clock cap.
-            $mountExe = (Get-Command -CommandType Application -Name 'mount' -ErrorAction SilentlyContinue | Select-Object -First 1).Source
-            if ($mountExe) { $lines = @(& $mountExe 2>$null | ForEach-Object { [string]$_ }) }
-        }
-        return (Find-PoolStorageConflictingMount -MountLines $lines -LocalPath $Config.LocalPath -NetworkPath $Config.NetworkPath)
-    } catch {
-        Write-Verbose "Get-PoolStorageConflictingMount: $($_.Exception.Message)"
-        return @()
-    }
+    return (Find-PoolStorageConflictingMount -MountLines (Get-PoolStorageMountLine) -LocalPath $Config.LocalPath -NetworkPath $Config.NetworkPath)
 }
 
 <#
@@ -522,6 +563,400 @@ function Clear-PoolStorageConflictingMount {
         $result.Details += [pscustomobject]@{ MountPoint = $c.MountPoint; Remote = $c.Remote; Unmounted = $ok }
     }
     return $result
+}
+
+# --- who is actually serving a mount -------------------------------------
+# The name a share was mounted under cannot answer that question. A host alias is
+# whatever the last person to configure this machine made it, and an established
+# SMB session does NOT re-resolve its server name -- so 'ypool-nas' can point at
+# loopback in the hosts file while the socket underneath a mount made hours
+# earlier is still talking to a NAS across the room. Every check below therefore
+# reads the SESSION or the OS's own tables, never the name.
+
+# An address literal, strict enough that the ordinary decorations around one in
+# tabular output -- a bare port number, a link speed like '1.0 Gb' -- cannot be
+# mistaken for an address. [IPAddress]::TryParse accepts '445' (as 0.0.1.189),
+# so a pattern has to gate it rather than the other way round.
+$script:PoolStorageAddressPattern = '(?:\d{1,3}(?:\.\d{1,3}){3}|(?:[0-9A-Fa-f]{0,4}:){2,}[0-9A-Fa-f]{0,4}(?:%[0-9A-Za-z._-]+)?)'
+
+<#
+.SYNOPSIS
+Normalizes one address token to its canonical form, or '' when the token is not an address at all: strips surrounding brackets and any '%zone' suffix, then validates. Pure.
+#>
+function Get-PoolStorageNormalAddress {
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([Parameter()][AllowNull()][AllowEmptyString()][string]$Address)
+    $a = "$Address".Trim().Trim('[', ']')
+    if ([string]::IsNullOrWhiteSpace($a)) { return '' }
+    $pct = $a.IndexOf('%')
+    if ($pct -ge 0) { $a = $a.Substring(0, $pct) }
+    if ($a -notmatch ('^' + $script:PoolStorageAddressPattern + '$')) { return '' }
+    $parsed = [System.Net.IPAddress]::Any
+    if (-not [System.Net.IPAddress]::TryParse($a, [ref]$parsed)) { return '' }
+    return $parsed.ToString()
+}
+
+<#
+.SYNOPSIS
+Every address this machine currently answers on, loopback included. Empty when the interfaces cannot be enumerated. Best-effort; never throws.
+#>
+function Get-PoolStorageHostAddress {
+    [CmdletBinding()]
+    [OutputType([string[]])]
+    param()
+    $out = [System.Collections.Generic.List[string]]::new()
+    # Loopback first and unconditionally: local lab storage is published there,
+    # and an interface enumeration that fails must not turn the machine's own
+    # shares into someone else's.
+    foreach ($fixed in @('127.0.0.1', '::1')) { $out.Add($fixed) }
+    try {
+        foreach ($nic in [System.Net.NetworkInformation.NetworkInterface]::GetAllNetworkInterfaces()) {
+            if ($nic.OperationalStatus -ne [System.Net.NetworkInformation.OperationalStatus]::Up) { continue }
+            foreach ($unicast in $nic.GetIPProperties().UnicastAddresses) {
+                $a = Get-PoolStorageNormalAddress -Address ([string]$unicast.Address)
+                if ($a -and -not $out.Contains($a)) { $out.Add($a) }
+            }
+        }
+    } catch {
+        Write-Verbose "Get-PoolStorageHostAddress: $($_.Exception.Message)"
+    }
+    return $out.ToArray()
+}
+
+<#
+.SYNOPSIS
+True when an address belongs to THIS machine -- loopback, or one of its own interface addresses. Pure when -LocalAddress is supplied; otherwise it enumerates this host.
+.DESCRIPTION
+Loopback is recognized outright rather than looked up, because local lab storage
+is published on it by design and a machine with no usable interface list still
+knows that much about itself.
+#>
+function Test-PoolStorageAddressIsLocal {
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param(
+        [Parameter()][AllowNull()][AllowEmptyString()][string]$Address,
+        [Parameter()][AllowNull()][string[]]$LocalAddress
+    )
+    $a = Get-PoolStorageNormalAddress -Address $Address
+    if (-not $a) { return $false }
+    $parsed = [System.Net.IPAddress]::Any
+    if ([System.Net.IPAddress]::TryParse($a, [ref]$parsed) -and [System.Net.IPAddress]::IsLoopback($parsed)) { return $true }
+    $list = if ($LocalAddress -and @($LocalAddress).Count -gt 0) { @($LocalAddress) } else { @(Get-PoolStorageHostAddress) }
+    foreach ($candidate in $list) {
+        if ((Get-PoolStorageNormalAddress -Address $candidate) -ieq $a) { return $true }
+    }
+    return $false
+}
+
+<#
+.SYNOPSIS
+The server address in `smbutil multichannel -x` output -- the connection table macOS prints for the session behind one mount point. '' when the text carries none. Pure.
+.DESCRIPTION
+Each row ends with the connection's server ip, port and link speed, so the
+RIGHTMOST address on a row is the server's; the columns before it identify
+interfaces and can carry addresses of this machine, which is precisely the value
+that must not be read as the peer.
+#>
+function Get-PoolStorageMultichannelPeer {
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([Parameter()][AllowNull()][string[]]$Line)
+    foreach ($raw in @($Line)) {
+        $text = "$raw"
+        if ([string]::IsNullOrWhiteSpace($text)) { continue }
+        # The header names the column; matching it would return the word, not an
+        # address, and it is the one row guaranteed to be present.
+        if ($text -match '(?i)server\s+ip') { continue }
+        $matched = [regex]::Matches($text, $script:PoolStorageAddressPattern)
+        if ($matched.Count -eq 0) { continue }
+        $addr = Get-PoolStorageNormalAddress -Address $matched[$matched.Count - 1].Value
+        if ($addr) { return $addr }
+    }
+    return ''
+}
+
+<#
+.SYNOPSIS
+The distinct peer addresses of this machine's ESTABLISHED SMB sessions, read from socket-table output (`netstat -an` or `ss -tan`, either platform's spelling). Pure.
+.DESCRIPTION
+Both tools print the local endpoint before the foreign one, and both spell an
+endpoint as address plus port -- separated by ':' on Linux and Windows and by '.'
+on macOS. The SECOND endpoint on a row is therefore the peer, and requiring ITS
+port to be the SMB one is what keeps a machine that also SERVES SMB from
+reporting its own listening address as a peer: on the server side of a session
+the SMB port is the local endpoint and the foreign one is ephemeral.
+#>
+function Get-PoolStorageEstablishedPeer {
+    [CmdletBinding()]
+    [OutputType([string[]])]
+    param(
+        [Parameter()][AllowNull()][string[]]$Line,
+        [Parameter()][int[]]$Port = @(445, 139)
+    )
+    $out = [System.Collections.Generic.List[string]]::new()
+    foreach ($raw in @($Line)) {
+        $text = "$raw"
+        if ($text -notmatch '(?i)\bESTAB(LISHED)?\b') { continue }
+        $endpoints = @()
+        foreach ($token in ($text -split '\s+')) {
+            if ($token -notmatch '^(?<addr>.+)[.:](?<port>\d{1,5})$') { continue }
+            $addr = Get-PoolStorageNormalAddress -Address $Matches['addr']
+            if (-not $addr) { continue }
+            $endpoints += ,@($addr, [int]$Matches['port'])
+        }
+        if ($endpoints.Count -lt 2) { continue }
+        $peer = $endpoints[1]
+        if ($Port -notcontains $peer[1]) { continue }
+        if (-not $out.Contains($peer[0])) { $out.Add($peer[0]) }
+    }
+    return $out.ToArray()
+}
+
+<#
+.SYNOPSIS
+The address the kernel recorded for a cifs mount, read from /proc/mounts lines. '' when the mount point is not there or carries no addr= option. Pure.
+.DESCRIPTION
+Linux records `addr=<ip>` in a cifs mount's options at mount time: the address
+the mount actually dialled, not the name it was asked for. That is the one field
+on a Linux host that cannot have been repointed since.
+#>
+function Get-PoolStorageCifsPeer {
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        [Parameter()][AllowNull()][string[]]$Line,
+        [Parameter(Mandatory)][string]$MountPoint
+    )
+    $wantPoint = Get-PoolStorageComparableMountPoint -Path $MountPoint
+    foreach ($raw in @($Line)) {
+        $fields = @("$raw" -split '\s+' | Where-Object { $_ })
+        if ($fields.Count -lt 4) { continue }
+        if ((Get-PoolStorageComparableMountPoint -Path $fields[1]) -ne $wantPoint) { continue }
+        if ($fields[3] -notmatch '(?:^|,)addr=(?<addr>[^,\s]+)') { continue }
+        $addr = Get-PoolStorageNormalAddress -Address $Matches['addr']
+        if ($addr) { return $addr }
+    }
+    return ''
+}
+
+<#
+.SYNOPSIS
+The host's TCP socket table as text lines, in whichever tool this platform has. Empty when none of them answer. Best-effort; never throws.
+#>
+function Get-PoolStorageSocketLine {
+    [CmdletBinding()]
+    [OutputType([string[]])]
+    param()
+    # ss first on Linux: net-tools (netstat) is not installed by default on
+    # current Ubuntu, while iproute2 (ss) always is.
+    $attempts = if ($IsLinux) {
+        @(@{ File = 'ss'; Args = @('-tan') }, @{ File = 'netstat'; Args = @('-an') })
+    } elseif ($IsWindows) {
+        @(@{ File = 'netstat'; Args = @('-an') })
+    } else {
+        @(@{ File = 'netstat'; Args = @('-an', '-p', 'tcp') })
+    }
+    foreach ($attempt in $attempts) {
+        try {
+            $r = Invoke-PoolStorageProcessResult -FilePath $attempt.File -ArgumentList $attempt.Args -TimeoutSeconds $script:PoolStorageProbeTimeoutSeconds
+            if ($r.ExitCode -ne 0) { continue }
+            $lines = [string[]]@("$($r.StdOut)" -split '\r?\n')
+            if ($lines.Count -gt 0) { return $lines }
+        } catch {
+            Write-Verbose "Get-PoolStorageSocketLine($($attempt.File)): $($_.Exception.Message)"
+        }
+    }
+    return [string[]]@()
+}
+
+<#
+.SYNOPSIS
+The address of the machine actually serving a mount point, read from the live session rather than from the name the mount was made under. @{ Address; Evidence }, with Address '' when this platform could not be made to say.
+.DESCRIPTION
+Every platform records the peer somewhere:
+
+  macOS   `smbutil multichannel -x` prints the server ip of each connection
+          behind a mount point.
+  Linux   the kernel keeps addr=<ip> in the cifs mount options.
+  Windows Get-SmbMultichannelConnection carries the server address per session.
+
+The shared last resort is the socket table: an established connection to the SMB
+port IS an SMB session, and when this machine holds exactly ONE of them there is
+nothing else a mount could be riding on. Two or more and it is not attributable
+to a particular mount, which is reported as "could not establish" rather than
+guessed -- an answer given confidently from evidence that could not actually see
+the thing being asked about is the failure this whole path exists to prevent.
+
+Evidence is returned with the address because a caller acting on this is about
+to move where a lab's data lives, and "the session is to 192.168.7.25" is what
+makes that reviewable; a bare verdict is not.
+#>
+function Resolve-PoolStorageMountPeer {
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param(
+        [Parameter(Mandatory)][string]$MountPoint,
+        [Parameter()][AllowEmptyString()][string]$ServerName = ''
+    )
+    try {
+        if ($IsMacOS) {
+            $r = Invoke-PoolStorageProcessResult -FilePath 'smbutil' -ArgumentList @('multichannel', '-m', $MountPoint, '-x') `
+                -TimeoutSeconds $script:PoolStorageProbeTimeoutSeconds
+            # stdout only: the table is what carries an address, and a failure
+            # message scanned for one is how a diagnostic becomes a peer.
+            $addr = Get-PoolStorageMultichannelPeer -Line @("$($r.StdOut)" -split '\r?\n')
+            if ($addr) { return @{ Address = $addr; Evidence = "the SMB session behind $MountPoint runs to $addr (smbutil multichannel)" } }
+        } elseif ($IsLinux) {
+            $procMounts = @()
+            try { $procMounts = @(Get-Content -LiteralPath '/proc/mounts' -ErrorAction Stop) } catch { Write-Verbose "Resolve-PoolStorageMountPeer: /proc/mounts unreadable ($($_.Exception.Message))." }
+            $addr = Get-PoolStorageCifsPeer -Line $procMounts -MountPoint $MountPoint
+            if ($addr) { return @{ Address = $addr; Evidence = "the kernel recorded addr=$addr for the cifs mount at $MountPoint" } }
+        } elseif ($IsWindows) {
+            $r = Invoke-PoolStorageBoundedScript -TimeoutSeconds $script:PoolStorageSmbCmdletTimeoutSeconds -ArgumentList @($ServerName) -ScriptBlock {
+                param($srv)
+                if (-not $srv) { return @() }
+                $found = @()
+                # ServerIpAddress is the per-session peer. ServerAddress is only on
+                # some builds of the connection object, so it is read defensively
+                # and contributes nothing when absent.
+                $found += @(Get-SmbMultichannelConnection -ServerName $srv -ErrorAction SilentlyContinue | ForEach-Object { [string]$_.ServerIpAddress })
+                $found += @(Get-SmbConnection -ServerName $srv -ErrorAction SilentlyContinue | ForEach-Object { [string]$_.ServerAddress })
+                return @($found | Where-Object { $_ })
+            }
+            if (-not $r.TimedOut) {
+                foreach ($candidate in @($r.Result)) {
+                    $addr = Get-PoolStorageNormalAddress -Address ([string]$candidate)
+                    if ($addr) { return @{ Address = $addr; Evidence = "the SMB client reports the session to '$ServerName' at $addr" } }
+                }
+            }
+        }
+        $peers = @(Get-PoolStorageEstablishedPeer -Line (Get-PoolStorageSocketLine))
+        if ($peers.Count -eq 1) {
+            return @{ Address = $peers[0]; Evidence = "the only established SMB session on this machine runs to $($peers[0])" }
+        }
+        if ($peers.Count -gt 1) {
+            return @{ Address = ''; Evidence = "this machine holds $($peers.Count) SMB sessions ($($peers -join ', ')) and none of them could be tied to $MountPoint" }
+        }
+        return @{ Address = ''; Evidence = "no SMB session behind $MountPoint could be read on this platform" }
+    } catch {
+        Write-Verbose "Resolve-PoolStorageMountPeer($MountPoint): $($_.Exception.Message)"
+        return @{ Address = ''; Evidence = "the server behind $MountPoint could not be read: $($_.Exception.Message)" }
+    }
+}
+
+<#
+.SYNOPSIS
+Who serves a mount -- 'local', 'remote' or 'unknown' -- from the session peer and, when that could not be read, from whether this machine publishes the share at all. Pure: every fact is a parameter. @{ Verdict; Reason }.
+.DESCRIPTION
+The session peer settles it whenever it can be read. When it cannot, one other
+fact is still worth something: a machine that publishes no such share cannot be
+the machine answering for it, so "the share table has never heard of it" is
+enough to conclude the server is elsewhere. The converse is not: a machine that
+DOES publish the share may still be mounting somebody else's copy of it, and
+that case is returned as 'unknown' so the caller reports what it could not
+establish instead of acting on a guess.
+#>
+function Get-PoolStorageMountOwnership {
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param(
+        [Parameter()][AllowNull()][AllowEmptyString()][string]$PeerAddress = '',
+        [Parameter()][AllowNull()][string[]]$LocalAddress,
+        [Parameter()][ValidateSet('yes', 'no', 'unknown')][string]$HostServesShare = 'unknown'
+    )
+    $peer = Get-PoolStorageNormalAddress -Address $PeerAddress
+    if ($peer) {
+        if (Test-PoolStorageAddressIsLocal -Address $peer -LocalAddress $LocalAddress) {
+            return @{ Verdict = 'local'; Reason = "its SMB session runs to $peer, an address of this machine" }
+        }
+        return @{ Verdict = 'remote'; Reason = "its SMB session runs to $peer, which is not an address of this machine" }
+    }
+    if ($HostServesShare -eq 'no') {
+        return @{ Verdict = 'remote'
+                  Reason  = 'the session peer could not be read, and this machine publishes no such share, so whatever answers for it is not this machine' }
+    }
+    if ($HostServesShare -eq 'yes') {
+        return @{ Verdict = 'unknown'
+                  Reason  = 'the session peer could not be read, and this machine does publish the share, so its own copy and another machine''s cannot be told apart from here' }
+    }
+    return @{ Verdict = 'unknown'; Reason = 'neither the session peer nor this machine''s share table could be read' }
+}
+
+<#
+.SYNOPSIS
+Unmounts one share WITHOUT forcing, reporting separately when the mount was busy. @{ Ok; Busy; Detail }. Never throws.
+.DESCRIPTION
+Deliberately not Dismount-PoolStoragePoint. That one forces (diskutil unmount
+force, umount -f), which is right where it is used: the server behind the mount
+is already gone, the entry is only in the way, and there is nothing left to lose.
+Here the server is alive and holding the operator's data, and forcing discards
+whatever writes are still in flight to it -- so a busy mount is reported by name,
+with nothing thrown away to make a step succeed.
+
+Nothing on the server is touched either way. Unmounting ends this machine's use
+of a share; the share and everything in it stay exactly as they are.
+#>
+function Dismount-PoolStorageShare {
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param([Parameter(Mandatory)][string]$MountPoint)
+    try {
+        if ($IsWindows) {
+            # The redirector's own open-handle count, asked BEFORE the removal:
+            # Remove-SmbMapping -Force does not mean "force past open files", it
+            # means "do not ask" -- and asking is what a child with its stdin
+            # closed can never survive. So the open files are checked here, where
+            # refusing costs nothing, rather than discovered by a prompt.
+            $open = Invoke-PoolStorageBoundedScript -TimeoutSeconds $script:PoolStorageSmbCmdletTimeoutSeconds -ArgumentList @($MountPoint) -ScriptBlock {
+                param($point)
+                $mapping = Get-SmbMapping -LocalPath $point -ErrorAction SilentlyContinue
+                if (-not $mapping -or -not $mapping.RemotePath) { return 0 }
+                $parts = @(($mapping.RemotePath -replace '^\\\\', '') -split '\\' | Where-Object { $_ })
+                if ($parts.Count -lt 2) { return 0 }
+                $count = 0
+                foreach ($c in @(Get-SmbConnection -ErrorAction SilentlyContinue)) {
+                    if (($c.ServerName -ieq $parts[0]) -and ($c.ShareName -ieq $parts[1])) { $count += [int]$c.NumOpens }
+                }
+                return $count
+            }
+            if (-not $open.TimedOut -and ([int]$open.Result) -gt 0) {
+                return @{ Ok = $false; Busy = $true; Detail = "the SMB client reports $([int]$open.Result) open handle(s) on it" }
+            }
+            $r = Invoke-PoolStorageBoundedScript -TimeoutSeconds $script:PoolStorageSmbCmdletTimeoutSeconds -ArgumentList @($MountPoint) -ScriptBlock {
+                param($point) Remove-SmbMapping -LocalPath $point -Force -ErrorAction Stop
+            }
+            if ($r.TimedOut) { return @{ Ok = $false; Busy = $false; Detail = 'the SMB client did not answer in time' } }
+            if ($r.Error) { return @{ Ok = $false; Busy = [bool]("$($r.Error)" -match '(?i)\b(busy|in use)\b'); Detail = "$($r.Error)" } }
+            return @{ Ok = $true; Busy = $false; Detail = '' }
+        }
+        # macOS answers a busy SMB mount through diskutil with a clearer message
+        # than umount's, and umount is the spelling that works when diskutil does
+        # not consider the path a volume. Neither is given a force flag.
+        $attempts = if ($IsMacOS) {
+            @(@{ File = 'diskutil'; Args = @('unmount', $MountPoint) }, @{ File = 'umount'; Args = @($MountPoint) })
+        } else {
+            # -n so a cold sudo timestamp fails in the same millisecond instead of
+            # parking on a password prompt no captured child can answer.
+            @(@{ File = 'sudo'; Args = @('-n', 'umount', $MountPoint) }, @{ File = 'umount'; Args = @($MountPoint) })
+        }
+        # Every attempt's text is kept, not just the last one's: only one of the
+        # two spellings names the reason ("Resource busy" comes from umount,
+        # diskutil answers with a dissenter), and classifying on the survivor
+        # alone turns a busy mount into an unexplained failure.
+        $said = [System.Collections.Generic.List[string]]::new()
+        foreach ($attempt in $attempts) {
+            $r = Invoke-PoolStorageProcessResult -FilePath $attempt.File -ArgumentList $attempt.Args -TimeoutSeconds $script:PoolStorageMountTimeoutSeconds
+            if ($r.ExitCode -eq 0) { return @{ Ok = $true; Busy = $false; Detail = '' } }
+            $text = (Get-PoolStorageProcessErrorDetail -StdErr "$($r.StdOut)`n$($r.StdErr)").TrimStart(':', ' ')
+            if ($text) { $said.Add("$($attempt.File): $text") }
+        }
+        $detail = ($said -join ' | ')
+        return @{ Ok = $false; Busy = [bool]($detail -match '(?i)\b(busy|in use)\b'); Detail = $detail }
+    } catch {
+        return @{ Ok = $false; Busy = $false; Detail = "$($_.Exception.Message)" }
+    }
 }
 
 # Resolve-YurunaConfigDoc loads test.config.yml for the no-Config path of the
@@ -2094,6 +2529,11 @@ Export-ModuleMember -Function `
     ConvertFrom-PoolStorageMountLine, Find-PoolStorageConflictingMount, `
     Get-PoolStorageConflictingMount, Clear-PoolStorageConflictingMount, Dismount-PoolStoragePoint, `
     Find-PoolStorageSupersededMount, Get-PoolStorageSupersededMount, `
+    Find-PoolStorageTierMount, Get-PoolStorageTierMount, Get-PoolStorageMountLine, `
+    Get-PoolStorageNormalAddress, Get-PoolStorageHostAddress, Test-PoolStorageAddressIsLocal, `
+    Get-PoolStorageMultichannelPeer, Get-PoolStorageEstablishedPeer, Get-PoolStorageCifsPeer, `
+    Get-PoolStorageSocketLine, Resolve-PoolStorageMountPeer, Get-PoolStorageMountOwnership, `
+    Dismount-PoolStorageShare, `
     Get-YurunaPoolStorageConfig, Get-YurunaStashStorageConfig, Test-YurunaPoolStorageMounted, `
     Test-PoolStorageMountEntry, Test-PoolStorageWriteProbe, Connect-YurunaPoolStorage, `
     Get-PoolStorageLinuxSudoHint, Get-PoolStorageSudoSpec, Set-PoolStorageSudoers, `

@@ -105,13 +105,16 @@ const Y = {
   },
 
   // initFooter wires the shared bottom footer bar (server IPs, last-loaded
-  // time, refresh countdown) used by the stash UI's home page. Page-agnostic:
-  // host facts come from /api/hostinfo, the countdown is visibility-aware
-  // (default 60 s, matched to the status pages), and { markLoaded } lets a page
-  // stamp the "Loaded" time + reset the countdown when ITS data refreshes. At
-  // zero it invokes opts.refresh (default: a full reload). A no-op on a page
-  // without #footer-bar markup. Mirrors the status pages' footer
-  // (yuruna.common.js).
+  // time, refresh countdown). Page-agnostic: host facts come from
+  // /api/hostinfo, the countdown is visibility-aware (default 60 s, matched to
+  // the status pages), and { markLoaded } lets a page stamp the "Loaded" time +
+  // reset the countdown when ITS data refreshes. At zero it invokes
+  // opts.refresh (default: a full reload). A no-op on a page without
+  // #footer-bar markup. Mirrors the status pages' footer (yuruna.common.js).
+  //
+  // The countdown is opt-in through the markup: a page that carries no
+  // #countdown starts no tick and is never reloaded from under the operator,
+  // which is what a page holding an unsaved form needs.
   initFooter(opts) {
     opts = opts || {};
     const interval = opts.intervalSeconds > 0 ? opts.intervalSeconds : 60;
@@ -129,11 +132,17 @@ const Y = {
       el.value = v || '—';
       el.rows = Math.min(2, Math.max(1, el.value.split('\n').length));
     };
-    Y.api('/api/hostinfo').then((d) => renderIps(d && d.serverIps)).catch(() => renderIps(''));
-
-    const markLoaded = () => {
+    const stamp = () => {
       const el = $('last-loaded');
       if (el) el.textContent = new Date().toLocaleTimeString();
+    };
+    // Stamp here, not only from a page's data load: a page with no feed of its
+    // own would otherwise show the em-dash forever. stamp, not markLoaded --
+    // arriving host facts must not restart a countdown a caller is running.
+    Y.api('/api/hostinfo').then((d) => { renderIps(d && d.serverIps); stamp(); }).catch(() => renderIps(''));
+
+    const markLoaded = () => {
+      stamp();
       countdown = interval;
     };
 
@@ -143,14 +152,16 @@ const Y = {
     // One-second tick. A hidden tab parks the countdown ('...') and never
     // refreshes (a backgrounded page must not poll, §4.1); returning to the
     // foreground forces a refresh on the next tick (countdown driven to 0).
-    setInterval(() => {
-      const el = $('countdown');
-      if (document.hidden) { if (el) el.textContent = '...'; return; }
-      countdown = Math.max(0, countdown - 1);
-      if (el) el.textContent = countdown;
-      if (countdown === 0) { countdown = interval; refresh(); }
-    }, 1000);
-    document.addEventListener('visibilitychange', () => { if (!document.hidden) countdown = 0; });
+    if ($('countdown')) {
+      setInterval(() => {
+        const el = $('countdown');
+        if (document.hidden) { el.textContent = '...'; return; }
+        countdown = Math.max(0, countdown - 1);
+        el.textContent = countdown;
+        if (countdown === 0) { countdown = interval; refresh(); }
+      }, 1000);
+      document.addEventListener('visibilitychange', () => { if (!document.hidden) countdown = 0; });
+    }
 
     return { markLoaded };
   },

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.05
+.VERSION 2026.08.06
 .GUID 422c9a3d-41bb-4e8c-9b64-5f7a1d0c9a12
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -224,10 +224,18 @@ System.String. An IPv4 address if one was discovered, otherwise the VMName.
         }
     }
 
-    # Fallback path for standalone Test.Ssh use (no Yuruna.Host loaded).
-    # Same lookups as the contract's Get-VMIp, kept here so SSH-client
-    # users (Wait-SshReady / Invoke-GuestSsh) work even when callers
-    # forget to call Initialize-YurunaHost first.
+    # Fallback path for standalone Test.Ssh use (no Yuruna.Host loaded),
+    # so SSH-client users (Wait-SshReady / Invoke-GuestSsh) work even when
+    # callers forget to call Initialize-YurunaHost first.
+    #
+    # Deliberately only the CHEAP lookups, and therefore weaker than the
+    # driver's Get-VMIp: a bridged UTM guest is invisible to both of them
+    # (no agent, and the shared-NAT lease file cannot hold its lease) and
+    # is found only by matching the bundle MAC in the host ARP table --
+    # which needs an ICMP sweep, and is host-driver work this module has
+    # no business duplicating. A caller that must resolve a bridged guest
+    # has to have the driver in scope; without it the VM name is returned
+    # and ssh's own resolution is the last route left.
     if ($IsWindows -and (Get-Command Get-VMNetworkAdapter -ErrorAction SilentlyContinue)) {
         try {
             $addrs = (Get-VMNetworkAdapter -VMName $VMName -ErrorAction Stop).IPAddresses
@@ -836,4 +844,626 @@ System.String IPv4 on success, $null on timeout.
     return $null
 }
 
-Export-ModuleMember -Function Initialize-YurunaSshKey, Get-YurunaSshPublicKey, Get-YurunaSshPrivateKeyPath, Get-YurunaSshHostKeyOption, Wait-SshReady, Get-SshReadinessFailureCause, Invoke-GuestSsh, Get-GuestSshUser, Set-GuestSshUserOverride, Clear-GuestSshUserOverride, Get-GuestAddress, Wait-GuestIp
+function Get-ServiceVmObservedState {
+<#
+.SYNOPSIS
+Describes what is actually being OBSERVED of a service guest right now, or says
+plainly that nothing is observable yet.
+.DESCRIPTION
+While a readiness wait runs, its progress line is the only thing an operator
+has. Anything that line claims therefore has to be something a probe measured.
+A fixed label such as "building the daemon" is a claim no probe supports: a
+guest idling at a login prompt with cloud-init dead prints exactly the same text
+as one mid-compile, so the whole budget is spent believing the second while the
+first is what is on screen. A line that says only what was measured -- and says
+"nothing observed yet" when that is the truth -- costs the operator nothing and
+never sends them the wrong way.
+
+Pure, so every state's wording is testable without a VM. The branches are
+ordered by how much the evidence settles: the guest's own cloud-init answer
+outranks a TCP probe from this host, which outranks having no address at all.
+.PARAMETER Address
+The address currently being probed. Empty means host-side discovery has not
+answered yet, which is itself one of the states worth reporting.
+.PARAMETER Port
+The service port being waited on.
+.PARAMETER ProbePort
+The port used to ask "is this guest answering anything at all" (sshd's).
+.PARAMETER Reachability
+'reachable' / 'unreachable' from that probe, or 'unknown' when it has not run.
+.PARAMETER CloudInitStatus
+cloud-init's own status word, as the guest reported it over SSH.
+.PARAMETER LastProgress
+The last line cloud-init printed, as the guest reported it over SSH.
+.OUTPUTS
+System.String. One clause, suitable for appending to a progress line.
+#>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        [AllowEmptyString()][string]$Address = '',
+        [int]$Port = 80,
+        [int]$ProbePort = 22,
+        [ValidateSet('unknown', 'reachable', 'unreachable')][string]$Reachability = 'unknown',
+        [AllowEmptyString()][string]$CloudInitStatus = '',
+        [AllowEmptyString()][string]$LastProgress = ''
+    )
+    if ([string]::IsNullOrWhiteSpace($Address)) {
+        return 'no guest address discovered yet, so nothing has been probed'
+    }
+    if (-not [string]::IsNullOrWhiteSpace($CloudInitStatus)) {
+        $tail = if ($LastProgress) { " (last step: $LastProgress)" } else { '' }
+        switch -Regex ($CloudInitStatus) {
+            '^(running|not started)$' { return "guest $Address says cloud-init is $CloudInitStatus$tail" }
+            '^done$'                  { return "guest $Address says cloud-init FINISHED and nothing is listening on :$Port$tail" }
+            '^error$'                 { return "guest $Address says cloud-init ERRORED and nothing is listening on :$Port$tail" }
+            default                   { return "guest $Address reports cloud-init '$CloudInitStatus'; nothing on :$Port yet$tail" }
+        }
+    }
+    switch ($Reachability) {
+        'reachable'   { return "guest $Address accepts :$ProbePort but nothing is serving :$Port yet" }
+        'unreachable' { return "guest $Address is not accepting :$ProbePort or :$Port from this host" }
+        default       { return "guest $Address found; nothing observed from it yet" }
+    }
+}
+
+function Get-ServiceVmReadinessVerdict {
+<#
+.SYNOPSIS
+Turns a service VM readiness result into the bring-up's verdict, and states
+which verdicts are failures.
+.DESCRIPTION
+A wait that ends with the daemon unbound, the guest not building and cloud-init
+no longer running is a FAILED bring-up. Reporting it as a success is worse than
+never waiting: the run summary then lists a working service, and the next thing
+to break names a layer that never ran. So the verdict lives in one place, and
+the entry point routes on it rather than each site deciding for itself.
+
+Not every non-Ready outcome is a failure, and the difference is evidence the
+guest supplied:
+  * the guest confirmed the daemon is BOUND and only this host cannot open a
+    socket to it -- the service is running and reaches the pool through its own
+    announce, so the bring-up succeeded in every way the daemon controls;
+  * cloud-init is still running -- the build is progressing and finishes on its
+    own, so the honest report is "not yet", not "broken".
+Everything else -- including a wait that never ran -- is a failure. A verdict
+that was never taken is not a pass: nothing confirmed the daemon, so nothing
+may claim it.
+.PARAMETER Endpoint
+The record returned by Wait-YurunaServiceVmDaemon / Wait-YurunaServiceVmEndpoint,
+or $null when the wait did not run at all.
+.OUTPUTS
+[pscustomobject] Outcome (Ready|Unreachable|StillBuilding|NotServing),
+IsFailure [bool], Summary [string].
+#>
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param([psobject]$Endpoint)
+
+    if (-not $Endpoint) {
+        return [pscustomobject]@{
+            Outcome   = 'NotServing'
+            IsFailure = $true
+            Summary   = 'the readiness wait never ran, so nothing confirmed the daemon'
+        }
+    }
+    if ($Endpoint.Ready) {
+        return [pscustomobject]@{
+            Outcome   = 'Ready'
+            IsFailure = $false
+            Summary   = 'the daemon answered from this host'
+        }
+    }
+    if ($Endpoint.Unreachable) {
+        return [pscustomobject]@{
+            Outcome   = 'Unreachable'
+            IsFailure = $false
+            Summary   = 'the guest confirmed the daemon is bound; only this host cannot reach it'
+        }
+    }
+    if ($Endpoint.StillBuilding) {
+        return [pscustomobject]@{
+            Outcome   = 'StillBuilding'
+            IsFailure = $false
+            Summary   = 'cloud-init is still running, so the build is progressing'
+        }
+    }
+    return [pscustomobject]@{
+        Outcome   = 'NotServing'
+        IsFailure = $true
+        Summary   = 'the budget ran out with the daemon unbound and the guest not building'
+    }
+}
+
+function Format-GuestSshDiagnosticHint {
+<#
+.SYNOPSIS
+An ssh command line the operator can paste -- or, when the guest's address is
+unknown, how to find it instead of a command with a hole in it.
+.DESCRIPTION
+`ssh stash-admin@ 'sudo tail ...'` is not a diagnostic. Interpolating an address
+that was never resolved yields a command whose only effect is to send the reader
+hunting for a typo in the message, and it hides the fact that is actually
+blocking them: this host does not know where the guest is. Naming that, plus the
+two lookups that answer it, gets them moving; a broken command does not.
+.PARAMETER User
+Guest login account.
+.PARAMETER Address
+The resolved guest address. Empty (or equal to -VMName, which is what address
+resolution falls back to when it discovers nothing) selects the "unknown" text.
+.PARAMETER Command
+The remote command to run.
+.PARAMETER VMName
+The VM name, used both to recognise the resolution fallback and to build the
+lookup hints.
+.OUTPUTS
+System.String. Either one runnable ssh line, or a short block naming the guest
+as unresolved and how to resolve it.
+#>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        [Parameter(Mandatory)][string]$User,
+        [AllowEmptyString()][string]$Address = '',
+        [Parameter(Mandatory)][string]$Command,
+        [AllowEmptyString()][string]$VMName = ''
+    )
+    $addr = ([string]$Address).Trim()
+    if ($addr -and $addr -ne $VMName) {
+        return "ssh $User@$addr '$Command'"
+    }
+    $vm = if ($VMName) { $VMName } else { '<vm-name>' }
+    $lines = @(
+        "This host never resolved an address for '$vm', so there is no ssh command to give you."
+        'Find it, then ssh to it:'
+    )
+    if ($IsMacOS) {
+        # The bundle MAC is the guest's only stable identity on this host: the
+        # DHCP lease file is keyed on a name a rebuilt VM reuses, so it hands
+        # back predecessors' addresses, while an ARP entry carrying the bundle's
+        # MAC is this VM and no other. `arp -an` prints each octet with leading
+        # zeros stripped, so the two forms are compared by eye, not by grep.
+        $lines += "  utmctl ip-address '$vm'       # answers only for guests running UTM integration services"
+        $lines += "  plutil -extract MacAddress raw ~/yuruna/guest.nosync/$vm.utm/config.plist"
+        $lines += '  arp -an                       # the entry with that MAC (leading zeros dropped per octet) is the guest'
+    } elseif ($IsWindows) {
+        $lines += "  Get-VMNetworkAdapter -VMName '$vm' | Select-Object -ExpandProperty IPAddresses"
+    } else {
+        $lines += "  virsh -c qemu:///system domifaddr --source arp '$vm'"
+    }
+    $lines += "  ssh $User@<the-address-you-found> '$Command'"
+    return ($lines -join [Environment]::NewLine)
+}
+
+function Resolve-GuestDiagnosticAddress {
+<#
+.SYNOPSIS
+Last-resort address discovery for a guest whose ordinary lookup came back empty:
+match the VM bundle's MAC against the host ARP table.
+.DESCRIPTION
+Ordinary discovery -- Get-GuestAddress, i.e. guest agent, DHCP lease file,
+hypervisor KVP -- can stay silent for a guest that is demonstrably on the
+network. A bridged UTM guest has no lease on this host and no agent, and a lease
+keyed on a name that a rebuilt VM reuses is discarded rather than trusted. The
+bundle's MAC is the identity that stays true through all of that: it is written
+into the bundle at build time and is what the guest puts on the wire, so an ARP
+entry carrying it is this VM and no other.
+
+Deliberately a DIAGNOSTIC path, not a poll: identifying the guest costs an ICMP
+sweep of each candidate /24, which is far too expensive to repeat every few
+seconds. It runs once, when a bring-up has already failed and the alternative is
+handing the operator an ssh command with no host in it.
+
+Returns an empty string -- never the VM name -- when the guest cannot be found,
+so a caller can tell "unknown" apart from a resolvable name.
+.PARAMETER VMName
+The VM to locate.
+.PARAMETER BundlePath
+Path to the UTM bundle. Defaults to the harness location for this VM name.
+.PARAMETER TimeoutMinutes
+Outer bound per candidate subnet. Each subnet is swept ONCE regardless, so on a
+host where the guest is absent this returns in the time the sweeps take rather
+than spending the budget -- see the -MaxAttempt note at the call below.
+.OUTPUTS
+System.String. An IPv4 address, or '' when the guest could not be identified.
+#>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        [Parameter(Mandatory)][string]$VMName,
+        [string]$BundlePath = '',
+        [int]$TimeoutMinutes = 1
+    )
+    # The cheap lookups first; the sweep below is only worth its cost when they
+    # have nothing. Get-GuestAddress hands back the VM NAME when it discovers
+    # no address, which is useful to ssh and useless as an answer here.
+    $address = ''
+    try { $address = [string](Get-GuestAddress -VMName $VMName) } catch { Write-Verbose "Resolve-GuestDiagnosticAddress: Get-GuestAddress: $($_.Exception.Message)" }
+    if ($address -and $address -ne $VMName) { return $address }
+
+    # Identifying a guest by bundle MAC is host-driver work and already exists
+    # there; a second implementation here would be a second thing to keep
+    # correct. Absent driver (non-UTM host, or Initialize-YurunaHost never ran)
+    # simply means this rung is unavailable.
+    $byMac = Get-Command Resolve-UtmGuestIpByMac -ErrorAction SilentlyContinue
+    if (-not $byMac) { return '' }
+    if (-not $BundlePath) { $BundlePath = "$HOME/yuruna/guest.nosync/$VMName.utm" }
+    $plistPath = Join-Path $BundlePath 'config.plist'
+    if (-not (Test-Path -LiteralPath $plistPath)) {
+        Write-Verbose "Resolve-GuestDiagnosticAddress: no bundle plist at $plistPath."
+        return ''
+    }
+
+    # Both networking modes are tried because the bundle decides which one this
+    # VM is on, and a failed bring-up is exactly the case where that is not
+    # already known here: the host LAN /24 covers a Bridged guest, UTM's own
+    # 192.168.64.0/24 covers Shared NAT.
+    $hostIp = ''
+    if (Get-Command Get-BestHostIp -ErrorAction SilentlyContinue) {
+        try { $hostIp = [string](Get-BestHostIp) } catch { Write-Verbose "Resolve-GuestDiagnosticAddress: Get-BestHostIp: $($_.Exception.Message)" }
+    }
+    $prefixes = @()
+    if ($hostIp -match '^(\d{1,3}\.\d{1,3}\.\d{1,3}\.)\d{1,3}$') { $prefixes += $Matches[1] }
+    if ($prefixes -notcontains '192.168.64.') { $prefixes += '192.168.64.' }
+
+    foreach ($prefix in $prefixes) {
+        $found = ''
+        try {
+            # ONE sweep per subnet. Left uncapped, the resolver polls until its
+            # whole -TimeoutMinutes elapses, and this is the FAILURE path: the
+            # caller is already past its readiness budget and every second here
+            # is added to a bring-up that has finished waiting. A guest that did
+            # not answer the first sweep is not going to answer a re-sweep
+            # seconds later either -- it is either not on this subnet or not up.
+            $found = [string](& $byMac -PlistPath $plistPath -SubnetPrefix $prefix -HostIp $hostIp `
+                -TimeoutMinutes ([Math]::Max(1, $TimeoutMinutes)) -PollSeconds 5 -MaxAttempt 1)
+        } catch { Write-Verbose "Resolve-GuestDiagnosticAddress: MAC match on ${prefix}0/24: $($_.Exception.Message)" }
+        if ($found) { return $found }
+    }
+    return ''
+}
+
+function Confirm-ServiceVmAtRecoveredAddress {
+<#
+.SYNOPSIS
+Second chance for a service bring-up whose readiness wait timed out: locate the
+guest by a route the wait could not use, and probe the daemon's port THERE
+before the bring-up is called failed.
+.DESCRIPTION
+The failure this exists for is a false negative, not a slow service. When the
+wait probed an address the guest never had -- or never resolved one at all --
+the daemon can be serving perfectly the whole time, and the bring-up reports it
+dead. Finding the guest afterwards and printing where it is does not settle
+that; only re-probing the port at the recovered address does.
+
+Deliberately the failure path only. Locating a guest this way costs an ICMP
+sweep per candidate subnet, far too much to repeat inside a poll loop, and the
+question it answers -- "is the daemon actually serving somewhere this host never
+looked?" -- only arises once the ordinary wait has given up.
+
+The probe is a short wall-clock loop rather than a single connect: a guest whose
+address only just became discoverable is frequently seconds away from binding,
+and one refused connection is not evidence of a dead daemon.
+
+Reports what it OBSERVED, never what it assumes. When no new address turns up,
+or the port stays shut at the one that does, the record says so and the caller
+fails the bring-up as it would have anyway.
+.PARAMETER VMName
+The service VM whose bring-up is about to be failed.
+.PARAMETER Port
+The daemon port to re-probe.
+.PARAMETER KnownAddress
+The address the readiness wait was already probing, if any. A recovered address
+equal to this one is not a second chance -- it is the same probe again -- so it
+is reported as Probed = $false rather than being re-tested.
+.PARAMETER TimeoutSeconds
+Wall-clock budget for the re-probe at the recovered address.
+.PARAMETER PollSeconds
+Gap between connect attempts inside that budget.
+.PARAMETER TestPortOpen
+The port probe, injectable so the loop can be exercised with no guest. Defaults
+to Test-TcpEndpointOpen with a 1 s connect timeout, which is the same probe the
+readiness wait uses -- sharing it is what keeps "the daemon answers" from
+meaning two different things either side of this call.
+.OUTPUTS
+[pscustomobject] Address (the recovered address, or ''), Probed [bool] (whether
+a re-probe actually happened), Ready [bool] (the daemon answered there),
+Summary [string].
+#>
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param(
+        [Parameter(Mandatory)][string]$VMName,
+        [int]$Port = 80,
+        [AllowEmptyString()][AllowNull()][string]$KnownAddress = '',
+        [int]$TimeoutSeconds = 60,
+        [int]$PollSeconds = 3,
+        [scriptblock]$TestPortOpen
+    )
+    if (-not $TestPortOpen) { $TestPortOpen = { param($addr, $p) Test-TcpEndpointOpen -Address $addr -Port $p -TimeoutMilliseconds 1000 } }
+    $result = [ordered]@{ Address = ''; Probed = $false; Ready = $false; Summary = '' }
+
+    $recovered = ''
+    try { $recovered = [string](Resolve-GuestDiagnosticAddress -VMName $VMName) }
+    catch { Write-Verbose "Confirm-ServiceVmAtRecoveredAddress: $($_.Exception.Message)" }
+    if (-not $recovered) {
+        $result.Summary = "'$VMName' could not be located by any discovery route this host has"
+        return [pscustomobject]$result
+    }
+    $result.Address = $recovered
+    if ($KnownAddress -and $recovered -eq $KnownAddress) {
+        $result.Summary = "'$VMName' is at $recovered, the address the wait already probed -- nothing new to try"
+        return [pscustomobject]$result
+    }
+
+    $result.Probed = $true
+    Write-Warning ("Located '$VMName' at $recovered -- an address the readiness wait never probed. " +
+                   "Re-checking :$Port there before failing the bring-up.")
+    $deadline = (Get-Date).AddSeconds([Math]::Max(1, $TimeoutSeconds))
+    while ((Get-Date) -lt $deadline) {
+        $open = $false
+        try { $open = [bool](& $TestPortOpen $recovered $Port) }
+        catch { Write-Verbose "Confirm-ServiceVmAtRecoveredAddress: probe ${recovered}:${Port}: $($_.Exception.Message)" }
+        if ($open) {
+            $result.Ready   = $true
+            $result.Summary = "the daemon IS serving at ${recovered}:$Port -- the wait was probing an address this guest never had"
+            return [pscustomobject]$result
+        }
+        Start-Sleep -Seconds ([Math]::Max(1, $PollSeconds))
+    }
+    $result.Summary = "${recovered}:$Port did not answer within ${TimeoutSeconds}s either, so the guest was found but its daemon is not serving"
+    return [pscustomobject]$result
+}
+
+# Observation shared between a readiness wait's injected hooks and the progress
+# line that reports it. Module-scoped rather than captured into the hooks: they
+# run inside Wait-YurunaServiceVmEndpoint's call chain, where a local of the same
+# name in that function would shadow a dynamically-scoped capture without a
+# sound, and $script: resolves in THIS module regardless of who is calling.
+$script:ServiceVmObservation = $null
+
+function Wait-YurunaServiceVmDaemon {
+<#
+.SYNOPSIS
+Wait for a service guest's daemon to answer, reporting on every poll what is
+actually observed of the guest rather than asserting what it is doing.
+.DESCRIPTION
+Wraps Wait-YurunaServiceVmEndpoint, which takes a fixed -ProgressLabel and
+prints it unchanged for the whole wait. That label is the one part of the wait
+that is not measured, and it is the part the operator reads: a guest idle at a
+login prompt with cloud-init dead prints the same "building the daemon" as one
+mid-compile, for as long as the budget lasts, and the operator waits it out.
+
+So the fixed label is suppressed and this function paints the line from the
+observations the wait already makes -- which address resolved, whether the guest
+accepts TCP at all, and, once SSH answers, cloud-init's own status and last
+printed step. When none of that is available the line says exactly that.
+
+The observations come from the SAME hooks the wait uses for its own decisions
+(-ResolveAddress, -InvokeInGuest) rather than from extra probes of this
+function's own. Two independent opinions about where the guest is and what it is
+doing would eventually disagree, and a progress line that contradicts the
+verdict is worse than no progress line.
+
+One extra probe does exist -- a bounded TCP connect to sshd -- because nothing
+else can tell "the guest is up and the daemon is not ready" from "the guest is
+not answering at all", and those two need different actions. It is throttled:
+against a dead address every attempt costs its full timeout.
+.PARAMETER ServiceLabel
+How the daemon is named in the progress line, e.g. 'stash-service daemon'.
+.PARAMETER SshPort
+Port used for the reachability probe. sshd's, because it is the one port a
+service guest is expected to answer before its own daemon exists.
+.PARAMETER ReachabilityEverySeconds
+Minimum seconds between reachability probes.
+.PARAMETER InGuestCheckAfterSeconds
+.PARAMETER InGuestCheckEverySeconds
+When the guest is first asked about itself over SSH, and how often afterwards.
+Forwarded to the wait, which owns the round trip.
+.PARAMETER ResolveAddress
+.PARAMETER TestPortOpen
+.PARAMETER InvokeInGuest
+    The three outside effects -- resolve, probe, ask the guest -- as injectable
+    scriptblocks, defaulting to the real ones and forwarded to the wait so both
+    layers observe the same guest. Same reason Wait-YurunaServiceVmEndpoint takes
+    them: they are the only parts that need a running VM, so injecting them is
+    what lets the wording and the verdict be tested without one.
+.OUTPUTS
+[pscustomobject] Wait-YurunaServiceVmEndpoint's record, plus ObservedState (the
+final observation, in words) and Reachability.
+#>
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param(
+        [Parameter(Mandatory)][string]$VMName,
+        [int]$Port = 80,
+        [Parameter(Mandatory)][int]$TimeoutSeconds,
+        [int]$MaxTimeoutSeconds = 0,
+        [AllowEmptyString()][string]$Address = '',
+        [AllowEmptyString()][string]$GuestKey = '',
+        [AllowEmptyString()][string]$User = '',
+        [string]$ServiceLabel = 'daemon',
+        [int]$SshPort = 22,
+        [int]$ReachabilityEverySeconds = 15,
+        [int]$InGuestCheckAfterSeconds = 120,
+        [int]$InGuestCheckEverySeconds = 60,
+        [int]$PollSeconds = 3,
+        [ValidateSet('auto', 'inplace', 'lines', 'none')][string]$ProgressMode = 'auto',
+        [scriptblock]$OnAddressChanged,
+        [scriptblock]$ResolveAddress,
+        [scriptblock]$TestPortOpen,
+        [scriptblock]$InvokeInGuest
+    )
+    if (-not $ResolveAddress) { $ResolveAddress = { param($name) [string](Get-GuestAddress -VMName $name) } }
+    if (-not $TestPortOpen)   { $TestPortOpen   = { param($addr, $p) Test-TcpEndpointOpen -Address $addr -Port $p -TimeoutMilliseconds 1000 } }
+    if (-not $InvokeInGuest)  { $InvokeInGuest  = { param($name, $key, $account, $cmd) Invoke-GuestSsh -VMName $name -GuestKey $key -User $account -TimeoutSeconds 30 -Command $cmd } }
+    # Same normalization the wait applies, computed here too because the progress
+    # line quotes the cap: a line promising a ceiling the wait does not honor is
+    # the class of claim this function exists to remove.
+    $capSeconds = if ($MaxTimeoutSeconds -le 0) { $TimeoutSeconds * 2 }
+                  elseif ($MaxTimeoutSeconds -lt $TimeoutSeconds) { $TimeoutSeconds }
+                  else { $MaxTimeoutSeconds }
+    $script:ServiceVmObservation = @{
+        VMName          = $VMName
+        Address         = [string]$Address
+        Reachability    = 'unknown'
+        CloudInitStatus = ''
+        LastProgress    = ''
+        State           = ''
+        LastReachCheck  = [datetime]::MinValue
+        StartedAt       = Get-Date
+        Port            = $Port
+        SshPort         = $SshPort
+        ReachEvery      = [Math]::Max(1, $ReachabilityEverySeconds)
+        CapMinutes      = [int][Math]::Ceiling($capSeconds / 60)
+        Label           = $ServiceLabel
+        ProgressMode    = $ProgressMode
+        Resolve         = $ResolveAddress
+        PortOpen        = $TestPortOpen
+        InGuest         = $InvokeInGuest
+    }
+
+    $paint = {
+        $o = $script:ServiceVmObservation
+        if (-not $o -or $o.ProgressMode -eq 'none') { return }
+        $o.State = Get-ServiceVmObservedState -Address $o.Address -Port $o.Port -ProbePort $o.SshPort `
+            -Reachability $o.Reachability -CloudInitStatus $o.CloudInitStatus -LastProgress $o.LastProgress
+        $mode = $o.ProgressMode
+        if ($mode -eq 'auto') { $mode = if (Test-YurunaProgressLineSupported) { 'inplace' } else { 'lines' } }
+        $elapsed = [int]((Get-Date) - $o.StartedAt).TotalSeconds
+        # Second resolution on a terminal is the liveness signal -- the line is
+        # rewritten in place, so it costs nothing. Into a log it is noise: nobody
+        # reading a file afterwards needs the seconds, and a minute-resolution
+        # clock keeps consecutive entries legible next to each other.
+        $clock = if ($mode -eq 'inplace') {
+            '{0:D2}m{1:D2}s' -f [int][Math]::Floor($elapsed / 60), ($elapsed % 60)
+        } else {
+            "$([int][Math]::Floor($elapsed / 60))m"
+        }
+        # The OBSERVATION is the identity, not the rendered line: into a log this
+        # emits the moment what is being reported changes, and otherwise once per
+        # throttle interval however the clock moves underneath it. The wait's own
+        # start time is in the key because the throttle state is module-scoped --
+        # without it, a later wait whose first observation matches an earlier
+        # wait's last one would print nothing at all until the interval elapsed.
+        Write-YurunaWaitProgress -Mode $mode `
+            -Message "$clock / up to $($o.CapMinutes)m  waiting for the $($o.Label) on :$($o.Port) -- $($o.State)" `
+            -IdentityKey "$($o.VMName)|$($o.StartedAt.Ticks)|$($o.Label)|$($o.State)"
+    }
+
+    $resolveHook = {
+        param($name)
+        $o = $script:ServiceVmObservation
+        $addr = ''
+        try { $addr = [string](& $o.Resolve $name) } catch { Write-Verbose "Wait-YurunaServiceVmDaemon: address resolve: $($_.Exception.Message)" }
+        # The VM-name fallback is not an address; passing it on would have the
+        # wait dial a name that does not resolve.
+        if ($addr -eq $name) { $addr = '' }
+        # An empty answer is not a discovery that the guest has no address. The
+        # wait keeps probing the last address it held -- including the one the
+        # caller seeded from the hypervisor -- so forgetting it here would put
+        # "no guest address discovered yet, so nothing has been probed" on screen
+        # while a probe runs against a known address every poll. That is the same
+        # unmeasured claim this wrapper exists to remove, merely inverted. It
+        # would also make the line flip text on every poll whenever discovery is
+        # intermittent, which is what floods a log. Only a NEW address replaces
+        # the one in hand.
+        if ($addr -and $addr -ne $o.Address) {
+            $o.Address = $addr
+            # A reading taken against the address the guest left proves nothing
+            # about the one it moved to.
+            $o.Reachability = 'unknown'
+            $o.LastReachCheck = [datetime]::MinValue
+        }
+        # Probes the address in USE, which is the seeded one until discovery
+        # answers differently. Gating this on the per-poll answer instead leaves
+        # reachability 'unknown' for the whole wait on every host that seeds an
+        # address, and reachability is the only thing separating "guest up,
+        # daemon not ready" from "guest answering nothing".
+        if ($o.Address -and ((Get-Date) - $o.LastReachCheck).TotalSeconds -ge $o.ReachEvery) {
+            $o.LastReachCheck = Get-Date
+            $reachable = $false
+            try { $reachable = [bool](& $o.PortOpen $o.Address $o.SshPort) } catch { Write-Verbose "Wait-YurunaServiceVmDaemon: reachability probe: $($_.Exception.Message)" }
+            $o.Reachability = if ($reachable) { 'reachable' } else { 'unreachable' }
+        }
+        & $paint
+        return $addr
+    }
+
+    $inGuestHook = {
+        param($name, $key, $account, $cmd)
+        $o = $script:ServiceVmObservation
+        $answer = $null
+        try {
+            $answer = & $o.InGuest $name $key $account $cmd
+        } catch { Write-Verbose "Wait-YurunaServiceVmDaemon: in-guest probe: $($_.Exception.Message)" }
+        # The wait parses this same output for its own decisions, but keeps the
+        # readings to itself. Reading them again here is what lets the progress
+        # line quote the guest instead of guessing at it.
+        if ($answer) {
+            $text = [string]$answer.output
+            if ($text -match 'YURUNA_CLOUDINIT=(.*)') { $o.CloudInitStatus = $Matches[1].Trim() }
+            if ($text -match 'YURUNA_PROGRESS=(.*)')  { $o.LastProgress    = $Matches[1].Trim() }
+            if ($text -match 'YURUNA_(NOT_)?LISTENING') {
+                # SSH completing IS reachability, measured more strongly than a
+                # bare TCP connect could measure it.
+                $o.Reachability   = 'reachable'
+                $o.LastReachCheck = Get-Date
+            }
+        }
+        return $answer
+    }
+
+    $waitArgs = @{
+        VMName                   = $VMName
+        Port                     = $Port
+        TimeoutSeconds           = $TimeoutSeconds
+        MaxTimeoutSeconds        = $capSeconds
+        Address                  = $Address
+        GuestKey                 = $GuestKey
+        User                     = $User
+        InGuestCheckAfterSeconds = $InGuestCheckAfterSeconds
+        InGuestCheckEverySeconds = $InGuestCheckEverySeconds
+        PollSeconds              = $PollSeconds
+        # Empty on purpose: the fixed label is the thing this wrapper replaces,
+        # and an empty one is what silences the wait's own painting so the two
+        # do not both draw. -ProgressMode is still forwarded, so a caller that
+        # asked for silence gets it from both layers rather than from this one
+        # only.
+        ProgressLabel            = ''
+        ProgressMode             = $ProgressMode
+        ResolveAddress           = $resolveHook
+        TestPortOpen             = $TestPortOpen
+        InvokeInGuest            = $inGuestHook
+    }
+    if ($OnAddressChanged) { $waitArgs.OnAddressChanged = $OnAddressChanged }
+
+    try {
+        $result = Wait-YurunaServiceVmEndpoint @waitArgs
+        $o = $script:ServiceVmObservation
+        # The returned record is the authority on what the wait concluded; the
+        # running observation only fills the gaps it does not carry.
+        if ($result) {
+            if ($result.Address)         { $o.Address         = [string]$result.Address }
+            if ($result.CloudInitStatus) { $o.CloudInitStatus = [string]$result.CloudInitStatus }
+            if ($result.LastProgress)    { $o.LastProgress    = [string]$result.LastProgress }
+            if ($result.Ready)           { $o.Reachability    = 'reachable' }
+        }
+        $finalState = if ($result -and $result.Ready) {
+            "guest $($o.Address) is serving :$Port"
+        } else {
+            Get-ServiceVmObservedState -Address $o.Address -Port $Port -ProbePort $SshPort `
+                -Reachability $o.Reachability -CloudInitStatus $o.CloudInitStatus -LastProgress $o.LastProgress
+        }
+        if ($result) {
+            $result | Add-Member -NotePropertyName 'ObservedState' -NotePropertyValue $finalState -Force
+            $result | Add-Member -NotePropertyName 'Reachability'  -NotePropertyValue $o.Reachability -Force
+        }
+        return $result
+    } finally {
+        Close-YurunaWaitProgress
+        $script:ServiceVmObservation = $null
+    }
+}
+
+Export-ModuleMember -Function Initialize-YurunaSshKey, Get-YurunaSshPublicKey, Get-YurunaSshPrivateKeyPath, Get-YurunaSshHostKeyOption, Wait-SshReady, Get-SshReadinessFailureCause, Invoke-GuestSsh, Get-GuestSshUser, Set-GuestSshUserOverride, Clear-GuestSshUserOverride, Get-GuestAddress, Wait-GuestIp, Get-ServiceVmObservedState, Get-ServiceVmReadinessVerdict, Format-GuestSshDiagnosticHint, Resolve-GuestDiagnosticAddress, Confirm-ServiceVmAtRecoveredAddress, Wait-YurunaServiceVmDaemon

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.05
+.VERSION 2026.08.06
 .GUID 42b1e7d3-c9a4-4f82-a571-6c8d3e5f9a01
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -45,6 +45,34 @@ function Write-UbuntuImageExceptionDetail {
     if ($Record.Exception.Response) {
         Write-Verbose "HTTP status: $([int]$Record.Exception.Response.StatusCode) $($Record.Exception.Response.StatusCode)"
     }
+}
+
+function Get-UbuntuImageHttpStatus {
+    <#
+    .SYNOPSIS
+        HTTP status code carried by a failed fetch, 0 when none can be read.
+    .DESCRIPTION
+        Invoke-WebRequest raises an exception carrying the .Response to read
+        the code from. The squid SSL-bump path does not: it drives HttpClient
+        directly and throws a plain message, so there the code survives only in
+        the text. Reading both is what keeps a 404 arriving through the cache
+        classified as "the mirror publishes no checksums" instead of as an
+        unverifiable download that aborts the bring-up.
+    .OUTPUTS
+        [int] status code, or 0 when none could be read.
+    #>
+    [CmdletBinding()]
+    [OutputType([int])]
+    param([AllowNull()]$ErrorRecord)
+    if (-not $ErrorRecord) { return 0 }
+    try {
+        $response = $ErrorRecord.Exception.Response
+        if ($response -and $response.StatusCode) { return [int]$response.StatusCode }
+    } catch { $null = $_ }
+    $message = ''
+    try { $message = [string]$ErrorRecord.Exception.Message } catch { $message = '' }
+    if ($message -match '\bHTTP\s+(\d{3})\b') { return [int]$Matches[1] }
+    return 0
 }
 
 function Get-UbuntuServerImageManifestUrl {
@@ -247,34 +275,6 @@ function Test-UbuntuServerImageChecksum {
         [Parameter(Mandatory)][string]$DownloadFile
     )
     Write-Information "Verifying download integrity..." -InformationAction Continue
-    # Best-effort: authenticate the SHA256SUMS via its detached GPG signature
-    # before trusting any hash parsed from it. The verifier lives in
-    # Yuruna.Image, which the ISO path does not load, so import on demand and
-    # capture a CommandInfo that resolves against its defining module. No
-    # gpg/keyserver/.gpg -> 'unverified' (proceed on hash); a definitively bad
-    # or foreign signature -> fail like a hash mismatch.
-    $sigVerifier = Get-Command Test-PublishedChecksumSignature -ErrorAction SilentlyContinue
-    if (-not $sigVerifier) {
-        $imgMod = Join-Path $PSScriptRoot 'Yuruna.Image.psm1'
-        if (Test-Path -LiteralPath $imgMod) {
-            Import-Module $imgMod -ErrorAction SilentlyContinue
-            $sigVerifier = Get-Command Test-PublishedChecksumSignature -ErrorAction SilentlyContinue
-        }
-    }
-    if ($sigVerifier) {
-        switch (& $sigVerifier -ChecksumUrl $ChecksumUrl) {
-            'good'       { Write-Information "Checksum signature OK (pinned Ubuntu key)." -InformationAction Continue }
-            'unverified' { Write-Warning "SHA256SUMS signature unverified (gpg/keyserver unavailable or no detached .gpg); proceeding on hash only." }
-            'bad'        {
-                Write-Warning ('=' * 72)
-                Write-Warning "  SHA256SUMS GPG SIGNATURE INVALID"
-                Write-Warning "  Source   : $ChecksumUrl"
-                Write-Warning "  Failed verification against the pinned Ubuntu signing keys."
-                Write-Warning ('=' * 72)
-                return $false
-            }
-        }
-    }
     # SHA256SUMS fetch: bounded retries absorb transient mirror failures so they
     # are not conflated with "mirror publishes no checksums". A definitive HTTP
     # 403/404/410 means the checksum file genuinely is not published -> soft
@@ -285,51 +285,108 @@ function Test-UbuntuServerImageChecksum {
         $retryModule = [System.IO.Path]::GetFullPath((Join-Path -Path $PSScriptRoot -ChildPath '../../automation/Yuruna.Retry.psm1'))
         if (Test-Path -LiteralPath $retryModule) { Import-Module $retryModule -ErrorAction SilentlyContinue }
     }
+    $work     = Join-Path ([System.IO.Path]::GetTempPath()) ('yuruna-sums-' + [Guid]::NewGuid().ToString('N'))
+    $sumsFile = Join-Path $work 'SHA256SUMS'
     $checksumContent = $null
-    $fetchError = $null
-    if (Get-Command Invoke-WithYurunaRetry -ErrorAction SilentlyContinue) {
-        $fetch = Invoke-WithYurunaRetry -Label 'SHA256SUMS fetch' `
-            -ScriptBlock { (Invoke-WebRequest -Uri $ChecksumUrl -TimeoutSec 60 -ErrorAction Stop).Content }.GetNewClosure() `
-            -MaxAttempts 4 -InitialDelaySeconds 5 -MaxDelaySeconds 20 `
-            -ShouldRetry {
-                param($info)
-                $code = $null
-                try { $code = [int]$info.Error.Exception.Response.StatusCode } catch { $code = $null }
-                return -not ($code -in 403, 404, 410)
+    try {
+        New-Item -ItemType Directory -Path $work -Force -ErrorAction Stop | Out-Null
+        # The body lands on DISK, never through .Content: releases.ubuntu.com and
+        # cdimage serve SHA256SUMS with no Content-Type, so Invoke-WebRequest
+        # cannot infer text and hands back a Byte[] whose string form is the
+        # space-joined DECIMAL value of every byte -- a body no filename can be
+        # found in, reported afterwards as "the mirror lists no checksum". The
+        # same file then feeds the signature check below, so the bytes that are
+        # authenticated are the bytes the hash is read from. It also takes the
+        # same egress as the ISO transfer it verifies (Save-CachedHttpUri when
+        # the host driver supplies one); on a host whose only route out is the
+        # squid cache a direct request would fail every single time.
+        $fetch = {
+            Remove-Item -LiteralPath $sumsFile -Force -ErrorAction SilentlyContinue
+            if (Get-Command -Name Save-CachedHttpUri -ErrorAction SilentlyContinue) {
+                Save-CachedHttpUri -Uri $ChecksumUrl -OutFile $sumsFile
+            } else {
+                Invoke-WebRequest -Uri $ChecksumUrl -OutFile $sumsFile -TimeoutSec 60 -ErrorAction Stop
             }
-        if ($fetch.Success) { $checksumContent = [string]($fetch.LastOutput -join "`n") }
-        else { $fetchError = $fetch.LastError }
-    }
-    else {
-        # Retry helper unavailable (module tree incomplete): single attempt,
-        # same missing-vs-transient classification below.
-        try { $checksumContent = (Invoke-WebRequest -Uri $ChecksumUrl -TimeoutSec 60 -ErrorAction Stop).Content }
-        catch { $fetchError = $_ }
-    }
-    if ($null -eq $checksumContent) {
-        $status = $null
-        if ($fetchError) {
-            try { $status = [int]$fetchError.Exception.Response.StatusCode } catch { $status = $null }
+        }.GetNewClosure()
+        $fetchError = $null
+        if (Get-Command Invoke-WithYurunaRetry -ErrorAction SilentlyContinue) {
+            $attempted = Invoke-WithYurunaRetry -Label 'SHA256SUMS fetch' -ScriptBlock $fetch `
+                -MaxAttempts 4 -InitialDelaySeconds 5 -MaxDelaySeconds 20 `
+                -ShouldRetry {
+                    param($info)
+                    return -not ((Get-UbuntuImageHttpStatus -ErrorRecord $info.Error) -in 403, 404, 410)
+                }
+            if (-not $attempted.Success) { $fetchError = $attempted.LastError }
         }
-        if ($status -in 403, 404, 410) {
-            Write-Warning "Checksum file not published at $ChecksumUrl (HTTP $status); skipping verification."
-            return $true
+        else {
+            # Retry helper unavailable (module tree incomplete): single attempt,
+            # same missing-vs-transient classification below.
+            try { & $fetch } catch { $fetchError = $_ }
         }
-        Write-Warning ('=' * 72)
-        Write-Warning "  CHECKSUM FILE FETCH FAILED"
-        Write-Warning "  Source   : $ChecksumUrl"
-        Write-Warning "  Error    : $(if ($fetchError) { $fetchError.Exception.Message } else { 'no content returned' })"
-        Write-Warning "  Transient fetch failure persisted through retries; the download"
-        Write-Warning "  cannot be verified and is NOT treated as checksum-less."
-        Write-Warning ('=' * 72)
-        return $false
+        if (-not $fetchError -and (Test-Path -LiteralPath $sumsFile)) {
+            $checksumContent = [System.IO.File]::ReadAllText($sumsFile)
+        }
+        if (-not $checksumContent) {
+            $status = Get-UbuntuImageHttpStatus -ErrorRecord $fetchError
+            if ($status -in 403, 404, 410) {
+                Write-Warning "Checksum file not published at $ChecksumUrl (HTTP $status); skipping verification."
+                return $true
+            }
+            Write-Warning ('=' * 72)
+            Write-Warning "  CHECKSUM FILE FETCH FAILED"
+            Write-Warning "  Source   : $ChecksumUrl"
+            Write-Warning "  Error    : $(if ($fetchError) { $fetchError.Exception.Message } else { 'no content returned' })"
+            Write-Warning "  Transient fetch failure persisted through retries; the download"
+            Write-Warning "  cannot be verified and is NOT treated as checksum-less."
+            Write-Warning ('=' * 72)
+            return $false
+        }
+        # Best-effort: authenticate the SHA256SUMS via its detached GPG signature
+        # before trusting any hash parsed from it. The verifier lives in
+        # Yuruna.Image, which the ISO path does not load, so import on demand and
+        # capture a CommandInfo that resolves against its defining module. It is
+        # handed the copy already on disk so the signature and the hash bind to
+        # ONE artifact. No gpg/keyserver/.gpg -> 'unverified' (proceed on hash);
+        # a definitively bad or foreign signature -> fail like a hash mismatch.
+        $sigVerifier = Get-Command Test-PublishedChecksumSignature -ErrorAction SilentlyContinue
+        if (-not $sigVerifier) {
+            $imgMod = Join-Path $PSScriptRoot 'Yuruna.Image.psm1'
+            if (Test-Path -LiteralPath $imgMod) {
+                Import-Module $imgMod -ErrorAction SilentlyContinue
+                $sigVerifier = Get-Command Test-PublishedChecksumSignature -ErrorAction SilentlyContinue
+            }
+        }
+        if ($sigVerifier) {
+            switch (& $sigVerifier -ChecksumUrl $ChecksumUrl -ChecksumFilePath $sumsFile) {
+                'good'       { Write-Information "Checksum signature OK (pinned Ubuntu key)." -InformationAction Continue }
+                'unverified' { Write-Warning "SHA256SUMS signature unverified (gpg/keyserver unavailable or no detached .gpg); proceeding on hash only." }
+                'bad'        {
+                    Write-Warning ('=' * 72)
+                    Write-Warning "  SHA256SUMS GPG SIGNATURE INVALID"
+                    Write-Warning "  Source   : $ChecksumUrl"
+                    Write-Warning "  Failed verification against the pinned Ubuntu signing keys."
+                    Write-Warning ('=' * 72)
+                    return $false
+                }
+            }
+        }
+    } finally {
+        Remove-Item -LiteralPath $work -Recurse -Force -ErrorAction SilentlyContinue
     }
-    $checksumLine = ($checksumContent -split "`n") | Where-Object { $_ -match [regex]::Escape($IsoFileName) } | Select-Object -First 1
-    if (-not $checksumLine) {
-        Write-Warning "Could not find checksum for $IsoFileName. Skipping verification."
+    # Anchor the match to a whole `<sha256> *<filename>` line (the '*' is the
+    # publisher's binary-mode marker). An unanchored substring search accepts any
+    # line merely CONTAINING the name -- a sidecar entry, a comment, a longer
+    # filename this one is a prefix of -- and taking the leading token of such a
+    # line as "the expected hash" without asserting it is 64 hex characters
+    # surfaces a parse error as a checksum MISMATCH, which deletes a good ISO
+    # and aborts the bring-up.
+    $rx = [regex]::new(('^([0-9a-fA-F]{64})\s+\*?' + [regex]::Escape($IsoFileName) + '\s*$'), 'Multiline')
+    $checksumLine = $rx.Match($checksumContent)
+    if (-not $checksumLine.Success) {
+        Write-Warning "Could not find checksum for $IsoFileName at $ChecksumUrl. Skipping verification."
         return $true
     }
-    $expectedHash = ($checksumLine -split '\s+')[0]
+    $expectedHash = $checksumLine.Groups[1].Value
     $actualHash = (Get-FileHash -Path $DownloadFile -Algorithm SHA256).Hash
     if ($expectedHash -ine $actualHash) {
         # Visual banner instead of Write-Error: the operator's decision

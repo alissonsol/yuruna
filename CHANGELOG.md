@@ -4,6 +4,17 @@ Yuruna uses [Calendar Versioning](https://calver.org/): `YYYY.MM.DD`.
 Tags are cut from the `main` branch; entries below summarize each
 tagged release.
 
+## 2026.08.06
+
+- **Share cycle results.** New menu option from the Yuruna hosts dashboard
+   enables sharing the results for a test cycle via a ".tar.gz" file.
+
+- **Also in this release.** Style fixes across service pages. Reduced
+  memory for VMs in standalone mode. The cache VM's zot registry moves to
+  v2.1.20. The handler contract folded into
+  [test-sequences.md](docs/test-sequences.md#handler-contract), so the
+  sequence reference and the contract behind it are one document.
+
 ## 2026.08.05
 
 - **One way to build an extension service.** Four hand-copied beacons, write
@@ -352,6 +363,6 @@ LICENSEURI <https://yuruna.link/license>
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.05
+Last review: 2026.08.06
 
 Back to [Yuruna](README.md)

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.05
+.VERSION 2026.08.06
 .GUID 42a1b2c3-d4e5-4f67-8901-bc012345672a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -145,7 +145,7 @@ function Resolve-WaitForTextStepParam {
 # Each Register-SequenceAction binds (Name -> Handler). Handlers
 # communicate with the engine via the $Context hashtable (Step, Vars,
 # VMName/GuestKey/HostType, per-cycle paths, engine defaults and
-# callbacks). Full field table: See docs/handler-schema.md.
+# callbacks). Full field table: See docs/test-sequences.md, "Handler contract".
 
 # Send the optional Tab-navigation prefix a keyboard-input verb uses to reach the
 # target field before typing: read $Context.Step.tabCount, press Tab that many times

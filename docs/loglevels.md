@@ -59,12 +59,29 @@ script that should honor the parent's level calls it at the top:
 ```
 # Honor logLevel from Invoke-TestRunner.ps1 via $env:YURUNA_LOG_LEVEL. See docs/loglevels.md.
 $_logLevelMod = Join-Path $PSScriptRoot '../../../test/modules/Test.LogLevel.psm1'
-if (Test-Path $_logLevelMod) { Import-Module $_logLevelMod -Global -Force; Use-LogLevelFromEnv }
+if (-not (Get-Command Use-LogLevelFromEnv -ErrorAction SilentlyContinue) -and (Test-Path $_logLevelMod)) {
+    Import-Module $_logLevelMod -Global
+}
+if (Get-Command Use-LogLevelFromEnv -ErrorAction SilentlyContinue) { Use-LogLevelFromEnv }
 ```
 
-This three-line idiom keeps each
+This idiom keeps each
 `host/<platform>/guest.<x>/{Get-Image,New-VM}.ps1` from carrying an
 11-line copy-paste rank table.
+
+**Load only when absent, never `-Force`.** Some of these scripts are
+run IN-PROCESS by their caller (`Start-CachingProxyServiceVM.ps1`
+calls `Get-Image.ps1` and `New-VM.ps1` with the call operator), and a
+forced re-import there tears down and rebuilds the module instance the
+caller is already using — taking whatever that instance keeps in module
+scope with it, and narrating a dozen import lines into the transcript at
+Verbose (`feedback_module_force_import_evicts_global`). The tradeoff is
+that an edit to the module mid-session is not picked up, which is
+acceptable for a leaf script that only reads the level. The two values
+that must outlive such a re-import — the child transcript's path/owner
+pid and the caller's captured `ProgressPreference` — are anchored in the
+runspace `$global:` scope rather than in module scope for the same
+reason.
 
 ### A setup run is the deepest chain of it
 
@@ -118,6 +135,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.05
+Last review: 2026.08.06
 
 Back to [Yuruna](../README.md)

@@ -1004,13 +1004,17 @@ same rules work on both themes (operators triaging incidents at 03:00
 get a low-glare surface without a per-page rewrite).
 
 Touch targets reach the iOS HIG / Material Design floor: every
-`.header-cta`, `.meta-btn`, and bare `<button>` inherits
-`min-height: 2.75rem` and `min-width: 2.75rem` (44 px / 48 dp) from
-the `.yuruna-touchable` rule so a phone-sized finger can hit them.
+`.meta-btn` and bare `<button>` inherits `min-height: 2.75rem` and
+`min-width: 2.75rem` (44 px / 48 dp) from the `.yuruna-touchable`
+rule so a phone-sized finger can hit them. The shared chrome's
+`.menu-button` sets its own, tighter metrics on the desktop and
+claims the full touch square at `max-width: 600px`, where it also
+drops its label and keeps only the glyph.
 
-`@media (max-width: 600px)` collapses the page header to a vertical
-stack and trims side padding so the dashboard reads on a 375 px
-portrait phone without horizontal scrolling.
+`@media (max-width: 600px)` trims side padding so the dashboard reads
+on a 375 px portrait phone without horizontal scrolling. The header
+bar itself does not reflow: its one variable-width item (the machine
+identity) truncates rather than pushing the menu off the screen.
 
 ### Defining the status-page visibility-aware polling
 
@@ -1063,21 +1067,29 @@ page so additional consumers do not re-fetch.
 Each field is `null` (or `''` for hostname) when its source is
 unavailable; the renderer is expected to no-op rather than throw.
 
-`Yuruna.populateHeader(cta)` consumes HostInfo to fill
-`#header-title`, `#header-version`, and `#header-machine` in one
-pass. Callers that need to refresh the machine identity from live
-polled data (e.g. the dashboard's `renderStatus`) call
-`Yuruna.renderHeaderMachine(el, name, host, cta)` directly with the
+`Yuruna.populateHeader()` consumes HostInfo to fill `#header-title`,
+`#header-version`, and `#header-machine` in one pass. Callers that
+need to refresh the machine identity from live polled data (e.g. the
+dashboard's `renderStatus`) call
+`Yuruna.renderHeaderMachine(el, name, host)` directly with the
 freshly polled fields.
 
 ### Defining the status-page header anatomy
 
-Every status page renders the same header shape:
+Every status page renders the same header shape — and it is the same
+shape the three extension service UIs render, from a page-chrome
+stylesheet block kept byte-identical across all four stylesheets
+(`Test.ExtensionUiChrome.Tests.ps1` fails when the copies drift):
 
 ```
-<header class="page-header">
-  <h1><span id="header-title">Yuruna</span><span id="header-version"></span></h1>
-  <span id="header-machine"></span>
+<header class="app">
+  <div class="brand">
+    <span class="name"><a href="index.html"><span id="header-title">Yuruna</span></a></span>
+    <span class="version" id="header-version"></span>
+  </div>
+  <span class="spacer"></span>
+  <span class="machine" id="header-machine"></span>
+  <div class="menu">…</div>
 </header>
 ```
 
@@ -1085,14 +1097,20 @@ Every status page renders the same header shape:
 |--------------------|----------------------------------------|--------------------------------------|
 | `#header-title`    | `Yuruna.populateHeader`                | Capitalized repo name (`Yuruna`, `Yurunadev`, …). Hard-coded `Yuruna` is the no-JS fallback. |
 | `#header-version`  | `Yuruna.populateHeader`                | `v<VERSION>` from the project root.  |
-| `#header-machine`  | `Yuruna.populateHeader` then per page  | Hostname stack (`name` / `(host-type)`) plus a right-edge CTA link. |
+| `#header-machine`  | `Yuruna.populateHeader` then per page  | Hostname stack (`name` / `(host-type)`), linking to the host diagnostic. |
 
-Pages pass a `cta` object (`{ href, label, title? }`) so the CTA
-varies per page (`Edit config` on the dashboard, `← Dashboard` on the
-config editor). The CTA class is `.header-cta` in
-[`yuruna.common.css`](../test/status/yuruna.common.css) so its
-footprint is identical across pages — navigating between them does
-not shift the header items.
+Navigation is the menu in the top-right corner, never a per-page
+button: `Status`, `Config`, `Performance`, `Host`, then a rule and
+the outbound `Guide`. Its links are static markup, so every page
+stays reachable if the script fails; `Yuruna.initMenu` only wires
+open/close, and runs ahead of the per-page handler so an open panel
+gets first refusal on `Escape` (which the config editor otherwise
+reads as "discard and leave").
+
+Because the rem-sized chrome resolves against the root element, the
+base font size belongs on `body` and never on `html`: a `15px` root
+rescales the whole bar — title, version, menu button, bar height —
+against every other Yuruna UI, with no rule anywhere saying so.
 
 ### Defining the status-page hostinfo dump
 
@@ -1187,9 +1205,9 @@ the same color + dot + text for the same runner state.
 
 ```
 stepPaused && line says "Paused (waiting for resume)"  -> "Test paused"
-stepPaused                                             -> "Test will pause (after current step)"
+stepPaused                                             -> "Test pausing (after step)"
 cyclePaused && status !== 'running'                    -> "Test paused"
-cyclePaused                                            -> "Test will pause (after current cycle)"
+cyclePaused                                            -> "Test pausing (after cycle)"
 otherwise                                              -> null (use the status-based text)
 ```
 
@@ -1807,7 +1825,9 @@ Ubuntu live-server ISOs.
 `Save-ImageWithChecksum -SourceUrl <url> -DestPath <path>
 [-ExpectedSha256 <hex>] [-ChecksumUrl <url>]
 [-ChecksumTargetFileName <name>] [-ChecksumPattern <regex>]
-[-OnMismatch <policy>]`
+[-OnMismatch <policy>] [-OnMissingChecksum <policy>]
+[-OnUnreachableChecksum <policy>] [-VerifyUbuntuSignature]
+[-RetryBudgetSeconds <n>]`
 
 Behavior:
 
@@ -1818,21 +1838,38 @@ Behavior:
 3. Compares against `-ExpectedSha256` directly OR by parsing a
    publisher checksum file at `-ChecksumUrl` (default pattern
    matches the conventional `<sha256>  <filename>` layout used by
-   the cloud-images mirrors).
+   the cloud-images mirrors). The checksum file is fetched to disk
+   and those exact bytes serve both the hash parse and the optional
+   GPG verify, so the signature and the hash can never describe two
+   different fetches — and no response has to be decoded from a
+   `.Content` whose type depends on the server sending a
+   `Content-Type` header.
 
-Policy via `-OnMismatch`:
+Three separate outcomes, three separate policies, each taking
+`WarnAndContinue` *(default)* / `WarnAndDelete` / `Throw`:
 
-* **`WarnAndContinue`** *(default)* — emit a visual banner
-  `Write-Warning`, keep the file.
-* **`WarnAndDelete`** — emit banner + delete the file.
-* **`Throw`** — emit banner + throw an exception.
+* **`-OnMismatch`** — a hash was found and it does not match. Emit a
+  visual banner `Write-Warning`; keep, delete, or throw.
+* **`-OnMissingChecksum`** — nothing was available to compare
+  against: no checksum source was supplied, the publisher's list
+  carries no line for this file, or the file is not published at all
+  (HTTP 403/404/410).
+* **`-OnUnreachableChecksum`** — the checksum file could not be
+  fetched inside the retry budget. Kept distinct because an
+  unreachable mirror says nothing about what the publisher ships,
+  and this fetch is the request most exposed to a half-built proxy.
 
-A missing checksum (no `-ExpectedSha256`, no `-ChecksumUrl`, or the
-checksum file doesn't list the target filename) is silent-pass:
-the publisher chose not to publish, so it isn't Yuruna's call to
-block. Same shape as `Test-UbuntuServerImageChecksum` in
-[Yuruna.UbuntuImage.psm1](../host/modules/Yuruna.UbuntuImage.psm1),
-which keeps the codename resolver on top of this gateway.
+All three default permissive so a call site that has not stated a
+policy keeps the behavior it had. A mirror that ships no hash is a
+publisher's choice rather than evidence of tampering, and the
+no-source branch is the one every AL2023 bring-up takes when the
+release directory lists no sidecar. Tighten per call site, not by
+flipping the default.
+
+`Test-UbuntuServerImageChecksum` in
+[Yuruna.UbuntuImage.psm1](../host/modules/Yuruna.UbuntuImage.psm1)
+keeps the codename resolver on top of this gateway and classifies
+the same three outcomes.
 
 ## Log rotation
 
@@ -2019,6 +2056,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.05
+Last review: 2026.08.06
 
 Back to [Yuruna](../README.md)

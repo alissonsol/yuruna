@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.05
+.VERSION 2026.08.06
 .GUID 4288bcbc-ede3-4dda-bb77-b9782c7615ad
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -265,6 +265,14 @@ function Invoke-YurunaSudo {
         [string]$InputText,
         [switch]$TolerateBlocked
     )
+    # Pinned locally so THIS function's exit-code contract governs regardless of
+    # the caller's preferences. A non-zero sudo is the NORMAL path here -- it is
+    # what "the timestamp is cold" and "this account may not run that" both look
+    # like -- and with $PSNativeCommandUseErrorActionPreference true it becomes a
+    # terminating error instead, thrown before the refusal below is recognised.
+    # The caller then gets "Program sudo ended with non-zero exit code" in place
+    # of the /etc/sudoers.d rule that repairs the host.
+    $PSNativeCommandUseErrorActionPreference = $false
     $unattended = ($env:YURUNA_NONINTERACTIVE -eq '1')
     $sudoArgs = @()
     if ($unattended) { $sudoArgs += '-n' }
@@ -286,7 +294,22 @@ function Invoke-YurunaSudo {
     $result = @{ ExitCode = $rc; Output = $out; Blocked = $blocked }
     if (-not $blocked) { return $result }
 
-    $cmd  = @($Argument)[0]
+    # The command sudo was asked to run is the first element that is not one of
+    # sudo's OWN options. Callers legitimately lead with them --
+    # Get-SudoPwshArgumentList emits '-E' on macOS -- and taking element 0 blindly
+    # names a flag as the command, so the remedy below prints a sudoers rule
+    # granting NOPASSWD on '-E'. That rule repairs nothing and, pasted, teaches
+    # the operator the message is noise.
+    $argv = @($Argument)
+    $cmd = ''
+    for ($i = 0; $i -lt $argv.Count; $i++) {
+        $token = "$($argv[$i])"
+        if ($token -notlike '-*') { $cmd = $token; break }
+        # These carry a value in the NEXT token; skipping only the flag would
+        # mistake that value for the command name.
+        if ($token -in @('-u', '-g', '-p', '-C', '-r', '-t', '-h')) { $i++ }
+    }
+    if (-not $cmd) { $cmd = "$($argv[0])" }
     $who  = try { "$(& '/usr/bin/id' -un 2>$null)".Trim() } catch { "$($env:USER)".Trim() }
     $full = (Get-Command -CommandType Application -Name (Split-Path -Leaf "$cmd") -ErrorAction SilentlyContinue | Select-Object -First 1).Source
     if (-not $full) { $full = $cmd }
@@ -304,6 +327,90 @@ function Invoke-YurunaSudo {
         return $result
     }
     throw $msg
+}
+
+function Test-YurunaCanPrompt {
+<#
+.SYNOPSIS
+    Whether a question asked from this process can actually reach a person who is
+    able to answer it.
+.DESCRIPTION
+    THE PROBLEM THIS SOLVES. Three incompatible spellings of this one question are
+    otherwise in circulation -- an environment variable, a console probe, and a
+    -Force/-NonInteractive parameter -- and a call site that picks the wrong one
+    for its calling context looks exactly like a correct one on review. This is the
+    single spelling; each clause below has on its own been the whole reason a run
+    stalled.
+
+    ORDER MATTERS. The environment contract is checked FIRST. A parent that has
+    taken the run's one authorization publishes that nothing after it may ask, and
+    that answer stays correct on a console which still looks interactive -- which
+    is precisely the case a redirect probe alone gets wrong.
+
+    Redirected OUTPUT disqualifies as firmly as redirected input. A prompt whose
+    text lands in a captured log while stdin is still the keyboard is a run waiting
+    on a keystroke nobody knows to press, and that is a worse outcome than an
+    honest failure because nothing on screen says what it is waiting for.
+
+    On macOS and Linux [Environment]::UserInteractive is unconditionally $true, so
+    the redirect probes and the environment contract carry the whole decision
+    there; the UserInteractive clause earns its keep on Windows.
+.OUTPUTS
+    [bool] -- $true only when a real operator can both SEE the question and ANSWER it.
+#>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param()
+    if ($env:YURUNA_NONINTERACTIVE -eq '1') { return $false }
+    try {
+        if ([Console]::IsInputRedirected)        { return $false }
+        if ([Console]::IsOutputRedirected)       { return $false }
+        if (-not [Environment]::UserInteractive) { return $false }
+    } catch {
+        # A host with no console object at all (a service, a bare remoting
+        # runspace) throws rather than answering. There is nobody there either way.
+        return $false
+    }
+    return $true
+}
+
+function Assert-YurunaPromptable {
+<#
+.SYNOPSIS
+    Throw -- naming the parameter or config key that answers the question in
+    advance -- when a question cannot reach anybody.
+.DESCRIPTION
+    A caller that cannot ask has two honest options: fail, or invent an answer.
+    Inventing one is never safe here. Defaulting a consent gate is a silent yes,
+    and defaulting a path creates real accounts, shares and mounts somewhere no
+    operator chose. So this throws, and the message carries the fix: a remote
+    operator repairs the run in one round trip instead of reading source to work
+    out which switch suppresses which prompt.
+
+    No parameter is mandatory on purpose. A mandatory parameter is itself a prompt,
+    and a guard that can stall the run it exists to keep from stalling is worthless.
+.PARAMETER Question
+    The question that cannot be asked, quoted back so the message says what is
+    actually missing.
+.PARAMETER ParameterName
+    The switch or parameter that supplies the answer up front, e.g. '-Root'.
+.PARAMETER ConfigKey
+    The configuration key that supplies the answer up front, for callers whose
+    answer lives in a file rather than on the command line.
+#>
+    [CmdletBinding()]
+    param(
+        [string]$Question,
+        [string]$ParameterName,
+        [string]$ConfigKey
+    )
+    if (Test-YurunaCanPrompt) { return }
+    $what = if ([string]::IsNullOrWhiteSpace($Question)) { 'A question' } else { $Question.Trim() }
+    $how = @()
+    if ($ParameterName) { $how += "pass $ParameterName" }
+    if ($ConfigKey)     { $how += "set $ConfigKey" }
+    $tail = if ($how.Count) { " Answer it in advance: $($how -join ', or ')." } else { '' }
+    throw "$what -- this run cannot ask: no operator can see the question or answer it.$tail"
 }
 
 function Get-CachingProxyServicePort {
@@ -1399,6 +1506,417 @@ function ConvertTo-MemoryStartupBytes {
     return $bytes
 }
 
+# --- REGION: what the service VMs commit, and what the host has to carry it
+# The service guests are sized in their per-host builders and nowhere else, and
+# every hypervisor here PINS that size: the UTM guests carry no balloon driver,
+# Hyper-V builds them with DynamicMemoryEnabled $false, and virt-install is given
+# a flat --memory. So a size is a commitment from the moment the VM runs, not a
+# ceiling it grows into, and the sum of them is knowable before the first build.
+
+# A hypervisor's resident set is larger than the guest memory it was configured
+# with -- the device model, the framebuffer and the accelerator's own page tables
+# are host-side. Measured across a three-guest service set, 20.0 GB of configured
+# guest memory was held as 24.7 GB resident, and a single 12 GB guest as 15.2 GB.
+# Both land about a quarter over, which is what this factor carries.
+$script:ServiceVmResidentOverheadFactor = 1.24
+
+# What has to be LEFT once the service VMs are resident: the operating system,
+# the hypervisor's own process, and the harness driving the run. Calibrated from
+# the same measurement -- with 7.3 GB left, that host stayed up only by holding
+# ~1.9 GB in its memory compressor, so a remainder of that size is already under
+# reclaim rather than comfortable. Rounded UP from the measured point, because
+# the point measured was the squeezed side of the line.
+#
+# Fixed rather than a fraction of installed memory: what a host needs for itself
+# is roughly constant, so a fraction would excuse a large machine from the floor
+# a small one is held to, and would tighten as machines grow.
+$script:HostMemoryReserveMb = 8192
+
+function Get-GuestBuilderMemoryMb {
+<#
+.SYNOPSIS
+    The guest memory size, in MiB, that a per-guest New-VM.ps1 states as a
+    literal. 0 when it states none.
+.DESCRIPTION
+    The builders ARE the source of truth for how large a service guest is, so
+    this reads them rather than keeping a second copy of the numbers that would
+    then have to be kept in step by hand. Each host writes the size in its own
+    hypervisor's terms, so all three shapes are recognized:
+
+      * UTM       -- the config.plist placeholder substituted with an MB count;
+      * libvirt   -- virt-install's --memory, also MiB;
+      * Hyper-V   -- -MemoryStartupBytes / -MemoryMaximumBytes, in bytes, written
+                     as a PowerShell size literal.
+
+    A builder that computes its size from a parameter (the general-purpose
+    guests take -MemoryStartupBytes from the sequence) states no literal, and
+    that reads as 0 -- "not knowable from the source" -- never as a guess. A
+    caller must treat 0 as unknown and say so, because a wrong number here would
+    be spent in an arithmetic an operator is asked to trust.
+
+    The LARGEST of several statements wins: a builder that creates a VM and then
+    pins the same size names it more than once, and if those ever disagree the
+    bigger one is what the host has to carry.
+.PARAMETER Text
+    The builder's source text.
+.OUTPUTS
+    [int] MiB, or 0.
+#>
+    [CmdletBinding()]
+    [OutputType([int])]
+    param([Parameter(Mandatory)][AllowEmptyString()][AllowNull()][string]$Text)
+
+    if ([string]::IsNullOrWhiteSpace($Text)) { return 0 }
+    $sizes = [System.Collections.Generic.List[int64]]::new()
+    foreach ($m in [regex]::Matches($Text, "__MEMORY_SIZE__'\s*,\s*'(\d+)'")) {
+        [void]$sizes.Add([int64]$m.Groups[1].Value)
+    }
+    # A builder whose size is a parameter still states it, as that parameter's
+    # default -- and that default is what a run which passes nothing will
+    # commit. Reading it keeps the arithmetic honest for the builders that took
+    # a sizing parameter without turning their number into a guess: a parameter
+    # with no literal default still yields nothing here.
+    foreach ($m in [regex]::Matches($Text, '\[int\]\$MemoryMb\s*=\s*(\d+)')) {
+        [void]$sizes.Add([int64]$m.Groups[1].Value)
+    }
+    foreach ($m in [regex]::Matches($Text, "'--memory'\s*,\s*'(\d+)'")) {
+        [void]$sizes.Add([int64]$m.Groups[1].Value)
+    }
+    foreach ($m in [regex]::Matches($Text, '-Memory(?:Startup|Maximum)Bytes\s+(\d+(?:KB|MB|GB|TB)?)\b',
+                                    [System.Text.RegularExpressions.RegexOptions]::IgnoreCase)) {
+        # Reuses the sequence-variable parser so '12GB' here and '12GB' in a
+        # sequence resolve to the same byte count.
+        $bytes = 0
+        try { $bytes = ConvertTo-MemoryStartupBytes $m.Groups[1].Value } catch { $bytes = 0 }
+        if ($bytes -gt 0) { [void]$sizes.Add([int64]($bytes / 1MB)) }
+    }
+    if ($sizes.Count -eq 0) { return 0 }
+    return [int](($sizes | Measure-Object -Maximum).Maximum)
+}
+
+function Get-CachingProxyMemoryProfile {
+<#
+.SYNOPSIS
+    The cache VM's RAM and squid cache_mem, as one inseparable pair.
+.DESCRIPTION
+    These two numbers may never be chosen independently. Swap is masked inside
+    the guest, so an over-subscribed cache_mem is an unrecoverable OOM rather
+    than a slowdown, and squid's resident set runs about a gigabyte above
+    cache_mem for sslcrtd children, connection buffers and in-RAM hot objects.
+    Returning them together is what stops one being tuned without the other.
+
+    The lab profile is the load-bearing default: 7 GB cache_mem inside 12 GB
+    leaves roughly 2 GB for the zot registry and 2 GB for the rest of the stack.
+    The standalone profile keeps that same proportion in a smaller VM, because a
+    standalone host runs the cache beside the stash and the download agent and
+    every gigabyte here is one the test guests on the same machine cannot have.
+    Only the in-RAM hot set shrinks -- the on-disk cache_dir is untouched, so a
+    memory miss still lands on local disk instead of the network.
+.PARAMETER Standalone
+    Size for a host that runs the whole lab by itself.
+.OUTPUTS
+    [hashtable] VmMemoryMb, SquidCacheMem (a squid size string).
+#>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param([switch]$Standalone)
+    if ($Standalone) { return @{ VmMemoryMb = 8192;  SquidCacheMem = '3 GB' } }
+    return @{ VmMemoryMb = 12288; SquidCacheMem = '7 GB' }
+}
+
+function Get-ServiceVmMemoryMb {
+<#
+.SYNOPSIS
+    The guest memory a service VM will be built with on this host, in MiB.
+    0 when the builder is absent or states no literal size.
+.DESCRIPTION
+    Locates the per-host builder for one service and reads its size out of it.
+    The directory is <RepoRoot>/host/<HostFolder>/guest.<Key>-service, which is
+    the same path the Start-*ServiceVM.ps1 scripts hand to the host driver: the
+    roster key is the extension area's slug with '-service' dropped, so putting
+    it back names the area's guest directory.
+
+    Never throws. An unreadable or missing builder is reported as 0 -- unknown --
+    so a preflight can say which service it could not size instead of failing on
+    a host layout it does not recognize.
+.PARAMETER RepoRoot
+    Repository root.
+.PARAMETER HostFolder
+    Host driver folder name, e.g. 'macos.utm' (no 'host/' prefix).
+.PARAMETER Key
+    Service roster key: caching-proxy, stash, pool-control, download-agent.
+.OUTPUTS
+    [int] MiB, or 0.
+#>
+    [CmdletBinding()]
+    [OutputType([int])]
+    param(
+        [Parameter(Mandatory)][string]$RepoRoot,
+        [Parameter(Mandatory)][string]$HostFolder,
+        [Parameter(Mandatory)][string]$Key
+    )
+    try {
+        $builder = Join-Path $RepoRoot 'host' -AdditionalChildPath $HostFolder, "guest.$Key-service", 'New-VM.ps1'
+        if (-not (Test-Path -LiteralPath $builder)) { return 0 }
+        return (Get-GuestBuilderMemoryMb -Text (Get-Content -Raw -LiteralPath $builder))
+    } catch {
+        Write-Debug "Get-ServiceVmMemoryMb($HostFolder/$Key): $($_.Exception.Message)"
+        return 0
+    }
+}
+
+function Select-SetupServiceVmKey {
+<#
+.SYNOPSIS
+    The service VMs a setup run will actually bring up, as roster keys, in
+    bring-up order.
+.DESCRIPTION
+    Only what THIS run starts. The four services are not a fixed set: shared
+    storage is what the stash and the download agent write to, so a host that
+    declined storage entirely never builds either of them, and the pool-control
+    service exists only for a lab. Charging a standalone host for services it
+    will not start would raise an alarm about memory it is never going to spend.
+
+    The caching proxy is unconditional -- it is the machine the pool services run
+    on, and every guest install goes through it.
+.PARAMETER StorageKind
+    The resolved storage.kind. Anything other than 'none' means the shares exist,
+    including the empty string: unknown must not read as "no storage", which is
+    the answer that hides two services.
+.PARAMETER Lab
+    This run is setting up a lab.
+.PARAMETER DownloadAgentEnabled
+    downloadAgentService.enabled, which defaults to true when the key is absent.
+.OUTPUTS
+    [string[]] roster keys.
+#>
+    [CmdletBinding()]
+    [OutputType([string[]])]
+    param(
+        [AllowEmptyString()][AllowNull()][string]$StorageKind = '',
+        [switch]$Lab,
+        [bool]$DownloadAgentEnabled = $true
+    )
+    $keys = [System.Collections.Generic.List[string]]::new()
+    [void]$keys.Add('caching-proxy')
+    $hasStorage = ("$StorageKind".Trim() -ne 'none')
+    if ($hasStorage) { [void]$keys.Add('stash') }
+    if ($hasStorage -and $DownloadAgentEnabled) { [void]$keys.Add('download-agent') }
+    if ($Lab) { [void]$keys.Add('pool-control') }
+    return [string[]]$keys.ToArray()
+}
+
+function Get-ServiceVmMemoryVerdict {
+<#
+.SYNOPSIS
+    Whether this host can carry the service VMs a run is about to start, with
+    the arithmetic that says so.
+.DESCRIPTION
+    Three levels, and only one of them is an opinion:
+
+      'ok'      -- the host keeps its reserve once the service VMs are resident;
+      'warn'    -- it does not, and the message names what it would be left with;
+      'unknown' -- either the host's memory or every service's size could not be
+                   read, so there is no arithmetic to report.
+
+    WARN, never a hard stop. The configured size is what the hypervisor commits,
+    not what the guest touches, and every platform here overcommits: a host whose
+    sum exceeds installed memory can still complete a build, slowly, by
+    compressing and paging. There is no measurement that says a given
+    over-commitment CANNOT work, so refusing to run would block hosts that work
+    today, and a preflight that stops a working host is worse than a run that
+    finishes with a warning in its report.
+
+    What it counts is what this run brings up. A service VM left running by an
+    earlier setup that this one no longer starts still holds its memory, and is
+    not in this sum -- the figure is about the plan, not a snapshot of the host.
+.PARAMETER Service
+    One row per service to be started, with Name (roster key) and MemoryMb.
+    MemoryMb of 0 means the size could not be read; those rows are named in the
+    message and make the total a floor rather than being guessed at.
+.PARAMETER HostMemoryMb
+    Installed physical memory, from Get-HostPhysicalMemoryMb. 0 when unknown.
+.OUTPUTS
+    [pscustomobject] Level, CommittedMb, ResidentMb, HostMemoryMb, RemainingMb,
+    ReserveMb, NeededMb, Message, Summary.
+#>
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param(
+        [Parameter(Mandatory)][AllowEmptyCollection()][AllowNull()][pscustomobject[]]$Service,
+        [Parameter(Mandatory)][int]$HostMemoryMb
+    )
+    $rows      = @($Service | Where-Object { $_ -and $_.Name })
+    $known     = @($rows | Where-Object { [int]$_.MemoryMb -gt 0 })
+    $unsized   = @($rows | Where-Object { [int]$_.MemoryMb -le 0 } | ForEach-Object { [string]$_.Name })
+    $committed = 0
+    foreach ($row in $known) { $committed += [int]$row.MemoryMb }
+    $resident  = [int][Math]::Round($committed * $script:ServiceVmResidentOverheadFactor)
+    $reserve   = [int]$script:HostMemoryReserveMb
+    $remaining = [int]$HostMemoryMb - $resident
+    $needed    = $resident + $reserve
+    $gb        = { param($mb) '{0:0.0} GB' -f ([double]$mb / 1024) }
+
+    # The per-service breakdown is what makes the total checkable by hand -- and
+    # is dropped for a single service, where it would only restate the total.
+    $list = if ($known.Count -gt 1) {
+        ' (' + (($known | ForEach-Object { '{0} {1}' -f $_.Name, (& $gb ([int]$_.MemoryMb)) }) -join ', ') + ')'
+    } else { '' }
+    # Named, not folded into the total. A service whose builder could not be read
+    # still starts, so the figures are a floor and the operator is told which
+    # service is missing from them rather than being handed a guess.
+    $floorNote = if ($unsized.Count -gt 0 -and $known.Count -gt 0) {
+        ' Not in that total: {0}, whose configured size could not be read from the host builder{1} -- so these figures are a floor.' -f
+            ($unsized -join ', '), $(if ($unsized.Count -eq 1) { '' } else { 's' })
+    } else { '' }
+
+    $verdict = [ordered]@{
+        Level        = 'unknown'
+        CommittedMb  = $committed
+        ResidentMb   = $resident
+        HostMemoryMb = [int]$HostMemoryMb
+        RemainingMb  = $remaining
+        ReserveMb    = $reserve
+        NeededMb     = $needed
+        Message      = ''
+        Summary      = ''
+    }
+    if ($known.Count -eq 0 -or $HostMemoryMb -le 0) {
+        $missing = if ($rows.Count -eq 0) { 'this run starts no service VM' }
+                   elseif ($known.Count -eq 0) { "no service VM size could be read from the host builders ($($unsized -join ', '))" }
+                   else { 'this host does not report its installed memory' }
+        $verdict.Message = "Service VM memory was not checked: $missing.$floorNote"
+        $verdict.Summary = 'memory headroom not checked'
+        return [pscustomobject]$verdict
+    }
+
+    # 'sized' appears only when something could not be read, so the count in the
+    # sentence always matches the services the total is actually made of.
+    $plan   = '{0} {1}service VM{2} this run starts' -f $known.Count,
+                $(if ($unsized.Count -gt 0) { 'sized ' } else { '' }),
+                $(if ($known.Count -eq 1) { '' } else { 's' })
+    $commit = if ($known.Count -eq 1) { 'commits' } else { 'commit' }
+    if ($remaining -ge $reserve) {
+        $verdict.Level   = 'ok'
+        $verdict.Message = ('Memory: this host has {0}; the {1} {2} {3} of guest memory{4}, about {5} resident, ' +
+                            'leaving {6}.{7}') -f (& $gb $HostMemoryMb), $plan, $commit, (& $gb $committed), $list,
+                            (& $gb $resident), (& $gb $remaining), $floorNote
+        # Phrased without an article in front of the host size: the figure is
+        # formatted at run time and '8.0 GB' would need 'an' where '32.0 GB'
+        # needs 'a'.
+        $verdict.Summary = 'memory: {0} committed, host has {1}, {2} left' -f (& $gb $committed), (& $gb $HostMemoryMb), (& $gb $remaining)
+        return [pscustomobject]$verdict
+    }
+
+    # What this operator can actually change, taken from the plan itself. A lever
+    # that does not apply to the run in front of them costs the whole sentence its
+    # credibility: a lab may not set storage.kind = none -- the stash and the
+    # intent store both need the shares -- so a lab is never offered it.
+    #
+    # Read off EVERY planned row, not only the sized ones: a service whose builder
+    # could not be read is still a service this run starts, and still a service the
+    # operator can decline.
+    $names  = @($rows | ForEach-Object { [string]$_.Name })
+    $isLab  = $names -contains 'pool-control'
+    $lever  = [System.Collections.Generic.List[string]]::new()
+    $shared = @($rows | Where-Object { $_.Name -in @('stash', 'download-agent') })
+    if (-not $isLab -and $shared.Count -gt 0) {
+        $sharedMb = 0
+        foreach ($row in $shared) { $sharedMb += [int][Math]::Max(0, [int]$row.MemoryMb) }
+        $sharedSize = if ($sharedMb -gt 0) { " ($(& $gb $sharedMb))" } else { '' }
+        # Named off the PLAN, not off the pair the setting is capable of dropping.
+        # A run whose download agent is already switched off would otherwise be
+        # told it saves that guest too, while the size beside the sentence counts
+        # only the stash -- and a lever whose name and figure disagree is the one
+        # sentence here an operator can catch being wrong.
+        $sharedNames = ($shared | ForEach-Object { [string]$_.Name }) -join ' and '
+        $sharedNoun  = if ($shared.Count -eq 1) { 'service' } else { 'services' }
+        [void]$lever.Add("storage.kind = none skips the $sharedNames $sharedNoun$sharedSize, giving up shared storage")
+    }
+    if ($names -contains 'download-agent') {
+        $daMb = [int][Math]::Max(0, [int](@($rows | Where-Object { $_.Name -eq 'download-agent' })[0].MemoryMb))
+        $daSize = if ($daMb -gt 0) { " ($(& $gb $daMb))" } else { '' }
+        [void]$lever.Add("downloadAgentService.enabled: false in test/test.config.yml skips the download agent alone$daSize")
+    }
+    $levers = if ($lever.Count -gt 0) { ' Skip a service to get it back: ' + ($lever -join '; ') + '.' }
+              elseif ($isLab) { ' A lab runs all of these, so the only lever left is the memory in the machine.' }
+              else { ' Nothing in this run can be skipped -- the caching proxy is what every guest install goes through.' }
+
+    $shortfall = if ($remaining -ge 0) {
+        'Only {0} would be left for the operating system, the hypervisor and this run' -f (& $gb $remaining)
+    } else {
+        'The service VMs alone want about {0} on a host with {1} -- {2} more than it has' -f
+            (& $gb $resident), (& $gb $HostMemoryMb), (& $gb ([Math]::Abs($remaining)))
+    }
+    $verdict.Level   = 'warn'
+    $verdict.Message = ('{0}. This host has {1}; the {2} {3} {4} of guest memory{5} as fixed allocations with no ' +
+                        'balloon, which the hypervisor holds at about {6} resident. Carrying that and still leaving ' +
+                        'the host the {7} it needs for itself takes about {8} of RAM.{9}{10} Continuing.') -f
+                        $shortfall, (& $gb $HostMemoryMb), $plan, $commit, (& $gb $committed), $list,
+                        (& $gb $resident), (& $gb $reserve), (& $gb $needed), $levers, $floorNote
+    $verdict.Summary = if ($remaining -ge 0) {
+        'memory: {0} committed, host has {1}, leaving {2} for the host itself -- under {3}' -f
+            (& $gb $committed), (& $gb $HostMemoryMb), (& $gb $remaining), (& $gb $reserve)
+    } else {
+        'memory: {0} committed, host has {1} -- {2} short' -f
+            (& $gb $committed), (& $gb $HostMemoryMb), (& $gb ([Math]::Abs($remaining)))
+    }
+    return [pscustomobject]$verdict
+}
+
+function Get-HostPhysicalMemoryMb {
+<#
+.SYNOPSIS
+    Installed physical memory in MiB, or 0 when this host will not report it.
+.DESCRIPTION
+    One reading per platform, each the figure that counts the memory the machine
+    actually has rather than what is free right now:
+
+      * macOS   -- sysctl hw.memsize (bytes). The absolute path is tried first:
+                   /usr/sbin is not on PATH in every non-login shell;
+      * Linux   -- /proc/meminfo MemTotal, which is stated in kB;
+      * Windows -- Win32_ComputerSystem TotalPhysicalMemory (bytes), which is
+                   installed memory less what the firmware reserved -- the amount
+                   the OS can actually hand out, which is the useful one here.
+
+    Free memory is deliberately NOT what this returns. A hypervisor allocation is
+    held for as long as the VM runs, so the question is what the machine has to
+    divide up, not what happens to be unused at the moment the run starts.
+
+    Never throws. 0 means "not knowable here", and a caller must report that
+    rather than substituting a default -- an invented host size would be spent in
+    an arithmetic presented to an operator as fact.
+.OUTPUTS
+    [int] MiB, or 0.
+#>
+    [CmdletBinding()]
+    [OutputType([int])]
+    param()
+    try {
+        if ($IsMacOS) {
+            $sysctl = if (Test-Path -LiteralPath '/usr/sbin/sysctl') { '/usr/sbin/sysctl' } else { 'sysctl' }
+            $raw = & $sysctl -n hw.memsize 2>$null
+            $bytes = 0L
+            if ([int64]::TryParse("$raw".Trim(), [ref]$bytes) -and $bytes -gt 0) { return [int]($bytes / 1MB) }
+            return 0
+        }
+        if ($IsLinux) {
+            foreach ($line in (Get-Content -LiteralPath '/proc/meminfo' -ErrorAction Stop)) {
+                if ($line -match '^MemTotal:\s+(\d+)\s*kB\s*$') { return [int]([int64]$Matches[1] / 1024) }
+            }
+            return 0
+        }
+        if ($IsWindows) {
+            $total = (Get-CimInstance -ClassName Win32_ComputerSystem -ErrorAction Stop).TotalPhysicalMemory
+            if ($total -gt 0) { return [int]([int64]$total / 1MB) }
+            return 0
+        }
+    } catch {
+        Write-Debug "Get-HostPhysicalMemoryMb: $($_.Exception.Message)"
+    }
+    return 0
+}
+
 function Get-YurunaServiceVmName {
 <#
 .SYNOPSIS
@@ -1474,4 +1992,4 @@ function Select-NameByPrefix {
     return $matched.ToArray()
 }
 
-Export-ModuleMember -Function New-YurunaTimestampedBackup, Get-HostProxyBackupPath, ConvertTo-ProxyHostPort, Get-PortMapStatePath, Test-IsAdministrator, Get-PwshApplicationPath, Get-SudoPwshArgumentList, Invoke-YurunaSudo, Get-CachingProxyServicePort, Test-Ipv4Address, Test-Ipv6Address, Format-IpUrlHost, Test-IpAddress, ConvertTo-Sha512CryptHash, ConvertTo-YurunaMacAddress, ConvertTo-Ipv4UInt32, Get-HostIpv4Subnet, Get-Ipv4OnLinkVerdict, Get-PoolFacingIpv4Segment, Get-Ipv4PoolSegmentVerdict, Test-TcpConnectOutcome, Get-TcpOutcomeExplanation, Select-DhcpLeaseIpAddress, Select-StaleDhcpLeaseBlock, Remove-DhcpLeaseBlockText, Get-UtmGuestSeedHostname, ConvertTo-MemoryStartupBytes, Select-NameByPrefix, Get-YurunaServiceVmName
+Export-ModuleMember -Function New-YurunaTimestampedBackup, Get-HostProxyBackupPath, ConvertTo-ProxyHostPort, Get-PortMapStatePath, Test-IsAdministrator, Get-PwshApplicationPath, Get-SudoPwshArgumentList, Invoke-YurunaSudo, Test-YurunaCanPrompt, Assert-YurunaPromptable, Get-CachingProxyServicePort, Get-CachingProxyMemoryProfile, Test-Ipv4Address, Test-Ipv6Address, Format-IpUrlHost, Test-IpAddress, ConvertTo-Sha512CryptHash, ConvertTo-YurunaMacAddress, ConvertTo-Ipv4UInt32, Get-HostIpv4Subnet, Get-Ipv4OnLinkVerdict, Get-PoolFacingIpv4Segment, Get-Ipv4PoolSegmentVerdict, Test-TcpConnectOutcome, Get-TcpOutcomeExplanation, Select-DhcpLeaseIpAddress, Select-StaleDhcpLeaseBlock, Remove-DhcpLeaseBlockText, Get-UtmGuestSeedHostname, ConvertTo-MemoryStartupBytes, Get-GuestBuilderMemoryMb, Get-ServiceVmMemoryMb, Select-SetupServiceVmKey, Get-ServiceVmMemoryVerdict, Get-HostPhysicalMemoryMb, Select-NameByPrefix, Get-YurunaServiceVmName

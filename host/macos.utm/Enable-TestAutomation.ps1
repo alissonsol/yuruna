@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.05
+.VERSION 2026.08.06
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456754
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -50,7 +50,15 @@
     leave a long Invoke-TestRunner cycle running in its own Space and
     debug in VS Code on another Space without disruption.
     Requires sudo (pmset, defaults write /Library/Preferences, sysadminctl).
+    Every elevated write goes out as `sudo -n` after probing that root is
+    reachable, so a host that cannot elevate reports the exact command to run
+    instead of raising a password prompt where nobody can answer it.
     Idempotent -- safe to run multiple times.
+
+    Exits 0 when every condition is in place and 2 when the settings were
+    applied but something still needs an operator (an account password only a
+    person can type, an MDM profile enforcing a lock). Re-running does not clear
+    a 2, which is why it is not reported as an outright failure.
 
     Run this before Invoke-TestRunner.ps1. Assert-HostConditionSet gates
     every subsequent cycle on both permissions and on screen-lock /
@@ -114,7 +122,14 @@ if ($capturePath) { Write-Information "Captured prior host settings to $captureP
 # would fail parameter binding.
 $conditionArgs = @{}
 foreach ($k in $PSBoundParameters.Keys) { if ($k -ne 'SkipPoolStorage') { $conditionArgs[$k] = $PSBoundParameters[$k] } }
-Set-MacHostConditionSet @conditionArgs
+# Select the count out of whatever came back rather than casting the lot.
+# Set-MacHostConditionSet shells out to pmset, defaults and sysadminctl, and one
+# uncaptured line from any of them would make its return an array -- which a
+# straight [int] cast turns into a thrown error, converting a cosmetic leak into
+# a failed setup step.
+$conditionResult = @(Set-MacHostConditionSet @conditionArgs)
+$unmetCount = @($conditionResult | Where-Object { $_ -is [int] } | Select-Object -Last 1)
+$unmetCount = if ($unmetCount.Count) { [int]$unmetCount[0] } else { 0 }
 
 # --- REGION: networkStorage pool host-identity setup + reimage reclaim (interactive)
 # Offer to configure networkStorage pool (NAS replication) and, on a host with no local
@@ -127,3 +142,25 @@ if ($SkipPoolStorage) {
     Import-Module (Join-Path $RepoRoot 'test/modules/Test.HostIdentity.psm1') -Force
     Invoke-PoolStorageSetupAndReclaim -RepoRoot $RepoRoot
 }
+
+# --- REGION: outcome
+# The exit code is the only failure channel across the child-process boundary:
+# everything this script says about a setting it could not apply goes to a
+# captured log the orchestrator does not read, so an explicit exit is the one
+# way that host is distinguishable from a clean success. Falling off the end
+# gives 0.
+#
+#   0  every condition is in place
+#   1  the script threw (ErrorActionPreference stops it before this line)
+#   2  the settings were applied and some condition remains unmet
+#
+# 2 is deliberately not 1. Everything at 2 is a host that needs an operator --
+# a password only a person can type, a Configuration Profile enforcing a lock --
+# and re-running this script cannot clear any of it, so a caller that treats it
+# as a failed step would advise a re-run that changes nothing. The caller maps
+# it to a warned outcome; see install/setup.ps1's host-settings step.
+if ($unmetCount -gt 0) {
+    Write-Warning "Host settings applied, but $unmetCount condition(s) still need an operator (listed above)."
+    exit 2
+}
+exit 0

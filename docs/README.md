@@ -58,11 +58,11 @@ up a test machine.
 - **[test-runner.md](test-runner.md)** — the daily-driver loop that pulls the
   repo, re-reads config, refreshes images, and runs cycles forever.
 - **[test-sequences.md](test-sequences.md)** — authoritative reference for every
-  action available in a sequence file, plus the per-host contract functions.
+  action available in a sequence file, the [handler
+  contract](test-sequences.md#handler-contract) for the verb registry that
+  drives the YAML sequence engine, plus the per-host contract functions.
 - **[test-config.md](test-config.md)** — every key in the per-host
   `test/test.config.yml`, which is bootstrapped from a template and stays local.
-- **[handler-schema.md](handler-schema.md)** — the contract for the verb-handler
-  registry that drives the YAML sequence engine.
 - **[test-perf.md](test-perf.md)** — the append-only structured log of every step
   execution, for cross-host and cross-cycle performance analytics.
 - **[runner-outer-loop.md](runner-outer-loop.md)** — the eternal cycle loop that
@@ -224,6 +224,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.05
+Last review: 2026.08.06
 
 Back to [Yuruna](../README.md)

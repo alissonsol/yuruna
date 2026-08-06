@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.05
+.VERSION 2026.08.06
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456709
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -54,6 +54,18 @@
     (empty defaults, ready to fill in) and the operator's existing keys -- including
     a renamed section's old keys -- are left untouched for hand-migration.
 
+.PARAMETER ExpectStorageConfigured
+    Declares that shared storage was supposed to have been configured before this
+    check ran, which turns an unconfigured networkStorage pool tier from an
+    optional-feature note into a FAILURE.
+
+    The same absent block means two opposite things and nothing in the file tells
+    them apart: to an operator who has no NAS and never wanted one it is correct
+    and complete, and to a run that just stood up local shares or mounted a NAS it
+    is proof the work did not land. Only the caller knows which, so the caller
+    says so. Without this switch the checks below behave exactly as they always
+    have, which is what an operator running this by hand needs.
+
 .EXAMPLE
     pwsh test/Test-Config.ps1
 
@@ -72,7 +84,8 @@ param(
     [switch]$SkipSend,
     [ValidateSet('Warn', 'Fail')]
     [string]$OnConfigSchemaDrift = 'Warn',
-    [switch]$ApplyConfigMigration
+    [switch]$ApplyConfigMigration,
+    [switch]$ExpectStorageConfigured
 )
 
 $TestRoot = $PSScriptRoot
@@ -104,6 +117,11 @@ Import-Module (Join-Path $script:ModulesDir 'Test.Config.psm1')          -Global
 # bare (Get-Process -Id $PID).Path is null on macOS (no /proc), so this gate
 # must route through the shared resolver. Leaf module (no transitive deps).
 Import-Module (Join-Path $script:ModulesDir 'Test.InnerSpawn.psm1')      -Global -Force
+# Test-YurunaCanPrompt / Assert-YurunaPromptable: the one predicate for "can a
+# question asked here reach a person". Every interactive offer below is gated on
+# it, so the answer is the same one the rest of the harness gets -- including the
+# environment contract a parent publishes, which a console probe alone cannot see.
+Import-Module (Join-Path (Split-Path -Parent $TestRoot) 'automation/Yuruna.Common.psm1') -Global -Force -DisableNameChecking
 Initialize-OutputState
 
 function Test-TcpReachable {
@@ -352,9 +370,10 @@ if (-not (Test-Path $hostModPath)) {
 
 # Interactive only: offer to resynchronize the clock right now. Returns $true
 # only when a sync actually succeeded (the caller then re-measures rather
-# than trusting the attempt). A headless run -- the pre-cycle config gate --
-# returns $false immediately and keeps the printed instructions, because the
-# unattended path must never block on a prompt.
+# than trusting the attempt). Where nobody can be asked -- the pre-cycle config
+# gate, an unattended runner -- it returns $false immediately and keeps the
+# printed instructions, because declining to offer is a complete outcome here
+# while blocking on a prompt is not.
 #
 # This is the one place a clock repair is attempted with an operator present,
 # so it is also the only place that may ask for a credential. A running cycle
@@ -363,9 +382,7 @@ function Invoke-HostClockSyncOffer {
     [OutputType([bool])]
     param([Parameter(Mandatory)][string]$HostType)
     if (-not (Get-Command Sync-HostClock -ErrorAction SilentlyContinue)) { return $false }
-    $canPrompt = $false
-    try { $canPrompt = ([Environment]::UserInteractive -and -not [Console]::IsInputRedirected) } catch { $canPrompt = $false }
-    if (-not $canPrompt) { return $false }
+    if (-not (Test-YurunaCanPrompt)) { return $false }
     $ans = Read-Host "Host clock: resynchronize it against NTP now (needs Administrator / sudo)? [y/N]"
     if ($ans -notmatch '^\s*(y|yes)\s*$') { return $false }
     # Prime the sudo credential cache first. Every platform's sync calls
@@ -1048,8 +1065,7 @@ if ($IsWindows) {
         if ($stale.Count -eq 0) {
             Write-Pass "no stale SMB drive mappings (every mapped server name still resolves)."
         } else {
-            $smbInteractive = $false
-            try { $smbInteractive = ([Environment]::UserInteractive -and -not [Console]::IsInputRedirected) } catch { $smbInteractive = $false }
+            $smbInteractive = Test-YurunaCanPrompt
             foreach ($s in $stale) {
                 $label = if ($s.LocalPath) { "$($s.LocalPath) -> $($s.RemotePath)" } else { $s.RemotePath }
                 $removed = $false
@@ -1106,15 +1122,13 @@ function Show-LinuxSudoHintOnce {
 # Linux + interactive only: offer to install the passwordless-sudo drop-in the
 # mount needs, right now, prompting once for sudo. Returns $true ONLY when the
 # drop-in was actually installed (so the caller retries the mount); a decline, a
-# headless session, or any non-install outcome returns $false and the caller
-# falls through to Show-LinuxSudoHintOnce. The unattended runner never reaches
-# this (not interactive) and must not self-elevate.
+# session where nobody can be asked, or any non-install outcome returns $false
+# and the caller falls through to Show-LinuxSudoHintOnce. The unattended runner
+# never reaches the offer and must not self-elevate.
 function Invoke-LinuxSudoInstallOffer {
     if (-not $IsLinux) { return $false }
     if (-not (Get-Command Set-PoolStorageSudoers -ErrorAction SilentlyContinue)) { return $false }
-    $canPrompt = $false
-    try { $canPrompt = ([Environment]::UserInteractive -and -not [Console]::IsInputRedirected) } catch { $canPrompt = $false }
-    if (-not $canPrompt) { return $false }
+    if (-not (Test-YurunaCanPrompt)) { return $false }
     $ans = Read-Host "networkStorage: install the passwordless-sudo drop-in now so the mount works (sudo will prompt once for your password)? [y/N]"
     if ($ans -notmatch '^\s*(y|yes)\s*$') { return $false }
     try {
@@ -1137,8 +1151,9 @@ function Invoke-LinuxSudoInstallOffer {
 # account already exists on the NAS, so an auto-generated one is always junk it
 # rejects (cifs mount error(13)). Returns $true ONLY when a credential was
 # stored; the caller then re-runs the read-only pre-check rather than trusting
-# the write. A headless session -- the unattended runner -- returns $false at
-# once and keeps the printed instructions.
+# the write. Where nobody can be asked -- the pre-cycle config gate, the
+# unattended runner -- it returns $false at once and keeps the printed
+# instructions, which name the manual equivalent.
 function Invoke-PoolStorageVaultCredentialOffer {
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidUsingPlainTextForPassword', '',
         Justification = 'The password is read as a SecureString; the brief plaintext only feeds the vault Set-Password, which stores plaintext by design.')]
@@ -1147,9 +1162,7 @@ function Invoke-PoolStorageVaultCredentialOffer {
 
     $who = [string]$Config.NetworkUser
     if ([string]::IsNullOrWhiteSpace($who)) { return $false }
-    $canPrompt = $false
-    try { $canPrompt = ([Environment]::UserInteractive -and -not [Console]::IsInputRedirected) } catch { $canPrompt = $false }
-    if (-not $canPrompt) { return $false }
+    if (-not (Test-YurunaCanPrompt)) { return $false }
     if (-not (Get-Command Set-Password -ErrorAction SilentlyContinue)) {
         Write-Info "networkStorage pool: the authentication extension is not loaded here, so the password cannot be stored from this run. Store it manually -- see docs/test-config.md."
         return $false
@@ -1157,6 +1170,14 @@ function Invoke-PoolStorageVaultCredentialOffer {
 
     $ans = Read-Host "networkStorage pool: store the NAS password for '$who' in the vault now? [y/N]"
     if ($ans -notmatch '^\s*(y|yes)\s*$') { return $false }
+
+    # These two reads are the only ones here with no fallback value: every other
+    # offer above degrades to "not offered, here are the manual steps", while a
+    # secure read that cannot reach anybody just blocks. Re-assert rather than
+    # trust the guard at the top of the function, because the distance between
+    # them is where a future edit puts a new early return.
+    Assert-YurunaPromptable -Question "networkStorage pool: the NAS password for '$who'" `
+        -ConfigKey "a vaultKey for '$who' in users.yml, with the password stored by Set-Password"
 
     # Typed twice: with the NAS offline nothing in this run reads the value back,
     # so a typo would otherwise sit in the vault until a cycle's mount fails.
@@ -1250,9 +1271,21 @@ if (-not (Test-Path $poolMod)) {
     Write-Info "Test.PoolStorage.psm1 not found at ${poolMod}; networkStorage check skipped."
 } else {
     Import-Module $poolMod -Global -Force
+    # An absent or unpopulated pool tier is only "optional" to someone who never
+    # asked for shared storage. -ExpectStorageConfigured is the caller saying it
+    # just tried to stand storage up, and then the same absence is the proof that
+    # nothing landed -- the local-shares script writes these three keys as it
+    # builds the shares, and a NAS mount refuses to start without them, so a run
+    # that gets here without them has no storage at all while every step after it
+    # behaves as though it has.
+    $storageGap = "Shared storage was configured in this run, but $ConfigPath records none of it"
     $psRaw = if ($Config.Contains('networkStorage')) { $Config['networkStorage'] } else { $null }
     if ($psRaw -isnot [System.Collections.IDictionary]) {
-        Write-Info "networkStorage block not present -- NAS replication is off (optional)."
+        if ($ExpectStorageConfigured) {
+            Write-Fail "$storageGap -- the networkStorage block is not present, so nothing will mount and the pool has nowhere to replicate to. See docs/test-config.md." -FullPath $ConfigPath
+        } else {
+            Write-Info "networkStorage block not present -- NAS replication is off (optional)."
+        }
     } else {
         # networkReplicate is a pool behavior (pool node), not a networkStorage key.
         $psReplicate = $false
@@ -1266,6 +1299,8 @@ if (-not (Test-Path $poolMod)) {
             $incomplete = "networkStorage poolStorageNetworkPath / poolStorageNetworkUser / poolStorageLocalPath are not all set"
             if ($psReplicate) {
                 Write-Fail "pool.networkReplicate is true but $incomplete -- replication stays OFF until all three are populated. See docs/test-config.md." -FullPath $ConfigPath
+            } elseif ($ExpectStorageConfigured) {
+                Write-Fail "$storageGap -- $incomplete. See docs/test-config.md." -FullPath $ConfigPath
             } else {
                 Write-Info "pool.networkReplicate = false and $incomplete -- replication is off (optional). Populate all three to pre-validate the share before enabling."
             }
@@ -1302,7 +1337,12 @@ if (-not (Test-Path $poolMod)) {
                 if ($psVaultReady) {
                     Write-Pass "networkStorage pool: a vault credential is configured for '$($psCfg.NetworkUser)'."
                 } else {
-                    $vmsg = "networkStorage pool: '$($psCfg.NetworkUser)' has no usable vault credential -- mounting would auto-generate a junk SMB password the NAS rejects. Re-run this check from a terminal to be prompted for the password, or map a non-empty vaultKey in users.yml and Set-Password it. See docs/test-config.md."
+                    # Naming the command matters: run through a gate or a runner
+                    # this check's stdout is captured, so the offer above never
+                    # fires no matter how interactive the terminal that started
+                    # the run looks. `pwsh test/Test-Config.ps1` is the only
+                    # invocation that can still ask.
+                    $vmsg = "networkStorage pool: '$($psCfg.NetworkUser)' has no usable vault credential -- mounting would auto-generate a junk SMB password the NAS rejects. Run 'pwsh test/Test-Config.ps1' directly from a terminal to be prompted for the password, or map a non-empty vaultKey in users.yml and Set-Password it. See docs/test-config.md."
                     if ($psReplicate) { Write-Fail $vmsg -FullPath $ConfigPath }
                     else              { Write-Warn "$vmsg (Advisory: replicate is false, so this won't block the cycle -- fix before enabling.)" }
                 }

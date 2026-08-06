@@ -35,7 +35,7 @@ func TestHostInfo(t *testing.T) {
 	if err := json.Unmarshal(b, &info); err != nil {
 		t.Fatalf("hostinfo: %v (body %s)", err, b)
 	}
-	if !info.OK || info.LocalHostID != testHostID || info.Version != "2026.08.05" {
+	if !info.OK || info.LocalHostID != testHostID || info.Version != "2026.08.06" {
 		t.Fatalf("hostinfo should carry the host id and version; got %+v", info)
 	}
 	// Every reported line must be a comma-list of parseable IPs (no stray

@@ -28,6 +28,50 @@
     if (!res.ok || data.ok === false) throw new Error(data.error || data.reason || ('HTTP ' + res.status));
     return data;
   };
+  // --- REGION: https://yuruna.link/control-proof
+  // takeControlProof lifts the short-lived control proof the aggregator's
+  // /go/stash redirect leaves in the URL fragment (#yctl=<expiry>.<proof>) and
+  // strips it from the address bar, so it is not shoulder-surfed or pasted
+  // onward with the URL. A fragment never reaches a server and never lands in an
+  // access log, which is why the proof travels there and not in the query.
+  //
+  // Read once by construction: the second call finds no fragment. The value is
+  // taken raw, not decodeURIComponent'd -- it is "<digits>.<standard base64>",
+  // which has nothing to decode and a stray % would only make it throw.
+  const takeControlProof = function () {
+    try {
+      const m = (window.location.hash || '').match(/(?:^#|[#&])yctl=([^&]+)/);
+      if (!m || !m[1]) return '';
+      if (window.history && window.history.replaceState) {
+        window.history.replaceState(null, document.title, window.location.pathname + window.location.search);
+      }
+      return m[1];
+    } catch (e) {
+      // No history API: the proof still works, it just stays in the address bar.
+      return '';
+    }
+  };
+
+  // Y.proofUnlock is the one attempt to exchange that proof for a session,
+  // started at load so the gate is already open by the time the page reads it.
+  // Arriving through a link on the Yuruna hosts dashboard is then enough to use
+  // Force refresh, Delete and Prune -- the operator is not sent back to the
+  // dashboard to copy the rotating code off a tile.
+  //
+  // Resolves false on anything short of a granted session (no fragment, expired
+  // proof, aggregator unreachable), which leaves the lab-token prompt as the way
+  // in exactly as before. It is a shortcut, never the only door.
+  Y.proofUnlock = (async function () {
+    const proof = takeControlProof();
+    if (!proof) return false;
+    try {
+      await Y.api('/api/unlock-proof', { method: 'POST', body: { proof: proof } });
+      return true;
+    } catch (e) {
+      return false;
+    }
+  })();
+
   Y.notice = function (kind, msg) {
     const n = document.getElementById('notice');
     if (!n) return;

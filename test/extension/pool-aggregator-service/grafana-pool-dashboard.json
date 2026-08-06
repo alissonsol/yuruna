@@ -97,7 +97,7 @@
       "id": 17,
       "type": "table",
       "title": "Extension hosts",
-      "description": "Hosts running an extension function, learned from each host's registration record (activeExtensions) -- the same opaque Host ID namespace as the Pool hosts table, so a host that both runs cycles and hosts a stash service shows the same Host ID in both. No ystash-nas mount or config service: a host self-reports the service it runs and the aggregator already polls its registration. Driven by yuruna_pool_host_extension. Host ID is plain text here, deliberately: a host can run an extension service without running cycles, and such a host has no status page for the /go/host redirect to resolve -- it would answer 'host not known to the pool'. Open a host from the Pool hosts table instead: its rows are exactly the hosts that have a status page, and that Host ID link carries the short-lived control token. Extension names the function (e.g. Stash service) and links to that service's UI -- the stash-service VM -- via the aggregator's /go/stash redirect (resolved to the host-advertised address server-side). Panel height tracks the extension-host count (yuruna-fit-pool-dashboard.timer) -- gridPos.h below is only the pre-collector default.",
+      "description": "Hosts running an extension function, learned from each host's registration record (activeExtensions) -- the same opaque Host ID namespace as the Pool hosts table, so a host that both runs cycles and hosts a stash service shows the same Host ID in both. No ystash-nas mount or config service: a host self-reports the service it runs and the aggregator already polls its registration. Driven by yuruna_pool_host_extension. Host ID is plain text here, deliberately: a host can run an extension service without running cycles, and such a host has no status page for the /go/host redirect to resolve -- it would answer 'host not known to the pool'. Open a host from the Pool hosts table instead: its rows are exactly the hosts that have a status page, and that Host ID link carries the short-lived control token. Extension names the function (e.g. Stash service) and links to that service's UI via the aggregator's /go/stash redirect, which resolves the host-advertised address server-side and hands the browser the same short-lived control token the Pool hosts link carries -- so a service UI opened from here arrives with its actions already unlocked, and only falls back to asking for the Lab token when the proxy mints no token at all. Panel height tracks the extension-host count (yuruna-fit-pool-dashboard.timer) -- gridPos.h below is only the pre-collector default.",
       "gridPos": { "h": 4, "w": 24, "x": 0, "y": 22 },
       "datasource": { "type": "prometheus", "uid": "yuruna-prometheus" },
       "targets": [
@@ -129,11 +129,12 @@
             "properties": [
               { "id": "custom.width", "value": 240 },
               { "id": "mappings", "value": [ { "type": "value", "options": { "stash-service": { "text": "Stash service", "index": 0 }, "pool-control-service": { "text": "Pool-control service", "index": 1 }, "download-agent-service": { "text": "Download-agent service", "index": 2 } } } ] },
-              { "id": "links", "value": [ { "title": "Open extension service UI", "url": "${__data.fields.target}", "targetBlank": true } ] }
+              { "id": "links", "value": [ { "title": "Open extension service UI", "url": "${aggregator}${__data.fields.goPath}", "targetBlank": true } ] }
             ]
           },
           { "matcher": { "id": "byName", "options": "baseUrl" }, "properties": [ { "id": "custom.hidden", "value": true } ] },
-          { "matcher": { "id": "byName", "options": "target" }, "properties": [ { "id": "custom.hidden", "value": true } ] }
+          { "matcher": { "id": "byName", "options": "target" }, "properties": [ { "id": "custom.hidden", "value": true } ] },
+          { "matcher": { "id": "byName", "options": "goPath" }, "properties": [ { "id": "custom.hidden", "value": true } ] }
         ]
       },
       "options": { "showHeader": true, "cellHeight": "sm", "footer": { "show": false }, "sortBy": [ { "displayName": "Host ID", "desc": false } ] }
@@ -142,7 +143,7 @@
       "id": 6,
       "type": "table",
       "title": "Pool hosts",
-      "description": "One row per discovered host, identified by its opaque Host ID (the stable per-host UUID, shown GUID-formatted) -- no hostname is disclosed, so this summary stays safe to expose unauthenticated. Status folds in reachability, whether anything is still driving the host, and its pause state -- the same ladder the host's own status banner shows. 'runner stopped' means the host answers but its test runner is verifiably gone, so the cycle result below it is a record of what ran, not of what is running; it outranks every other reading for exactly that reason. 'paused' is a host that has actually stopped, while 'will pause (after current cycle/step)' is one an operator has armed to stop but that is still executing -- reported as such rather than as a plain 'running' that would hide the pending stop. Pass/Fail count terminal cycles within the dashboard's selected time range (top-right) -- e.g. Last 3h shows only cycles finished in the last 3h -- counted from the Loki transition log (exact; reaches back to Loki retention), with a per-host zero baseline so they always show (0 included). Control is the host link AND says up front whether following it will let you drive the host: 'remote' = this host holds the same lab-auth-token the proxy mints proofs from, so its Pause/Continue buttons will work; 'onsite' = they will 403 and the host can only be driven from its own console (amber when the cause is a mismatched token or a skewed clock rather than no token at all); 'unknown' = the host has not answered /control/control-status, which an older framework build does not serve. The link itself works in every state -- it opens the host's status page read-only -- and routes through the aggregator's /go/host redirect, which resolves the host's CURRENT IP server-side and hands the browser the short-lived control token. Host ID is deliberately plain text: exactly one cell per row grants control, and it is the one that says so. Last cycle links to the cycle folder. Artifacts never leave the generating host. Panel height tracks the host count (yuruna-fit-pool-dashboard.timer) so the table never scrolls -- gridPos.h below is only the pre-collector default.",
+      "description": "One row per discovered host, identified by its opaque Host ID (the stable per-host UUID, shown GUID-formatted) -- no hostname is disclosed, so this summary stays safe to expose unauthenticated. Status folds in reachability, whether anything is still driving the host, and its pause state -- the same ladder the host's own status banner shows. 'runner stopped' means the host answers but its test runner is verifiably gone, so the cycle result below it is a record of what ran, not of what is running; it outranks every other reading for exactly that reason. 'paused' is a host that has actually stopped, while 'pausing (after cycle/step)' is one an operator has armed to stop but that is still executing -- reported as such rather than as a plain 'running' that would hide the pending stop. Pass/Fail count terminal cycles within the dashboard's selected time range (top-right) -- e.g. Last 3h shows only cycles finished in the last 3h -- counted from the Loki transition log (exact; reaches back to Loki retention), with a per-host zero baseline so they always show (0 included). Control is the host link AND says up front whether following it will let you drive the host: 'remote' = this host holds the same lab-auth-token the proxy mints proofs from, so its Pause/Continue buttons will work; 'onsite' = they will 403 and the host can only be driven from its own console (amber when the cause is a mismatched token or a skewed clock rather than no token at all); 'unknown' = the host has not answered /control/control-status, which an older framework build does not serve. The link itself works in every state -- it opens the host's status page read-only -- and routes through the aggregator's /go/host redirect, which resolves the host's CURRENT IP server-side and hands the browser the short-lived control token. Host ID is deliberately plain text: exactly one cell per row grants control, and it is the one that says so. Last cycle links to the cycle folder. Artifacts are served from the generating host and are never copied into this dashboard; the one way they travel is an operator using Share cycle results on the timeline below, which packs one cycle folder for that operator to mail on. Panel height tracks the host count (yuruna-fit-pool-dashboard.timer) so the table never scrolls -- gridPos.h below is only the pre-collector default.",
       "gridPos": { "h": 9, "w": 24, "x": 0, "y": 13 },
       "datasource": { "type": "datasource", "uid": "-- Mixed --" },
       "targets": [
@@ -208,8 +209,8 @@
                     "idle": { "text": "not running", "color": "#6b7280", "index": 3 },
                     "unreachable": { "color": "#374151", "index": 4 },
                     "paused": { "color": "#ca8a04", "index": 5 },
-                    "pausing-cycle": { "text": "will pause (after current cycle)", "color": "#eab308", "index": 6 },
-                    "pausing-step": { "text": "will pause (after current step)", "color": "#f59e0b", "index": 7 },
+                    "pausing-cycle": { "text": "pausing (after cycle)", "color": "#eab308", "index": 6 },
+                    "pausing-step": { "text": "pausing (after step)", "color": "#f59e0b", "index": 7 },
                     "stopped": { "text": "runner stopped", "color": "#475569", "index": 8 }
                   } }
                 ]
@@ -300,7 +301,7 @@
       "id": 7,
       "type": "state-timeline",
       "title": "Cycle outcome over time (host × UTC time)",
-      "description": "Each row is a host (by Host ID); color is the cycle status the pool-aggregator-service observed at that time. Times are UTC (dashboard timezone), so a block lines up with the UTC log times below. Click a block to open that host's cycle results: the link resolves the host's CURRENT IP server-side (it survives a host IP change) and the cycle covering that time. Selects the hostname-free series (hostname=\"\") so a host shows ONE row -- a legacy hostname-bearing series, retained until it ages out, would otherwise add a duplicate row for the same Host ID. Panel height tracks the host count (yuruna-fit-pool-dashboard.timer) so rows keep a legible height instead of being squeezed -- gridPos.h below is only the pre-collector default.",
+      "description": "Each row is a host (by Host ID); color is the cycle status the pool-aggregator-service observed at that time. Times are UTC (dashboard timezone), so a block lines up with the UTC log times below. Click a block for that host's cycle results: the link resolves the host's CURRENT IP server-side (it survives a host IP change) and the cycle covering that time. Share cycle results resolves the same cycle and lands on the host's own share page, which packs the whole results folder into one <short host id>.<UTC start>.tar.gz and hands it to your mail client -- the archive is built on the host and is not uploaded anywhere by that page. Selects the hostname-free series (hostname=\"\") so a host shows ONE row -- a legacy hostname-bearing series, retained until it ages out, would otherwise add a duplicate row for the same Host ID. Panel height tracks the host count (yuruna-fit-pool-dashboard.timer) so rows keep a legible height instead of being squeezed -- gridPos.h below is only the pre-collector default.",
       "gridPos": { "h": 9, "w": 24, "x": 0, "y": 4 },
       "datasource": { "type": "prometheus", "uid": "yuruna-prometheus" },
       "targets": [
@@ -323,6 +324,11 @@
               "title": "Open host status page",
               "url": "${aggregator}/go/host?host=${__field.labels.hostId}&pool=${pool}",
               "targetBlank": true
+            },
+            {
+              "title": "Share cycle results",
+              "url": "${aggregator}/go/cycle-share?host=${__field.labels.hostId}&t=${__value.time}&pool=${pool}",
+              "targetBlank": true
             }
           ],
           "mappings": [
@@ -333,8 +339,8 @@
               "3": { "text": "fail", "color": "#dc2626", "index": 3 },
               "4": { "text": "not running", "color": "#6b7280", "index": 4 },
               "5": { "text": "paused", "color": "#ca8a04", "index": 5 },
-              "6": { "text": "will pause (after current cycle)", "color": "#eab308", "index": 6 },
-              "7": { "text": "will pause (after current step)", "color": "#f59e0b", "index": 7 },
+              "6": { "text": "pausing (after cycle)", "color": "#eab308", "index": 6 },
+              "7": { "text": "pausing (after step)", "color": "#f59e0b", "index": 7 },
               "8": { "text": "runner stopped", "color": "#475569", "index": 8 }
             } }
           ],

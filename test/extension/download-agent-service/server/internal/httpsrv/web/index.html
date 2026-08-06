@@ -68,8 +68,9 @@
 
     <div id="notice" class="notice"></div>
 
+    <!-- No Version tile: the daemon version is already in the header bar, under
+         the service name, on every page of every Yuruna UI. -->
     <section class="cards" id="agent-header">
-      <div class="card"><span class="card-label">Version</span><span class="card-value" id="ag-version">&mdash;</span></div>
       <div class="card"><span class="card-label">Pool</span><span class="card-value" id="ag-pool">&mdash;</span><span class="card-sub" id="ag-pooldir"></span></div>
       <div class="card"><span class="card-label">Lease</span><span class="card-value" id="ag-lease">&mdash;</span><span class="card-sub" id="ag-lease-sub"></span></div>
       <div class="card"><span class="card-label">Scanner</span><span class="card-value" id="ag-scan">&mdash;</span><span class="card-sub" id="ag-scan-sub"></span></div>
@@ -113,7 +114,7 @@
   <footer id="footer-bar">
     <span id="footer-ips"><span class="label">IPs:</span><textarea id="footer-ip-list" readonly rows="1" spellcheck="false" inputmode="none" autocorrect="off" autocapitalize="off" aria-label="Server IP addresses">—</textarea></span>
     <span>Loaded: <span id="last-loaded">—</span></span>
-    <span><a id="footer-refresh" href="#">Refresh</a>: <span id="countdown">60</span>s · <a href="https://yuruna.link/download-agent">guide</a></span>
+    <span><a id="footer-refresh" href="#">Refresh</a>: <span id="countdown">60</span>s</span>
   </footer>
 
   <script src="/assets/common.js"></script>

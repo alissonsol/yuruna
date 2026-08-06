@@ -13,6 +13,9 @@
     try { data = await Y.api('/api/state'); }
     catch (e) { Y.notice('error', 'Could not load pool intent: ' + e.message); return; }
     chrome.markLoaded();
+    // Memoized and non-rejecting, so this is one read for the life of the page
+    // and an aggregator this daemon does not know about just means unlinked ids.
+    const goBaseUrl = (await Y.hostInfo()).goBaseUrl || '';
     const pools = data.pools || [];
     const testSets = data.testSets || [];
     const tbody = document.getElementById('pool-rows');
@@ -47,18 +50,18 @@
         } catch (e) { Y.notice('error', 'Assign failed: ' + e.message); assignBtn.disabled = false; }
       });
 
-      // Members + copy-config affordance.
+      // Members: each id is the way into that host's own status page, so the
+      // cell is the short id linked there. The copy-config command that used to
+      // repeat under every multi-member pool is the table's footnote now -- it
+      // is one instruction, not a per-row fact.
       const members = p.members || [];
       const memCell = Y.el('td', {}, [Y.el('div', { text: members.length + ' host(s)' })]);
-      for (const m of members) memCell.appendChild(Y.el('div', { class: 'mono', text: m }));
-      if (members.length > 1) {
-        memCell.appendChild(Y.el('div', { class: 'hint', text: 'Copy config from a pool peer: pwsh test/Sync-HostConfiguration.ps1 -ReferenceHost <peer-ip>' }));
-      }
+      for (const m of members) memCell.appendChild(Y.el('div', {}, [Y.hostLink(m, p.poolId, goBaseUrl)]));
 
       const fwProj = ts ? (ts.frameworkUrl + '  /  ' + ts.projectUrl) : '(none)';
       tbody.appendChild(Y.el('tr', {}, [
         Y.el('td', { text: p.poolId }),
-        Y.el('td', { class: 'mono', text: p.poolGuid || '' }),
+        Y.el('td', {}, [Y.idCell(p.poolGuid)]),
         Y.el('td', {}, [sel, ' ', assignBtn]),
         Y.el('td', { class: 'mono', text: fwProj }),
         memCell,

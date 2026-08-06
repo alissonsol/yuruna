@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.05
+.VERSION 2026.08.06
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456712
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -1334,9 +1334,12 @@ function Save-GuestDiagnostic {
     # discoverable. The probe itself is a parallel ICMP sweep over the
     # /24, ~5 s elapsed; subsequent Get-VMIp calls find the guest in
     # the now-populated neighbor cache. Guarded on Get-Command so the
-    # call is a no-op on KVM/UTM hosts (whose drivers don't export
-    # this function and don't need it -- virsh domifaddr / utmctl /
-    # dhcpd_leases already cover those cases).
+    # call is a no-op on the other host drivers, which do not export it
+    # -- not because they never need a populated ARP cache (a bridged
+    # UTM guest needs one just as much), but because they escalate to
+    # their own sweep from inside Get-VMIp, where it is bounded and
+    # memoized. A second, unbounded sweep from out here would duplicate
+    # that work and defeat its budget.
     if (Get-Command Invoke-YurunaExternalArpProbe -ErrorAction SilentlyContinue) {
         try {
             Write-Verbose "  Diagnostics: pre-probing Yuruna-External /24 to populate ARP cache (KVP can be 5-15 min late)..."

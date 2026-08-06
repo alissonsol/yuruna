@@ -4,6 +4,9 @@
 package httpsrv
 
 import (
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/base64"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -94,6 +97,42 @@ func login(t *testing.T, srv *httptest.Server, code string) *http.Response {
 	}
 	t.Cleanup(func() { resp.Body.Close() })
 	return resp
+}
+
+// An operator who reached this UI by clicking it out of the Yuruna hosts
+// dashboard arrives holding a control proof in the URL fragment instead of a
+// code, and the page spends it on /api/unlock-proof. What this covers is the
+// wiring -- that the route is mounted and reaches the gate; the proof's own
+// rules (window, ceiling, forgery, who verifies it) live in the labgate suite.
+func TestAControlProofFromTheDashboardUnlocksTheGatedRoutes(t *testing.T) {
+	const labAuthToken = "lab-auth-token-for-the-whole-pool"
+	srv, _ := newServer(t, Options{AuthToken: labAuthToken})
+
+	if r := post(t, srv, imgPath+"/refresh"+imgQuery, "", nil); r.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("no session = %d, want 401", r.StatusCode)
+	}
+	expiry := strconv.FormatInt(time.Now().Add(15*time.Minute).Unix(), 10)
+	proof := expiry + "." + hmacB64(labAuthToken, "yuruna-control|proof|"+expiry)
+	resp, err := srv.Client().Post(srv.URL+"/api/unlock-proof", "application/json",
+		strings.NewReader(`{"proof":`+strconv.Quote(proof)+`}`))
+	if err != nil {
+		t.Fatalf("POST /api/unlock-proof: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("unlock with a fresh proof = %d, want 200", resp.StatusCode)
+	}
+	if r := post(t, srv, imgPath+"/refresh"+imgQuery, "", resp.Cookies()); r.StatusCode != http.StatusAccepted {
+		t.Fatalf("with the proof session = %d, want 202", r.StatusCode)
+	}
+}
+
+// hmacB64 is the proof's signature step, written out rather than imported so a
+// change to the format has to be made twice before this test stops noticing.
+func hmacB64(key, data string) string {
+	mac := hmac.New(sha256.New, []byte(key))
+	mac.Write([]byte(data))
+	return base64.StdEncoding.EncodeToString(mac.Sum(nil))
 }
 
 func TestAValidLabTokenGrantsASessionForTheGatedRoutes(t *testing.T) {

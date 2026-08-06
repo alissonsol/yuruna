@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.05
+.VERSION 2026.08.06
 .GUID 425458ca-5060-4a2d-b2e3-2fb297ec265e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -26,6 +26,10 @@
 # See docs/loglevels.md for the cascade semantics and why env-var
 # propagation is the only way to reach child pwsh processes.
 
+[Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidGlobalVars', '',
+    Justification = 'Eviction-safe anchors: the transcript writer and the captured ProgressPreference are singletons for the PROCESS, and must survive -Force re-imports of this module by nested in-process scripts.')]
+param()
+
 $script:LogLevelRank = [ordered]@{
     Error       = 1
     Warning     = 2
@@ -34,14 +38,39 @@ $script:LogLevelRank = [ordered]@{
     Debug       = 5
 }
 
-# The caller's ProgressPreference, captured the first time
-# Set-LogLevelPreference suppresses it (at Verbose/Debug) and restored when the
-# level rises back above Verbose. $null means "nothing suppressed to restore".
-$script:SavedProgressPreference = $null
-
-# Path this process is transcribing to, or $null when it is not. Guards against
-# a second Start-Transcript in a script that re-imports this module.
-$script:ChildTranscriptPath = $null
+# The two values below are deliberately NOT in module scope. `Import-Module
+# -Force` builds a fresh module instance with fresh session state, so a guard
+# kept in $script: stops guarding the moment a nested in-process script
+# re-imports this module (feedback_module_force_import_evicts_global) -- and
+# both of these describe the process, not a module instance. The $global: scope
+# belongs to the runspace and a forced re-import leaves it intact, so it is the
+# widest variable scope reachable from here; module load must therefore never
+# overwrite a value an earlier instance left behind.
+# Test-Path over the variable drive rather than Get-Variable: the probe runs on
+# every import, and a Get-Variable miss records a "Cannot find a variable" entry
+# in $Error even under -ErrorAction SilentlyContinue, which is noise in exactly
+# the postmortem this module exists to make readable.
+if (-not (Test-Path -LiteralPath 'Variable:global:YurunaChildTranscriptPath')) {
+    # Path this process is transcribing to, or $null when it is not, paired with
+    # the pid that opened it -- the same key the file name is built from, so a
+    # value that does not describe THIS process can never suppress its
+    # transcript. Without the guard a second Start-Transcript succeeds (PS 7
+    # allows concurrent transcripts): both writers open the one path in Append
+    # mode, each seeks to end-of-file once at construction and then advances its
+    # own offset, so the later writer overwrites the earlier one's lines instead
+    # of following them, and the file ends with one start block and N end blocks.
+    $global:YurunaChildTranscriptPath     = $null
+    $global:YurunaChildTranscriptOwnerPid = 0
+}
+if (-not (Test-Path -LiteralPath 'Variable:global:YurunaSavedProgressPreference')) {
+    # The caller's ProgressPreference, captured the first time
+    # Set-LogLevelPreference suppresses it (at Verbose/Debug) and restored when
+    # the level rises back above Verbose. $null means "nothing suppressed to
+    # restore" -- which is why it has to outlive a re-import as well: a reset
+    # capture slot records the ALREADY-suppressed value as the caller's choice
+    # and pins ProgressPreference to SilentlyContinue for the rest of the run.
+    $global:YurunaSavedProgressPreference = $null
+}
 
 function Get-LogLevelRank {
     <#
@@ -81,11 +110,11 @@ function Set-LogLevelPreference {
     # tmux/vscode/sshd -- feedback_pwsh_linux_write_progress_setcursor) keeps its
     # choice instead of having the progress bar force-enabled under it.
     if ($eff -ge $script:LogLevelRank.Verbose) {
-        if ($null -eq $script:SavedProgressPreference) { $script:SavedProgressPreference = $global:ProgressPreference }
+        if ($null -eq $global:YurunaSavedProgressPreference) { $global:YurunaSavedProgressPreference = $global:ProgressPreference }
         $global:ProgressPreference = 'SilentlyContinue'
-    } elseif ($null -ne $script:SavedProgressPreference) {
-        $global:ProgressPreference = $script:SavedProgressPreference
-        $script:SavedProgressPreference = $null
+    } elseif ($null -ne $global:YurunaSavedProgressPreference) {
+        $global:ProgressPreference = $global:YurunaSavedProgressPreference
+        $global:YurunaSavedProgressPreference = $null
     }
 }
 
@@ -157,7 +186,9 @@ function Start-YurunaChildTranscript {
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions',
         '', Justification = 'Opens a diagnostic transcript for this process; a log-level prelude carries no -WhatIf intent.')]
     param()
-    if ($script:ChildTranscriptPath) { return $script:ChildTranscriptPath }
+    if ($global:YurunaChildTranscriptPath -and $global:YurunaChildTranscriptOwnerPid -eq $PID) {
+        return $global:YurunaChildTranscriptPath
+    }
     $dir = $env:YURUNA_CHILD_TRANSCRIPT_DIR
     if ([string]::IsNullOrWhiteSpace($dir)) { return '' }
     try {
@@ -180,12 +211,14 @@ function Start-YurunaChildTranscript {
             $transcriptArgs['UseMinimalHeader'] = $true
         }
         Start-Transcript @transcriptArgs | Out-Null
-        $script:ChildTranscriptPath = $path
+        $global:YurunaChildTranscriptPath     = $path
+        $global:YurunaChildTranscriptOwnerPid = $PID
         return $path
     } catch {
         # Nowhere useful to report this: the console belongs to the operator and
         # the parent's log is not reachable from here.
-        $script:ChildTranscriptPath = $null
+        $global:YurunaChildTranscriptPath     = $null
+        $global:YurunaChildTranscriptOwnerPid = 0
         return ''
     }
 }

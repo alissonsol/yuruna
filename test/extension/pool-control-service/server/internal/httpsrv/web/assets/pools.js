@@ -30,6 +30,7 @@
   // its members are being read, and an unreachable host greys one cell rather
   // than emptying the page.
   let control = {};
+  let goBaseUrl = '';
 
   // renderStatus fills one pool's status cell from whatever member states are
   // in hand. It is called twice per load -- once with the states from the
@@ -112,6 +113,9 @@
     try { data = await Y.api('/api/state'); }
     catch (e) { Y.notice('error', 'Could not load pools: ' + e.message); return; }
     chrome.markLoaded();
+    // Memoized and non-rejecting, so this is one read for the life of the page
+    // and an aggregator this daemon does not know about just means unlinked ids.
+    goBaseUrl = (await Y.hostInfo()).goBaseUrl || '';
     const pools = data.pools || [];
     const tbody = document.getElementById('pool-rows');
     tbody.textContent = '';
@@ -140,7 +144,8 @@
         catch (e) { Y.notice('error', 'Delete failed: ' + e.message); delBtn.disabled = false; }
       });
 
-      // members cell with per-host remove
+      // members cell: the short id links to that host's own status page, with
+      // its per-host remove alongside.
       const memCell = Y.el('td', {});
       for (const m of members) {
         const rm = Y.el('button', { text: 'x' });
@@ -148,7 +153,7 @@
           try { await Y.mutate('/api/pool/host?poolId=' + encodeURIComponent(p.poolId) + '&hostId=' + encodeURIComponent(m), { method: 'DELETE' }); load(); }
           catch (e) { Y.notice('error', 'Remove host failed: ' + e.message); }
         });
-        memCell.appendChild(Y.el('div', { class: 'mono' }, [m + ' ', rm]));
+        memCell.appendChild(Y.el('div', {}, [Y.hostLink(m, p.poolId, goBaseUrl), ' ', rm]));
       }
       memCell.appendChild(Y.el('div', {}, [hostInput, ' ', addBtn]));
 
@@ -160,7 +165,7 @@
 
       tbody.appendChild(Y.el('tr', {}, [
         Y.el('td', { text: p.poolId }),
-        Y.el('td', { class: 'mono', text: p.poolGuid || '' }),
+        Y.el('td', {}, [Y.idCell(p.poolGuid)]),
         Y.el('td', { text: p.displayName || '' }),
         memCell,
         statusTd,

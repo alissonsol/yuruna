@@ -42,4 +42,9 @@
     if (!$('files').files.length) { msg('warn', 'Choose at least one file.'); return; }
     submitCreate($('form-files'), ev.submitter || $('form-files').querySelector('button'));
   });
+
+  // Shared footer bar: server IPs and the last-loaded time. This page carries no
+  // #countdown, so nothing here auto-refreshes -- a timed reload would discard
+  // the form above.
+  Y.initFooter();
 })();

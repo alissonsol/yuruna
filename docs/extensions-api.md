@@ -245,6 +245,23 @@ service-local secret: one more shared string to distribute and rotate buys
 nothing a rotating pool-wide code does not already give, and it would be the
 only credential in the lab no other service understands.
 
+A session can also be unlocked by a **control proof** rather than the code. An
+operator who opens a service UI from the dashboard's *Extension hosts* table
+arrives holding one: the aggregator's `/go/stash` redirect mints it and leaves it
+in the URL fragment, and the page spends it on `POST /api/unlock-proof`. That
+saves going back to the dashboard to copy a code off a tile in order to act on a
+page the dashboard just sent you to. The proof is the weakest of the three
+credentials by design — minted for one visit, valid for minutes, and redeemable
+for nothing but a session on the service it was carried to, whereas the
+6-character code can be exchanged for the `lab-auth-token` itself.
+
+A service VM is not normally given the `lab-auth-token` (nothing bakes that file
+into its seed), so it usually cannot check an arriving proof itself. It asks
+`POST /api/v1/control-proof` on the aggregator, which is the same division of
+labour the 6-character code already follows: validation stays with the daemon
+that owns the secret. A service that *does* hold the token verifies locally and
+makes no round trip.
+
 `labgate` is that rule in code, and each area's `writeGate:` declares it, so
 "which services gate their writes" is answerable without reading four route
 tables.
@@ -499,8 +516,8 @@ wrongly:
 - the Loki lookback resolving a departed host's address for dashboard deep links
   — including the `/go/host` redirect that mints a control proof — follows the
   TTL upward but never drops below 24h, so shortening the TTL cannot 404 a link
-  the dashboard still displays. (`/go/cycle`'s own cycle-folder match keeps a
-  separate fixed 6h window.)
+  the dashboard still displays. (`/go/cycle` and `/go/cycle-share` share one
+  resolver, and its cycle-folder match keeps a separate fixed 6h window.)
 
 This does **not** bound the cumulative `yuruna_pool_cycles_pass_total` /
 `_fail_total` counters: those never time-expire, and survive until the

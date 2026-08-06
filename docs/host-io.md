@@ -33,7 +33,7 @@ Send-Text was forgotten" drift — the registry makes every
 pair enumerable at startup, so the
 [capability gate](capability-matrix.md) refuses cycles that reference
 an unwired backend rather than failing mid-step. The same pattern
-recurs across the workspace: [SequenceAction](handler-schema.md)
+recurs across the workspace: [SequenceAction](test-sequences.md#handler-contract)
 (verb registry), [Component registry login](authentication.md#component-registry-login)
 and [Host-condition registry](test-harness.md#host-condition-registry) (provider
 matrices), [Remediation dispatcher](failure-schema.md#remediation-dispatcher) (failure-class
@@ -190,6 +190,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.05
+Last review: 2026.08.06
 
 Back to [Yuruna](../README.md)

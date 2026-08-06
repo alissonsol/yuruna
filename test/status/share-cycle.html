@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<!-- LICENSEURI https://yuruna.link/license -->
+<!-- Copyright (c) 2019-2026 by Alisson Sol et al. -->
+<!--
+  Reached from the Yuruna hosts dashboard: a click on the cycle timeline ->
+  the aggregator's /go/cycle-share -> here, with ?cycle=<results folder>.
+  Packs that folder into one archive and hands it to the operator's mail
+  client. Not a menu destination -- it is always about one named cycle, and
+  arriving without one has nothing to show.
+-->
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <!-- viewport-fit=cover + safe-area-inset support; see yuruna.common.css. -->
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta http-equiv="Cache-Control" content="no-store">
+  <title>Share cycle — Yuruna</title>
+  <link rel="stylesheet" href="yuruna.common.css">
+  <style>
+    /* dvh first-class, vh as the fallback: iOS Safari's 100vh is the large
+       viewport, so the last flex child sits below the fold until the toolbars
+       retract. */
+    body { min-height: 100vh; min-height: 100dvh; display: flex; flex-direction: column; }
+
+    main {
+      flex: 1; max-width: 46rem; width: 100%; margin: 0 auto;
+      padding: 1.25rem 1.5rem;
+      padding: 1.25rem max(1.5rem, env(safe-area-inset-right)) 1.25rem max(1.5rem, env(safe-area-inset-left));
+    }
+
+    /* The facts of the cycle being shared, as a definition list: the operator
+       arrived from a click on a timeline and should be able to confirm they
+       landed on the cycle they meant before anything is sent anywhere. */
+    #share-facts {
+      display: grid; grid-template-columns: max-content 1fr; gap: .35rem 1rem;
+      margin: 0 0 1.25rem; font-size: .8rem;
+    }
+    #share-facts dt { color: var(--fg-faint); }
+    #share-facts dd { margin: 0; font-family: var(--font-mono); word-break: break-all; }
+
+    #share-go {
+      font: inherit; font-weight: 600; cursor: pointer;
+      padding: .5rem 1rem; border-radius: .375rem;
+      background: var(--accent, #2563eb); color: #fff; border: 1px solid transparent;
+      /* Comfortably past the 44px touch minimum on a phone, where this page is
+         one button and nothing else. */
+      min-height: 2.75rem;
+    }
+    #share-go[disabled] { cursor: default; opacity: .55; }
+
+    #share-status { margin-top: 1rem; font-size: .8rem; line-height: 1.5; }
+    #share-status.error { color: var(--fail-fg); }
+    #share-status code {
+      background: rgba(0,0,0,.06); padding: .05rem .3rem;
+      border-radius: .2rem; font-family: var(--font-mono);
+    }
+    .share-note { color: var(--fg-faint); font-size: .75rem; line-height: 1.5; margin-top: 1.5rem; }
+  </style>
+</head>
+<body>
+
+<header class="app">
+  <div class="brand">
+    <span class="name"><a href="index.html"><span id="header-title">Yuruna</span></a></span>
+    <span class="version" id="header-version"></span>
+  </div>
+  <span class="spacer"></span>
+  <span class="machine" id="header-machine"></span>
+  <div class="menu">
+    <button type="button" class="menu-button" id="menu-button" aria-haspopup="true" aria-expanded="false" aria-controls="menu-panel">
+      <span class="menu-icon" aria-hidden="true">&#9776;</span><span class="menu-label">Menu</span>
+    </button>
+    <nav class="menu-panel" id="menu-panel" aria-label="Pages" hidden>
+      <a href="index.html">Status</a>
+      <a href="config.html">Config</a>
+      <a href="performance.html">Performance</a>
+      <a href="host.html">Host</a>
+      <a class="menu-out" href="https://yuruna.link/operator">Guide</a>
+    </nav>
+  </div>
+</header>
+
+<div id="banner" class="idle">
+  <span class="dot"></span>
+  <span id="banner-text">Loading…</span>
+</div>
+
+<main id="share-cycle">
+  <h1>Share cycle results</h1>
+  <dl id="share-facts">
+    <dt>Host</dt><dd id="share-host">—</dd>
+    <dt>Cycle</dt><dd id="share-cycle-number">—</dd>
+    <dt>Started (UTC)</dt><dd id="share-started">—</dd>
+    <dt>Archive</dt><dd id="share-filename">—</dd>
+  </dl>
+  <button id="share-go" type="button">Pack and open an email draft</button>
+  <p id="share-status"></p>
+  <p class="share-note">
+    The archive is built on this host and never uploaded anywhere by this page.
+    Where a browser cannot attach a file to a message itself, the archive is
+    downloaded and the draft opens with its subject and body filled in — attach
+    the downloaded file before sending.
+  </p>
+</main>
+
+<script src="yuruna.common.js"></script>
+
+</body>
+</html>

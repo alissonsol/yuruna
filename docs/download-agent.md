@@ -287,6 +287,19 @@ address), so the trail shows who opened the board as well as what they changed.
 
 ## Unlocking the actions
 
+**Usually there is nothing to unlock.** Open the Download pool from the *Yuruna
+hosts* dashboard — the *Extension hosts* table, `Download-agent service` — and it
+arrives already unlocked. That link goes through the aggregator's `/go/stash`
+redirect, which hands the page a short-lived control proof in the URL fragment
+(never sent to a server, never in an access log); the page exchanges it for a
+session on arrival. Going back to the dashboard to copy a code off a tile, in
+order to act on a page the dashboard just sent you to, is a step worth not
+having.
+
+The prompt below is what you see when there is no proof to spend: the page was
+opened by typing its address, or bookmarked, or the proof expired while the tab
+sat open.
+
 The board's **Unlock actions** prompt takes the same 6-character **Lab token**
 the Yuruna hosts dashboard shows on its own tile. Read the code off the tile,
 type it into the board, and that browser holds an unlocked session for a week.
@@ -449,6 +462,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.05
+Last review: 2026.08.06
 
 Back to [Yuruna](../README.md)

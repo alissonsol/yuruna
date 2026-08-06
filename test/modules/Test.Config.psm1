@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.05
+.VERSION 2026.08.06
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456721
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -273,6 +273,15 @@ function Publish-TestConfigSnapshot {
     # it must never raise into Read-TestConfig and turn a clean parse into a failure.
     $dest = $null
     try {
+        # The snapshot is a verbatim copy of everything parsed, and it lands in the
+        # runtime directory the status service publishes over HTTP. The credential
+        # files under the authentication extension carry passwords and the lab auth
+        # token in the clear, and the server's deny-list keys on FILE NAMES -- so it
+        # protects vault.yml while a copy of vault.yml under a different name is
+        # served happily. Never producing the copy is the only form of that
+        # protection which cannot be outflanked by a new name. Consumers lose
+        # nothing: every snapshot miss already falls through to a full YAML parse.
+        if ($SourcePath -match '[\\/]extension[\\/]authentication[\\/]') { return $null }
         $dest = Get-TestConfigSnapshotPath -SourcePath $SourcePath
         if (-not $PSCmdlet.ShouldProcess($dest, 'Publish test.config.yml snapshot')) { return $dest }
         $envelope = [ordered]@{

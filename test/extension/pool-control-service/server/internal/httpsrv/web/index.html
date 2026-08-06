@@ -28,7 +28,6 @@
         <a href="/hosts">Hosts</a>
         <a href="/pools">Pools</a>
         <a href="/test-sets">Test sets</a>
-        <a href="/advanced">Advanced</a>
         <a href="/diagnostics">Diagnostics</a>
         <a class="menu-out" href="https://yuruna.link/pool-control">Guide</a>
       </nav>
@@ -41,15 +40,20 @@
     <div class="row"><button id="refresh">Refresh</button></div>
     <table>
       <thead>
-        <tr><th>Pool</th><th>Pool ID</th><th>Assign test set</th><th>Framework / Project</th><th>Members</th><th>State</th></tr>
+        <tr><th>Pool</th><th>Pool ID</th><th>Assign test set</th><th>Framework / Project</th><th>Members *</th><th>State</th></tr>
       </thead>
       <tbody id="pool-rows"></tbody>
     </table>
+    <p class="footnote">
+      * A pool's members are meant to be configured alike. To copy one peer's
+      configuration onto another host, run on that host:
+      <code>pwsh test/Sync-HostConfiguration.ps1 -ReferenceHost &lt;peer-ip&gt;</code>
+    </p>
   </main>
   <footer id="footer-bar">
     <span id="footer-ips"><span class="label">IPs:</span><textarea id="footer-ip-list" readonly rows="1" spellcheck="false" inputmode="none" autocorrect="off" autocapitalize="off" aria-label="Server IP addresses">—</textarea></span>
     <span>Loaded: <span id="last-loaded">—</span></span>
-    <span><a id="footer-refresh" href="#">Refresh</a>: <span id="countdown">60</span>s · <a href="https://yuruna.link/pool-control">guide</a></span>
+    <span><a id="footer-refresh" href="#">Refresh</a>: <span id="countdown">60</span>s</span>
   </footer>
   <script src="/assets/common.js"></script>
   <script src="/assets/index.js"></script>

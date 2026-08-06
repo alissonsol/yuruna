@@ -24,6 +24,9 @@ func (s *Server) routes() http.Handler {
 	// The session route must be open, or the login prompt could not render.
 	mux.HandleFunc("GET /api/session", s.handleSession)
 	mux.HandleFunc("POST /api/login", s.handleLogin)
+	// Open for the same reason as /api/login: it is how a credential is
+	// presented, this one carried in from the dashboard's own redirect.
+	mux.HandleFunc("POST /api/unlock-proof", s.handleUnlockProof)
 
 	// Reads: unconditionally open on the trusted LAN, the same posture as the
 	// aggregator's pool-status and every other extension service. The board
@@ -62,7 +65,6 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("GET /pools", s.servePage("pools.html"))
 	mux.HandleFunc("GET /test-sets", s.servePage("test-sets.html"))
 	mux.HandleFunc("GET /diagnostics", s.servePage("diagnostics.html"))
-	mux.HandleFunc("GET /advanced", s.servePage("advanced.html"))
 	mux.HandleFunc("GET /hosts", s.servePage("hosts.html"))
 	// Assign lives at /assign, not "/": the root slot serves the board.
 	mux.HandleFunc("GET /assign", s.servePage("index.html"))

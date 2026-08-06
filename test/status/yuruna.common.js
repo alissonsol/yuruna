@@ -1,7 +1,7 @@
 /*
   LICENSEURI https://yuruna.link/license
   Copyright (c) 2019-2026 by Alisson Sol et al.
-  Version: 2026.08.05
+  Version: 2026.08.06
 
   Shared helpers for the Yuruna status pages. Mounted on window.Yuruna.
   --- REGION: https://yuruna.link/definition#defining-the-status-page-browser-baseline
@@ -10,7 +10,7 @@
 (function() {
   'use strict';
 
-  var VERSION = '2026.08.05';
+  var VERSION = '2026.08.06';
 
   // --- REGION: https://yuruna.link/control-proof
   // A Grafana deep-link routes through the caching-proxy service's /go/host, which appends a
@@ -249,33 +249,72 @@
     return stack;
   }
 
-  // Rebuild #header-machine: hm-stack + a sibling CTA. textContent is
-  // wiped first so callers can invoke this on every poll without leaking
-  // duplicate children.
-  function renderHeaderMachine(el, name, host, cta) {
+  // Rebuild #header-machine. textContent is wiped first so callers can invoke
+  // this on every poll without leaking duplicate children.
+  function renderHeaderMachine(el, name, host) {
     el.textContent = '';
     appendHmStack(el, name, host);
-    if (cta && cta.href && cta.label) {
-      var a = document.createElement('a');
-      a.className = 'header-cta';
-      a.href = cta.href;
-      a.textContent = cta.label;
-      if (cta.title) a.title = cta.title;
-      el.appendChild(a);
-    }
   }
 
   // One-shot: read HostInfo and populate every header field.
-  function populateHeader(cta) {
+  function populateHeader() {
     return getHostInfo().then(function(info) {
       var titleEl = document.getElementById('header-title');
       if (titleEl && info.repoName) titleEl.textContent = info.repoName;
       var versionEl = document.getElementById('header-version');
       if (versionEl && info.version) versionEl.textContent = 'v' + info.version;
       var machineEl = document.getElementById('header-machine');
-      if (machineEl) renderHeaderMachine(machineEl, info.hostname, info.host || '', cta);
+      if (machineEl) renderHeaderMachine(machineEl, info.hostname, info.host || '');
       return info;
     });
+  }
+
+  // Wire the header's page menu: the button toggles the panel, and a click
+  // outside it or Escape closes it. The links are static markup, so every page
+  // stays reachable even if this never runs.
+  function initMenu() {
+    var button = document.getElementById('menu-button');
+    var panel  = document.getElementById('menu-panel');
+    if (!button || !panel) return;
+
+    function setOpen(open) {
+      panel.hidden = !open;
+      button.setAttribute('aria-expanded', open ? 'true' : 'false');
+    }
+    setOpen(false);
+
+    button.addEventListener('click', function() {
+      var open = button.getAttribute('aria-expanded') === 'true';
+      setOpen(!open);
+      if (!open) {
+        var first = panel.getElementsByTagName('a')[0];
+        if (first && first.focus) first.focus();
+      }
+    }, false);
+    // The button's own handler runs first (target phase), so by the time this
+    // bubble-phase listener sees the same click the panel is already open --
+    // hence the button check, which stops it closing again immediately.
+    document.addEventListener('click', function(e) {
+      var t = e.target || e.srcElement;
+      if (panel.hidden || panel.contains(t) || button.contains(t)) return;
+      setOpen(false);
+    }, false);
+    document.addEventListener('keydown', function(e) {
+      var isEsc = (e.key === 'Escape') || (e.key === 'Esc') ||
+                  (e.keyCode === 27) || (e.which === 27);
+      // config.html registers its own document-level Escape ("discard and
+      // leave the editor"). Closing an open panel is the narrower meaning of
+      // the same keystroke, so it wins -- but both listeners sit on `document`,
+      // where stopPropagation does NOT hold back a sibling listener on the
+      // same node. Only stopImmediatePropagation does, and it only fires while
+      // the panel is actually open, so a plain Escape still exits the editor.
+      if (isEsc && !panel.hidden) {
+        if (e.stopImmediatePropagation) e.stopImmediatePropagation();
+        e.stopPropagation();
+        setOpen(false);
+        if (button.focus) button.focus();
+      }
+    }, false);
   }
 
   // --- REGION: https://yuruna.link/definition#defining-the-status-page-visibility-aware-polling
@@ -330,9 +369,9 @@
       !!(actionData && actionData.line && /Paused \(waiting for resume\)/.test(actionData.line));
     var cycleEffective = cyclePaused && status !== 'running';
     if (stepEffective)  return 'Test paused';
-    if (stepPaused)     return 'Test will pause (after current step)';
+    if (stepPaused)     return 'Test pausing (after step)';
     if (cycleEffective) return 'Test paused';
-    if (cyclePaused)    return 'Test will pause (after current cycle)';
+    if (cyclePaused)    return 'Test pausing (after cycle)';
     return null;
   }
 
@@ -436,6 +475,7 @@
     appendHmStack:       appendHmStack,
     renderHeaderMachine: renderHeaderMachine,
     populateHeader:      populateHeader,
+    initMenu:            initMenu,
     startVisibilityAwarePolling: startVisibilityAwarePolling,
     BANNER_TEXT:         BANNER_TEXT,
     setBannerText:       setBannerText,
@@ -461,12 +501,6 @@
 
   // === index.html handlers ===
   function bootIndex() {
-    var PAGE_CTA = {
-      href:  'config.html',
-      label: 'Edit config',
-      title: 'Edit test/test.config.yml'
-    };
-
     // Reuse the shared BANNER_TEXT so the two tables cannot silently diverge;
     // only the fail copy differs on the index dashboard (it points to the
     // details below rather than the status banner).
@@ -1006,7 +1040,7 @@
       } else {
         nameText = window.location.hostname || '';
       }
-      Yuruna.renderHeaderMachine(headerMachine, nameText, hostText, PAGE_CTA);
+      Yuruna.renderHeaderMachine(headerMachine, nameText, hostText);
 
       var liveCycleStartUtc = data && (data.cycleStartUtc || data.runId);
       var hasGuests   = !!(data && data.guests && data.guests.length);
@@ -1236,7 +1270,7 @@
       if (countdown === 0) poller.tick();
     }, 1000);
 
-    Yuruna.populateHeader(PAGE_CTA);
+    Yuruna.populateHeader();
     Yuruna.getHostInfo().then(function(info) { renderIpAddresses(info.ipAddresses); });
     loadCachingProxyServiceText();
     loadHostNetworkText();
@@ -1255,7 +1289,7 @@
 
   // === performance.html handlers ===
   function bootPerf() {
-    Yuruna.populateHeader({ href: 'index.html', label: '← Status' });
+    Yuruna.populateHeader();
     startBannerPolling();
 
     // Icicle geometry. Each cycle is one horizontal icicle: time runs along
@@ -1686,7 +1720,7 @@
 
   // === host.html handlers ===
   function bootHostInfo() {
-    Yuruna.populateHeader({ href: 'index.html', label: '← Status' });
+    Yuruna.populateHeader();
 
     function loadServerUserAccount() {
       var bu = document.getElementById('banner-user');
@@ -1711,8 +1745,6 @@
 
   // === config.html handlers ===
   function bootTestConfig() {
-    var PAGE_CTA = { href: 'index.html', label: '← Status' };
-
     var configState = null;
     var availableGuestFolders = null;
     // Serialized snapshot of configState taken the moment the tree loads.
@@ -2714,15 +2746,168 @@
     });
 
     startBannerPolling();
-    Yuruna.populateHeader(PAGE_CTA);
+    Yuruna.populateHeader();
     loadConfig();
     startControlProofWatch();
   }
 
+  // --- REGION: share-cycle.html -- one cycle's results, packed and mailed
+  //
+  // A cycle folder is a tree: transcripts, the events feed, a subfolder per
+  // guest. Sending one to a colleague meant picking files out of a directory
+  // listing one at a time, so this asks the host to pack the folder
+  // (/archive/<folder>.tar.gz) and hands the result to the operator's mail
+  // client.
+  //
+  // Two ways to hand it over, because only one of them exists on any given
+  // browser. navigator.share can carry the file itself, so where it is offered
+  // the operator gets a message with the archive already attached. It is
+  // secure-context gated and the status service speaks plain HTTP over the LAN,
+  // so on a lab host it is normally absent -- then the archive downloads and a
+  // mailto: draft opens with the subject and body filled in, for the operator to
+  // attach it. mailto: cannot carry an attachment (RFC 6068 section 5); no
+  // amount of parameter juggling changes that, which is why the fallback asks
+  // for one manual step rather than pretending.
+  var SHARE_CYCLE_RE = /^(\d{6})\.(\d{4}-\d{2}-\d{2})\.(\d{2}-\d{2}-\d{2})\.([0-9a-fA-F]{32})(\.incomplete)?$/;
+
+  // parseCycleFolder pulls the facts out of a results folder name. The name is
+  // the only input this page gets, and it already carries all of them: the cycle
+  // number, the UTC start (Format-CycleFolderBaseName builds it from
+  // CycleStartUtc) and the host id. Returns null for anything that is not a
+  // cycle folder, so a hand-edited query string cannot drive the page.
+  function parseCycleFolder(folder) {
+    var m = SHARE_CYCLE_RE.exec(folder || '');
+    if (!m) { return null; }
+    return {
+      folder: folder,
+      cycleNumber: m[1],
+      // The folder spells the same instant with dots and dashes; the archive
+      // name and the subject use ISO-like punctuation so it reads as a
+      // timestamp. Pure re-spelling -- both are already UTC, so no conversion.
+      startedUtc: m[2] + 'T' + m[3].replace(/-/g, ':') + 'Z',
+      stamp: m[2] + 'T' + m[3] + 'Z',
+      hostId: m[4],
+      shortHost: m[4].substring(0, 8),
+      incomplete: !!m[5]
+    };
+  }
+
+  function shareCycleStatus(text, isError) {
+    var el = document.getElementById('share-status');
+    if (!el) { return; }
+    el.className = isError ? 'error' : '';
+    el.textContent = text;
+  }
+
+  // Reported only after the archive exists, so the operator learns the size of
+  // the thing they are about to attach -- mailboxes bounce well below what a
+  // cycle with guest artifacts can reach.
+  function shareCycleSize(bytes) {
+    if (bytes >= 1048576) { return (bytes / 1048576).toFixed(1) + ' MB'; }
+    if (bytes >= 1024) { return Math.round(bytes / 1024) + ' KB'; }
+    return bytes + ' bytes';
+  }
+
+  function bootShareCycle() {
+    var btn = document.getElementById('share-go');
+    var params = new RegExp('[?&]cycle=([^&]*)').exec(window.location.search);
+    var info = parseCycleFolder(params ? decodeURIComponent(params[1]) : '');
+
+    if (!info) {
+      btn.disabled = true;
+      shareCycleStatus('No cycle to share. Open this page from the cycle timeline on the Yuruna hosts dashboard.', true);
+      Yuruna.populateHeader();
+      startBannerPolling();
+      return;
+    }
+
+    var archiveName = info.shortHost + '.' + info.stamp + '.tar.gz';
+    var archiveUrl = 'archive/' + encodeURIComponent(info.folder) + '.tar.gz';
+    var subject = 'Yuruna Host ' + info.shortHost + ' at ' + info.stamp;
+    var body = 'Yuruna cycle results';
+    var mailto = 'mailto:?subject=' + encodeURIComponent(subject) + '&body=' + encodeURIComponent(body);
+
+    document.getElementById('share-host').textContent = info.shortHost;
+    document.getElementById('share-cycle-number').textContent =
+      info.cycleNumber + (info.incomplete ? ' (still running)' : '');
+    document.getElementById('share-started').textContent = info.startedUtc;
+    document.getElementById('share-filename').textContent = archiveName;
+
+    // A cycle that has not closed yet is archived as it stands. Worth saying:
+    // the folder is still being written to, so the archive is a snapshot and a
+    // colleague reading it may be looking at a run that has since moved on.
+    if (info.incomplete) {
+      shareCycleStatus('This cycle is still running. The archive will hold what has been written so far.');
+    }
+
+    // Download + draft. No Blob and no fetch: the archive is served with a
+    // Content-Disposition attachment header, so pointing a link at it downloads
+    // it under the right name without the whole tree passing through JS memory.
+    function downloadThenDraft() {
+      var dl = document.createElement('a');
+      dl.href = archiveUrl;
+      dl.download = archiveName;
+      document.body.appendChild(dl);
+      dl.click();
+      document.body.removeChild(dl);
+      // The draft opens after the download is under way, and from the same user
+      // gesture, so a popup blocker treats it as the operator's own action.
+      var mail = document.createElement('a');
+      mail.href = mailto;
+      document.body.appendChild(mail);
+      mail.click();
+      document.body.removeChild(mail);
+      shareCycleStatus('Downloaded ' + archiveName + ' and opened a draft. Attach the downloaded file before sending.');
+      btn.disabled = false;
+    }
+
+    btn.addEventListener('click', function() {
+      btn.disabled = true;
+      shareCycleStatus('Packing ' + info.folder + '…');
+
+      // canShare({files}) is the only honest test: the API can exist while
+      // refusing files, and it is absent altogether outside a secure context.
+      var canShareFiles = !!(window.navigator && navigator.canShare && navigator.share && window.File);
+      if (!canShareFiles) {
+        downloadThenDraft();
+        return;
+      }
+
+      fetch(archiveUrl, { headers: { 'X-Yuruna': '1' } }).then(function(r) {
+        if (!r.ok) { throw new Error('HTTP ' + r.status); }
+        return r.blob();
+      }).then(function(blob) {
+        var file = new File([blob], archiveName, { type: 'application/gzip' });
+        if (!navigator.canShare({ files: [file] })) { throw new Error('files not shareable'); }
+        return navigator.share({ files: [file], title: subject, text: body }).then(function() {
+          shareCycleStatus('Shared ' + archiveName + ' (' + shareCycleSize(blob.size) + ').');
+          btn.disabled = false;
+        });
+      }).catch(function(err) {
+        // A share the operator dismissed is not a failure to route around: the
+        // answer was "no". Anything else -- no file support, a refused type, a
+        // failed pack -- falls back to the download, which always works.
+        if (err && err.name === 'AbortError') {
+          shareCycleStatus('Sharing cancelled.');
+          btn.disabled = false;
+          return;
+        }
+        downloadThenDraft();
+      });
+    });
+
+    Yuruna.populateHeader();
+    startBannerPolling();
+  }
+
   // Page dispatch keyed on a stable per-page id. Each page boots exactly
-  // one of these (id presence is mutually exclusive across the four
-  // status pages).
+  // one of these (id presence is mutually exclusive across the status
+  // pages).
   onReady(function() {
+    // The menu is on every page and is how you leave one, so it is wired
+    // before the page handler -- and ahead of any document-level key handler
+    // that handler installs, so an open panel gets first refusal on Escape.
+    initMenu();
     if (document.getElementById('cycle-pause-btn')) {
       bootIndex();
     } else if (document.getElementById('perf-recalc')) {
@@ -2731,6 +2916,8 @@
       bootHostInfo();
     } else if (document.getElementById('config-body')) {
       bootTestConfig();
+    } else if (document.getElementById('share-cycle')) {
+      bootShareCycle();
     }
   });
 })();

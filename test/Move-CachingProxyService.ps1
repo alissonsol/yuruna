@@ -806,7 +806,7 @@ try {
             ''
             'Next steps -- go to the CLIENTS and point them at the new cache VM:'
             '  1. Machines using the yuruna harness: update vmStart.cachingProxyIp'
-            "     in test/test.config.yml (or the status page's Edit config) to"
+            "     in test/test.config.yml (or the status page's Config menu) to"
             "     $NewAddress -- it is probed FIRST at cycle start, and while the"
             '     old cache is still up a stale value there keeps winning. Only'
             '     hosts with an empty config value can switch via the env var:'

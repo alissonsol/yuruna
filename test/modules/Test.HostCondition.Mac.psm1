@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.05
+.VERSION 2026.08.06
 .GUID 42d4a3b2-c1f0-4e89-5678-9a0b1c2d3e40
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -24,6 +24,11 @@
 # names through its Export-ModuleMember. See Test.HostCondition.psm1
 # for the per-platform split rationale.
 
+# Test-YurunaCanPrompt: whether a question asked from this process can reach a
+# person. One block here needs an interactive account password on top of root,
+# and that is a different question from "can this process elevate".
+Import-Module (Join-Path -Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) -ChildPath 'automation' -AdditionalChildPath 'Yuruna.Common.psm1') -Global -Force -DisableNameChecking
+
 function Get-MacPmsetGuardList {
     <#
     .SYNOPSIS
@@ -38,6 +43,11 @@ function Get-MacPmsetGuardList {
     A key absent from `pmset -g custom` normally counts as "this macOS no longer
     surfaces it under that name" and is left alone. AlwaysApply marks the keys
     where absence proves nothing instead -- Set- writes those unconditionally.
+
+    AbsentEquivalent is the value whose BEHAVIOUR equals the key not being set,
+    and only AlwaysApply keys need one: they are the keys written on a host that
+    had no prior value, and pmset has no delete, so without it Disable has
+    nothing to put back and the guard outlives the automation that added it.
     #>
     [CmdletBinding()]
     [OutputType([object[]])]
@@ -49,7 +59,10 @@ function Get-MacPmsetGuardList {
         # as "already 1" and the write would never happen. With disablesleep 0 a
         # MacBook suspends the moment its lid closes, taking every running guest
         # and the rest of the cycle down with it.
-        @{ Key = 'disablesleep'  ; Want = 1 ; AlwaysApply = $true }
+        # AbsentEquivalent 0: a Mac that has never had disablesleep written
+        # behaves exactly as one holding 0 -- it suspends on lid close -- so 0
+        # is what returns the host to where it was, not a guess at a default.
+        @{ Key = 'disablesleep'  ; Want = 1 ; AlwaysApply = $true ; AbsentEquivalent = 0 }
         @{ Key = 'powernap'      ; Want = 0 }
         @{ Key = 'standby'       ; Want = 0 }
         @{ Key = 'standbydelay'  ; Want = 0 }
@@ -106,6 +119,61 @@ function Get-MacPmsetGuardPending {
     return @($pending)
 }
 
+function Get-MacDefaultsCommandArgument {
+    <#
+    .SYNOPSIS
+    Assemble a complete `defaults` argument vector with the host selector ahead
+    of the verb.
+    .DESCRIPTION
+    `defaults` takes its host selector BEFORE the verb --
+    `defaults -currentHost write <domain> <key> -int 0`. Emitted verb-first it
+    binds '-currentHost' as the DOMAIN and then rejects the type flag
+    ("Unexpected argument -int; leaving defaults unchanged"), so the write
+    exits non-zero having changed nothing and the matching read reports the key
+    absent. Nothing about that is visible in a read-back of the intended
+    domain, which is why the failure survives as a warning that no amount of
+    re-running can clear.
+
+    The knob tables in this repo carry the selector inside the domain+key
+    vector because that is how the pair reads at the call site (capture, apply
+    and restore all name the same knob). Splitting it back out has to happen in
+    one place, or the three sites drift apart again.
+    .PARAMETER Verb
+    read / write / delete.
+    .PARAMETER DefaultsArgs
+    Domain + key, optionally led by '-currentHost' or '-host <name>'.
+    .PARAMETER Trailing
+    Anything that follows the key -- the type flag and the value on a write.
+    .OUTPUTS
+    [string[]] the full argv for `defaults`.
+    #>
+    [CmdletBinding()]
+    [OutputType([string[]])]
+    param(
+        [Parameter(Mandatory)][ValidateSet('read', 'write', 'delete')][string]$Verb,
+        [string[]]$DefaultsArgs = @(),
+        [string[]]$Trailing = @()
+    )
+    $selector = @()
+    $rest = @()
+    $i = 0
+    while ($i -lt $DefaultsArgs.Count) {
+        $token = "$($DefaultsArgs[$i])"
+        if ($token -eq '-currentHost') { $selector += $token; $i++; continue }
+        # -host takes the host name as a separate token; both belong ahead of
+        # the verb, and splitting them would produce `defaults -host read <name>`.
+        if ($token -eq '-host' -and ($i + 1) -lt $DefaultsArgs.Count) {
+            $selector += $token
+            $selector += "$($DefaultsArgs[$i + 1])"
+            $i += 2
+            continue
+        }
+        break
+    }
+    for (; $i -lt $DefaultsArgs.Count; $i++) { $rest += "$($DefaultsArgs[$i])" }
+    return [string[]]@($selector + @($Verb) + $rest + @($Trailing))
+}
+
 function Confirm-MacDefaultWrite {
     <#
     .SYNOPSIS
@@ -116,10 +184,11 @@ function Confirm-MacDefaultWrite {
     doesn't match -- callers gate $changed on the returned [bool] so a phantom
     success can't claim the host was configured when it wasn't.
     .PARAMETER DefaultsArgs
-    The arguments that select the domain + key, in `defaults` order, WITHOUT
-    the leading verb -- e.g. @('com.apple.dock','wvous-tl-corner') or
-    @('-currentHost','com.apple.screensaver','askForPasswordDelay'). The verb
-    (write / read) is prepended internally.
+    The arguments that select the domain + key -- e.g.
+    @('com.apple.dock','wvous-tl-corner') or
+    @('-currentHost','com.apple.screensaver','askForPasswordDelay'). A leading
+    '-currentHost' / '-host <name>' selector is re-emitted ahead of the verb by
+    Get-MacDefaultsCommandArgument, which is where `defaults` requires it.
     .PARAMETER WriteType
     The value-type flag for the write, e.g. '-int' or '-bool'.
     .PARAMETER WriteValue
@@ -140,12 +209,18 @@ function Confirm-MacDefaultWrite {
         [string]$WriteValue,
         [string]$ExpectRead
     )
-    & defaults write @DefaultsArgs $WriteType $WriteValue 2>$null | Out-Null
-    $readBack = & defaults read @DefaultsArgs 2>$null
+    & defaults @(Get-MacDefaultsCommandArgument -Verb 'write' -DefaultsArgs $DefaultsArgs -Trailing @($WriteType, $WriteValue)) 2>$null | Out-Null
+    $writeExit = $LASTEXITCODE
+    $readBack = & defaults @(Get-MacDefaultsCommandArgument -Verb 'read' -DefaultsArgs $DefaultsArgs) 2>$null
     $readOk = ($LASTEXITCODE -eq 0)
     if ($readOk -and "$readBack".Trim() -eq $ExpectRead) { return $true }
     $actual = if ($readOk) { "$readBack".Trim() } else { '<unset>' }
-    Write-Warning ("defaults write {0} {1} {2} did not take (read back '{3}', wanted '{4}'). The domain may be locked or MDM-managed." -f ($DefaultsArgs -join ' '), $WriteType, $WriteValue, $actual, $ExpectRead)
+    # The write's own exit code is part of the diagnosis: a rejected argument
+    # vector and an MDM-reverted value both read back wrong, and only the code
+    # separates "defaults refused the command" from "defaults accepted it and
+    # something else put the value back".
+    $why = if ($writeExit -ne 0) { " The write itself exited $writeExit." } else { ' The domain may be locked or MDM-managed.' }
+    Write-Warning ("defaults write {0} {1} {2} did not take (read back '{3}', wanted '{4}').{5}" -f ($DefaultsArgs -join ' '), $WriteType, $WriteValue, $actual, $ExpectRead, $why)
     return $false
 }
 
@@ -402,6 +477,45 @@ function Assert-ScreenLock {
     return $false
 }
 
+function Test-MacSudoAvailable {
+<#
+.SYNOPSIS
+    Whether this process can run ONE privileged command right now without a
+    password prompt.
+.DESCRIPTION
+    The only source that can answer is sudo itself. A credential timestamp
+    expires on its own clock (~5 minutes by default), a Homebrew cask
+    post-install script can invalidate it with `sudo -k`, and an
+    /etc/sudoers.d NOPASSWD rule can make elevation available with no
+    timestamp at all. No environment variable tracks any of that, so a flag
+    exported by whoever started the run answers a different question than the
+    one a privileged write needs answered.
+
+    Asking before every privileged block matters because sudo reads its
+    password from /dev/tty, not from stdin. A child whose stdout is captured
+    to a log and whose stdin is closed can still raise a password prompt on
+    the terminal its parent has taken over -- where nothing displays it and
+    nothing answers it. Probing first, and issuing every write with -n, turns
+    that stall into an immediate answer.
+
+    Cheap enough to call per block: `sudo -n true` neither prompts nor
+    refreshes the timestamp.
+.OUTPUTS
+    [bool] $true when `sudo -n true` succeeds.
+#>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param()
+    # Pinned locally: a non-zero exit IS the answer this function returns, and
+    # with $PSNativeCommandUseErrorActionPreference true a cold timestamp throws
+    # instead -- so the probe that exists to keep a host from stalling would
+    # itself abort the settings pass on exactly the hosts it was written for.
+    $PSNativeCommandUseErrorActionPreference = $false
+    if (-not (Get-Command sudo -ErrorAction SilentlyContinue)) { return $false }
+    & sudo -n true 2>$null | Out-Null
+    return ($LASTEXITCODE -eq 0)
+}
+
 function Initialize-SudoCache {
 <#
 .SYNOPSIS
@@ -450,6 +564,10 @@ function Initialize-SudoCache {
     param(
         [string[]]$Reasons = @()
     )
+    # Pinned locally: the warm-cache fast path below decides on the exit code of a
+    # `sudo -n true` that is EXPECTED to fail on a cold timestamp, and the cold
+    # path is the whole reason this function exists.
+    $PSNativeCommandUseErrorActionPreference = $false
     # Windows has no sudo (UAC is a different model); only run on macOS / Linux.
     if (-not ($IsLinux -or $IsMacOS)) { return $true }
     # Already root: no sudo needed.
@@ -466,17 +584,15 @@ function Initialize-SudoCache {
     # Cache already warm? Silent fast path -- no notice, no prompt.
     & sudo -n true 2>$null | Out-Null
     if ($LASTEXITCODE -eq 0) { return $true }
-    # Wrapper-primed mode: install/<host>.sh already showed the "ONCE"
-    # notice AND ran a "sudo prelude" that pre-applied every value
-    # Set-MacHostConditionSet would otherwise need sudo for. The pwsh
-    # paths that follow are idempotent -- they read state without sudo
-    # and only call sudo if a value still needs writing. In the common
-    # case after the prelude, NO downstream sudo calls fire, so a
-    # preemptive `sudo -v` here would prompt the operator for nothing.
-    # Return $false silently and let the rare downstream call (e.g.
-    # sysadminctl on a brand-new machine) trigger its own prompt at
-    # the moment it's actually needed -- that prompt is at least tied
-    # to a visible operation, not a "phantom" elevation.
+    # A caller already took this run's ONE authorization and said so
+    # (install/<host>.sh, install/setup.ps1). The timestamp is cold anyway --
+    # it expired, or a brew cask post-install ran `sudo -k` -- and asking again
+    # here would break the "you will be prompted ONCE" promise that caller
+    # printed, for elevation this function does not itself need. Return $false
+    # silently; every privileged write downstream probes for itself with
+    # Test-MacSudoAvailable and reports the exact command to run when it cannot
+    # elevate, which is an answer the operator can act on rather than a second
+    # password box with no context.
     if ($env:YURUNA_SUDO_PRIMED -eq '1') {
         return $false
     }
@@ -522,6 +638,43 @@ function Initialize-SudoCache {
     return ($LASTEXITCODE -eq 0)
 }
 
+function Invoke-MacPrivilegedSetting {
+    <#
+    .SYNOPSIS
+    Run one privileged host-settings command through `sudo -n`, and report
+    whether it took.
+    .DESCRIPTION
+    -n unconditionally, including in front of an operator. The capability probe
+    that admitted this block ran seconds earlier against a timestamp that can
+    expire inside the block, and the fallback for an expired one has to be an
+    exit code rather than a prompt: sudo reads its password from /dev/tty, so a
+    child whose output is captured raises that prompt where nobody can see it
+    and waits forever, and an operator who already answered once gets a second
+    box with no explanation of what it is for.
+
+    Native output is consumed here rather than left on the success stream: the
+    caller returns a count, and stray `pmset` chatter merged into that would
+    turn an [int] into an array.
+    .PARAMETER Argument
+    The command and its arguments, e.g. @('pmset','-a','sleep','0').
+    .OUTPUTS
+    [bool] $true when sudo ran the command and it exited 0.
+    #>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param([Parameter(Mandatory)][string[]]$Argument)
+    # Pinned locally: this function reports a failed write through its return
+    # value and a warning naming the command. With
+    # $PSNativeCommandUseErrorActionPreference true the non-zero exit throws
+    # first, so a single key this macOS release no longer carries would abort the
+    # whole guard list instead of being recorded as rejected and skipped.
+    $PSNativeCommandUseErrorActionPreference = $false
+    $out = & sudo -n @Argument 2>&1
+    if ($LASTEXITCODE -eq 0) { return $true }
+    Write-Warning ("sudo {0} failed (exit {1}): {2}" -f ($Argument -join ' '), $LASTEXITCODE, ("$($out | Out-String)".Trim()))
+    return $false
+}
+
 function Set-MacHostConditionSet {
     <#
     .SYNOPSIS
@@ -530,62 +683,80 @@ function Set-MacHostConditionSet {
     triggers first-run prompts for the Accessibility and Screen Recording
     TCC permissions (both required -- keystroke injection + per-window
     capture). Requires sudo for pmset. Idempotent.
+    .OUTPUTS
+    [int] the number of conditions this run could not put in place. 0 means
+    every knob is where the harness needs it. The caller maps a non-zero count
+    onto its own exit contract -- see host/macos.utm/Enable-TestAutomation.ps1.
     .EXAMPLE
     Set-MacHostConditionSet          # apply all settings
     Set-MacHostConditionSet -WhatIf  # show what would change without applying
     #>
     [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([int])]
     param()
 
     if (-not $IsMacOS) {
         Write-Warning "Set-MacHostConditionSet is only supported on macOS."
-        return
+        return 0
     }
 
-    # -- 0. Sudo cache + wrapper-primed contract -------------------------
-    # When invoked from install/macos.utm.sh, $env:YURUNA_SUDO_PRIMED='1'
-    # signals that the bash wrapper already ran a "sudo prelude" -- one
-    # batched `sudo bash -c '...'` covering every pmset / defaults write
-    # this function would otherwise need sudo for. In that mode pwsh
-    # MUST NOT call sudo for any of those writes: the bash sudo cache
-    # may have been invalidated by a brew cask post-install (`sudo -k`)
-    # or a Touch ID quirk by now, and a `sudo` here would re-prompt the
-    # operator -- breaking the "ONCE" promise the wrapper printed.
-    # If a value still doesn't read as wanted, warn and continue rather
-    # than re-doing the work.
+    # Conditions this run wanted and could not establish. The count is the
+    # return value, so a host that came out degraded is a distinguishable
+    # outcome for the caller rather than a warning in a captured log nothing
+    # reads. Only knobs that are genuinely required go in here; each addition
+    # below records why that one qualifies, and the ones deliberately left out
+    # say why they are advisory.
+    $unmet = [System.Collections.Generic.List[string]]::new()
+
+    # -- 0. Elevation is a CAPABILITY, asked of the machine ---------------
+    # Every privileged block below probes `sudo -n true` immediately before it
+    # writes, and every write goes out with -n. The two facts an environment
+    # variable could carry -- who started this run, whether somebody typed a
+    # password minutes ago -- do not answer whether root is reachable NOW: the
+    # timestamp may have expired during a long step, a brew cask post-install
+    # may have run `sudo -k`, or an /etc/sudoers.d rule may grant the write
+    # with no timestamp involved at all.
     #
-    # When invoked standalone (no wrapper), behave as before: prime
-    # sudo with the friendly box and run every block normally.
-    $wrapperPrimed = ($env:YURUNA_SUDO_PRIMED -eq '1')
-    if (-not $wrapperPrimed) {
-        # This function makes ~16 sudo invocations across pmset, sysadminctl,
-        # and defaults at /Library/Preferences. macOS sudo's default per-tty
-        # 5-min timestamp covers all of them after a single up-front `sudo -v`.
-        # The friendly notice only appears when the cache is genuinely cold.
-        [void](Initialize-SudoCache -Reasons @(
-            'pmset (display sleep, system sleep, power-nap, hibernation)',
-            'defaults write /Library/Preferences (auto-logout delay)',
-            'sysadminctl -screenLock off (Sonoma+ unified screen lock)'
-        ))
-    }
+    # Initialize-SudoCache still runs first so an operator at a terminal is
+    # asked once, visibly, with the reasons on screen, instead of meeting a
+    # bare password prompt in the middle of a block. It declines silently when
+    # nobody is there to ask, and the probes below then route each block to its
+    # warn-with-the-exact-command arm.
+    [void](Initialize-SudoCache -Reasons @(
+        'pmset (display sleep, system sleep, power-nap, hibernation)',
+        'defaults write /Library/Preferences (auto-logout delay)',
+        'sysadminctl -screenLock off (Sonoma+ unified screen lock)'
+    ))
 
     # -- 1. Display sleep -> Never (requires sudo) -------------------------
     # `pmset -g custom` reports the active profile; the writes below cover
-    # both AC (-c) and battery (-b) unconditionally, so a single read of the
-    # current value is enough to decide whether a write is needed.
+    # every power source this machine HAS, so a single read of the current
+    # value is enough to decide whether a write is needed.
     $changed = $false
+    $pmCustomLines = @(& pmset -g custom 2>$null)
+    # `pmset -g custom` prints a "Battery Power:" block only on a machine that
+    # has a battery. On a desktop Mac `pmset -b` fails by design, and counting
+    # that failure would report a perfectly healthy host as degraded on every
+    # run -- so the power sources this machine actually has decide what is
+    # required of it.
+    $hasBattery = [bool](@($pmCustomLines | Select-String -Pattern '^\s*Battery Power:').Count)
     $currentSleep = "unknown"
-    $pmLine = & pmset -g custom 2>$null | Select-String '^\s*displaysleep\s+(\d+)' | Select-Object -First 1
+    $pmLine = $pmCustomLines | Select-String '^\s*displaysleep\s+(\d+)' | Select-Object -First 1
     if ($pmLine) { $currentSleep = $pmLine.Matches[0].Groups[1].Value }
 
     if ($currentSleep -ne "0") {
-        if ($wrapperPrimed) {
-            Write-Warning "Display sleep is '$currentSleep' (expected 0). Run 'sudo pmset -c displaysleep 0; sudo pmset -b displaysleep 0' to fix."
+        # Required: Assert-ScreenLock refuses a host whose displaysleep is not 0,
+        # so leaving it is a cycle that cannot start rather than a cosmetic gap.
+        if (-not (Test-MacSudoAvailable)) {
+            Write-Warning "Display sleep is '$currentSleep' (expected 0) and root is not reachable without a password. Run 'sudo pmset -c displaysleep 0; sudo pmset -b displaysleep 0' to fix."
+            $unmet.Add('display sleep')
         } elseif ($PSCmdlet.ShouldProcess("Display sleep (currently $currentSleep min)", "Set to 0 (Never) via sudo pmset")) {
-            Write-Information "Setting display sleep to Never (AC and battery)..."
-            & sudo pmset -c displaysleep 0
-            & sudo pmset -b displaysleep 0
-            $changed = $true
+            Write-Information "Setting display sleep to Never$(if ($hasBattery) { ' (AC and battery)' } else { ' (AC)' })..."
+            $sleepOk = Invoke-MacPrivilegedSetting -Argument @('pmset', '-c', 'displaysleep', '0')
+            if ($hasBattery) {
+                $sleepOk = (Invoke-MacPrivilegedSetting -Argument @('pmset', '-b', 'displaysleep', '0')) -and $sleepOk
+            }
+            if ($sleepOk) { $changed = $true } else { $unmet.Add('display sleep') }
         }
     } else {
         Write-Information "Display sleep is already set to Never."
@@ -604,7 +775,7 @@ function Set-MacHostConditionSet {
         $label = if (-not $ssIdleRead) { 'unset -- macOS default applies' } else { "$($ssIdle.Trim())s" }
         if ($PSCmdlet.ShouldProcess("Screen saver idle time (currently $label)", "Set to 0 (disabled)")) {
             Write-Information "Disabling screen saver idle activation (was $label)..."
-            & defaults write com.apple.screensaver idleTime -int 0
+            & defaults write com.apple.screensaver idleTime -int 0 | Out-Null
             $changed = $true
         }
     }
@@ -620,7 +791,7 @@ function Set-MacHostConditionSet {
         $label = if (-not $askPwRead) { 'unset -- macOS default applies' } else { "$($askPw.Trim())" }
         if ($PSCmdlet.ShouldProcess("Screen lock password (currently $label)", "Disable (askForPassword -> 0)")) {
             Write-Information "Disabling screen lock password requirement (was $label)..."
-            & defaults write com.apple.screensaver askForPassword -int 0
+            & defaults write com.apple.screensaver askForPassword -int 0 | Out-Null
             $changed = $true
         }
     }
@@ -637,7 +808,7 @@ function Set-MacHostConditionSet {
         $label = if (-not $ssIdleHostRead) { 'unset -- macOS default applies' } else { "$($ssIdleHost.Trim())s" }
         if ($PSCmdlet.ShouldProcess("Screen saver idle time [currentHost] (currently $label)", "Set to 0 (disabled)")) {
             Write-Information "Disabling screen saver idle activation, currentHost (was $label)..."
-            & defaults -currentHost write com.apple.screensaver idleTime -int 0
+            & defaults -currentHost write com.apple.screensaver idleTime -int 0 | Out-Null
             $changed = $true
         }
     }
@@ -652,7 +823,7 @@ function Set-MacHostConditionSet {
         $label = if (-not $askPwHostRead) { 'unset -- macOS default applies' } else { "$($askPwHost.Trim())" }
         if ($PSCmdlet.ShouldProcess("Screen lock password [currentHost] (currently $label)", "Disable (askForPassword -> 0)")) {
             Write-Information "Disabling screen lock password requirement, currentHost (was $label)..."
-            & defaults -currentHost write com.apple.screensaver askForPassword -int 0
+            & defaults -currentHost write com.apple.screensaver askForPassword -int 0 | Out-Null
             $changed = $true
         }
     }
@@ -668,7 +839,16 @@ function Set-MacHostConditionSet {
         @{ Args = @('-currentHost', 'com.apple.screensaver', 'askForPasswordDelay'); Label = 'currentHost' }
     )) {
         if ($PSCmdlet.ShouldProcess("Screen lock password delay [$($domainArgs.Label)]", 'Set to 2147483647 (effectively never)')) {
-            [void](Confirm-MacDefaultWrite -DefaultsArgs $domainArgs.Args -WriteType '-int' -WriteValue '2147483647' -ExpectRead '2147483647')
+            # Advisory, not required: no gate reads this key. sysadminctl's
+            # unified lock overrides the legacy askForPassword* pair on
+            # Ventura+ (see 3j), which is why Assert-ScreenLock checks that
+            # instead. A failure here is still worth the warning
+            # Confirm-MacDefaultWrite raises -- it is the only signal that a
+            # managed domain is rejecting writes -- but it must not by itself
+            # make a host report degraded.
+            if (-not (Confirm-MacDefaultWrite -DefaultsArgs $domainArgs.Args -WriteType '-int' -WriteValue '2147483647' -ExpectRead '2147483647')) {
+                Write-Verbose "Screen lock password delay [$($domainArgs.Label)] did not take; the unified screen lock (3j) is what the gate checks."
+            }
         }
     }
 
@@ -680,17 +860,20 @@ function Set-MacHostConditionSet {
     if ($sysLine) { $currentSysSleep = $sysLine.Matches[0].Groups[1].Value }
 
     if ($currentSysSleep -ne "0") {
-        if ($wrapperPrimed) {
-            Write-Warning "System sleep is '$currentSysSleep' (expected 0). Run 'sudo pmset -a sleep 0 disksleep 0' to fix."
+        # Required for the same reason as display sleep: Assert-ScreenLock
+        # refuses a host whose sleep / disksleep are non-zero.
+        if (-not (Test-MacSudoAvailable)) {
+            Write-Warning "System sleep is '$currentSysSleep' (expected 0) and root is not reachable without a password. Run 'sudo pmset -a sleep 0 disksleep 0' to fix."
+            $unmet.Add('system sleep')
         } elseif ($PSCmdlet.ShouldProcess("System sleep (currently $currentSysSleep min)", "Set to 0 (Never) via sudo pmset")) {
             Write-Information "Setting system sleep to Never (all power sources)..."
             # -a covers AC + battery + UPS. Setting disksleep only on
             # -c leaves laptops on battery with disksleep=10; disk-sleep
             # wake re-checks lock state and on Ventura+ can trigger the
             # unified screen lock even with askForPassword=0.
-            & sudo pmset -a sleep 0
-            & sudo pmset -a disksleep 0
-            $changed = $true
+            $sysOk  = Invoke-MacPrivilegedSetting -Argument @('pmset', '-a', 'sleep', '0')
+            $diskOk = Invoke-MacPrivilegedSetting -Argument @('pmset', '-a', 'disksleep', '0')
+            if ($sysOk -and $diskOk) { $changed = $true } else { $unmet.Add('system sleep') }
         }
     } else {
         Write-Information "System sleep is already set to Never."
@@ -705,20 +888,63 @@ function Set-MacHostConditionSet {
     $pmsetPending = @(Get-MacPmsetGuardPending -PmsetCustom (& pmset -g custom 2>$null) -Guard $pmsetGuards)
     if ($pmsetPending.Count -eq 0) {
         Write-Information "Extended pmset guards verified (no mismatched keys in 'pmset -g custom')."
-    } elseif ($wrapperPrimed) {
+    } elseif (-not (Test-MacSudoAvailable)) {
         # Name the exact commands: the operator has to run them by hand here,
         # and a generic "there is a mismatch" leaves them reading pmset output
         # against a guard list they can't see.
-        Write-Warning "Extended pmset guards are not applied. Run these yourself before starting tests:"
+        Write-Warning "Extended pmset guards are not applied and root is not reachable without a password. Run these yourself before starting tests:"
         foreach ($g in $pmsetPending) { Write-Warning "  sudo pmset -a $($g.Key) $($g.Want)" }
+        # Deliberately advisory. A key absent from `pmset -g custom` is pending
+        # only because AlwaysApply says absence proves nothing, and a lidless
+        # desktop Mac never surfaces disablesleep at all -- Assert-ScreenLock
+        # skips exactly those keys for the same reason. Counting them would
+        # report a healthy desktop host as degraded on every single run.
+        Write-Verbose "Extended pmset guards are advisory here; Assert-ScreenLock re-checks the keys this macOS actually surfaces."
     } elseif ($PSCmdlet.ShouldProcess("Extended pmset guards", "Apply via sudo pmset -a")) {
-        # Re-apply the whole list, not just the pending keys: every write is
-        # idempotent, and a key macOS renamed is cheaper to write blindly than
-        # to track per release. Key names come from the list so this message
-        # cannot drift away from what is actually written.
-        Write-Information "Applying extended pmset guards ($(($pmsetGuards | ForEach-Object { $_.Key }) -join ', '))..."
-        foreach ($g in $pmsetGuards) { & sudo pmset -a $g.Key $g.Want 2>$null | Out-Null }
+        # ONLY the pending keys. `pmset` has no delete, so a key this host never
+        # carried can never be taken back off it: the pre-automation capture
+        # records it as absent, and the restore has nothing to write except a
+        # value nobody chose. Get-MacPmsetGuardPending already draws exactly the
+        # right line -- a key present with the wrong value, plus the AlwaysApply
+        # keys whose absence carries no information and which the guard list
+        # gives an AbsentEquivalent so the restore can undo them. Everything it
+        # leaves out is a name this macOS release does not surface, and writing
+        # one buys nothing but a host setting that outlives the automation.
+        # Key names come from the pending set so this message cannot drift away
+        # from what is actually written.
+        Write-Information "Applying extended pmset guards ($(($pmsetPending | ForEach-Object { $_.Key }) -join ', '))..."
+        # Warnings are suppressed per key and the rejected set is reported once,
+        # because the two causes need different words and only a probe tells
+        # them apart: a name this release dropped says nothing about the host,
+        # while an elevation that expired mid-loop is the operator's to fix.
+        $rejected = @()
+        foreach ($g in $pmsetPending) {
+            if (-not (Invoke-MacPrivilegedSetting -Argument @('pmset', '-a', "$($g.Key)", "$($g.Want)") -WarningAction SilentlyContinue)) {
+                $rejected += $g.Key
+            }
+        }
+        if ($rejected.Count -gt 0) {
+            if (Test-MacSudoAvailable) {
+                Write-Verbose "pmset rejected: $($rejected -join ', ') -- this macOS may not carry those keys."
+            } else {
+                Write-Warning "Root stopped being reachable without a password part-way through the extended pmset guards. Run these yourself before starting tests:"
+                foreach ($k in $rejected) {
+                    $want = @($pmsetPending | Where-Object { $_.Key -eq $k })[0].Want
+                    Write-Warning "  sudo pmset -a $k $want"
+                }
+            }
+        }
         $changed = $true
+        $stillPending = @(Get-MacPmsetGuardPending -PmsetCustom (& pmset -g custom 2>$null) -Guard $pmsetGuards)
+        if ($stillPending.Count -eq 0) {
+            Write-Information "Extended pmset guards verified after applying."
+        } else {
+            # Not a warning: a Mac with no lid never surfaces disablesleep no
+            # matter how often it is written, and Assert-ScreenLock skips
+            # exactly those keys. Saying so once, where the write happened, is
+            # the only place the state is ever observable.
+            Write-Information "  'pmset -g custom' still does not report: $(($stillPending | ForEach-Object { $_.Key }) -join ', '). macOS lists a guard only on hardware that has it."
+        }
     }
 
     # -- 3g. Hot corners -- neutralize screen-saver / sleep / lock triggers --
@@ -830,7 +1056,13 @@ function Set-MacHostConditionSet {
     $slParsed = Get-MacScreenLockDisabled -Raw (& sysadminctl -screenLock status 2>&1 | Select-Object -First 1)
     $slStatus = $slParsed.Status
     if (-not $slParsed.Disabled) {
-        if ($wrapperPrimed) {
+        # This block needs two different things and only one of them is root.
+        # `-password -` reads the ACCOUNT password from stdin, so a run that
+        # cannot put a question in front of a person cannot do this at all:
+        # under a captured child stdin is closed, the read returns EOF, and the
+        # attempt would be reported as a FAILED disable rather than one that was
+        # never possible. Name the one-time command instead.
+        if (-not ((Test-MacSudoAvailable) -and (Test-YurunaCanPrompt))) {
             Write-Warning "==================================================================="
             Write-Warning " sysadminctl unified screen lock is NOT yet disabled (status:"
             Write-Warning "   $slStatus)"
@@ -843,11 +1075,18 @@ function Set-MacHostConditionSet {
             Write-Warning " to sudo's prompt. State is persistent across reboots, so this"
             Write-Warning " warning will not reappear once it succeeds."
             Write-Warning "==================================================================="
+            # Required: Assert-ScreenLock refuses a host whose unified lock is
+            # active, and that lock overrides every legacy key above it.
+            $unmet.Add('sysadminctl unified screen lock')
         } elseif ($PSCmdlet.ShouldProcess("sysadminctl $slStatus", "Disable (sysadminctl -screenLock off)")) {
             Write-Information "Disabling sysadminctl unified screen lock (you may be prompted for your account password)..."
             # 2>&1 so "password:" prompt and diagnostics both land on
-            # the tty where the user expects them.
-            & sudo sysadminctl -screenLock off -password - 2>&1
+            # the tty where the user expects them. -n on sudo, because only
+            # sysadminctl's own account-password prompt belongs on that tty.
+            # Out-Host rather than an uncaptured statement: this function
+            # returns a count, and a merged stream left on the success stream
+            # would arrive at the caller as part of it.
+            & sudo -n sysadminctl -screenLock off -password - 2>&1 | Out-Host
             # Re-check: if we couldn't disable (wrong password, policy
             # override, MDM), surface the state so the user knows legacy
             # keys won't save them.
@@ -859,6 +1098,7 @@ function Set-MacHostConditionSet {
                 Write-Warning "sysadminctl screen lock is STILL active after attempt: $($slAfterParsed.Status)"
                 Write-Warning "  If this Mac is MDM-managed, a Configuration Profile may be"
                 Write-Warning "  enforcing screen lock; check: profiles list ; profiles show -type configuration"
+                $unmet.Add('sysadminctl unified screen lock')
             }
         }
     } else {
@@ -873,18 +1113,24 @@ function Set-MacHostConditionSet {
     # no screen-saver / pmset key we control would prevent it. System
     # level (/Library/Preferences/.GlobalPreferences); the WRITE
     # requires sudo, but the plist is mode 644 so the READ does not --
-    # using `sudo defaults read` here would cause an unnecessary sudo
-    # call, defeating the install/macos.utm.sh "sudo prelude" that
-    # pre-applies this value to keep the pwsh phase prompt-free.
+    # reading it through sudo would spend an elevation on a value anyone can
+    # see, and on a host that cannot elevate it would hide the state entirely.
     $autoLogoutDelay = & defaults read /Library/Preferences/.GlobalPreferences com.apple.autologout.AutoLogOutDelay 2>$null
     $autoLogoutOff = ($LASTEXITCODE -ne 0 -or "$autoLogoutDelay".Trim() -eq "0")
     if (-not $autoLogoutOff) {
-        if ($wrapperPrimed) {
-            Write-Warning "AutoLogOutDelay is '$($autoLogoutDelay.Trim())' (expected 0). Run 'sudo defaults write /Library/Preferences/.GlobalPreferences com.apple.autologout.AutoLogOutDelay -int 0' to fix."
+        # Required: Assert-ScreenLock refuses a host with an active auto-logout.
+        # It kicks the session to loginwindow mid-cycle, which looks exactly
+        # like a lock and no screen-saver or pmset key prevents it.
+        if (-not (Test-MacSudoAvailable)) {
+            Write-Warning "AutoLogOutDelay is '$($autoLogoutDelay.Trim())' (expected 0) and root is not reachable without a password. Run 'sudo defaults write /Library/Preferences/.GlobalPreferences com.apple.autologout.AutoLogOutDelay -int 0' to fix."
+            $unmet.Add('auto-logout delay')
         } elseif ($PSCmdlet.ShouldProcess("Auto-logout delay (currently $($autoLogoutDelay.Trim())s)", "Set to 0 (disabled)")) {
             Write-Information "Disabling auto-logout after inactivity..."
-            & sudo defaults write /Library/Preferences/.GlobalPreferences com.apple.autologout.AutoLogOutDelay -int 0
-            $changed = $true
+            if (Invoke-MacPrivilegedSetting -Argument @('defaults', 'write', '/Library/Preferences/.GlobalPreferences', 'com.apple.autologout.AutoLogOutDelay', '-int', '0')) {
+                $changed = $true
+            } else {
+                $unmet.Add('auto-logout delay')
+            }
         }
     } else {
         Write-Information "Auto-logout after inactivity is already disabled."
@@ -1012,13 +1258,17 @@ if (!granted) { $.CGRequestScreenCaptureAccess(); }
 
     # -- 6. Host clock -> network time on + stepped -------------------------
     # Guests inherit this clock at power-on; see Sync-MacHostClock for what
-    # a drifting one does to them. The sudo cache primed at the top of this
-    # function covers the two calls, so no extra prompt appears here.
+    # a drifting one does to them. Its two calls already use sudo -n, so a cold
+    # timestamp reports rather than prompts.
     $clock = Sync-MacHostClock
     if ($clock.Succeeded) {
         Write-Information "Host clock: $($clock.Message)"
         $changed = $true
     } else {
+        # Advisory: Assert-MacHostConditionSet reports clock drift and never
+        # refuses on it, because the repair needs a credential the asserting
+        # process cannot ask for. Degrading the whole step on it would make
+        # that decision twice, in opposite directions.
         Write-Warning "Host clock not disciplined: $($clock.Message)"
     }
 
@@ -1027,6 +1277,16 @@ if (!granted) { $.CGRequestScreenCaptureAccess(); }
         Write-Information "Settings updated. Re-run Assert-MacHostConditionSet to verify:"
         Write-Information "  Assert-MacHostConditionSet -HostType 'host.macos.utm'"
     }
+
+    # A preview changed nothing, so it has nothing to report as unmet: the
+    # ShouldProcess-gated blocks above never ran and the probe-only branches
+    # describe a host this run did not attempt to fix.
+    if ($WhatIfPreference) { return 0 }
+
+    if ($unmet.Count -gt 0) {
+        Write-Warning "Host settings applied with $($unmet.Count) condition(s) still unmet: $($unmet -join ', ')."
+    }
+    return $unmet.Count
 }
 
 function Assert-Accessibility {
@@ -1283,4 +1543,4 @@ function Test-MacHostMinimum {
     return $ok
 }
 
-Export-ModuleMember -Function Assert-ScreenLock, Initialize-SudoCache, Get-MacPmsetGuardList, Set-MacHostConditionSet, Assert-Accessibility, Assert-ScreenRecording, Assert-MacHostConditionSet, Test-MacHostMinimum, Sync-MacHostClock
+Export-ModuleMember -Function Assert-ScreenLock, Initialize-SudoCache, Test-MacSudoAvailable, Get-MacPmsetGuardList, Get-MacDefaultsCommandArgument, Set-MacHostConditionSet, Assert-Accessibility, Assert-ScreenRecording, Assert-MacHostConditionSet, Test-MacHostMinimum, Sync-MacHostClock

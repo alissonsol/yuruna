@@ -436,6 +436,14 @@ same three exist as API routes for automation, which also accept the shared
 
 ### Unlocking the actions
 
+**Usually there is nothing to unlock.** Open a service UI from the *Yuruna
+hosts* dashboard's *Extension hosts* table and it arrives already unlocked: that
+link goes through the aggregator's `/go/stash` redirect, which hands the page a
+short-lived control proof in the URL fragment (never sent to a server, never in
+an access log), and the page exchanges it for a session on arrival. The prompt
+below is what you see when there is no proof to spend — the page was opened by
+typing its address, or bookmarked, or the proof expired while the tab sat open.
+
 The board's **Unlock actions** prompt takes the rotating 6-character **Lab
 token** the Yuruna hosts dashboard already displays on its own tile — the same
 code `test/Set-LabToken.ps1` redeems to enroll a host. Read it off the tile,
@@ -516,6 +524,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.05
+Last review: 2026.08.06
 
 Back to [Yuruna](../README.md)

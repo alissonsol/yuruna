@@ -119,9 +119,25 @@
 </head>
 <body>
 
-<header class="page-header">
-  <h1><span id="header-title">Yuruna</span><span id="header-version"></span></h1>
-  <span id="header-machine"></span>
+<header class="app">
+  <div class="brand">
+    <span class="name"><a href="index.html"><span id="header-title">Yuruna</span></a></span>
+    <span class="version" id="header-version"></span>
+  </div>
+  <span class="spacer"></span>
+  <span class="machine" id="header-machine"></span>
+  <div class="menu">
+    <button type="button" class="menu-button" id="menu-button" aria-haspopup="true" aria-expanded="false" aria-controls="menu-panel">
+      <span class="menu-icon" aria-hidden="true">&#9776;</span><span class="menu-label">Menu</span>
+    </button>
+    <nav class="menu-panel" id="menu-panel" aria-label="Pages" hidden>
+      <a href="index.html">Status</a>
+      <a href="config.html">Config</a>
+      <a href="performance.html" aria-current="page">Performance</a>
+      <a href="host.html">Host</a>
+      <a class="menu-out" href="https://yuruna.link/operator">Guide</a>
+    </nav>
+  </div>
 </header>
 
 <div id="banner" class="idle">

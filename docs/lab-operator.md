@@ -270,13 +270,20 @@ Each service VM is stopped and removed before its replacement is
 built, so a re-run rebuilds the beacon's services rather than adopting
 survivors — budget roughly 15 minutes for the proxy.
 
-An interactive run writes your answers to
+An interactive run writes the answers it *resolved* to
 `install/setup.answers.lab.yml`; feed that back with `-AnswerFile` to
 build the next beacon the same way. The only lab key is `lab.name` on
 top of the standalone set. The `default` pool is not a choice: every
 run creates it in the intent store when none is there, leaving an
-existing one untouched. An unattended `storage.kind: local` run also
-needs `storage.localRoot`.
+existing one untouched.
+
+An unattended `storage.kind: local` run also needs
+`storage.localRoot`, and is refused in its first second without it —
+`New-LocalLabStorage.ps1` runs as a child with its stdin closed, so it
+cannot be asked. An interactive run does not ask either: it takes the
+platform's convention and records that in the run log. On a beacon,
+storage failing ends the run, because the pool intent store and the
+stash service both live on it.
 
 Parameters, re-run semantics, and what makes a run fail are shared
 with the standalone path:
@@ -346,6 +353,15 @@ The shares are consumed through hosts-file aliases (`ypool-nas`,
 `ystash-nas`) resolving to loopback, so a one-machine lab exercises
 the same mount and replication code as one with a NAS
 ([operator.md B.7](operator.md#b7-local-shares-for-pool-and-stash-storage)).
+
+A **standalone** machine gets one more alias, `yuruna-dash`, pointing at
+the caching-proxy VM rather than at loopback: it makes the Yuruna hosts
+dashboard `http://yuruna-dash:3000/d/yuruna-pool/yuruna-hosts`, a URL
+worth bookmarking because it survives the cache VM being rebuilt onto a
+new DHCP lease. `setup.ps1` rewrites it every run from the same address
+it writes into `vmStart.cachingProxyIp`. A lab gets no such alias — its
+proxy is shared, and every other machine reaches it through that config
+key instead.
 
 The alias is **host-local on purpose** — the service VMs do not use
 it. Inside a guest `127.0.0.1` is the guest's own loopback (the mount
@@ -671,6 +687,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.05
+Last review: 2026.08.06
 
 Back to [Yuruna](../README.md)

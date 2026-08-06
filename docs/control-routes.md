@@ -47,6 +47,14 @@ before it lapses rather than letting a long edit fail at Save.
 
 A host with **no** `lab-auth-token` is not broken — it accepts control from loopback only.
 
+The **extension service UIs** are handed the same proof the same way. Opening one from the
+dashboard's *Extension hosts* table goes through `/go/stash`, which mints a proof and leaves
+it in the fragment; the page spends it on `POST /api/unlock-proof` and its actions are
+unlocked without the operator going back to the dashboard to copy the rotating code off a
+tile. A service VM normally holds no `lab-auth-token` of its own, so it asks the aggregator
+(`POST /api/v1/control-proof`) whether the proof is genuine — a verifier, not a mint. No
+proof, or an expired one, and the UI's ordinary Lab token prompt is still there.
+
 The **Pool control service** presents the same proof when its *Pool Status* column pauses or
 continues every member of a pool at once ([pool-admin.md](pool-admin.md#pool-status--pausing-and-continuing-every-member-at-once)).
 It mints one from its own copy of the token when it has one, and otherwise reads the fragment
@@ -129,6 +137,16 @@ timeline's "open host status page" — both route through the aggregator's `/go/
 redirect. Arriving that way is what carries the proof; typing the host's URL by hand does
 not. Host ID cells are plain text in **every** table: exactly one cell per row grants
 control, and it is the one that tells you whether control is on offer.
+
+The Pool control service's own tables link host ids at the same redirect. **Every browser
+link to `/go/*` is plain http, even where the aggregator has a TLS leaf** — the redirect
+lands on a host's plain-http status page, so https protects nothing the next hop does not
+already carry in clear, while putting a proxy-CA interstitial in front of every host link
+(an operator's browser has no reason to trust that CA). The aggregator answers both
+protocols on the same port, so server-to-server callers keep their TLS. Cloud-init
+substitutes a plain-http base into the dashboard for this reason, and `goBaseURL` in the
+pool-control daemon downgrades the configured URL for the same one before the UI builds a
+link from it.
 
 **The Control cell answers "is this host enrolled?" before you click.** It reads:
 
@@ -299,6 +317,10 @@ secrets under `status/` (`vault.yml`, `transports.yml`, `events.log`, the SSH
 private key, the caching-proxy-service state file) are blocked regardless of which
 route reached them.
 
+`archive/<cycle-folder>.tar.gz` is dispatched *before* this by-prefix step and
+never reaches it: it names a folder to pack rather than a file to serve, and it
+carries its own grammar in place of the StartsWith pin (see below).
+
 ## Short per-cycle links: `/cycle/<number>`
 
 `GET /cycle/004062` redirects (302) to that cycle's HTML transcript. It exists
@@ -321,6 +343,48 @@ directory lookup.
 The outer runner prints one of these per finished cycle, e.g.
 `Cycle 004062 - FAIL: http://192.168.7.101:8080/cycle/004062`.
 
+## Sharing one cycle: `/archive/<cycle-folder>.tar.gz` and `share-cycle.html`
+
+A cycle folder is a tree — the HTML transcript, the events feed, the host
+diagnostic, a subfolder per guest — so sending one to a colleague meant picking
+files out of a directory listing one at a time. `GET
+/archive/000724.2026-08-05.01-47-56.<hostId>.tar.gz` packs the whole folder,
+recursively, and serves it as one attachment-dispositioned file named
+`<short host id>.<UTC start>T<UTC time>Z.tar.gz`. Both halves of that name come
+out of the folder, which already carries the host id and the cycle's UTC start.
+
+The URL leaf is matched against the cycle-folder grammar rather than sanitized.
+There is exactly one legal form — one results folder directly under `log/`,
+optionally with the `.incomplete` suffix a running cycle carries — so anything
+else is a 404 rather than something to clean up, and no path separator survives
+the match. `tar` writes to a temp file under the runtime dir and the response
+streams that: a gzip stream cannot pass through a PowerShell pipeline without
+being re-encoded. The temp file is removed in a `finally`, so a failed pack
+leaks nothing. bsdtar ships in-box on Windows 10 1803+ and on macOS; Linux has
+GNU tar. A host without one answers 500 naming the failure.
+
+`share-cycle.html?cycle=log/<folder>` is the page that drives it, reached from
+the **Share cycle results** link on the dashboard's cycle timeline by way of the
+aggregator's `/go/cycle-share` (which resolves host and cycle exactly as
+`/go/cycle` does, so the archive can never be a different cycle than the one the
+click would have opened). One button packs the folder and hands it to the
+operator's mail client, with subject `Yuruna Host <short id> at <UTC time>` and
+the body `Yuruna cycle results`.
+
+How it hands it over depends on what the browser offers. `navigator.share` can
+carry the file itself, so where it is available the message arrives with the
+archive attached. It is secure-context gated and the status service speaks plain
+HTTP over the LAN, so on a lab host it is normally absent — then the archive
+downloads and the draft opens with subject and body filled in, for the operator
+to attach it. `mailto:` cannot carry an attachment ([RFC 6068
+§5](https://www.rfc-editor.org/rfc/rfc6068#section-5)); that is a property of the
+scheme, not a gap to work around, which is why the fallback asks for one manual
+step instead of appearing to do it.
+
+The route is open, like the file tree it archives: every byte in that tarball is
+already readable file by file from the same server, so gating the convenient
+form of a read that is otherwise ungated would only be theatre.
+
 ## See also
 
 - [pool-admin.md](pool-admin.md) — running a pool and the *Yuruna hosts* dashboard.
@@ -336,6 +400,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.05
+Last review: 2026.08.06
 
 Back to [Yuruna](../README.md)

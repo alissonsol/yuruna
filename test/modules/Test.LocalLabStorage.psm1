@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.05
+.VERSION 2026.08.06
 .GUID 42b7d3e6-5c81-4a92-b0f4-6d5e8c1a7b23
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -129,6 +129,202 @@ function Get-LocalLabStorageDefaultRoot {
             return "$d\Shares\yuruna"
         }
     }
+}
+
+<#
+.SYNOPSIS
+The local directory this machine publishes under $ShareName, or '' when it publishes no such share.
+.DESCRIPTION
+Reads the operating system's own share table, which is the only place the answer
+is not a guess: it is what the SMB server will actually serve. Each platform is
+asked in its native dialect -- Get-SmbShare on Windows, `sharing -l` on macOS,
+`testparm -s` on Ubuntu -- because none of them agree on a format and none of
+them can be derived from the others.
+
+Returns '' rather than throwing on every negative: a machine that has never
+stood up local storage has no such share, and that is an ordinary answer to
+this question, not a fault.
+#>
+function Get-LocalLabStorageSharePath {
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        [Parameter(Mandatory)][string]$ShareName,
+        [Parameter(Mandatory)][ValidateSet('windows', 'macos', 'linux')][string]$Platform
+    )
+    try {
+        switch ($Platform) {
+            'windows' {
+                $share = Get-SmbShare -Name $ShareName -ErrorAction SilentlyContinue
+                if ($share -and $share.Path) { return [string]$share.Path }
+                return ''
+            }
+            'macos' {
+                # `sharing -l` prints one record per share point as a `name:` line
+                # followed by its `path:` line. The name is matched on its own
+                # line rather than by a substring: share points here carry
+                # operator-facing names ("Yuruna Test's Public Folder") that can
+                # contain any other share's name as a fragment.
+                $listed = Invoke-LocalLabStorageNative -FilePath 'sharing' -ArgumentList @('-l') -AllowFailure
+                if (-not $listed -or -not $listed.Output) { return '' }
+                $text = ($listed.Output -join "`n")
+                $rx = [regex]::new('(?m)^\s*name:\s*' + [regex]::Escape($ShareName) + '\s*$\s*^\s*path:\s*(?<path>.+?)\s*$')
+                $m = $rx.Match($text)
+                if ($m.Success) { return [string]$m.Groups['path'].Value }
+                return ''
+            }
+            default {
+                # testparm resolves includes, so a share defined in the generated
+                # yuruna conf file is visible here even though smb.conf itself
+                # only carries the include line.
+                $conf = Invoke-LocalLabStorageNative -FilePath 'sudo' -ArgumentList @('testparm', '-s') -AllowFailure
+                if (-not $conf -or -not $conf.Output) { return '' }
+                $text = ($conf.Output -join "`n")
+                $rx = [regex]::new('(?ms)^\[' + [regex]::Escape($ShareName) + '\]\s*(?<body>.*?)(?=^\[|\z)')
+                $m = $rx.Match($text)
+                if (-not $m.Success) { return '' }
+                $pathMatch = [regex]::Match($m.Groups['body'].Value, '(?m)^\s*path\s*=\s*(?<path>.+?)\s*$')
+                if ($pathMatch.Success) { return [string]$pathMatch.Groups['path'].Value }
+                return ''
+            }
+        }
+    } catch {
+        Write-Verbose "Get-LocalLabStorageSharePath: $($_.Exception.Message)"
+        return ''
+    }
+}
+
+<#
+.SYNOPSIS
+The share name a network path names, but only when the path has the shape a local run publishes -- a server and exactly ONE share segment. '' for anything else. Pure.
+.DESCRIPTION
+Every question about "is this share ours" starts here, so the shape rule lives in
+one place. A path with more segments after the server (`//srv/work/yuruna.pool`)
+is a share with a directory layout inside it -- the shape a NAS carries and the
+shape this script never writes -- and reading its first segment as the share
+name would hand back 'work', which is a real share somewhere else entirely.
+Refusing is the only correct answer for a path this machine could not have
+published.
+
+A 'user@' in the server segment is left alone: it is part of the server field, so
+it never reaches the share name.
+#>
+function Get-LocalLabStorageShareName {
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([Parameter(Mandatory)][AllowEmptyString()][string]$NetworkPath)
+    if ([string]::IsNullOrWhiteSpace($NetworkPath)) { return '' }
+    $segments = @(($NetworkPath -replace '\\', '/').Trim().TrimStart('/').Split('/', [StringSplitOptions]::RemoveEmptyEntries))
+    if ($segments.Count -ne 2) { return '' }
+    return [string]$segments[1]
+}
+
+<#
+.SYNOPSIS
+The directory THIS machine publishes for a configured network path, or '' when it publishes no such share.
+.DESCRIPTION
+The question is "does this machine serve the storage its config points at", and
+the OS share table is the only place that answers it with something no other
+machine and no name can forge. A host alias cannot: the same alias means the NAS
+on a machine that has one and this machine on a machine that serves its own
+shares, and whoever configured the host last decides which. A live mount cannot
+either: it proves a server somewhere answered, not which one.
+
+'' covers both negatives -- a path whose shape this machine never publishes, and
+a share the table does not carry -- because the caller does the same thing with
+either: it does not treat the storage as this machine's.
+#>
+function Get-LocalLabStorageServedPath {
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        [Parameter(Mandatory)][AllowEmptyString()][string]$NetworkPath,
+        [Parameter(Mandatory)][ValidateSet('windows', 'macos', 'linux')][string]$Platform
+    )
+    $shareName = Get-LocalLabStorageShareName -NetworkPath $NetworkPath
+    if (-not $shareName) { return '' }
+    return [string](Get-LocalLabStorageSharePath -ShareName $shareName -Platform $Platform)
+}
+
+<#
+.SYNOPSIS
+True when one storage tier is already stood up ON THIS MACHINE. Pure: the three facts are parameters, so the rule can be checked without a host that serves anything.
+.DESCRIPTION
+All three have to hold, and only one of them decides.
+
+WHAT THIS MACHINE PUBLISHES is the deciding evidence, and it is the only fact
+here that nothing else on the machine can forge. The config a machine carries
+for a NAS is identical in every key to the config for shares on this machine, so
+neither the paths nor the account can tell them apart; the host alias can be
+rewritten, and the run that rewrites it is this same setup, which makes an alias
+check answer "local" because an earlier run said so. The share table answers from
+what the SMB server will actually serve.
+
+THE ALIAS still has to agree, because it decides where the mount goes: a machine
+that publishes the share but resolves the name elsewhere mounts the other
+server's copy.
+
+THE MOUNT still has to be live and usable, because the tier is not stood up until
+it is reachable through the network stack the runner uses. It is never sufficient
+on its own -- a mount proves some server answered, and the whole point of the
+first check is that it need not have been this one.
+#>
+function Test-LocalLabStorageTierStoodUp {
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param(
+        [Parameter(Mandatory)][AllowEmptyString()][AllowNull()][string]$ServedPath,
+        [Parameter(Mandatory)][bool]$AliasIsLocal,
+        [Parameter(Mandatory)][bool]$Mounted
+    )
+    if ([string]::IsNullOrWhiteSpace($ServedPath)) { return $false }
+    if (-not $AliasIsLocal) { return $false }
+    return $Mounted
+}
+
+<#
+.SYNOPSIS
+The storage root a previously configured network path was built from, or '' when it cannot be established.
+.DESCRIPTION
+The root is not recorded anywhere, but it does not need to be: New-LocalLabStorageTier
+composes the shared directory as <root>/<folder> and publishes exactly that
+directory under the share the network path names. So the root is the PARENT of
+whatever the share resolves to, and the share table knows where that is.
+
+Deriving it beats recording it. A stored root is a second source of truth that
+can drift from the share it claims to describe, and when it drifts the run
+builds at a path nothing serves; the share table cannot drift, because it is
+what serves.
+
+Two things make this refuse rather than guess. Only a path of the shape this
+script writes is read at all (Get-LocalLabStorageShareName), so a NAS path
+carrying a deeper share layout is left alone instead of being reinterpreted.
+And the resolved directory's own leaf has to match the share it was found
+under, which is what stops an unrelated share of the same name on a machine
+that was never a lab from contributing its parent.
+#>
+function Get-LocalLabStorageRootFromShare {
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        [Parameter(Mandatory)][AllowEmptyString()][string]$NetworkPath,
+        [Parameter(Mandatory)][ValidateSet('windows', 'macos', 'linux')][string]$Platform
+    )
+    $shareName = Get-LocalLabStorageShareName -NetworkPath $NetworkPath
+    if (-not $shareName) { return '' }
+    $shared = Get-LocalLabStorageSharePath -ShareName $shareName -Platform $Platform
+    if (-not $shared) { return '' }
+
+    $sep  = if ($Platform -eq 'windows') { '\' } else { '/' }
+    $trim = $shared.Trim().TrimEnd('\', '/')
+    $leaf = $trim.Split(@('\', '/'), [StringSplitOptions]::RemoveEmptyEntries) | Select-Object -Last 1
+    if ($leaf -ne $shareName) { return '' }
+    $parent = $trim.Substring(0, $trim.Length - $leaf.Length).TrimEnd('\', '/')
+    # A share published at a filesystem root leaves no parent to be the storage
+    # root; treat that as unresolvable rather than returning an empty string that
+    # would read as "use the default" only by accident.
+    if (-not $parent -or $parent -eq $sep) { return '' }
+    return $parent
 }
 
 <#
@@ -273,6 +469,16 @@ function Merge-LocalLabStorageBackConnectionName {
 # value here: `sharing`, `smbpasswd`, `sysadminctl`, and `testparm` all exit 1
 # for a wide range of unrelated causes, so the exit code alone never says what
 # to fix. -AllowFailure turns it into a probe that returns the result instead.
+#
+# The sudo path goes through Invoke-YurunaSudo rather than running sudo here.
+# sudo reads its password from /dev/tty, so a run whose console belongs to a
+# parent cannot stop a bare `sudo` from prompting where nobody can see it --
+# Invoke-YurunaSudo adds -n on exactly that path and recognizes sudo's own
+# refusal signatures. That distinction is what -AllowFailure must NOT swallow:
+# most of the calls below are probes whose non-zero exit is the answer ("no such
+# sharepoint", "package absent"), but "sudo would not run this at all" is not an
+# answer to any of them, and treating it as one is how half a storage
+# configuration gets built and then reported as the tiers it did create.
 function Invoke-LocalLabStorageNative {
     [CmdletBinding()]
     [OutputType([hashtable])]
@@ -289,6 +495,17 @@ function Invoke-LocalLabStorageNative {
     # the package installed", "is smbd running", "does this sharepoint exist" --
     # into a thrown exception instead of the answer it is asking for.
     $PSNativeCommandUseErrorActionPreference = $false
+    if ($FilePath -eq 'sudo') {
+        # No -TolerateBlocked: a blocked elevation throws, carrying the exact
+        # /etc/sudoers.d rule that repairs the host.
+        $sudoArgs = @{ Argument = $ArgumentList }
+        if ($PSBoundParameters.ContainsKey('Stdin')) { $sudoArgs['InputText'] = $Stdin }
+        $r = Invoke-YurunaSudo @sudoArgs
+        if ($r.ExitCode -ne 0 -and -not $AllowFailure) {
+            throw "sudo $($ArgumentList -join ' ') exited $($r.ExitCode)`: $($r.Output)"
+        }
+        return @{ ExitCode = $r.ExitCode; Output = $r.Output }
+    }
     $output = if ($PSBoundParameters.ContainsKey('Stdin')) {
         $Stdin | & $FilePath @ArgumentList 2>&1
     } else {
@@ -857,7 +1074,7 @@ function Set-LocalLabStorageLinkedConnection {
 
 <#
 .SYNOPSIS
-Points the storage server aliases at the loopback address in the hosts file, via automation/Set-HostAlias.ps1. Returns the number of aliases written.
+Points the storage server aliases at the loopback address in the hosts file. Returns the number of aliases written.
 .DESCRIPTION
 The alias is the seam that keeps this lab's config identical in shape to a lab with a real NAS: test.config.yml and the guest seeds carry the NAME, so moving the storage to real hardware later changes the address this maps to and nothing else.
 #>
@@ -868,12 +1085,32 @@ function Set-LocalLabStorageHostAlias {
         [Parameter(Mandatory)][string]$RepoRoot,
         [Parameter(Mandatory)][string[]]$Name
     )
+    # Loopback because these names ARE this machine: the shares they resolve to
+    # are served here. An alias for something that lives elsewhere supplies its
+    # own address.
+    return Set-YurunaHostAlias -RepoRoot $RepoRoot -Name $Name -IPAddress $script:LoopbackAddress
+}
+
+<#
+.SYNOPSIS
+Writes one hosts-file alias per name, all pointing at IPAddress, via automation/Set-HostAlias.ps1 and whatever elevation this platform's hosts file needs. Returns the number written.
+.DESCRIPTION
+The hosts file is root-owned on macOS and Linux and needs an elevated session on Windows, so every writer in this repo needs the same platform dance and the same diagnosis when the nested pwsh cannot start. That belongs in one place: a second copy is a second thing to get right, and the failure it hides is a run that reports success while the hosts file never changed.
+#>
+function Set-YurunaHostAlias {
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([int])]
+    param(
+        [Parameter(Mandatory)][string]$RepoRoot,
+        [Parameter(Mandatory)][string[]]$Name,
+        [Parameter(Mandatory)][string]$IPAddress
+    )
     $aliasScript = Join-Path -Path $RepoRoot -ChildPath 'automation' -AdditionalChildPath 'Set-HostAlias.ps1'
     if (-not (Test-Path -LiteralPath $aliasScript)) {
         Write-Warning "Set-HostAlias.ps1 not found at $aliasScript; add the alias lines to the hosts file by hand."
         return 0
     }
-    $address = $script:LoopbackAddress
+    $address = $IPAddress
     $written = 0
     foreach ($n in $Name) {
         if (-not $PSCmdlet.ShouldProcess($n, "Map to $address in the hosts file")) { continue }
@@ -965,10 +1202,12 @@ function Set-LocalLabStorageConfigValue {
 Export-ModuleMember -Function `
     Get-LocalLabStorageSmbAuthVerdict, Test-LocalLabStorageSmbAuth, `
     Get-LocalLabStoragePlatform, Select-LocalLabStorageDataDrive, Get-LocalLabStorageWindowsDataDrive, `
-    Get-LocalLabStorageDefaultRoot, New-LocalLabStorageTier, Get-LocalLabStorageSambaConfig, `
+    Get-LocalLabStorageDefaultRoot, Get-LocalLabStorageSharePath, Get-LocalLabStorageRootFromShare, `
+    Get-LocalLabStorageShareName, Get-LocalLabStorageServedPath, Test-LocalLabStorageTierStoodUp, `
+    New-LocalLabStorageTier, Get-LocalLabStorageSambaConfig, `
     Add-LocalLabStorageSambaInclude, Merge-LocalLabStorageBackConnectionName, `
     Test-LocalLabStorageAccount, Set-LocalLabStorageAccount, Reset-LocalLabStorageAccount, Enable-LocalLabStorageServer, `
     Set-LocalLabStorageFolderAccess, New-LocalLabStorageShare, Set-LocalLabStorageLoopbackException, `
-    Set-LocalLabStorageLinkedConnection, Set-LocalLabStorageHostAlias, Set-LocalLabStorageConfigValue
+    Set-LocalLabStorageLinkedConnection, Set-LocalLabStorageHostAlias, Set-YurunaHostAlias, Set-LocalLabStorageConfigValue
 
 # Copyright (c) 2019-2026 by Alisson Sol et al.

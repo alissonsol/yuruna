@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.05
+.VERSION 2026.08.06
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456729
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -20,6 +20,12 @@
 # Shared port-ownership diagnostics: the Windows HTTP.sys / netsh vs Unix lsof
 # dispatch, and the classification Start-StatusService refuses to start on.
 # Each function's contract is in its own .SYNOPSIS block below.
+
+# Test-YurunaCanPrompt: the one predicate for "can a question reach a person",
+# which decides whether the elevated takeover below may ask for a password or
+# must report instead. -Global -Force matches every other consumer of this
+# module (a nested non-global import evicts a caller's view of it).
+Import-Module (Join-Path -Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) -ChildPath 'automation' -AdditionalChildPath 'Yuruna.Common.psm1') -Global -Force -DisableNameChecking
 
 function Get-PortListenerPid {
     <#
@@ -260,7 +266,11 @@ function Get-ProcessOwnerName {
     param([Parameter(Mandatory)][int]$Id)
     try {
         if ($PSVersionTable.Platform -eq 'Unix') {
-            $psCmd = Get-Command ps -CommandType Application -ErrorAction SilentlyContinue
+            # -First 1 on the COMMAND, not just on its output: a host with both
+            # /usr/bin/ps and /bin/ps returns two Application matches, and
+            # $psCmd.Source then stringifies to "/usr/bin/ps /bin/ps" -- a path
+            # that does not exist, so every owner silently came back empty.
+            $psCmd = Get-Command ps -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
             if ($psCmd) {
                 $u = & $psCmd.Source -o user= -p $Id 2>$null | Select-Object -First 1
                 if ($u) { return ([string]$u).Trim() }
@@ -352,6 +362,283 @@ function Get-PortHolderServiceInfo {
     return $empty
 }
 
+# Internal: PIDs of every ancestor of $ProcessId, walked through ps(1). The
+# elevated takeover below must never stop the shell that launched this run --
+# with root behind the kill there is nothing left to refuse it, and the symptom
+# (the operator's terminal dies mid-bring-up) reads as a crash, not as a
+# deliberate act. Bounded hop count: a ppid cycle is not possible on a healthy
+# system, but a bounded walk cannot hang on an unhealthy one.
+function Get-ProcessAncestorId {
+    [CmdletBinding()]
+    [OutputType([int[]], [object[]])]
+    param([Parameter(Mandatory)][int]$ProcessId)
+    $ids = [System.Collections.Generic.List[int]]::new()
+    if ($PSVersionTable.Platform -ne 'Unix') {
+        # 'ps' is an ALIAS for Get-Process on Windows, so the ps(1) argv below
+        # would bind as cmdlet parameters and fail. .Parent walks the same chain.
+        $current = Get-Process -Id $ProcessId -ErrorAction SilentlyContinue
+        for ($hop = 0; $hop -lt 32; $hop++) {
+            try { $current = $current.Parent } catch { break }
+            if (-not $current) { break }
+            $ids.Add([int]$current.Id)
+        }
+        return @($ids)
+    }
+    # Resolved as an Application so the Windows alias can never be reached even
+    # if this branch is entered on a host that reports itself oddly, and -First 1
+    # because a host carrying both /usr/bin/ps and /bin/ps returns two matches
+    # whose joined .Source is not a path.
+    $psCmd = Get-Command ps -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+    if (-not $psCmd) { return @() }
+    $current = $ProcessId
+    for ($hop = 0; $hop -lt 32; $hop++) {
+        $parent = ''
+        try { $parent = ((& $psCmd.Source -o ppid= -p $current 2>$null) | Out-String).Trim() } catch { break }
+        if ($parent -notmatch '^\d+$') { break }
+        $parentId = [int]$parent
+        # 1 (init/launchd) is protected unconditionally by the caller, and a
+        # parent of 0 means the walk ran off the top of the tree.
+        if ($parentId -le 1) { break }
+        $ids.Add($parentId)
+        $current = $parentId
+    }
+    return @($ids)
+}
+
+# Internal: "PID 1234 (root pwsh)" -- who is about to be stopped, in the words
+# the operator can check with ps themselves. An elevated kill the operator did
+# not ask for by name is indistinguishable from the harness misbehaving, so the
+# takeover names every target before it acts.
+function Get-PortHolderDescription {
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([Parameter(Mandatory)][int]$ProcessId)
+    $detail = ''
+    if ($PSVersionTable.Platform -eq 'Unix') {
+        # Application, not the bare name: 'ps' is a Get-Process alias on Windows.
+        # -First 1: two matches (/usr/bin/ps, /bin/ps) join into a bogus path.
+        $psCmd = Get-Command ps -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+        if ($psCmd) {
+            try { $detail = ((& $psCmd.Source -o user=,comm= -p $ProcessId 2>$null) | Out-String).Trim() -replace '\s+', ' ' } catch {
+                Write-Verbose "Get-PortHolderDescription($ProcessId): ps failed"
+            }
+        }
+    } else {
+        $proc  = Get-Process -Id $ProcessId -ErrorAction SilentlyContinue
+        $owner = Get-ProcessOwnerName -Id $ProcessId
+        if ($proc) { $detail = (@($owner, $proc.ProcessName) | Where-Object { $_ }) -join ' ' }
+    }
+    if ($detail) { return "PID $ProcessId ($detail)" }
+    return "PID $ProcessId"
+}
+
+# Internal: a live sudo authorization for the takeover, or $false.
+#
+# sudo reads its password from /dev/tty, NOT from stdin -- so a prompt raised
+# from a run whose output is captured (every service bring-up called through
+# Start-YurunaStatusServiceIfEnabled, every runner cycle) prints into a log
+# nobody is watching and then waits for a keystroke nobody knows to press. The
+# probe is therefore always `-n`, and the one place that may actually ask is
+# gated on Test-YurunaCanPrompt: a person who can both SEE the question and
+# ANSWER it. Everywhere else this returns $false and the caller reports instead.
+function Request-PortReclaimElevation {
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param([Parameter(Mandatory)][int]$Port)
+    # Pinned locally: a cold sudo timestamp EXITS NON-ZERO, and that exit code is
+    # the answer this function returns. Under the caller's $ErrorActionPreference
+    # = 'Stop' the native-command preference would turn it into a throw, so the
+    # probe written to keep a bring-up moving would abort it instead.
+    $PSNativeCommandUseErrorActionPreference = $false
+    if (-not (Get-Command sudo -ErrorAction SilentlyContinue)) { return $false }
+    & sudo -n true 2>$null | Out-Null
+    if ($LASTEXITCODE -eq 0) { return $true }
+    if (-not (Test-YurunaCanPrompt)) { return $false }
+    Write-Information ("Port $Port is held by a process this account cannot stop. Freeing it needs root " +
+                       "(you may be prompted for your password)...") -InformationAction Continue
+    & sudo -v
+    & sudo -n true 2>$null | Out-Null
+    return ($LASTEXITCODE -eq 0)
+}
+
+# Internal: holders of $Port as ROOT sees them. An unprivileged lsof cannot see
+# sockets owned by other users, which is exactly the case that brings a caller
+# here -- so the same query is re-run with the authorization already obtained.
+function Get-ElevatedPortListenerPid {
+    [CmdletBinding()]
+    [OutputType([int[]], [object[]])]
+    param(
+        [Parameter(Mandatory)][int]$Port,
+        [switch]$AsRoot
+    )
+    if (-not (Get-Command lsof -ErrorAction SilentlyContinue)) { return @() }
+    $PSNativeCommandUseErrorActionPreference = $false
+    foreach ($stateArgs in @(@('-sTCP:LISTEN'), @())) {
+        # LISTEN first, then any TCP state: a half-closed socket still holds the
+        # port and still has to go, but it must not be the first thing matched.
+        $lsofArgs = @('-nP', "-iTCP:$Port") + $stateArgs + @('-Fp')
+        $out = if ($AsRoot) { & lsof @lsofArgs 2>$null } else { & sudo -n lsof @lsofArgs 2>$null }
+        $found = @($out | Where-Object { $_ -like 'p*' } | ForEach-Object { [int]$_.Substring(1) } | Select-Object -Unique)
+        if ($found.Count) { return $found }
+    }
+    return @()
+}
+
+# Internal: SIGTERM/SIGKILL the given PIDs, with root behind it when this
+# process is not already root.
+function Stop-ProcessWithElevation {
+    [CmdletBinding()]
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+        Justification = 'The single ShouldProcess gate for the whole takeover lives in Invoke-PortTakeover, its only caller. A second gate here would ask the operator again per signal (TERM, then KILL) about a decision already made.')]
+    param(
+        [Parameter(Mandatory)][int[]]$ProcessId,
+        [Parameter(Mandatory)][ValidateSet('TERM', 'KILL')][string]$Signal,
+        [switch]$AsRoot
+    )
+    $PSNativeCommandUseErrorActionPreference = $false
+    if ($AsRoot) { & kill "-$Signal" @ProcessId 2>$null | Out-Null }
+    else         { & sudo -n kill "-$Signal" @ProcessId 2>$null | Out-Null }
+}
+
+function Invoke-PortTakeover {
+    <#
+    .SYNOPSIS
+        Free $Port by stopping whatever holds it -- escalating to root only for
+        the holder ordinary privileges cannot reach.
+    .DESCRIPTION
+        The reclaim inside Resolve-PortOrphan handles exactly one shape: a
+        detached pwsh THIS user owns. Everything else it can only describe --
+        the stale non-pwsh listener left by some other tool, and the server an
+        earlier `sudo` run of this same harness left as ROOT, invisible to this
+        user's lsof and immune to this user's Stop-Process. Describing those
+        hands the operator a chore the harness has everything it needs to
+        finish: it knows the port, it can find the holder as root, and the
+        bring-up that calls it is already asking for sudo. So it finishes it.
+
+        TWO PHASES, cheapest first.
+          1. Ordinary privileges: Stop-Process every visible holder. This alone
+             clears the same-user cases and asks for NO elevation, which is what
+             keeps a plain `Start-StatusService.ps1` from turning into a
+             password prompt.
+          2. Elevated: only if the port is STILL held (or nothing was visible at
+             all, the signature of a root-owned listener). Re-runs the lookup as
+             root -- which is the only way to see that holder -- and signals it
+             with sudo. SIGTERM first, SIGKILL only if the port is still held,
+             so a status service that traps the signal closes its listener and
+             releases its runtime files cleanly.
+
+        WHAT IS NEVER STOPPED: pid 1, this process, and every ancestor of this
+        process. With root behind the kill there is nothing left to refuse it,
+        and stopping the shell that launched the run reads as a crash. Every
+        other holder is fair game and is NAMED (user and command) as it goes,
+        because a kill nobody can account for afterwards is worse than the
+        conflict it resolved.
+
+        Phase 2 is Unix-only: sudo has no meaning on Windows, where the
+        equivalent is an elevated shell or a standing `netsh http add urlacl`,
+        which the PrivilegeRequired banner already spells out. Phase 1 runs
+        everywhere.
+    .PARAMETER KnownPid
+        Holders the caller already resolved, unioned with what each phase finds
+        -- a holder visible to the caller must not be missed because a later
+        lookup raced its exit.
+    .PARAMETER Enabled
+        Bound from the caller's -Elevate. $false makes this a no-op returning
+        Attempted=$false, so the decision to take the port lives at the call site.
+    .OUTPUTS
+        [hashtable] @{
+            Attempted = [bool]    # a takeover was actually tried
+            Freed     = [bool]    # the port is bindable now
+            Stopped   = [int[]]   # PIDs signalled
+            Detail    = [string]  # why it did not free the port, for the banner
+        }
+    #>
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([hashtable])]
+    param(
+        [Parameter(Mandatory)][int]$Port,
+        [int[]]$KnownPid = @(),
+        [switch]$Enabled
+    )
+    $result = @{ Attempted = $false; Freed = $false; Stopped = @(); Detail = '' }
+    if (-not $Enabled) { return $result }
+    $result.Attempted = $true
+
+    # pid 1, this process, and its ancestors are off limits in BOTH phases.
+    $protected = @(1, $PID) + @(Get-ProcessAncestorId -ProcessId $PID)
+    $stopped   = [System.Collections.Generic.List[int]]::new()
+
+    # Chooses targets, announces them, and stops them with $StopAction. Shared by
+    # both phases so the protection filter and the "who is being stopped" line
+    # cannot drift between the unprivileged and the elevated path.
+    $stopHolders = {
+        param([int[]]$Candidate, [string]$Why, [scriptblock]$StopAction)
+        $targets = @($Candidate | Select-Object -Unique | Where-Object { $protected -notcontains $_ })
+        if (-not $targets.Count) { return @() }
+        foreach ($target in $targets) {
+            Write-Information "Port $Port is held by $(Get-PortHolderDescription -ProcessId $target) -- stopping it$Why so the status service can bind." -InformationAction Continue
+        }
+        if (-not $PSCmdlet.ShouldProcess("PID(s) $($targets -join ', ')", "Stop port $Port holder")) { return @() }
+        & $StopAction $targets
+        foreach ($target in $targets) { if (-not $stopped.Contains($target)) { $stopped.Add($target) } }
+        return $targets
+    }
+
+    # --- Phase 1: ordinary privileges.
+    $visible = @($KnownPid)
+    if (-not $visible.Count) { $visible = @(Get-PortListenerPid -Port $Port) }
+    $phase1 = @(& $stopHolders $visible '' {
+        param([int[]]$Target)
+        foreach ($t in $Target) { Stop-Process -Id $t -Force -ErrorAction SilentlyContinue }
+    })
+    if ($phase1.Count) {
+        $result.Stopped = @($stopped)
+        if (Test-PortListenerFree -Port $Port -BudgetMs 5000) {
+            $result.Freed = $true
+            return $result
+        }
+    }
+
+    # --- Phase 2: elevated. Reached when phase 1 saw nothing (a holder hidden
+    # from this user's lsof) or could not stop what it saw (another user's).
+    if ($IsWindows) {
+        $result.Detail = 'no elevated takeover on Windows -- run the shell as Administrator, or add a urlacl for this port'
+        return $result
+    }
+    $PSNativeCommandUseErrorActionPreference = $false
+    $isRoot = $false
+    try { $isRoot = ("$(& '/usr/bin/id' -u 2>$null)".Trim() -eq '0') } catch {
+        Write-Verbose 'Invoke-PortTakeover: id unavailable -- assuming not root.'
+    }
+    if (-not $isRoot -and -not (Request-PortReclaimElevation -Port $Port)) {
+        $result.Detail = "the holder is out of this account's reach and elevation was unavailable -- sudo has no live authorization and this run cannot ask for one (run 'sudo -v', then re-run)"
+        return $result
+    }
+
+    $rootVisible = @(Get-ElevatedPortListenerPid -Port $Port -AsRoot:$isRoot) + $visible
+    $phase2 = @(& $stopHolders $rootVisible ' with elevation' {
+        param([int[]]$Target)
+        Stop-ProcessWithElevation -ProcessId $Target -Signal TERM -AsRoot:$isRoot
+    })
+    $result.Stopped = @($stopped)
+    if (-not $phase2.Count) {
+        $result.Detail = 'even a root-level lsof found no holder that may be stopped for this port'
+        return $result
+    }
+    if (Test-PortListenerFree -Port $Port -BudgetMs 5000) {
+        $result.Freed = $true
+        return $result
+    }
+    Write-Information "Port $Port still held after SIGTERM -- sending SIGKILL to $($phase2 -join ', ')." -InformationAction Continue
+    Stop-ProcessWithElevation -ProcessId $phase2 -Signal KILL -AsRoot:$isRoot
+    if (Test-PortListenerFree -Port $Port -BudgetMs 3000) {
+        $result.Freed = $true
+        return $result
+    }
+    $result.Detail = "stopped holder(s) $($phase2 -join ', ') with elevation, but the port is still not bindable"
+    return $result
+}
+
 function Resolve-PortOrphan {
     <#
     .SYNOPSIS
@@ -380,14 +667,23 @@ function Resolve-PortOrphan {
         'Free'      : the port is bindable now (nothing held it, or a transient
                       HTTP.sys reservation cleared within budget).
         'Recovered' : an orphan pwsh THIS user owns was stopped; port now free.
-        'Conflict'  : the port is held by something this user must not (or
-                      cannot) take over. The cycle must refuse to start.
+        'Conflict'  : the port is held by something this user could not take
+                      over -- including, when -Elevate was passed, after the
+                      elevated attempt. The cycle must refuse to start.
         'PrivilegeRequired' : WINDOWS ONLY -- the port is EMPTY, but this process may not reserve
                       the wildcard prefix (elevation, or a standing urlacl). The
                       cycle must still refuse -- the status service binds the same
                       prefix and would fail identically -- but there is no holder
                       to hunt, so it is reported apart from 'Conflict' rather than
                       being described as a port that is "in use".
+    .PARAMETER Elevate
+        Before refusing, try once to free the port WITH ELEVATION
+        (Invoke-PortTakeover): find the holder as root and stop it. The
+        status service passes this, because the holder it cannot reclaim
+        unprivileged is nearly always a root-owned server from an earlier `sudo`
+        run of this same harness -- an obstacle the harness put there itself,
+        and one the operator gains nothing by clearing by hand. Off by default,
+        so a caller that only wants a classification never signals anything.
     #>
     [CmdletBinding(SupportsShouldProcess)]
     [OutputType([hashtable])]
@@ -395,7 +691,8 @@ function Resolve-PortOrphan {
         '', Justification = 'Function already declares SupportsShouldProcess; PSSA may flag the inner Stop-Process call site that we wrap in $PSCmdlet.ShouldProcess.')]
     param(
         [Parameter(Mandatory)][int]$Port,
-        [string]$PidFile
+        [string]$PidFile,
+        [switch]$Elevate
     )
 
     # HTTP.sys releases a URL reservation asynchronously after a Stop-Process'd
@@ -444,10 +741,17 @@ function Resolve-PortOrphan {
         # The port is provably held (bind failed) but no PID is visible. On
         # macOS and Linux lsof without elevation cannot see sockets owned by
         # OTHER users, and on Windows HTTP.sys hides a foreign url-group -- so
-        # this is the signature of a listener owned by a DIFFERENT USER. Treat
-        # it as a hard conflict: a bind failure with no reclaimable owner means
-        # this user cannot host a status service here, and proceeding would run
-        # the cycle blind (no dashboard, no breakpoint controls).
+        # this is the signature of a listener owned by a DIFFERENT USER, and in
+        # practice most often by root, from an earlier sudo run of this harness.
+        # That one is ours to clear, so take it over rather than describing it.
+        $takeover = Invoke-PortTakeover -Port $Port -Enabled:$Elevate -Confirm:$false
+        if ($takeover.Freed) {
+            if ($PidFile) { Remove-Item $PidFile -Force -ErrorAction SilentlyContinue }
+            return @{ Status = 'Recovered'; Port = $Port; Pids = $takeover.Stopped; Owner = ''; Service = $null; Message = '' }
+        }
+        # Still held: a bind failure with no reclaimable owner means this user
+        # cannot host a status service here, and proceeding would run the cycle
+        # blind (no dashboard, no breakpoint controls).
         $ownerLine = if ($svcClause) { "  $svcClause" }
                      else { "  The holder is owned by another user (its socket is hidden from lsof/netsh without elevation)." }
         $lines = @(
@@ -455,6 +759,7 @@ function Resolve-PortOrphan {
             $ownerLine
             "  Refusing to start: a second status service cannot bind the same port, and running the"
             "  cycle without one hides the live dashboard / breakpoint controls (a hard-to-debug state)."
+            $(if ($takeover.Attempted) { "  Elevated takeover was tried first and did not free it: $($takeover.Detail)" })
             $(if (-not $IsWindows) {
                 "  Most often this is a status service left running as ROOT by an earlier sudo run of a" +
                 [Environment]::NewLine +
@@ -487,16 +792,26 @@ function Resolve-PortOrphan {
         $ownedByUs = Test-OwnedByCurrentUser -Owner $owner
 
         if (-not $isPwsh -or ($owner -and -not $ownedByUs)) {
+            # A holder this user may not stop. Under -Elevate the port is claimed
+            # anyway, with the holder named on the way out: the caller asked for a
+            # working service on this port, and half of that (a report naming a
+            # PID the operator must go kill) is a chore, not an answer.
+            $takeover = Invoke-PortTakeover -Port $Port -KnownPid $holderPids -Enabled:$Elevate -Confirm:$false
+            if ($takeover.Freed) {
+                if ($PidFile) { Remove-Item $PidFile -Force -ErrorAction SilentlyContinue }
+                return @{ Status = 'Recovered'; Port = $Port; Pids = $takeover.Stopped; Owner = ''; Service = $null; Message = '' }
+            }
             $ownerStr = if ($owner) { " owned by '$owner'" } else { '' }
             $whyLine  = if ($svcClause) { "  $svcClause" }
                         else { "  Refusing to commandeer a listener this harness does not own." }
             $lines = @(
                 "Status-service port $Port is held by PID $holderPid ($($proc.ProcessName))$ownerStr."
                 $whyLine
+                $(if ($takeover.Attempted) { "  Elevated takeover was tried first and did not free it: $($takeover.Detail)" })
                 "  Refusing to start so the cycle does not run without its status dashboard / breakpoint controls."
                 "  Resolve by stopping that process (it may belong to another user), or set a different"
                 "  statusService.port in test/test.config.yml and rerun."
-            )
+            ) | Where-Object { $null -ne $_ }
             return @{ Status = 'Conflict'; Port = $Port; Pids = $holderPids; Owner = $owner; Service = $service; Message = ($lines -join [Environment]::NewLine) }
         }
         $reclaimable += [pscustomobject]@{ HolderPid = $holderPid; Proc = $proc }
@@ -520,14 +835,23 @@ function Resolve-PortOrphan {
     }
 
     # Stopped what we could but the port is still held -- the holder was not ours
-    # to reclaim (e.g. another user's pwsh that Stop-Process could not touch).
+    # to reclaim (e.g. another user's pwsh that Stop-Process could not touch), or
+    # a second holder was hidden behind the one that just exited. One elevated
+    # attempt before refusing, same as the branches above.
+    $takeover = Invoke-PortTakeover -Port $Port -KnownPid $holderPids -Enabled:$Elevate -Confirm:$false
+    if ($takeover.Freed) {
+        if ($PidFile) { Remove-Item $PidFile -Force -ErrorAction SilentlyContinue }
+        return @{ Status = 'Recovered'; Port = $Port; Pids = @($holderPids + $takeover.Stopped | Select-Object -Unique); Owner = ''; Service = $null; Message = '' }
+    }
+
     $stillLines = @(
         "Status-service port $Port is still held after stopping the orphan pwsh holder(s) ($($holderPids -join ', '))."
     )
     if ($svcClause) { $stillLines += "  $svcClause" }
+    if ($takeover.Attempted) { $stillLines += "  Elevated takeover was tried too and did not free it: $($takeover.Detail)" }
     $stillLines += "  Refusing to start. Inspect with 'lsof -iTCP:$Port -sTCP:LISTEN' (or 'netsh http show servicestate'),"
     $stillLines += "  free the port, or set a different statusService.port in test/test.config.yml and rerun."
     return @{ Status = 'Conflict'; Port = $Port; Pids = $holderPids; Owner = ''; Service = $service; Message = ($stillLines -join [Environment]::NewLine) }
 }
 
-Export-ModuleMember -Function Get-PortListenerPid, Test-PortListenerFree, Test-PortPrivilegeBlocked, Get-ProcessOwnerName, Get-PortHolderServiceInfo, Resolve-PortOrphan
+Export-ModuleMember -Function Get-PortListenerPid, Test-PortListenerFree, Test-PortPrivilegeBlocked, Get-ProcessOwnerName, Get-PortHolderServiceInfo, Invoke-PortTakeover, Resolve-PortOrphan

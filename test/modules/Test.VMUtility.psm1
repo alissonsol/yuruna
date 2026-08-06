@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.05
+.VERSION 2026.08.06
 .GUID 42a2b3c4-d5e6-4f78-9012-3a4b5c6d7e92
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -795,7 +795,15 @@ function Wait-YurunaServiceVmEndpoint {
             $budgetMinutes = [int]([Math]::Ceiling(($deadline - $probeStart).TotalSeconds / 60))
             $detail = if ($lastProgress) { " -- $lastProgress" } elseif ($cloudInitStatus) { " -- cloud-init: $cloudInitStatus" } else { '' }
             $line = "{0:D2}m{1:D2}s / {2}m  {3}{4}" -f [int][math]::Floor($elapsed / 60), ($elapsed % 60), $budgetMinutes, $ProgressLabel, $detail
-            Write-YurunaWaitProgress -Message $line -Mode $(if ($ProgressMode -eq 'auto') { 'auto' } else { $ProgressMode })
+            # Throttled on everything BUT the clock. The clock is what makes the
+            # line worth looking at on a terminal and what makes it worthless in
+            # a log: ticking every poll, it would defeat the collapse and put one
+            # entry per poll in the file for the whole wait. This wait's start is
+            # in the key too, because the throttle state is module-scoped -- a
+            # later wait opening on the same text as an earlier one's last line
+            # would otherwise stay silent until the interval elapsed.
+            Write-YurunaWaitProgress -Message $line -Mode $(if ($ProgressMode -eq 'auto') { 'auto' } else { $ProgressMode }) `
+                -IdentityKey "$VMName|$($probeStart.Ticks)|$ProgressLabel|$detail"
         }
         if ($elapsed -ge $nextTick) {
             if ($OnTick) {
@@ -951,12 +959,26 @@ function Write-YurunaWaitProgress {
     of near-identical text scrolling the real output off the screen.
 
     Where it cannot be in place, the same information is emitted as ordinary
-    lines -- but only when the message CHANGES or the throttle elapses, because
-    the destination there is a log file that someone reads afterwards, and sixty
-    identical entries in it are worse than none.
+    lines -- but only when what is being SAID changes or the throttle elapses,
+    because the destination there is a log file that someone reads afterwards,
+    and sixty near-identical entries in it are worse than none.
 .PARAMETER Mode
     'auto' asks the console (the normal case). 'inplace' and 'lines' force one
     behavior, which is what makes both paths testable off a terminal.
+.PARAMETER IdentityKey
+    What counts as "the same line" for the throttle. Defaults to the message.
+
+    A progress line usually carries a clock, and a clock ticking every poll
+    changes the message every poll -- so throttling on the message alone
+    collapses nothing and a three-quarter-hour wait arrives as several hundred
+    log entries. Passing the part that actually means something (the state being
+    reported) restores the collapse and, better than the default ever could,
+    emits IMMEDIATELY when that state changes instead of on the next tick.
+
+    It also separates one wait from the next. This state is module-scoped
+    because the console is, so without a key a later wait whose first line
+    happens to match the previous wait's last one would print nothing at all for
+    a full throttle interval.
 #>
     [CmdletBinding()]
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
@@ -966,7 +988,8 @@ function Write-YurunaWaitProgress {
     param(
         [Parameter(Mandatory)][string]$Message,
         [ValidateSet('auto', 'inplace', 'lines')][string]$Mode = 'auto',
-        [int]$RedirectedEverySeconds = 60
+        [int]$RedirectedEverySeconds = 60,
+        [AllowEmptyString()][string]$IdentityKey = ''
     )
     if ($Mode -eq 'auto') { $Mode = if (Test-YurunaProgressLineSupported) { 'inplace' } else { 'lines' } }
     if ($Mode -eq 'inplace') {
@@ -982,9 +1005,10 @@ function Write-YurunaWaitProgress {
         return
     }
     $now = Get-Date
-    if ($Message -eq $script:WaitProgressLastText -and
+    $identity = if ($IdentityKey) { $IdentityKey } else { $Message }
+    if ($identity -eq $script:WaitProgressLastText -and
         ($now - $script:WaitProgressLastEmit).TotalSeconds -lt $RedirectedEverySeconds) { return }
-    $script:WaitProgressLastText = $Message
+    $script:WaitProgressLastText = $identity
     $script:WaitProgressLastEmit = $now
     Write-Information "  $Message" -InformationAction Continue
 }

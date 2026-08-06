@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.05
+.VERSION 2026.08.06
 .GUID 42f2c3d4-e5f6-4a78-b901-c2d3e4f5a6b8
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -36,8 +36,18 @@
 #>
 
 # Honor logLevel from Invoke-TestRunner.ps1 via $env:YURUNA_LOG_LEVEL. See docs/loglevels.md.
+# Load only when absent, never -Force. Start-CachingProxyServiceVM.ps1 runs this
+# script IN-PROCESS, so a forced re-import from here tears down and rebuilds the
+# module instance its caller is already using, taking whatever that instance keeps
+# in module scope with it and narrating a dozen import lines into the run's
+# transcript at Verbose (feedback_module_force_import_evicts_global). Tradeoff: an
+# edit to the module mid-session is not picked up here, which is acceptable for a
+# leaf script that only reads the level.
 $_logLevelMod = Join-Path $PSScriptRoot '../../../test/modules/Test.LogLevel.psm1'
-if (Test-Path $_logLevelMod) { Import-Module $_logLevelMod -Global -Force; Use-LogLevelFromEnv }
+if (-not (Get-Command Use-LogLevelFromEnv -ErrorAction SilentlyContinue) -and (Test-Path $_logLevelMod)) {
+    Import-Module $_logLevelMod -Global
+}
+if (Get-Command Use-LogLevelFromEnv -ErrorAction SilentlyContinue) { Use-LogLevelFromEnv }
 
 # Yuruna.Host.psm1 supplies the cache-injecting Save-CachedHttpUri wrapper and
 # (via its global Yuruna.HostDownload import) the sentinel guard the shared

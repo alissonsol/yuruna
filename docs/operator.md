@@ -275,24 +275,51 @@ pool-control service running.
 
 #### What ends a run
 
-Five failures end the run: preflight, the config file, the
-caching-proxy service, the aggregator wait, and an unmountable NAS
-when `storage.onFailure` is `stop` (the default; interactively it
-offers local shares instead).
+These failures end the run: preflight, the config file, storage
+(whenever `storage.kind` is `local` or `nas`), the caching-proxy
+service, the aggregator wait, and an unmountable NAS when
+`storage.onFailure` is `stop`.
+
+Storage stops the run because everything after it either needs the
+shares or writes host state that presumes them — the hosts-file
+aliases, the stash and download-agent services, a lab's pool. A run
+that continued spent fifteen minutes building services around storage
+that did not exist.
+
+`storage.onFailure` decides what an unmountable NAS means, and it
+decides it the same way whether or not you are at the terminal. The
+default is `stop`; set it to `local` (with `storage.localRoot`) to
+stand up real local shares instead.
 
 Anything else that fails is warned about, recorded in the closing
 Failed list, and the run continues. **A non-empty Failed list exits
 non-zero** — including a failed `Test-Config` gate — so the exit code
 never calls a broken host ready. Fix what the list names and re-run.
 
+A step that could not run because something it needs failed is
+reported as `BLOCK` and listed under **Blocked** in the closing
+report, separately from **Skipped**. The two answer different
+questions: skipped is a decision, blocked is a consequence. Blocked
+steps do not add to the exit code — the failure they came from
+already did.
+
 #### Parameters
 
-The script declares `-AnswerFile`, `-logLevel` and `-LogPath`;
-`-WhatIf` and `-Confirm` come from `SupportsShouldProcess`.
+The script declares `-AnswerFile`, `-logLevel`, `-LogPath` and
+`-Rebuild`; `-WhatIf` and `-Confirm` come from
+`SupportsShouldProcess`.
 
 `-WhatIf` previews the ordered task list: nothing changes, no
 elevation is needed, and the answers file is not written (the
 questions are still asked).
+
+`-Rebuild` tears down and rebuilds every service VM this run touches
+instead of adopting a healthy one. It is how a changed address or
+credential reaches a guest, because the seed is baked at build time.
+It is also the switch that makes a re-run expensive — roughly 15
+minutes for the proxy, and a cold squid cache — so drop it when you
+are re-running to fix something the proxy does not bake in. The run
+log's header records the switches each run was invoked with.
 
 `-logLevel` is the [shared cascade](loglevels.md) and reaches every
 script the run starts, so re-run with `-logLevel Debug` when a step
@@ -312,10 +339,22 @@ pwsh install/setup.ps1 -AnswerFile install/setup.answers.standalone.yml
 ```
 
 An unattended `storage.kind: local` run must include
-`storage.localRoot` — the storage script would otherwise prompt for
-it, so the run stops and names the key rather than blocking.
+`storage.localRoot`. `New-LocalLabStorage.ps1` runs as a child with
+its stdin closed, so a question it asks reaches nobody — the run stops
+in its first second and names the key rather than guessing a path and
+then creating OS accounts and shares there. An interactive run does
+not ask either: it takes the platform's convention (`/srv/yuruna` on
+Ubuntu, `/Users/Shared/yuruna` on macOS, `<data drive>\Shares\yuruna`
+on Windows) and records in the run log that it did. Set the key to put
+storage anywhere else.
 
-The standalone keys it reads (anything else in the file is ignored):
+The whole answer set is checked before anything on the machine
+changes: an unusable file is refused in the first second, with one
+message per problem naming the key that fixes it.
+
+The standalone keys it reads (anything else in the file is ignored,
+and a section this script does not read is warned about — a mistyped
+`storages:` takes every key under it with it):
 
 ```yaml
 setup:
@@ -325,15 +364,24 @@ setup:
                          # omit the key for the script's built-in default
 storage:
   kind: local            # local | nas | none ('none' is standalone-only)
-  localRoot: '/srv'      # kind: local -- required unattended (see above)
+  localRoot: '/srv/yuruna'   # kind: local -- required unattended (see above)
   networkPath: '//ypool-nas/work/yuruna.pool'   # kind: nas only; required
   networkUser: 'yuruna-pool'                    # kind: nas only
   onFailure: stop        # stop | local -- if a NAS mount fails
 ```
 
 `storage.localRoot` is where the local shares are created — e.g.
-`/srv` on Ubuntu, `/Users/Shared/yuruna` on macOS, `D:\Shares\yuruna`
-on Windows.
+`/srv/yuruna` on Ubuntu, `/Users/Shared/yuruna` on macOS,
+`D:\Shares\yuruna` on Windows. It is also what
+`storage.onFailure: local` needs: a NAS that mounts never uses the
+key, so a file without it is accepted, and the run warns that the
+fallback it declares cannot actually run.
+
+The file a guided run writes carries the values it *resolved*, not the
+answers as typed — so the storage root it settled on is in there, and
+the file can set up the next machine. If a key is missing for an
+unattended replay, the run says so when it writes the file rather than
+letting the next machine discover it.
 
 ### B.1 Operating-system baseline (assumed)
 
@@ -702,6 +750,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.05
+Last review: 2026.08.06
 
 Back to [Yuruna](../README.md)

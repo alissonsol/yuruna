@@ -36,6 +36,7 @@ import (
 	"net/url"
 	"os"
 	"os/signal"
+	"path"
 	"regexp"
 	"sort"
 	"strconv"
@@ -236,7 +237,7 @@ type hostStatus struct {
 	CyclePaused bool `json:"cyclePaused"`
 	// StepPaused mirrors the host's control.step-pause flag, written the same way.
 	// Armed, it stops the runner at the NEXT step boundary, so on its own it means
-	// "will pause", not "paused"; whether that boundary has actually been reached is
+	// "pausing", not "paused"; whether that boundary has actually been reached is
 	// visible only in the current-action sidecar (hostView.StepPauseReached). Both
 	// flags are surfaced as their own status rather than hidden inside a "running"
 	// cycle, so the pool view never shows a plain "running" for a host an operator
@@ -949,7 +950,7 @@ func (s *poolState) pollOnce(client *http.Client, squidLog, lokiURL string, now 
 		// rather than kept -- otherwise a stale true would resurface the moment the
 		// flag is armed again and report a still-running host as already stopped.
 		// While armed, a sidecar miss keeps the prior reading, which on a freshly
-		// armed flag is the "will pause" it should be.
+		// armed flag is the "pausing" it should be.
 		if !r.st.StepPaused {
 			hv.StepPauseReached = false
 		} else if r.parkedOK {
@@ -1175,7 +1176,7 @@ func fetchRunnerStopped(client *http.Client, base string) (bool, error) {
 // stepPauseMarker is the substring Invoke-Sequence writes into the current-action
 // sidecar while it is blocked at a step boundary. The host's own status page keys
 // its "Test paused" badge off the same substring (yuruna.common.js
-// pauseBannerText), so both surfaces flip from "will pause" to "paused" together.
+// pauseBannerText), so both surfaces flip from "pausing" to "paused" together.
 const stepPauseMarker = "Paused (waiting for resume)"
 
 // fetchCurrentAction reads /runtime/current-action.json and reports ONLY whether
@@ -1185,7 +1186,7 @@ const stepPauseMarker = "Paused (waiting for resume)"
 // design and a step line is host detail -- the same deliberately narrow read as
 // hostStatus.LastFailure. A missing sidecar (404: no sequence has written one this
 // cycle) is a definite "not parked" rather than an error, so a host whose flag is
-// armed between sequences reports "will pause" instead of inheriting a stale reading.
+// armed between sequences reports "pausing" instead of inheriting a stale reading.
 func fetchCurrentAction(client *http.Client, base string) (bool, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), probeTimeout)
 	defer cancel()
@@ -1221,7 +1222,7 @@ func fetchCurrentAction(client *http.Client, base string) (bool, error) {
 // served by the status service at /yuruna-repo/VERSION -- the SAME source the
 // host's own status pages read for their header (their getHostInfo() fetches
 // yuruna-repo/VERSION via JS, so the version is not embedded in the HTML). A tiny
-// plain-text file (one CalVer line, e.g. "2026.08.05"), so it is lighter than any
+// plain-text file (one CalVer line, e.g. "2026.08.06"), so it is lighter than any
 // status HTML page and fetchable server-side without a JS engine. Returns
 // ("", err) on any failure; the caller keeps the prior version on a transient
 // miss (the version is stable across polls). The value is capped + first-line
@@ -3602,6 +3603,83 @@ func mintControlProof(token string, ttl time.Duration) string {
 	return controlProofFor(token, time.Now().Add(ttl).Unix())
 }
 
+// verifyControlProof is the Go twin of Test.ConfigServiceSync\Test-YurunaControlProof:
+// it decides whether a wire proof was minted from token and is still inside its window.
+// Parses "<expiry>.<base64 HMAC>", requires now <= expiry <= now+maxTTL (a far-future
+// expiry is refused, so a captured token cannot mint an eternal pass), recomputes the
+// HMAC over that same expiry and compares in constant time. Any malformed, expired or
+// mismatched input is false -- never an error a caller could mistake for a verdict.
+func verifyControlProof(token, wire string, now time.Time, maxTTL time.Duration) bool {
+	if strings.TrimSpace(token) == "" || strings.TrimSpace(wire) == "" {
+		return false
+	}
+	dot := strings.IndexByte(wire, '.')
+	if dot <= 0 || dot >= len(wire)-1 {
+		return false
+	}
+	expiry, err := strconv.ParseInt(wire[:dot], 10, 64)
+	if err != nil {
+		return false
+	}
+	unix := now.Unix()
+	if expiry < unix || expiry > unix+int64(maxTTL/time.Second) {
+		return false
+	}
+	given, err := base64.StdEncoding.DecodeString(wire[dot+1:])
+	if err != nil {
+		return false
+	}
+	mac := hmac.New(sha256.New, []byte(token))
+	mac.Write([]byte("yuruna-control|proof|" + strconv.FormatInt(expiry, 10)))
+	return hmac.Equal(mac.Sum(nil), given)
+}
+
+// handleControlProof answers one question for an extension service: was this proof
+// minted from the pool's lab-auth-token, and is it still live?
+//
+// An extension service VM is not given the lab-auth-token -- nothing bakes that file
+// into its seed -- so it holds no key to check an arriving proof against, and a
+// service that cannot check one has no way to honour the dashboard's "open this UI
+// with actions unlocked" hop. It asks here instead, exactly as it already asks
+// /api/v1/lab-token to judge a 6-character code: validation stays with the daemon
+// that owns the token, and no service keeps a copy to go stale.
+//
+// Open, like the exchange next to it, and for a stronger reason: this is a verifier,
+// not a mint. It discloses one bit about a string the caller already holds, and a
+// caller who could produce a proof that verifies here could have used it directly.
+// Self-gates on a configured token (503), because "no token" is not "not valid".
+func (s *poolState) handleControlProof(w http.ResponseWriter, r *http.Request) {
+	if s.authToken == "" {
+		http.Error(w, "control-proof verification disabled: this aggregator holds no lab auth token", http.StatusServiceUnavailable)
+		return
+	}
+	if r.Method != http.MethodPost {
+		w.Header().Set("Allow", http.MethodPost)
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxLabTokenBody))
+	if err != nil {
+		http.Error(w, "payload too large or unreadable", http.StatusRequestEntityTooLarge)
+		return
+	}
+	var req struct {
+		Proof string `json:"proof"`
+	}
+	if err := json.Unmarshal(body, &req); err != nil {
+		http.Error(w, "malformed request", http.StatusBadRequest)
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Content-Type", "application/json")
+	if !verifyControlProof(s.authToken, strings.TrimSpace(req.Proof), time.Now(), controlProofMaxTTL) {
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = io.WriteString(w, `{"ok":false}`+"\n")
+		return
+	}
+	_, _ = io.WriteString(w, `{"ok":true}`+"\n")
+}
+
 // controlTagFor is the Go twin of Test.ConfigServiceSync\Get-YurunaControlTag: a
 // non-secret name for a lab-auth-token, base64(HMAC-SHA256(token,
 // "yuruna-control|tag|v1")). Comparing this host's tag with the proxy's answers
@@ -3965,6 +4043,10 @@ func (s *poolState) handleGoHost(w http.ResponseWriter, r *http.Request) {
 // stashBaseUrl; the host re-resolves that each cycle (and on Start-StashServiceVM) via
 // Get-VMIp, so it self-heals after a DHCP change. Host/target unknown -> 404, matching
 // the best-effort resolver contract.
+//
+// Like /go/host it hands the browser a short-lived control proof in the fragment, so a
+// service UI reached this way can act on its gated routes without the operator going
+// back to the dashboard to read the rotating lab code.
 func (s *poolState) handleGoStash(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	hostID := normalizeHostID(strings.TrimSpace(q.Get("host")))
@@ -3989,25 +4071,40 @@ func (s *poolState) handleGoStash(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Cache-Control", "no-store")
-	http.Redirect(w, r, strings.TrimRight(target, "/"), http.StatusFound)
+	// Carry a short-lived control proof in the URL FRAGMENT, the same handoff /go/host
+	// makes to a host's status page: a fragment never reaches a server and never lands
+	// in an access log, and the service UI reads it off location.hash. It is what lets
+	// an operator who arrived through the (to-be-authenticated) dashboard act on the
+	// service's gated routes without retyping the rotating lab code -- the service
+	// revalidates it, here if it holds no token of its own. No token configured -> no
+	// fragment -> the UI prompts for the lab token exactly as before.
+	dest := strings.TrimRight(target, "/")
+	if proof := mintControlProof(s.authToken, controlProofTTL); proof != "" {
+		dest += "#yctl=" + proof
+	}
+	http.Redirect(w, r, dest, http.StatusFound)
 }
 
-// handleGoCycle bridges a dashboard timeline click -> the host's own cycle-results
-// folder. The state-timeline series is intentionally IP-free (keyed on hostId so a
-// host's row doesn't split when its IP changes), so the link cannot carry the IP;
-// this resolves it LIVE from the in-memory view (the host's CURRENT IP -- the whole
+// resolveClickedCycle answers "which host, and which cycle folder, is under that
+// point on the timeline?" -- the question both cycle deep-links ask. The
+// state-timeline series is intentionally IP-free (keyed on hostId so a host's row
+// doesn't split when its IP changes), so the link cannot carry the IP; this
+// resolves it LIVE from the in-memory view (the host's CURRENT IP -- the whole
 // point: the link survives an IP change). The cycle folder for the clicked time is
 // the current cycle (fast path, no fetch) when t falls in it, else the cycle active
 // at t resolved from the host's /log/ listing (works for any retained cycle, old or
 // new), else the Loki transition feed (a host that has aged out of the live view).
-// Degrades gracefully: missing/zero time -> current cycle; folder unresolved -> the
-// host's status root (still the right host at its current IP); host unknown -> 404.
-func (s *poolState) handleGoCycle(w http.ResponseWriter, r *http.Request) {
+//
+// Returns ok=false having already written the response: no host id -> 400, host
+// not in the pool -> 404. A resolved host with an UNRESOLVED folder is ok=true
+// with folder "", because that is still an answer for /go/cycle (the host's status
+// root) even though /go/cycle-share has nothing to archive and must say so itself.
+func (s *poolState) resolveClickedCycle(w http.ResponseWriter, r *http.Request) (base, folder string, ok bool) {
 	q := r.URL.Query()
 	hostID := normalizeHostID(strings.TrimSpace(q.Get("host")))
 	if hostID == "" {
 		http.Error(w, "missing host", http.StatusBadRequest)
-		return
+		return "", "", false
 	}
 	var clickT time.Time
 	if ms, err := strconv.ParseInt(strings.TrimSpace(q.Get("t")), 10, 64); err == nil && ms > 0 {
@@ -4028,13 +4125,12 @@ func (s *poolState) handleGoCycle(w http.ResponseWriter, r *http.Request) {
 
 	// Resolve the host's current base URL (live IP, else the last IP Loki recorded);
 	// also normalizes an empty pool so the per-cycle folder lookups below can scope.
-	base, pool := s.resolveHostBase(hostID, pool)
+	base, pool = s.resolveHostBase(hostID, pool)
 	if base == "" {
 		http.Error(w, "host not known to the pool", http.StatusNotFound)
-		return
+		return "", "", false
 	}
 
-	folder := ""
 	switch {
 	case curFolder != "" && (clickT.IsZero() || (!curStart.IsZero() && !clickT.Before(curStart))):
 		folder = curFolder // current cycle (in-memory, no fetch)
@@ -4051,12 +4147,61 @@ func (s *poolState) handleGoCycle(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
+	return base, folder, true
+}
+
+// handleGoCycle bridges a dashboard timeline click -> the host's own cycle-results
+// folder. Degrades gracefully: missing/zero time -> current cycle; folder
+// unresolved -> the host's status root (still the right host at its current IP);
+// host unknown -> 404.
+func (s *poolState) handleGoCycle(w http.ResponseWriter, r *http.Request) {
+	base, folder, ok := s.resolveClickedCycle(w, r)
+	if !ok {
+		return
+	}
 
 	target := strings.TrimRight(base, "/")
 	if folder != "" {
 		target += "/" + strings.TrimLeft(folder, "/")
 	}
 	w.Header().Set("Cache-Control", "no-store")
+	http.Redirect(w, r, target, http.StatusFound)
+}
+
+// handleGoCycleShare bridges a dashboard timeline click -> the host's own share
+// page for that cycle, which packs the folder into one archive and hands it to the
+// operator's mail client. Same host and same folder as /go/cycle: one resolver, so
+// "share this" can never archive a different cycle than "open this" would show.
+//
+// The page lives on the HOST rather than here because the artifacts do: it is
+// same-origin with the files it archives, needs no CORS, and the archive is built
+// from local disk instead of crawling a directory listing over HTTP.
+//
+// An unresolved folder is a 404 here where /go/cycle falls back to the status root.
+// Landing on a share page that does not know which cycle it is sharing would only
+// move the failure to a button.
+func (s *poolState) handleGoCycleShare(w http.ResponseWriter, r *http.Request) {
+	base, folder, ok := s.resolveClickedCycle(w, r)
+	if !ok {
+		return
+	}
+	if folder == "" {
+		http.Error(w, "no cycle results folder for that host at that time", http.StatusNotFound)
+		return
+	}
+	// The share page and the host's archive route both name a results folder by
+	// its LEAF -- the folder sits directly under the host's log dir, and the leaf
+	// is what carries the cycle number, the UTC start and the host id that the
+	// archive is named from. Every producer here spells it "log/<leaf>/"
+	// (Set-CycleFolderUrl, the listing parser, and the Loki copy of the same
+	// value), so hand on the last segment rather than the path.
+	leaf := path.Base(strings.Trim(folder, "/"))
+	if leaf == "" || leaf == "." || leaf == "/" {
+		http.Error(w, "unusable cycle results folder for that host at that time", http.StatusNotFound)
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	target := strings.TrimRight(base, "/") + "/share-cycle.html?cycle=" + url.QueryEscape(leaf)
 	http.Redirect(w, r, target, http.StatusFound)
 }
 
@@ -4321,7 +4466,14 @@ func (s *poolState) handleMetrics(w http.ResponseWriter, _ *http.Request) {
 	if len(extRows) > 0 {
 		b.WriteString("# HELP yuruna_pool_host_extension Per-host actively-running extension area (value always 1).\n# TYPE yuruna_pool_host_extension gauge\n")
 		for _, e := range extRows {
-			fmt.Fprintf(&b, "yuruna_pool_host_extension{pool=%q,hostId=%q,area=%q,baseUrl=%q,target=%q} 1\n", s.poolFor(e.host), e.host, e.area, e.baseURL, e.target)
+			// goPath is the dashboard's link for this row, ready-made. The Extension
+			// cell cannot build it from the columns beside it: a Grafana data link
+			// interpolates a field's DISPLAYED value, and that column is value-mapped
+			// to prose ("Download-agent service"), so ${__data.fields.Extension} would
+			// put the label where the area slug belongs. Precomputing it here is the
+			// same answer the hidden baseUrl and target columns already are.
+			goPath := "/go/stash?host=" + url.QueryEscape(e.host) + "&area=" + url.QueryEscape(e.area)
+			fmt.Fprintf(&b, "yuruna_pool_host_extension{pool=%q,hostId=%q,area=%q,baseUrl=%q,target=%q,goPath=%q} 1\n", s.poolFor(e.host), e.host, e.area, e.baseURL, e.target, goPath)
 		}
 		b.WriteString("# HELP yuruna_pool_host_extension_last_seen_seconds Unix time this extension host was last confirmed (host probe or service announce).\n# TYPE yuruna_pool_host_extension_last_seen_seconds gauge\n")
 		for _, e := range extRows {
@@ -4894,13 +5046,19 @@ func main() {
 	// resolving the host's CURRENT IP live (so the link survives an IP change). Open
 	// (no auth): it only redirects to a host's already-open status service.
 	mux.HandleFunc("/go/cycle", state.handleGoCycle)
+	// /go/cycle-share: the same click, resolved the same way, but landing on the
+	// host's share page for that cycle -- one archive of the whole results folder,
+	// handed to the operator's mail client. Open, like the two redirects around it.
+	mux.HandleFunc("/go/cycle-share", state.handleGoCycleShare)
 	// /go/host: same uuid->current-IP resolution as /go/cycle, but 302s to the host's
 	// status-page ROOT (not a cycle folder) -- the timeline's "open host status page"
 	// link, so the IP-free state-timeline rows reach the per-host status page too.
 	mux.HandleFunc("/go/host", state.handleGoHost)
-	// /go/stash: dashboard Extension-cell click -> 302 to the host's stash-service VM UI, from
-	// the URL that host advertised (extensionTargets). Open (no auth): it only redirects
-	// to a host's already-open stash UI, the same posture as /go/host.
+	// /go/stash: dashboard Extension-cell click -> 302 to the host's extension-service VM
+	// UI, from the URL that host advertised (extensionTargets), carrying a short-lived
+	// control proof in the fragment so the UI arrives with its actions unlocked. Open (no
+	// auth) to reach: the same posture as /go/host, and for the same reason -- what it
+	// redirects to is already open, and only the fragment grants anything.
 	mux.HandleFunc("/go/stash", state.handleGoStash)
 	// /ingest stays registered always; it self-gates on the auth token (503 when
 	// unconfigured). /metrics, /healthz, /api/v1/pool-status remain OPEN + plaintext-
@@ -4922,6 +5080,12 @@ func main() {
 	// per-IP throttled + audited -- see handleLabToken; self-gates on
 	// -lab-token-rotate and on a configured token (503 otherwise).
 	mux.HandleFunc("/api/v1/lab-token", state.handleLabToken)
+	// /api/v1/control-proof: "was this proof minted from the pool's lab-auth-token,
+	// and is it still live?" -- asked by an extension service that holds no token of
+	// its own and so cannot check the proof the /go/stash redirect handed its UI.
+	// Open like the exchange above, and a verifier rather than a mint -- see
+	// handleControlProof; self-gates on a configured token (503 otherwise).
+	mux.HandleFunc("/api/v1/control-proof", state.handleControlProof)
 
 	srv := &http.Server{Addr: *addr, Handler: mux, ReadTimeout: 5 * time.Second, WriteTimeout: 15 * time.Second, IdleTimeout: 30 * time.Second}
 	go func() {

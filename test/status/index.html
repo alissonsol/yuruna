@@ -13,12 +13,6 @@
   <title>Yuruna Status</title>
   <link rel="stylesheet" href="yuruna.common.css">
   <style>
-    /* Reserve space for the fixed footer bar. The plain value is the fallback
-       (kept for parsers without env() support); the env() term additionally
-       clears the iPhone home-indicator inset when viewport-fit=cover lets the
-       fixed bar extend under it (0 on devices without a safe area). */
-    body { padding-bottom: 3rem; padding-bottom: calc(3rem + env(safe-area-inset-bottom)); }
-
     #banner-dash-row {
       margin-left: auto; flex: 0 0 auto;
       font-size: .75rem;
@@ -204,55 +198,32 @@
     tbody tr:hover td { background: var(--bg-hover); }
     .mono { font-family: var(--font-mono); font-size: .75rem; }
 
-    #footer-bar {
-      position: fixed; bottom: 0; left: 0; right: 0;
-      background: var(--footer-bg); color: var(--footer-fg); font-size: .6875rem;
-      padding: .35rem 1rem;
-      /* The bar is fixed to bottom:0 and viewport-fit=cover lets it sit under
-         the unsafe area, so pad by the insets: bottom clears the iPhone
-         home-indicator gesture bar, left/right clear the landscape notch. */
-      padding-bottom: calc(.35rem + env(safe-area-inset-bottom));
-      padding-left: max(1rem, env(safe-area-inset-left));
-      padding-right: max(1rem, env(safe-area-inset-right));
-      display: flex; justify-content: space-between;
-      align-items: center;
-    }
-    #footer-bar a { color: var(--footer-fg); }
-    #footer-ips { flex: 0 1 33%; max-width: 33%; min-width: 0; display: flex; align-items: center; }
-    #footer-ips > * + * { margin-left: .5rem; }
-    #footer-ips .label { flex-shrink: 0; }
-    textarea#footer-ip-list {
-      flex: 1 1 auto; min-width: 0;
-      font-family: var(--font-mono); font-size: .6875rem;
-      color: var(--footer-fg); background: var(--footer-input-bg); border: 1px solid var(--footer-input-border);
-      border-radius: 3px; padding: .15rem .35rem;
-      resize: none; overflow: auto; white-space: pre;
-      line-height: 1.25; vertical-align: middle;
-      scrollbar-width: none;
-    }
-    textarea#footer-ip-list::-webkit-scrollbar { display: none; }
-
-    /* Phone-class viewport: footer-bar gutters tighten further than the shared
-       .css max-width: 600px block does, and #footer-ips claims its own
-       full-width row so the IP textarea stays legible at 320 px. That makes the
-       bar two rows tall, so the body bottom reserve grows to clear both rows --
-       otherwise the bar covers the end of the history table. */
-    @media (max-width: 600px) {
-      body { padding-bottom: 4.5rem; padding-bottom: calc(4.5rem + env(safe-area-inset-bottom)); }
-      #footer-bar {
-        padding-left: .5rem; padding-left: max(.5rem, env(safe-area-inset-left));
-        padding-right: .5rem; padding-right: max(.5rem, env(safe-area-inset-right));
-        flex-wrap: wrap;
-      }
-      #footer-ips { flex-basis: 100%; max-width: 100%; }
-    }
+    /* The footer bar itself -- surface, height, type scale and its
+       narrow-viewport behaviour -- is the shared page chrome in
+       yuruna.common.css, the same block the service UIs carry. */
   </style>
 </head>
-<body>
+<body class="has-footer-bar">
 
-<header class="page-header">
-  <h1><span id="header-title">Yuruna</span><span id="header-version"></span></h1>
-  <span id="header-machine"></span>
+<header class="app">
+  <div class="brand">
+    <span class="name"><a href="index.html"><span id="header-title">Yuruna</span></a></span>
+    <span class="version" id="header-version"></span>
+  </div>
+  <span class="spacer"></span>
+  <span class="machine" id="header-machine"></span>
+  <div class="menu">
+    <button type="button" class="menu-button" id="menu-button" aria-haspopup="true" aria-expanded="false" aria-controls="menu-panel">
+      <span class="menu-icon" aria-hidden="true">&#9776;</span><span class="menu-label">Menu</span>
+    </button>
+    <nav class="menu-panel" id="menu-panel" aria-label="Pages" hidden>
+      <a href="index.html" aria-current="page">Status</a>
+      <a href="config.html">Config</a>
+      <a href="performance.html">Performance</a>
+      <a href="host.html">Host</a>
+      <a class="menu-out" href="https://yuruna.link/operator">Guide</a>
+    </nav>
+  </div>
 </header>
 
 <div id="banner" class="idle">
@@ -325,11 +296,11 @@
 
 </main>
 
-<div id="footer-bar">
+<footer id="footer-bar">
   <span id="footer-ips"><span class="label">IPs:</span><textarea id="footer-ip-list" readonly rows="1" spellcheck="false" inputmode="none" autocorrect="off" autocapitalize="off" aria-label="Host IP addresses">—</textarea></span>
   <span>Loaded: <span id="last-loaded">—</span></span>
   <span><a id="footer-refresh" href="#">Refresh</a>: <span id="countdown">60</span>s</span>
-</div>
+</footer>
 
 <script src="yuruna.common.js"></script>
 

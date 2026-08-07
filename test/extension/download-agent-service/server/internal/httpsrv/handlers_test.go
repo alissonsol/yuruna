@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -36,6 +37,7 @@ type fakeImages struct {
 	refreshAll int
 	ensured    []imagestore.ImageID
 	lastFP     imagestore.Fingerprint
+	fidoTests  []string
 	refreshErr error
 
 	refreshAllErr error
@@ -112,6 +114,26 @@ func (f *fakeImages) PrunePrevious(id imagestore.ImageID) (int, error) {
 	return 1, nil
 }
 
+func (f *fakeImages) Diagnostics(context.Context) imagestore.DiagnosticsReport {
+	return imagestore.DiagnosticsReport{
+		GOOS:   "linux",
+		GOARCH: "amd64",
+		BestEffort: []imagestore.FamilyStatus{
+			{ImageKey: imagestore.KeyWindows11, Available: false, Reason: "Fido failed: exit status 147 (Error: This feature is not available on this platform.)"},
+		},
+	}
+}
+
+func (f *fakeImages) FidoTest(_ context.Context, arch string) (imagestore.FidoAttempt, error) {
+	if arch != imagestore.ArchAMD64 && arch != imagestore.ArchARM64 {
+		return imagestore.FidoAttempt{}, fmt.Errorf("no Fido architecture for %q", arch)
+	}
+	f.mu.Lock()
+	f.fidoTests = append(f.fidoTests, arch)
+	f.mu.Unlock()
+	return imagestore.FidoAttempt{Arch: arch, ExitCode: 0, URL: "https://example.invalid/Win11.iso"}, nil
+}
+
 func newFake(t *testing.T) *fakeImages {
 	t.Helper()
 	dir := t.TempDir()
@@ -136,7 +158,7 @@ func newServer(t *testing.T, opts Options) (*httptest.Server, *fakeImages) {
 	f := newFake(t)
 	opts.Images = f
 	if opts.Version == "" {
-		opts.Version = "2026.08.06"
+		opts.Version = "2026.08.07"
 	}
 	srv := httptest.NewServer(New(opts).Handler())
 	t.Cleanup(srv.Close)
@@ -421,7 +443,7 @@ func TestTheAdvertisedFileUrlIsFetchableVerbatim(t *testing.T) {
 		t.Fatalf("Commit: %v", err)
 	}
 
-	srv := httptest.NewServer(New(Options{Images: agent, Version: "2026.08.06"}).Handler())
+	srv := httptest.NewServer(New(Options{Images: agent, Version: "2026.08.07"}).Handler())
 	t.Cleanup(srv.Close)
 
 	catalog := decodeBody(t, get(t, srv, "/api/v1/images"))
@@ -634,5 +656,117 @@ func TestTheComparatorsCoverTheSameColumnsAndRankStatesBySeverity(t *testing.T) 
 	}
 	if strings.Join(states, ",") != strings.Join(wantStates, ",") {
 		t.Fatalf("state ranking = %v, want %v", states, wantStates)
+	}
+}
+
+// --- diagnostics -------------------------------------------------------------
+
+func TestDiagnosticsRouteIsOpenAndCarriesTheFamilyEvidence(t *testing.T) {
+	// The page exists to explain "family unavailable" without SSH, so the read
+	// must work with no credential at all.
+	srv, _ := newServer(t, Options{})
+	resp := get(t, srv, "/api/v1/diagnostics")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("GET /api/v1/diagnostics = %d, want 200 with no credential", resp.StatusCode)
+	}
+	var body struct {
+		OK          bool `json:"ok"`
+		Diagnostics struct {
+			GOOS       string `json:"goos"`
+			BestEffort []struct {
+				ImageKey  string `json:"imageKey"`
+				Available bool   `json:"available"`
+				Reason    string `json:"reason"`
+			} `json:"bestEffort"`
+		} `json:"diagnostics"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+	if !body.OK || body.Diagnostics.GOOS == "" {
+		t.Fatalf("body = %+v, want ok with the environment facts", body)
+	}
+	fam := body.Diagnostics.BestEffort[0]
+	if fam.ImageKey != imagestore.KeyWindows11 || fam.Available || !strings.Contains(fam.Reason, "147") {
+		t.Fatalf("family = %+v, want the unavailable reason relayed verbatim", fam)
+	}
+}
+
+func TestFidoTestRouteIsGatedAndRunsOneResolve(t *testing.T) {
+	srv, f := newServer(t, Options{AuthToken: labToken})
+
+	if r := post(t, srv, "/api/v1/diagnostics/fido-test?arch=amd64", "", nil); r.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("no credential = %d, want 401", r.StatusCode)
+	}
+	if r := post(t, srv, "/api/v1/diagnostics/fido-test?arch=amd64", "wrong-token", nil); r.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("wrong bearer = %d, want 401", r.StatusCode)
+	}
+	if len(f.fidoTests) != 0 {
+		t.Fatal("a refused call must not have run the resolver")
+	}
+
+	if r := post(t, srv, "/api/v1/diagnostics/fido-test", labToken, nil); r.StatusCode != http.StatusBadRequest {
+		t.Fatalf("no arch = %d, want 400", r.StatusCode)
+	}
+	if r := post(t, srv, "/api/v1/diagnostics/fido-test?arch=x86", labToken, nil); r.StatusCode != http.StatusBadRequest {
+		t.Fatalf("unknown arch = %d, want 400", r.StatusCode)
+	}
+
+	resp := post(t, srv, "/api/v1/diagnostics/fido-test?arch=amd64", labToken, nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("authorized test = %d, want 200", resp.StatusCode)
+	}
+	var body struct {
+		OK      bool `json:"ok"`
+		Attempt struct {
+			Arch string `json:"arch"`
+			URL  string `json:"url"`
+		} `json:"attempt"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+	if !body.OK || body.Attempt.URL == "" {
+		t.Fatalf("body = %+v, want the attempt capture attached", body)
+	}
+	if len(f.fidoTests) != 1 || f.fidoTests[0] != imagestore.ArchAMD64 {
+		t.Fatalf("resolver ran for %v, want exactly one amd64 run", f.fidoTests)
+	}
+}
+
+func TestDiagnosticsPageServesWithTheMenuWiredBothWays(t *testing.T) {
+	srv, _ := newServer(t, Options{})
+	resp := get(t, srv, "/diagnostics")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("GET /diagnostics = %d, want 200", resp.StatusCode)
+	}
+	page, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"/assets/diagnostics.js", "Resolver test"} {
+		if !strings.Contains(string(page), want) {
+			t.Fatalf("diagnostics.html misses %q", want)
+		}
+	}
+	js := get(t, srv, "/assets/diagnostics.js")
+	jb, err := io.ReadAll(js.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(jb), "/api/v1/diagnostics/fido-test") {
+		t.Fatal("diagnostics.js does not drive the resolver-test route")
+	}
+	// Each page must link the other, or the only way between them is the URL bar.
+	index := get(t, srv, "/")
+	ib, err := io.ReadAll(index.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(ib), `href="/diagnostics"`) {
+		t.Fatal("index.html has no menu link to the diagnostics page")
+	}
+	if !strings.Contains(string(page), `href="/"`) {
+		t.Fatal("diagnostics.html has no menu link back to the pool page")
 	}
 }

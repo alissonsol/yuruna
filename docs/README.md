@@ -53,8 +53,13 @@ up a test machine.
   points and modules, including the
   [host-condition registry](test-harness.md#host-condition-registry) —
   the three-method contract each host platform implements to apply and
-  verify host settings, and how a drifted
-  [host clock](test-harness.md#the-host-clock) is reported.
+  verify host settings, how a drifted
+  [host clock](test-harness.md#the-host-clock) is reported, and the
+  [capability matrix and cycle-plan
+  gate](test-harness.md#capability-matrix-and-cycle-plan-gate) — the per-cycle
+  banner naming what the harness can actually do on the current host (OCR
+  engines, host I/O, and more), and the gate that refuses a cycle needing a
+  backend this host has not wired.
 - **[test-runner.md](test-runner.md)** — the daily-driver loop that pulls the
   repo, re-reads config, refreshes images, and runs cycles forever.
 - **[test-sequences.md](test-sequences.md)** — authoritative reference for every
@@ -71,9 +76,6 @@ up a test machine.
   watchdog](runner-outer-loop.md#watchdog-and-heartbeat-protocol) that lets it
   survive guest, network, and host-OS failures, and the runner's six-state
   lifecycle machine.
-- **[capability-matrix.md](capability-matrix.md)** — the per-cycle banner naming
-  what the harness can actually do on the current host (OCR engines, host I/O,
-  and more).
 - **[extensions-api.md](extensions-api.md)** — the seven classes of swappable
   behavior under `test/extension/` and the contract each area implements.
 - **[ocr.md](ocr.md)** — how the guest framebuffer is polled for text, and the
@@ -149,11 +151,13 @@ up a test machine.
 
 - **[design/00-index.md](design/00-index.md)** — entry point to the generated
   design diagrams: what each shows, how they relate, and the source each was
-  derived from. From there: [components](design/01-components.md), [data
-  flows](design/02-data-flows.md), [lifecycle
-  state](design/03-lifecycle-state.md), the [configuration data
-  model](design/04-data-model.md), and the [deployment
-  topology](design/05-deployment.md).
+  derived from. From there: [context and
+  components](design/01-context-and-components.md), the [component
+  breakdown](design/02-component-breakdown.md), [data
+  flows](design/03-data-flows.md), [lifecycle
+  state](design/04-lifecycle-state.md), the [configuration data
+  model](design/05-data-model.md), and the [deployment
+  topology](design/06-deployment.md).
 - **[design/naming.md](design/naming.md)** — the naming rules: components are
   "<name> service", durations carry `Seconds`/`Ms`, booleans are bare
   adjectives, acronyms are words in camelCase — plus the foreign contracts
@@ -224,6 +228,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.06
+Last review: 2026.08.07
 
 Back to [Yuruna](../README.md)

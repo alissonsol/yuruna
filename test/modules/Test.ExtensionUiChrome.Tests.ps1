@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.06
+.VERSION 2026.08.07
 .GUID 42b7adb1-b8f1-48fe-a89b-2b2d8acb1dc6
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -121,13 +121,13 @@ $scripts = @()
 # their brand link is a relative file name, so only the chrome-shaped
 # assertions apply to them.
 $statusDir = Join-Path $repo 'test/status'
-$statusLinks = @('index.html', 'config.html', 'performance.html', 'host.html')
+$statusLinks = @('index.html', 'config.html', 'performance.html', 'diagnostics.html')
 $statusGuide = 'https://yuruna.link/operator'
 $statusPages = @(
     @{ File = 'index.html'; Current = 'index.html' }
     @{ File = 'config.html'; Current = 'config.html' }
     @{ File = 'performance.html'; Current = 'performance.html' }
-    @{ File = 'host.html'; Current = 'host.html' }
+    @{ File = 'diagnostics.html'; Current = 'diagnostics.html' }
     # Reached from the dashboard with one cycle in the query string, never from
     # the menu, so it carries the chrome but marks nothing current.
     @{ File = 'share-cycle.html'; Current = '' }

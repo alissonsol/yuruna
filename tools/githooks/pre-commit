@@ -71,7 +71,8 @@ poolNetworkPath|poolStorageNetworkPath
 stashLocalPath|stashStorageLocalPath
 stashNetworkPath|stashStorageNetworkPath
 test.config.html|config.html
-hostinfo.html|host.html
+hostinfo.html|diagnostics.html
+host.html|diagnostics.html
 perf.html|performance.html
 YURUNA_HOST_IP|YURUNA_STATUS_SERVICE_IP
 YURUNA_HOST_PORT|YURUNA_STATUS_SERVICE_PORT

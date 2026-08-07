@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.06
+.VERSION 2026.08.07
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456790
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -517,7 +517,11 @@ function Write-CycleManifest {
                 'screens_*/*.txt'        { 'ocr'; break }
                 'raw_*.png'              { 'screenshot-raw'; break }
                 'raw_*.txt'              { 'ocr-raw'; break }
-                'last-fetch-and-execute.log' { 'fetch-and-execute-log'; break }
+                # Leading wildcard because both land in the per-guest subfolder,
+                # never at the cycle root: an anchored pattern matches neither and
+                # files the wrapper's own output as 'other'.
+                '*last-fetch-and-execute.log'     { 'fetch-and-execute-log'; break }
+                '*fetch-and-execute-profile.log'  { 'fetch-and-execute-profile'; break }
                 'perf*.tsv'              { 'perf'; break }
                 'notification.delivery*' { 'notification-delivery'; break }
                 default                  { 'other' }

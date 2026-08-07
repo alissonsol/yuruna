@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.06
+.VERSION 2026.08.07
 .GUID 42a8b3c4-d5e6-4f78-9a0b-1c2d3e4f5a6b
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -227,7 +227,10 @@ try {
 
     Write-Output "[Step 2/3] Retrieving Windows 11 ISO download URL..."
     Write-Output "  Language: $languageFilter | Architecture: x64"
-    $downloadUrl = & $fidoScript -Win 11 -Lang $languageFilter -Arch x64 -GetUrl
+    # -PlatformArch skips Fido's slow WMI CPU autodetection and keeps this
+    # invocation the verbatim mirror of the download-agent daemon's, which needs
+    # the parameter because Get-CimInstance does not exist off Windows.
+    $downloadUrl = & $fidoScript -Win 11 -Lang $languageFilter -Arch x64 -PlatformArch x64 -GetUrl
 
     if (-not $downloadUrl) {
         throw "Fido did not return a download URL."

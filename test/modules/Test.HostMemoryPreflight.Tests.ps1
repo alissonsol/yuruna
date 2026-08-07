@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.06
+.VERSION 2026.08.07
 .GUID 42b7c3e9-5d81-4a06-9f24-3e8d1c705b6a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -91,16 +91,20 @@ $SetupSrc = Get-Content -Raw -LiteralPath (Join-Path $repoRoot 'install/setup.ps
 $SetupAst = [System.Management.Automation.Language.Parser]::ParseFile(
     (Join-Path $repoRoot 'install/setup.ps1'), [ref]$null, [ref]$null)
 
-# The three plans a real run produces, and the host sizes worth asking about:
+# The plans a real run produces, and the host sizes worth asking about:
 # 16 GB and 32 GB are the machines this is meant to catch, 24 GB is the awkward
 # middle, and 36/64/128 GB are the ones that must NOT be warned at.
-$PlanStandalone = Get-PlanRow -Key (Select-SetupServiceVmKey -StorageKind 'local')
-$PlanProxyOnly  = Get-PlanRow -Key (Select-SetupServiceVmKey -StorageKind 'none')
-$PlanLab        = Get-PlanRow -Key (Select-SetupServiceVmKey -StorageKind 'local' -Lab)
-$HostSizeMb     = @(8192, 16384, 24576, 32768, 36864, 65536, 131072)
-$PlanSet        = @(
+# PlanStandaloneAgent is the opt-in shape (downloadAgentService.enabled: true on
+# a standalone host); the default standalone set stops at the stash.
+$PlanStandalone      = Get-PlanRow -Key (Select-SetupServiceVmKey -StorageKind 'local')
+$PlanStandaloneAgent = Get-PlanRow -Key (Select-SetupServiceVmKey -StorageKind 'local' -DownloadAgentEnabled $true)
+$PlanProxyOnly       = Get-PlanRow -Key (Select-SetupServiceVmKey -StorageKind 'none')
+$PlanLab             = Get-PlanRow -Key (Select-SetupServiceVmKey -StorageKind 'local' -Lab)
+$HostSizeMb          = @(8192, 16384, 24576, 32768, 36864, 65536, 131072)
+$PlanSet             = @(
     (Select-SetupServiceVmKey -StorageKind 'none'),
     (Select-SetupServiceVmKey -StorageKind 'local'),
+    (Select-SetupServiceVmKey -StorageKind 'local' -DownloadAgentEnabled $true),
     (Select-SetupServiceVmKey -StorageKind 'local' -DownloadAgentEnabled $false),
     (Select-SetupServiceVmKey -StorageKind 'local' -Lab)
 )
@@ -155,9 +159,12 @@ Set-VM -Name $VMName -MemoryStartupBytes 4GB -MemoryMaximumBytes 8GB
 }
 
 Describe 'host-memory preflight -- only the services this run starts are counted' {
-    It 'standalone on shared storage starts the proxy, the stash and the download agent' {
-        Assert-Equal 'caching-proxy,stash,download-agent' ((Select-SetupServiceVmKey -StorageKind 'local') -join ',')
-        Assert-Equal 'caching-proxy,stash,download-agent' ((Select-SetupServiceVmKey -StorageKind 'nas') -join ',')
+    It 'standalone starts only the proxy and the stash unless the agent is opted in' {
+        Assert-Equal 'caching-proxy,stash' ((Select-SetupServiceVmKey -StorageKind 'local') -join ',') `
+            -Because 'every service gigabyte on a standalone host is one its test guests cannot have'
+        Assert-Equal 'caching-proxy,stash' ((Select-SetupServiceVmKey -StorageKind 'nas') -join ',')
+        Assert-Equal 'caching-proxy,stash,download-agent' ((Select-SetupServiceVmKey -StorageKind 'local' -DownloadAgentEnabled $true) -join ',') `
+            -Because 'an explicit downloadAgentService.enabled: true overrides the standalone default'
     }
     It 'storage.kind = none starts the proxy alone' {
         Assert-Equal 'caching-proxy' ((Select-SetupServiceVmKey -StorageKind 'none') -join ',') `
@@ -166,21 +173,24 @@ Describe 'host-memory preflight -- only the services this run starts are counted
     It 'downloadAgentService.enabled = false drops the agent and nothing else' {
         Assert-Equal 'caching-proxy,stash' ((Select-SetupServiceVmKey -StorageKind 'local' -DownloadAgentEnabled $false) -join ',')
     }
-    It 'a lab adds the pool-control service' {
-        Assert-Equal 'caching-proxy,stash,download-agent,pool-control' ((Select-SetupServiceVmKey -StorageKind 'local' -Lab) -join ',')
+    It 'a lab adds the download agent and the pool-control service' {
+        Assert-Equal 'caching-proxy,stash,download-agent,pool-control' ((Select-SetupServiceVmKey -StorageKind 'local' -Lab) -join ',') `
+            -Because 'sharing images across the pool''s hosts is the agent''s whole point, so a lab runs it unasked'
         Assert-Equal 'caching-proxy,stash,pool-control' ((Select-SetupServiceVmKey -StorageKind 'local' -Lab -DownloadAgentEnabled $false) -join ',')
     }
     It 'an unresolved storage.kind counts the storage services rather than dropping them' {
-        Assert-Equal 'caching-proxy,stash,download-agent' ((Select-SetupServiceVmKey -StorageKind '') -join ',') `
-            -Because 'unknown must not read as "no storage", the answer that hides two services'
+        Assert-Equal 'caching-proxy,stash' ((Select-SetupServiceVmKey -StorageKind '') -join ',') `
+            -Because 'unknown must not read as "no storage", the answer that hides the stash'
+        Assert-Equal 'caching-proxy,stash,download-agent,pool-control' ((Select-SetupServiceVmKey -StorageKind '' -Lab) -join ',')
     }
 }
 
 Describe 'host-memory preflight -- the arithmetic across host sizes' {
     It 'sums only the services in the plan' {
-        Assert-Equal 20480 (Get-ServiceVmMemoryVerdict -Service $PlanStandalone -HostMemoryMb 32768).CommittedMb
-        Assert-Equal 12288 (Get-ServiceVmMemoryVerdict -Service $PlanProxyOnly  -HostMemoryMb 32768).CommittedMb
-        Assert-Equal 24576 (Get-ServiceVmMemoryVerdict -Service $PlanLab        -HostMemoryMb 32768).CommittedMb
+        Assert-Equal 16384 (Get-ServiceVmMemoryVerdict -Service $PlanStandalone      -HostMemoryMb 32768).CommittedMb
+        Assert-Equal 20480 (Get-ServiceVmMemoryVerdict -Service $PlanStandaloneAgent -HostMemoryMb 32768).CommittedMb
+        Assert-Equal 12288 (Get-ServiceVmMemoryVerdict -Service $PlanProxyOnly       -HostMemoryMb 32768).CommittedMb
+        Assert-Equal 24576 (Get-ServiceVmMemoryVerdict -Service $PlanLab             -HostMemoryMb 32768).CommittedMb
     }
     It 'estimates a resident set larger than the guests are configured with' {
         $v = Get-ServiceVmMemoryVerdict -Service $PlanStandalone -HostMemoryMb 32768
@@ -189,8 +199,10 @@ Describe 'host-memory preflight -- the arithmetic across host sizes' {
         Assert-Equal ($v.HostMemoryMb - $v.ResidentMb) $v.RemainingMb
         Assert-Equal ($v.ResidentMb + $v.ReserveMb)    $v.NeededMb
     }
-    It 'warns on a 32 GB host running the full standalone set' {
-        $v = Get-ServiceVmMemoryVerdict -Service $PlanStandalone -HostMemoryMb 32768
+    It 'passes a 32 GB host on the default standalone set, and warns once the agent is opted in' {
+        Assert-Equal 'ok' (Get-ServiceVmMemoryVerdict -Service $PlanStandalone -HostMemoryMb 32768).Level `
+            -Because 'proxy + stash is sized so a 32 GB machine keeps its reserve'
+        $v = Get-ServiceVmMemoryVerdict -Service $PlanStandaloneAgent -HostMemoryMb 32768
         Assert-Equal 'warn' $v.Level
         Assert-True ($v.RemainingMb -lt $v.ReserveMb) 'the warning has to follow from the arithmetic, not from a host-size table'
     }
@@ -221,7 +233,7 @@ Describe 'host-memory preflight -- the arithmetic across host sizes' {
         Assert-Equal 'ok'   (Get-ServiceVmMemoryVerdict -Service $PlanStandalone -HostMemoryMb ($atLine + 1)).Level
     }
     It 'names the whole arithmetic in the warning, not just the verdict' {
-        $v = Get-ServiceVmMemoryVerdict -Service $PlanStandalone -HostMemoryMb 32768
+        $v = Get-ServiceVmMemoryVerdict -Service $PlanStandaloneAgent -HostMemoryMb 32768
         foreach ($fragment in @('32.0 GB', '20.0 GB', '7.2 GB', '8.0 GB', '32.8 GB')) {
             Assert-True ($v.Message -match [regex]::Escape($fragment)) `
                 "the warning must state $fragment (host, committed, left, reserve, needed) -- 'low memory' is not actionable"
@@ -237,7 +249,7 @@ Describe 'host-memory preflight -- the arithmetic across host sizes' {
         Assert-True ($v.Message -match 'downloadAgentService\.enabled') 'the download agent is a lever a lab does have'
     }
     It 'offers a standalone host both of its levers, with what each one is worth' {
-        $v = Get-ServiceVmMemoryVerdict -Service $PlanStandalone -HostMemoryMb 32768
+        $v = Get-ServiceVmMemoryVerdict -Service $PlanStandaloneAgent -HostMemoryMb 32768
         Assert-True ($v.Message -match 'storage\.kind = none')          'the storage lever'
         Assert-True ($v.Message -match 'downloadAgentService\.enabled') 'the narrower lever'
         Assert-True ($v.Message -match '\(8\.0 GB\)')                   'what dropping both storage services is worth'
@@ -309,8 +321,11 @@ Describe 'host-memory preflight -- the verdict is a warning, and stays one' {
     }
     It 'reads the same on every host driver, because the builders agree' {
         foreach ($hostFolder in $HostFolder) {
-            $v = Get-ServiceVmMemoryVerdict -Service (Get-PlanRow -Key (Select-SetupServiceVmKey -StorageKind 'local') -From $hostFolder) -HostMemoryMb 32768
+            $keys = Select-SetupServiceVmKey -StorageKind 'local' -DownloadAgentEnabled $true
+            $v = Get-ServiceVmMemoryVerdict -Service (Get-PlanRow -Key $keys -From $hostFolder) -HostMemoryMb 32768
             Assert-Equal 'warn' $v.Level -Because "$hostFolder disagrees with the other host drivers about the same machine"
+            Assert-Equal 'ok' (Get-ServiceVmMemoryVerdict -Service (Get-PlanRow -Key (Select-SetupServiceVmKey -StorageKind 'local') -From $hostFolder) -HostMemoryMb 32768).Level `
+                -Because "$hostFolder disagrees about the default standalone set fitting the same machine"
         }
     }
 }
@@ -400,7 +415,7 @@ Describe 'host-memory preflight -- setup.ps1 spends it before it builds anything
     It 'reads downloadAgentService.enabled once, for both the report and the bring-up' {
         $calls = @($SetupAst.FindAll({ param($n)
             $n -is [System.Management.Automation.Language.CommandAst] -and
-            $n.GetCommandName() -eq 'Test-DownloadAgentServiceEnabled' }, $true))
+            $n.GetCommandName() -eq 'Get-DownloadAgentServiceEnabledValue' }, $true))
         Assert-Equal 2 $calls.Count -Because 'two callers, one reading -- two readings could disagree about which services a run starts'
         $direct = @($SetupAst.FindAll({ param($n)
             $n -is [System.Management.Automation.Language.StringConstantExpressionAst] -and

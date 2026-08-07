@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.06
+.VERSION 2026.08.07
 .GUID 42c4b1e7-5a8d-4f23-9b1c-7e3f8a2d4c61
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -32,7 +32,7 @@
     caught at load is zero-cost; a drift caught mid-cycle on a remote
     host costs an overnight run.
 
-    Rationale lives in docs/host-io.md and docs/capability-matrix.md;
+    Rationale lives in docs/host-io.md and docs/test-harness.md;
     this file is the executable source of truth.
 
     Naming policy (by design):

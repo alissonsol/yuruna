@@ -1,7 +1,7 @@
 /*
   LICENSEURI https://yuruna.link/license
   Copyright (c) 2019-2026 by Alisson Sol et al.
-  Version: 2026.08.06
+  Version: 2026.08.07
 
   Framework-free structural check for the per-row status badge colors. Run:
   node status-badges.test.js (exit 0 = pass). No repo JS test runner and no
@@ -17,7 +17,7 @@
   The .badge/.step-pill scope is deliberate: performance.html reuses bare status
   words for unrelated elements (.cycle-dur.fail), so an unscoped promotion
   would tint them. This check does NOT prove the rendered colors -- eyeball
-  index / hostinfo / test.config / perf in a browser.
+  index / diagnostics / config / performance in a browser.
 */
 'use strict';
 const fs = require('fs');

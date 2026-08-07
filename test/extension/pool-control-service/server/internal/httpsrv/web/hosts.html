@@ -44,12 +44,29 @@
       <code>mismatch</code> holds a different token; <code>skew</code> is a clock problem;
       <code>none</code> never enrolled. Only <code>ready</code> hosts are auto-enrolled.
       Choosing a pool <em>moves</em> the host &mdash; a host belongs to at most one.
+      Any column header sorts the table. <strong>Hostname</strong> is the name the
+      host's own status page shows, and appears only once this browser is unlocked:
+      the pool's view of a host is hostname-free, and this page renders unattended too.
     </p>
     <div id="notice" class="notice"></div>
-    <div class="row"><button id="refresh">Refresh</button></div>
+    <div class="row">
+      <button id="refresh">Refresh</button>
+      <button id="show-hostnames" hidden>Show hostnames</button>
+    </div>
     <table>
       <thead>
-        <tr><th>Host ID</th><th>Control</th><th>Project access</th><th>Pool</th></tr>
+        <tr>
+          <th data-sort="hostId" aria-sort="ascending"><button type="button" class="sort">Host ID</button></th>
+          <th data-sort="hostname"><button type="button" class="sort">Hostname</button></th>
+          <th data-sort="type"><button type="button" class="sort">Type</button></th>
+          <th data-sort="memory"><button type="button" class="sort">Memory</button></th>
+          <th data-sort="cores"><button type="button" class="sort">Cores</button></th>
+          <th data-sort="storageTotal"><button type="button" class="sort">Total Storage</button></th>
+          <th data-sort="storageFree"><button type="button" class="sort">Free Storage</button></th>
+          <th data-sort="control"><button type="button" class="sort">Control</button></th>
+          <th data-sort="access"><button type="button" class="sort">Project access</button></th>
+          <th data-sort="pool"><button type="button" class="sort">Pool</button></th>
+        </tr>
       </thead>
       <tbody id="host-rows"></tbody>
     </table>

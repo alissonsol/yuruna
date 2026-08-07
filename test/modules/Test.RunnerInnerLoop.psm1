@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.06
+.VERSION 2026.08.07
 .GUID 42d15e27-b2c3-4d4e-9f50-6b7c8d9e0f1a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -547,11 +547,51 @@ function Copy-FailureArtifactsToStatusLog {
                 $faeOut = Join-Path $destSeqDir 'last-fetch-and-execute.log'
                 Set-Content -LiteralPath $faeOut -Value $faeResult.output -Encoding utf8NoBOM -NoNewline
                 Write-Output "  Last fetch-and-execute log saved: ./status/log/$cycleBase/$destSeqName/last-fetch-and-execute.log"
+                Write-CycleFailureExecutionTail -ExecutionLog $faeResult.output `
+                    -LogPath "./status/log/$cycleBase/$destSeqName/last-fetch-and-execute.log"
             } else {
                 Write-Verbose "  fetch-and-execute log: success=$($faeResult.success) exit=$($faeResult.exitCode) output=$($faeResult.output)"
             }
         } catch {
             Write-Warning "  fetch-and-execute log capture skipped: $($_.Exception.Message)"
+        }
+
+        # The profiling trace that goes with the log above. Its path is recorded
+        # in the log's own header, but the file itself lives on the guest and is
+        # gone by the time anyone opens the cycle folder -- so the header points
+        # at nothing. It holds a timestamped trace of every command the wrapper
+        # ran, which is what separates "this step took two minutes" from "this
+        # command took two minutes", and it is only worth having next to the log
+        # it belongs to. Soft-failing like every other rung here.
+        try {
+            $profilePath = $null
+            if ($faeResult -and $faeResult.output) {
+                foreach ($faeLine in ($faeResult.output -split "`r?`n")) {
+                    if ($faeLine -match '^#\s*profile:\s*(\S+)') { $profilePath = $Matches[1]; break }
+                }
+            }
+            if ($profilePath) {
+                # Bounded on the guest rather than after transfer: an xtrace of a
+                # long script is unbounded by nature, and the tail is where a
+                # failure lands. The cut announces itself in the artifact so the
+                # file is never silently partial.
+                $profProbe = "if [ -r '$profilePath' ]; then " +
+                             "__sz=`$(wc -c < '$profilePath'); " +
+                             "if [ `"`$__sz`" -gt 400000 ]; then echo `"# (truncated: last 400000 of `$__sz bytes)`"; fi; " +
+                             "tail -c 400000 '$profilePath'; " +
+                             "else echo '(file not present)'; fi"
+                $profResult = Test.Ssh\Invoke-GuestSsh -VMName $VMName -GuestKey $GuestKey `
+                    -Command $profProbe -TimeoutSeconds 60
+                if ($profResult.success -and $profResult.output -and ($profResult.output -notmatch '^\(file not present\)\s*$')) {
+                    $profOut = Join-Path $destSeqDir 'fetch-and-execute-profile.log'
+                    Set-Content -LiteralPath $profOut -Value $profResult.output -Encoding utf8NoBOM -NoNewline
+                    Write-Output "  fetch-and-execute profile saved: ./status/log/$cycleBase/$destSeqName/fetch-and-execute-profile.log"
+                } else {
+                    Write-Verbose "  fetch-and-execute profile: nothing readable at $profilePath"
+                }
+            }
+        } catch {
+            Write-Warning "  fetch-and-execute profile capture skipped: $($_.Exception.Message)"
         }
 
         # Host system-diagnostics capture. Separate from the guest snapshot
@@ -1578,6 +1618,65 @@ function Write-CycleHostNetworkReclassification {
         Write-Output "  Host network degraded ($script:CycleHostNetworkVerdict): re-filed as '$reclassified' (was '$current') -- no guest-level retry can influence it."
     } catch {
         Write-Verbose "Host-network reclassification of $failFile skipped: $($_.Exception.Message)"
+    }
+}
+
+function Write-CycleFailureExecutionTail {
+    <#
+    .SYNOPSIS
+        Attach the verbatim tail of the guest's fetch-and-execute log to the
+        failure record, beside the OCR-derived cause the engine wrote.
+    .DESCRIPTION
+        The engine classifies from what the screen showed, so the cause it stores
+        is OCR output -- text that has been through a camera. A URL comes back as
+        `https://192Z.168.7.42`, `awaiting` as `auaiting`, `daemon` as `daenon`.
+        That is enough to send a reader hunting a host that does not exist and
+        enough to defeat a search for the error text. The same output exists on
+        the guest as bytes, written by the wrapper that ran the script, and it is
+        already being collected next to this record.
+
+        Additive on purpose: ocrTail is left exactly as written, because it is
+        what the classifier actually matched against, and a reader comparing the
+        two is entitled to see both. Best-effort by contract -- a record that
+        cannot be read or written is left as the engine wrote it.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][AllowNull()]$ExecutionLog,
+        [Parameter(Mandatory)][string]$LogPath
+    )
+    if (-not $env:YURUNA_LOG_DIR) { return }
+    # Normalized rather than typed to [string]: the SSH rung hands this a single
+    # string today, but a cast of a line ARRAY joins on spaces and would flatten
+    # the log into one unreadable line -- a corruption that looks like data.
+    $executionText = if ($ExecutionLog -is [System.Array]) {
+        (@($ExecutionLog) | ForEach-Object { [string]$_ }) -join "`n"
+    } else {
+        [string]$ExecutionLog
+    }
+    if ([string]::IsNullOrWhiteSpace($executionText)) { return }
+    $failFile = Join-Path $env:YURUNA_LOG_DIR 'last_failure.json'
+    if (-not (Test-Path -LiteralPath $failFile)) { return }
+    if (-not (Get-Command Write-YurunaStateFile -ErrorAction SilentlyContinue)) { return }
+    try {
+        $rec = Get-Content -Raw -LiteralPath $failFile -ErrorAction Stop | ConvertFrom-Json -AsHashtable -ErrorAction Stop
+        if ($rec -isnot [System.Collections.IDictionary]) { return }
+        if (-not $rec.Contains('context') -or $rec['context'] -isnot [System.Collections.IDictionary]) { return }
+        $ctx = $rec['context']
+        # Only a record that already carries a cause block gets one: a crash
+        # record deliberately has none, and inventing one here would hand every
+        # consumer a shape the schema does not promise.
+        if (-not $ctx.Contains('causeDetail') -or $ctx['causeDetail'] -isnot [System.Collections.IDictionary]) { return }
+        # Bounded like the OCR tail beside it. This record gets read in a
+        # terminal and pasted into reports; an unbounded script log would bury
+        # every other field in it.
+        $tailLines = @($executionText -split "`r?`n") | Select-Object -Last 40
+        $ctx['causeDetail']['executionTail']    = ($tailLines -join "`n")
+        $ctx['causeDetail']['executionLogPath'] = $LogPath
+        $null = Write-YurunaStateFile -Path $failFile -Content ($rec | ConvertTo-Json -Depth 6) -Confirm:$false
+        Write-Output "  Failure record: attached the last $(@($tailLines).Count) lines of the guest's execution log, verbatim, beside the OCR tail."
+    } catch {
+        Write-Verbose "Execution-tail enrichment of $failFile skipped: $($_.Exception.Message)"
     }
 }
 

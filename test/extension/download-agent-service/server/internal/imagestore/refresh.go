@@ -263,6 +263,17 @@ type Agent struct {
 	fidoErr        string
 	fidoErrAt      time.Time
 	knownHostTypes []string
+
+	// lastFidoAttempt is the full capture of the most recent Fido run, whatever
+	// started it (scan, ensure, or the diagnostics test route). fidoErr above is
+	// the one-line policy answer; this is the evidence behind it.
+	lastFidoAttempt *FidoAttempt
+
+	// Interpreter facts for the diagnostics surface, probed lazily and cached:
+	// a render must not pay a .NET runtime startup on every request.
+	pwshVersion    string
+	pwshVersionErr string
+	pwshProbedAt   time.Time
 }
 
 // fidoFailureTTL is how long one failed Fido run keeps the Windows family marked
@@ -316,7 +327,9 @@ func NewAgent(base context.Context, opts Options) (*Agent, error) {
 	}
 	a.pool = pool.New(poolOpts)
 	a.resolver = NewResolver(a.direct)
-	a.resolver.Fido = opts.Fido
+	fido := opts.Fido
+	fido.Observe = a.noteFidoAttempt
+	a.resolver.Fido = fido
 	a.lease = NewLeaseManager(config.LeaseFileFor(opts.PoolDir), opts.HostID, opts.VMName,
 		time.Duration(config.LeaseExpiryFactor)*opts.ScanInterval)
 

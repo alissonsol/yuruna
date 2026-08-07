@@ -16,8 +16,8 @@ sequence, then loops:
 The function was carved out of
 [`test/Invoke-TestRunner.ps1`](../test/Invoke-TestRunner.ps1) so the
 loop body is unit-testable independent of the entry-point script —
-mocking the call-op + `Set-RunnerState` lets a test exercise the
-state-transition sequence without spawning a real inner pwsh.
+mocking the call-op + `Set-RunnerState` exercises the state-transition
+sequence without spawning a real inner pwsh.
 
 ## Public surface
 
@@ -112,7 +112,7 @@ Four files are wiped before the watchdog is armed, each for its own reason.
 | File | Why it is wiped pre-spawn |
 |---|---|
 | `inner.pid` | A stale file makes `Start-Watchdog`'s wait-for-pidfile loop skip the wait entirely. It then reads the dead PID, sees `Get-Process` return nothing, and disarms in under 60 s — leaving the new inner unwatched for the whole cycle. |
-| `runner.stepHeartbeat` | The symmetric trap: the watchdog would see a hours-old mtime and kill the new inner before it started its first step. |
+| `runner.stepHeartbeat` | The symmetric trap: the watchdog would see an hours-old mtime and kill the new inner before it started its first step. |
 | `last_failure.json` | `Invoke-Sequence` removes it at the start of each sequence, but between the previous cycle's failure and the new cycle's first sequence there is a multi-second window where a dashboard or status-service reader sees stale cycle-N failure context attached to cycle N+1. Pre-spawn deletion closes that window. |
 | `runner.phase` | It selects the watchdog's TIGHT preamble bound, so a copy left behind by a killed inner would apply that bound to the next cycle's sequence steps and kill healthy long ones. The new inner re-creates it within its first second; until then its absence means the loose bound, which is the safe direction. |
 
@@ -165,12 +165,11 @@ The split was added after the trap recorded in repo memory
 ### Watchdog job
 
 The outer's watchdog is a `Start-Job` (own pwsh) — heavier than an
-in-runspace timer but independent of the outer's pipeline. The
-outer's pipeline is blocked inside the call-operator that waits for
-the inner; any in-runspace monitor (`Register-ObjectEvent`,
-ThreadJob) cannot pump while the outer is in that wait. The Start-Job
-child fires reliably even when the outer is completely wedged on
-the spawn.
+in-runspace timer but independent of the outer's pipeline, which is
+blocked inside the call-operator that waits for the inner; any
+in-runspace monitor (`Register-ObjectEvent`, ThreadJob) cannot pump
+during that wait. The Start-Job child fires reliably even when the
+outer is completely wedged on the spawn.
 
 The watchdog:
 
@@ -258,13 +257,12 @@ dashboard or off-host consumer can follow the runner without
 reconstructing what it is doing from heartbeat mtimes and pidfile
 presence.
 
-This module makes the lifecycle explicit. Without it, a watchdog or
-dashboard has to guess: "if `inner.pid` exists and
-`runner.stepHeartbeat` is fresh then a cycle is running, unless the
-inner just exited and we're between cycles, unless..." — every
-consumer reconstructing the state machine for itself from incomplete
-signals. The explicit machine gives the lifecycle a single observable
-shape.
+Without it, a watchdog or dashboard has to guess: "if `inner.pid`
+exists and `runner.stepHeartbeat` is fresh then a cycle is running,
+unless the inner just exited and we're between cycles, unless..." —
+every consumer reconstructing the state machine for itself from
+incomplete signals. The explicit machine gives the lifecycle a single
+observable shape.
 
 ### States
 
@@ -345,6 +343,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.06
+Last review: 2026.08.07
 
 Back to [Yuruna](../README.md)

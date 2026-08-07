@@ -98,6 +98,45 @@ and raises a problem — apt blocks on these fetches, so an origin
 answering in tens of seconds exhausts a step's timeout exactly as an
 unreachable one does.
 
+### Container-registry route
+
+The OCI counterpart of the package-mirror probe above, and for the same reason:
+image pulls leave through a different door than apt does, and a cache can be
+perfectly healthy on one while unusable on the other.
+
+What makes this worth its own probe is that the obvious check is blind here.
+`GET /v2/` is answered out of the registry's own process and comes back in
+single-digit milliseconds no matter how badly the pull-through behind it is
+stalled; a MANIFEST request is what re-runs the upstream sync, so it is the only
+request shaped like the pull it stands in for. A tag, not a digest — digests are
+immutable and answered locally, which is exactly why they stay fast through an
+outage. The `Accept:` header is spelled out because a registry answers a manifest
+request that states no preference with whatever it considers the default, which
+for a multi-arch tag is not the index a pull resolves.
+
+Both probes are sent with `-NoProxy`: the runtime pulls straight at the cache, so
+a probe routed through the proxy would time a path no pull takes — and the proxy
+refuses CONNECT to this port anyway, which would read as a dead cache.
+
+The cap is deliberately below the patience a container runtime shows. This
+capture runs inside a per-command SSH budget during an incident, so it answers
+"did the cache answer promptly" and leaves the magnitude of a stall to the
+cache's own canary, which has no such constraint. Anything past ~3 s is already
+evidence the upstream leg is being walked, since a warm cache answers in well
+under a second.
+
+For the manifest reading itself the diagnostic prefers the cache's own published
+`/cache-health` page over measuring directly — and not to save a few seconds. A
+manifest request walks the upstream sync, which spends one pull from a
+per-egress-IP budget the whole lab shares and exhausts routinely. This capture
+runs several times per cycle per machine, so measuring directly every time would
+make the diagnostic a meaningful consumer of the very resource whose exhaustion
+it exists to detect. The cache probes itself on a cadence that budgets for it and
+publishes the result; reading that costs nothing. The reading's timestamp is
+printed alongside it, because a reading minutes old is still evidence but is not
+a live one. See the [zot manifest canary
+exporter](vmconfig.md#zot-manifest-canary-exporter) for the publishing side.
+
 ## Section-by-section rationale
 
 ### 1. HOST — software-probe resilience
@@ -216,6 +255,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.06
+Last review: 2026.08.07
 
 Back to [Yuruna](../README.md)

@@ -29,9 +29,10 @@ import (
 type stubKind int
 
 const (
-	stubEcho stubKind = iota // records its arguments, prints url.txt, exits 0
-	stubFail                 // writes to stderr and exits non-zero
-	stubHang                 // sleeps far past any timeout under test
+	stubEcho   stubKind = iota // records its arguments, prints url.txt, exits 0
+	stubFail                   // writes to stderr and exits non-zero
+	stubHang                   // sleeps far past any timeout under test
+	stubRefuse                 // prints a refusal to STDOUT and exits 147, stderr silent
 )
 
 type fidoStub struct {
@@ -56,6 +57,12 @@ var stubBodies = map[stubKind][2]string{
 		// them on its own instead of leaving the suite waiting out cmd.WaitDelay.
 		"@echo off\r\nping -n 3 127.0.0.1 >nul 2>&1\r\nexit /b 0\r\n",
 		"#!/bin/sh\nsleep 2 >/dev/null 2>&1\nexit 0\n",
+	},
+	stubRefuse: {
+		// Fido's own non-Windows refusal, faithfully: the reason goes to stdout
+		// via Write-Host and the exit code is 403, which the OS reports as 147.
+		"@echo off\r\necho Error: This feature is not available on this platform.\r\nexit /b 147\r\n",
+		"#!/bin/sh\necho 'Error: This feature is not available on this platform.'\nexit 147\n",
 	},
 }
 
@@ -109,11 +116,11 @@ const (
 
 func TestFidoParametersMirrorTheHostGetImageScripts(t *testing.T) {
 	// Verbatim from host/{windows.hyper-v,macos.utm}/guest.windows.11/Get-Image.ps1:
-	//   & $fidoScript -Win 11 -Lang $languageFilter -Arch x64 -GetUrl
+	//   & $fidoScript -Win 11 -Lang $languageFilter -Arch x64 -PlatformArch x64 -GetUrl
 	// The pool has to hold the artifact those scripts would have fetched; a
 	// parameter that drifts here means hosts get an edition nobody asked for and
 	// accept it, because they trust the image key rather than what produced it.
-	want := []string{"-Win", "11", "-Lang", "English", "-Arch", "x64", "-GetUrl"}
+	want := []string{"-Win", "11", "-Lang", "English", "-Arch", "x64", "-PlatformArch", "x64", "-GetUrl"}
 	if got := fidoParams("x64"); strings.Join(got, " ") != strings.Join(want, " ") {
 		t.Fatalf("fidoParams = %v, want %v", got, want)
 	}
@@ -159,7 +166,7 @@ func TestFidoSuccessParsesTheURLAndPassesTheHostParameters(t *testing.T) {
 	if got.ChecksumURL != "" {
 		t.Fatalf("ChecksumURL = %q: Microsoft publishes none, and inventing one would be a claim the agent cannot back", got.ChecksumURL)
 	}
-	want := []string{"-Win", "11", "-Lang", "English", "-Arch", "x64", "-GetUrl"}
+	want := []string{"-Win", "11", "-Lang", "English", "-Arch", "x64", "-PlatformArch", "x64", "-GetUrl"}
 	if got := stub.args(t); strings.Join(got, " ") != strings.Join(want, " ") {
 		t.Fatalf("Fido was invoked with %v, want %v", got, want)
 	}
@@ -169,7 +176,7 @@ func TestFidoSuccessParsesTheURLAndPassesTheHostParameters(t *testing.T) {
 		HostType: HostTypeUTM, ImageKey: KeyWindows11, Arch: ArchARM64, Variant: VariantStable}); err != nil {
 		t.Fatalf("arm64 Resolve: %v", err)
 	}
-	if got := stub.args(t); strings.Join(got, " ") != "-Win 11 -Lang English -Arch arm64 -GetUrl" {
+	if got := stub.args(t); strings.Join(got, " ") != "-Win 11 -Lang English -Arch arm64 -PlatformArch arm64 -GetUrl" {
 		t.Fatalf("arm64 invocation = %v", got)
 	}
 }

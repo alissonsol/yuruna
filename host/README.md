@@ -45,9 +45,6 @@ host/
     └── guest.caching-proxy-service/  Optional caching-proxy service VM
 ```
 
-Cross-host workload scripts that run **inside** a guest live under
-[../guest/](../guest/), separate from these per-host provisioners.
-
 ## Test-VM names
 
 A test VM is named `<testVmNamePrefix><guestKey>[-<hostId8>]-<NN>` — with the
@@ -160,6 +157,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.06
+Last review: 2026.08.07
 
 Back to [Yuruna](../README.md)

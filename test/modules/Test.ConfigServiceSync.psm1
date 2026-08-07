@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.06
+.VERSION 2026.08.07
 .GUID 42d7f3b9-5c1e-4a80-9e2d-7f8a9b0c1d2e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -909,24 +909,58 @@ function Read-ConfigSyncSecret {
 }
 
 # --- REGION: https://yuruna.link/memory#why-the-networkstorage-vault-sync-probes-before-prompting-and-rewrites-on-drift
-# Converges every networkStorage user's vault entry onto the reference host's
-# credential: probe before prompting, and rewrite on drift so re-runs converge.
+
+<#
+.SYNOPSIS
+    Converges every networkStorage user's vault entry onto the reference host's
+    credential: probe before prompting, and rewrite on drift so re-runs converge.
+.DESCRIPTION
+    Resolves each of poolStorageNetworkUser / stashStorageNetworkUser through
+    the authentication extension to its vault key, fetches the reference host's
+    value over the token-gated credential endpoint, and stores it when it is
+    absent or disagrees. An entry that already matches is left untouched and no
+    write happens, so a repeat run is a no-op.
+
+    The shared lab-auth-token is what makes the fetch possible: an explicit
+    -SharedToken wins, else this host's stored lab-auth-token, else -- for a
+    genuinely missing credential in an interactive session -- a prompt.
+
+    Emits one record per user, so a caller can tell a converged entry from a
+    merely SURVIVING one. Those look identical from the console -- both end with
+    a credential in the vault -- and the difference decides whether the mount
+    will work: an entry kept because nothing could replace it is, on a host
+    converting away from standalone, precisely the locally minted password the
+    lab's share has never heard of. Callers that must not accept it pass
+    -RequireReferenceValue.
+.OUTPUTS
+    [pscustomobject[]] one record per user, @{ User; VaultKey; Status;
+    Converged; Detail }. Status is one of stored / updated / already-matches
+    (Converged) or kept-local / no-token / unverified / missing / whatif (not).
+#>
 function Sync-ConfigSyncVaultCredential {
     [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([pscustomobject[]])]
     param(
         [Parameter(Mandatory)][string]$RepoRoot,
         [Parameter(Mandatory)]$NetworkStorage,
         [Parameter(Mandatory)][string]$ReferenceHost,
         [Parameter()][int]$Port = 8080,
         [Parameter()][string]$SharedToken = '',
-        [switch]$NonInteractive
+        [switch]$NonInteractive,
+        # Refuse to keep a local entry the reference host did not supply, and
+        # overwrite one that disagrees, instead of treating "an entry exists" as
+        # good enough. The no-token shortcut is disabled with it: without a token
+        # nothing can be fetched, so every user reports 'no-token' rather than
+        # 'kept-local' and the caller fails the run instead of shipping a host
+        # whose credentials were never checked against the lab.
+        [switch]$RequireReferenceValue
     )
     try {
         Import-Module (Join-Path $RepoRoot 'test/modules/Test.Extension.psm1') -Force -DisableNameChecking
         $null = Import-Extension -Area 'authentication' -RequireSingle
     } catch {
         Write-Warning "Could not load the authentication extension ($($_.Exception.Message)); skipping the vault-credential sync. Populate the vault manually (Set-Password)."
-        return
+        return [pscustomobject[]]@()
     }
 
     $users = [System.Collections.Generic.List[string]]::new()
@@ -953,6 +987,19 @@ function Sync-ConfigSyncVaultCredential {
         }
     }
     $tokenPromptTried = $false
+    $outcome = [System.Collections.Generic.List[pscustomobject]]::new()
+    # Local so the emitting lines read as one shape; every exit below records
+    # exactly one outcome per user.
+    $record = {
+        param([string]$User, [string]$VaultKey, [string]$Status, [string]$Detail)
+        [void]$outcome.Add([pscustomobject]@{
+            User      = $User
+            VaultKey  = $VaultKey
+            Status    = $Status
+            Converged = ($Status -in @('stored', 'updated', 'already-matches'))
+            Detail    = $Detail
+        })
+    }
 
     foreach ($user in $users) {
         $vaultKey = ''
@@ -966,8 +1013,19 @@ function Sync-ConfigSyncVaultCredential {
         # there is nothing the reference could tell us that would change the outcome.
         # Pass -SharedToken (or store a lab-auth-token here) to have re-runs refresh
         # this against the reference.
-        if (-not $token -and $hasEntry) {
+        #
+        # -RequireReferenceValue takes this branch off the table. The caller has
+        # said an unchecked entry is not acceptable, and on a host converting away
+        # from standalone it is actively wrong: the entry it would keep was minted
+        # here, for a share this host used to serve itself.
+        if (-not $token -and $hasEntry -and -not $RequireReferenceValue) {
             Write-Information "vault: '$user' has a stored credential; keeping it (no shared token available to check it against $ReferenceHost)." -InformationAction Continue
+            & $record $user $resolvedKey 'kept-local' "no shared lab-auth-token was available to check it against $ReferenceHost"
+            continue
+        }
+        if (-not $token -and $RequireReferenceValue) {
+            Write-Warning "vault: no shared lab-auth-token is available, so the '$user' credential cannot be fetched from $ReferenceHost. Enroll this host (pwsh test/Set-LabToken.ps1 -LabToken <dashboard-code>) or pass -SharedToken."
+            & $record $user $resolvedKey 'no-token' "no shared lab-auth-token available to fetch the credential from $ReferenceHost"
             continue
         }
 
@@ -1009,6 +1067,7 @@ function Sync-ConfigSyncVaultCredential {
             }
             if ($hasEntry -and $current -eq $password) {
                 Write-Information "vault: '$user' already matches the credential on $ReferenceHost; no change." -InformationAction Continue
+                & $record $user $resolvedKey 'already-matches' "matches the credential on $ReferenceHost"
                 continue
             }
             $action = if ($hasEntry) { 'Update' } else { 'Store' }
@@ -1016,14 +1075,27 @@ function Sync-ConfigSyncVaultCredential {
                 Set-Password -Username $resolvedKey -NewPassword $password
                 $done = if ($hasEntry) { 'updated (the reference has a newer credential)' } else { 'stored' }
                 Write-Information "vault: $done the credential for '$user' (key '$resolvedKey') from $ReferenceHost." -InformationAction Continue
+                & $record $user $resolvedKey $(if ($hasEntry) { 'updated' } else { 'stored' }) "fetched from $ReferenceHost"
+            } else {
+                & $record $user $resolvedKey 'whatif' "would $($action.ToLowerInvariant()) the credential fetched from $ReferenceHost"
             }
             continue
         }
 
         # Nothing came back from the reference. An entry already here still works
-        # -- keep it rather than making the operator retype what it holds.
+        # -- keep it rather than making the operator retype what it holds. Under
+        # -RequireReferenceValue that is not good enough: the entry is reported
+        # unconverged so the caller can refuse the run. It is deliberately still
+        # KEPT rather than deleted -- clearing it would take a working standalone
+        # mount down as well, leaving the host worse off than before it tried.
         if ($hasEntry) {
-            Write-Information "vault: '$user' has a stored credential and the reference host supplied nothing to replace it; keeping the local one." -InformationAction Continue
+            if ($RequireReferenceValue) {
+                Write-Warning "vault: '$user' has a stored credential but $ReferenceHost supplied nothing to check it against; it is still the value this host minted for itself."
+                & $record $user $resolvedKey 'unverified' "$ReferenceHost supplied no credential to converge on"
+            } else {
+                Write-Information "vault: '$user' has a stored credential and the reference host supplied nothing to replace it; keeping the local one." -InformationAction Continue
+                & $record $user $resolvedKey 'kept-local' "$ReferenceHost supplied nothing to replace it"
+            }
             continue
         }
         $typed = ''
@@ -1032,13 +1104,21 @@ function Sync-ConfigSyncVaultCredential {
         }
         if (-not $typed) {
             Write-Warning "vault: no credential stored for '$user'; the networkStorage mount will stay skipped until one is set (Set-Password -Username '$resolvedKey')."
+            & $record $user $resolvedKey 'missing' 'no credential could be fetched, and none was supplied'
             continue
         }
         if ($PSCmdlet.ShouldProcess("vault entry '$resolvedKey'", "Store the credential for networkStorage user '$user'")) {
             Set-Password -Username $resolvedKey -NewPassword $typed
             Write-Information "vault: stored the credential for '$user' (key '$resolvedKey')." -InformationAction Continue
+            # Operator-typed, not reference-supplied. Reported as converged
+            # because the operator is the authority the reference stands in for --
+            # they read it off the lab, which is the same value.
+            & $record $user $resolvedKey 'stored' 'entered by the operator'
+        } else {
+            & $record $user $resolvedKey 'whatif' 'would store the operator-entered credential'
         }
     }
+    return [pscustomobject[]]@($outcome)
 }
 
 # --- REGION: Orchestrator
@@ -1179,8 +1259,16 @@ function Test-ConfigSyncReferenceFreshness {
     This is the bypass for the freshness prompt -- see the note on ShouldContinue
     at the gate itself.
 
+.PARAMETER RequireReferenceCredential
+    Do not accept a networkStorage vault entry the reference host did not supply.
+    Without it, an entry that is already present survives when nothing can be
+    fetched -- correct for a host refreshing its config, and wrong for one
+    converting away from standalone, where the surviving entry is the password
+    this host minted for a share it used to serve itself. The unconverged users
+    come back in CredentialResult; this switch does not fail the run on its own.
+
 .OUTPUTS
-    [pscustomobject] Wrote, BackupPath, Warnings, ValidationExit.
+    [pscustomobject] Wrote, BackupPath, Warnings, ValidationExit, CredentialResult.
 #>
 function Sync-HostConfiguration {
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidShouldContinueWithoutForce', '',
@@ -1197,7 +1285,8 @@ function Sync-HostConfiguration {
         [switch]$NoPool,
         # Copy from a reference host whose config is behind this host's schema
         # without asking. For scripted syncs that have already accepted the drift.
-        [switch]$AllowStaleReference
+        [switch]$AllowStaleReference,
+        [switch]$RequireReferenceCredential
     )
     if (-not $RepoRoot) {
         $RepoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
@@ -1284,12 +1373,16 @@ function Sync-HostConfiguration {
     }
 
     $ns = $canonical['networkStorage']
+    $credentialResult = @()
     if ($ns -is [System.Collections.IDictionary]) {
         Sync-ConfigSyncHostAlias -RepoRoot $RepoRoot -NetworkStorage $ns `
             -ReferenceHost $ReferenceHost -Port $StatusPort -NonInteractive:$NonInteractive
-        Sync-ConfigSyncVaultCredential -RepoRoot $RepoRoot -NetworkStorage $ns `
+        # Captured, not left on the pipeline: this function returns a summary
+        # object, and per-user records escaping into that stream would make the
+        # caller's `$r.Wrote` read off whichever record landed first.
+        $credentialResult = @(Sync-ConfigSyncVaultCredential -RepoRoot $RepoRoot -NetworkStorage $ns `
             -ReferenceHost $ReferenceHost -Port $StatusPort -SharedToken $SharedToken `
-            -NonInteractive:$NonInteractive
+            -NonInteractive:$NonInteractive -RequireReferenceValue:$RequireReferenceCredential)
 
         # On Linux the poolStorage mount runs `sudo -n mount/mkdir/umount`, which
         # fails without an /etc/sudoers.d drop-in granting those NOPASSWD -- the
@@ -1326,10 +1419,11 @@ function Sync-HostConfiguration {
     }
 
     return [pscustomobject]@{
-        Wrote          = $wrote
-        BackupPath     = $backupPath
-        Warnings       = $merge.Warnings
-        ValidationExit = $validationExit
+        Wrote             = $wrote
+        BackupPath        = $backupPath
+        Warnings          = $merge.Warnings
+        ValidationExit    = $validationExit
+        CredentialResult  = [pscustomobject[]]@($credentialResult)
     }
 }
 
@@ -1724,5 +1818,6 @@ Export-ModuleMember -Function `
     Get-ConfigSyncProof, Test-ConfigSyncProof, Get-YurunaControlProof, Test-YurunaControlProof, Get-YurunaControlTag, Protect-ConfigSyncCredential, Unprotect-ConfigSyncCredential, `
     Get-ConfigSyncReferenceConfig, Get-ConfigSyncReferenceAliasMap, Resolve-ConfigSyncAliasResponse, `
     Request-ConfigSyncVaultCredential, Test-ConfigSyncCredentialEndpoint, Get-ConfigSyncCredentialReadiness, `
+    Sync-ConfigSyncVaultCredential, `
     Sync-HostConfiguration, Test-ConfigSyncReferenceFreshness, Set-LabAuthToken, Get-LabAuthTokenValue, `
     Request-LabTokenExchange, Get-LabTokenExchangeVerdict, Unprotect-LabTokenEnvelope

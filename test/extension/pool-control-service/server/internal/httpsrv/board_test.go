@@ -236,6 +236,117 @@ func TestProjectSlugIsProjectScoped(t *testing.T) {
 	}
 }
 
+// --- the Hosts page --------------------------------------------------------
+
+// hostsAggStub answers BOTH hops handleHosts makes: the aggregator's pool-status
+// and the registration record each host serves for itself. 42aa's status was
+// readable at poll time and 42bb's was not, which is the case that decides where
+// a type may come from.
+func hostsAggStub(t *testing.T) *httptest.Server {
+	t.Helper()
+	// Unstarted, because pool-status has to quote this stub's OWN address as each
+	// host's baseUrl: the listener exists before Start, so the address is known
+	// before the first request can read it.
+	base := ""
+	srv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/pool-status"):
+			_, _ = w.Write([]byte(`{"hosts":[
+                {"hostId":"42aa","control":"ready","baseUrl":"` + base + `/42aa","status":{"host":"host.ubuntu.kvm"}},
+                {"hostId":"42bb","control":"none","baseUrl":"` + base + `/42bb"}]}`))
+		case r.URL.Path == "/42aa/runtime/host.registration.json":
+			_, _ = w.Write([]byte(`{"hostname":"syzor202607a","hostType":"host.ubuntu.kvm","projectAccess":{"status":"granted"}}`))
+		case r.URL.Path == "/42bb/runtime/host.registration.json":
+			_, _ = w.Write([]byte(`{"hostname":"syzor202607b","hostType":"host.windows.hyper-v"}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	base = "http://" + srv.Listener.Addr().String()
+	srv.Start()
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+// hostsPayload reads /api/hosts through the mux, with or without the bearer, and
+// returns the whole answer plus its rows keyed by host id.
+func hostsPayload(t *testing.T, s *Server, bearer string) (map[string]any, map[string]map[string]any) {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodGet, "/api/hosts", nil)
+	if bearer != "" {
+		req.Header.Set("Authorization", "Bearer "+bearer)
+	}
+	rec := httptest.NewRecorder()
+	s.routes().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /api/hosts = %d: %s", rec.Code, rec.Body.String())
+	}
+	var out map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	rows := map[string]map[string]any{}
+	for _, h := range out["hosts"].([]any) {
+		m := h.(map[string]any)
+		rows[m["hostId"].(string)] = m
+	}
+	return out, rows
+}
+
+// The hostname is the one field on this open read that the pool itself refuses
+// to publish, so it travels only to a request that is through the write gate --
+// and the answer says which kind of read it was, or the page could not tell a
+// withheld name from a host that has never reported one.
+func TestHostsCarryTheHostnameOnlyToAnUnlockedRead(t *testing.T) {
+	const labAuthToken = "shared-lab-auth-token"
+	agg := hostsAggStub(t)
+	s := New(&boardIntent{doc: intentTwoPools}, Options{AggregatorURL: agg.URL, AuthToken: labAuthToken})
+
+	openRead, openRows := hostsPayload(t, s, "")
+	if openRead["hostnamesVisible"] != false {
+		t.Errorf("hostnamesVisible = %v on an uncredentialed read, want false", openRead["hostnamesVisible"])
+	}
+	if got := openRows["42aa"]["hostname"]; got != "" {
+		t.Errorf("hostname = %q on an uncredentialed read, want it withheld", got)
+	}
+	// Withholding the name must not cost the row the rest of that same record.
+	if got := openRows["42aa"]["access"]; got != "granted" {
+		t.Errorf("access = %v, want granted even while the hostname is withheld", got)
+	}
+
+	unlocked, rows := hostsPayload(t, s, labAuthToken)
+	if unlocked["hostnamesVisible"] != true {
+		t.Errorf("hostnamesVisible = %v for an unlocked read, want true", unlocked["hostnamesVisible"])
+	}
+	if got := rows["42aa"]["hostname"]; got != "syzor202607a" {
+		t.Errorf("hostname = %v, want syzor202607a", got)
+	}
+}
+
+// Type is public -- it names a platform, not a machine -- and reaches the page
+// with the "host." prefix already off, from whichever of the two sources could
+// answer for that host.
+func TestHostsTypeDropsThePrefixAndFallsBackToTheHostsOwnRecord(t *testing.T) {
+	agg := hostsAggStub(t)
+	s := New(&boardIntent{doc: intentTwoPools}, Options{AggregatorURL: agg.URL})
+
+	_, rows := hostsPayload(t, s, "")
+	if got := rows["42aa"]["type"]; got != "ubuntu.kvm" {
+		t.Errorf("type = %v from the aggregator's poll, want ubuntu.kvm", got)
+	}
+	// The aggregator could not read 42bb's status, so its own record is the only
+	// thing that names its type -- and a blank column would read as "unknown"
+	// for a host that answered perfectly well.
+	if got := rows["42bb"]["type"]; got != "windows.hyper-v" {
+		t.Errorf("type = %v from the host's own record, want windows.hyper-v", got)
+	}
+	// A member the aggregator has never heard from has no source for either, and
+	// still has to appear: that is the row worth looking at.
+	if _, ok := rows["42zz"]; !ok {
+		t.Error("a member the aggregator has not seen must still be listed")
+	}
+}
+
 // --- the write gate --------------------------------------------------------
 //
 // The gate's own semantics live in the SDK's labgate suite. What is covered here

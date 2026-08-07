@@ -139,9 +139,8 @@ rather than silently running a subset.
 
 `Invoke-TestRunner.ps1` refuses to enter the eternal loop when either of
 two conditions holds. Both are hard stops rather than warnings, because
-the failure mode they guard against is a loop that keeps running and
-keeps producing near-empty cycles — expensive to notice and to diagnose
-after the fact.
+the failure mode they guard against is a loop that keeps producing
+near-empty cycles — expensive to notice and diagnose after the fact.
 
 ### powershell-yaml must be installed
 
@@ -215,6 +214,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.06
+Last review: 2026.08.07
 
 Back to [Yuruna](../README.md)

@@ -38,8 +38,8 @@ which have to be created on the device itself. See
 - **Replication is a cold archive.** It is a one-way **copy** of
   immutable, finished cycle folders — not a live data directory — and the pool
   dashboard reads each host's own HTTP status server, not the NAS. So the
-  replicated `<hostId>/` roots stay a durable backup an operator or a future tool
-  can browse, not a hot path. **The share as a whole is not cold**, though: the
+  replicated `<hostId>/` roots stay a durable, browsable backup, not a hot
+  path. **The share as a whole is not cold**, though: the
   pool services keep their own live subtrees beside the archive — the
   pool-control service its audit log and status, and the download-agent service
   the guest-image **Download pool** it continuously writes, re-verifies and
@@ -82,8 +82,7 @@ never approaches the cap. A big initial catch-up can be hurried with a one-off
 `<poolStorageLocalPath>/<hostId>/<cycle>/`, then a tiny `.yuruna-complete` **sentinel** file
 is written **last**, and only then is the cycle recorded in the ledger. A copy
 interrupted partway leaves no sentinel and no ledger entry, so the next run
-deletes the incomplete folder and recopies it. A partial replica is therefore
-never trusted.
+deletes the incomplete folder and recopies it.
 
 The cycle's identity is its **stable base name** — a folder moves through
 `<base>.incomplete` → `<base>` → `<base>.aborted.<UTC>` over its lifecycle
@@ -522,6 +521,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.06
+Last review: 2026.08.07
 
 Back to [Yuruna](../README.md)

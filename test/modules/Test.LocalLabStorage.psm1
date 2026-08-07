@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.06
+.VERSION 2026.08.07
 .GUID 42b7d3e6-5c81-4a92-b0f4-6d5e8c1a7b23
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -314,15 +314,43 @@ function Get-LocalLabStorageRootFromShare {
     if (-not $shareName) { return '' }
     $shared = Get-LocalLabStorageSharePath -ShareName $shareName -Platform $Platform
     if (-not $shared) { return '' }
+    return (Get-LocalLabStorageShareRoot -SharePath $shared -ShareName $shareName -Platform $Platform)
+}
 
+<#
+.SYNOPSIS
+The parent directory a published share sits in -- the storage root -- or '' when the resolved path is not that share's. Pure + testable.
+.DESCRIPTION
+Split from Get-LocalLabStorageRootFromShare so the rule can be pinned without a
+share table: the OS half is one lookup, and everything that can be WRONG is
+here. Both refusals matter. A resolved directory whose own leaf is not the share
+it was found under belongs to an unrelated share of the same name on a machine
+that was never a lab, and its parent is not a storage root. A share published at
+a filesystem root leaves no parent to be one, and returning '' for that is
+honest where returning the empty prefix would read as "use the default" only by
+accident.
+#>
+function Get-LocalLabStorageShareRoot {
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        # The directory the share resolves to, as the OS share table reports it.
+        [Parameter(Mandatory)][AllowEmptyString()][string]$SharePath,
+        [Parameter(Mandatory)][AllowEmptyString()][string]$ShareName,
+        [Parameter(Mandatory)][ValidateSet('windows', 'macos', 'linux')][string]$Platform
+    )
+    if ([string]::IsNullOrWhiteSpace($SharePath) -or [string]::IsNullOrWhiteSpace($ShareName)) { return '' }
     $sep  = if ($Platform -eq 'windows') { '\' } else { '/' }
-    $trim = $shared.Trim().TrimEnd('\', '/')
-    $leaf = $trim.Split(@('\', '/'), [StringSplitOptions]::RemoveEmptyEntries) | Select-Object -Last 1
-    if ($leaf -ne $shareName) { return '' }
+    $trim = $SharePath.Trim().TrimEnd('\', '/')
+    # [char[]] is required, not decoration. An untyped @('\', '/') binds to the
+    # Split(String, StringSplitOptions) overload instead of the char-array one:
+    # PowerShell flattens the array to the single separator '\ /', which occurs
+    # in no path, so the whole string comes back as one "part". The leaf then
+    # never equals the share name and every machine gets '' -- silently, since ''
+    # is also the honest answer for a share this does not recognize.
+    $leaf = $trim.Split([char[]]@('\', '/'), [StringSplitOptions]::RemoveEmptyEntries) | Select-Object -Last 1
+    if ($leaf -ne $ShareName) { return '' }
     $parent = $trim.Substring(0, $trim.Length - $leaf.Length).TrimEnd('\', '/')
-    # A share published at a filesystem root leaves no parent to be the storage
-    # root; treat that as unresolvable rather than returning an empty string that
-    # would read as "use the default" only by accident.
     if (-not $parent -or $parent -eq $sep) { return '' }
     return $parent
 }
@@ -1143,6 +1171,336 @@ function Set-YurunaHostAlias {
     return $written
 }
 
+# --- REGION: Standing local storage back down
+# A machine that served its own shares and now consumes a lab's has to stop
+# being a storage server, and every step above needs an inverse for that. They
+# are grouped here rather than beside their creators so the destructive half of
+# this module is one region an operator can read end to end before running it.
+#
+# The DATA is never touched by anything in this region. The folders under the
+# storage root hold finished cycle archives, stash artifacts, the lab vault, and
+# the pool-intent repository -- content whose only copy may be there. What comes
+# down is the SERVING configuration: the share definitions, the accounts scoped
+# to them, the loopback exemptions, and the aliases. That split is what makes the
+# teardown safe to run before the operator has decided anything about the bytes.
+
+<#
+.SYNOPSIS
+Returns smb.conf content with the yuruna include line removed, or $null when no such line is present so the caller writes nothing. Pure + idempotent; the inverse of Add-LocalLabStorageSambaInclude.
+.DESCRIPTION
+The comment this module writes above its include is dropped with it, so a
+re-added include does not accumulate a comment per cycle. Matching is on the
+NORMALIZED line (whitespace collapsed) for the same reason the adder is: smb.conf
+is hand-editable and an operator's re-indent must not turn removal into a no-op
+that leaves smbd serving shares the machine no longer has accounts for.
+
+Every other line survives verbatim, including an unrelated `include` -- Samba
+configurations routinely carry more than one, and taking a foreign one down here
+would break whatever wrote it.
+#>
+function Remove-LocalLabStorageSambaInclude {
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+        Justification = 'Pure string transform; returns the new content for the caller to write.')]
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        [Parameter()][AllowNull()][AllowEmptyString()][string]$Content,
+        [Parameter(Mandatory)][string]$IncludePath
+    )
+    $body = "$Content"
+    if ([string]::IsNullOrEmpty($body)) { return $null }
+    $wanted  = "include = $IncludePath"
+    $comment = '# Yuruna local lab storage shares.'
+    $kept    = [System.Collections.Generic.List[string]]::new()
+    $dropped = $false
+    foreach ($line in ($body -split '\r?\n')) {
+        $normalized = ($line -replace '\s+', ' ').Trim()
+        if ($normalized -ieq $wanted) { $dropped = $true; continue }
+        # The comment is only ours when it introduces our include, so it is held
+        # back one line and emitted if the next line turns out to be something
+        # else. An operator who wrote that exact text above their own directive
+        # keeps it.
+        if ($normalized -ieq $comment) { continue }
+        [void]$kept.Add($line)
+    }
+    if (-not $dropped) { return $null }
+    # Trailing blank lines accumulate otherwise: the adder appends "\n\n# ...\n
+    # include ...\n", and removing the two content lines leaves its separator
+    # behind on every add/remove round trip.
+    while ($kept.Count -gt 0 -and [string]::IsNullOrWhiteSpace($kept[$kept.Count - 1])) {
+        $kept.RemoveAt($kept.Count - 1)
+    }
+    if ($kept.Count -eq 0) { return '' }
+    return (($kept -join "`n") + "`n")
+}
+
+<#
+.SYNOPSIS
+Returns a BackConnectionHostNames list with the named aliases removed, or $null when none of them is present so the caller writes nothing. Pure, case-insensitive, order-preserving; the inverse of Merge-LocalLabStorageBackConnectionName.
+.DESCRIPTION
+Entries this module never registered are preserved for the same reason the merge
+preserves them: the value is shared with any other software on the host that
+registered its own alias, and a teardown that emptied the list would break it.
+
+Returning $null rather than the unchanged list is what lets the caller skip the
+registry write AND the Server-service restart that follows it -- a restart drops
+every live SMB session on the machine, which is far too much to spend on a no-op.
+#>
+function Remove-LocalLabStorageBackConnectionName {
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+        Justification = 'Pure list transform; returns the new value for the caller to write, exactly like Merge-LocalLabStorageBackConnectionName.')]
+    [CmdletBinding()]
+    [OutputType([string[]])]
+    param(
+        [Parameter()][AllowNull()][string[]]$Existing,
+        [Parameter(Mandatory)][string[]]$Unwanted
+    )
+    $drop = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+    foreach ($u in $Unwanted) {
+        $v = "$u".Trim()
+        if ($v) { [void]$drop.Add($v) }
+    }
+    $kept    = [System.Collections.Generic.List[string]]::new()
+    $removed = $false
+    foreach ($e in @($Existing)) {
+        $v = "$e".Trim()
+        if (-not $v) { continue }
+        if ($drop.Contains($v)) { $removed = $true; continue }
+        [void]$kept.Add($v)
+    }
+    if (-not $removed) { return $null }
+    return $kept.ToArray()
+}
+
+<#
+.SYNOPSIS
+Withdraws the SMB shares this machine publishes for the named tiers. Returns a hashtable of share name to 'removed', 'absent', or 'whatif'. The shared FOLDERS and their contents are untouched.
+.DESCRIPTION
+Per-platform in the same dialects New-LocalLabStorageShare publishes in, and
+share-by-share on Windows and macOS. Ubuntu instead rewrites the one generated
+include file, because that file IS the share definitions: emptying it and
+reloading smbd withdraws them together, and the include line then comes out of
+smb.conf so a later `testparm` does not warn about a file that is no longer there.
+
+A share the machine does not publish reports 'absent' rather than failing. This
+runs on hosts in every state -- a standalone that never stood storage up, one
+part-way through an earlier teardown, one whose shares an operator already
+removed by hand -- and none of those is a fault.
+#>
+function Remove-LocalLabStorageShare {
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([hashtable])]
+    param([Parameter(Mandatory)][string[]]$ShareName)
+    $result = @{}
+    $names = @($ShareName | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | ForEach-Object { "$_".Trim() })
+    if ($names.Count -eq 0) { return $result }
+
+    if ($IsLinux) {
+        $includePath = '/etc/samba/yuruna.conf'
+        $smbConf     = '/etc/samba/smb.conf'
+        $present     = Test-Path -LiteralPath $includePath
+        if (-not $present) {
+            foreach ($n in $names) { $result[$n] = 'absent' }
+            return $result
+        }
+        if (-not $PSCmdlet.ShouldProcess($includePath, 'Withdraw the yuruna shares and reload smbd')) {
+            foreach ($n in $names) { $result[$n] = 'whatif' }
+            return $result
+        }
+        $null = Invoke-LocalLabStorageNative -FilePath 'sudo' -ArgumentList @('rm', '-f', $includePath) -AllowFailure
+        $current = ''
+        if (Test-Path -LiteralPath $smbConf) { $current = Get-Content -Raw -LiteralPath $smbConf }
+        $updated = Remove-LocalLabStorageSambaInclude -Content $current -IncludePath $includePath
+        if ($null -ne $updated) {
+            # Same temp-file-then-install dance as the adder: a here-string piped
+            # to `sudo tee` would be at the mercy of shell quoting for every path
+            # the operator's own smb.conf carries.
+            $tmp = Join-Path ([System.IO.Path]::GetTempPath()) ("yuruna.smbconf.$PID.$([guid]::NewGuid().ToString('N')).conf")
+            try {
+                [System.IO.File]::WriteAllText($tmp, $updated, [System.Text.UTF8Encoding]::new($false))
+                $null = Invoke-LocalLabStorageNative -FilePath 'sudo' -ArgumentList @('install', '-m', '0644', '-o', 'root', '-g', 'root', $tmp, $smbConf)
+            } finally {
+                Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue
+            }
+        }
+        # Reload rather than stop: smbd may serve shares this module never
+        # defined, and stopping it would take those down too. An operator who
+        # wants the server off does that separately.
+        $null = Invoke-LocalLabStorageNative -FilePath 'sudo' -ArgumentList @('systemctl', 'reload-or-restart', 'smbd') -AllowFailure
+        foreach ($n in $names) { $result[$n] = 'removed' }
+        return $result
+    }
+
+    foreach ($n in $names) {
+        if ($IsWindows) {
+            $existing = Get-SmbShare -Name $n -ErrorAction SilentlyContinue
+            if (-not $existing) { $result[$n] = 'absent'; continue }
+            if (-not $PSCmdlet.ShouldProcess($n, "Withdraw the SMB share (the folder '$($existing.Path)' is kept)")) { $result[$n] = 'whatif'; continue }
+            Remove-SmbShare -Name $n -Force -ErrorAction Stop
+            $result[$n] = 'removed'
+            continue
+        }
+        # macOS.
+        $listed = Invoke-LocalLabStorageNative -FilePath 'sudo' -ArgumentList @('sharing', '-l') -AllowFailure
+        if (-not ($listed.Output -match "(?m)^\s*name:\s*$([regex]::Escape($n))\s*$")) { $result[$n] = 'absent'; continue }
+        if (-not $PSCmdlet.ShouldProcess($n, 'Withdraw the macOS SMB sharepoint (the folder is kept)')) { $result[$n] = 'whatif'; continue }
+        $null = Invoke-LocalLabStorageNative -FilePath 'sudo' -ArgumentList @('sharing', '-r', $n) -AllowFailure
+        $result[$n] = 'removed'
+    }
+    return $result
+}
+
+<#
+.SYNOPSIS
+Deletes a local storage account this module created. Returns 'removed', 'absent', 'whatif', or 'failed'. Cross-platform.
+.DESCRIPTION
+The account is a storage identity with no interactive shell and nothing of its
+own worth keeping -- its password lives in the lab vault and its only grant is a
+share that has just been withdrawn -- so deleting it is the honest end state for
+a machine that no longer serves storage. Leaving it behind is not neutral: the
+NAS this machine now mounts has an account of the SAME name, and a local account
+that shadows it is a credential the operator can spend hours believing is the
+one being rejected.
+
+Deliberately ordered AFTER the share withdrawal by every caller: deleting the
+account a live share is scoped to leaves a share nobody can reach, which reads
+as a broken mount rather than as a finished teardown.
+
+On Ubuntu the Samba passdb entry goes first and separately: `userdel` does not
+know about it, and a passdb entry outliving its Unix account is exactly the state
+`smbpasswd -a` later refuses to repair.
+#>
+function Remove-LocalLabStorageAccount {
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([string])]
+    param([Parameter(Mandatory)][string]$Name)
+    if (-not (Test-LocalLabStorageAccount -Name $Name)) { return 'absent' }
+    if (-not $PSCmdlet.ShouldProcess($Name, 'Delete the local storage account')) { return 'whatif' }
+
+    if ($IsWindows) {
+        try {
+            Remove-LocalUser -Name $Name -ErrorAction Stop
+        } catch {
+            Write-Warning "Could not delete the local account '$Name': $($_.Exception.Message)"
+            return 'failed'
+        }
+        return 'removed'
+    }
+    if ($IsMacOS) {
+        if (Remove-MacLocalAccount -Name $Name -Confirm:$false) { return 'removed' }
+        Write-Warning "Could not delete the local account '$Name'; remove it from System Settings > Users & Groups."
+        return 'failed'
+    }
+    # Ubuntu / Debian.
+    $null = Invoke-LocalLabStorageNative -FilePath 'sudo' -ArgumentList @('smbpasswd', '-x', $Name) -AllowFailure
+    # --remove-home is deliberately NOT passed: the account was created with
+    # --no-create-home, so there is no home to remove, and asking for one on a
+    # system account whose home was defaulted to an existing directory is how a
+    # userdel takes a real directory with it.
+    $del = Invoke-LocalLabStorageNative -FilePath 'sudo' -ArgumentList @('userdel', $Name) -AllowFailure
+    if (Test-LocalLabStorageAccount -Name $Name) {
+        Write-Warning "Could not delete the local account '$Name' (userdel exited $($del.ExitCode)): $($del.Output)"
+        return 'failed'
+    }
+    return 'removed'
+}
+
+<#
+.SYNOPSIS
+Withdraws the Windows loopback-check exemptions registered for the storage server aliases. Returns 'present' (nothing of ours was registered), 'updated', 'whatif', or 'skipped'. No-op off Windows.
+.DESCRIPTION
+The exemption tells LSA to accept NTLM to this machine under a name that is not
+its own, which is only ever correct while the machine serves the share behind
+that name. Once it does not, the entry is a standing weakening of the loopback
+check for a name that now belongs to another server -- so it comes out with the
+share.
+
+The Server service is restarted for the same reason Set-LocalLabStorageLoopbackException
+restarts it: LSA reads the value at service start. Only when something actually
+changed, because that restart drops every live SMB session on the machine.
+#>
+function Remove-LocalLabStorageLoopbackException {
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([string])]
+    param([Parameter(Mandatory)][string[]]$Name)
+    if (-not $IsWindows) { return 'skipped' }
+    $key = 'HKLM:\SYSTEM\CurrentControlSet\Control\Lsa\MSV1_0'
+    $existing = @()
+    try {
+        $existing = @((Get-ItemProperty -Path $key -Name 'BackConnectionHostNames' -ErrorAction Stop).BackConnectionHostNames)
+    } catch {
+        Write-Verbose "BackConnectionHostNames is not set: $($_.Exception.Message)"
+        return 'present'
+    }
+    $kept = Remove-LocalLabStorageBackConnectionName -Existing $existing -Unwanted $Name
+    if ($null -eq $kept) { return 'present' }
+    if (-not $PSCmdlet.ShouldProcess("$key\BackConnectionHostNames", "Remove $($Name -join ', ')")) { return 'whatif' }
+    if ($kept.Count -eq 0) {
+        # An empty MultiString and an absent value are not the same to LSA on
+        # every build; removing the value is the state the machine was in before
+        # this module ever ran, so that is what a full teardown restores.
+        Remove-ItemProperty -Path $key -Name 'BackConnectionHostNames' -Force -ErrorAction SilentlyContinue
+    } else {
+        New-ItemProperty -Path $key -Name 'BackConnectionHostNames' -Value $kept -PropertyType MultiString -Force -ErrorAction Stop | Out-Null
+    }
+    try {
+        Restart-Service -Name 'LanmanServer' -Force -ErrorAction Stop
+    } catch {
+        Write-Warning "Withdrew the loopback exemption but could not restart the Server service ($($_.Exception.Message)). It applies at the next reboot."
+    }
+    return 'updated'
+}
+
+<#
+.SYNOPSIS
+Reports what a storage folder holds and how much disk it occupies, for an operator deciding whether to delete it. Returns Path, Exists, FileCount, and Bytes; never throws.
+.DESCRIPTION
+The number is the whole point of this function: "delete the storage root" is a
+decision nobody can make from a path alone, and a teardown that prints the
+command without the size is asking the operator to guess whether it is worth
+running.
+
+Unreadable subtrees are counted as far as they can be walked rather than
+failing the report. A partial number with the folder named beats no number: the
+operator is choosing between "reclaim this" and "leave it", and either answer is
+better informed by a floor on the size than by an error.
+#>
+function Get-LocalLabStorageFolderReport {
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param([Parameter(Mandatory)][AllowEmptyString()][string]$Path)
+    $report = [pscustomobject]@{ Path = $Path; Exists = $false; FileCount = 0; Bytes = [long]0 }
+    if ([string]::IsNullOrWhiteSpace($Path) -or -not (Test-Path -LiteralPath $Path)) { return $report }
+    $report.Exists = $true
+    try {
+        $files = @(Get-ChildItem -LiteralPath $Path -Recurse -File -Force -ErrorAction SilentlyContinue)
+        $report.FileCount = $files.Count
+        $sum = [long]0
+        foreach ($f in $files) { $sum += [long]$f.Length }
+        $report.Bytes = $sum
+    } catch {
+        Write-Verbose "Get-LocalLabStorageFolderReport($Path): $($_.Exception.Message)"
+    }
+    return $report
+}
+
+<#
+.SYNOPSIS
+Formats a byte count the way an operator reads a disk figure. Pure.
+#>
+function Format-LocalLabStorageSize {
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([Parameter(Mandatory)][long]$Bytes)
+    if ($Bytes -lt 1KB) { return "$Bytes B" }
+    foreach ($unit in @(
+            @{ Name = 'TB'; Scale = 1TB }, @{ Name = 'GB'; Scale = 1GB },
+            @{ Name = 'MB'; Scale = 1MB }, @{ Name = 'KB'; Scale = 1KB })) {
+        if ($Bytes -ge $unit.Scale) { return ('{0:N1} {1}' -f ($Bytes / $unit.Scale), $unit.Name) }
+    }
+    return "$Bytes B"
+}
+
 <#
 .SYNOPSIS
 Writes the six networkStorage keys (pool and stash) for the supplied tiers into test.config.yml, preserving every other setting. Optionally turns pool replication on. Returns $true when the file was written.
@@ -1203,11 +1561,15 @@ Export-ModuleMember -Function `
     Get-LocalLabStorageSmbAuthVerdict, Test-LocalLabStorageSmbAuth, `
     Get-LocalLabStoragePlatform, Select-LocalLabStorageDataDrive, Get-LocalLabStorageWindowsDataDrive, `
     Get-LocalLabStorageDefaultRoot, Get-LocalLabStorageSharePath, Get-LocalLabStorageRootFromShare, `
+    Get-LocalLabStorageShareRoot, `
     Get-LocalLabStorageShareName, Get-LocalLabStorageServedPath, Test-LocalLabStorageTierStoodUp, `
     New-LocalLabStorageTier, Get-LocalLabStorageSambaConfig, `
     Add-LocalLabStorageSambaInclude, Merge-LocalLabStorageBackConnectionName, `
     Test-LocalLabStorageAccount, Set-LocalLabStorageAccount, Reset-LocalLabStorageAccount, Enable-LocalLabStorageServer, `
     Set-LocalLabStorageFolderAccess, New-LocalLabStorageShare, Set-LocalLabStorageLoopbackException, `
-    Set-LocalLabStorageLinkedConnection, Set-LocalLabStorageHostAlias, Set-YurunaHostAlias, Set-LocalLabStorageConfigValue
+    Set-LocalLabStorageLinkedConnection, Set-LocalLabStorageHostAlias, Set-YurunaHostAlias, Set-LocalLabStorageConfigValue, `
+    Remove-LocalLabStorageSambaInclude, Remove-LocalLabStorageBackConnectionName, Remove-LocalLabStorageShare, `
+    Remove-LocalLabStorageAccount, Remove-LocalLabStorageLoopbackException, `
+    Get-LocalLabStorageFolderReport, Format-LocalLabStorageSize
 
 # Copyright (c) 2019-2026 by Alisson Sol et al.

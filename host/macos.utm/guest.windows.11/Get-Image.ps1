@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.06
+.VERSION 2026.08.07
 .GUID 42b9c0d1-e2f3-4a56-b789-0c1d2e3f4a57
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -177,11 +177,22 @@ if (-not $windowsOk) {
         if ($fidoActual -ine $fidoSha256) {
             throw "Fido.ps1 hash mismatch (pinned v1.70): expected $fidoSha256, got $fidoActual"
         }
+        # Fido refuses to run anywhere but Windows: Get-Platform-Version answers
+        # 0.0 off Windows and the command-line path exits 403 ("This feature is
+        # not available on this platform.") before making any request. The
+        # -GetUrl flow behind that gate is platform-neutral, so neuter the gate
+        # -- AFTER the hash check, so only the verified pinned bytes are ever
+        # patched. Without this the automated path can never work on macOS.
+        $fidoText = Get-Content -LiteralPath $fidoScript -Raw
+        Set-Content -LiteralPath $fidoScript -NoNewline `
+            -Value $fidoText.Replace('$winver = Get-Platform-Version', '$winver = 10.0')
         Write-Output "  Done."
 
         Write-Output "[Step 2/3] Retrieving Windows 11 ARM64 ISO download URL..."
         Write-Output "  Language: $languageFilter | Architecture: arm64"
-        $downloadUrl = & $fidoScript -Win 11 -Lang $languageFilter -Arch arm64 -GetUrl
+        # -PlatformArch skips Fido's CPU autodetection, which uses Get-CimInstance
+        # (WMI) -- a Windows-only cmdlet that fails under macOS/Linux pwsh.
+        $downloadUrl = & $fidoScript -Win 11 -Lang $languageFilter -Arch arm64 -PlatformArch arm64 -GetUrl
 
         if (-not $downloadUrl) {
             throw "Fido did not return a download URL."

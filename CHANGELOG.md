@@ -4,6 +4,25 @@ Yuruna uses [Calendar Versioning](https://calver.org/): `YYYY.MM.DD`.
 Tags are cut from the `main` branch; entries below summarize each
 tagged release.
 
+## 2026.08.07
+
+- **Converting a standalone machine into a pool worker.** New
+  `test/Convert-ToPoolWorker.ps1` syncs the lab's configuration, then retires
+  the four local service VMs that would otherwise keep winning over the lab's,
+  drops their hosts-file aliases, and verifies the end state. `-WhatIf`
+  previews.
+
+- **Pool Control is the only place hostnames appear.** Its Hosts table gains
+  sortable **Hostname** and **Type** columns, read from each host's own record
+  — the aggregator stays deliberately hostname-free. **Show hostnames** takes
+  the Lab token. Re-run `test/Start-PoolControlServiceVM.ps1`.
+
+- **Also in this release.** Shared cycle results now travel as a `.zip`. The
+  host dump page becomes **Diagnostics** (`host.html` → `diagnostics.html`). A
+  converting host no longer keeps self-minted passwords. New
+  `test/Clear-LocalLabStorage.ps1` withdraws a former storage server's shares,
+  deleting no data.
+
 ## 2026.08.06
 
 - **Share cycle results.** New menu option from the Yuruna hosts dashboard
@@ -11,9 +30,7 @@ tagged release.
 
 - **Also in this release.** Style fixes across service pages. Reduced
   memory for VMs in standalone mode. The cache VM's zot registry moves to
-  v2.1.20. The handler contract folded into
-  [test-sequences.md](docs/test-sequences.md#handler-contract), so the
-  sequence reference and the contract behind it are one document.
+  v2.1.20.
 
 ## 2026.08.05
 
@@ -363,6 +380,6 @@ LICENSEURI <https://yuruna.link/license>
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.06
+Last review: 2026.08.07
 
 Back to [Yuruna](README.md)

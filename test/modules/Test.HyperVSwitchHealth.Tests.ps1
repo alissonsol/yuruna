@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.06
+.VERSION 2026.08.07
 .GUID 42646cc9-f27d-42cf-9882-9c56c352de85
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -136,8 +136,21 @@ function Get-AdapterRecord {
 # Hyper-V's own answer to "is a management-OS vNIC present on this switch",
 # which is what the classifier asks instead of matching an adapter alias.
 function Get-ManagementVnicRecord {
-    param([string]$SwitchName = 'Yuruna-External', [string]$Mac = '')
-    return [pscustomobject]@{ IsManagementOs = $true; SwitchName = $SwitchName; MacAddress = $Mac }
+    param([string]$SwitchName = 'Yuruna-External', [string]$Mac = '', [string]$Name)
+    $record = [ordered]@{ IsManagementOs = $true; SwitchName = $SwitchName; MacAddress = $Mac }
+    # Added only when named, so the unnamed shape -- which drives the
+    # disambiguation off the switch name alone -- stays the default coverage.
+    if ($PSBoundParameters.ContainsKey('Name')) { $record['Name'] = $Name }
+    return [pscustomobject]$record
+}
+
+function Invoke-SwitchRepairable {
+    param([string]$SwitchName = 'Yuruna-External', [string]$Verdict)
+    $mod = Get-Module Yuruna.Host
+    & $mod {
+        param($n, $v)
+        Test-YurunaSwitchRepairable -SwitchName $n -Verdict $v
+    } $SwitchName $Verdict
 }
 
 function Get-HostIpRecord {
@@ -289,6 +302,128 @@ Describe 'hyper-v-uplink-classifier: verdict ladder' {
             -AdapterRecord @($bare.Nic, $vnic, $veth) `
             -HostIpRecord @(Get-HostIpRecord -Address '192.168.7.69' -Alias 'vEthernet (Yuruna-External)' -Index 40)
         Assert-Equal -Expected 'healthy' -Actual $verdict
+    }
+}
+
+# A management vNIC clones the MAC of the NIC its switch bridges, so on a host
+# where more than one External switch has ever used that NIC the MAC is not a
+# unique key: it names the bridged NIC itself plus one leftover vEthernet per
+# switch since deleted or demoted to Internal. Every shape below is one MAC
+# answered by several adapters, and the classifier has to pick the switch's own
+# or decline -- picking a leftover is what makes a working bridge report a fault
+# for as long as the leftover exists, which is the expensive direction to be
+# wrong in.
+Describe 'hyper-v-uplink-classifier: management vNIC MAC is not unique' {
+
+    # Incident fingerprint (c): the switch is bridged and addressed, while a
+    # leftover vEthernet from a switch that once held the same NIC carries the
+    # same cloned MAC and sits at APIPA. Reading the leftover's addresses
+    # reports the working bridge as unaddressed indefinitely -- nothing ages a
+    # leftover adapter out, so the wrong verdict never self-clears.
+    It 'stays healthy when a leftover vEthernet shares the MAC and holds only APIPA' {
+        $bare     = Get-BareNicSet
+        $vnic     = Get-ManagementVnicRecord -Mac 'A4BB6D5B856F'
+        $leftover = Get-AdapterRecord -Alias 'vEthernet (External)' -Description 'Hyper-V Virtual Ethernet Adapter #2' -Status 'Disconnected' -Mac 'A4-BB-6D-5B-85-6F' -Index 21
+        $live     = Get-AdapterRecord -Alias 'vEthernet (Yuruna-External)' -Description 'Hyper-V Virtual Ethernet Adapter #4' -Mac 'A4-BB-6D-5B-85-6F' -Index 20
+        # Leftover FIRST: Get-NetAdapter orders by neither index nor name, so an
+        # enumeration that yields it ahead of the live adapter must not decide.
+        $verdict = Invoke-UplinkVerdict -SwitchName 'Yuruna-External' `
+            -SwitchRecord (Get-SwitchRecord) `
+            -AdapterRecord @($bare.Nic, $vnic, $leftover, $live) `
+            -HostIpRecord @(
+                (Get-HostIpRecord -Address '169.254.98.144' -Alias 'vEthernet (External)' -Index 21),
+                (Get-HostIpRecord -Address '192.168.7.13'   -Alias 'vEthernet (Yuruna-External)' -Index 20))
+        Assert-Equal -Expected 'healthy' -Actual $verdict 'a leftover adapter sharing the cloned MAC must not answer for the switch that is actually bridged'
+    }
+
+    # The mirror control: the same collision, but the switch's OWN vNIC is the
+    # one with no usable address. Disambiguating must not make the classifier
+    # blind to the fault it exists to catch.
+    It 'still reports management-os-unaddressed when the switch own vNIC is the APIPA one' {
+        $bare     = Get-BareNicSet
+        $vnic     = Get-ManagementVnicRecord -Mac 'A4BB6D5B856F'
+        $leftover = Get-AdapterRecord -Alias 'vEthernet (External)' -Description 'Hyper-V Virtual Ethernet Adapter #2' -Mac 'A4-BB-6D-5B-85-6F' -Index 21
+        $live     = Get-AdapterRecord -Alias 'vEthernet (Yuruna-External)' -Description 'Hyper-V Virtual Ethernet Adapter #4' -Mac 'A4-BB-6D-5B-85-6F' -Index 20
+        $verdict = Invoke-UplinkVerdict -SwitchName 'Yuruna-External' `
+            -SwitchRecord (Get-SwitchRecord) `
+            -AdapterRecord @($bare.Nic, $vnic, $leftover, $live) `
+            -HostIpRecord @(
+                (Get-HostIpRecord -Address '192.168.7.13'  -Alias 'vEthernet (External)' -Index 21),
+                (Get-HostIpRecord -Address '169.254.11.22' -Alias 'vEthernet (Yuruna-External)' -Index 20))
+        Assert-Equal -Expected 'management-os-unaddressed' -Actual $verdict 'an address on a leftover is not the switch own leg, so the fault must still be reported'
+    }
+
+    # A renamed vNIC keeps its own alias, which is why the vNIC name is consulted
+    # alongside the switch name rather than the switch name alone.
+    It 'resolves a renamed management vNIC by its own alias when the MAC is shared' {
+        $bare     = Get-BareNicSet
+        $vnic     = Get-ManagementVnicRecord -Mac 'A4BB6D5B856F' -Name 'LAN-uplink'
+        $leftover = Get-AdapterRecord -Alias 'vEthernet (External)' -Description 'Hyper-V Virtual Ethernet Adapter #2' -Status 'Disconnected' -Mac 'A4-BB-6D-5B-85-6F' -Index 21
+        $renamed  = Get-AdapterRecord -Alias 'vEthernet (LAN-uplink)' -Description 'Hyper-V Virtual Ethernet Adapter #4' -Mac 'A4-BB-6D-5B-85-6F' -Index 20
+        $verdict = Invoke-UplinkVerdict -SwitchName 'Yuruna-External' `
+            -SwitchRecord (Get-SwitchRecord) `
+            -AdapterRecord @($bare.Nic, $vnic, $leftover, $renamed) `
+            -HostIpRecord @(
+                (Get-HostIpRecord -Address '169.254.98.144' -Alias 'vEthernet (External)' -Index 21),
+                (Get-HostIpRecord -Address '192.168.7.13'   -Alias 'vEthernet (LAN-uplink)' -Index 20))
+        Assert-Equal -Expected 'healthy' -Actual $verdict 'a renamed vNIC is still the switch own leg and its address counts'
+    }
+
+    # Neither candidate carries an alias that names this switch or its vNIC, so
+    # nothing distinguishes them. Fail open: picking one is right half the time,
+    # and being wrong toward unhealthy demotes the whole host to NAT.
+    It 'reports unknown when the shared MAC cannot be resolved to one adapter' {
+        $bare = Get-BareNicSet
+        $vnic = Get-ManagementVnicRecord -Mac 'A4BB6D5B856F'
+        $one  = Get-AdapterRecord -Alias 'vEthernet (External)'  -Description 'Hyper-V Virtual Ethernet Adapter #2' -Mac 'A4-BB-6D-5B-85-6F' -Index 21
+        $two  = Get-AdapterRecord -Alias 'vEthernet (External 2)' -Description 'Hyper-V Virtual Ethernet Adapter #4' -Mac 'A4-BB-6D-5B-85-6F' -Index 20
+        $verdict = Invoke-UplinkVerdict -SwitchName 'Yuruna-External' `
+            -SwitchRecord (Get-SwitchRecord) `
+            -AdapterRecord @($bare.Nic, $vnic, $one, $two) `
+            -HostIpRecord @(Get-HostIpRecord -Address '169.254.98.144' -Alias 'vEthernet (External)' -Index 21)
+        Assert-Equal -Expected 'unknown' -Actual $verdict 'an unresolvable mapping must fail open rather than guess an adapter'
+    }
+
+    # The bare NIC the switch bridges carries the clone too, and it is the one
+    # adapter that must never answer: on a bridge that has lost its host leg the
+    # host address sits exactly there, so counting it reports the broken case as
+    # healthy.
+    It 'never resolves the management vNIC onto the bridged physical NIC' {
+        $shared = Get-AdapterRecord -Alias 'Ethernet' -Description 'Intel(R) Ethernet Connection I219-LM' -Status 'Up' -Mac 'A4-BB-6D-5B-85-6F' -Index 12
+        $vnic   = Get-ManagementVnicRecord -Mac 'A4BB6D5B856F'
+        $veth   = Get-AdapterRecord -Alias 'vEthernet (Yuruna-External)' -Description 'Hyper-V Virtual Ethernet Adapter' -Mac 'A4-BB-6D-5B-85-6F' -Index 40
+        $verdict = Invoke-UplinkVerdict -SwitchName 'Yuruna-External' `
+            -SwitchRecord (Get-SwitchRecord) `
+            -AdapterRecord @($shared, $vnic, $veth) `
+            -HostIpRecord @(Get-HostIpRecord -Address '192.168.7.69' -Alias 'Ethernet' -Index 12)
+        Assert-Equal -Expected 'management-os-unaddressed' -Actual $verdict 'an address on the bridged NIC is not the management vNIC own address'
+    }
+}
+
+# Which remedy a verdict earns, and which earns none. Every case here returns
+# before the function touches a live cmdlet, so the suite runs anywhere.
+Describe 'hyper-v-uplink-classifier: repair eligibility by verdict' {
+
+    It 'offers a DHCP renew for an unaddressed management vNIC' {
+        $r = Invoke-SwitchRepairable -Verdict 'management-os-unaddressed'
+        Assert-True $r.Repairable 'an intact bridge missing only its host lease is repairable'
+        Assert-Equal -Expected 'renew-dhcp' -Actual $r.Remedy 'the binding is already correct, so rebinding is the wrong tool'
+    }
+
+    # Mechanically fixable by the same cmdlet that rebinds, and deliberately not
+    # offered: re-adding a management vNIC is the operation most likely to leave
+    # the host with no address at all when DHCP does not come back.
+    It 'offers nothing for a detached management vNIC' {
+        $r = Invoke-SwitchRepairable -Verdict 'management-os-detached'
+        Assert-True (-not $r.Repairable) 'restoring a management vNIC stays an operator decision'
+        Assert-Equal -Expected 'none' -Actual $r.Remedy
+    }
+
+    It 'offers nothing for a switch that is already usable' {
+        foreach ($verdict in @('healthy', 'unknown')) {
+            $r = Invoke-SwitchRepairable -Verdict $verdict
+            Assert-True (-not $r.Repairable) "verdict '$verdict' is usable and must not be repaired"
+        }
     }
 }
 

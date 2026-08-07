@@ -147,6 +147,12 @@
   // racing past the exchange into a lab-token prompt it did not need.
   const proofUnlock = unlockFromProof();
 
+  // Y.ready resolves once that exchange has settled, for a page whose READ
+  // depends on the session (a field served only to an unlocked request). Such a
+  // page must not fetch before the proof has been spent, or its first paint
+  // says "locked" to an operator who arrived holding the credential.
+  Y.ready = function () { return proofUnlock; };
+
   // Y.mutate is Y.api for a request that CHANGES pool configuration: on a gate
   // refusal it prompts for the lab token and, if the unlock lands, sends the
   // same request again. Every mutating call site goes through it, so no page

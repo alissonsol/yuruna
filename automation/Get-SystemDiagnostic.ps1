@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.06
+.VERSION 2026.08.07
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456720
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -505,13 +505,34 @@ function Write-VirtualSwitchFingerprint {
         # Same reason the address is resolved by MAC: the vNIC's alias is not a
         # reliable key. The alias lookup stays as a fallback for the case where
         # no MAC matches at all.
+        #
+        # A management vNIC CLONES the MAC of the NIC its switch bridges, so
+        # that one MAC is never unique to it. Two consequences, and the two
+        # narrowings below exist one per consequence:
+        #   * the bridged NIC itself answers the MAC match. Counting the
+        #     address sitting on the bare NIC as the vNIC's is exactly the
+        #     reading that makes a bridge which has LOST its host leg look
+        #     healthy -- so only Hyper-V vEthernet adapters are considered.
+        #   * every leftover vEthernet from a switch that once bridged the same
+        #     NIC answers too, and a leftover parked at APIPA makes a WORKING
+        #     bridge look unaddressed -- so several matches are narrowed by
+        #     alias, and a set that alias cannot single out resolves to no
+        #     adapter, which the ladder below reads as 'unknown'.
         $mgmtIps = @()
         $mgmtAddrOk = $false
+        $mgmtSharedMac = @()
         if ($mgmt.Count -gt 0 -and (Test-CommandAvailable 'Get-NetAdapter') -and (Test-CommandAvailable 'Get-NetIPAddress')) {
             try {
                 $macs = @($mgmt | ForEach-Object { ([string]$_.MacAddress) -replace '[^0-9A-Fa-f]', '' } | Where-Object { $_ })
-                $hostNics = @(Get-NetAdapter -ErrorAction Stop |
-                    Where-Object { $macs -contains (([string]$_.MacAddress) -replace '[^0-9A-Fa-f]', '') })
+                $hostNics = @(Get-NetAdapter -ErrorAction Stop | Where-Object {
+                    ($macs -contains (([string]$_.MacAddress) -replace '[^0-9A-Fa-f]', '')) -and
+                    ([string]$_.InterfaceDescription -match 'Hyper-V Virtual Ethernet') })
+                if ($hostNics.Count -gt 1) {
+                    $mgmtSharedMac = @($hostNics | ForEach-Object { [string]$_.InterfaceAlias })
+                    $aliases = @("vEthernet ({0})" -f $switchName) +
+                        @($mgmt | ForEach-Object { "vEthernet ({0})" -f ([string]$_.Name) })
+                    $hostNics = @($hostNics | Where-Object { $aliases -contains ([string]$_.InterfaceAlias) })
+                }
                 if ($hostNics.Count -eq 0) {
                     $hostNics = @(Get-NetAdapter -Name ("vEthernet ({0})" -f $switchName) -ErrorAction SilentlyContinue)
                 }
@@ -532,6 +553,14 @@ function Write-VirtualSwitchFingerprint {
         } else {
             $ipText = if ($mgmtIps.Count -gt 0) { $mgmtIps -join ', ' } elseif ($mgmtAddrOk) { '(none usable)' } else { '(not evaluable)' }
             Write-Output ("    management-OS vNIC: present ({0}) ipv4={1}" -f (($mgmt | ForEach-Object { [string]$_.Name }) -join ', '), $ipText)
+            # Not a fault -- the clone is how Hyper-V builds a management vNIC.
+            # It is reported because it is the one host shape where a leftover
+            # adapter can answer for the live one, and an operator reading a
+            # surprising verdict needs to see the candidates that were weighed.
+            if ($mgmtSharedMac.Count -gt 1) {
+                Write-Output ("    shared management MAC on: {0}" -f ($mgmtSharedMac -join ', '))
+                Write-Output "      leftovers from a switch that once bridged the same NIC; the live one is picked by alias"
+            }
         }
 
         # The ladder below must land on the same word as the Hyper-V driver's own
@@ -1089,6 +1118,7 @@ try {
             'ports.ubuntu.com',
             'archive.ubuntu.com',
             'registry.k8s.io',
+            'mirror.gcr.io',
             'ghcr.io',
             'pkg.dev',
             'github.com',
@@ -1427,6 +1457,158 @@ try {
             if ($plainSlow.Count -gt 0) {
                 Add-Problem ("NETWORK: package-mirror fetch over {0} answered but took over {1}s for {2}/{3} origin(s): {4} -- apt blocks on these fetches, so a slow origin exhausts a step's timeout the same way an unreachable one does." -f `
                     $plainPathLabel, [int]($plainSlowMs / 1000), $plainSlow.Count, $plainTargets.Count, ($plainSlow -join ', '))
+            }
+        }
+
+        # --- REGION: https://yuruna.link/system-diagnostic#container-registry-route
+        # The OCI counterpart of the package-mirror probe above, and for the same
+        # reason: image pulls leave through a different door than apt does, and a
+        # cache can be perfectly healthy on one while unusable on the other.
+        #
+        # What makes this worth its own probe is that the obvious check is blind
+        # here. GET /v2/ is answered out of the registry's own process and comes
+        # back in single-digit milliseconds no matter how badly the pull-through
+        # behind it is stalled; a MANIFEST request is what re-runs the upstream
+        # sync, so it is the only request shaped like the pull it stands in for.
+        # A tag, not a digest: digests are immutable and answered locally, which
+        # is exactly why they stay fast through an outage.
+        #
+        # The cap is deliberately below the patience a container runtime shows.
+        # This capture runs inside a per-command SSH budget during an incident,
+        # so it answers "did the cache answer promptly" and leaves the magnitude
+        # of a stall to the cache's own canary, which has no such constraint.
+        Write-Sub "Container-registry route (OCI pull-through cache)"
+        $cacheHost = $null
+        if ($plainProxyUrl) {
+            try { $cacheHost = ([Uri]$plainProxyUrl).Host } catch { $null = $_ }
+        }
+        if (-not $cacheHost) {
+            Write-Output 'No http_proxy in env, so there is no cache host to derive -- guests take the registry route from that same variable. Nothing probed.'
+        } else {
+            $registryBase   = "http://${cacheHost}:5000"
+            $canaryRepo     = 'library/registry'
+            $canaryTag      = '2'
+            # A registry answers a manifest request that states no preference
+            # with whatever it considers the default, which for a multi-arch tag
+            # is not the index a pull resolves.
+            $canaryAccept   = 'application/vnd.oci.image.index.v1+json, application/vnd.oci.image.manifest.v1+json, application/vnd.docker.distribution.manifest.list.v2+json, application/vnd.docker.distribution.manifest.v2+json'
+            $registryCapSec = 15
+            # Well under the cap: a warm cache answers in well under a second, so
+            # seconds already means the upstream leg is being walked.
+            $registrySlowMs = 3000
+
+            # -NoProxy on both: the runtime pulls straight at the cache, so a
+            # probe routed through the proxy would time a path no pull takes --
+            # and the proxy refuses CONNECT to this port anyway, which would read
+            # as a dead cache.
+            $livenessMs = $null
+            $sw = [System.Diagnostics.Stopwatch]::StartNew()
+            try {
+                $null = Invoke-WebRequest -Uri "$registryBase/v2/" -UseBasicParsing -NoProxy `
+                    -TimeoutSec 10 -ErrorAction Stop
+                $sw.Stop()
+                $livenessMs = $sw.ElapsedMilliseconds
+                Write-Output ("  {0,-52} HTTP 200 in {1} ms" -f "$registryBase/v2/", $livenessMs)
+            } catch {
+                $sw.Stop()
+                Write-Output ("  {0,-52} FAILED after {1} ms: {2}" -f "$registryBase/v2/", $sw.ElapsedMilliseconds, $_.Exception.Message)
+                Add-Problem ("REGISTRY: the pull-through cache at {0} did not answer /v2/ -- guests pull only from it, so every image pull on this machine fails until it is back." -f $registryBase)
+            }
+
+            # Prefer the cache's own published reading over measuring here, and
+            # not to save a few seconds: a manifest request walks the upstream
+            # sync, which spends one pull from a per-egress-IP budget the whole
+            # lab shares and exhausts routinely. This capture runs several times
+            # per cycle per machine, so measuring directly every time would make
+            # the diagnostic a meaningful consumer of the very resource whose
+            # exhaustion it exists to detect. The cache probes itself on a
+            # cadence that budgets for it and publishes the result; reading that
+            # costs nothing. Its timestamp is printed with it, because a reading
+            # minutes old is still evidence but is not a live one.
+            $healthUrl  = "http://${cacheHost}/cache-health"
+            $healthText = $null
+            try {
+                # -SkipHttpErrorCheck because "no health page" is the EXPECTED
+                # answer from a cache that predates one, and letting a 404 raise
+                # would spill the server's error-page HTML and a terminating-error
+                # record into a capture whose whole value is being readable.
+                $healthResp = Invoke-WebRequest -Uri $healthUrl -UseBasicParsing -NoProxy `
+                    -SkipHttpErrorCheck -TimeoutSec 5 -ErrorAction Stop
+                if ([int]$healthResp.StatusCode -eq 200) { $healthText = [string]$healthResp.Content }
+            } catch { $null = $_ }
+
+            if ($healthText) {
+                Write-Output "  --- $healthUrl (published by the cache) ---"
+                foreach ($line in ($healthText -split "`r?`n")) { Write-Output "    $line" }
+
+                # A stall reads as a slow SUCCESS everywhere else in the stack,
+                # so the number has to be lifted into the problems summary or a
+                # reader has no reason to look at it.
+                if ($healthText -match 'NO ANSWER within\s+(\d+)s') {
+                    Add-Problem ("REGISTRY: the cache reports its own manifest probe getting NO ANSWER within {0}s while /v2/ liveness stays healthy. Image pulls resolve a manifest first, so they fail here even though every reachability check passes." -f $Matches[1])
+                } elseif ($healthText -match 'zot manifest\s+\S+\s*:\s*HTTP\s+(\d+)\s+in\s+([0-9.]+)s') {
+                    $reportedCode = $Matches[1]
+                    $reportedSec  = [double]$Matches[2]
+                    if ($reportedCode -ne '200' -or $reportedSec -ge ($registrySlowMs / 1000)) {
+                        Add-Problem ("REGISTRY: the cache reports its own manifest probe answering HTTP {0} in {1}s. A container runtime abandons a pull whose response headers have not arrived in roughly 30s, so a cache in this state fails pulls while passing every liveness check." -f `
+                            $reportedCode, $reportedSec)
+                    }
+                }
+                if ($healthText -match 'Docker Hub budget[^:]*:\s*(\d+)\s+of\s+(\d+)\s+left') {
+                    $budgetLeft = [int]$Matches[1]
+                    if ($budgetLeft -le 0) {
+                        Add-Problem ("REGISTRY: the shared upstream pull budget is exhausted (0 of {0}). Every guest behind this egress IP draws on it, and the pull-through retries upstream before answering, so exhaustion surfaces to a guest as a cache that stopped answering in time rather than as a rate-limit error." -f $Matches[2])
+                    }
+                }
+            } else {
+                Write-Output "  (cache publishes no health page at $healthUrl -- measuring the manifest path directly)"
+                $canaryUrl = "$registryBase/v2/$canaryRepo/manifests/$canaryTag"
+                $sw = [System.Diagnostics.Stopwatch]::StartNew()
+                try {
+                    $null = Invoke-WebRequest -Uri $canaryUrl -Method Head -UseBasicParsing -NoProxy `
+                        -Headers @{ Accept = $canaryAccept } -TimeoutSec $registryCapSec -ErrorAction Stop
+                    $sw.Stop()
+                    $slowNote = if ($sw.ElapsedMilliseconds -ge $registrySlowMs) { '  <-- SLOW' } else { '' }
+                    Write-Output ("  {0,-52} HTTP 200 in {1} ms{2}" -f "manifest $canaryRepo`:$canaryTag", $sw.ElapsedMilliseconds, $slowNote)
+                    if ($sw.ElapsedMilliseconds -ge $registrySlowMs) {
+                        Add-Problem ("REGISTRY: the cache answered a manifest request in {0} ms (liveness {1} ms). A container runtime gives up on a pull whose response headers have not arrived in roughly 30s, so a cache in this state fails pulls while passing every liveness check." -f `
+                            $sw.ElapsedMilliseconds, $(if ($null -ne $livenessMs) { $livenessMs } else { 'n/a' }))
+                    }
+                } catch {
+                    $sw.Stop()
+                    Write-Output ("  {0,-52} FAILED after {1} ms (cap {2}s): {3}" -f "manifest $canaryRepo`:$canaryTag", $sw.ElapsedMilliseconds, $registryCapSec, $_.Exception.Message)
+                    Add-Problem ("REGISTRY: the cache did not serve a manifest within {0}s while /v2/ liveness was {1}. Image pulls resolve manifests first, so they fail here even though the registry is reachable." -f `
+                        $registryCapSec, $(if ($null -ne $livenessMs) { "healthy at $livenessMs ms" } else { 'also failing' }))
+                }
+            }
+
+            # Where pulls are POINTED, next to whether that target works. Read
+            # from the machine rather than inferred from what provisioning
+            # intended to write: a daemon that never reloaded, or a drop-in that
+            # routes registry traffic through the proxy, looks identical from the
+            # outside and changes the meaning of every timing above.
+            $registryConfigFiles = @()
+            foreach ($p in '/etc/docker/daemon.json') {
+                if (Test-Path -LiteralPath $p) { $registryConfigFiles += $p }
+            }
+            foreach ($globPath in '/etc/containerd/certs.d/*/hosts.toml', '/etc/systemd/system/docker.service.d/*.conf') {
+                try {
+                    $registryConfigFiles += @(Get-ChildItem -Path $globPath -File -ErrorAction SilentlyContinue |
+                        Select-Object -ExpandProperty FullName)
+                } catch { $null = $_ }
+            }
+            if ($registryConfigFiles.Count -eq 0) {
+                Write-Output '  (no docker/containerd registry configuration found on this machine)'
+            } else {
+                foreach ($cf in $registryConfigFiles) {
+                    Write-Output "  --- $cf ---"
+                    try {
+                        Get-Content -LiteralPath $cf -TotalCount 40 -ErrorAction Stop |
+                            ForEach-Object { Write-Output "    $_" }
+                    } catch {
+                        Write-Output "    (unreadable: $($_.Exception.Message))"
+                    }
+                }
             }
         }
 

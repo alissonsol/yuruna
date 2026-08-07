@@ -70,8 +70,8 @@ remediator or the status service never observes a truncated record.
 ## `step_failure` NDJSON event
 
 Emitted alongside the file so a stream consumer (status service,
-remediation loop, CI hook) sees the failure without reading the static
-file. It carries the same values, flattened (no nested `context`), plus
+remediation loop, CI hook) sees the failure without reading the file.
+It carries the same values, flattened (no nested `context`), plus
 `event` = `step_failure`, `ok` = `false`, and `durationMs` = `null`
 (mirrors the `step_end` shape so a consumer can join the two on a single
 field). It also carries `reason`, `classificationSource`, `sequenceName`,
@@ -257,12 +257,10 @@ The `failureClass` token on the record above is drawn from the enum in
 remediation dispatcher in
 [`test/modules/Test.Remediation.psm1`](../test/modules/Test.Remediation.psm1)
 maps that token to an actionable recommendation — the keystone of
-autonomous self-heal.
-
-Without it, an operator (or a future autonomous loop) would have to grep
-the free-text error message and guess what to do next. The dispatcher
-closes the loop: read the failure record, route on `failureClass`,
-return what the caller should do.
+autonomous self-heal. Without it, an operator (or a future autonomous
+loop) would have to grep the free-text error message and guess; the
+dispatcher instead reads the failure record, routes on `failureClass`,
+and returns what the caller should do.
 
 ### Public surface
 
@@ -279,8 +277,8 @@ return what the caller should do.
 ### Recommendation taxonomy
 
 Each handler returns a hashtable whose `Recommendation` field MUST be
-one of the canonical values below. A streaming consumer can pivot on
-this small finite set instead of free-text matching:
+one of the canonical values below, so a streaming consumer can pivot on
+a small finite set instead of free-text matching:
 
 | Recommendation | Meaning |
 |---|---|
@@ -310,8 +308,7 @@ handler) the dispatcher routes on the outer class unchanged.
 Handlers return **what the caller should do**, not what they **did**. A
 future iteration can flip individual handlers to act directly (call
 `Repair-VncConnection`, `Wait-SshReady`, `Restore-VMDiskSnapshot`
-themselves) once the autonomous loop's blast radius is bounded. Today's
-safer contract: dispatcher tells you the next step; caller decides.
+themselves) once the autonomous loop's blast radius is bounded.
 
 ### Registry shape
 
@@ -377,6 +374,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.06
+Last review: 2026.08.07
 
 Back to [Yuruna](../README.md)

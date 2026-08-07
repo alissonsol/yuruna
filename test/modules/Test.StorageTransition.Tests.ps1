@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.06
+.VERSION 2026.08.07
 .GUID 429bbdcc-9f46-47af-ab9b-b756158fc1f7
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -190,6 +190,29 @@ Describe 'already done means this machine serves the share' {
         Assert-Equal -Expected 'yuruna.pool' -Actual (Get-LocalLabStorageShareName -NetworkPath '//yuruna-pool@ypool-nas/yuruna.pool') 'the account belongs to the server field'
         Assert-Equal -Expected 'yuruna.pool' -Actual (Get-LocalLabStorageShareName -NetworkPath '\\ypool-nas\yuruna.pool') 'windows spelling'
         Assert-Equal -Expected '' -Actual (Get-LocalLabStorageShareName -NetworkPath '') 'nothing configured'
+    }
+
+    It 'derives the storage root from the directory the share resolves to' {
+        # The root is never recorded, so this derivation is the only thing that
+        # can name the disk a withdrawal leaves behind. When it silently answers
+        # '' the teardown reports "no storage root could be derived" one line
+        # after listing both published shares, and the data goes unreported.
+        Assert-Equal -Expected '/Users/Shared/yuruna' `
+            -Actual (Get-LocalLabStorageShareRoot -SharePath '/Users/Shared/yuruna/yuruna.pool' -ShareName 'yuruna.pool' -Platform 'macos')
+        Assert-Equal -Expected '/srv/yuruna' `
+            -Actual (Get-LocalLabStorageShareRoot -SharePath '/srv/yuruna/yuruna.stash/' -ShareName 'yuruna.stash' -Platform 'linux') 'trailing separator'
+        Assert-Equal -Expected 'D:\yuruna' `
+            -Actual (Get-LocalLabStorageShareRoot -SharePath 'D:\yuruna\yuruna.pool' -ShareName 'yuruna.pool' -Platform 'windows') 'windows spelling'
+    }
+
+    It 'refuses a root it cannot stand behind' {
+        Assert-Equal -Expected '' `
+            -Actual (Get-LocalLabStorageShareRoot -SharePath '/Users/someone/pictures' -ShareName 'yuruna.pool' -Platform 'macos') `
+            'an unrelated share of the same name must not contribute its parent'
+        Assert-Equal -Expected '' `
+            -Actual (Get-LocalLabStorageShareRoot -SharePath '/yuruna.pool' -ShareName 'yuruna.pool' -Platform 'macos') `
+            'a share at a filesystem root leaves no parent to be the storage root'
+        Assert-Equal -Expected '' -Actual (Get-LocalLabStorageShareRoot -SharePath '' -ShareName 'yuruna.pool' -Platform 'macos') 'nothing resolved'
     }
 
     It 'publishes nothing for a NAS-shaped path, without asking the OS' {

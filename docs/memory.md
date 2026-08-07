@@ -807,7 +807,7 @@ Source:
 ### Why stash-service bring-up waits for the daemon, not just the VM?
 
 Returning as soon as the VM is registered used to end
-`Start-StashServiceVM.ps1` roughly fifteen to thirty minutes before the
+`Start-StashServiceVM.ps1` roughly 15–30 minutes before the
 service existed: a first boot installs a Go toolchain and compiles the
 daemon, and until that finishes there is nothing listening. Everything
 downstream inherited that gap. The dashboard's Extension cell has no
@@ -1460,6 +1460,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.06
+Last review: 2026.08.07
 
 Back to [Yuruna](../README.md)

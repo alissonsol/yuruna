@@ -54,7 +54,10 @@
       background: rgba(0,0,0,.06); padding: .05rem .3rem;
       border-radius: .2rem; font-family: var(--font-mono);
     }
-    .share-note { color: var(--fg-faint); font-size: .75rem; line-height: 1.5; margin-top: 1.5rem; }
+    /* Body-sized and in the primary foreground: the second sentence is an
+       instruction the operator has to act on before the message is worth
+       sending, so it cannot read as fine print. */
+    .share-note { color: var(--fg-primary); font-size: 1rem; line-height: 1.55; margin-top: 1.5rem; }
   </style>
 </head>
 <body>
@@ -74,7 +77,7 @@
       <a href="index.html">Status</a>
       <a href="config.html">Config</a>
       <a href="performance.html">Performance</a>
-      <a href="host.html">Host</a>
+      <a href="diagnostics.html">Diagnostics</a>
       <a class="menu-out" href="https://yuruna.link/operator">Guide</a>
     </nav>
   </div>
@@ -97,9 +100,9 @@
   <p id="share-status"></p>
   <p class="share-note">
     The archive is built on this host and never uploaded anywhere by this page.
-    Where a browser cannot attach a file to a message itself, the archive is
-    downloaded and the draft opens with its subject and body filled in — attach
-    the downloaded file before sending.
+    <strong>Where a browser cannot attach a file to a message itself, the archive
+    is downloaded and the draft opens with its subject and body filled in —
+    attach the downloaded file before sending.</strong>
   </p>
 </main>
 

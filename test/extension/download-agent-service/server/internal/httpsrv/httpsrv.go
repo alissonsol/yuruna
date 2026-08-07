@@ -33,6 +33,8 @@ type ImageAPI interface {
 	RefreshAll() (int, error)
 	Delete(id imagestore.ImageID) error
 	PrunePrevious(id imagestore.ImageID) (int, error)
+	Diagnostics(ctx context.Context) imagestore.DiagnosticsReport
+	FidoTest(ctx context.Context, arch string) (imagestore.FidoAttempt, error)
 }
 
 // Options configures the server.

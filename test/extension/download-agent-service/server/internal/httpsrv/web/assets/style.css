@@ -267,3 +267,11 @@ code { font-family: var(--mono); font-size: .85rem; word-break: break-all; }
      uppercase headings would cost more width than the table has on a phone. */
   th button.th-sort { font-size: inherit; min-height: 2.25rem; min-width: 0; }
 }
+
+/* Diagnostics: captured child-process output (argv, stdout, stderr). Wraps
+   long lines and scrolls itself so a dump never widens the page. */
+pre.console {
+  font-family: var(--mono); font-size: .8rem;
+  background: var(--neutral-bg); border: 1px solid var(--line); border-radius: 6px;
+  padding: .5rem .75rem; overflow-x: auto; white-space: pre-wrap; word-break: break-word;
+}

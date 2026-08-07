@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.06
+.VERSION 2026.08.07
 .GUID 4288bcbc-ede3-4dda-bb77-b9782c7615ad
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -1678,7 +1678,11 @@ function Select-SetupServiceVmKey {
     will not start would raise an alarm about memory it is never going to spend.
 
     The caching proxy is unconditional -- it is the machine the pool services run
-    on, and every guest install goes through it.
+    on, and every guest install goes through it. A standalone host's default set
+    stops there plus the stash: every further gigabyte a service VM holds is one
+    the test guests on the same machine cannot have, so the download agent joins
+    only when the config asks for it (a lab runs it by default -- its whole point
+    is sharing images across the pool's hosts).
 .PARAMETER StorageKind
     The resolved storage.kind. Anything other than 'none' means the shares exist,
     including the empty string: unknown must not read as "no storage", which is
@@ -1686,7 +1690,10 @@ function Select-SetupServiceVmKey {
 .PARAMETER Lab
     This run is setting up a lab.
 .PARAMETER DownloadAgentEnabled
-    downloadAgentService.enabled, which defaults to true when the key is absent.
+    downloadAgentService.enabled as the config states it: $true/$false when the
+    operator said so, $null when the key is absent. Unstated resolves by mode --
+    on for a lab, off for a standalone host (start it by hand with
+    Start-DownloadAgentServiceVM.ps1 when wanted).
 .OUTPUTS
     [string[]] roster keys.
 #>
@@ -1695,13 +1702,14 @@ function Select-SetupServiceVmKey {
     param(
         [AllowEmptyString()][AllowNull()][string]$StorageKind = '',
         [switch]$Lab,
-        [bool]$DownloadAgentEnabled = $true
+        [AllowNull()][nullable[bool]]$DownloadAgentEnabled = $null
     )
     $keys = [System.Collections.Generic.List[string]]::new()
     [void]$keys.Add('caching-proxy')
     $hasStorage = ("$StorageKind".Trim() -ne 'none')
     if ($hasStorage) { [void]$keys.Add('stash') }
-    if ($hasStorage -and $DownloadAgentEnabled) { [void]$keys.Add('download-agent') }
+    $agentOn = if ($null -ne $DownloadAgentEnabled) { [bool]$DownloadAgentEnabled } else { [bool]$Lab }
+    if ($hasStorage -and $agentOn) { [void]$keys.Add('download-agent') }
     if ($Lab) { [void]$keys.Add('pool-control') }
     return [string[]]$keys.ToArray()
 }

@@ -85,9 +85,8 @@ pwsh test/Add-HostToPool.ps1 -PoolId lab -HostId 42abcdef0123456789abcdef0123456
 A **test-set** is a named framework/project repo **pair**:
 `{name, frameworkUrl, projectUrl}`. Assigning one to a pool makes every member
 override its own `repositories.frameworkUrl` / `repositories.projectUrl` with the
-pair for the cycle and run the assigned project's own `test.runner.yml` plan — the
-sequences a pool runs are whatever that project declares. `GH_TOKEN` is never
-stored in pool intent; it stays host-local.
+pair for the cycle and run the assigned project's own `test.runner.yml` plan.
+`GH_TOKEN` is never stored in pool intent; it stays host-local.
 
 Register the pair in the intent store's test-set library (`test-sets.yml`, the
 store behind the pool-control service "Test sets" page):
@@ -193,24 +192,36 @@ re-clone from the remote. Every command has full help: e.g. `Get-Help test/Set-P
 ## Pool control service
 
 The Pool control service is the operator UI + API for the LAN pool intent. It
-serves three pages and drives the pool-intent git store; runners only PULL that
-store read-only. Every button routes through the admin CLIs above, so the UI
-and the command line cannot diverge.
+serves the operator pages and drives the pool-intent git store; runners only
+PULL that store read-only. Every button routes through the admin CLIs above,
+so the UI and the command line cannot diverge.
 
 ### What it does
 
-- **Assign** (`/`) &mdash; assign a test-set (a framework/project repo pair) to each
-  pool; show members and the copy-config-from-a-peer command.
+- **Assign** (`/assign`) &mdash; assign a test-set to each pool; show members
+  and the copy-config-from-a-peer command.
 - **Pools** (`/pools`) &mdash; create a pool (mints its stable `poolGuid`, the
   dashboard "Pool ID"), drive every member's **Pool Status** (below), add/remove
   hosts (a host belongs to at most one pool), delete an empty pool.
+- **Hosts** (`/hosts`) &mdash; every host the aggregator knows, not just pool
+  members, so a host that was never auto-enrolled is visible along with the
+  reason. Columns: **Host ID** (links to that host's status page),
+  **Hostname**, **Type** (the host type without its `host.` prefix, e.g.
+  `ubuntu.kvm`), **Control** (the wire value: `ready` / `none` / `mismatch` /
+  `skew`), **Project access**, and the **Pool** picker, which *moves* the host.
+  Any column header sorts the table; clicking the sorted one reverses it.
+  **Hostname** is the one column withheld from an uncredentialed read &mdash;
+  the pool's own view of a host is deliberately hostname-free and this page
+  renders unattended too, so the name arrives only once the browser is
+  unlocked (below). **Show hostnames** prompts for the Lab token; arriving from
+  the dashboard link unlocks the page on its own.
 - **Test sets** (`/test-sets`) &mdash; CRUD the named-triple library
   (`test-sets.yml`). GH_TOKEN is **never** stored here &mdash; it stays host-local.
 
 Assigning copies the chosen library triple into the pool's inline `testSet`;
 members then behave exactly as on the CLI path in Steps 3-4 above.
 
-### Pool Status &mdash; pausing and continuing every member at once
+### Pool Status — pausing and continuing every member at once
 
 The **Pool Status** column on `/pools` is the Pause/Continue buttons of every
 member's own status page, driven from one place. It offers exactly what a single
@@ -373,13 +384,11 @@ Once on, each tick does exactly this and no more:
   fight forever.
 - **Nothing to do means nothing happens**: no commit, no push, no audit row.
 - **Every tick logs the candidate count**, so "never enrols anyone" reads
-  differently from "nothing to enrol". Without that line, a predicate that
-  matches nobody is invisible.
+  differently from "nothing to enrol".
 
 Failure is **bounded, not atomic**. Each host is its own CLI run, commit and
 push, so a failure partway through leaves the earlier hosts enrolled. Enrolment
-is idempotent and resumable, so the next tick finishes the job; this does not
-pretend to be transactional.
+is idempotent and resumable, so the next tick finishes the job.
 
 ## Download-agent service
 
@@ -387,8 +396,8 @@ The Download-agent service is the pool's shared guest-image downloader. It keeps
 a **Download pool** on the pool NAS (`<pool root>/images/…`), re-verifies each
 image against its origin on a schedule, and serves the artifacts to hosts over
 HTTP — so a lab pulls an ISO or cloud image from the internet once instead of
-once per host. It needs pool storage configured; without a share the pool has
-nowhere to live and the service is skipped.
+once per host. It needs pool storage configured — without a share the service
+is skipped.
 
 ### What it does
 
@@ -524,6 +533,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.06
+Last review: 2026.08.07
 
 Back to [Yuruna](../README.md)

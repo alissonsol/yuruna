@@ -1,8 +1,8 @@
 # Yuruna definitions
 
 This file collects generic and yuruna-specific terms in one place, so
-definitions stay consistent across the framework, the guest scripts,
-and the docs.
+definitions stay consistent across the framework, guest scripts, and
+docs.
 
 Source files reference an entry with a single line of the form:
 
@@ -50,10 +50,10 @@ Adding a new entry:
 `fetch-and-execute.sh` is the guest-side fetch helper. It resolves the
 base URL for `curl`-style fetches in priority order:
 
-1. **`$EXEC_BASE_URL`** — explicit override, used verbatim. Highest
-   priority, so a per-call override always wins over auto-discovery.
-   Classified by scheme: an `http://` override is treated as a host
-   status service (`--no-proxy`, eligible for the perf-checkpoint POST);
+1. **`$EXEC_BASE_URL`** — explicit override, used verbatim; a per-call
+   override always wins over auto-discovery. Classified by scheme: an
+   `http://` override is treated as a host status service (`--no-proxy`,
+   eligible for the perf-checkpoint POST);
    anything else is remote and gets neither.
 2. **`/etc/yuruna/host.env`** — written by `New-VM.ps1` at provision
    time. Holds `YURUNA_STATUS_SERVICE_IP` / `YURUNA_STATUS_SERVICE_PORT` for the dev
@@ -70,9 +70,9 @@ into the guest console alongside `E_SHA` (see "typed envelope" below), or
 baked into `host.env` at New-VM time. The typed pair wins: it names the
 commit the host is serving *now*, not whenever this VM was provisioned.
 
-Two properties make this the only sound fallback, both of them from the
+Two properties make this the only sound fallback, both from the
 integrity gate — the host digests *its* copy of the file, and the guest
-refuses bytes that don't match that digest:
+refuses bytes that don't match:
 
 - **Same repository.** A fallback aimed anywhere else — a public mirror of
   a private repo being the obvious case — serves bytes the digest was never
@@ -106,10 +106,9 @@ Cache-busting via environment variables (priority order):
 
 Both unset/empty → empty suffix, URL stays cacheable.
 
-**`--no-proxy` on `/etc/yuruna/host.env` probes.** The host status
-server lives on a Hyper-V Default Switch / VZ shared NAT IP that an
-inherited `http_proxy` cannot route to, so `--no-proxy` keeps the probe
-direct. Details under "host environment variables" below.
+**`--no-proxy` on `/etc/yuruna/host.env` probes.** Keeps the probe off
+any inherited `http_proxy`, which cannot route to the host's NAT IP —
+details under "host environment variables" below.
 
 Source: [`automation/fetch-and-execute.sh`](../automation/fetch-and-execute.sh).
 
@@ -160,7 +159,7 @@ host prepends a short block of environment assignments to it — the
 
 **Naming standard.** `E_` marks a value that is *typed*, per step, into a
 guest; `_SHA` is a lowercase-hex sha256; `FB` is the GitHub fallback pair.
-Names are this terse for one reason: on the console path each character is
+Names are terse because on the console path each character is
 an individual key event, and sends past roughly 400 characters have
 corrupted mid-flight (see `$script:FetchExecuteTypedCharWarn`). Values that
 are *baked* rather than typed — `YURUNA_GITHUB_REPO`, `YURUNA_GITHUB_REF`,
@@ -230,21 +229,21 @@ and the integrity gate refuses whatever else it finds. Either way the dev
 iteration loop stays broken until the host is reachable again;
 `fetch-and-execute.sh` warns loudly on stderr.
 
-**The no-IPv4 precondition comes first.** Every cause that banner names
-is host-side, and each presumes the guest itself has a working network —
-an assumption the banner cannot make, since it prints during source
-resolution while the network diagnostic is sourced much later, at
-failure time. So before the livecheck probe, `resolve_fetch_source`
-checks the cheapest local fact available: whether any interface holds a
-global IPv4 address (`ip -4 -o address show scope global`). If none
-does, nothing is reachable from this guest — neither the host nor
-GitHub — and no host-side theory above can be true. A distinct
-`GUEST HAS NO IPv4` banner then prints instead of `HOST UNREACHABLE`,
-states that the cause sits on the host side of the virtual NIC (no live
-uplink on the virtual switch, a disconnected vNIC, or no DHCP lease),
-and resolution falls through to `github` — which will fail too, but for
-a reason the artifact now names correctly at the top instead of
-contradicting itself several screens later.
+**The no-IPv4 precondition comes first.** Every cause the banner names
+is host-side and presumes the guest's own network works — an assumption
+the banner cannot make, since it prints during source resolution while
+the network diagnostic is sourced much later, at failure time. So before
+the livecheck probe, `resolve_fetch_source` checks the cheapest local
+fact: whether any interface holds a global IPv4 address
+(`ip -4 -o address show scope global`). If none does, nothing is
+reachable from this guest — neither the host nor GitHub — so no
+host-side theory above can be true. A distinct `GUEST HAS NO IPv4`
+banner then prints instead of `HOST UNREACHABLE`, states that the cause
+sits on the host side of the virtual NIC (no live uplink on the virtual
+switch, a disconnected vNIC, or no DHCP lease), and resolution falls
+through to `github` — which will fail too, but for a reason the artifact
+names correctly at the top instead of contradicting itself several
+screens later.
 
 The predicate is the *address*, not the default route: a status service
 on the same L2 segment is reachable with no default route at all, so
@@ -407,6 +406,28 @@ Source: [`automation/fetch-and-execute.sh`](../automation/fetch-and-execute.sh),
 [`test/Start-StatusService.ps1`](../test/Start-StatusService.ps1),
 [`test/status/yuruna.common.js`](../test/status/yuruna.common.js).
 
+### Defining fetch-and-execute log timestamps
+
+Every line the fetched script writes is mirrored to the console unchanged and
+appended, stamped, to the guest-local log. The stamp is elapsed time since the
+start recorded in the log header, rendered `[   s.mmm]`, so an absolute time is
+one addition away and no timezone assumption is baked into the format.
+
+The console copy MUST stay byte-identical. The host matches OCR patterns against
+what is on screen, and the checkpoint scanner tests for the four-equals marker at
+column 0, so a prefix on the visible stream would silently break both. Only the
+log copy carries the stamp — and it is the only copy anyone can ask "where did
+the time go" of. With no stamp, a script that spent two minutes blocked on one
+command is indistinguishable from one that ran fast and then waited.
+
+The elapsed-time origin is kept in **microseconds** so the arithmetic stays
+integer: the shell has no floats, and forking a helper per output line to get
+them would be its own kind of slow. The origin is read from `EPOCHREALTIME`
+(bash ≥ 5); where the shell does not provide it, the sink degrades to a plain
+`tee` and the log simply carries no stamps.
+
+Source: [`automation/fetch-and-execute.sh`](../automation/fetch-and-execute.sh).
+
 ### Defining the two-source scheme for framework and project URLs
 
 Guest scripts that need to clone the yuruna framework and/or the
@@ -421,8 +442,8 @@ scheme so framework + project URLs are NOT duplicated across them:
    the host status service's `/control/test-config` endpoint.
 3. Fall back to `YURUNA_FRAMEWORK_URL` / `YURUNA_PROJECT_URL` in
    `host.env` when step 2 returned nothing. That endpoint lives *on* the
-   host, so a guest cut off from the host gets nothing from it — which is
-   exactly the moment it most needs a URL to clone from. The same two URLs
+   host, so a guest cut off from the host gets nothing from it — exactly
+   the moment it most needs a URL to clone from. The same two URLs
    are baked into the seed at New-VM time for that case.
 4. **Framework**: prefer the host's `/yuruna-archive.tar.gz` (committed
    working tree, no `.git/`), fall back to `git clone $FRAMEWORK_URL`
@@ -577,6 +598,29 @@ zot's sync extension is configured (caching-proxy-service `user-data`)
 to mirror those upstreams plus `quay.io` / `gcr.io`, so a workload
 pulling from those also flows through cache on the first hit.
 
+**Each `hosts.toml` names the cache twice, and both spellings are
+load-bearing.** containerd tries the `[host]` entries in order and then
+falls back to `server`, and `server` *defaults to the upstream* when the
+key is omitted — so naming the upstream there, or leaving it out, means
+any mirror miss is quietly completed against the origin from the lab's
+shared egress IP. That is the path that converts an anonymous-pull
+throttle into a failed pull: the throttled origin answers 429 and the
+pull dies even though the cache holds — or would shortly hold — the
+layer. Pointing `server` at the cache leaves no upstream to fall back to.
+The `[host]` entry is kept alongside it because that form is what makes
+containerd append the `ns=<namespace>` query parameter, which is how zot
+learns *which* upstream a repository belongs to; without it requests
+arrive namespace-less and zot probes its configured upstreams in order,
+spending rate-limited `docker.io` lookups on images that never lived
+there.
+
+The trade is deliberate: a cache that is merely slow is fine (containerd
+waits, and `image_pull_progress_timeout` bounds a genuine wedge), but a
+cache that is **down** is now terminal for image pulls. The guest script
+therefore probes `http://${CACHE_HOST}:5000/v2/` right after writing the
+files and fails there with that reason, rather than letting the outage
+resurface later as an unexplained `ImagePullBackOff`.
+
 **Set `config_path` by matching whatever value is there, not the empty
 `""`.** containerd 1.x generated `config_path = ""`; containerd 2.2
 generates `config_path = '/etc/containerd/certs.d:/etc/docker/certs.d'`
@@ -584,8 +628,8 @@ generates `config_path = '/etc/containerd/certs.d:/etc/docker/certs.d'`
 itself then ignores ([containerd#12808][ctd12808]). A substitution
 anchored on `""` matches nothing there and says nothing about it, so
 every `hosts.toml` goes inert and containerd pulls bypass zot while
-dockerd's `daemon.json` mirror keeps working — which is what makes the
-breakage so quiet. The same applies to `SystemdCgroup`, which
+dockerd's `daemon.json` mirror keeps working — which makes the breakage
+so quiet. The same applies to `SystemdCgroup`, which
 containerd dropped from the generated default once already
 ([containerd#12101][ctd12101]). Both substitutions are followed by a
 `grep` post-condition that exits non-zero, so the next schema change
@@ -1076,8 +1120,8 @@ freshly polled fields.
 
 ### Defining the status-page header anatomy
 
-Every status page renders the same header shape — and it is the same
-shape the three extension service UIs render, from a page-chrome
+Every status page renders the same header shape — the same shape the
+three extension service UIs render, from a page-chrome
 stylesheet block kept byte-identical across all four stylesheets
 (`Test.ExtensionUiChrome.Tests.ps1` fails when the copies drift):
 
@@ -1100,7 +1144,7 @@ stylesheet block kept byte-identical across all four stylesheets
 | `#header-machine`  | `Yuruna.populateHeader` then per page  | Hostname stack (`name` / `(host-type)`), linking to the host diagnostic. |
 
 Navigation is the menu in the top-right corner, never a per-page
-button: `Status`, `Config`, `Performance`, `Host`, then a rule and
+button: `Status`, `Config`, `Performance`, `Diagnostics`, then a rule and
 the outbound `Guide`. Its links are static markup, so every page
 stays reachable if the script fails; `Yuruna.initMenu` only wires
 open/close, and runs ahead of the per-page handler so an open panel
@@ -1115,7 +1159,7 @@ against every other Yuruna UI, with no rule anywhere saying so.
 ### Defining the status-page hostinfo dump
 
 Clicking the hostname in any status page's header navigates to
-[`host.html`](../test/status/host.html), which renders a
+[`diagnostics.html`](../test/status/diagnostics.html), which renders a
 fresh run of
 [`automation/Get-SystemDiagnostic.ps1`](../automation/Get-SystemDiagnostic.ps1)
 for the host the page is being served from (not any guest).
@@ -1145,19 +1189,18 @@ side-effects isolated.
 
 **Why a fixed temp filename.** The file is overwritten on every
 request — operators get one canonical "most recent host diagnostic"
-they can grep from the shell (`cat /tmp/yuruna-hostinfo.txt` or
+to grep from the shell (`cat /tmp/yuruna-hostinfo.txt` or
 `type %TEMP%\yuruna-hostinfo.txt`) without timestamped clutter. The
 file is not web-accessible by path (the temp directory is outside
-`$statusDir` / `$trackDir`); the only way to read it through the
-server is via the same `/control/host-diagnostic` request, which
-regenerates it.
+`$statusDir` / `$trackDir`); reading it through the server takes the
+same `/control/host-diagnostic` request, which regenerates it.
 
 **Why synchronous.** The diagnostic typically completes in a few
 seconds; an asynchronous request (trigger + poll) would double the
-moving parts for no real benefit at Yuruna's single-operator scale.
+moving parts for nothing at Yuruna's single-operator scale.
 The endpoint blocks the server's request loop for the duration of the
-run, which is acceptable because the polling dashboard re-tries on
-the next 60 s tick.
+run — acceptable because the polling dashboard re-tries on the next
+60 s tick.
 
 **Why the hostname is the click target.** It is the same string the
 operator reads at the top right of every page, so the affordance
@@ -1180,11 +1223,11 @@ cycle's cache state within one poll interval, even across cycles.
 
 ### Defining the status-page banner
 
-Every status page (`index.html`, `config.html`, `host.html`)
-renders the same `#banner` strip just below the header. The visual
-contract is identical across pages so an operator switching between
-the dashboard, the config editor, and the host-diagnostic dump sees
-the same color + dot + text for the same runner state.
+Every status page (`index.html`, `config.html`, `diagnostics.html`)
+renders the same `#banner` strip just below the header, so an
+operator switching between the dashboard, the config editor, and the
+host-diagnostic dump sees the same color + dot + text for the same
+runner state.
 
 **State precedence and colors** (highest priority first):
 
@@ -1220,7 +1263,7 @@ runner is actually waiting for resume, so the operator can tell
 **Polling cadence.** All three pages poll the same triple:
 `runtime/status.json` + `runtime/current-action.json` +
 `control/runner-status`. The dashboard (`index.html`) shows a
-visible countdown badge; `config.html` and `host.html` poll
+visible countdown badge; `config.html` and `diagnostics.html` poll
 silently. The interval is **60 seconds** across all pages —
 matched to the `Cache-Control: max-age=60` window so each poll
 crosses the cache boundary cleanly. Faster polling would either
@@ -1228,7 +1271,7 @@ land on a cache hit (no fresher data) or fight the cache for the
 same ETag-less file; slower polling would let a finished cycle go
 stale on the editor pages longer than the cache window.
 
-**User-account row** (`host.html` only). The right-aligned
+**User-account row** (`diagnostics.html` only). The right-aligned
 `User account: <name>` text shows the OS account the
 `Start-StatusService.ps1` pwsh process is running as — surfaced via
 `GET /control/runtime-env` → `serverUserAccount`
@@ -1691,7 +1734,7 @@ specific cycle on a specific host without parsing the leaf-name format
 or relying on hostname collisions across the pool.
 
 The four cycle-identity fields name four different things, so a consumer
-never has to guess which one is which: `cycleStartUtc` is a timestamp,
+never has to guess: `cycleStartUtc` is a timestamp,
 `runId` a GUID, `cycleNumber` the ordinal within this runner process, and
 `cycleFolder` the folder leaf name. A cycle folder's `manifest.json` carries
 `schemaVersion` 2; a `schemaVersion` 1 manifest sits beside events that spell
@@ -1721,8 +1764,8 @@ enums in [Test.SequenceAction.psm1](../test/modules/Test.SequenceAction.psm1):
 Every event name emitted into `cycle.events.ndjson` today. Order
 follows the lifecycle: cycle boundary → per-step → failure / recovery
 → infrastructure-class. An off-host consumer joins on `(runId,
-cycleStartUtc)` and routes on `event` plus the validated typed
-fields above.
+cycleStartUtc)` (see above) and routes on `event` plus the validated
+typed fields.
 
 | Event name | Producer | Trigger |
 | --- | --- | --- |
@@ -2003,8 +2046,8 @@ history is the cycle.events.ndjson stream.
 [Test.Remediation.psm1](../test/modules/Test.Remediation.psm1) routes a
 recorded failure to a recovery handler based on its `failureClass`.
 The FailureClass enum has been the routing key on the wire since
-schema v2 of `last_failure.json`; the dispatcher closes the loop by
-giving the routing key something to dispatch *to*.
+schema v2 of `last_failure.json`; the dispatcher gives that key
+something to dispatch *to*.
 
 ### Defining the remediation dispatcher contract
 
@@ -2056,6 +2099,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.06
+Last review: 2026.08.07
 
 Back to [Yuruna](../README.md)

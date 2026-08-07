@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.06
+.VERSION 2026.08.07
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456706
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -708,8 +708,36 @@ if (Get-Command Restore-YurunaServiceVM -ErrorAction SilentlyContinue) {
 # the cycle on the Default Switch with port-forwarders, which is what it has
 # been doing; the repair only tries to win back the bridged path.
 if (Get-Command Repair-YurunaExternalSwitch -ErrorAction SilentlyContinue) {
-    try { [void](Repair-YurunaExternalSwitch -Confirm:$false) } catch {
+    $switchRepairOk = $false
+    try { $switchRepairOk = [bool](Repair-YurunaExternalSwitch -Confirm:$false) } catch {
         Write-Warning "External vSwitch repair attempt failed: $($_.Exception.Message). The cycle continues on the Default Switch fallback."
+    }
+    # The gate above wrote the degraded pair from a probe taken BEFORE this
+    # repair ran, so a switch fixed here would keep advertising a fault it no
+    # longer has for the rest of the cycle -- on the status page and in the
+    # pool record alike, a quarter of an hour of wrong. Re-probe and clear.
+    #
+    # This branch only ever CLEARS. The gate stays the sole writer of a degraded
+    # pair, which is what lets its consecutive-cycle count mean anything; a
+    # repair can only move a host toward healthy, so there is nothing here to
+    # write. Gated on the record file so a host that was already healthy does
+    # not pay for a second probe every cycle.
+    if ($switchRepairOk -and (Test-Path -LiteralPath $HostNetworkRecordFile)) {
+        $afterRepair = Test-HostGuestNetworkHealth -HostType $HostType
+        if ($afterRepair.Healthy -and -not $afterRepair.Degraded) {
+            Remove-Item -LiteralPath $HostNetworkBannerFile -Force -ErrorAction SilentlyContinue
+            Remove-Item -LiteralPath $HostNetworkRecordFile -Force -ErrorAction SilentlyContinue
+            # The total-loss streak was armed by the same stale observation.
+            Remove-Item -LiteralPath $HostNetworkStateFile  -Force -ErrorAction SilentlyContinue
+            Write-Information "Host network recovered at cycle start: '$($afterRepair.Path)' path restored. Cleared the degraded banner and re-advertised the host." -InformationAction Continue
+            if (Get-Command Write-HostRegistrationRecord -ErrorAction SilentlyContinue) {
+                try {
+                    $null = Write-HostRegistrationRecord -HostType $HostType -RepoRoot $RepoRoot
+                } catch {
+                    Write-Verbose "Registration refresh after the vSwitch repair: $($_.Exception.Message)"
+                }
+            }
+        }
     }
 }
 

@@ -113,8 +113,8 @@ func (s *Server) memberAddresses(ctx context.Context, members []string) (map[str
 // eachMember runs work over members with bounded concurrency and returns the
 // rows in members order, so a page's host list does not reshuffle between
 // loads for no reason.
-func eachMember(members []string, work func(hostID string) hostControlRow) []hostControlRow {
-	rows := make([]hostControlRow, len(members))
+func eachMember[T any](members []string, work func(hostID string) T) []T {
+	rows := make([]T, len(members))
 	sem := make(chan struct{}, hostControlConcurrency)
 	var wg sync.WaitGroup
 	for i, hostID := range members {

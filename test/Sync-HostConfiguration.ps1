@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.06
+.VERSION 2026.08.07
 .GUID 42795a67-cd5f-42ad-bd44-8d466ffec8fb
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -76,6 +76,13 @@
     networkStorage nodes: no NAS mount, no replication, no pool registration).
     Caching-proxy + repository settings still come across, so cache reuse is
     unaffected. For disposable / self-verification hosts (e.g. example/nested.host).
+.PARAMETER RequireReferenceCredential
+    Do not accept a networkStorage vault entry the reference host did not supply.
+    Without it, an entry already present here survives when nothing can be
+    fetched -- right for a host refreshing its config, wrong for one converting
+    away from standalone, where that entry is the password this host minted for a
+    share it used to serve itself. Passed by test/Convert-ToPoolWorker.ps1, which
+    fails the conversion on an unconverged user.
 .PARAMETER RemainingArguments
     Anything not declared here is forwarded to the per-host script verbatim
     (-WhatIf among them), so a parameter added there needs no edit here.
@@ -112,6 +119,7 @@ param(
     [switch]$SkipValidation,
     [switch]$NoPool,
     [switch]$AllowStaleReference,
+    [switch]$RequireReferenceCredential,
 
     [Parameter(ValueFromRemainingArguments)]
     [string[]]$RemainingArguments

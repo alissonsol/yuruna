@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.06
+.VERSION 2026.08.07
 .GUID 42e8a1b2-c3d4-4e5f-9012-cd0123456822
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -90,7 +90,8 @@ param(
     [switch]$NonInteractive,
     [switch]$SkipValidation,
     [switch]$NoPool,
-    [switch]$AllowStaleReference
+    [switch]$AllowStaleReference,
+    [switch]$RequireReferenceCredential
 )
 
 $ErrorActionPreference = 'Stop'
@@ -139,4 +140,4 @@ Import-Module (Join-Path $RepoRoot 'test/modules/Test.ConfigServiceSync.psm1') -
 
 Sync-HostConfiguration -ReferenceHost $ReferenceHost -StatusPort $StatusPort -RepoRoot $RepoRoot `
     -SharedToken $SharedToken -NonInteractive:$NonInteractive -SkipValidation:$SkipValidation -NoPool:$NoPool `
-    -AllowStaleReference:$AllowStaleReference
+    -AllowStaleReference:$AllowStaleReference -RequireReferenceCredential:$RequireReferenceCredential

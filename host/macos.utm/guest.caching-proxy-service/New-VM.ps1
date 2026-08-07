@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.06
+.VERSION 2026.08.07
 .GUID 42f1b2c3-d4e5-4f67-8901-a2b3c4d5e6f9
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -314,6 +314,64 @@ if ([string]::IsNullOrEmpty($labAuthToken) -and -not $labTokenReadFailed) {
     }
 }
 
+# --- REGION: Docker Hub pull-through credential
+# zot's sync walks its upstream list in file order, and Docker Hub is the
+# trailing catch-all, so every repository no scoped upstream claims is fetched
+# from Hub. Hub meters an anonymous sync against the egress IP -- one allowance
+# every guest behind this cache draws from at once -- and once it is gone zot's
+# revalidation stalls past the ~30s dockerd waits for response headers, which
+# fails the pull. An authenticated sync draws on the account's own budget,
+# which the lab holds alone.
+#
+# Both halves stay EMPTY unless the operator stored a real credential -- the
+# guest reads empty as "stay anonymous". Get-Password mints a value for a
+# missing entry and a minted secret authenticates as nobody, breaking every
+# sync, so only an entry Test-VaultEntry confirmed may reach it; a read that
+# THREW is likewise not a vault with no entry.
+$dockerHubUsername = ''
+$dockerHubToken    = ''
+$dockerHubWarned   = $false
+try {
+    $dhEff = Get-EffectiveUser -LogicalUser 'dockerhub-token'
+    if ($dhEff.vaultKey -and (Test-VaultEntry -VaultKey $dhEff.vaultKey)) {
+        $dockerHubToken = [string](Get-Password -Username 'dockerhub-token')
+        # loginUser falls back to the logical user's own name when the mapping
+        # names no account, so that value means "no username configured" rather
+        # than a Docker Hub identity.
+        if ($dhEff.loginUser -and ($dhEff.loginUser -ne 'dockerhub-token')) {
+            $dockerHubUsername = [string]$dhEff.loginUser
+        }
+    }
+} catch {
+    Write-Warning ("dockerhub-token: reading this host's vault failed ($($_.Exception.Message)). Building with NO Docker Hub credential: the cache syncs " +
+        "anonymously against a pull budget shared by every guest behind this egress IP. Resolve the vault error and rebuild.")
+    $dockerHubWarned = $true
+}
+# Refuse a value carrying a control character, quote, or backslash: the guest
+# stores this pair as JSON. A control character or a bare quote leaves that file
+# unparseable, and a backslash is the JSON escape introducer, so a stored
+# backslash-n reads back as a newline -- a DIFFERENT secret, presented to Hub on
+# every sync in place of the anonymous path that would have been served.
+if (($dockerHubUsername -match '[\x00-\x1f\x7f''"\\]') -or ($dockerHubToken -match '[\x00-\x1f\x7f''"\\]')) {
+    Write-Warning ("dockerhub-token: the stored account name or secret contains a control character, quote, or backslash, which the guest's JSON " +
+        "credential file cannot carry unchanged; building with NO Docker Hub credential. Store a clean value, then rebuild.")
+    $dockerHubUsername = ''
+    $dockerHubToken    = ''
+    $dockerHubWarned   = $true
+}
+# The pair travels together or not at all: an account name with no secret (or a
+# secret with no account name) authenticates as nobody, which is worse than the
+# anonymous path it replaces.
+if ((-not $dockerHubUsername) -or (-not $dockerHubToken)) {
+    $dockerHubUsername = ''
+    $dockerHubToken    = ''
+    if (-not $dockerHubWarned) {
+        Write-Warning ("Docker Hub: no complete credential (account name + secret) for logical user 'dockerhub-token' in this host's vault; the cache syncs " +
+            "anonymously against a pull budget shared by every guest behind this egress IP. Store the Hub account name as that user's localOsUser and its " +
+            "access token in the vault to move the cache onto the account's own budget.")
+    }
+}
+
 # --- REGION: config service mTLS materials
 # --- REGION: https://yuruna.link/caching-proxy-service#cache-vm-nas-and-config-service
 # Mint a per-VM client leaf signed by THIS host's Config CA; PEMs are baked
@@ -354,6 +412,8 @@ $UserData = New-CloudInitUserData `
         YPOOL_NAS_NETWORK_USER_PLACEHOLDER  = $ypoolNasUser
         YPOOL_NAS_HOST_ID_PLACEHOLDER       = $ypoolNasHostId
         LAB_AUTH_TOKEN_PLACEHOLDER     = $labAuthToken
+        YURUNA_DOCKERHUB_USERNAME_PLACEHOLDER = $dockerHubUsername
+        YURUNA_DOCKERHUB_TOKEN_PLACEHOLDER    = $dockerHubToken
         YURUNA_CONFIG_SERVICE_PORT_PLACEHOLDER               = $configPort
         YURUNA_CONFIG_SERVICE_CLIENT_CERT_BASE64_PLACEHOLDER = $configClientCertB64
         YURUNA_CONFIG_SERVICE_CLIENT_KEY_BASE64_PLACEHOLDER  = $configClientKeyB64

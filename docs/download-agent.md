@@ -45,8 +45,7 @@ same output and exit codes as a lab that runs no agent.
 
 The agent activates the same way in **Standalone** and **Lab** mode: whenever
 pool storage is configured, `install/setup.ps1` runs the stop/start pair for it.
-The step is non-critical -- a failed agent build never fails setup, because
-everything degrades to the no-agent path.
+The step is non-critical -- a failed agent build never fails setup.
 
 To bring it up or rebuild it by hand:
 
@@ -65,8 +64,7 @@ pwsh test/Stop-DownloadAgentServiceVM.ps1   # tears the VM down; the pool is unt
    daemon runs fine against an offline share, reporting `poolAvailable:false`.
 2. **Starts the host status service first.** The guest fetches the framework
    archive from `http://<host>:<port>/yuruna-archive.tar.gz` minutes into its
-   first boot. A status service started *after* the build is one the guest never
-   saw.
+   first boot.
 3. **Delegates to `host/<platform>/guest.download-agent-service/New-VM.ps1`**,
    which builds the seed and the VM. The Go daemon is compiled **inside** the
    guest -- no host `go` toolchain is needed.
@@ -79,7 +77,7 @@ pwsh test/Stop-DownloadAgentServiceVM.ps1   # tears the VM down; the pool is unt
    registration so the dashboard picks it up within one aggregator poll.
 
 On Windows the script needs an elevated session (Hyper-V VM creation), and says
-so before it changes anything rather than half-way through.
+so before it changes anything.
 
 If `:80` never comes up, the script SSHes into the guest with the harness key and
 prints `cloud-init status`, the unit's journal, the listener table, the pool
@@ -184,11 +182,15 @@ The agent does the same centrally: its VM installs PowerShell and vendors Fido -
 the same tagged release, verified against the same SHA-256, that the host scripts
 pin -- and the daemon runs it to mint a URL and download once for the lab.
 
-**Be clear-eyed about this one.** Best effort means exactly that:
+Best effort means exactly that:
 
-- **Fido under PowerShell on Linux is unproven.** It is a Windows-oriented
-  script; nothing guarantees the request flow it drives keeps working there, or
-  survives a Microsoft page change.
+- **Fido is a Windows-oriented script that refuses other platforms outright**
+  ("This feature is not available on this platform.", exit 403 -- which the OS
+  reports as 147). The agent VM's cloud-init therefore disables that platform
+  gate after verifying the pinned hash; the request flow behind the gate is
+  plain web requests and works under Linux pwsh, but nothing guarantees it
+  survives a Microsoft page change. The [Diagnostics page](#diagnostics)'s
+  resolver test is how you prove the whole chain on a live agent.
 - **The minted URL is short-lived**, so the daemon has to download immediately
   on resolve; there is no stored URL to re-check later. Freshness for this one
   family therefore compares filename and size only, never the URL -- every
@@ -200,8 +202,8 @@ pin -- and the daemon runs it to mint a URL and download once for the lab.
 
 When any of that fails, the agent reports the family **absent** and the hosts
 silently do what they always do: Hyper-V and UTM run Fido themselves, KVM asks
-for a manual download. Nothing regresses, and nothing warns -- an agent that does
-not hold Windows media is an ordinary state, not a fault.
+for a manual download. An agent that does not hold Windows media is an
+ordinary state, not a fault -- nothing regresses, and nothing warns.
 
 **The gain, when it works, is real but uneven.** On Hyper-V and UTM it saves a
 repeated multi-gigabyte pull. On **KVM it is a new capability**: that script has
@@ -249,7 +251,7 @@ time; auto-seed status and the last seed outcome.
 
 ### Sorting the table
 
-Every column header except Actions is a button: click to sort by that column,
+Every column header except Actions is a button: click to sort,
 click again to reverse. The arrow says which column is active and which way it
 runs. The choice is remembered in the browser and survives a reload.
 
@@ -257,11 +259,10 @@ Two columns deliberately do not sort alphabetically, because their text is not
 the question:
 
 - **State** sorts by severity -- `failed`, `downloading`, `absent`, `stale`,
-  `fresh`. An operator sorting by state wants the row that needs them at the
-  top, and alphabetically that row would be buried between `absent` and
-  `fresh`.
+  `fresh`. Alphabetical order would bury the row that needs an operator
+  between `absent` and `fresh`.
 - **Size** sorts by bytes. As text, "9 GiB" orders ahead of "12 GiB", which
-  puts the wrong row at the top of the question the column exists to answer.
+  puts the wrong row at the top.
 
 `Last verified` sorts by timestamp, with never-verified rows gathered at the
 oldest end. Rows that tie on the sorted column fall back to their identity, so
@@ -285,6 +286,43 @@ address), so the trail shows who opened the board as well as what they changed.
 `POST /api/v1/refresh` re-verifies the whole pool in one call. That one is
 **bearer-only** (the lab-auth token): an automation route, not a button.
 
+## Diagnostics
+
+The **Diagnostics** page (menu → Diagnostics, or `/diagnostics`) answers
+the question the pool table cannot: *why* does a best-effort family not work on
+this agent. The table collapses every resolver failure into one `absent` row --
+deliberately, so hosts have one behavior -- which leaves nothing to act on when
+the family is down. This page shows the evidence, without an SSH session into
+the guest:
+
+- **The environment the resolver runs in**: guest OS and kernel, the resolved
+  PowerShell interpreter and its version, the vendored `Fido.ps1` with its
+  **live SHA-256** (after the platform-gate patch this differs from the pinned
+  download hash -- the pin vouches for what was fetched, the page shows what is
+  installed), pool and proxy configuration.
+- **The Windows 11 family verdict** with its full reason, plus the remembered
+  failure and when it expires (a failed resolve holds the family unavailable
+  for an hour before it retries on its own).
+- **The last resolver run, completely**: argv, exit code, duration, and both
+  output streams. Fido reports refusals on *stdout*, so both streams matter --
+  an error that quoted only stderr is how "exit status 147 ()" once shipped
+  with its actual reason discarded.
+- **Recent per-image refresh errors**, newest first: the strings behind any
+  `failed` badge on the pool page.
+
+Reads are open. The one action, **Resolver test**, is
+gated (same Lab token / bearer as the pool actions): it runs the vendored Fido
+once with the exact parameters a resolve uses, mints a URL and downloads
+nothing, and renders the full capture. Each run spends a Microsoft session
+(their servers rate-ban chatty addresses), so it is a diagnosis button, not a
+health check to poll. Its outcome feeds the family state in both directions: a
+successful test clears a remembered failure on the spot -- the family is back
+without waiting out the TTL or rebuilding.
+
+`GET /api/v1/diagnostics` serves the same report as JSON;
+`POST /api/v1/diagnostics/fido-test?arch=amd64|arm64` is the test route
+(gated), and both land in the audit log like every other action.
+
 ## Unlocking the actions
 
 **Usually there is nothing to unlock.** Open the Download pool from the *Yuruna
@@ -292,17 +330,16 @@ hosts* dashboard — the *Extension hosts* table, `Download-agent service` — a
 arrives already unlocked. That link goes through the aggregator's `/go/stash`
 redirect, which hands the page a short-lived control proof in the URL fragment
 (never sent to a server, never in an access log); the page exchanges it for a
-session on arrival. Going back to the dashboard to copy a code off a tile, in
-order to act on a page the dashboard just sent you to, is a step worth not
-having.
+session on arrival. That spares going back to the dashboard to copy a code
+off a tile to act on a page it just sent you to.
 
 The prompt below is what you see when there is no proof to spend: the page was
 opened by typing its address, or bookmarked, or the proof expired while the tab
 sat open.
 
 The board's **Unlock actions** prompt takes the same 6-character **Lab token**
-the Yuruna hosts dashboard shows on its own tile. Read the code off the tile,
-type it into the board, and that browser holds an unlocked session for a week.
+the Yuruna hosts dashboard shows on its own tile. Type the code from the tile
+into the board, and that browser holds an unlocked session for a week.
 There is nothing to provision, nothing to look up in a vault, and nothing to
 remember between rebuilds.
 
@@ -318,8 +355,8 @@ their rotation, and believes only a definite answer. Two consequences:
 
 - An **unreachable or unconfigured aggregator means the board cannot be
   unlocked** -- the answer is `503 {"reason":"lab-token-unavailable"}`, which is
-  deliberately a different answer from "wrong code". The gate fails closed; it
-  never lets the click through. Automation is unaffected:
+  deliberately a different answer from "wrong code". The gate fails closed.
+  Automation is unaffected:
   `Authorization: Bearer <lab-auth-token>` still works, and is the way to drive
   the agent when the aggregator is down.
 - With **neither** an aggregator to ask nor a token configured, the mutating
@@ -417,7 +454,7 @@ The merge is additive only. A host carried over from an older build keeps a
 `download-agent-service-passcode` entry in its runtime `users.yml`, and possibly
 a value under that key in `vault.yml`, that nothing reads. Neither grants access
 to anything -- no daemon compares against them and no seed carries them -- so
-leaving them costs nothing. Delete both by hand if you would rather the vault
+leaving them is harmless. Delete both by hand if you would rather the vault
 held only live credentials.
 
 ## Troubleshooting
@@ -435,7 +472,7 @@ held only live credentials.
 | UI actions return `503 auth-unconfigured` | The VM was built with no aggregator URL and no lab-auth token, so neither gate exists | Set a lab token with `test/Set-LabToken.ps1`, then rebuild the agent VM so the seed carries the aggregator URL |
 | UI actions return "read-only" / show a `leaseHolder` | Another agent on the same NAS holds the lease | Expected. Use that agent's UI, or stop it -- the lease expires after three scan intervals |
 | An entry is stale and refuses to refresh | The origin is unreachable directly | The pool keeps serving the previous verified generation. Nothing to do but restore origin reachability; the next scan retries |
-| `guest.windows.11` never appears in the pool, or stays `absent` after a Force refresh | Best-effort family: no PowerShell, no Fido, or Fido could not mint a URL under Linux pwsh | Grep `/var/log/cloud-init-output.log` in the agent VM for `Windows 11 family` -- the line names the state. A VM built before this family existed simply needs a Stop/Start rebuild. Hosts are unaffected either way: Hyper-V and UTM run Fido themselves, KVM stays manual |
+| `guest.windows.11` never appears in the pool, or stays `absent` after a Force refresh | Best-effort family: no PowerShell, no Fido, or Fido could not mint a URL under Linux pwsh | Open the **Diagnostics** page: the family card carries the exact failure, the last resolver run shows both output streams, and the gated Resolver test reruns the resolve on demand. A VM built before this family (or before the platform-gate patch) needs a Stop/Start rebuild. Hosts are unaffected either way: Hyper-V and UTM run Fido themselves, KVM stays manual |
 | Pool is eating the share | Retention is current + previous per identity | Prune previous on the fat rows, or Delete entries for host types this lab no longer runs |
 
 The manual smoke test for the daemon build itself is
@@ -462,6 +499,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.06
+Last review: 2026.08.07
 
 Back to [Yuruna](../README.md)

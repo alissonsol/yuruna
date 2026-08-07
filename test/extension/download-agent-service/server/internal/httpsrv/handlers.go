@@ -40,6 +40,10 @@ func (s *Server) routes() http.Handler {
 	// ensure is a POST because it may start work, but it is the host's read
 	// path: gating it would make every image fetch need a credential.
 	mux.HandleFunc("POST /api/v1/images/{hostType}/{imageKey}/ensure", s.handleEnsure)
+	// Diagnostics is a read: environment facts and the last resolver run, the
+	// evidence behind a "family unavailable" answer. What it must NOT do is
+	// start a resolver child -- that is the gated test route below.
+	mux.HandleFunc("GET /api/v1/diagnostics", s.handleDiagnostics)
 
 	// Mutations: lab-token session or lab-auth-token bearer.
 	mux.HandleFunc("POST /api/v1/images/{hostType}/{imageKey}/refresh", s.gate.Require(s.handleRefresh))
@@ -49,12 +53,18 @@ func (s *Server) routes() http.Handler {
 	// and one unlocked phone should not be able to start a download for every
 	// entry in the pool at once.
 	mux.HandleFunc("POST /api/v1/refresh", s.gate.RequireBearer(s.handleRefreshAll))
+	// The resolver test starts a real Fido run against Microsoft's pages. It
+	// downloads nothing, but each run spends a Microsoft session (their servers
+	// rate-ban chatty addresses), so it is gated like the other actions rather
+	// than left open for anything on the LAN to poll.
+	mux.HandleFunc("POST /api/v1/diagnostics/fido-test", s.gate.Require(s.handleFidoTest))
 
 	mux.HandleFunc("GET /assets/", s.handleAsset)
 	// The page is served open; its DATA comes from the routes above and it
 	// renders its own lab-token prompt from /api/session. Gating the HTML would
 	// mean serving a 401 body a browser cannot act on.
 	mux.HandleFunc("GET /{$}", s.servePage("index.html"))
+	mux.HandleFunc("GET /diagnostics", s.servePage("diagnostics.html"))
 	return mux
 }
 
@@ -283,6 +293,54 @@ func (s *Server) handleEnsure(w http.ResponseWriter, r *http.Request) {
 		body["error"] = res.Error
 	}
 	writeJSON(w, res.HTTPStatus, body)
+}
+
+// --- diagnostics ------------------------------------------------------------
+
+func (s *Server) handleDiagnostics(w http.ResponseWriter, r *http.Request) {
+	if !s.available(w) {
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ok":            true,
+		"version":       s.opts.Version,
+		"aggregatorUrl": s.opts.AggregatorURL,
+		"diagnostics":   s.images.Diagnostics(r.Context()),
+	})
+}
+
+// handleFidoTest runs one resolver attempt and returns the full capture. A
+// failed attempt is still HTTP 200 with ok:false -- the test itself ran, and
+// its outcome is the data the caller asked for; error statuses are kept for
+// requests the route refused to run.
+func (s *Server) handleFidoTest(w http.ResponseWriter, r *http.Request) {
+	if !s.available(w) {
+		return
+	}
+	arch := r.URL.Query().Get("arch")
+	if arch == "" {
+		writeErr(w, http.StatusBadRequest, "arch query parameter is required (amd64 or arm64)")
+		return
+	}
+	id := imagestore.ImageID{ImageKey: imagestore.KeyWindows11, Arch: arch}
+	attempt, err := s.images.FidoTest(r.Context(), arch)
+	if err != nil {
+		s.record("fido-test", id, "refused", err.Error())
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	// The minted URL itself stays out of the audit line: it is hundreds of
+	// signature bytes that expire within hours, and the attempt JSON already
+	// went to the caller who asked.
+	outcome, detail := "ok", "url minted"
+	if attempt.Error != "" {
+		outcome, detail = "failed", attempt.Error
+	}
+	s.record("fido-test", id, outcome, detail)
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ok":      attempt.Error == "",
+		"attempt": attempt,
+	})
 }
 
 // --- refusal mapping --------------------------------------------------------

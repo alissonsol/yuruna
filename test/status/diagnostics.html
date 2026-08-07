@@ -8,7 +8,7 @@
   <!-- viewport-fit=cover + safe-area-inset support; see yuruna.common.css. -->
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <meta http-equiv="Cache-Control" content="public, max-age=60, must-revalidate">
-  <title>hostinfo — Yuruna</title>
+  <title>Diagnostics — Yuruna</title>
   <link rel="stylesheet" href="yuruna.common.css">
   <style>
     /* dvh first-class, vh as the fallback: iOS Safari's 100vh is the large
@@ -36,7 +36,7 @@
       padding: 1.25rem 1.5rem;
       padding: 1.25rem max(1.5rem, env(safe-area-inset-right)) 1.25rem max(1.5rem, env(safe-area-inset-left));
     }
-    pre#hostinfo-output {
+    pre#diagnostics-output {
       background: var(--bg-elevated); border: 1px solid var(--border); border-radius: .5rem;
       padding: 1rem 1.25rem;
       font-family: var(--font-mono); font-size: .75rem;
@@ -44,8 +44,8 @@
       white-space: pre-wrap; word-break: break-word;
       color: var(--fg-primary);
     }
-    pre#hostinfo-output.loading { color: var(--fg-faint); font-style: italic; }
-    pre#hostinfo-output.error   { color: var(--fail-fg); background: var(--fail-soft-bg); border-color: var(--fail-soft-border); }
+    pre#diagnostics-output.loading { color: var(--fg-faint); font-style: italic; }
+    pre#diagnostics-output.error   { color: var(--fail-fg); background: var(--fail-soft-bg); border-color: var(--fail-soft-border); }
   </style>
 </head>
 <body>
@@ -65,7 +65,7 @@
       <a href="index.html">Status</a>
       <a href="config.html">Config</a>
       <a href="performance.html">Performance</a>
-      <a href="host.html" aria-current="page">Host</a>
+      <a href="diagnostics.html" aria-current="page">Diagnostics</a>
       <a class="menu-out" href="https://yuruna.link/operator">Guide</a>
     </nav>
   </div>
@@ -78,7 +78,7 @@
 </div>
 
 <main>
-  <pre id="hostinfo-output" class="loading">Running Get-SystemDiagnostic on host…</pre>
+  <pre id="diagnostics-output" class="loading">Running Get-SystemDiagnostic on host…</pre>
 </main>
 
 <script src="yuruna.common.js"></script>

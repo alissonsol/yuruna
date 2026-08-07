@@ -103,8 +103,8 @@ assume about it.
 
 ## Pages
 
-Named for their function, not their file history: `config.html`, `host.html`,
-`performance.html`. `index.html` is the status page.
+Named for their function, not their file history: `config.html`,
+`diagnostics.html`, `performance.html`. `index.html` is the status page.
 
 ## Exempt: foreign contracts
 
@@ -133,4 +133,4 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.06
+Last review: 2026.08.07

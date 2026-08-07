@@ -1,7 +1,7 @@
 /*
   LICENSEURI https://yuruna.link/license
   Copyright (c) 2019-2026 by Alisson Sol et al.
-  Version: 2026.08.06
+  Version: 2026.08.07
 
   Shared helpers for the Yuruna status pages. Mounted on window.Yuruna.
   --- REGION: https://yuruna.link/definition#defining-the-status-page-browser-baseline
@@ -10,7 +10,7 @@
 (function() {
   'use strict';
 
-  var VERSION = '2026.08.06';
+  var VERSION = '2026.08.07';
 
   // --- REGION: https://yuruna.link/control-proof
   // A Grafana deep-link routes through the caching-proxy service's /go/host, which appends a
@@ -102,7 +102,7 @@
   // in status.json / caching-proxy-service.txt (both host-generated but influenced
   // by guest-supplied names), so a click on a poisoned link would execute.
   // The status pages deep-link almost entirely with DOCUMENT-RELATIVE paths
-  // (log/..., index.html, host.html), so a strict ^https?:// gate would
+  // (log/..., index.html, diagnostics.html), so a strict ^https?:// gate would
   // break every results/log link -- instead allow same-origin relative paths
   // and absolute http(s), reject everything else. ES5 only (iOS 9.3 baseline,
   // no URL constructor): returns '' for anything not provably safe so callers
@@ -235,8 +235,8 @@
     stack.className = 'hm-stack';
     var nameLink = document.createElement('a');
     nameLink.className = 'hm-name';
-    nameLink.href = 'host.html';
-    nameLink.title = 'Host diagnostic';
+    nameLink.href = 'diagnostics.html';
+    nameLink.title = 'Host diagnostics';
     nameLink.textContent = name;
     stack.appendChild(nameLink);
     if (host) {
@@ -346,7 +346,7 @@
     };
   }
 
-  // ── Shared banner helpers (performance.html, host.html, config.html
+  // ── Shared banner helpers (performance.html, diagnostics.html, config.html
   // and index.html all share the same banner DOM contract: #banner +
   // #banner-text). The polling-driven banner refresh used by the
   // light-weight pages is consolidated here.
@@ -1718,8 +1718,8 @@
     loadAggregates(false);
   }
 
-  // === host.html handlers ===
-  function bootHostInfo() {
+  // === diagnostics.html handlers ===
+  function bootDiagnostics() {
     Yuruna.populateHeader();
 
     function loadServerUserAccount() {
@@ -1736,9 +1736,20 @@
     loadServerUserAccount();
     startBannerPolling();
 
-    var el = document.getElementById('hostinfo-output');
+    var el = document.getElementById('diagnostics-output');
+    // Read the body before failing: a 403 here carries the precondition that
+    // actually failed (no token on this host, no/expired proof), and reporting
+    // only the status code hides that the fix is "arrive via the dashboard
+    // link or use localhost", not a server fault.
     fetch('control/host-diagnostic?_=' + Date.now(), { cache: 'no-store', headers: yurunaControlHeaders() })
-      .then(function(res) { if (!res.ok) throw new Error('HTTP ' + res.status); return res.text(); })
+      .then(function(res) {
+        if (!res.ok) {
+          return res.json()['catch'](function() { return null; }).then(function(body) {
+            throw new Error(controlErrorText(res.status, body));
+          });
+        }
+        return res.text();
+      })
       .then(function(text) { el.className = ''; el.textContent = text || '(no output)'; })
       ['catch'](function(e) { el.className = 'error'; el.textContent = 'Could not load: ' + (e.message || e); });
   }
@@ -2756,8 +2767,10 @@
   // A cycle folder is a tree: transcripts, the events feed, a subfolder per
   // guest. Sending one to a colleague meant picking files out of a directory
   // listing one at a time, so this asks the host to pack the folder
-  // (/archive/<folder>.tar.gz) and hands the result to the operator's mail
-  // client.
+  // (/archive/<folder>.zip) and hands the result to the operator's mail
+  // client. Zip because this file is downloaded by a browser and then attached
+  // to a message: both ends recognise the type, where a gzipped tarball is
+  // opaque to download reputation checks and mail scanners alike.
   //
   // Two ways to hand it over, because only one of them exists on any given
   // browser. navigator.share can carry the file itself, so where it is offered
@@ -2821,10 +2834,14 @@
       return;
     }
 
-    var archiveName = info.shortHost + '.' + info.stamp + '.tar.gz';
-    var archiveUrl = 'archive/' + encodeURIComponent(info.folder) + '.tar.gz';
+    var archiveName = info.shortHost + '.' + info.stamp + '.zip';
+    var archiveUrl = 'archive/' + encodeURIComponent(info.folder) + '.zip';
     var subject = 'Yuruna Host ' + info.shortHost + ' at ' + info.stamp;
-    var body = 'Yuruna cycle results';
+    // "are attached" rather than a bare label: the fallback path leaves the
+    // attaching to the operator, and a mail client that reads its own draft
+    // for the word is the last thing between a forgotten file and a sent
+    // message that promises one.
+    var body = 'Yuruna cycle results are attached';
     var mailto = 'mailto:?subject=' + encodeURIComponent(subject) + '&body=' + encodeURIComponent(body);
 
     document.getElementById('share-host').textContent = info.shortHost;
@@ -2877,7 +2894,7 @@
         if (!r.ok) { throw new Error('HTTP ' + r.status); }
         return r.blob();
       }).then(function(blob) {
-        var file = new File([blob], archiveName, { type: 'application/gzip' });
+        var file = new File([blob], archiveName, { type: 'application/zip' });
         if (!navigator.canShare({ files: [file] })) { throw new Error('files not shareable'); }
         return navigator.share({ files: [file], title: subject, text: body }).then(function() {
           shareCycleStatus('Shared ' + archiveName + ' (' + shareCycleSize(blob.size) + ').');
@@ -2912,8 +2929,8 @@
       bootIndex();
     } else if (document.getElementById('perf-recalc')) {
       bootPerf();
-    } else if (document.getElementById('hostinfo-output')) {
-      bootHostInfo();
+    } else if (document.getElementById('diagnostics-output')) {
+      bootDiagnostics();
     } else if (document.getElementById('config-body')) {
       bootTestConfig();
     } else if (document.getElementById('share-cycle')) {

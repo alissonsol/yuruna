@@ -10,9 +10,8 @@ installers:
 The scripts stay deliberately small — each section here maps to a
 `# --- REGION: Section name` divider in the script body. The single
 `# --- REGION: https://yuruna.link/install/explained` line near the top of
-each installer is the operator's entry point to this document, from where
-they navigate to the section matching the divider above the code they are
-studying.
+each installer is the operator's entry point to this document; from there,
+navigate to the section matching the divider above the code being studied.
 
 Anchors follow the GitHub Markdown rule: lowercase the heading, strip
 punctuation, replace spaces with hyphens. So `## Section name` becomes
@@ -28,7 +27,7 @@ used by [memory.md](memory.md), [definition.md](definition.md),
 
 ### Install log
 
-Each installer mirrors stdout+stderr to a log file as well as the
+Each installer mirrors stdout+stderr to a log file and the
 terminal so a mid-install failure can be inspected afterwards. The shell
 installers use a FIFO and a backgrounded `tee` (rather than
 `exec > >(tee ...)`) so the EXIT path can wait for tee to flush, keeping
@@ -43,11 +42,38 @@ On Windows the failure mode differs: the elevated relaunch runs in a
 SEPARATE console window that vanishes the instant the script ends or
 dies, leaving nothing on screen to read. The installer transcripts every
 elevated stage to a file under a standard, discoverable location
-(`%ProgramData%\Yuruna\logs`, falling back to `%TEMP%`) so the failure
-can be inspected after the window is gone. The path is generated ONCE
+(`%ProgramData%\Yuruna\logs`, falling back to `%TEMP%`). The path is generated ONCE
 and forwarded through every relaunch via `-LogPath`, so the line printed
 before the UAC relaunch names the exact file the elevated window writes,
 and every stage appends to that one file.
+
+### Outcome buckets and the facts store
+
+`install/setup.ps1` files every step into one of five buckets, and the
+closing report prints all five:
+
+- **Done** — the step did its work and nothing is left unmet.
+- **Skipped** — the operator declined the step. This bucket matters most:
+  a setup that silently declines to do something reads as a setup that
+  already did it.
+- **Blocked** — the step could not run because something it needs failed.
+  Kept separate from Skipped so a cascade never reads as a decision — a
+  step blocked by an earlier failure is a different fact about the
+  machine from a step the operator declined, and filing them together
+  hides which one happened.
+- **Warned** — the middle the other four have no room for: the step did
+  its work and something it cannot fix itself is still unmet (a TCC
+  grant needs the terminal quit; a Mac with no lid never surfaces every
+  pmset guard). Without it the only honest encodings left are a PASS
+  that hides the condition and a FAIL with no path to green.
+- **Failed** — the step was attempted and did not work.
+
+Alongside the buckets, a facts store records what later steps are
+allowed to assume. Each fact is THREE-valued on purpose: `ok`, plus the
+two ways a fact can be absent — `declined` (nobody asked for it) and
+`failed` (attempted, did not work). A boolean collapses those two, and
+the collapse prints "a prerequisite failed" over a run where the
+operator simply chose not to have the thing.
 
 ### Two-repo split
 
@@ -65,7 +91,7 @@ would stall waiting for GitHub credentials this run doesn't have.
 
 ### Release pinning + signed integrity
 
-`VERSION` (bare CalVer, e.g. `2026.08.06`) is the source of truth for releases.
+`VERSION` (bare CalVer, e.g. `2026.08.07`) is the source of truth for releases.
 At release time `tools/Update-YurunaReleasePins.ps1` regenerates
 `install/install.sha256`, signs it (`install/install.sha256.sig`, RSA-4096),
 runs the ASCII/no-BOM gate as a hard precondition, and bumps the one tag still
@@ -297,8 +323,7 @@ releases it.
 needs the rename. A checkout that something else holds open still
 updates normally through `git pull`, so the probe reports the condition
 and the install continues; the rescue path reports its own failure if it
-is ever reached. The probe exists to tell the operator early, not to
-veto the run.
+is ever reached.
 
 On entry the probe also repairs a `<dir>.locktest` an interrupted run
 left behind, in either shape it can take: the whole checkout under the
@@ -603,9 +628,8 @@ the user at their shell prompt.
 All NEXT STEPS guidance lives inside the spawned pwsh window's welcome
 banner. The admin console this script is running in was spawned by the
 self-elevation block via `Start-Process -Verb RunAs` and closes the
-moment we return. Anything we `Write-Output` AFTER that exit is
-unreadable, so a NEXT STEPS block printed there vanishes before the user
-can read it.
+moment we return, so anything we `Write-Output` AFTER that exit
+vanishes before the user can read it.
 
 The handoff window is launched via `pwsh -NoExit -EncodedCommand <base64>`
 to sidestep every shell-quoting pitfall for the spawned process.
@@ -781,7 +805,7 @@ is actionable instead of silent.
 KVM acceleration requires Intel VT-x or AMD-V. The hard preflight
 greps `/proc/cpuinfo` for `vmx|svm` — without acceleration the test
 harness is unusable, so the installer refuses to burn time on apt/repo
-work when the host obviously cannot host VMs. On aarch64 hosts where
+work when the host cannot host VMs. On aarch64 hosts where
 `/proc/cpuinfo` does not expose `vmx`/`svm`, the check defers to the
 post-install `/dev/kvm` assertion in the final preflight.
 
@@ -932,6 +956,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.06
+Last review: 2026.08.07
 
 Back to [Yuruna](../README.md)

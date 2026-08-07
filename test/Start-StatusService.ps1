@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.06
+.VERSION 2026.08.07
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456740
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -1253,6 +1253,75 @@ try {
                 `$payload = @{
                     YURUNA_CACHING_PROXY_SERVICE_IP = `$envValue
                     serverUserAccount = `$serverUser
+                } | ConvertTo-Json -Compress
+                `$body = [System.Text.Encoding]::UTF8.GetBytes(`$payload)
+                `$res.ContentLength64 = `$body.Length
+                if (`$req.HttpMethod -ne 'HEAD') {
+                    `$res.OutputStream.Write(`$body, 0, `$body.Length)
+                }
+                `$res.OutputStream.Close()
+                continue
+            }
+
+            # --- REGION: /control/host-facts: machine hardware facts for pool UIs
+            # Read-only GET, open like the other LAN reads: RAM, physical core
+            # count, and local fixed-disk totals as raw bytes/counts -- the
+            # consumer picks display units. Physical cores (not logical
+            # processors) because capacity planning cares about the silicon;
+            # when the platform cannot enumerate them (some ARM guests, some
+            # VMs) the logical count is served rather than a zero. Network and
+            # removable mounts are excluded so shared pool storage is not
+            # counted once per host that mounts it.
+            if (`$path -eq 'control/host-facts') {
+                if (`$req.HttpMethod -ne 'GET' -and `$req.HttpMethod -ne 'HEAD') {
+                    `$res.Headers.Add('Allow', 'GET')
+                    Send-JsonError -Response `$res -StatusCode 405 -Json '{"ok":false,"error":"method not allowed"}'
+                    continue
+                }
+                `$res.ContentType = 'application/json; charset=utf-8'
+                `$res.Headers.Add('Cache-Control', 'no-store')
+                `$hfMemory = [long]0
+                `$hfCores  = [long]0
+                try {
+                    if (`$IsWindows) {
+                        `$hfMemory = [long](Get-CimInstance Win32_ComputerSystem -ErrorAction Stop).TotalPhysicalMemory
+                        `$hfCores  = [long]((Get-CimInstance Win32_Processor -ErrorAction Stop | Measure-Object -Property NumberOfCores -Sum).Sum)
+                    } elseif (`$IsMacOS) {
+                        `$hfMemory = [long](& sysctl -n hw.memsize 2>`$null)
+                        `$hfCores  = [long](& sysctl -n hw.physicalcpu 2>`$null)
+                    } else {
+                        `$hfMemLine = Get-Content -LiteralPath '/proc/meminfo' -TotalCount 1 -ErrorAction Stop
+                        if (`$hfMemLine -match 'MemTotal:\s*(\d+)\s*kB') { `$hfMemory = [long]`$Matches[1] * 1024 }
+                        # Unique (core, socket) pairs; -b keeps offline CPUs out.
+                        # The argument MUST stay quoted: unquoted, PowerShell reads
+                        # -p=Core as a command parameter and the comma after it as an
+                        # array operator with nothing to its left, which is a parse
+                        # error rather than a runtime one -- it takes down the whole
+                        # generated script, not just this line.
+                        `$hfPairs = & lscpu -b '-p=Core,Socket' 2>`$null | Where-Object { `$_ -and `$_ -notmatch '^#' } | Sort-Object -Unique
+                        `$hfCores = [long](`$hfPairs | Measure-Object).Count
+                    }
+                } catch { `$null = `$_ }
+                if (`$hfCores -le 0) { `$hfCores = [long][Environment]::ProcessorCount }
+                `$hfStorTotal = [long]0
+                `$hfStorFree  = [long]0
+                try {
+                    foreach (`$hfDrive in [System.IO.DriveInfo]::GetDrives()) {
+                        if (`$hfDrive.DriveType -ne [System.IO.DriveType]::Fixed -or -not `$hfDrive.IsReady) { continue }
+                        # Loop/overlay pseudo-mounts (snap images and the like)
+                        # report as Fixed but are carved out of a disk already
+                        # counted; summing them inflates the total.
+                        if (`$hfDrive.DriveFormat -in @('squashfs', 'overlay', 'tmpfs', 'ramfs')) { continue }
+                        `$hfStorTotal += [long]`$hfDrive.TotalSize
+                        `$hfStorFree  += [long]`$hfDrive.AvailableFreeSpace
+                    }
+                } catch { `$null = `$_ }
+                `$payload = @{
+                    ok                = `$true
+                    memoryBytes       = `$hfMemory
+                    cores             = `$hfCores
+                    storageTotalBytes = `$hfStorTotal
+                    storageFreeBytes  = `$hfStorFree
                 } | ConvertTo-Json -Compress
                 `$body = [System.Text.Encoding]::UTF8.GetBytes(`$payload)
                 `$res.ContentLength64 = `$body.Length
@@ -2662,12 +2731,19 @@ try {
                 continue
             }
 
-            # --- REGION: /archive/<cycle-folder>.tar.gz: one cycle's results, packed
+            # --- REGION: /archive/<cycle-folder>.zip: one cycle's results, packed
             # A cycle folder is a tree -- transcripts, the events feed, a
             # subfolder per guest -- so sending one to a colleague meant
             # picking files out of a directory listing one at a time. This
             # serves the whole folder as a single archive, which is what
             # share-cycle.html hands to the operator's mail client.
+            #
+            # Zip, because the archive's whole life is a browser download that
+            # becomes a mail attachment. A .zip is a shape both ends already
+            # understand: download reputation checks see a common type, mail
+            # scanners can look inside it, and Windows and macOS open one with
+            # nothing installed. A gzipped tarball is opaque to all three and
+            # gets flagged or quarantined unread.
             #
             # The leaf is matched against the cycle-folder grammar rather than
             # sanitised: the only thing this route may ever name is one results
@@ -2678,7 +2754,7 @@ try {
             # running cycle carries.
             if (`$path -like 'archive/*') {
                 `$leaf = `$path.Substring(8)
-                if (`$leaf -notmatch '^(\d{6}\.(\d{4}-\d{2}-\d{2})\.(\d{2}-\d{2}-\d{2})\.([0-9a-fA-F]{32})(?:\.incomplete)?)\.tar\.gz`$') {
+                if (`$leaf -notmatch '^(\d{6}\.(\d{4}-\d{2}-\d{2})\.(\d{2}-\d{2}-\d{2})\.([0-9a-fA-F]{32})(?:\.incomplete)?)\.zip`$') {
                     `$res.StatusCode = 404
                     `$res.ContentType = 'text/plain; charset=utf-8'
                     `$body = [System.Text.Encoding]::UTF8.GetBytes('Not a cycle results archive name.')
@@ -2694,7 +2770,7 @@ try {
                 # attachment; both read it out of the folder, which already
                 # carries the UTC start (Format-CycleFolderBaseName) and the
                 # host id -- so neither has to be told.
-                `$archiveName = '{0}.{1}T{2}Z.tar.gz' -f `$Matches[4].Substring(0,8), `$Matches[2], `$Matches[3]
+                `$archiveName = '{0}.{1}T{2}Z.zip' -f `$Matches[4].Substring(0,8), `$Matches[2], `$Matches[3]
                 `$srcDir = Join-Path `$logDir `$cycleFolder
                 if (-not (Test-Path -LiteralPath `$srcDir -PathType Container)) {
                     `$res.StatusCode = 404
@@ -2705,38 +2781,73 @@ try {
                     `$res.OutputStream.Close()
                     continue
                 }
-                # tar writes the archive to a file rather than to a pipe: a
-                # PowerShell pipeline is text-oriented and would re-encode the
-                # bytes of a gzip stream on the way through. bsdtar ships in-box
-                # on Windows 10 1803+ and on macOS; Linux has GNU tar. -C keeps
-                # the archive rooted at the cycle folder instead of recording
-                # the host's whole log path inside it.
-                `$tmpArchive = Join-Path `$runtimeDir ("share-cycle." + [guid]::NewGuid().ToString('N') + '.tar.gz')
+                # The archive is written to a file and then served, rather than
+                # packed straight into the response: a pack that fails halfway
+                # can still answer 500 instead of a truncated download, and the
+                # finished size is what the browser and the share page report.
+                # Packed in-process (System.IO.Compression) rather than by
+                # shelling out, so the route needs no archiver on the host.
+                `$tmpArchive = Join-Path `$runtimeDir ("share-cycle." + [guid]::NewGuid().ToString('N') + '.zip')
                 try {
-                    # One response carrying a whole folder is a bulk read, and the
-                    # deny-list that guards the per-file reads runs further down
-                    # this dispatch -- so it never sees these bytes. Pack under the
-                    # same rule instead: a shape the server refuses to serve on its
-                    # own is not one it may hand over inside an archive. --exclude
-                    # is understood by both bsdtar and GNU tar.
-                    `$tarArgs = @()
-                    foreach (`$shape in `$secretNameShapes) { `$tarArgs += "--exclude=`$shape" }
-                    `$tarArgs += @('-czf', `$tmpArchive, '-C', `$logDir, `$cycleFolder)
-                    `$tarErr = & tar @tarArgs 2>&1
-                    if (`$LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath `$tmpArchive)) {
-                        throw "tar exited `${LASTEXITCODE}: `$(`$tarErr -join ' ')"
-                    }
+                    `$srcRoot = (Resolve-Path -LiteralPath `$srcDir).ProviderPath.TrimEnd('\', '/')
+                    `$zip = [System.IO.Compression.ZipFile]::Open(`$tmpArchive, [System.IO.Compression.ZipArchiveMode]::Create)
+                    try {
+                        foreach (`$file in [System.IO.Directory]::EnumerateFiles(`$srcRoot, '*', [System.IO.SearchOption]::AllDirectories)) {
+                            # One response carrying a whole folder is a bulk read,
+                            # and the deny-list that guards the per-file reads runs
+                            # further down this dispatch -- so it never sees these
+                            # bytes. Pack under the same rule instead: a shape the
+                            # server refuses to serve on its own is not one it may
+                            # hand over inside an archive.
+                            `$blocked = `$false
+                            foreach (`$shape in `$secretNameShapes) {
+                                if ([System.IO.Path]::GetFileName(`$file) -like `$shape) { `$blocked = `$true; break }
+                            }
+                            if (`$blocked) { continue }
+                            # Every entry is rooted at the cycle folder, so an
+                            # extract lands one named folder instead of scattering
+                            # transcripts into whatever directory the colleague was
+                            # in, and the host's own log path stays out of the zip.
+                            `$entryName = `$cycleFolder + '/' + (`$file.Substring(`$srcRoot.Length + 1) -replace '\\', '/')
+                            try {
+                                # ReadWrite sharing: a cycle that is still running
+                                # is being written to while it is packed, and the
+                                # read-share default would be refused on the file
+                                # its writer still holds open.
+                                `$inStream = [System.IO.File]::Open(`$file, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]::ReadWrite)
+                            } catch [System.IO.IOException] {
+                                # Gone or locked outright between the walk and the
+                                # read. One file of a live cycle is not worth
+                                # failing the whole archive over.
+                                continue
+                            }
+                            try {
+                                `$entry = `$zip.CreateEntry(`$entryName, [System.IO.Compression.CompressionLevel]::Optimal)
+                                `$entry.LastWriteTime = [System.IO.File]::GetLastWriteTime(`$file)
+                                `$entryStream = `$entry.Open()
+                                try { `$inStream.CopyTo(`$entryStream) } finally { `$entryStream.Dispose() }
+                            } finally { `$inStream.Dispose() }
+                        }
+                        # A guest folder that produced no artifacts still says
+                        # something by being there, and a zip carries a directory
+                        # only when it is named as an entry of its own.
+                        foreach (`$dir in [System.IO.Directory]::EnumerateDirectories(`$srcRoot, '*', [System.IO.SearchOption]::AllDirectories)) {
+                            if (@([System.IO.Directory]::GetFileSystemEntries(`$dir)).Count -gt 0) { continue }
+                            `$null = `$zip.CreateEntry(`$cycleFolder + '/' + (`$dir.Substring(`$srcRoot.Length + 1) -replace '\\', '/') + '/')
+                        }
+                    } finally { `$zip.Dispose() }
+                    if (-not (Test-Path -LiteralPath `$tmpArchive)) { throw 'the packer produced no archive' }
                     `$archiveBytes = [System.IO.File]::ReadAllBytes(`$tmpArchive)
                     `$res.StatusCode = 200
-                    `$res.ContentType = 'application/gzip'
+                    `$res.ContentType = 'application/zip'
                     `$res.Headers.Add('Content-Disposition', ('attachment; filename="' + `$archiveName + '"'))
                     `$res.Headers.Add('Cache-Control', 'no-store')
                     `$res.ContentLength64 = `$archiveBytes.Length
                     if (`$req.HttpMethod -ne 'HEAD') { `$res.OutputStream.Write(`$archiveBytes, 0, `$archiveBytes.Length) }
                 } catch {
-                    # Naming the cycle and the tar failure is the difference
-                    # between "this host has no tar" and "that cycle is gone",
-                    # which the share page shows the operator verbatim.
+                    # Naming the cycle and the failure is the difference between
+                    # "that cycle is gone" and "the pack itself broke", which the
+                    # share page shows the operator verbatim.
                     Write-ServerErr "archive `$cycleFolder failed: `$(`$_.Exception.Message)"
                     `$res.StatusCode = 500
                     `$res.ContentType = 'text/plain; charset=utf-8'

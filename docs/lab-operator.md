@@ -223,7 +223,16 @@ pwsh test/Invoke-TestProject.ps1
 ```
 
 The sync copies the reference host's config converted for this host
-and finishes by running `Test-Config.ps1`. Once `Invoke-TestProject`
+and finishes by running `Test-Config.ps1`.
+
+If the machine was previously a **standalone host**, run
+`pwsh test/Convert-ToPoolWorker.ps1 -ReferenceHost <ip-or-name>` in
+place of the sync. It does the same sync and then retires the local
+services the lab now provides — which otherwise keep winning the
+lookup and quietly serve this host's cycles
+([B.7](#b7-each-additional-machine)).
+
+Once `Invoke-TestProject`
 is green, open the pool-control service UI at
 `http://<pool-control-service-vm-ip>/`, add the host to a pool, assign
 a test set, then:
@@ -491,8 +500,8 @@ On the machine that will run cycles first (any of them):
    pwsh test/Sync-HostConfiguration.ps1 -ReferenceHost <ip-or-name>
    ```
 
-   `<code>` is the "Lab token" tile value; `Set-LabToken.ps1` redeems
-   it at the aggregator and stores the shared `lab-auth-token` in this
+   `Set-LabToken.ps1` redeems the "Lab token" tile code at the
+   aggregator and stores the shared `lab-auth-token` in this
    host's vault. The sync then copies the reference host's
    `test.config.yml` converted for this host (share paths, mount
    points, host aliases) and **finishes by running Test-Config.ps1**.
@@ -511,6 +520,42 @@ On the machine that will run cycles first (any of them):
    accepts the drift; under `-NonInteractive` a stale reference fails
    the run without it, so an unattended sync cannot propagate a
    half-migrated config.
+   **A machine that was a standalone host needs the conversion, not
+   the sync.** `Sync-HostConfiguration.ps1` replaces the
+   configuration; it does not retire what the old configuration
+   pointed at, and a leftover local service VM *wins*. Extension
+   areas resolve as operator pin → **a VM on this host** → the pool's
+   record, so a machine that keeps its own stash service goes on using
+   it and never consults the lab's — and its cycles pass while doing
+   so. Stopping the VM is not enough either: the per-cycle sweep
+   restarts every registered-but-stopped service VM. Use:
+
+   ```
+   pwsh test/Set-LabToken.ps1 -LabToken <code>
+   pwsh test/Convert-ToPoolWorker.ps1 -ReferenceHost <ip-or-name>
+   ```
+
+   It runs the sync above, then retires every local service VM
+   (caching-proxy, stash, pool-control, download-agent) through each
+   service's own `Stop-*ServiceVM.ps1` — which also clears the
+   extension marker and refreshes `host.registration.json`, so the
+   host drops off the dashboard's Extension hosts row within one
+   aggregator poll — drops the hosts-file aliases those services
+   owned, and verifies the end state. `-KeepCachingProxy` keeps a warm
+   local squid on a slow link. Add `-WhatIf` to preview; that needs no
+   elevation.
+
+   The shared `lab-auth-token` is **required** for the conversion.
+   Without it the vault entries this machine minted for the shares it
+   used to serve itself would survive, and the lab's storage has never
+   seen those passwords — the mount fails later with a credential
+   error nobody connects back to this step.
+
+   Storage is reported, never deleted:
+   `pwsh test/Clear-LocalLabStorage.ps1` withdraws the SMB shares, the
+   `yuruna-pool` / `yuruna-stash` accounts, and the loopback
+   exemptions, then prints the sizes under the storage root and the
+   exact command to reclaim them. Start with `-ReportOnly`.
 4. **(Recommended) one local cycle** — `pwsh test/Invoke-TestProject.ps1` to
    prove the host green standalone before the pool drives it.
 5. **Join a pool and take assignments** — open the pool-control service UI at
@@ -687,6 +732,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.06
+Last review: 2026.08.07
 
 Back to [Yuruna](../README.md)

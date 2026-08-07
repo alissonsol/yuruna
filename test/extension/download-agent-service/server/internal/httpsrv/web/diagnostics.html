@@ -1,0 +1,122 @@
+<!doctype html>
+<!--
+  LICENSEURI https://yuruna.link/license
+  Copyright (c) 2019-2026 by Alisson Sol et al.
+
+  Diagnostics: why a best-effort family does or does not work on THIS agent.
+  The pool table collapses every resolver failure into "absent"; this page
+  shows the evidence -- the interpreter, the vendored script, the last resolver
+  run with both output streams, and the remembered per-image errors -- so the
+  investigation happens here instead of over SSH inside the guest VM.
+
+  Script and style ship as same-origin /assets files, NOT inline: the CSP
+  served with this page is `script-src 'self'` with no nonce and no hash.
+-->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Diagnostics &mdash; Yuruna Download Agent</title>
+  <link rel="stylesheet" href="/assets/style.css">
+</head>
+<body class="has-footer-bar">
+  <header class="app">
+    <div class="brand">
+      <span class="name"><a href="/">Yuruna Download Agent</a></span>
+      <span class="version" id="header-version"></span>
+    </div>
+    <span class="spacer"></span>
+    <span class="machine" id="machine"></span>
+    <div class="menu">
+      <button type="button" class="menu-button" id="menu-button" aria-haspopup="true" aria-expanded="false" aria-controls="menu-panel">
+        <span class="menu-icon" aria-hidden="true">&#9776;</span><span class="menu-label">Menu</span>
+      </button>
+      <nav class="menu-panel" id="menu-panel" aria-label="Pages" hidden>
+        <a href="/">Download pool</a>
+        <a href="/diagnostics" aria-current="page">Diagnostics</a>
+        <a class="menu-out" href="https://yuruna.link/download-agent">Guide</a>
+      </nav>
+    </div>
+  </header>
+
+  <main>
+    <h1>Diagnostics</h1>
+
+    <!-- Same lab-token prompt as the pool page: reads below render regardless,
+         the resolver test is the one action that needs an unlocked session. -->
+    <section id="login" class="login" hidden>
+      <form id="login-form" class="row">
+        <input id="lab-token" type="text" maxlength="6" size="8"
+               autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false"
+               placeholder="Lab token" aria-label="Six-character lab token from the dashboard">
+        <button type="submit" class="primary">Unlock actions</button>
+        <span id="login-error" class="muted"></span>
+      </form>
+      <p class="muted">
+        The 6-character code on the Yuruna hosts dashboard's <em>Lab token</em>
+        tile; upper or lower case both work. Needed only for the resolver test
+        below -- everything else on this page is read-only.
+      </p>
+    </section>
+    <p id="gate-unconfigured" class="muted" hidden>
+      No aggregator URL and no lab auth token are configured, so the resolver
+      test is disabled. Set <code>--aggregator-url</code> or
+      <code>--auth-token-file</code> on the daemon to enable it.
+    </p>
+
+    <div id="notice" class="notice"></div>
+
+    <section class="cards" id="diag-cards">
+      <div class="card"><span class="card-label">Windows 11 family</span><span class="card-value" id="dg-family">&mdash;</span><span class="card-sub" id="dg-family-sub"></span></div>
+      <div class="card"><span class="card-label">Interpreter</span><span class="card-value" id="dg-pwsh">&mdash;</span><span class="card-sub" id="dg-pwsh-sub"></span></div>
+      <div class="card"><span class="card-label">Fido script</span><span class="card-value" id="dg-script">&mdash;</span><span class="card-sub" id="dg-script-sub"></span></div>
+      <div class="card"><span class="card-label">Guest</span><span class="card-value" id="dg-os">&mdash;</span><span class="card-sub" id="dg-os-sub"></span></div>
+      <div class="card"><span class="card-label">Proxy</span><span class="card-value" id="dg-proxy">&mdash;</span><span class="card-sub" id="dg-proxy-sub"></span></div>
+      <div class="card"><span class="card-label">Pool</span><span class="card-value" id="dg-pool">&mdash;</span><span class="card-sub" id="dg-pool-sub"></span></div>
+    </section>
+
+    <div class="row">
+      <button id="refresh-view">Refresh view</button>
+      <span id="as-of" class="muted"></span>
+    </div>
+
+    <h2>Resolver test</h2>
+    <p class="muted">
+      Runs the vendored Fido once with the exact parameters a resolve uses.
+      It mints a signed URL and downloads nothing, but each run spends a
+      Microsoft session (their servers rate-ban chatty addresses), so use it to
+      diagnose, not to poll. A successful test clears a remembered failure on
+      the spot; a failed one re-arms it.
+    </p>
+    <div class="row">
+      <button id="test-amd64" class="primary">Test amd64 resolve</button>
+      <button id="test-arm64" class="primary">Test arm64 resolve</button>
+      <span id="test-running" class="muted" hidden>Running &mdash; a resolve can take up to 3 minutes&hellip;</span>
+    </div>
+    <div id="test-result"></div>
+
+    <h2>Last resolver run</h2>
+    <div id="attempt"></div>
+
+    <h2>Recent image errors</h2>
+    <p class="muted">
+      The last remembered refresh failure per pool entry, newest first. These
+      are the errors behind a <em>failed</em> badge on the pool page.
+    </p>
+    <table>
+      <thead><tr><th>Entry</th><th>Error</th><th>When</th></tr></thead>
+      <tbody id="error-rows"></tbody>
+    </table>
+    <p id="no-errors" class="muted" hidden>No remembered refresh errors.</p>
+  </main>
+
+  <footer id="footer-bar">
+    <span id="footer-ips"><span class="label">IPs:</span><textarea id="footer-ip-list" readonly rows="1" spellcheck="false" inputmode="none" autocorrect="off" autocapitalize="off" aria-label="Server IP addresses">—</textarea></span>
+    <span>Loaded: <span id="last-loaded">—</span></span>
+    <span><a id="footer-refresh" href="#">Refresh</a>: <span id="countdown">60</span>s</span>
+  </footer>
+
+  <script src="/assets/common.js"></script>
+  <script src="/assets/diagnostics.js"></script>
+</body>
+</html>

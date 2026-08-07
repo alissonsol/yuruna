@@ -122,7 +122,14 @@ type intentDoc struct {
 
 // hostRegistration is the part of a host's self-report the board uses.
 type hostRegistration struct {
-	HostID     string `json:"hostId"`
+	HostID string `json:"hostId"`
+	// Hostname is the machine name the host's own status page shows. It comes
+	// from the host itself and never from the pool: the aggregator drops it, so
+	// its unauthenticated pool view stays hostname-free.
+	Hostname string `json:"hostname"`
+	// HostType is the prefixed form ("host.ubuntu.kvm"), the same value the
+	// aggregator carries in pool-status.
+	HostType   string `json:"hostType"`
 	ProjectURL string `json:"projectUrl"`
 	TestSets   []struct {
 		Name        string   `json:"name"`
@@ -331,6 +338,12 @@ func (s *Server) handleBoard(w http.ResponseWriter, r *http.Request) {
 // boardHost is one row of the Hosts page.
 type boardHost struct {
 	HostID string `json:"hostId"`
+	// Hostname is the host's own machine name, as its status page shows it, and
+	// is empty on an unauthenticated read -- see handleHosts.
+	Hostname string `json:"hostname"`
+	// Type is the host type WITHOUT its "host." prefix ("ubuntu.kvm"). The
+	// prefix is on every value and so distinguishes none of them.
+	Type string `json:"type"`
 	// Control is the WIRE value (ready/none/mismatch/skew/unknown), not the
 	// dashboard's two-way collapse: `mismatch` (wrong token) and `skew` (clock)
 	// need different fixes and must not be shown as the same thing.
@@ -339,11 +352,25 @@ type boardHost struct {
 	Pool    string `json:"pool"`
 }
 
+// hostTypeLabel drops the "host." prefix a host serializes its type with, for
+// the registration record's copy of it (pool.Host.HostType already does this
+// for the aggregator's).
+func hostTypeLabel(raw string) string {
+	return strings.TrimPrefix(strings.TrimSpace(raw), "host.")
+}
+
 // handleHosts lists every host the aggregator knows, with its current pool.
 //
 // Deliberately ALL hosts, not just members: an operator needs to see WHY a host
 // was not auto-enrolled, and "it never enrolled a lab token" is only visible if
 // the host appears at all.
+//
+// The read itself stays open like every other one here, but the hostname is
+// carried ONLY to a request that is through the write gate, and the answer says
+// which of the two it is (hostnamesVisible) so the page can explain a blank
+// column instead of looking broken. Every other field is already public on the
+// LAN through the aggregator; a machine name is not -- the pool view drops it by
+// design, and this page renders on the same kind of unattended wall display.
 func (s *Server) handleHosts(w http.ResponseWriter, r *http.Request) {
 	doc, err := s.readIntentDoc(r.Context())
 	if err != nil {
@@ -368,18 +395,30 @@ func (s *Server) handleHosts(w http.ResponseWriter, r *http.Request) {
 		statusErr = err.Error()
 	}
 
+	hostnamesVisible := s.gate.Authed(r)
+
 	seen := map[string]bool{}
 	rows := make([]boardHost, 0, len(status.Hosts))
 	for _, h := range status.Hosts {
 		seen[h.HostID] = true
-		row := boardHost{HostID: h.HostID, Control: h.Control, Pool: poolOf[h.HostID]}
+		row := boardHost{HostID: h.HostID, Type: h.HostType(), Control: h.Control, Pool: poolOf[h.HostID]}
 		if row.Control == "" {
 			row.Control = "unknown"
 		}
 		if h.BaseURL != "" {
 			var reg hostRegistration
-			if err := s.pool.GetURL(r.Context(), strings.TrimSuffix(h.BaseURL, "/")+"/runtime/host.registration.json", &reg); err == nil && reg.ProjectAccess != nil {
-				row.Access = reg.ProjectAccess.Status
+			if err := s.pool.GetURL(r.Context(), strings.TrimSuffix(h.BaseURL, "/")+"/runtime/host.registration.json", &reg); err == nil {
+				if reg.ProjectAccess != nil {
+					row.Access = reg.ProjectAccess.Status
+				}
+				if hostnamesVisible {
+					row.Hostname = strings.TrimSpace(reg.Hostname)
+				}
+				// A host whose status.json the aggregator could not read still
+				// names its own type here, and the two values have one source.
+				if row.Type == "" {
+					row.Type = hostTypeLabel(reg.HostType)
+				}
 			}
 		}
 		rows = append(rows, row)
@@ -395,8 +434,9 @@ func (s *Server) handleHosts(w http.ResponseWriter, r *http.Request) {
 
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok": true, "hosts": rows, "pools": pools,
-		"targetPoolId": strings.TrimSpace(doc.AutoEnrollment.TargetPoolID),
-		"statusError":  statusErr,
+		"targetPoolId":     strings.TrimSpace(doc.AutoEnrollment.TargetPoolID),
+		"statusError":      statusErr,
+		"hostnamesVisible": hostnamesVisible,
 	})
 }
 

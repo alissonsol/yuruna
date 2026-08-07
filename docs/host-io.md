@@ -8,7 +8,7 @@ looks up the current host's backend in a registry exported by
 
 The registry pattern mirrors the OCR provider model
 ([OCR providers](ocr.md)) and seeds the
-[capability matrix](capability-matrix.md): every (host, action) pair
+[capability matrix](test-harness.md#capability-matrix-and-cycle-plan-gate): every (host, action) pair
 is enumerable at startup.
 
 ## The public surface
@@ -29,9 +29,8 @@ lookup table. Adding a new host or a new action verb is a single
 `Register-HostIOProvider` call; nothing in the dispatcher changes.
 Adding the same host across three separate `if/elseif` chains
 (one per action) invites "Send-Key works on the new host but
-Send-Text was forgotten" drift — the registry makes every
-pair enumerable at startup, so the
-[capability gate](capability-matrix.md) refuses cycles that reference
+Send-Text was forgotten" drift — with every pair enumerable, the
+[capability gate](test-harness.md#capability-matrix-and-cycle-plan-gate) refuses cycles that reference
 an unwired backend rather than failing mid-step. The same pattern
 recurs across the workspace: [SequenceAction](test-sequences.md#handler-contract)
 (verb registry), [Component registry login](authentication.md#component-registry-login)
@@ -115,7 +114,7 @@ Each `Implementation` is a `param([hashtable]$a)` scriptblock returning
 4. Register the verb in
    [`Test.SequenceAction`](../test/modules/Test.SequenceAction.psm1)
    with its `-HostIORequirement` so the
-   [capability gate](capability-matrix.md) refuses cycles on hosts
+   [capability gate](test-harness.md#capability-matrix-and-cycle-plan-gate) refuses cycles on hosts
    without a backend.
 5. Add a dispatcher (`Send-Scroll`, three-line wrapper) and export it
    from `Test.SequenceEngine.psm1` so the
@@ -190,6 +189,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.06
+Last review: 2026.08.07
 
 Back to [Yuruna](../README.md)

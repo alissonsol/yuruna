@@ -138,7 +138,7 @@ Every neighboring mode drops text the harness depends on:
    ```
 3. The startup capability matrix lists it under `OCR:` when the
    `IsAvailable` check passes. See
-   [Capability matrix](capability-matrix.md).
+   [Capability matrix](test-harness.md#capability-matrix-and-cycle-plan-gate).
 
 The capability gate fails the cycle when a sequence references an
 OCR-requiring action (`waitForText`, `passwdPrompt`, ...) and no
@@ -150,6 +150,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.06
+Last review: 2026.08.07
 
 Back to [Yuruna](../README.md)

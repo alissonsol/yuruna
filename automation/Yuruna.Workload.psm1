@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.06
+.VERSION 2026.08.07
 .GUID 42b0d2e3-f4a5-4678-9012-3b4c5d6e7f80
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -239,13 +239,10 @@ function Invoke-WorkloadToolDeployment {
     Push-Location $workFolder
     $expression = $ExecutionContext.InvokeCommand.ExpandString($expression)
     Write-Debug "$expression"
-    # Per-tool stderr/stdout log + final-rc sidecar in the per-
-    # context workFolder. Mirrors Set-Resource's tofu.stderr.log
-    # so Get-SystemDiagnostic.ps1's *.stderr.log glob picks it up
-    # on failure. Multiple deployments of the same tool append to
-    # the same log -- order matches workloads.yml. <tool>.rc is
-    # rewritten after each call so the LAST exit code is what the
-    # diagnostic reports.
+    # Per-tool <tool>.stderr.log + <tool>.rc sidecar -- same convention as the
+    # helm sidecar in Invoke-WorkloadChartDeployment (rationale there). Delta
+    # here: multiple deployments of the same tool append to one log, ordered
+    # as in workloads.yml.
     $toolLogFile = Join-Path -Path $workFolder -ChildPath "$toolName.stderr.log"
     $toolRcFile  = Join-Path -Path $workFolder -ChildPath "$toolName.rc"
     # Retry via the shared Yuruna.Retry policy ONLY when the output

@@ -1222,7 +1222,7 @@ func fetchCurrentAction(client *http.Client, base string) (bool, error) {
 // served by the status service at /yuruna-repo/VERSION -- the SAME source the
 // host's own status pages read for their header (their getHostInfo() fetches
 // yuruna-repo/VERSION via JS, so the version is not embedded in the HTML). A tiny
-// plain-text file (one CalVer line, e.g. "2026.08.06"), so it is lighter than any
+// plain-text file (one CalVer line, e.g. "2026.08.07"), so it is lighter than any
 // status HTML page and fetchable server-side without a JS engine. Returns
 // ("", err) on any failure; the caller keeps the prior version on a transient
 // miss (the version is stable across polls). The value is capped + first-line

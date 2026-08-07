@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.08.06
+# Version: 2026.08.07
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 
@@ -462,6 +462,51 @@ if [ "$profile_enabled" = '1' ]; then
     if [ -z "$ckpt_file" ] || [ -z "$profile_file" ]; then profile_enabled=0; fi
 fi
 
+# --- REGION: https://yuruna.link/definition#defining-fetch-and-execute-log-timestamps
+# Elapsed-time origin for the per-line stamps written into the log below. Kept
+# as microseconds so the arithmetic stays integer -- the shell has no floats,
+# and a fork per output line to get one would be its own kind of slow.
+__fae_t0_us=''
+if [ -n "${EPOCHREALTIME:-}" ]; then
+    __fae_now=${EPOCHREALTIME/,/.}
+    __fae_t0_us=$(( ${__fae_now%.*} * 1000000 + 10#${__fae_now#*.} ))
+fi
+
+# Mirror stdin to stdout unchanged while appending a stamped copy of each line
+# to the log.
+#
+# The console copy MUST stay byte-identical: the host matches OCR patterns
+# against what is on screen, and the checkpoint scanner tests for the four-equals
+# marker at column 0 -- a prefix on the visible stream would silently break both.
+# The log is the only copy anyone can ask "where did the time go" of, and with no
+# stamp a script that spent two minutes blocked on one command is indistinguish-
+# able from one that ran fast and then waited. Stamps are relative to the start
+# recorded in the header above, so an absolute time is a sum away and no
+# timezone assumption is baked into the format.
+__fae_stamp_tee() {
+    local __t0_us="$1" __log="$2" __line __now __us __el
+    exec 3>>"$__log"
+    while IFS= read -r __line || [ -n "$__line" ]; do
+        printf '%s\n' "$__line"
+        __now=${EPOCHREALTIME/,/.}
+        __us=$(( ${__now%.*} * 1000000 + 10#${__now#*.} ))
+        __el=$(( __us - __t0_us ))
+        [ "$__el" -lt 0 ] && __el=0
+        printf '[%4d.%03d] %s\n' $(( __el / 1000000 )) $(( (__el / 1000) % 1000 )) "$__line" >&3
+    done
+    exec 3>&-
+}
+
+# One sink for both run paths below. Degrades to a plain tee where the shell has
+# no high-resolution clock, which is the same condition that disables profiling.
+__fae_sink() {
+    if [ -n "$__fae_t0_us" ]; then
+        __fae_stamp_tee "$__fae_t0_us" "$fae_log"
+    else
+        tee -a "$fae_log"
+    fi
+}
+
 {
   echo "# Yuruna fetch-and-execute log"
   echo "# script:    $FILE_PATH"
@@ -470,6 +515,7 @@ fi
   echo "# bytes:     $byte_count"
   echo "# started:   $(date -u +%Y-%m-%dT%H:%M:%SZ)"
   [ "$profile_enabled" = '1' ] && echo "# profile:   $profile_file"
+  [ -n "$__fae_t0_us" ] && echo "# stamps:    [seconds.millis] elapsed since 'started' (log only; the console copy is unstamped)"
   echo "# ---"
 } > "$fae_log" 2>/dev/null || true
 
@@ -510,10 +556,10 @@ if [ "$profile_enabled" = '1' ]; then
                     ;;
             esac
         done \
-      | tee -a "$fae_log"
+      | __fae_sink
     rc=${PIPESTATUS[0]}
 else
-    /bin/bash -c "$script_content" 2>&1 | tee -a "$fae_log"
+    /bin/bash -c "$script_content" 2>&1 | __fae_sink
     rc=${PIPESTATUS[0]}
 fi
 {

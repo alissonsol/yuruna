@@ -1,8 +1,8 @@
 # Yuruna network workarounds
 
 This file collects rationale for network-related workarounds in guest
-scripts and the host harness. Centralizing the long explanations keeps
-source comments short and the workarounds discoverable from one place.
+scripts and the host harness, keeping source comments short and the
+workarounds discoverable from one place.
 
 Source files reference an entry with a single line of the form:
 
@@ -56,12 +56,11 @@ script via `set -e` and the cycle wastes its remaining budget.
 In both cases adjacent cycles passed with the same code on the same
 host. The flap lasted less than the package manager's own in-process
 retry window (librepo) or curl's default no-retry behavior, so the
-script failed even though the network was healthy a few
-seconds later.
+script failed even though the network was healthy seconds later.
 
 The same pattern applies to apt: transient mirror flakes, DNS bounces
 on first-boot DHCP, `Hash Sum mismatch` from a half-refreshed mirror
-(transient, handled by the retry logic in `apt_retry`).
+(transient, handled by `apt_retry`).
 
 **Library.** All five retry wrappers live in
 [automation/yuruna-retry.sh](../automation/yuruna-retry.sh) — single
@@ -127,8 +126,8 @@ For `curl_retry`, curl's own `--retry 3 --retry-connrefused` fires
 first (sub-30 s for transient 5xx + ECONNREFUSED). Combined budget:
 5 outer × 3 inner = 15 effective attempts — still bounded, sized for
 a one-shot provisioning script under `set -euo pipefail`. 4xx
-responses are not retried by curl's inner `--retry`, and the outer
-loop's transient gate (item 6 above) also fails fast on them, so a
+responses are not retried by curl's inner `--retry`, and the transient
+gate (item 6 above) also fails fast on them, so a
 deterministic 404 costs one attempt, not the full ~5-min ladder.
 
 **Call signature.** Generic — the wrapper takes the full command,
@@ -280,8 +279,9 @@ it to `/usr/local/lib/yuruna/yuruna-network.sh` at install time. It
 targets Ubuntu Server and Amazon Linux 2023, which both ship `ip` and a
 systemd-networkd DHCP client. The file is `source`d by
 [fetch-and-execute.sh](../automation/fetch-and-execute.sh) (for
-`network_diag`) and invoked by the `networkRelease` sequence action (for
-`network_release`).
+`network_diag`, so a failing guest step can attach that diagnostic to
+its failure output) and invoked by the `networkRelease` sequence action
+(for `network_release`).
 
 ### Defining network diag
 
@@ -295,7 +295,7 @@ non-virtual) interfaces and classifies each one.
 `/sys/class/net/<if>/carrier` on a down interface returns `EINVAL`, so
 the value comes back empty and the report names both raw values
 (`operstate=down,carrier=none`). A down link never reaches DHCP at all,
-so lease-pool questions do not apply to it — the causes are host-side:
+so lease-pool questions do not apply — the causes are host-side:
 the virtual switch this vNIC is attached to has no live uplink, the
 cable is out, or the port is administratively down. This is the loudest
 verdict and is printed first, because it is the true cause whenever it
@@ -315,11 +315,11 @@ and every one holds an IPv4 address. A walk that examined nothing
 prints "no non-loopback interface is carrier-up" instead — that is a
 finding, not a pass. The distinction is
 load-bearing: "all carrier-up interfaces hold an IPv4 address" is
-vacuously true on a guest whose only interface is DOWN, and this
-diagnostic is the sole artifact such a guest can still produce. Both
+vacuously true on a guest whose only interface is DOWN. Both
 post-mortem routes (SSH into the guest, and the host status service)
-need exactly the network it does not have, so the console capture is
-the only record and its correctness carries disproportionate weight.
+need exactly the network such a guest does not have, so this console
+capture is its only record and its correctness carries
+disproportionate weight.
 
 Output is bounded: the link-down verdict reports the total count and
 names only the first few interfaces, so the block stays a fixed number
@@ -330,9 +330,6 @@ marker off the captured frame — turning a classified failure into an
 unclassified timeout. For the same reason no message in this file may
 contain the words "fetch" or "execute": they fuzzy-match the echoed
 command line and would close a healthy run's OCR wait early.
-
-`fetch-and-execute.sh` sources the library so a failing guest step can
-attach this diagnostic to its failure output.
 
 `YURUNA_NET_SYSFS` overrides the sysfs root the walk reads (default
 `/sys/class/net`) so the function can be driven against a fixture tree
@@ -409,8 +406,7 @@ relaxing egress (`project_sslbump_ca_gating_durable_fix`):
   `Test.CachingProxyService.psm1`, shared by all six ubuntu `New-VM.ps1`) persists
   each successfully fetched CA into the `yuruna-caching-proxy-service.yml` state
   file, keyed by cache host, and reuses it when a later live fetch flaps —
-  so a guest provisioned during a flap can still bake a valid CA from a
-  prior good fetch of the same cache. When even that comes up empty (retry
+  so a guest provisioned during a flap can still bake a valid CA. When even that comes up empty (retry
   budget exhausted, nothing persisted), the `New-VM` scripts warn that the
   guest boots CA-less and will self-heal at update time; plain-HTTP caching
   via `:3128` is unaffected by the missing CA — only bumped `:3129` HTTPS
@@ -514,10 +510,10 @@ topology as the guest, i.e. it *is* `vEthernet (<switch>)`, or it is
 the switch's own bound physical NIC (the `-AllowManagementOS:$false`
 shape, where the host legitimately keeps its address on the bridged NIC
 and the guest lands on that same L2 segment). A default-route address
-on any other segment is not a degraded answer, it is a wrong one, and
-it is wrong in a way the guest can only discover after its seed has
-been burned: the address resolves on the host, so nothing on the host
-side fails, while the guest dials an address it holds no route to. An
+on any other segment is not a degraded answer but a wrong one, in a way
+the guest can only discover after its seed has been burned: the address
+resolves on the host, so nothing fails host-side, while the guest dials
+an address it holds no route to. An
 unqualified match is rejected and the wait falls through to its
 deadline rather than returning.
 
@@ -547,8 +543,8 @@ On **macos.utm** the mode is resolved once per build by
 `config.plist` (`__NETWORK_MODE__`), so the plist and the baked
 addresses cannot disagree. A plist hardcoding `Bridged` while its
 `New-VM.ps1` branches on `Test-MacUplinkNotBridgeable` yields, on a
-Wi-Fi host, a VM bridged onto an uplink vmnet cannot bridge (no DHCP
-lease, ever) with the VZ gateway baked in as the host address. Stash
+Wi-Fi host, a VM bridged onto an uplink that vmnet cannot bridge (no
+DHCP lease, ever) with the VZ gateway baked in as the host address. Stash
 and pool-control are therefore Shared on Wi-Fi, with `Add-PortMap`
 publishing them to the LAN through the host — as is the download-agent
 service. No choice of port is arbitrary: stash takes `:2222` because the
@@ -556,9 +552,8 @@ Mac's own sshd owns `:22`; pool-control takes `:8081` because the
 caching-proxy already forwards `:80` for its CA-cert endpoint —
 reusing it would publish the cache at the URL the
 pool-control bring-up prints; and the download-agent service takes
-`:8082`, the next free port clear of all three. Asking for one already
-taken would silently publish the wrong service at that URL, so the
-allocation is fixed per service rather than picked at run time:
+`:8082`, the next free port clear of all three. The allocation is
+therefore fixed per service rather than picked at run time:
 
 | Service | Host port on a Shared-NAT Mac | Guest port |
 |---|---|---|
@@ -671,8 +666,8 @@ rides host port-forwarders (`Test-CacheVmOnYurunaExternalSwitch` ->
 
 The divert logs Verbose, not Warning: on a Wi-Fi/USB-uplink host this
 is the permanent steady state, not an anomaly, and it is re-evaluated
-once per VM creation — a warning would repeat the same line for every
-guest of every cycle without ever asking the operator to do anything.
+once per VM creation — a warning would repeat for every guest of every
+cycle while asking the operator to do nothing.
 That severity policy is specific to the divert and does **not** carry
 over to the reuse validation below: a wired host whose External switch
 lost its uplink is an anomaly an operator has to act on, so it warns.
@@ -685,8 +680,8 @@ reboot. `Get-VMSwitch -Name 'Yuruna-External'` can return a switch with
 behind it forwards nothing — the `vEthernet (Yuruna-External)` adapter
 is gone, the host's IPv4 sits directly on the bare physical NIC, and
 every guest attached to that switch boots with eth0 DOWN. The object's
-survival is therefore not evidence that the bridge works, and reusing a
-switch on the strength of its existence hands every guest of every
+survival is therefore no evidence that the bridge works, and reusing a
+switch on existence alone hands every guest of every
 subsequent cycle a dead port. `Get-OrCreateYurunaExternalSwitch`
 classifies a switch before it returns its name.
 
@@ -881,6 +876,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.06
+Last review: 2026.08.07
 
 Back to [Yuruna](../README.md)

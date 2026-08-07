@@ -251,7 +251,6 @@ function pathTail(view) {
   // A malformed view (missing or non-string permalink) returns null instead of
   // throwing, so one bad row cannot crash the render of every other row.
   if (!view || typeof view.permalink !== 'string') return null;
-  // permalink = /s/<host>/<y>/<m>/<d>/<id>
   const parts = view.permalink.split('/').filter(Boolean); // [s, host, y, m, d, id]
   return '/' + parts.slice(2).join('/');
 }

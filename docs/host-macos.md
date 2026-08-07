@@ -215,8 +215,7 @@ keys (Test.HostCondition.Mac.psm1, `$pmsetGuards`):
 Every guard is treated as `OptionalKey` because macOS evolves these
 names across major versions (Sonoma split `standbydelay` into
 `standbydelaylow`/`standbydelayhigh`; later releases rename or remove
-more). The host setup step (`Set-MacHostConditionSet` in
-`Test.HostCondition.Mac.psm1`, run by
+more). The host setup step (`Set-MacHostConditionSet`, run by
 `host/macos.utm/Enable-TestAutomation.ps1`) applies them all using the
 legacy names, which `pmset` accepts as compatibility aliases. The install
 script does not apply `pmset` settings; it only primes the sudo cache
@@ -360,6 +359,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.06
+Last review: 2026.08.07
 
 Back to [Yuruna](../README.md)

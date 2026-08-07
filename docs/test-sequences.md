@@ -304,7 +304,7 @@ rm "$(cat <cycleGuestDataFolder>/.yuruna-break-NNN.lock | grep marker | ...)"
 The HTTP and direct-write paths are indistinguishable from the UI
 Continue button to the sequence, so they honor `restoreOnContinue` the
 same way: in place by default, snapshot-restore + `Start-VM` only when
-the step opted in. The marker-delete path always resumes in place.
+the step opted in.
 
 Login after a snapshot-restore is **the sequence author's
 responsibility** — the guest boots fresh from the snapshot disk and
@@ -596,7 +596,7 @@ name via `Register-SequenceAction`. When the engine hits a step with
 `$global:YurunaSequenceActions` and dispatches through
 `Invoke-SequenceActionHandler`. A registration without a Handler is a
 hard step failure — the engine warns "Unknown action" and fails the
-step — so a Handler is required in practice, not optional.
+step.
 
 Two modules carry the contract:
 
@@ -907,6 +907,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.06
+Last review: 2026.08.07
 
 Back to [Yuruna](../README.md)

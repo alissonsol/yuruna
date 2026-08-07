@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.06
+.VERSION 2026.08.07
 .GUID 42a2b3c4-d5e6-4f78-9012-3a4b5c6d7e90
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -480,15 +480,32 @@ function Test-YurunaExternalSwitchUplink {
 
     # Map the management vNIC onto the host adapter that carries its
     # addresses. MAC first (survives a renamed vNIC), alias second.
+    #
+    # A management vNIC does not get a Hyper-V MAC -- it CLONES the MAC of the
+    # NIC its switch bridges. So on a host where two External switches have
+    # ever shared one NIC, that single MAC sits on several vEthernet adapters
+    # at once: the live one, plus a leftover for every switch that was later
+    # deleted or demoted to Internal. Taking the first match then reads a
+    # different switch's addresses, and a leftover parked at APIPA turns a
+    # perfectly working bridge into 'management-os-unaddressed' for as long as
+    # the leftover exists. Narrow those by alias; when that still does not
+    # single one out, leave the mapping unresolved so the ladder fails open
+    # rather than guessing -- an arbitrary pick is wrong half the time, and
+    # wrong toward 'unhealthy' demotes the whole host to NAT.
     $hostNic = $null
     foreach ($vnic in $management) {
         $mac = ("$($vnic.MacAddress)" -replace '[^0-9A-Fa-f]', '')
         if (-not $mac) { continue }
-        $hostNic = @($adapter | Where-Object {
+        $candidate = @($adapter | Where-Object {
             $_.MacAddress -and (("$($_.MacAddress)" -replace '[^0-9A-Fa-f]', '') -eq $mac) -and
             ("$($_.InterfaceDescription)" -match 'Hyper-V Virtual Ethernet')
-        }) | Select-Object -First 1
-        if ($hostNic) { break }
+        })
+        if ($candidate.Count -gt 1) {
+            $alias = @("vEthernet ($SwitchName)")
+            if ($vnic.Name) { $alias += "vEthernet ($($vnic.Name))" }
+            $candidate = @($candidate | Where-Object { $alias -contains "$($_.InterfaceAlias)" })
+        }
+        if ($candidate.Count -eq 1) { $hostNic = $candidate[0]; break }
     }
     if (-not $hostNic) {
         $hostNic = @($adapter | Where-Object { "$($_.InterfaceAlias)" -eq "vEthernet ($SwitchName)" }) | Select-Object -First 1
@@ -766,8 +783,21 @@ function Test-YurunaSwitchRepairable {
         Repairing the second class per cycle is how a degraded-but-working host
         becomes an unreachable one, so it is refused here rather than left to a
         guard further down.
+
+        'management-os-unaddressed' is a third class and gets a different, far
+        smaller remedy. The bridge itself is intact there -- switch External,
+        uplink Up, management vNIC present -- and only the host leg's DHCP
+        lease is missing, so rebinding would re-plumb a NIC that has nothing
+        wrong with it. A lease renew touches exactly what is absent and leaves
+        the binding alone; if it does not answer, the host is no worse off than
+        it already was. Note what is still NOT repaired here:
+        'management-os-detached' is mechanically fixable by the same cmdlet
+        that rebinds, but re-adding a management vNIC is the operation most
+        likely to leave the host with no address at all when DHCP does not come
+        back, so it stays an operator decision.
     .OUTPUTS
-        pscustomobject -- Repairable (bool), Adapter (record or $null), Reason.
+        pscustomobject -- Repairable (bool), Remedy ('rebind' | 'renew-dhcp' |
+        'none'), Adapter (record or $null), Reason.
     #>
     [CmdletBinding()]
     [OutputType([pscustomobject])]
@@ -775,7 +805,15 @@ function Test-YurunaSwitchRepairable {
         [Parameter(Mandatory)][string]$SwitchName,
         [Parameter(Mandatory)][string]$Verdict
     )
-    $no = { param($why) [pscustomobject]@{ Repairable = $false; Adapter = $null; Reason = $why } }
+    $no = { param($why) [pscustomobject]@{ Repairable = $false; Remedy = 'none'; Adapter = $null; Reason = $why } }
+    if ($Verdict -eq 'management-os-unaddressed') {
+        return [pscustomobject]@{
+            Repairable = $true
+            Remedy     = 'renew-dhcp'
+            Adapter    = $null
+            Reason     = "the bridge is intact but 'vEthernet ($SwitchName)' holds no usable IPv4"
+        }
+    }
     if ($Verdict -notin @('uplink-down', 'uplink-missing')) {
         return (& $no "verdict '$Verdict' is not a binding fault")
     }
@@ -795,9 +833,74 @@ function Test-YurunaSwitchRepairable {
     }
     return [pscustomobject]@{
         Repairable = $true
+        Remedy     = 'rebind'
         Adapter    = $target
         Reason     = "bound elsewhere while '$($target.Name)' carries the default route"
     }
+}
+
+function Invoke-YurunaManagementVnicDhcpRenew {
+    <#
+    .SYNOPSIS
+        Renew the DHCP lease on a switch's management-OS vNIC. $true only when
+        the vNIC ends up holding a usable IPv4.
+    .DESCRIPTION
+        The bounded remedy for 'management-os-unaddressed'. A renew, not a
+        Restart-NetAdapter: restarting re-runs the entire bind -- carrier,
+        802.1X, the lot -- on the adapter the host's own leg lives on, which is
+        a far bigger hammer than a missing lease deserves and can leave the
+        host down if any of those stages stall. RenewDHCPLease asks for exactly
+        the thing that is absent, and a host that was unaddressed before a
+        failed renew is still only unaddressed after it.
+
+        Declines rather than guesses on a statically-addressed vNIC: there is
+        no lease to renew, so an operator set that address and the verdict is
+        reporting a configuration, not a fault.
+    .OUTPUTS
+        [bool] the vNIC holds a usable IPv4 afterwards.
+    #>
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([bool])]
+    param(
+        [Parameter(Mandatory)][string]$SwitchName,
+        [int]$TimeoutSeconds = 60
+    )
+    if (-not $IsWindows) { return $false }
+    foreach ($probe in @('Get-CimInstance', 'Invoke-CimMethod', 'Get-NetAdapter')) {
+        if (-not (Get-Command $probe -ErrorAction SilentlyContinue)) { return $false }
+    }
+
+    $alias = "vEthernet ($SwitchName)"
+    $nic = Get-NetAdapter -Name $alias -ErrorAction SilentlyContinue | Select-Object -First 1
+    if (-not $nic) {
+        Write-Verbose "No adapter named '$alias' to renew."
+        return $false
+    }
+    $config = Get-CimInstance -ClassName Win32_NetworkAdapterConfiguration `
+        -Filter "InterfaceIndex=$($nic.InterfaceIndex)" -ErrorAction SilentlyContinue | Select-Object -First 1
+    if (-not $config) {
+        Write-Verbose "No IP configuration for '$alias' (interface $($nic.InterfaceIndex))."
+        return $false
+    }
+    if ($config.DHCPEnabled -ne $true) {
+        Write-Warning "'$alias' holds no usable IPv4 and is statically configured, so there is no lease to renew. Fix the static address on that adapter, or turn DHCP on."
+        return $false
+    }
+    if (-not $PSCmdlet.ShouldProcess($alias, 'Renew DHCP lease')) { return $false }
+
+    try {
+        $result = Invoke-CimMethod -InputObject $config -MethodName 'RenewDHCPLease' -ErrorAction Stop
+        if ($result.ReturnValue -ne 0) {
+            Write-Verbose "RenewDHCPLease on '$alias' returned $($result.ReturnValue); waiting for the lease anyway in case it lands late."
+        }
+    } catch {
+        Write-Warning "DHCP renew on '$alias' failed: $($_.Exception.Message). The switch keeps the verdict it had."
+        return $false
+    }
+
+    # The lease arrives asynchronously, so the answer comes from the same
+    # poller the create path uses rather than from the method's return value.
+    return [bool](Wait-ExternalSwitchHostIpv4 -SwitchName $SwitchName -TimeoutSeconds $TimeoutSeconds)
 }
 
 function Test-YurunaRunnerSessionRemote {
@@ -836,10 +939,20 @@ function Get-YurunaSwitchRepairStatePath {
 function Repair-YurunaExternalSwitch {
     <#
     .SYNOPSIS
-        Rebind a stale External vSwitch onto the adapter that currently carries
-        the default route. Verifies the host survived and rolls back if not.
-        Returns $true only when the switch ends healthy.
+        Repair a degraded External vSwitch with the smallest remedy its verdict
+        allows, and return $true only when the switch ends healthy.
     .DESCRIPTION
+        Two remedies, chosen by Test-YurunaSwitchRepairable rather than by the
+        caller, because they carry very different risk:
+
+          * REBIND (a stale binding) -- move the switch onto the adapter that
+            currently carries the default route. Verified against the host's own
+            route and rolled back if that route does not come back.
+          * RENEW (an unaddressed management vNIC) -- ask DHCP for the host
+            leg's missing lease. The binding is already correct there, so
+            re-plumbing it would be the wrong tool; nothing needs undoing when
+            a renew goes unanswered.
+
         CALL THIS AT CYCLE START ONLY, before any guest exists. A rebind takes
         carrier away from every guest already on the switch, and it drops host
         networking on the target NIC for a moment -- both are acceptable at a
@@ -912,35 +1025,51 @@ function Repair-YurunaExternalSwitch {
 
     $r = Test-YurunaSwitchRepairable -SwitchName $SwitchName -Verdict $verdict
     if (-not $r.Repairable) {
-        Write-Verbose "'$SwitchName' verdict '$verdict' is not repairable by rebinding: $($r.Reason)"
+        Write-Verbose "'$SwitchName' verdict '$verdict' is not repairable at cycle start: $($r.Reason)"
         return $false
     }
+    $renewing = ($r.Remedy -eq 'renew-dhcp')
+    # Both remedies act on the adapter the host's own leg lives on, so both can
+    # cut a runner that is reached over it, and both need Administrator.
+    $action = if ($renewing) { "a DHCP renew on 'vEthernet ($SwitchName)'" } else { "a rebind onto '$($r.Adapter.Name)'" }
     if (Test-YurunaRunnerSessionRemote) {
-        Write-Warning "External vSwitch '$SwitchName' needs a rebind onto '$($r.Adapter.Name)', but this runner is in a remote session and the rebind would sever it. Run the cycle from the console session, or rebind by hand: Set-VMSwitch -Name '$SwitchName' -NetAdapterName '$($r.Adapter.Name)' -AllowManagementOS `$true"
+        $byHand = if ($renewing) { "ipconfig /renew `"vEthernet ($SwitchName)`"" }
+                  else { "Set-VMSwitch -Name '$SwitchName' -NetAdapterName '$($r.Adapter.Name)' -AllowManagementOS `$true" }
+        Write-Warning "External vSwitch '$SwitchName' needs $action, but this runner is in a remote session and that would sever it. Run the cycle from the console session, or repair by hand: $byHand"
         return $false
     }
     if (-not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]'Administrator')) {
-        Write-Warning "External vSwitch '$SwitchName' needs a rebind onto '$($r.Adapter.Name)', which needs Administrator. Continuing on the fallback."
+        Write-Warning "External vSwitch '$SwitchName' needs $action, which needs Administrator. Continuing on the fallback."
         return $false
     }
     # A rebind pulls carrier from anything already attached. At a cycle boundary
     # there should be nothing; if there is, the cycle is not where we thought it
     # was and re-plumbing under a live guest is not worth the recovery it buys.
-    $live = @(Get-VM -ErrorAction SilentlyContinue | Where-Object { $_.State -eq 'Running' } |
-              Get-VMNetworkAdapter -ErrorAction SilentlyContinue | Where-Object { $_.SwitchName -eq $SwitchName })
-    if ($live.Count -gt 0) {
-        Write-Warning "External vSwitch '$SwitchName' needs a rebind, but $($live.Count) running guest(s) are attached to it. Skipping: a rebind would drop their carrier."
-        return $false
+    # A renew is exempt: it asks DHCP for the host leg's own lease and never
+    # touches the switch's forwarding path, so attached guests do not notice it.
+    if (-not $renewing) {
+        $live = @(Get-VM -ErrorAction SilentlyContinue | Where-Object { $_.State -eq 'Running' } |
+                  Get-VMNetworkAdapter -ErrorAction SilentlyContinue | Where-Object { $_.SwitchName -eq $SwitchName })
+        if ($live.Count -gt 0) {
+            Write-Warning "External vSwitch '$SwitchName' needs a rebind, but $($live.Count) running guest(s) are attached to it. Skipping: a rebind would drop their carrier."
+            return $false
+        }
     }
-    if (-not $PSCmdlet.ShouldProcess($SwitchName, "Rebind External vSwitch to '$($r.Adapter.Name)'")) { return $false }
+    # Gated before the attempt counter is written, so a declined or -WhatIf run
+    # leaves no state behind and does not spend part of the repair budget.
+    $intent = if ($renewing) { "Renew the DHCP lease on 'vEthernet ($SwitchName)'" }
+              else { "Rebind External vSwitch to '$($r.Adapter.Name)'" }
+    if (-not $PSCmdlet.ShouldProcess($SwitchName, $intent)) { return $false }
 
-    $existing = Get-VMSwitch -Name $SwitchName -ErrorAction SilentlyContinue
-    $priorDescriptions = if ($existing) { @(Get-YurunaSwitchUplinkDescription -SwitchRecord $existing) } else { @() }
     $priorAdapterName = $null
-    if ($priorDescriptions.Count -gt 0) {
-        $priorAdapterName = (Get-NetAdapter -ErrorAction SilentlyContinue |
-            Where-Object { $priorDescriptions -contains $_.InterfaceDescription } |
-            Select-Object -First 1).Name
+    if (-not $renewing) {
+        $existing = Get-VMSwitch -Name $SwitchName -ErrorAction SilentlyContinue
+        $priorDescriptions = if ($existing) { @(Get-YurunaSwitchUplinkDescription -SwitchRecord $existing) } else { @() }
+        if ($priorDescriptions.Count -gt 0) {
+            $priorAdapterName = (Get-NetAdapter -ErrorAction SilentlyContinue |
+                Where-Object { $priorDescriptions -contains $_.InterfaceDescription } |
+                Select-Object -First 1).Name
+        }
     }
 
     $attempts++
@@ -954,6 +1083,22 @@ function Repair-YurunaExternalSwitch {
     try {
         [System.IO.File]::WriteAllText($statePath, ($record | ConvertTo-Json), [System.Text.UTF8Encoding]::new($false))
     } catch { Write-Verbose "switch repair state not written: $($_.Exception.Message)" }
+
+    if ($renewing) {
+        # No rollback window here, unlike the rebind below: a renew that does
+        # not answer leaves the vNIC exactly as unaddressed as it already was,
+        # so there is no prior state worth restoring.
+        Write-Information -MessageData "  Renewing the DHCP lease on 'vEthernet ($SwitchName)' (attempt $attempts of $MaxAttempts) -- $($r.Reason)." -InformationAction Continue
+        $null = Invoke-YurunaManagementVnicDhcpRenew -SwitchName $SwitchName -TimeoutSeconds $VerifySeconds -Confirm:$false
+        $renewVerdict = Test-YurunaExternalSwitchUplink -SwitchName $SwitchName
+        if ($renewVerdict -in $script:UplinkVerdictOk) {
+            Remove-Item -LiteralPath $statePath -Force -ErrorAction SilentlyContinue
+            Write-Information -MessageData "  External vSwitch '$SwitchName' repaired: 'vEthernet ($SwitchName)' holds a usable IPv4 again." -InformationAction Continue
+            return $true
+        }
+        Write-Warning "DHCP renew on 'vEthernet ($SwitchName)' did not restore an address within ${VerifySeconds}s (switch still reports '$renewVerdict'). Check DHCP on that segment; guests stay on the fallback."
+        return $false
+    }
 
     Write-Information -MessageData "  Rebinding External vSwitch '$SwitchName' onto '$($r.Adapter.Name)' (attempt $attempts of $MaxAttempts) -- $($r.Reason). Host networking on that NIC drops briefly." -InformationAction Continue
     try {

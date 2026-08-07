@@ -50,7 +50,7 @@ Likely the best path for command-line use and environments like Linux.
     ```
     export GH_TOKEN="ghp_YourGeneratedTokenGoesHere"
     ```
-  - This command appends it to the file from the Bash shell.
+  - Or append it from the Bash shell.
     ```
     echo 'export GH_TOKEN="ghp_YourGeneratedTokenGoesHere"' >> ~/.bashrc && source ~/.bashrc
     ```
@@ -63,13 +63,13 @@ Likely the best path for command-line use and environments like Linux.
        git% git clone https://github.com/alissonsol/yurunadev-project yuruna-project
      ```
 
-  - If using the command line tool and the Personal Access Token, use `gh repo` commands.
+  - With the `gh` CLI and a Personal Access Token, use `gh repo` commands.
      ```
        git% gh repo clone https://github.com/alissonsol/yurunadev yuruna
        git% gh repo clone https://github.com/alissonsol/yurunadev-project yuruna-project
      ```
 
-  - Configure local Git variables to ease committing and pushing changes later
+  - Configure local Git variables for later commits and pushes
     ```
     git config --global user.name "Your Name"
     git config --global user.email "Your@email.address"
@@ -91,7 +91,7 @@ Likely the best path for command-line use and environments like Linux.
 
 ### 1. **Confirm you are working on the "dev" repositories**
 
-  - Use the command below under your local repository folder.
+  - Run this under your local repository folder.
      ```
        git config --get remote.origin.url
      ```
@@ -226,7 +226,7 @@ the empty `ghToken: ""` in the template is.
 
 #### **Ensuring local changes are used in tests**
 
-  - Working on a project, including the framework sample project, requires a deeper understanding of "git details". If the projectUrl points to an external site (like `GitHub.com`), the "status service interceptor" doesn't serve its local commits. Why? You can clone that remote repository into multiple local folders — which one would hold the code you want "intercepted"?
+  - If the projectUrl points to an external site (like `GitHub.com`), the "status service interceptor" doesn't serve its local commits. Why? You can clone that remote repository into multiple local folders — which one would hold the code you want "intercepted"?
     - Solutions:
       - Serve the folder you want as a git repository using the git daemon.
         ```
@@ -352,6 +352,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.06
+Last review: 2026.08.07
 
 Back to [Yuruna](README.md)

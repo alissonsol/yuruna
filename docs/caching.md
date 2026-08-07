@@ -253,24 +253,94 @@ Guests reach these endpoints through the SSL-bumped `:3129` listener
 (see [HTTPS caching](#https-caching)): cloud-init exports
 `https_proxy=http://<cache>:3129/` system-wide, so `curl`,
 `apt-get update`, and `tofu init` all flow through squid and pick up
-cached responses without the install scripts having to know about
-the proxy.
+cached responses without the install scripts knowing about the proxy.
 
 Source: the `refresh_pattern` block in
 [`host/vmconfig/caching-proxy-service.base.user-data`](../host/vmconfig/caching-proxy-service.base.user-data).
 
+### Metered metadata endpoints
+
+Version-lookup endpoints — "what is the latest X" — are asked
+repeatedly and answer the same thing for days. Several are metered:
+`api.github.com` allows 60 requests/hour to an unauthenticated caller,
+keyed to the egress IP and so shared by every guest behind this cache.
+
+They need explicit `refresh_pattern` entries because they carry a **query
+string**, and a query string is disqualifying by default. Ubuntu's stock
+`squid.conf` includes `conf.d/*.conf` at line 1618 and declares its own
+patterns near line 5915, ending with:
+
+```
+refresh_pattern -i (/cgi-bin/|\?) 0 0% 0
+```
+
+`refresh_pattern` is first-match-wins, so the yuruna drop-in gets first
+refusal — but any `?` URL it does **not** claim falls to that stock line,
+which pins it to zero freshness. Squid then declines to store it at all,
+`offline_mode` never applies to it, and it is refetched on every
+request.
+
+Currently listed: `api.github.com`, `www.powershellgallery.com`,
+`dl.filippo.io`, `api.snapcraft.io`, `contracts.canonical.com`,
+`livepatch.canonical.com`. Add a host when its lookups start showing up
+as repeated upstream fetches for an unchanged answer.
+
+The floor covers **anonymous** callers only — an authenticated request is
+unstorable by a shared cache regardless (see
+[Keeping tag resolution off a metered upstream](#keeping-tag-resolution-off-a-metered-upstream)).
+
 ### offline_mode
 
 After prewarm, cloud-init writes `/etc/squid/conf.d/yuruna-offline.conf`
-(`offline_mode on`) and runs `squid -k reconfigure`. From then on: cache
-hit → disk; cache miss → `504`. This enables the fully-disconnected
-workflow and points clearly at the missing URL on a miss. The flip
-happens **after** prewarm because empty cache + `offline_mode` = 504 on
-every request.
+(`offline_mode on`) and runs `squid -k reconfigure`.
+
+**`offline_mode` suppresses revalidation, not fetching.** A stored object
+is served without asking the origin whether it changed; a cache **miss
+still goes to the origin**. The directive reads like an egress kill
+switch and is not one. To actually refuse upstream, see
+[no-upstream mode](#no-upstream-mode).
+
+Keeping it on is still what holds revalidation traffic off the metered
+upstreams, which is why the flip happens after prewarm rather than
+before: it costs nothing on a warm cache and saves a conditional request
+per object.
+
+### no-upstream mode
+
+The switch that actually refuses upstream. Off by default.
+
+```
+sudo yuruna-no-upstream on       # misses refused, nothing leaves the VM
+sudo yuruna-no-upstream off      # back to fetching misses
+sudo yuruna-no-upstream status
+```
+
+`on` writes `/etc/squid/conf.d/yuruna-no-upstream.conf`
+(`miss_access deny all`), validates it with `squid -k parse` **before**
+letting it take effect — a squid that FATALs on a drop-in does not fall
+back to the previous config, it fails to start and takes the lab's proxy
+with it — then reloads.
+
+A refused fetch returns **503 with `Retry-After: 3600`**, not 403. The
+retry helpers in [automation/yuruna-retry.sh](../automation/yuruna-retry.sh)
+classify 4xx as permanent and stop; a 403 would turn a mode meant to be
+switched off and retried into an aborted provisioning run.
+
+Because zot's egress is routed through squid, this covers OCI pulls too.
+An unrouted registry would keep reaching Docker Hub while the proxy in
+front of it refused everything.
+
+Off by default because the first pull of anything not already stored
+fails while it is on, and a lab that provisions long-tail images on
+demand hits that often. Leave it off for normal runs; turn it on to prove
+a workflow is genuinely self-contained, or to hard-stop egress during an
+incident.
 
 ### Refreshing the cache
 
-Temporary — serve from origin for one burst, then offline again:
+Temporary — let stored objects revalidate against origin for one burst,
+so a moved tag or a refreshed index is picked up, then suppress
+revalidation again:
 
 ```
 ssh caching-proxy-service-admin@<caching-proxy-service-ip>
@@ -300,26 +370,53 @@ pwsh ./New-VM.ps1
 
 ### Workload registry pull-through
 
-The example workload scripts start a local Docker registry by pulling
-`registry:2` (Docker Hub canonical, i.e. `docker.io/library/registry:2`).
-Dockerd's `registry-mirrors` in `/etc/docker/daemon.json` (set by
-`guest/<GUEST>/<GUEST>.k8s.sh` at provision time) routes this through the
-yuruna-caching-proxy-service's zot pull-through cache — zot serves the manifest
-from cache with stale-on-error semantics, so upstream rate-limit blips
-don't break the test. Pinning `public.ecr.aws/docker/library/registry:2`
-to dodge Docker Hub's anonymous limit is unreliable — that mirror has
-itself returned 400 across multiple test hosts simultaneously; the zot
-pull-through is the durable fix.
+The example workload scripts start a local Docker registry from
+`registry:2` (Docker Hub canonical, i.e. `docker.io/library/registry:2`),
+but they never name it that way.
+
+A bare `registry:2` is a docker.io reference, and dockerd resolves those
+through the `registry-mirrors` entry in `/etc/docker/daemon.json` (set by
+`guest/<GUEST>/<GUEST>.k8s.sh` at provision time). That entry is a
+*mirror*: dockerd abandons it once it is slower than dockerd's own
+patience and completes the pull against docker.io directly. Revalidating
+a mutable tag through an anonymous pull-through routinely costs tens of
+seconds, and minutes at the tail, so that fallback is the common path —
+and the direct pull then egresses from the lab's shared IP and earns a
+`429 Too Many Requests`. A warm, healthy cache does not help: at that
+point it is no longer in the path.
+
+So the scripts take the image from the guest's local docker store first,
+and otherwise pull `${CACHE_HOST}:5000/library/registry:2` — the cache
+addressed **by name**, with the `library/` prefix spelled out (only the
+docker.io mirror protocol lets it be elided). An explicit reference has no
+upstream to fall back to, so a slow cache stays a slow pull instead of
+turning into a hard failure. The image is then re-tagged to the bare
+`registry:2` that `docker run` names, so the container starts from the
+store without resolving anything over the network.
+
+Pinning `public.ecr.aws/docker/library/registry:2` to dodge Docker Hub's
+anonymous limit is unreliable — that mirror has itself returned 400 across
+multiple test hosts simultaneously; addressing the zot pull-through
+directly is the durable fix.
 
 Transient egress blips surface here as `network is unreachable`,
 connection resets, or DNS hiccups while pulling `registry:2` — e.g. a
 host-side DHCP re-lease that momentarily blackholes the guest's NAT
 route, or TLS jitter to the cache. These are not rate limits and clear
 within seconds, so the scripts retry with backoff (mirroring the
-`docker build` retry) instead of aborting the whole run under
+`docker build` retry) instead of aborting the run under
 `set -euo pipefail`. Each attempt is stall-bounded with
-`timeout --foreground`, so a wedged pull surfaces as a retriable
-failure instead of hanging the script.
+`timeout --foreground` (`YURUNA_PULL_STALL_TIMEOUT`, default 300 s), a
+bound chosen to out-wait the cache's slowest honest answer rather than a
+typical one: set below that tail it would only trade the rate-limit
+failure for a timeout. A capped attempt is not wasted either — the cache
+finishes the sync in the background, so the retry behind it usually lands
+warm.
+
+Because the cache is the only source, a cache that is *down* is terminal
+rather than something a silent retry against upstream papers over, and the
+scripts report it as such: reaching docker.io directly from a guest is
+rate limited and fails anyway.
 
 ### Workload registry local-first
 
@@ -340,7 +437,7 @@ against a remote registry:
    consuming a pull window — and on zot that GET also triggers the
    onDemand sync ahead of the pull. The pull itself is stall-bounded
    (`timeout --foreground`, default 300 s, overridable via
-   `YURUNA_PULL_STALL_TIMEOUT_SECONDS` for slow links), and a candidate
+   `YURUNA_PULL_STALL_TIMEOUT` for slow links), and a candidate
    that stalls mid-pull is dropped for the rest of the run — a
    mid-stream wedge is not a blip, so a retry would burn another full
    bound with no better odds.
@@ -441,6 +538,41 @@ speaks squid's cache-manager protocol on `localhost:3128`. Built from
 source during cloud-init (`go install`); `golang-go` is purged once
 the static binary lands in `/usr/local/bin/squid-exporter`.
 
+### Alert rules
+
+Grafana unified alerting is provisioned from
+`/etc/grafana/provisioning/alerting/yuruna.yaml`, in the `Yuruna` folder.
+One rule ships today:
+
+| Rule | Fires when | Pending |
+|---|---|---|
+| Docker Hub pull budget exhausted | `(yuruna_dockerhub_ratelimit_remaining == bool 0) * (yuruna_dockerhub_ratelimit_probe_ok == bool 1)` is above 0.5 | 10m |
+
+Two details in that expression are load-bearing:
+
+- It is a **product of two gauges**, not a reading off `remaining` alone.
+  The exporter publishes an unread budget as `remaining=0`, so a rule
+  watching only that number announces an exhausted allowance for what is
+  really a refused credential or a broken egress path. The probe gauge is
+  what separates the two, exactly as it does on the panel.
+- Both halves use `== bool`, which keeps the result a `1`/`0` series that
+  **always exists**. Written with a plain `and`, the healthy case is an
+  empty vector, and alerting cannot tell an empty vector from an exporter
+  that stopped publishing. As written, an absent series means the exporter
+  is gone and surfaces as `NoData` — a different fault, kept under its own
+  name.
+
+The rule is annotated with `__dashboardUid__` / `__panelId__`, so its state
+renders on the *Upstream pull budget left* panel of the cache-health
+dashboard rather than only in the alerting UI.
+
+**No contact point is provisioned.** The rule routes to Grafana's default
+notification policy, and with no SMTP configured, delivery is a no-op that
+logs a send failure when it fires. The rule still earns its place: it turns
+a number somebody has to notice into a condition with a state, a start
+time, and history. To wire real delivery, add a `contactPoints:` block and
+a `policies:` block to the same file — nothing else has to change.
+
 ### Loki + Promtail boot-order traps
 
 `runcmd` brings Loki and Promtail up explicitly (not just relying on
@@ -482,10 +614,20 @@ check (`HEAD /v2/<image>/manifests/<tag>`) — that's a revalidation
 against upstream by definition. AWS ECR Public's anonymous quota
 and Docker Hub's anonymous-pull limits both bite on those HEADs.
 
-`zot` is OCI-protocol-aware and serves the manifest cache with a
-TTL + stale-on-error — the behavior that masks the
-"`registry:2` returns 400 from `public.ecr.aws`" class of incident
-that has taken out multiple test hosts simultaneously.
+`zot` is OCI-protocol-aware, so it holds manifests and blobs in a form
+it can serve on its own — which is what masks the "`registry:2` returns
+400 from `public.ecr.aws`" class of incident that has taken out multiple
+test hosts simultaneously.
+
+**It does not apply a TTL to a tag.** A request naming a **digest** is
+answered from local storage without touching the network. A request
+naming a **tag** runs the on-demand sync *unconditionally* — before any
+local-storage check, and whether or not the tag is already held — because
+resolving a mutable tag means asking upstream which digest it points at
+now. There is no freshness window and no negative cache to shorten that,
+so **N pulls of a tag cost N upstream manifest fetches**, all of them
+billed where the upstream meters. See
+[Keeping tag resolution off a metered upstream](#keeping-tag-resolution-off-a-metered-upstream).
 
 Guests reach `zot` at `http://<cache-vm>:5000` and configure
 `dockerd` with `registry-mirrors` (set by
@@ -494,13 +636,153 @@ time). Plain HTTP (no TLS) — intra-LAN, same trust boundary as the
 SSL-bump CA the guests already trust. The `zot` binary is fetched
 from GitHub releases by `runcmd`.
 
-### mcr.microsoft.com appears twice
+### Registry routing, glob syntax, and retry budgets
 
-In the zot `registries[]` block, `mcr.microsoft.com` is declared
-twice:
+The order of `registries[]` **is** the routing table, and the JSON cannot say
+so itself. `zot` walks the list in file order and syncs from the first upstream
+whose content filter matches the repository, so a pull that arrives without an
+`ns=` parameter — which is every pull a `dockerd` registry-mirror sends —
+resolves against whichever entry claims it first. When every entry claims `**`,
+Docker Hub answers for images it never hosted, putting each `dotnet`, `flannel`
+or k8s pull on the one metered budget in the lab. Docker Hub therefore stays
+**last** as the `**` catch-all: still reachable for an unclaimed repository,
+but only after every scoped upstream has declined.
 
-1. `onDemand: true` + `prefix: **` — catch-all for any future MCR
-   image.
+Prefixes are **gobwas globs** where `/` is a separator: `*` stops at a path
+element, `**` crosses it, and a bare name matches exactly.
+
+Retry budgets differ by whether a client is blocked on the path:
+
+| Entry kind | `maxRetries` / `retryDelay` | Why |
+|---|---|---|
+| `onDemand` | 1 / 2s | A caller is waiting. A slow retry against an unreachable upstream spends the caller's entire response-header budget and turns a slow pull into a failed one; failing fast returns the caller to a cache that is by then warming. |
+| scheduled (`pollInterval`) | 3 / 15s | Nobody is waiting on a poll. |
+
+The scheduled `mirror.gcr.io` entry pins `library/registry:2`, the only Docker
+Hub image the workloads depend on. A poll does not suppress the on-demand
+revalidation a client request still triggers — `zot` re-checks the tag upstream
+even when it already holds it — but it keeps the content resident, so that
+revalidation settles as a fast no-op instead of a full multi-arch fetch. It is
+also why the canary stays meaningful against a pinned tag: it still walks the
+upstream path it exists to measure. Nothing broader is scheduled, because k8s
+and flannel tags float with version and an unpinned poll would mirror far more
+than the lab pulls.
+
+### Keeping tag resolution off a metered upstream
+
+Docker Hub is the only upstream here that meters. Anonymously it allows
+~100 pulls/hour keyed to the **egress IP**, so every guest in the lab
+draws from one allowance, and the thing it counts is a **manifest fetch**
+— not bytes. A warm blob cache saves no quota at all.
+
+Combined with zot resolving every tag request upstream, the arithmetic is
+unforgiving: one image pulled by a dozen hosts on a provisioning loop
+exhausts the hour on its own, while the content sits complete in local
+storage the whole time. Exhaustion never reaches a client as a 429, and the
+shape it *does* take depends on whether the repository is already resident.
+One that is keeps serving from local storage, so the failure stays invisible
+until something new is pulled. One that is not fails through the on-demand
+retry budget in a couple of seconds, and zot then reports the manifest
+**missing** — a bare `404 manifest unknown`, which reads like a misspelled
+image name and sends the reader hunting in the wrong place. The
+timeout shape belongs to a *slow* upstream rather than a refusing one: there
+zot sends no response headers until its sync resolves, so the client hits its
+own header deadline first.
+
+Five things keep that off the meter, in descending order of effect:
+
+1. **Reference images by digest, not tag.** A digest request is answered
+   from local storage with no network call — it is the only reference
+   shape that costs nothing by construction. This is a property of the
+   *caller*, so it belongs in whatever names the image; the pull sites
+   for the workload images live outside this repo.
+2. **Scope each upstream to the repositories it really serves**, so a
+   namespace-less pull resolves against its true home instead of falling
+   through to the Docker Hub catch-all. Already in place; the catch-all
+   stays last so an unclaimed repository is still resolvable.
+3. **Route Docker Hub's own official images to an unmetered mirror.**
+   Scoping (point 2) can only redirect repositories another upstream
+   genuinely hosts; `library/*` is Hub's by definition, so it lands on the
+   catch-all no matter how carefully everything else is scoped — and it is
+   the namespace the workloads pull hardest. `mirror.gcr.io` is a
+   pull-through of Docker Hub over identical `library/...` paths, so a
+   `library/**` entry ahead of the catch-all needs no repository rewriting
+   and takes the largest metered consumer to zero. The cost is that the
+   match is first-wins with **no fallthrough**: an entry placed ahead of the
+   catch-all owns its glob outright, and a repository that upstream cannot
+   serve is reported missing rather than retried against Hub. This is a
+   different move from pinning a mirror at the *caller*, which the workload
+   scripts deliberately do not do — see [Workload registry
+   pull-through](#workload-registry-pull-through).
+4. **Keep the health probe off the metered path.** The canary walks a
+   real mutable-tag revalidation, so it must resolve against an upstream
+   that meters nothing, or the probe becomes a contributor to the
+   exhaustion it reports. The Docker Hub budget read is separately
+   rate-limited to hourly, matching the window it describes. The corollary
+   is that a green canary says nothing about the metered path, which is why
+   exhaustion needs its own alert rather than a reading off the canary.
+5. **A one-hour freshness floor on tag manifests** in the squid drop-in,
+   which reaches the registries that answer *without* a bearer token.
+
+Point 5 stops at Docker Hub: a shared cache may not store the reply
+to a request carrying `Authorization`
+unless the origin marks it public or `s-maxage`, and registries do not.
+The `refresh_pattern` option that used to override this, `ignore-auth`,
+is **obsolete in Squid 7** — it still parses, emits
+`UPGRADE: ... is obsolete. Remove it.`, and changes nothing. A config
+review that greps only for `FATAL`/`ERROR` will not see it. So squid
+cannot be made the manifest store for a token-authenticated registry:
+squid gates and accounts, zot stores.
+
+### Optional Docker Hub account for the sync
+
+`zot` walks `registries[]` in file order and syncs from the first
+entry whose content filter claims the repository. Every `onDemand`
+entry but one is scoped to the namespaces that upstream really serves;
+`registry-1.docker.io` sits last among them with `prefix: **`, so it
+answers for anything nothing else claimed. (The two `pollInterval`
+entries follow it in the file, but they pre-warm on a schedule and
+never serve the on-demand path, so they do not affect the ordering.)
+That ordering is what keeps a namespace-less pull of a `dotnet/`,
+`flannel-io/`, `library/` or k8s image off Hub, whose anonymous budget
+is metered per **egress IP** and shared by every guest behind the
+cache.
+
+The Hub sync can authenticate, which moves that spend onto the
+account's own budget. It is optional and off by default:
+
+- Store the Hub **account name** as the `localOsUser` of the logical
+  user `dockerhub-token` in `users.yml`, and its **access token**
+  under that user's `vaultKey` in the vault.
+- `New-VM.ps1` bakes the pair into `/etc/zot/sync-credentials.json`
+  (mode `0600`, handed to the `zot` account at boot) and points
+  `extensions.sync.credentialsFile` at it.
+- With no account stored, the boot removes both the file and the
+  config key before `zot` starts — an empty credential is worse than
+  none, because Hub answers 401 on calls the anonymous path serves.
+- Only a complete pair travels. A name without a token (or the
+  reverse) is dropped and the build warns.
+
+`/cache-health` reports which budget the numbers describe —
+authenticated or anonymous — but never the account name: that page
+takes no login.
+
+### Upstreams that appear twice
+
+Two upstreams are declared twice in the zot `registries[]` block, and both
+do it for the same structural reason: an `onDemand` entry serves the
+client-blocking path, and a separate `pollInterval` entry pre-warms the
+handful of tags a cold pull would otherwise stall on. The two entry kinds
+carry different retry budgets and cannot be collapsed into one.
+
+`mcr.microsoft.com`:
+
+1. `onDemand: true` + prefixes scoped to the MCR namespaces the lab
+   pulls (`dotnet/**`, `windows/**`, `oss/**`, `powershell/**`,
+   `mssql/**`) — serves the client-blocking path. The scope is what
+   keeps a namespace-less `dotnet/*` pull from resolving against the
+   Docker Hub catch-all that sits later in `registries[]`, which is
+   the only upstream with a metered anonymous budget.
 2. `pollInterval: 6h` + tagged content for `dotnet/sdk:10.0` and
    `dotnet/aspnet:10.0` — first on-demand sync of `dotnet/sdk:10.0`
    takes ~30 s end-to-end (skopeo walks the index, per-arch
@@ -509,6 +791,15 @@ twice:
    boundary. The scheduled pre-warm keeps the two manifests
    resident so the gate returns in 0 ms and the subsequent pull
    starts streaming immediately.
+
+`mirror.gcr.io`:
+
+1. `onDemand: true` + `library/**` — takes Docker Hub's official-image
+   namespace off the metered catch-all. Same paths as Hub, so nothing is
+   rewritten.
+2. `pollInterval: 6h` + `library/registry:2` — keeps the workload's
+   registry image resident, so the revalidation a client request still
+   triggers settles as a fast no-op.
 
 ## macOS UTM platform notes
 
@@ -553,8 +844,8 @@ UTM's Shared mode hands out `192.168.64.0/24` with a gateway of
 
 - **RFC1918 ACL covers all three blocks** (`10/8`, `172.16/12`,
   `192.168/16`) so the same `yuruna.conf` is reusable across
-  alternate network modes — only the `192.168/16` entry actually
-  matches on UTM.
+  alternate network modes — only the `192.168/16` entry matches on
+  UTM.
 - **`macos-host` `/etc/hosts` alias.** `runcmd` discovers the
   gateway dynamically via `ip -4 route show default` and appends
   `<gw> macos-host` so squid access-log triage is readable without
@@ -961,7 +1252,7 @@ credentials, `YurunaCacheContent`) are covered above.
 Back-to-back test cycles hammer Ubuntu CDN endpoints
 (`archive.ubuntu.com`, `security.ubuntu.com`, GitHub container
 registries, k8s artifact mirrors) on every fresh-VM install. Without a
-cache between the test guests and the CDN, a typical cycle hits 429
+cache, a typical cycle hits 429
 "Too Many Requests" responses within minutes and stretches each
 install from ~2 min (warm cache) to ~30 min (live), or fails outright
 when an upstream mirror rate-limits the test-lab egress IP. The
@@ -1022,7 +1313,7 @@ killed.
    phase, the ~600 MB base-image fetch. A missing or unparseable `acquiredAtUtc`
    means the age is unknown, and an unknown age never drains.
 
-**If you ever do see the refusal, run `Stop-CachingProxyServiceVM.ps1`** — its first
+**If you see the refusal, run `Stop-CachingProxyServiceVM.ps1`** — its first
 step clears an abandoned bring-up lock (stale, self-owned, or past the age
 ceiling) and then tears the service down, so the next `Start` runs clean. A
 genuinely live rebuild in *another* process is reported and left alone: the reset
@@ -1310,11 +1601,11 @@ External-type vSwitch; on macOS it always returns `$true` (VMnet
 shared). So branches 2 and 3 are Windows-only in practice — macOS
 always takes branch 2.
 
-The branch-2-vs-3 decision is really made upstream: a vSwitch that
+The branch-2-vs-3 decision is made upstream: a vSwitch that
 fails uplink validation is never handed out as an attachment
 ([Why a reused External vSwitch is validated before it is handed out](network.md#why-a-reused-external-vswitch-is-validated-before-it-is-handed-out)),
 so a newly built cache VM lands on the Default Switch and this
-discriminator simply reports where it landed.
+discriminator reports where it landed.
 
 Whatever the discriminator consults, it must **fail open toward
 `$true`** — anything not positively established as "not bridged" is
@@ -1469,9 +1760,8 @@ it down and retires the old VM. Short link:
 
 #### Why migrate warm
 
-A cold cache re-fights the battle the cache VM exists to win: every
-fresh-VM install hammers the Ubuntu CDN and container registries until
-429 rate limits stretch a ~2 min warm install to ~30 min or fail it
+A cold cache re-fights the battle the cache VM exists to win: 429
+rate limits stretch a ~2 min warm install to ~30 min or fail it
 outright (see [why a separate cache VM](#why-a-separate-cache-vm)).
 Warming the new cache from the old one keeps every hot object served
 from disk on the LAN, and only true misses go to the origin — once,
@@ -1661,6 +1951,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.06
+Last review: 2026.08.07
 
 Back to [Yuruna](../README.md)

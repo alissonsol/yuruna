@@ -46,7 +46,7 @@ itself elevated once. It runs no cycles —
 [A.8](#a8-run-one-test-cycle)–[A.9](#a9-run-continuous-cycles) are
 still yours. Re-running is safe, **except that every run rebuilds the
 service VMs** (~15 minutes for the caching-proxy). Parameters,
-`-WhatIf`, unattended runs, exact coverage, and failure behavior:
+`-WhatIf`, unattended runs, coverage, and failure behavior:
 [B.0](#b0-the-guided-setup-script).
 
 The steps below are the by-hand path — read them when a step needs
@@ -224,7 +224,7 @@ Watch progress on the status dashboard it starts at
 The quickstart order is deliberate: each step validates the one before
 it, and cheap checks run before expensive ones (config validation
 before the caching-proxy-service VM build). Every step below names its
-script and links the reference doc that owns the details.
+script and links the reference doc owning the details.
 
 ### B.0 The guided setup script
 
@@ -232,8 +232,8 @@ Reference for [A.0](#a0-shortcut-the-standalone-setup-script).
 `install/setup.ps1` runs *after* the OS bootstrapper
 (`install/windows.hyper-v.ps1`, `install/macos.utm.sh`,
 `install/ubuntu.kvm.sh`) has put the dependencies and the clone in
-place. Its preflight fails the run if `powershell-yaml` is missing and
-tells you to run the bootstrapper. It needs pwsh 7.
+place. It needs pwsh 7; its preflight fails the run if
+`powershell-yaml` is missing and points at the bootstrapper.
 
 **What it covers, step by step:**
 
@@ -265,10 +265,10 @@ already done — config file present, pool storage mounted,
 `cachingProxyIp` matching — is skipped, so re-running is safe.
 
 **The service VMs are the exception: every run rebuilds them.** Each
-start is preceded by its own `Stop-…ServiceVM.ps1`. That is what lets
-a re-run *apply* a change — left alone, a healthy proxy is adopted in
-seconds and keeps the configuration you re-ran to replace — and what
-keeps a start from failing over a registered VM whose files are gone.
+start is preceded by its own `Stop-…ServiceVM.ps1`. That lets a
+re-run *apply* a change — a healthy proxy left alone is adopted in
+seconds, keeping the configuration you re-ran to replace — and keeps
+a start from failing over a registered VM whose files are gone.
 Budget roughly 15 minutes for the proxy. A run only removes a service
 it will rebuild, so a standalone re-run leaves a former lab's
 pool-control service running.
@@ -282,14 +282,11 @@ service, the aggregator wait, and an unmountable NAS when
 
 Storage stops the run because everything after it either needs the
 shares or writes host state that presumes them — the hosts-file
-aliases, the stash and download-agent services, a lab's pool. A run
-that continued spent fifteen minutes building services around storage
-that did not exist.
+aliases, the stash and download-agent services, a lab's pool.
 
-`storage.onFailure` decides what an unmountable NAS means, and it
-decides it the same way whether or not you are at the terminal. The
-default is `stop`; set it to `local` (with `storage.localRoot`) to
-stand up real local shares instead.
+`storage.onFailure` decides what an unmountable NAS means, attended
+or not. The default is `stop`; set it to `local` (with
+`storage.localRoot`) to stand up real local shares instead.
 
 Anything else that fails is warned about, recorded in the closing
 Failed list, and the run continues. **A non-empty Failed list exits
@@ -298,10 +295,9 @@ never calls a broken host ready. Fix what the list names and re-run.
 
 A step that could not run because something it needs failed is
 reported as `BLOCK` and listed under **Blocked** in the closing
-report, separately from **Skipped**. The two answer different
-questions: skipped is a decision, blocked is a consequence. Blocked
-steps do not add to the exit code — the failure they came from
-already did.
+report, separately from **Skipped**: skipped is a decision, blocked
+is a consequence. Blocked steps do not add to the exit code — the
+failure they came from already did.
 
 #### Parameters
 
@@ -316,9 +312,9 @@ questions are still asked).
 `-Rebuild` tears down and rebuilds every service VM this run touches
 instead of adopting a healthy one. It is how a changed address or
 credential reaches a guest, because the seed is baked at build time.
-It is also the switch that makes a re-run expensive — roughly 15
-minutes for the proxy, and a cold squid cache — so drop it when you
-are re-running to fix something the proxy does not bake in. The run
+It also makes a re-run expensive — roughly 15 minutes for the proxy,
+plus a cold squid cache — so drop it when re-running to fix something
+the proxy does not bake in. The run
 log's header records the switches each run was invoked with.
 
 `-logLevel` is the [shared cascade](loglevels.md) and reaches every
@@ -342,7 +338,7 @@ An unattended `storage.kind: local` run must include
 `storage.localRoot`. `New-LocalLabStorage.ps1` runs as a child with
 its stdin closed, so a question it asks reaches nobody — the run stops
 in its first second and names the key rather than guessing a path and
-then creating OS accounts and shares there. An interactive run does
+creating OS accounts and shares there. An interactive run does
 not ask either: it takes the platform's convention (`/srv/yuruna` on
 Ubuntu, `/Users/Shared/yuruna` on macOS, `<data drive>\Shares\yuruna`
 on Windows) and records in the run log that it did. Set the key to put
@@ -370,9 +366,8 @@ storage:
   onFailure: stop        # stop | local -- if a NAS mount fails
 ```
 
-`storage.localRoot` is where the local shares are created — e.g.
-`/srv/yuruna` on Ubuntu, `/Users/Shared/yuruna` on macOS,
-`D:\Shares\yuruna` on Windows. It is also what
+`storage.localRoot` is where the local shares are created (the per-OS
+conventions above). It is also what
 `storage.onFailure: local` needs: a NAS that mounts never uses the
 key, so a file without it is accepted, and the run warns that the
 fallback it declares cannot actually run.
@@ -410,8 +405,8 @@ elevation).
 #### Required tools
 
 The host installer ([B.3](#b3-install-the-framework)) puts most of
-these in place; install them by hand when running without the
-installer, or to repair a partial install. Run
+these in place; install them by hand when running without it, or to
+repair a partial install. Run
 `Test-Requirement.ps1` to compare present tools against the versions
 used in testing
 ([`automation/Yuruna.Requirement.yml`](../automation/Yuruna.Requirement.yml)).
@@ -497,9 +492,9 @@ comment-based help.
 
 Sign in as this user for everything that follows, so the config,
 vault, and runtime state belong to the test account. The clone is
-per-user — that is why A.2 repeats the install one-liner in the
-test-user session; the heavyweight work is already done, so that run
-only clones and seeds the config.
+per-user — hence A.2 repeats the install one-liner in the test-user
+session; the heavyweight work is already done, so that run only
+clones and seeds the config.
 
 ### B.5 Enable test automation
 
@@ -565,7 +560,7 @@ hosts-file alias (`ypool-nas`, `ystash-nas`) resolving to loopback,
 and the mount runs over SMB through that name via the same
 `Connect-YurunaPoolStorage` the unattended cycle uses. A
 single-machine lab therefore exercises the same replication, gating,
-and mount code as one with a NAS; moving to real hardware later only
+and mount code as a NAS-backed one; moving to real hardware later only
 changes what the alias resolves to. On Windows the two names are also
 registered as NTLM loopback exemptions (`BackConnectionHostNames`) and
 `EnableLinkedConnections` is set — without them the machine refuses
@@ -581,7 +576,7 @@ present rather than minting a second set:
   elsewhere.
 - Credentials already in the host vault are **reused**, not
   regenerated: a fresh password would leave the OS account, the SMB
-  server, and the lab's other machines holding the old one, and every
+  server, and the lab's other machines holding the old one, so every
   mount driven from the new vault would fail. `-Force` (which rewrites
   the lab vault file) still reuses rather than rotates — rotation must
   also reach the OS account and the share, so it stays a deliberate,
@@ -750,6 +745,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.06
+Last review: 2026.08.07
 
 Back to [Yuruna](../README.md)

@@ -14,8 +14,8 @@ the GitHub Markdown rule: lowercase the heading text, strip everything
 that isn't `[a-z0-9_ -]`, then replace spaces with hyphens — so
 `### Disable swap` becomes `#disable-swap`.
 
-Topics are generic (the same explanation applies to every guest on every
-host); sub-bullets cover the exceptions a specific guest or host needs.
+Topics are generic (one explanation covers every guest on every host);
+sub-bullets cover the exceptions a specific guest or host needs.
 
 The **caching-proxy-service** VM has its own cloud-init seed
 (`host/vmconfig/caching-proxy-service.base.user-data`), whose REGION lines use
@@ -36,10 +36,10 @@ per-cycle replacement table. The rendering pipeline lives in
 [`automation/Yuruna.CloudInitTemplate.psm1`](../automation/Yuruna.CloudInitTemplate.psm1).
 
 Without the pipeline, each of the six `New-VM.ps1` scripts
-(3 platforms × {Ubuntu Server 24, Ubuntu Server 26}) would carry its own
-near-identical `vmconfig/user-data` file (~240 lines each) plus a
+(3 platforms × {Ubuntu Server 24, Ubuntu Server 26}) would carry a
+near-identical `vmconfig/user-data` file (~240 lines each), a
 600-character `.Replace(...).Replace(...)...` chain across 11
-placeholders plus a base64 dance for each guest-side helper script. A fix
+placeholders, and a base64 dance per guest-side helper script. A fix
 landing in one copy leaves the other five drifted — the "three parallel
 user-data copies" trap class in the workspace's contributor memory.
 
@@ -51,7 +51,7 @@ handing the result to `genisoimage` (KVM), `hdiutil makehybrid`
 
 | Placeholder | Source | Notes |
 |---|---|---|
-| `HOSTNAME_PLACEHOLDER` | `-Hostname` parameter, falling back to `-VMName` when empty | Becomes `identity.hostname` (autoinstall) or the hostname for AL2023 / caching-proxy-service. A sequence sets it by declaring `variables.hostname`, which the planner cascades to `New-VM`; without it the guest is named after the VM. A pinned hostname diverges from the VM name, and the UTM `dhcpd_leases` `name=` lookup keys off the name the guest registered: blocks still filed under the VM name belong to predecessors, so a VM-name-only lookup returns a dead address rather than failing outright. Discovery therefore reads the pinned name back out of the bundle's seed ISO, tries it first, and rejects any lease that is not on a live host-interface subnet. |
+| `HOSTNAME_PLACEHOLDER` | `-Hostname` parameter, falling back to `-VMName` when empty | Becomes `identity.hostname` (autoinstall) or the hostname for AL2023 / caching-proxy-service. A sequence sets it by declaring `variables.hostname`, which the planner cascades to `New-VM`; without it the guest is named after the VM. A pinned hostname diverges from the VM name, and the UTM `dhcpd_leases` `name=` lookup keys off the name the guest registered: blocks still filed under the VM name belong to predecessors, so a VM-name-only lookup returns a dead address rather than failing outright. Discovery therefore reads the pinned name from the bundle's seed ISO, tries it first, and rejects leases not on a live host-interface subnet. |
 | `INSTANCE_ID_PLACEHOLDER` | `-VMName` parameter | meta-data only. Deliberately NOT the hostname: cloud-init treats a changed instance-id as a new instance, and two VMs may legitimately share a pinned hostname. |
 | `USERNAME_PLACEHOLDER` | `-Username` parameter (per-guest default; see `Test.Ssh\Get-GuestSshUser`) | Account created by autoinstall (Ubuntu Server 24.04) or by the cloud-init `users:` block (AL2023). Same name appears in `passwd --expire`, `sudoers.d/90-yuruna-<user>`, and the GUI sequences. |
 | `HASH_PLACEHOLDER` | `Test.VMUtility\ConvertTo-Sha512CryptHash` (wraps `openssl passwd -6 -- <vault-password>`) | SHA-512 (`$6$`) form. Plaintext password comes from `Get-Password -Username <user>` against the per-cycle authentication vault (`test/extension/authentication/`). KVM honors `$YURUNA_GUEST_PASSWORD` as a vault-bypass for ad-hoc dev runs. The `--` separator is LOAD-BEARING -- see "Password hashing: argv leading-dash trap" below. |
@@ -75,8 +75,8 @@ handing the result to `genisoimage` (KVM), `hdiutil makehybrid`
 `New-CloudInitUserData` is the wrapper every per-guest `New-VM.ps1`
 calls — it chains the three stages, auto-populates the
 `YURUNA_*_BASE64_PLACEHOLDER` entries from the guest scripts, and
-optionally writes the result to `-OutputPath` (UTF-8 without BOM, LF
-line endings — the cloud-init contract).
+optionally writes the result to `-OutputPath` (see "Output encoding"
+below).
 
 ### Placeholder safety net
 
@@ -86,9 +86,9 @@ scans the result for any remaining `<NAME>_PLACEHOLDER` token and throws
 with the offending names.
 
 This catches typos at New-VM time — a forgotten entry in the caller's
-hashtable, or a new placeholder in the base that no caller supplies a
-value for — instead of letting a literal placeholder string ship to the
-guest, where it fails mid-autoinstall with a confusing diagnostic.
+hashtable, or a new placeholder no caller supplies a value for — instead
+of letting a literal placeholder ship to the guest and fail
+mid-autoinstall with a confusing diagnostic.
 
 ### Files on disk
 
@@ -107,9 +107,8 @@ guest, where it fails mid-autoinstall with a confusing diagnostic.
 ### Overlay anchor contract
 
 Each anchor line in the base reads
-`# === YURUNA_OVERLAY_<NAME> ===`. The anchor set differs by guest type:
-Ubuntu Server runs an autoinstall, while AL2023 boots a prebuilt cloud
-image and configures itself via `runcmd:`.
+`# === YURUNA_OVERLAY_<NAME> ===`. The anchor set differs by guest type
+(autoinstall vs prebuilt-image `runcmd:`):
 
 **Ubuntu Server** — four anchors:
 
@@ -157,7 +156,7 @@ convention so the three host variants of each guest stay diff-friendly:
 3. `umount /cdrom` + `losetup -D` MUST be the final late-commands
    (ubuntu.server.24 only — see "Quiet post-install reboot teardown" below).
 
-Recommended order (a guest may legitimately omit topics that don't apply):
+Recommended order (a guest may omit topics that don't apply):
 
 1. Apt cache: persist proxy
 2. Cap systemd-networkd-wait-online
@@ -218,8 +217,7 @@ The cloud-init `autoinstall:` schema requires the Ubuntu **server** ISO;
 the desktop ISO uses Ubiquity (or its successor), which has no
 equivalent unattended-install mechanism. The test framework drives
 provisioning by attaching a NoCloud seed (user-data + meta-data), and
-only the server ISO's subiquity reads it — the desktop ISO would force a
-GUI-driven first boot the harness cannot script. Image selection happens
+only the server ISO's subiquity reads it. Image selection happens
 in `Get-Image.ps1` per host.
 
 ### chpasswd list schema
@@ -410,9 +408,8 @@ finish: subiquity/Network/_send_update: CHANGE enp0s1
 ```
 
 forever. The Apple Virtualization backend emits no such RAs, so
-subiquity's auto-detection is safe there; on QEMU the explicit netplan
-is required. Hyper-V and KVM guests see no such RA stream either, so
-they keep auto-detection.
+subiquity's auto-detection is safe there; Hyper-V and KVM guests see no
+such RA stream either, so they keep auto-detection.
 
 ### Cap systemd-networkd-wait-online
 
@@ -453,23 +450,23 @@ The `--` end-of-options marker is **load-bearing** and must not be
 removed:
 
 - `test/extension/authentication/default.psm1` `New-RandomPassword`
-  draws from an alphabet that includes `-` (the alphabet covers
-  `a-z A-Z 0-9 !@#$%^&*()-_=+`). Roughly one in 72 generated passwords
+  draws from an alphabet that includes `-`
+  (`a-z A-Z 0-9 !@#$%^&*()-_=+`). Roughly one in 72 generated passwords
   starts with `-`. Observed in the wild: vault produced `-4aWj*CRw`.
 - Without `--`, `openssl passwd -6 -4aWj*CRw` parses `-4aWj*CRw` as an
   unknown option flag, prints `passwd: Use -help for summary` to stderr,
   writes nothing to stdout, and exits non-zero. The cycle then writes an
   EMPTY hash into the cloud-init user-data and the guest comes up with
   no working password -- recoverable only via the console.
-- With `--`, the dash-prefixed token is unambiguously an operand and
-  openssl hashes it correctly.
+- With `--`, the dash-prefixed token is an operand and openssl hashes
+  it correctly.
 
 The same trap applies to any caller that passes vault plaintext to a
 command-line tool. Either:
 
 - Pass plaintext AFTER `--` (e.g. `chpasswd -- "$user:$pw"`, though
-  chpasswd's stdin form `echo "$user:$pw" | chpasswd` is preferable
-  for the secondary reason of not leaking plaintext into argv); or
+  chpasswd's stdin form `echo "$user:$pw" | chpasswd` is preferable —
+  it also keeps plaintext out of argv); or
 - Pass plaintext via stdin (`-stdin` on openssl, the default on
   chpasswd, `SSHPASS`/`-e` on sshpass).
 
@@ -493,8 +490,8 @@ computing a hash -- is therefore safe by construction.
 force-expired. The vault chain in
 [`test/extension/authentication/default.psm1`](../test/extension/authentication/default.psm1)
 assumes the OS prompts for a change on first login. `USERNAME_PLACEHOLDER`
-is substituted by `New-VM.ps1` from the `-Username` parameter
-(per-guest default, see `Test.Ssh\Get-GuestSshUser`). This aligns with
+comes from `-Username` (per-guest default, see
+`Test.Ssh\Get-GuestSshUser`). This aligns with
 AL2023's cloud-init default (`chpasswd.expire: true`), so the GUI test
 sequence's first login fires the same Current/New/Retype dialog on every
 supported host.
@@ -606,8 +603,8 @@ blacklist hv_balloon
 The synthetic balloon driver only loads under Hyper-V, and its
 memory-pressure notifications spam the console and pollute OCR. The
 file is inert on KVM/QEMU and macOS UTM, where `hv_balloon` never
-loads — kept there purely for cross-host symmetry of the runcmd /
-write_files shape.
+loads — kept for cross-host symmetry of the runcmd / write_files
+shape.
 
 ### hyperv_fb framebuffer pin
 
@@ -905,8 +902,8 @@ All four `automation/*.sh` helpers land in the canonical
 They are read at seed-build time by the host-side `New-VM.ps1`,
 base64-encoded, and embedded as cloud-init `write_files:` content —
 baked into the seed rather than fetched, so they are on disk before any
-provisioning script runs, with zero network dependency. Single source of
-truth: `automation/` in the framework repo.
+provisioning script runs. Single source of truth: `automation/` in the
+framework repo.
 
 ### Timezone via IP geolocation and NTP
 
@@ -1014,9 +1011,8 @@ topic collapses to one line:
 # --- REGION: https://yuruna.link/vmconfig/caching-proxy-service#<topic-slug>
 ```
 
-The fragment resolves to a `### <topic name>` heading in this section (standard
-GitHub Markdown slug: lowercase the heading, drop punctuation, spaces become
-hyphens).
+The fragment resolves to a `### <topic name>` heading in this section
+(same GitHub slug rule as at the top of this file).
 
 The docs cover the cache from three angles:
 
@@ -1024,8 +1020,8 @@ The docs cover the cache from three angles:
   cache appears there only as a *client* concern (apt proxy block, CA trust,
   proxy egress enforcement).
 - [caching.md -> operator reference](caching.md#caching-proxy-service--test-harness-operator-reference) -- the operator / wiring
-  (serving remote clients, port-map dispatch, host-proxy promotion). That section
-  is about *using* the cache; this one is about how the cache VM is *built*.
+  (serving remote clients, port-map dispatch, host-proxy promotion): *using*
+  the cache, where this section is about how the cache VM is *built*.
 - [caching.md](caching.md) -- squid SSL-bump, refresh_pattern and
   YurunaCacheContent concepts referenced from the embedded squid.conf.
 
@@ -1048,7 +1044,7 @@ domain name (`yuruna-caching-proxy-service`). Renaming happens HERE only -- the
 source-tree directory `guest.caching-proxy-service/` and the image filename keep the
 `caching-proxy-service` token because they identify the guest type /
 template, not the running VM. The split prevents a rename cascade across the
-repo every time the runtime VM is renamed.
+repo when the runtime VM is renamed.
 
 ### Users replace cloud image default with a per VM admin account
 
@@ -1134,7 +1130,7 @@ snapshot** rather than a churn-optimized web cache:
 frequently-used large objects (linux-firmware, kernels) over many small
 ones; `memory_replacement_policy heap GDSF` does the same in-memory. When
 eviction fires, rarely-touched small objects drop first -- the big,
-expensive-to-refetch blobs survive, which is what offline replay needs.
+expensive-to-refetch blobs survive, which offline replay needs.
 The ordering constraint is load-bearing (and stays inline beside the
 directive): `cache_replacement_policy` MUST appear before `cache_dir`,
 because squid binds the policy at `cache_dir` parse time and a later
@@ -1200,8 +1196,8 @@ of which carry the `sha256:` segment in the redirected path.
 ### Upstream stall and fetch pooling guards
 
 Four directives that together keep one bad origin from taking a whole
-cycle down. They are tuned as a group -- changing one in isolation
-usually just moves the stall elsewhere.
+cycle down. Tuned as a group -- changing one in isolation usually
+moves the stall elsewhere.
 
 **`quick_abort_min -1 KB`** disables the quick-abort threshold entirely,
 so a client that disconnects mid-fetch (a guest rebooting, say) does not
@@ -1341,6 +1337,30 @@ Two reasons NOT to fold this into squid-exporter:
 - squid-exporter taps squid's cachemgr counters; offline_mode is a config directive, not a counter, so surfacing it would need a fork.
 - When squid is DOWN, squid-exporter's metrics stop publishing and Grafana shows "No data" -- exactly when the operator needs to know whether offline_mode was supposed to be on. This exporter reads the file directly, so the signal survives a crashed squid.
 
+### zot manifest canary exporter
+
+Times the cache's *manifest* path rather than its liveness, reads the shared Docker Hub pull budget, and publishes both as Prometheus text at `/var/www/html/zot-meta` plus a human-readable `/var/www/html/cache-health`. Driven by `zot-meta-exporter.timer`.
+
+Served by apache, not by zot, so the numbers survive exactly the failure they describe: a zot whose sync path is wedged still answers `/v2/` and `/metrics` in milliseconds, so a probe served BY zot would report health throughout.
+
+**Why the canary is addressed by tag.** A tag is mutable, so serving it re-runs the on-demand sync against the upstream -- the leg that stalls. A digest URL is immutable, answered from local storage, and stays fast right through an outage -- useless as a canary. The repo:tag pair is one the workloads really pull, so the number means what a reader assumes.
+
+**Why `dotnet/sdk` specifically.** A tag probe is indistinguishable from a pull to the upstream it resolves against, so the choice of repo decides what the probe costs. `dotnet/sdk` is claimed by the scoped `mcr.microsoft.com` entry in the sync list, and that upstream meters nothing -- so the probe runs at the cadence the stall it watches deserves, rather than at the cadence a metered quota could afford. A repo that fell through to the Docker Hub catch-all would put the health probe on the one metered budget in the lab, making it a contributor to the exhaustion it is meant to report.
+
+**Why `Accept:` is spelled out.** A registry answers a manifest request that states no preference with whatever it considers the default; for a multi-arch tag that is not the index a pull resolves, so an unspecified probe can walk a different path than the pull it stands in for.
+
+**Two deadlines, not one.** `PROBE_MAX` (120s) bounds the probe itself -- a stall is the signal, so the cap has to sit above the client patience this exists to explain while still returning in time for the next timer tick. `CLIENT_PATIENCE` (30s) is the deadline the client actually applies: dockerd abandons a request whose *response headers* have not arrived by roughly then, and zot sends no headers until its on-demand sync resolves, so a manifest that eventually answers at 55s is a manifest every pull against it fails. Reported as its own gauge because the probe cap deliberately outlives it (measuring a stall requires surviving it), and a reading under the wide cap says nothing about survivability.
+
+The under-patience verdict is computed in `awk`, not the shell's `test` builtin: the elapsed time is fractional and `-le` on `"30.412"` errors outright instead of answering, which under `set +e` would leave the verdict silently at 0 for every reading that carries a decimal.
+
+**Upstream leg.** Measured without spending pull budget -- `/v2/` answers 401 on every registry here and costs no quota, which separates "the internet is slow from this VM" from "zot is slow" without becoming a second consumer of the limit the budget gauge reports. Any HTTP status proves the leg: 401 is the healthy answer for an unauthenticated `/v2/`, and treating only 200 as up would report every registry down. Metric lines are appended per probe rather than accumulated in a shell variable, because a metric line must start at column 0 and an embedded newline inside a variable carries this file's own indentation into the payload.
+
+**Docker Hub budget.** The anonymous allowance is per egress IP, so it is spent by every guest in the lab at once, and exhausting it never surfaces as a clean 429 to a guest. Which failure it *does* produce depends on the repository: one already resident keeps serving from local storage, so nothing looks wrong until something new is pulled, and that pull then fails through the on-demand retry budget in a couple of seconds and comes back as a bare `404 manifest unknown` -- a shape that reads like a misspelled image name rather than a quota problem. The stalled-cache shape belongs to a *slow* upstream instead of a refusing one, where the pull-through sends no response headers until its sync resolves and the guest hits its own deadline first. `HEAD` on `ratelimitpreview/test` is the documented way to read the counters; it reports them without spending one. Read at most hourly (`HUB_MIN_INTERVAL`) and cached to disk in between: the counters describe a one-hour window, so a ten-minute cadence resamples the same window five extra times for a number that cannot have moved -- while minting a token each time against the upstream this file exists to keep traffic off. Between reads the previous values are republished, so the gauge keeps a value rather than dropping to zero and painting an exhausted budget.
+
+Only a successful read is persisted. Caching a failure would republish it for the rest of the hour, turning one transient auth or egress blip into an hour of a page reporting a budget it never actually failed to read -- and an unread budget already renders as zero, which is the same shape as exhaustion.
+
+**Authenticated vs anonymous budget.** Hub meters an authenticated sync against the account and an anonymous one against the egress IP; the two allowances differ in both size and in who else is spending them, so a remaining count means nothing until the mode is stated alongside it. A token minted with the account reports the budget zot's pulls actually spend, and the lookup is strictly best-effort -- a rotated or revoked credential must cost the reading its precision, not its existence, so any failure falls through to the anonymous request and the page says which budget it ended up reporting. The credential is passed through a 0600 netrc file rather than on the command line: argv is readable by every account on this VM through `/proc`, and the whole point of the credential's mode is that the token is not. Fields are extracted with `sed` rather than `jq` because this probe has to keep reporting on a boot where package installation is incomplete, and one field out of a flat object does not justify the dependency.
+
 ### Squid exporter unit
 
 squid-exporter unit: binary go-installed in runcmd, loopback-only (Prometheus scrapes it).
@@ -1379,11 +1399,21 @@ Beyond the datasource rebind above, the rewriter carries a numbered repair pass.
 
 watches /var/lib/grafana/dashboards for JSON; syncs post-boot edits.
 
+### Grafana pull budget alert
+
+Provisioned Grafana unified-alerting rule (`Yuruna` folder) that fires when the Docker Hub pull budget is exhausted. The condition is a PRODUCT of two gauges -- `(remaining == bool 0) * (probe_ok == bool 1)` -- rather than a reading off `remaining` alone, because the exporter publishes an unread budget as zero as well: a rule watching only that number would announce an exhausted allowance for what is actually a refused credential or a broken egress path, which is the same conflation the dashboard panel gates against.
+
+**Why `== bool` on both halves.** It keeps the result a `1`/`0` series that always exists. Written as a plain `and`, the healthy case is an EMPTY vector, and alerting cannot distinguish an empty vector from an exporter that has stopped publishing -- so the quiet failure would look identical to health. As written, an absent series can only mean the exporter is gone, and that routes to `NoData` under its own name instead of borrowing this rule's summary.
+
+**Pending period and evaluation cadence.** Evaluated every 5 min against a 10 min pending period. Both are deliberately far slower than the 15s scrape: the budget is re-read from Hub at most hourly and republished from disk in between, so a tighter loop only re-examines a value that cannot have moved, while 10 min still lands well inside the one-hour window the budget resets on.
+
+**No contact point.** The rule routes to Grafana's default notification policy, and with no SMTP configured, delivery is a no-op that logs a send failure when it fires. The rule earns its place without one: it turns a number somebody has to notice into a condition with a state, a start time, and history, and its `__dashboardUid__`/`__panelId__` annotations render that state directly on the *Upstream pull budget left* panel. Adding `contactPoints:` and `policies:` to the same file is the whole change needed for real delivery.
+
 ### Yuruna host coordinates for source fetch
 
 Yuruna host (status service) coordinates. Baked into the seed by the platform New-VM.ps1 (Get-GuestReachableHostIp + statusService.port). The runcmd build block below sources this to fetch the collector + parser source from the LOCAL host working tree (http://IP:PORT/yuruna-repo/) -- the host repo is the source of truth, so a rebuild never waits on the private->public github mirror. Same resolution as fetch-and-execute.sh. Empty IP/PORT (coordinates unavailable, e.g. status service disabled) fall back to github raw.
 
-`--no-proxy` is required on the host path: the host IP is private and this VM's own squid is in `offline_mode`, so routing that fetch through a proxy would fail. Sourcing `host.env` is safe here -- it carries host-baked IP/PORT only, never operator free-text, so it cannot abort the runcmd phase the way a malformed operator value would.
+`--no-proxy` is required on the host path: the host IP is private and this VM's own squid is in `offline_mode`, so routing that fetch through a proxy would fail. Sourcing `host.env` is safe here -- host-baked IP/PORT only, never operator free-text (a malformed value would abort the runcmd phase).
 
 ### Yuruna hosts dashboard inlined
 
@@ -1396,6 +1426,12 @@ Panel heights are fixed in dashboard JSON, and one fixed height per row does not
 ### Squid dashboard inlined
 
 Minimal squid dashboard: panels show "No data" gracefully if metric names drift between exporter releases.
+
+### Cache health dashboard
+
+Grafana dashboard (`uid: yuruna-cache-health`, "Yuruna cache health (registry path)") over the gauges the [zot manifest canary exporter](#zot-manifest-canary-exporter) publishes. Inlined into the seed for the same reason as the other dashboards here: it deploys from local user-data and renders from first boot, "No data" until the exporter's first tick.
+
+The panel thresholds encode the point of the exporter. Manifest latency turns red at 30s because that is where dockerd abandons a pull whose response headers have not arrived -- a cache can sit green on every liveness check and still be past this line. The companion "fast enough for a real pull?" stat reads `yuruna_zot_manifest_ok_under_client_patience`: the latency stat measures the stall, this one says whether what it measured is survivable.
 
 ### zot systemd unit
 
@@ -1589,6 +1625,10 @@ Squid meta exporter: timer drives a oneshot that writes /var/www/html/squid-meta
 
 Run the script once immediately so /var/www/html/squid-meta exists before Prometheus's first scrape, avoiding a 15-second "No data" window on the dashboard at boot.
 
+### Enable zot metadata exporter timer
+
+Armed here, primed after the zot install below: a first run against a registry that does not exist yet would publish a DOWN reading as the service's opening data point.
+
 ### Enable caching-proxy-parser service
 
 caching-proxy-parser-service fails closed (the binary may not be present if the build above failed); `|| true` keeps the rest of runcmd going so loki+promtail+grafana still come up.
@@ -1615,7 +1655,7 @@ Wait for grafana-server to bind :3000 and dump the journal if it doesn't. On a s
 
 ### Enable yuruna hosts dashboard panel autofit
 
-Enable the timer that keeps the Yuruna hosts dashboard's per-host panels sized to the pool (see "Yuruna hosts dashboard panel autofit" above). It first fires 3min after boot -- by then the collector has polled the pool at least once -- and every 5min after, so a host that joins or leaves shows up within one tick plus the dashboard provider's 30s reload. `--now` also runs it once here, which costs two loopback queries and, on a pool that has not registered yet, does nothing.
+Enable the timer that keeps the Yuruna hosts dashboard's per-host panels sized to the pool (see "Yuruna hosts dashboard panel autofit" above). It first fires 3min after boot -- by then the collector has polled the pool at least once -- and every 5min after, so a host that joins or leaves shows up within one tick plus the dashboard provider's 30s reload. `--now` also runs it once here: two loopback queries, a no-op on a pool that has not registered yet.
 
 ### Install community Zot dashboard
 
@@ -1735,8 +1775,8 @@ The destination must stay one of the paths the daemon searches when `--fido-scri
   [Caching-proxy-service seed topics](#caching-proxy-service-seed-topics) above,
   then in the user-data emit a single
   `# --- REGION: https://yuruna.link/vmconfig/caching-proxy-service#<topic-slug>` at
-  the matching indent. Pick heading text whose GitHub slug is readable -- avoid
-  `:`, `(`, `)`, `/`, `=` and other punctuation the slugifier strips silently.
+  the matching indent. Pick readable heading text (same slug caveats as the
+  note above).
 - Removed topic: drop the section here AND the one-line pointer in the
   user-data. `grep -rn "vmconfig/caching-proxy-service#<slug>" host/vmconfig/` finds it.
 - Comments inside deployed artifacts (squid.conf, embedded scripts, systemd
@@ -1815,7 +1855,7 @@ Error: 'Access is denied.' (0x80070005).
 could not be built.' ('0x8007053C').
 ```
 
-It appears suddenly on a host that has run many test cycles, and **persists
+It appears suddenly on a host that has run many cycles, and **persists
 even when PowerShell is elevated (Run as Administrator)**.
 
 #### Root cause: the ISO's ACL is full, not a permissions problem
@@ -1833,8 +1873,8 @@ per-machine virtual account:
   `S-1-5-83-1` per-VM account family).
 
 The same grant happens for **any** file a VM attaches — an ISO via
-`Add-VMDvdDrive`, a directly-attached VHDX — which is why the pruning
-helper below takes an arbitrary file path.
+`Add-VMDvdDrive`, a directly-attached VHDX — so the pruning helper below
+takes an arbitrary file path.
 
 Two facts combine into the failure:
 
@@ -1867,7 +1907,7 @@ oversized ACL.
 | Per-VM disk (`<VMName>.vhdx`) | one VM | no |
 | Base VHDX (`…guest.amazon.linux.2023.vhdx`, `…caching-proxy-service.vhdx`) | copied per-VM, **never attached directly** | no |
 
-A measurement on a working developer host that had run many cycles: the
+Measured on a developer host after many cycles: the
 Windows 11 base ISO already carried **1,412 ACEs** (1,020 raw-SID +
 387 name-form per-VM entries) totalling **~56.5 KB / 64 KB**, with **zero**
 live VMs on the host. The Linux base ISOs were accumulating the same way.
@@ -1897,9 +1937,9 @@ Two call sites keep the DACL bounded:
 - **(B) During cleanup** — `Remove-OrphanedVMFiles.ps1` prunes every kept
   base image on each run (a no-op on the base VHDX images, which are copied
   per-VM and never attached directly, so they accumulate nothing), reclaiming
-  ACL space even when no VM is being created. It runs on every invocation,
-  before the deletion prompt, because it is safe maintenance: it only removes
-  access for VMs that no longer exist.
+  ACL space even when no VM is being created. It runs before the deletion
+  prompt because it is safe maintenance: it only removes access for VMs that
+  no longer exist.
 
 ##### Manual remediation (already-failing host)
 
@@ -1941,6 +1981,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.06
+Last review: 2026.08.07
 
 Back to [Yuruna](../README.md)

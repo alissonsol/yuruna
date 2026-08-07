@@ -46,8 +46,8 @@ SQLite too (file-locking overhead for write-once data).
 
 **Why not extend `status.json`.** It is the live-state doc, re-serialized
 on every step write; appending perf history would re-serialize the whole
-growing document each time. JSONL appends one row in O(1) regardless of
-history depth.
+growing document each time, where JSONL appends one row in O(1)
+regardless of history depth.
 
 ---
 
@@ -240,9 +240,8 @@ by its hash. Same for `guestinfo/` (small JSON fingerprint) and
 
 A host whose hardware doesn't change emits **one** ~10 KB file for the
 lifetime of that machine. The same hash collapses across thousands of
-cycle files at query time (`JOIN` on hash, render once). This lets the
-schema honor "hostinfo is assumed to be stable" without bloating
-per-step rows.
+cycle files at query time (`JOIN` on hash, render once), honoring
+"hostinfo is assumed to be stable" without bloating per-step rows.
 
 ---
 
@@ -339,8 +338,7 @@ The emitter is wired into the runner at three points:
 
 Every entry point is defensive: a missing module, missing
 `YURUNA_RUNTIME_DIR`, or a sequence with no frontmatter all degrade to
-"silent no-op" rather than failing the cycle. **Facts only, never
-crashes a cycle.**
+"silent no-op" rather than failing the cycle.
 
 ---
 
@@ -372,6 +370,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.06
+Last review: 2026.08.07
 
 Back to [Yuruna](../README.md)

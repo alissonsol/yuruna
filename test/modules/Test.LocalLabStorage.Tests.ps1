@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.06
+.VERSION 2026.08.07
 .GUID 42e0a5c9-71b4-4d38-a6f2-90c3d5e81b47
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -173,6 +173,75 @@ Describe 'Merge-LocalLabStorageBackConnectionName' {
     It 'ignores blank entries left in the value' {
         $m = Merge-LocalLabStorageBackConnectionName -Existing @('', '  ') -Wanted @('ypool-nas')
         Assert-Equal 1 $m.Count
+    }
+}
+
+Describe 'Remove-LocalLabStorageSambaInclude' {
+    It 'drops the include line this module added' {
+        $existing = "[global]`n   workgroup = WORKGROUP`n`n# Yuruna local lab storage shares.`ninclude = /etc/samba/yuruna.conf`n"
+        $out = Remove-LocalLabStorageSambaInclude -Content $existing -IncludePath '/etc/samba/yuruna.conf'
+        Assert-Match '(?m)^\[global\]$' $out
+        if ($out -match 'yuruna\.conf') { throw "Expected the include to be gone, got [$out]." }
+    }
+    It 'returns null when there is no such include, so nothing is rewritten' {
+        Assert-Null (Remove-LocalLabStorageSambaInclude -Content "[global]`n" -IncludePath '/etc/samba/yuruna.conf')
+    }
+    It 'recognizes an include written with different spacing' {
+        $out = Remove-LocalLabStorageSambaInclude -Content "[global]`n   include   =   /etc/samba/yuruna.conf`n" -IncludePath '/etc/samba/yuruna.conf'
+        if ($out -match 'yuruna\.conf') { throw "Expected the re-spaced include to be removed, got [$out]." }
+    }
+    It "preserves another product's include" {
+        $existing = "[global]`ninclude = /etc/samba/other.conf`ninclude = /etc/samba/yuruna.conf`n"
+        $out = Remove-LocalLabStorageSambaInclude -Content $existing -IncludePath '/etc/samba/yuruna.conf'
+        Assert-Match '(?m)^include = /etc/samba/other\.conf$' $out
+    }
+    It 'round-trips with the adder without accumulating blank lines' {
+        # The adder appends a blank separator before its comment; a teardown that
+        # left it behind would grow smb.conf by one line per convert/rebuild cycle.
+        $base  = "[global]`n   workgroup = WORKGROUP`n"
+        $added = Add-LocalLabStorageSambaInclude -Content $base -IncludePath '/etc/samba/yuruna.conf'
+        $back  = Remove-LocalLabStorageSambaInclude -Content $added -IncludePath '/etc/samba/yuruna.conf'
+        Assert-Equal $base.TrimEnd("`n") $back.TrimEnd("`n")
+    }
+    It 'handles an empty smb.conf' {
+        Assert-Null (Remove-LocalLabStorageSambaInclude -Content '' -IncludePath '/etc/samba/yuruna.conf')
+    }
+}
+
+Describe 'Remove-LocalLabStorageBackConnectionName' {
+    It 'drops the named aliases' {
+        $k = Remove-LocalLabStorageBackConnectionName -Existing @('ypool-nas', 'ystash-nas') -Unwanted @('ypool-nas', 'ystash-nas')
+        Assert-Equal 0 $k.Count
+    }
+    It 'returns null when none of them is registered, so no Server-service restart is spent' {
+        Assert-Null (Remove-LocalLabStorageBackConnectionName -Existing @('sharepoint.local') -Unwanted @('ypool-nas'))
+    }
+    It "preserves entries another product registered" {
+        # @() because the pipeline unrolls a one-element result, and indexing the
+        # bare string with [0] would read its first character instead.
+        $k = @(Remove-LocalLabStorageBackConnectionName -Existing @('sharepoint.local', 'ypool-nas') -Unwanted @('ypool-nas'))
+        Assert-Equal 1 $k.Count
+        Assert-Equal 'sharepoint.local' $k[0]
+    }
+    It 'matches case-insensitively' {
+        $k = Remove-LocalLabStorageBackConnectionName -Existing @('YPOOL-NAS') -Unwanted @('ypool-nas')
+        Assert-Equal 0 $k.Count
+    }
+    It 'returns null for an unset value' {
+        Assert-Null (Remove-LocalLabStorageBackConnectionName -Existing @() -Unwanted @('ypool-nas'))
+    }
+}
+
+Describe 'Format-LocalLabStorageSize' {
+    It 'reports bytes below a kilobyte' {
+        Assert-Equal '512 B' (Format-LocalLabStorageSize -Bytes 512)
+    }
+    It 'scales to the largest unit that fits' {
+        Assert-Equal '1.0 KB' (Format-LocalLabStorageSize -Bytes 1024)
+        Assert-Equal '2.5 GB' (Format-LocalLabStorageSize -Bytes ([long](2.5 * 1GB)))
+    }
+    It 'reports zero without scaling' {
+        Assert-Equal '0 B' (Format-LocalLabStorageSize -Bytes 0)
     }
 }
 

@@ -78,6 +78,9 @@ packages:
   - apache2
   # --- REGION: https://yuruna.link/vmconfig/caching-proxy-service#monitoring-stack-packages
   - prometheus
+  # Host-level CPU/memory/disk/network: answers "is the box starved or is the
+  # service blocked?" -- the first question a stalled cache raises.
+  - prometheus-node-exporter
   - grafana
   - loki
   - promtail
@@ -183,8 +186,13 @@ write_files:
       # successfully next time.
       negative_ttl 0 seconds
 
-      # Offline mode: cache MISSES still fall through to upstream (so the
-      # VM can warm up); only HITS are served unconditionally.
+      # Suppresses REVALIDATION, not fetching. A stored object is served
+      # without asking the origin whether it changed; a cache MISS still
+      # falls through to upstream. The name reads like an egress kill
+      # switch and is not one -- the switch that actually refuses upstream
+      # is /etc/squid/conf.d/yuruna-no-upstream.conf, written on demand by
+      # the operator (see the no-upstream topic). Keeping this on is what
+      # holds revalidation traffic off the metered upstreams.
       offline_mode on
 
       # Expose the RUNTIME config on /squid-internal-mgr/config for
@@ -227,11 +235,40 @@ write_files:
       # --- REGION: Container registry caching (OCI + Docker v2)
       # --- REGION: https://yuruna.link/vmconfig/caching-proxy-service#snapshot-cache-tuning
       # Digest-pinned URLs only (the `sha256:` path segment is immutable);
-      # tag-based manifest URLs stay revalidated -- tags ARE mutable.
+      # tag-based manifest URLs are governed by the gate below -- tags ARE mutable.
       refresh_pattern -i /(manifests|blobs)/sha256:[0-9a-f]+ 525600 100% 525600 override-expire override-lastmod ignore-reload ignore-no-store ignore-private
-      # Tag-based manifests: short freshness window (same-cycle guests hit
-      # cache; a tag move still lands within minutes).
-      refresh_pattern -i /v2/.+/manifests/[^/]+$        5 50%  60
+
+      # --- REGION: https://yuruna.link/caching#keeping-tag-resolution-off-a-metered-upstream
+      # Freshness floor on tag -> digest resolution, the metered operation.
+      # Reaches only registries that answer a manifest without a bearer token
+      # (Docker Hub always sends one, so Hub is NOT governed here). Deliberately
+      # not host-scoped, so a registry added upstream is covered the day it appears.
+      refresh_pattern -i /v2/.+/manifests/[^/]+$        60 100% 60 override-expire override-lastmod ignore-reload ignore-no-store ignore-private store-stale max-stale=86400
+
+      # Blob bodies are already persisted by the OCI cache that fetched them;
+      # storing a second copy here buys no hit and spends cache_dir against
+      # the install images it is sized for. Manifests -- small, and the thing
+      # the gate above exists to keep -- are unaffected.
+      acl yuruna_oci_blob urlpath_regex /v2/.+/blobs/
+      store_miss deny yuruna_oci_blob
+
+      # Registry bearer tokens are short-lived credentials, and a replayed one
+      # is both a stale-auth failure and a credential living longer than its
+      # issuer intended. Token mints are not metered; there is nothing to save
+      # here and something to lose.
+      acl yuruna_registry_auth dstdomain auth.docker.io auth.ghcr.io
+      cache deny yuruna_registry_auth
+
+      # Not every registry mints on a separate auth host: the gcr.io family,
+      # mirror.gcr.io included, advertises a realm on its OWN domain, where the
+      # rule above cannot reach it without also refusing to cache that host's
+      # manifests. Matching the path keeps the credential uncacheable and leaves
+      # the rest of the host alone. Neither endpoint sends Cache-Control, so
+      # without this squid is free to apply its heuristic to a 200 that happens
+      # to contain a bearer token. Deliberately not host-scoped, for the same
+      # reason as the freshness floor above.
+      acl yuruna_registry_token_path urlpath_regex ^/v2/token
+      cache deny yuruna_registry_token_path
 
       # --- REGION: OpenTofu / Terraform provider + binary caching
       # See https://yuruna.link/caching#opentofu-provider--binary-caching
@@ -257,6 +294,18 @@ write_files:
       # helm-repo hosts so unrelated YAML is not over-cached.
       refresh_pattern -i ^https?://kubernetes\.github\.io/.*/index\.yaml$  60     20%  60
       refresh_pattern -i ^https?://charts\.jetstack\.io/.*/index\.yaml$    60     20%  60
+
+      # --- REGION: https://yuruna.link/caching#metered-metadata-endpoints
+      # One-hour freshness floor for metered version-lookup endpoints. Each host
+      # needs its own entry: these URLs carry a query string, and the stock
+      # `refresh_pattern -i (/cgi-bin/|\?) 0 0% 0` parsed after this file would
+      # otherwise claim them under first-match-wins and pin them to zero freshness.
+      refresh_pattern -i ^https?://api\.github\.com/                       60 100% 60 override-expire override-lastmod ignore-reload ignore-no-store ignore-private store-stale max-stale=86400
+      refresh_pattern -i ^https?://www\.powershellgallery\.com/            60 100% 60 override-expire override-lastmod ignore-reload ignore-no-store ignore-private store-stale max-stale=86400
+      refresh_pattern -i ^https?://dl\.filippo\.io/                        60 100% 60 override-expire override-lastmod ignore-reload ignore-no-store ignore-private store-stale max-stale=86400
+      refresh_pattern -i ^https?://api\.snapcraft\.io/                     60 100% 60 override-expire override-lastmod ignore-reload ignore-no-store ignore-private store-stale max-stale=86400
+      refresh_pattern -i ^https?://contracts\.canonical\.com/              60 100% 60 override-expire override-lastmod ignore-reload ignore-no-store ignore-private store-stale max-stale=86400
+      refresh_pattern -i ^https?://livepatch\.canonical\.com/              60 100% 60 override-expire override-lastmod ignore-reload ignore-no-store ignore-private store-stale max-stale=86400
 
       logfile_rotate 2
 
@@ -285,6 +334,87 @@ write_files:
       # on every request-less log event (CONNECT tunnels, TLS-bump errors).
       acl yuruna_selfscrape src 127.0.0.1/32 ::1/128
       access_log stdio:/var/log/squid/yuruna_access.log yuruna !yuruna_selfscrape
+      # Loopback traffic goes to its own file (same format), not discarded: it
+      # would clutter the client log, but without it the VM's own egress leaves
+      # no trace and a stalled local service cannot be told from a stalled client.
+      access_log stdio:/var/log/squid/yuruna_loopback.log yuruna yuruna_selfscrape
+  # --- REGION: https://yuruna.link/caching#no-upstream-mode
+  # The page a refused fetch returns. Squid resolves an unlocalized template
+  # name from this directory, so no error_directory override is needed -- and
+  # overriding it would replace the whole stock set, not add to it.
+  - path: /usr/share/squid/errors/templates/ERR_YURUNA_NO_UPSTREAM
+    permissions: '0644'
+    owner: root:root
+    content: |
+      <html><head><title>Upstream fetch refused</title></head>
+      <body>
+      <h1>Upstream fetch refused</h1>
+      <p>This cache is in no-upstream mode. The object below is not stored
+      locally, and this cache will not fetch it.</p>
+      <p><b>%U</b></p>
+      <p>To let it through, run <code>sudo yuruna-no-upstream off</code> on the
+      caching-proxy VM, re-run the fetch, then turn it back on.</p>
+      </body></html>
+  - path: /usr/local/sbin/yuruna-no-upstream
+    permissions: '0755'
+    owner: root:root
+    content: |
+      #!/bin/bash
+      # Turns the cache into a true island: stored objects are served, and
+      # anything else is refused rather than fetched.
+      #
+      # This is a separate switch from `offline_mode`, which despite the name
+      # only suppresses revalidation -- a miss under offline_mode still goes
+      # to the origin. Refusing the miss is what makes the cache's content
+      # the whole of what the lab can see, which is the point of the mode:
+      # an upstream that cannot be reached cannot spend a metered quota and
+      # cannot fail a provisioning run in a new way.
+      #
+      # Off by default. The cost of leaving it on is that the first pull of
+      # anything not already stored fails, and in a lab that provisions
+      # long-tail images on demand that is a frequent event, not a rare one.
+      set -euo pipefail
+      CONF=/etc/squid/conf.d/yuruna-no-upstream.conf
+      case "${1:-status}" in
+        on)
+          # Staged and parsed before it is allowed to take effect. A squid
+          # that FATALs on a bad drop-in does not fall back to the previous
+          # config -- it fails to start and takes the whole lab's proxy with
+          # it, so the validation has to happen while the running daemon is
+          # still untouched.
+          TMP=$(mktemp)
+          trap 'rm -f "$TMP"' EXIT
+          cat > "$TMP" <<'EOF_NOUP'
+      # Refuse anything not already stored. 503 rather than 403 on purpose:
+      # the retry helpers classify 4xx as permanent and stop, which would turn
+      # a mode meant to be switched off and retried into an aborted run.
+      acl yuruna_no_upstream_status http_status 503
+      miss_access deny all
+      deny_info 503:ERR_YURUNA_NO_UPSTREAM all
+      reply_header_add Retry-After 3600 yuruna_no_upstream_status
+      EOF_NOUP
+          install -m 0644 -o root -g root "$TMP" "$CONF"
+          if ! squid -k parse >/dev/null 2>&1; then
+              rm -f "$CONF"
+              echo "yuruna-no-upstream: refused -- squid rejected the config; left unchanged" >&2
+              exit 1
+          fi
+          squid -k reconfigure
+          echo "yuruna-no-upstream: ON (misses refused with 503)"
+          ;;
+        off)
+          rm -f "$CONF"
+          squid -k reconfigure
+          echo "yuruna-no-upstream: OFF (misses fetched from origin)"
+          ;;
+        status)
+          if [ -f "$CONF" ]; then echo "on"; else echo "off"; fi
+          ;;
+        *)
+          echo "usage: yuruna-no-upstream [on|off|status]" >&2
+          exit 2
+          ;;
+      esac
   # --- REGION: https://yuruna.link/vmconfig/caching-proxy-service#prometheus-loopback-only
   - path: /etc/default/prometheus
     permissions: '0644'
@@ -293,6 +423,14 @@ write_files:
       # 30d retention + 2GB size-cap safety net; /var/lib/prometheus is on the
       # VM root fs, so a VM rebuild still resets history.
       ARGS="--web.listen-address=127.0.0.1:9090 --storage.tsdb.retention.time=30d --storage.tsdb.retention.size=2GB"
+  - path: /etc/default/prometheus-node-exporter
+    permissions: '0644'
+    owner: root:root
+    content: |
+      # Loopback only, matching prometheus itself: the LAN reaches these numbers
+      # through Grafana's datasource proxy, and the node exporter's default bind
+      # would otherwise publish host inventory to every guest.
+      ARGS="--web.listen-address=127.0.0.1:9100"
   - path: /etc/prometheus/prometheus.yml
     permissions: '0644'
     owner: root:root
@@ -316,6 +454,18 @@ write_files:
           metrics_path: /squid-meta
           static_configs:
             - targets: ['localhost:80']
+        # zot metadata: canary that TIMES a manifest request and reads the shared
+        # pull budget, served via Apache like squid-meta -- zot's own /metrics keeps
+        # answering in milliseconds while the sync path behind it is stalled, so the
+        # subject cannot be the reporter. The timer, not the 15s scrape, paces the probe.
+        - job_name: zot_meta
+          metrics_path: /zot-meta
+          static_configs:
+            - targets: ['localhost:80']
+        # Host CPU/memory/disk/network for the VM itself.
+        - job_name: node
+          static_configs:
+            - targets: ['localhost:9100']
         # pool-aggregator-service: multi-host pool collector on :9400 (TLS via proxy-CA leaf when present -- served alongside plain HTTP on the same port for the browser deep-links -- else plain HTTP only). Loopback scrape uses insecure_skip_verify -- peer authentication is moot on 127.0.0.1 and it works whether the leaf SAN lists localhost or only IPs.
         - job_name: pool-aggregator-service
           scheme: https
@@ -397,6 +547,22 @@ write_files:
             - timestamp:
                 source: ts
                 format: Unix
+        # Egress originated ON this VM (its own probes and any local service
+        # pointed at the proxy), split out of the client log by the squid ACL.
+        # Separate job label so it never dilutes {job="squid"} client analysis.
+        - job_name: squid_loopback
+          static_configs:
+            - targets:
+                - localhost
+              labels:
+                job: squid_loopback
+                __path__: /var/log/squid/yuruna_loopback.log
+          pipeline_stages:
+            - regex:
+                expression: '^(?P<ts>\d+\.\d+)\s+\d+\s+'
+            - timestamp:
+                source: ts
+                format: Unix
         # Ship zot's JSONL /var/log/zot/zot.log to Loki as job=zot so {job="zot"} queries work in Explore; no dashboard consumes the stream today (community Zot dashboard is Prom-only).
         - job_name: zot
           static_configs:
@@ -414,18 +580,20 @@ write_files:
                 source: ts
                 format: RFC3339Nano
             # Sentinel first: promtail's drop stage skips entries whose source key
-            # is absent, and zot sync errors carry no `path` at all.
+            # is absent, and zot's sync lines carry no `path` at all.
             - template:
                 source: path
                 template: '{{ or .path "NO_HTTP_PATH" }}'
+            # Only the self-scrape is noise. Lines with no HTTP path are the
+            # sync extension's own -- the upstream retry/failure record for a
+            # pull-through miss. They are the ONLY evidence of why a manifest
+            # request took tens of seconds, since the request itself is logged
+            # as a success once it finally answers, and they are rare enough
+            # that keeping them costs nothing.
             - drop:
                 source: path
                 value: /metrics
                 drop_counter_reason: metrics_poll
-            - drop:
-                source: path
-                value: NO_HTTP_PATH
-                drop_counter_reason: no_http_context
   # --- REGION: https://yuruna.link/vmconfig/caching-proxy-service#promtail-supplementary-groups-drop-in
   - path: /etc/systemd/system/promtail.service.d/yuruna.conf
     permissions: '0644'
@@ -496,6 +664,329 @@ write_files:
       OnUnitActiveSec=30s
       AccuracySec=5s
       Unit=squid-meta-exporter.service
+      [Install]
+      WantedBy=timers.target
+  # --- REGION: https://yuruna.link/vmconfig/caching-proxy-service#zot-manifest-canary-exporter
+  - path: /usr/local/bin/zot-meta-exporter.sh
+    permissions: '0755'
+    owner: root:root
+    content: |
+      #!/bin/bash
+      # Yuruna zot meta exporter: times the cache's MANIFEST path (not just its
+      # liveness), reads the shared Docker Hub budget, and publishes both as Prom
+      # text at /var/www/html/zot-meta plus a human-readable /var/www/html/cache-health.
+      # Driven by zot-meta-exporter.timer. Served by apache, not zot, so the
+      # numbers survive the very failure they describe.
+      set +e
+      TMP=$(mktemp)
+      TMP_TXT=$(mktemp)
+      TMP_UP=$(mktemp)
+      TMP_UP_TXT=$(mktemp)
+      # Carries the Docker Hub credential into the budget probe below. Created
+      # with the other temps so the trap covers it: it holds an access token, and
+      # a run that dies partway must not leave that token in /tmp.
+      TMP_NETRC=$(mktemp)
+      trap 'rm -f "$TMP" "$TMP_TXT" "$TMP_UP" "$TMP_UP_TXT" "$TMP_NETRC"' EXIT
+
+      ZOT='http://127.0.0.1:5000'
+      # Addressed by TAG, not digest: only a tag re-runs the on-demand upstream
+      # sync, which is the leg that stalls. dotnet/sdk resolves against the
+      # scoped mcr.microsoft.com entry, which meters nothing -- a repo falling
+      # through to the Docker Hub catch-all would put this probe on the one
+      # metered budget in the lab.
+      CANARY_REPO='dotnet/sdk'
+      CANARY_TAG='10.0'
+      # Spelled out: a manifest request stating no preference gets the registry's
+      # default, which for a multi-arch tag is not the index a real pull resolves.
+      ACCEPT='application/vnd.oci.image.index.v1+json, application/vnd.oci.image.manifest.v1+json, application/vnd.docker.distribution.manifest.list.v2+json, application/vnd.docker.distribution.manifest.v2+json'
+      # Two deadlines, deliberately different: PROBE_MAX bounds this probe (it
+      # must outlive the stall to measure it), CLIENT_PATIENCE is the
+      # response-header deadline a real dockerd pull actually gives up at.
+      PROBE_MAX=120
+      CLIENT_PATIENCE=30
+
+      V2_UP=0
+      if curl -fsS -m 10 --noproxy '*' -o /dev/null "${ZOT}/v2/" 2>/dev/null; then
+          V2_UP=1
+      fi
+
+      # http_code and time_total are printed on the timeout path too, so a probe
+      # that never answers still yields the elapsed number rather than a blank.
+      READ=$(curl -s -o /dev/null --noproxy '*' -m "$PROBE_MAX" -I \
+                  -H "Accept: ${ACCEPT}" \
+                  -w '%{http_code} %{time_total}' \
+                  "${ZOT}/v2/${CANARY_REPO}/manifests/${CANARY_TAG}" 2>/dev/null)
+      MANIFEST_CODE=$(printf '%s' "$READ" | awk '{print $1+0}')
+      MANIFEST_SECONDS=$(printf '%s' "$READ" | awk '{printf "%.3f", $2+0}')
+      [ -n "$MANIFEST_SECONDS" ] || MANIFEST_SECONDS=0
+      MANIFEST_OK=0
+      [ "$MANIFEST_CODE" = "200" ] && MANIFEST_OK=1
+      # Compared in awk because the elapsed time is fractional and the shell's
+      # test builtin rejects a non-integer operand outright: -le on "30.412"
+      # errors instead of answering, which under set +e would leave the verdict
+      # silently at 0 for every reading that carries a decimal.
+      MANIFEST_UNDER_PATIENCE=0
+      if [ "$MANIFEST_OK" = 1 ] && awk -v s="$MANIFEST_SECONDS" -v p="$CLIENT_PATIENCE" 'BEGIN{exit !(s<=p)}'; then
+          MANIFEST_UNDER_PATIENCE=1
+      fi
+
+      # Upstream leg, measured WITHOUT spending pull budget: /v2/ answers 401 on
+      # every registry here and costs no quota, so this separates "the internet
+      # is slow from this VM" from "zot is slow" without becoming a second
+      # consumer of the limit the gauge below reports.
+      UPSTREAMS='registry-1.docker.io mirror.gcr.io registry.k8s.io ghcr.io quay.io gcr.io public.ecr.aws mcr.microsoft.com'
+      for U in $UPSTREAMS; do
+          R=$(curl -s -o /dev/null --noproxy '*' -m 10 -w '%{http_code} %{time_total}' "https://${U}/v2/" 2>/dev/null)
+          C=$(printf '%s' "$R" | awk '{print $1+0}')
+          T=$(printf '%s' "$R" | awk '{printf "%.3f", $2+0}')
+          # Any HTTP status proves the leg: 401 is the healthy answer for an
+          # unauthenticated /v2/, and treating only 200 as up would report every
+          # registry down.
+          OK=0
+          [ "$C" -gt 0 ] 2>/dev/null && OK=1
+          # Appended per probe rather than accumulated in a shell variable: a
+          # metric line must start at column 0, and an embedded newline inside a
+          # variable carries this file's own indentation into the payload.
+          printf 'yuruna_upstream_reachable{registry="%s"} %s\n' "$U" "$OK" >> "$TMP_UP"
+          printf 'yuruna_upstream_latency_seconds{registry="%s"} %s\n' "$U" "$T" >> "$TMP_UP"
+          if [ "$OK" = 1 ]; then
+              printf '  %-24s %ss (HTTP %s)\n' "$U" "$T" "$C" >> "$TMP_UP_TXT"
+          else
+              printf '  %-24s UNREACHABLE\n' "$U" >> "$TMP_UP_TXT"
+          fi
+      done
+
+      # The shared Docker Hub budget. HEAD on ratelimitpreview/test reads the
+      # counters without spending one. Read at most hourly and cached to disk in
+      # between -- the counters describe a one-hour window, so a faster cadence
+      # only mints extra tokens against the upstream this file exists to spare.
+      # Between reads the previous values are republished, so the gauge keeps a
+      # value rather than dropping to zero and painting an exhausted budget.
+      HUB_STATE=/var/lib/yuruna/zot-meta-hub.env
+      HUB_MIN_INTERVAL=3300
+      HUB_PROBE_OK=0
+      HUB_LIMIT=0
+      HUB_REMAINING=0
+      HUB_FRESH=1
+      mkdir -p "$(dirname "$HUB_STATE")" 2>/dev/null
+      if [ -r "$HUB_STATE" ]; then
+          # shellcheck disable=SC1090
+          . "$HUB_STATE" 2>/dev/null || true
+          HUB_AGE=$(( $(date +%s) - ${HUB_STAMP:-0} ))
+          [ "$HUB_AGE" -lt "$HUB_MIN_INTERVAL" ] && HUB_FRESH=0
+      fi
+      # Declared for both branches: the human-readable section below reads these
+      # to say which budget it is describing.
+      HUB_AUTHENTICATED=0
+      HUB_TOKEN_AUTHENTICATED=0
+      if [ "$HUB_FRESH" = 0 ]; then
+          HUB_PROBE_OK=${HUB_STATE_PROBE_OK:-0}
+          HUB_LIMIT=${HUB_STATE_LIMIT:-0}
+          HUB_REMAINING=${HUB_STATE_REMAINING:-0}
+          HUB_AUTHENTICATED=${HUB_STATE_AUTHENTICATED:-0}
+          HUB_TOKEN_AUTHENTICATED=${HUB_STATE_TOKEN_AUTHENTICATED:-0}
+      fi
+      if [ "$HUB_FRESH" = 1 ]; then
+      # Which budget the counters below describe. Hub meters an authenticated sync
+      # against the account and an anonymous one against the egress IP, and the two
+      # allowances differ in both size and in who else is spending them, so a
+      # remaining count means nothing until the mode is stated alongside it.
+      # The file is absent whenever the lab configured no account.
+      HUB_CRED_FILE=/etc/zot/sync-credentials.json
+      HUB_USER=''
+      HUB_PASS=''
+      if [ -r "$HUB_CRED_FILE" ]; then
+          HUB_USER=$(sed -n 's/.*"username"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$HUB_CRED_FILE" | head -1)
+          HUB_PASS=$(sed -n 's/.*"password"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$HUB_CRED_FILE" | head -1)
+      fi
+      HUB_AUTHENTICATED=0
+      [ -n "$HUB_USER" ] && [ -n "$HUB_PASS" ] && HUB_AUTHENTICATED=1
+      HUB_TOKEN_AUTHENTICATED=0
+      HUB_TOKEN=''
+      # Extracted with sed rather than jq: this probe has to keep reporting on a
+      # boot where package installation is incomplete, and one field out of a
+      # flat object does not justify the dependency.
+      if [ "$HUB_AUTHENTICATED" = 1 ]; then
+          # A token minted with the account reports the account's budget, which is
+          # the one zot's pulls actually spend. Strictly best-effort: a rotated or
+          # revoked credential must cost the reading its precision, not its
+          # existence, so any failure falls through to the anonymous request and
+          # the page says which budget it ended up reporting.
+          #
+          # Passed through a 0600 file rather than on the command line: argv is
+          # readable by every account on this VM through /proc, and the whole
+          # point of the credential's mode is that the token is not.
+          printf 'machine auth.docker.io login %s password %s\n' "$HUB_USER" "$HUB_PASS" > "$TMP_NETRC"
+          HUB_TOKEN=$(curl -fsS --noproxy '*' -m 10 --netrc-file "$TMP_NETRC" \
+              'https://auth.docker.io/token?service=registry.docker.io&scope=repository:ratelimitpreview/test:pull' 2>/dev/null \
+              | sed -n 's/.*"token":"\([^"]*\)".*/\1/p')
+          : > "$TMP_NETRC"
+          [ -n "$HUB_TOKEN" ] && HUB_TOKEN_AUTHENTICATED=1
+      fi
+      if [ -z "$HUB_TOKEN" ]; then
+          HUB_TOKEN=$(curl -fsS --noproxy '*' -m 10 \
+              'https://auth.docker.io/token?service=registry.docker.io&scope=repository:ratelimitpreview/test:pull' 2>/dev/null \
+              | sed -n 's/.*"token":"\([^"]*\)".*/\1/p')
+      fi
+      if [ -n "$HUB_TOKEN" ]; then
+          HUB_HDRS=$(curl -fsS --noproxy '*' -m 10 -I \
+              -H "Authorization: Bearer ${HUB_TOKEN}" \
+              'https://registry-1.docker.io/v2/ratelimitpreview/test/manifests/latest' 2>/dev/null | tr -d '\r')
+          if [ -n "$HUB_HDRS" ]; then
+              # Header shape is `ratelimit-limit: 100;w=3600` -- the window suffix
+              # is dropped, leaving the count.
+              HUB_L=$(printf '%s\n' "$HUB_HDRS" | awk 'tolower($1)=="ratelimit-limit:"{split($2,a,";"); print a[1]+0; exit}')
+              HUB_R=$(printf '%s\n' "$HUB_HDRS" | awk 'tolower($1)=="ratelimit-remaining:"{split($2,a,";"); print a[1]+0; exit}')
+              if [ -n "$HUB_L" ] && [ -n "$HUB_R" ]; then
+                  HUB_PROBE_OK=1
+                  HUB_LIMIT=$HUB_L
+                  HUB_REMAINING=$HUB_R
+              fi
+          fi
+      fi
+      # Only a successful read is persisted: a cached failure would republish for
+      # the rest of the hour, and an unread budget renders as zero -- the same
+      # shape as exhaustion.
+      if [ "$HUB_PROBE_OK" = 1 ]; then
+          umask 077
+          cat > "$HUB_STATE" <<EOF_HUB_STATE
+      HUB_STAMP=$(date +%s)
+      HUB_STATE_PROBE_OK=$HUB_PROBE_OK
+      HUB_STATE_LIMIT=$HUB_LIMIT
+      HUB_STATE_REMAINING=$HUB_REMAINING
+      HUB_STATE_AUTHENTICATED=$HUB_AUTHENTICATED
+      HUB_STATE_TOKEN_AUTHENTICATED=$HUB_TOKEN_AUTHENTICATED
+      EOF_HUB_STATE
+      fi
+      fi
+
+      ZOT_FREE=$(df -P /var/lib/zot 2>/dev/null | awk 'NR==2{print $4*1024}')
+      SQUID_FREE=$(df -P /var/spool/squid 2>/dev/null | awk 'NR==2{print $4*1024}')
+      [ -n "$ZOT_FREE" ]   || ZOT_FREE=0
+      [ -n "$SQUID_FREE" ] || SQUID_FREE=0
+
+      cat > "$TMP" <<EOF_METRICS
+      # HELP yuruna_zot_v2_up 1 if zot answers GET /v2/ within 10s (liveness only -- says nothing about the manifest path)
+      # TYPE yuruna_zot_v2_up gauge
+      yuruna_zot_v2_up $V2_UP
+      # HELP yuruna_zot_manifest_ok 1 if a HEAD of the canary tag returned 200 within the probe cap
+      # TYPE yuruna_zot_manifest_ok gauge
+      yuruna_zot_manifest_ok $MANIFEST_OK
+      # HELP yuruna_zot_manifest_ok_under_client_patience 1 if the canary returned 200 AND did so within the response-header deadline a real pull applies; 0 whenever a pull against this manifest would have been abandoned, however healthy the answer eventually was
+      # TYPE yuruna_zot_manifest_ok_under_client_patience gauge
+      yuruna_zot_manifest_ok_under_client_patience $MANIFEST_UNDER_PATIENCE
+      # HELP yuruna_zot_manifest_latency_seconds Elapsed time of a HEAD on the canary tag, which re-runs the on-demand upstream sync
+      # TYPE yuruna_zot_manifest_latency_seconds gauge
+      yuruna_zot_manifest_latency_seconds{repo="$CANARY_REPO",tag="$CANARY_TAG"} $MANIFEST_SECONDS
+      # HELP yuruna_zot_manifest_probe_timeout_seconds Cap applied to the canary probe; a latency at this value means it never answered
+      # TYPE yuruna_zot_manifest_probe_timeout_seconds gauge
+      yuruna_zot_manifest_probe_timeout_seconds $PROBE_MAX
+      # HELP yuruna_zot_manifest_client_patience_seconds Response-header deadline a real pull applies; latency past this value fails the pull whatever the cache answers afterwards
+      # TYPE yuruna_zot_manifest_client_patience_seconds gauge
+      yuruna_zot_manifest_client_patience_seconds $CLIENT_PATIENCE
+      # HELP yuruna_upstream_reachable 1 if the registry answered GET /v2/ with any HTTP status within 10s
+      # TYPE yuruna_upstream_reachable gauge
+      # HELP yuruna_upstream_latency_seconds Round trip of an unauthenticated GET /v2/ against the registry (spends no pull budget)
+      # TYPE yuruna_upstream_latency_seconds gauge
+      EOF_METRICS
+
+      cat "$TMP_UP" >> "$TMP"
+
+      cat >> "$TMP" <<EOF_METRICS2
+      # HELP yuruna_dockerhub_ratelimit_probe_ok 1 if the Docker Hub rate-limit headers were read successfully
+      # TYPE yuruna_dockerhub_ratelimit_probe_ok gauge
+      yuruna_dockerhub_ratelimit_probe_ok $HUB_PROBE_OK
+      # HELP yuruna_dockerhub_ratelimit_limit Pull budget in force for this cache, per the ratelimit-limit header: the account's when the sync is authenticated, otherwise the anonymous one for this egress IP
+      # TYPE yuruna_dockerhub_ratelimit_limit gauge
+      yuruna_dockerhub_ratelimit_limit $HUB_LIMIT
+      # HELP yuruna_dockerhub_ratelimit_remaining Pulls left in the current window; an anonymous window is shared by every guest behind this egress IP
+      # TYPE yuruna_dockerhub_ratelimit_remaining gauge
+      yuruna_dockerhub_ratelimit_remaining $HUB_REMAINING
+      # HELP yuruna_zot_storage_free_bytes Free space on the filesystem holding /var/lib/zot
+      # TYPE yuruna_zot_storage_free_bytes gauge
+      yuruna_zot_storage_free_bytes $ZOT_FREE
+      # HELP yuruna_squid_cache_free_bytes Free space on the filesystem holding the squid cache_dir
+      # TYPE yuruna_squid_cache_free_bytes gauge
+      yuruna_squid_cache_free_bytes $SQUID_FREE
+      EOF_METRICS2
+
+      install -m 0644 "$TMP" /var/www/html/zot-meta
+
+      # Same numbers as plain text. Reachable with curl from any guest and from a
+      # browser with no Grafana session, which is what a first look needs when
+      # the question is whether to debug the guest or the cache.
+      {
+          echo "yuruna caching-proxy health -- $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          echo
+          echo "zot /v2/ liveness            : $( [ "$V2_UP" = 1 ] && echo up || echo DOWN )"
+          # A zero status code means the probe hit its cap with no answer at all,
+          # which reads as a nonsense HTTP status unless it is spelled out.
+          if [ "$MANIFEST_CODE" = "0" ]; then
+              echo "zot manifest ${CANARY_REPO}:${CANARY_TAG} : NO ANSWER within ${PROBE_MAX}s"
+          else
+              echo "zot manifest ${CANARY_REPO}:${CANARY_TAG} : HTTP ${MANIFEST_CODE} in ${MANIFEST_SECONDS}s (cap ${PROBE_MAX}s)"
+          fi
+          # The verdict the line above cannot give: it reports the answer the
+          # probe waited out under a cap set far wider than any client's, so a
+          # reader sees "HTTP 200" for a manifest no pull can survive.
+          if [ "$MANIFEST_UNDER_PATIENCE" = 1 ]; then
+              echo "zot manifest for a real pull : OK -- answered inside the ${CLIENT_PATIENCE}s a pull waits for response headers"
+          else
+              echo "zot manifest for a real pull : FAILING -- a pull gives up after ${CLIENT_PATIENCE}s, whatever the cache answers later"
+          fi
+          echo "  A cache that answers /v2/ instantly can still take minutes here."
+          echo "  Pulls fail around the ${CLIENT_PATIENCE}s mark: dockerd stops waiting for response headers."
+          echo
+          # Mode first, because the count is unreadable without it: the same number
+          # means "the lab's own allowance" (authenticated) or "shared by every
+          # guest behind this IP" (anonymous). The account NAME stays out on
+          # purpose -- apache serves this page to the LAN with no login, and naming
+          # it would publish half of a credential. The name lives in
+          # /etc/zot/sync-credentials.json, readable by root and zot alone.
+          if [ "$HUB_TOKEN_AUTHENTICATED" = 1 ]; then
+              echo "Docker Hub sync              : authenticated with the seeded account -- budget below is that account's"
+          elif [ "$HUB_AUTHENTICATED" = 1 ]; then
+              echo "Docker Hub sync              : seeded account credential refused by auth.docker.io -- budget below is the anonymous one"
+          else
+              echo "Docker Hub sync              : anonymous -- budget below is per egress IP, shared by every guest behind this cache"
+          fi
+          if [ "$HUB_PROBE_OK" = 1 ]; then
+              echo "Docker Hub budget            : ${HUB_REMAINING} of ${HUB_LIMIT} left"
+          else
+              echo "Docker Hub budget            : unreadable (auth or egress problem)"
+          fi
+          echo
+          echo "Upstream registries (GET /v2/, no pull budget spent):"
+          cat "$TMP_UP_TXT"
+          echo
+          echo "Free space: /var/lib/zot ${ZOT_FREE} bytes, squid cache ${SQUID_FREE} bytes"
+      } > "$TMP_TXT"
+      install -m 0644 "$TMP_TXT" /var/www/html/cache-health
+  - path: /etc/systemd/system/zot-meta-exporter.service
+    permissions: '0644'
+    owner: root:root
+    content: |
+      [Unit]
+      Description=Yuruna zot metadata exporter (manifest canary + upstream budget)
+      After=apache2.service zot.service
+      [Service]
+      Type=oneshot
+      ExecStart=/usr/local/bin/zot-meta-exporter.sh
+  - path: /etc/systemd/system/zot-meta-exporter.timer
+    permissions: '0644'
+    owner: root:root
+    content: |
+      [Unit]
+      Description=Run zot-meta-exporter every 10 minutes
+      [Timer]
+      # Slower than the 30s squid probe: the canary walks a full mutable-tag
+      # revalidation, too heavy for a 30-second loop. Not a budget question --
+      # the canary's upstream meters nothing, and the one metered read in the
+      # script rate-limits itself to hourly internally.
+      OnBootSec=90s
+      OnUnitActiveSec=10min
+      AccuracySec=30s
+      Unit=zot-meta-exporter.service
       [Install]
       WantedBy=timers.target
   # --- REGION: https://yuruna.link/vmconfig/caching-proxy-service#squid-exporter-unit
@@ -725,6 +1216,91 @@ write_files:
           updateIntervalSeconds: 30
           options:
             path: /var/lib/grafana/dashboards
+  # --- REGION: https://yuruna.link/vmconfig/caching-proxy-service#grafana-pull-budget-alert
+  # The rule is a PRODUCT of two conditions: an unread budget publishes
+  # remaining=0 too, so gating on the probe gauge keeps a refused credential or
+  # broken egress from being announced as exhaustion.
+  # No contact point is provisioned (delivery is a no-op until one exists), but
+  # the rule still turns a number somebody has to notice into a condition with
+  # a state, a start time, and history, attached to its panel.
+  - path: /etc/grafana/provisioning/alerting/yuruna.yaml
+    permissions: '0644'
+    owner: root:root
+    content: |
+      apiVersion: 1
+      groups:
+        - orgId: 1
+          name: yuruna-cache
+          folder: Yuruna
+          # Far slower than the 15s scrape: the budget is re-read at most hourly
+          # and republished from disk in between, so a tighter evaluation only
+          # re-examines a value that cannot have moved.
+          interval: 5m
+          rules:
+            - uid: yuruna-hub-pull-budget-exhausted
+              title: Docker Hub pull budget exhausted
+              condition: C
+              data:
+                - refId: A
+                  relativeTimeRange:
+                    from: 600
+                    to: 0
+                  datasourceUid: yuruna-prometheus
+                  model:
+                    refId: A
+                    datasource:
+                      type: prometheus
+                      uid: yuruna-prometheus
+                    instant: true
+                    range: false
+                    # `== bool` on both halves keeps this a 1/0 series that
+                    # always exists. Written as a plain `and` the vector would
+                    # be EMPTY in the healthy case, which alerting cannot tell
+                    # apart from an exporter that stopped publishing -- the
+                    # quiet failure this rule exists to prevent.
+                    expr: (yuruna_dockerhub_ratelimit_remaining == bool 0) * (yuruna_dockerhub_ratelimit_probe_ok == bool 1)
+                - refId: C
+                  relativeTimeRange:
+                    from: 600
+                    to: 0
+                  datasourceUid: __expr__
+                  model:
+                    refId: C
+                    type: threshold
+                    datasource:
+                      type: __expr__
+                      uid: __expr__
+                    expression: A
+                    conditions:
+                      - evaluator:
+                          type: gt
+                          params:
+                            - 0.5
+              # Long enough to ride out a single failed evaluation, short enough
+              # to land well inside the one-hour window the budget resets on.
+              for: 10m
+              # An absent series means the exporter is gone, which is a different
+              # fault with a different fix; it surfaces as NoData rather than
+              # borrowing this rule's summary.
+              noDataState: NoData
+              execErrState: Error
+              isPaused: false
+              labels:
+                severity: warning
+              annotations:
+                __dashboardUid__: yuruna-cache-health
+                __panelId__: "2"
+                summary: Docker Hub pull budget for this egress IP is exhausted
+                description: >-
+                  zot's on-demand sync is being refused upstream. Guests never
+                  see the 429: a repository already in local storage keeps
+                  serving from cache, while anything NOT yet cached returns a
+                  bare 404 manifest-unknown, which reads like a misspelled image
+                  name and sends the reader hunting in the wrong place. Look for
+                  repositories resolving against the Docker Hub catch-all in
+                  registries[] -- a tag-addressed pull re-runs the upstream sync
+                  on every single request, so a handful of guests looping on one
+                  image holds the hourly allowance at zero indefinitely.
   # --- REGION: https://yuruna.link/vmconfig/caching-proxy-service#yuruna-host-coordinates-for-source-fetch
   - path: /etc/yuruna/host.env
     permissions: '0644'
@@ -1541,6 +2117,246 @@ write_files:
       [Install]
       WantedBy=timers.target
   # --- REGION: https://yuruna.link/vmconfig/caching-proxy-service#squid-dashboard-inlined
+  # --- REGION: https://yuruna.link/vmconfig/caching-proxy-service#cache-health-dashboard
+  - path: /var/lib/grafana/dashboards/cache-health.json
+    permissions: '0644'
+    owner: root:root
+    content: |
+      {
+        "uid": "yuruna-cache-health",
+        "title": "Yuruna cache health (registry path)",
+        "tags": ["yuruna"],
+        "schemaVersion": 39,
+        "version": 1,
+        "refresh": "1m",
+        "time": {"from": "now-6h", "to": "now"},
+        "panels": [
+          {
+            "id": 1,
+            "type": "stat",
+            "title": "Manifest latency (canary)",
+            "description": "Time for a HEAD of the canary tag through this cache, which re-runs the on-demand upstream sync. Red starts at 30s because dockerd abandons a pull whose response headers have not arrived by roughly then -- a cache can sit green on every liveness check and still be past this line.",
+            "datasource": {"type": "prometheus", "uid": "yuruna-prometheus"},
+            "gridPos": {"x": 0, "y": 0, "w": 6, "h": 4},
+            "options": {
+              "colorMode": "background",
+              "graphMode": "area",
+              "textMode": "value",
+              "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}
+            },
+            "fieldConfig": {
+              "defaults": {
+                "unit": "s",
+                "thresholds": {
+                  "mode": "absolute",
+                  "steps": [
+                    {"color": "green", "value": null},
+                    {"color": "yellow", "value": 5},
+                    {"color": "red", "value": 30}
+                  ]
+                }
+              },
+              "overrides": []
+            },
+            "targets": [{"expr": "yuruna_zot_manifest_latency_seconds", "refId": "A", "instant": true}]
+          },
+          {
+            "id": 11,
+            "type": "stat",
+            "title": "Manifest path fast enough for a real pull?",
+            "description": "Whether the canary beside this one answered inside the response-header deadline a client applies -- yuruna_zot_manifest_client_patience_seconds, 30s for dockerd. zot sends no headers until its on-demand sync resolves, so a manifest that eventually returns 200 at 55s is one every pull against it abandons. The latency stat measures the stall; this says whether what it measured is survivable.",
+            "datasource": {"type": "prometheus", "uid": "yuruna-prometheus"},
+            "gridPos": {"x": 6, "y": 0, "w": 6, "h": 4},
+            "options": {
+              "colorMode": "background",
+              "graphMode": "none",
+              "textMode": "value",
+              "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}
+            },
+            "fieldConfig": {
+              "defaults": {
+                "mappings": [
+                  {"type": "value", "options": {"0": {"text": "PULLS FAILING", "color": "red"}, "1": {"text": "pull-viable", "color": "green"}}}
+                ],
+                "thresholds": {
+                  "mode": "absolute",
+                  "steps": [
+                    {"color": "red", "value": null},
+                    {"color": "green", "value": 1}
+                  ]
+                }
+              },
+              "overrides": []
+            },
+            "targets": [{"expr": "yuruna_zot_manifest_ok_under_client_patience", "refId": "A", "instant": true}]
+          },
+          {
+            "id": 2,
+            "type": "stat",
+            "title": "Upstream pull budget left",
+            "description": "Anonymous pulls remaining in the current window for this egress IP, shared by every guest in the lab. Exhausting it does not reach a guest as a clean 429 -- the pull-through retries upstream first, and the guest only sees a cache that stopped answering in time. Gated on the probe gauge: the exporter reports an unread budget as zero, so an ungated panel paints an auth or egress failure in the same red as a genuine exhaustion. No data here means the budget was not read.",
+            "datasource": {"type": "prometheus", "uid": "yuruna-prometheus"},
+            "gridPos": {"x": 12, "y": 0, "w": 6, "h": 4},
+            "options": {
+              "colorMode": "background",
+              "graphMode": "area",
+              "textMode": "value",
+              "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}
+            },
+            "fieldConfig": {
+              "defaults": {
+                "unit": "short",
+                "thresholds": {
+                  "mode": "absolute",
+                  "steps": [
+                    {"color": "red", "value": null},
+                    {"color": "yellow", "value": 10},
+                    {"color": "green", "value": 25}
+                  ]
+                }
+              },
+              "overrides": []
+            },
+            "targets": [{"expr": "yuruna_dockerhub_ratelimit_remaining and on() (yuruna_dockerhub_ratelimit_probe_ok == 1)", "refId": "A", "instant": true}]
+          },
+          {
+            "id": 3,
+            "type": "stat",
+            "title": "zot /v2/ liveness",
+            "description": "The check every client-side gate performs today. Kept beside the canary on purpose: it answers in milliseconds throughout a manifest stall, so agreement between the two is the point -- 'up' here with a red canary beside it is the fault signature.",
+            "datasource": {"type": "prometheus", "uid": "yuruna-prometheus"},
+            "gridPos": {"x": 18, "y": 0, "w": 6, "h": 4},
+            "options": {
+              "colorMode": "background",
+              "graphMode": "none",
+              "textMode": "value_and_name",
+              "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}
+            },
+            "fieldConfig": {
+              "defaults": {
+                "mappings": [
+                  {"type": "value", "options": {"0": {"text": "DOWN", "color": "red"}, "1": {"text": "up", "color": "green"}}}
+                ],
+                "thresholds": {"mode": "absolute", "steps": [{"color": "text", "value": null}]}
+              },
+              "overrides": []
+            },
+            "targets": [{"expr": "yuruna_zot_v2_up", "refId": "A", "instant": true, "legendFormat": "/v2/"}]
+          },
+          {
+            "id": 4,
+            "type": "timeseries",
+            "title": "Manifest path latency: canary vs what clients actually got",
+            "description": "The canary (one probe every 10 minutes) against the quantiles of every HEAD zot served. The quantiles come from zot's own histogram, so they include the guests' pulls; when they climb together the cache is the cause, when only the guests' climb the load is.",
+            "datasource": {"type": "prometheus", "uid": "yuruna-prometheus"},
+            "gridPos": {"x": 0, "y": 4, "w": 24, "h": 8},
+            "fieldConfig": {"defaults": {"unit": "s"}, "overrides": []},
+            "targets": [
+              {"expr": "yuruna_zot_manifest_latency_seconds", "refId": "A", "legendFormat": "canary"},
+              {"expr": "histogram_quantile(0.50, sum(rate(zot_http_method_latency_seconds_bucket{method=\"HEAD\"}[10m])) by (le))", "refId": "B", "legendFormat": "served P50"},
+              {"expr": "histogram_quantile(0.90, sum(rate(zot_http_method_latency_seconds_bucket{method=\"HEAD\"}[10m])) by (le))", "refId": "C", "legendFormat": "served P90"},
+              {"expr": "histogram_quantile(0.99, sum(rate(zot_http_method_latency_seconds_bucket{method=\"HEAD\"}[10m])) by (le))", "refId": "D", "legendFormat": "served P99"}
+            ]
+          },
+          {
+            "id": 5,
+            "type": "timeseries",
+            "title": "Upstream registries: round trip from this VM",
+            "description": "Unauthenticated GET /v2/ per configured sync upstream, which spends no pull budget. This is the leg zot depends on: flat here while the canary above climbs means the stall is inside the cache, not on the way out of it.",
+            "datasource": {"type": "prometheus", "uid": "yuruna-prometheus"},
+            "gridPos": {"x": 0, "y": 12, "w": 12, "h": 8},
+            "fieldConfig": {"defaults": {"unit": "s"}, "overrides": []},
+            "targets": [
+              {"expr": "yuruna_upstream_latency_seconds", "refId": "A", "legendFormat": "{{registry}}"}
+            ]
+          },
+          {
+            "id": 6,
+            "type": "timeseries",
+            "title": "Upstream pull budget over time",
+            "description": "Budget remaining across the window. A sawtooth that reaches zero names rate limiting as the trigger for a cluster of slow-manifest failures. The remaining series is gated on the probe gauge so a window the exporter could not read breaks the line instead of drawing a floor at zero, which would read as the exhaustion this panel exists to spot.",
+            "datasource": {"type": "prometheus", "uid": "yuruna-prometheus"},
+            "gridPos": {"x": 12, "y": 12, "w": 12, "h": 8},
+            "fieldConfig": {"defaults": {"unit": "short"}, "overrides": []},
+            "targets": [
+              {"expr": "yuruna_dockerhub_ratelimit_remaining and on() (yuruna_dockerhub_ratelimit_probe_ok == 1)", "refId": "A", "legendFormat": "remaining"},
+              {"expr": "yuruna_dockerhub_ratelimit_limit", "refId": "B", "legendFormat": "limit"}
+            ]
+          },
+          {
+            "id": 7,
+            "type": "timeseries",
+            "title": "Cache VM: CPU busy %",
+            "description": "Host-level load for the VM every service here runs on -- the discriminator between a starved box and a service blocked on something remote.",
+            "datasource": {"type": "prometheus", "uid": "yuruna-prometheus"},
+            "gridPos": {"x": 0, "y": 20, "w": 12, "h": 6},
+            "fieldConfig": {"defaults": {"unit": "percent", "max": 100, "min": 0}, "overrides": []},
+            "targets": [
+              {"expr": "100 - (avg(rate(node_cpu_seconds_total{mode=\"idle\"}[5m])) * 100)", "refId": "A", "legendFormat": "busy"}
+            ]
+          },
+          {
+            "id": 8,
+            "type": "timeseries",
+            "title": "Cache VM: memory available / cache disk free",
+            "description": "Memory headroom and free space under the squid cache_dir and /var/lib/zot. Swap is masked on this VM, so memory exhaustion presents as the OOM killer rather than as slowdown.",
+            "datasource": {"type": "prometheus", "uid": "yuruna-prometheus"},
+            "gridPos": {"x": 12, "y": 20, "w": 12, "h": 6},
+            "fieldConfig": {"defaults": {"unit": "bytes"}, "overrides": []},
+            "targets": [
+              {"expr": "node_memory_MemAvailable_bytes", "refId": "A", "legendFormat": "memory available"},
+              {"expr": "yuruna_zot_storage_free_bytes", "refId": "B", "legendFormat": "/var/lib/zot free"},
+              {"expr": "yuruna_squid_cache_free_bytes", "refId": "C", "legendFormat": "squid cache free"}
+            ]
+          },
+          {
+            "id": 9,
+            "type": "logs",
+            "title": "Registry requests slower than 10s",
+            "description": "zot's own request log filtered to slow answers. These return 200 -- they are not errors anywhere else in the stack, which is why a slow cache reads as a healthy one until this panel is consulted.",
+            "datasource": {"type": "loki", "uid": "yuruna-loki"},
+            "gridPos": {"x": 0, "y": 26, "w": 24, "h": 10},
+            "options": {
+              "showTime": true,
+              "showLabels": false,
+              "showCommonLabels": false,
+              "wrapLogMessage": false,
+              "prettifyLogMessage": false,
+              "enableLogDetails": true,
+              "dedupStrategy": "none",
+              "sortOrder": "Descending"
+            },
+            "targets": [
+              {
+                "expr": "{job=\"zot\"} | json | latency > 10s | line_format `{{.clientIP}}  {{.method}} {{.path}}  -> {{.statusCode}} in {{.latency}}`",
+                "refId": "A",
+                "maxLines": 100
+              }
+            ]
+          },
+          {
+            "id": 10,
+            "type": "logs",
+            "title": "Sync / upstream lines (no HTTP request attached)",
+            "description": "zot lines that belong to the sync extension rather than to a client request -- the upstream retry and failure record behind a slow manifest. Empty is the normal state; entries here explain the latency the panels above only measure.",
+            "datasource": {"type": "loki", "uid": "yuruna-loki"},
+            "gridPos": {"x": 0, "y": 36, "w": 24, "h": 8},
+            "options": {
+              "showTime": true,
+              "showLabels": false,
+              "showCommonLabels": false,
+              "wrapLogMessage": true,
+              "prettifyLogMessage": false,
+              "enableLogDetails": true,
+              "dedupStrategy": "none",
+              "sortOrder": "Descending"
+            },
+            "targets": [
+              {"expr": "{job=\"zot\"} != `HTTP API`", "refId": "A", "maxLines": 100}
+            ]
+          }
+        ]
+      }
   - path: /var/lib/grafana/dashboards/squid.json
     permissions: '0644'
     owner: root:root
@@ -1796,7 +2612,27 @@ write_files:
           }
         ]
       }
-  # --- REGION: https://yuruna.link/caching#zot-oci-registry
+  # --- REGION: https://yuruna.link/caching#registry-routing-glob-syntax-and-retry-budgets
+  # The ORDER of registries[] is the routing table: zot syncs from the first entry
+  # whose prefix glob claims the repo, so Docker Hub must stay last as the "**"
+  # catch-all or it answers -- on the one metered budget -- for images it never
+  # hosted. Keep each upstream scoped to the namespaces it really serves.
+  # The match is first-wins and there is NO fallthrough: when the entry that
+  # claims a glob cannot serve a repo, zot reports it missing rather than trying
+  # the next entry, so anything placed ahead of the catch-all owns its glob
+  # outright. That is the whole cost of the "library/**" -> mirror.gcr.io entry,
+  # and it buys the lab's largest metered consumer. Docker Hub's anonymous
+  # allowance is per egress IP and shared by every guest, and a tag-addressed
+  # request re-runs the on-demand sync EVERY time rather than resolving from
+  # cache -- so a handful of guests looping on one official image outruns the
+  # hourly allowance on its own, and the resulting 429 reaches the guest as a
+  # bare 404 (see the pull-budget alert rule). mirror.gcr.io is a pull-through
+  # of Docker Hub over identical "library/..." paths, so the repo name needs no
+  # rewriting and official images stop competing for a budget that should be
+  # reserved for images only Hub actually serves.
+  # "credentialsFile" is optional, and an EMPTY credential is worse than none:
+  # Hub answers 401 on calls the anonymous path would have served, so a boot that
+  # finds no account removes both this key and the file it points at.
   - path: /etc/zot/config.json
     permissions: '0644'
     owner: root:root
@@ -1820,73 +2656,102 @@ write_files:
         "extensions": {
           "sync": {
             "enable": true,
+            "credentialsFile": "/etc/zot/sync-credentials.json",
             "registries": [
-              {
-                "urls": ["https://registry-1.docker.io"],
-                "onDemand": true,
-                "tlsVerify": true,
-                "maxRetries": 3,
-                "retryDelay": "15s",
-                "content": [
-                  { "prefix": "**" }
-                ]
-              },
               {
                 "urls": ["https://registry.k8s.io"],
                 "onDemand": true,
                 "tlsVerify": true,
-                "maxRetries": 3,
-                "retryDelay": "15s",
+                "maxRetries": 1,
+                "retryDelay": "2s",
                 "content": [
-                  { "prefix": "**" }
-                ]
-              },
-              {
-                "urls": ["https://quay.io"],
-                "onDemand": true,
-                "tlsVerify": true,
-                "maxRetries": 3,
-                "retryDelay": "15s",
-                "content": [
-                  { "prefix": "**" }
-                ]
-              },
-              {
-                "urls": ["https://ghcr.io"],
-                "onDemand": true,
-                "tlsVerify": true,
-                "maxRetries": 3,
-                "retryDelay": "15s",
-                "content": [
-                  { "prefix": "**" }
-                ]
-              },
-              {
-                "urls": ["https://gcr.io"],
-                "onDemand": true,
-                "tlsVerify": true,
-                "maxRetries": 3,
-                "retryDelay": "15s",
-                "content": [
-                  { "prefix": "**" }
-                ]
-              },
-              {
-                "urls": ["https://public.ecr.aws"],
-                "onDemand": true,
-                "tlsVerify": true,
-                "maxRetries": 3,
-                "retryDelay": "15s",
-                "content": [
-                  { "prefix": "**" }
+                  { "prefix": "pause" },
+                  { "prefix": "etcd" },
+                  { "prefix": "kube-*" },
+                  { "prefix": "coredns/**" },
+                  { "prefix": "ingress-nginx/**" },
+                  { "prefix": "metrics-server/**" },
+                  { "prefix": "sig-storage/**" }
                 ]
               },
               {
                 "urls": ["https://mcr.microsoft.com"],
                 "onDemand": true,
                 "tlsVerify": true,
-                "maxRetries": 3,
-                "retryDelay": "15s",
+                "maxRetries": 1,
+                "retryDelay": "2s",
+                "content": [
+                  { "prefix": "dotnet/**" },
+                  { "prefix": "windows/**" },
+                  { "prefix": "oss/**" },
+                  { "prefix": "powershell/**" },
+                  { "prefix": "mssql/**" }
+                ]
+              },
+              {
+                "urls": ["https://ghcr.io"],
+                "onDemand": true,
+                "tlsVerify": true,
+                "maxRetries": 1,
+                "retryDelay": "2s",
+                "content": [
+                  { "prefix": "flannel-io/**" }
+                ]
+              },
+              {
+                "urls": ["https://quay.io"],
+                "onDemand": true,
+                "tlsVerify": true,
+                "maxRetries": 1,
+                "retryDelay": "2s",
+                "content": [
+                  { "prefix": "coreos/**" },
+                  { "prefix": "prometheus/**" },
+                  { "prefix": "jetstack/**" },
+                  { "prefix": "cilium/**" },
+                  { "prefix": "argoproj/**" }
+                ]
+              },
+              {
+                "urls": ["https://gcr.io"],
+                "onDemand": true,
+                "tlsVerify": true,
+                "maxRetries": 1,
+                "retryDelay": "2s",
+                "content": [
+                  { "prefix": "distroless/**" },
+                  { "prefix": "google-containers/**" }
+                ]
+              },
+              {
+                "urls": ["https://public.ecr.aws"],
+                "onDemand": true,
+                "tlsVerify": true,
+                "maxRetries": 1,
+                "retryDelay": "2s",
+                "content": [
+                  { "prefix": "docker/**" },
+                  { "prefix": "lambda/**" },
+                  { "prefix": "eks-distro/**" },
+                  { "prefix": "bitnami/**" }
+                ]
+              },
+              {
+                "urls": ["https://mirror.gcr.io"],
+                "onDemand": true,
+                "tlsVerify": true,
+                "maxRetries": 1,
+                "retryDelay": "2s",
+                "content": [
+                  { "prefix": "library/**" }
+                ]
+              },
+              {
+                "urls": ["https://registry-1.docker.io"],
+                "onDemand": true,
+                "tlsVerify": true,
+                "maxRetries": 1,
+                "retryDelay": "2s",
                 "content": [
                   { "prefix": "**" }
                 ]
@@ -1902,6 +2767,17 @@ write_files:
                   { "prefix": "dotnet/sdk",    "tags": { "regex": "^10\\.0$" } },
                   { "prefix": "dotnet/aspnet", "tags": { "regex": "^10\\.0$" } }
                 ]
+              },
+              {
+                "urls": ["https://mirror.gcr.io"],
+                "onDemand": false,
+                "tlsVerify": true,
+                "pollInterval": "6h",
+                "maxRetries": 3,
+                "retryDelay": "15s",
+                "content": [
+                  { "prefix": "library/registry", "tags": { "regex": "^2$" } }
+                ]
               }
             ]
           },
@@ -1913,6 +2789,22 @@ write_files:
           }
         }
       }
+  # The Docker Hub account the sync authenticates as -- held apart from the
+  # world-readable config.json because it carries an access token. Root-owned as
+  # it lands (the zot account does not exist yet at write_files time; ownership is
+  # handed over before zot starts). zot opens this file as itself and refuses to
+  # start when it cannot, which is why the no-account boot step deletes the file
+  # AND the config key naming it. Both fields are empty when the lab has no Hub account.
+  - path: /etc/zot/sync-credentials.json
+    permissions: '0600'
+    owner: root:root
+    content: |
+      {
+        "registry-1.docker.io": {
+          "username": "YURUNA_DOCKERHUB_USERNAME_PLACEHOLDER",
+          "password": "YURUNA_DOCKERHUB_TOKEN_PLACEHOLDER"
+        }
+      }
   # --- REGION: https://yuruna.link/vmconfig/caching-proxy-service#zot-systemd-unit
   - path: /etc/systemd/system/zot.service
     permissions: '0644'
@@ -1921,13 +2813,34 @@ write_files:
       [Unit]
       Description=zot OCI registry (Docker Hub pull-through cache)
       Documentation=https://zotregistry.dev
-      After=network-online.target
+      After=network-online.target squid.service
       Wants=network-online.target
+      # Ordering only, not a hard dependency: a squid that is down must cost
+      # this registry its upstream sync, never its ability to serve what it
+      # already holds.
 
       [Service]
       Type=simple
       User=zot
       Group=zot
+      # --- REGION: https://yuruna.link/caching#no-upstream-mode
+      # Upstream sync is routed through the local ssl-bump listener to put this
+      # registry behind the same choke point as everything else on the VM -- NOT
+      # for caching (a manifest fetch carries a bearer token, and a shared cache
+      # may not store the reply to an authenticated request). It buys two things:
+      # no-upstream mode becomes true rather than partial (an unrouted registry
+      # would keep reaching Docker Hub while the proxy refuses everything else),
+      # and this registry's egress shows in the loopback access log, so a stalled
+      # sync can be told apart from a stalled cache. Bumped rather than the plain
+      # :3128 listener because a CONNECT tunnel is opaque -- the gate could not
+      # see a refused request to refuse it; the trade is that this VM must trust
+      # its own bump CA, which the boot installs into the system trust store.
+      Environment=HTTPS_PROXY=http://127.0.0.1:3129
+      Environment=HTTP_PROXY=http://127.0.0.1:3129
+      # Loopback and RFC1918 stay direct. Sending them through the proxy would
+      # route this registry's own liveness checks back into the cache that
+      # fronts it, and make a squid stall look like a registry stall.
+      Environment=NO_PROXY=127.0.0.1,localhost,::1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16
       ExecStart=/usr/local/bin/zot serve /etc/zot/config.json
       Restart=on-failure
       RestartSec=5s
@@ -2164,6 +3077,17 @@ runcmd:
   - install -m 0644 /etc/squid/ssl_cert/ca.pem /var/www/html/yuruna-squid-ca.crt
   # --- REGION: https://yuruna.link/vmconfig/caching-proxy-service#publish-pool-ca-cert
   - install -m 0644 /etc/squid/ssl_cert/ca.pem /var/www/html/yuruna-pool-ca.crt
+  # --- REGION: https://yuruna.link/caching#no-upstream-mode
+  # This VM trusts its own bump CA, so its own services can be pointed at the
+  # ssl-bump listener and have their TLS verify. The OCI registry's upstream
+  # sync is the consumer that matters: unbumped, its fetches are an opaque
+  # tunnel that no-upstream mode cannot refuse and no log can attribute.
+  #
+  # The extension must be .crt -- update-ca-certificates ignores every other
+  # suffix in this directory and reports success either way, so a .pem here
+  # yields a trust store that silently never gained the certificate.
+  - install -m 0644 /etc/squid/ssl_cert/ca.pem /usr/local/share/ca-certificates/yuruna-squid-ca.crt
+  - update-ca-certificates
   - systemctl enable apache2
   - systemctl restart apache2
   # --- REGION: https://yuruna.link/vmconfig/caching-proxy-service#pre-warm-the-cache
@@ -2299,6 +3223,15 @@ runcmd:
   - systemctl enable --now squid-meta-exporter.timer
   # --- REGION: https://yuruna.link/vmconfig/caching-proxy-service#prime-squid-metadata-exporter-once
   - /usr/local/bin/squid-meta-exporter.sh || true
+  # --- REGION: https://yuruna.link/vmconfig/caching-proxy-service#enable-zot-metadata-exporter-timer
+  # Armed here, primed after the zot install below: a first run against a
+  # registry that does not exist yet would publish a DOWN reading as the
+  # service's opening data point.
+  - systemctl enable --now zot-meta-exporter.timer
+  # The package starts on install with its stock all-interfaces bind, so the
+  # loopback ARGS written above only take effect on a restart.
+  - systemctl restart prometheus-node-exporter.service || true
+  - systemctl enable prometheus-node-exporter.service || true
   - systemctl enable --now prometheus.service
   # --- REGION: https://yuruna.link/vmconfig/caching-proxy-service#enable-caching-proxy-parser-service
   - systemctl enable --now caching-proxy-parser-service.service || true
@@ -2436,6 +3369,66 @@ runcmd:
     echo "  CA cert:    http://${vm_ip}/yuruna-squid-ca.crt (trust to enable :3129 HTTPS caching)"
     echo "  Recent 100: http://${vm_ip}:9302/ (in-memory live tail; see test/extension/caching-proxy-parser-service/)"
     echo "  zot:        http://${vm_ip}:5000/v2/ (OCI registry, Docker Hub pull-through)"
+    echo "  Health:     http://${vm_ip}/cache-health (timed manifest probe + upstream budget, no login)"
+    echo "              /v2/ answering is NOT the same as the registry being usable;"
+    echo "              this page times the manifest path a pull actually waits on."
+  # Reconcile the optional Docker Hub credential with zot's config while the
+  # registry is still stopped, so the daemon never reads a half-configured pair
+  # (empty-credential rationale on the registries[] comment above config.json).
+  - |
+    CRED=/etc/zot/sync-credentials.json
+    # One interpreter judges the credential and edits the config, so the file and
+    # the key naming it cannot disagree. 0 = usable pair, 2 = fell back to
+    # anonymous, anything else = the reconcile itself failed (python reports an
+    # uncaught exception as 1, which is why the fallback is not spelled 1).
+    python3 - "$CRED" /etc/zot/config.json <<'EOF_HUB_CRED'
+    import json, os, sys
+    cred_path, cfg_path = sys.argv[1], sys.argv[2]
+    try:
+        with open(cred_path) as fh:
+            entry = json.load(fh).get('registry-1.docker.io') or {}
+    except (OSError, ValueError):
+        entry = {}
+    if entry.get('username') and entry.get('password'):
+        sys.exit(0)
+    with open(cfg_path) as fh:
+        cfg = json.load(fh)
+    sync = cfg.get('extensions', {}).get('sync', {})
+    # The key is dropped before the file is: zot refuses to start when
+    # credentialsFile names something it cannot open, so a run cut short between
+    # the two steps must leave a config with no key and an unread file, never a
+    # config pointing at a file that is gone. Rewriting the whole document is
+    # safe because json preserves member and array order, and the order of
+    # registries[] IS the upstream routing table.
+    if sync.pop('credentialsFile', None) is not None:
+        tmp = cfg_path + '.tmp'
+        with open(tmp, 'w') as fh:
+            json.dump(cfg, fh, indent=2)
+            fh.write('\n')
+        os.chmod(tmp, 0o644)
+        os.replace(tmp, cfg_path)
+    if os.path.exists(cred_path):
+        os.remove(cred_path)
+    sys.exit(2)
+    EOF_HUB_CRED
+    RC=$?
+    case "$RC" in
+      0)
+        # zot opens the credential as its own service account, an owner the seed
+        # cannot bake because the account is created later in this same boot.
+        if chown zot:zot "$CRED"; then
+          echo "yuruna: zot syncs from Docker Hub with the seeded account credential -- pulls meter against that account, not against this egress IP"
+        else
+          echo "== YURUNA: /etc/zot/sync-credentials.json could not be handed to the zot account -- zot cannot read its own credential and will not start =="
+        fi
+        ;;
+      2)
+        echo "yuruna: no Docker Hub account in the seed; zot syncs anonymously against the ~100 pulls/hour this egress IP shares with every guest"
+        ;;
+      *)
+        echo "== YURUNA: could not reconcile /etc/zot/sync-credentials.json with /etc/zot/config.json (exit $RC) -- zot will not start while credentialsFile names a file it cannot read =="
+        ;;
+    esac
   # --- REGION: https://yuruna.link/vmconfig/caching-proxy-service#zot-install-binary-and-activation
   - |
     # Subshell keeps errexit local AND scopes the `exit 0` below, which at top
@@ -2482,14 +3475,24 @@ runcmd:
       setfacl -m u:promtail:r /var/log/zot/zot.log 2>&1 || true
       setfacl -d -m u:promtail:r /var/log/zot/    2>&1 || true
     fi
+    # Prime the manifest canary now that there is a registry to time, so the
+    # health page and the zot_meta scrape carry a real reading from first boot
+    # instead of a gap until the timer's first tick.
+    /usr/local/bin/zot-meta-exporter.sh || true
     ) || echo "== YURUNA: zot install/activation FAILED -- :5000 pull-through unavailable =="
   # --- REGION: https://yuruna.link/vmconfig/caching-proxy-service#service-readiness-summary
   - |
     # Final self-check: a partially-failed boot must not look like a good one.
     echo "== YURUNA: caching-proxy-service readiness =="
-    for svc in squid apache2 grafana-server prometheus loki promtail zot; do
+    for svc in squid apache2 grafana-server prometheus prometheus-node-exporter loki promtail zot; do
       printf '  %-16s %s\n' "$svc" "$(systemctl is-active "$svc" 2>/dev/null || echo inactive)"
     done
+    # The canary's first reading, echoed where the boot log already answers
+    # "did this VM come up right". A registry that serves /v2/ but not manifests
+    # passes every other line of this summary.
+    if [ -r /var/www/html/cache-health ]; then
+      grep -E '^zot (/v2/|manifest) ' /var/www/html/cache-health | sed 's/^/  /'
+    fi
     for hp in 3128 3129 80 3000 9090 3100 5000; do
       if ss -ltn 2>/dev/null | grep -q ":$hp "; then st=listening; else st="NOT LISTENING"; fi
       printf '  port %-5s %s\n' "$hp" "$st"

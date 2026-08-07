@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.06
+.VERSION 2026.08.07
 .GUID 426d4f21-8a35-49be-b7e0-3d18f52a9c6b
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -29,10 +29,14 @@
     Two modes:
 
       Standalone host  one machine that runs tests by itself. Storage defaults
-                       to this machine.
+                       to this machine. Brings up only the caching proxy (its
+                       smaller profile) and the stash service; further service
+                       VMs are started by hand when wanted (e.g.
+                       test/Start-DownloadAgentServiceVM.ps1), or opted into
+                       the run with their config key.
       Lab              a beacon that other machines join: shared storage, the
-                       caching proxy, the stash and pool-control services, and a
-                       'default' pool.
+                       caching proxy, the stash, download-agent and
+                       pool-control services, and a 'default' pool.
 
     ORDERING. Storage comes BEFORE the service VMs, in both modes. The stash
     service exits 1 without configured storage, and the caching proxy bakes
@@ -634,19 +638,10 @@ function Add-SetupDecision {
 
 Initialize-SetupLog -Path $LogPath
 
-# --- REGION: task bookkeeping
-# Every step lands in one of five buckets, and the closing report prints all
-# five. "Skipped" is the one that matters: a setup that silently declines to do
-# something reads as a setup that already did it. "Blocked" exists so a CASCADE
-# never reads as a decision -- a step that could not run because the thing it
-# needs failed is a different fact about the machine from a step the operator
-# declined, and filing them together hides which one happened. "Warned" is the
-# middle the other four have no room for: the step did its work and something it
-# cannot fix itself is still unmet, which is neither a success to file under Done
-# nor a reason to tell the operator the machine is not set up. Without it the
-# only honest encodings left are a PASS that hides the condition and a FAIL with
-# no path to green -- a TCC grant needs the terminal quit, and a Mac with no lid
-# never surfaces every pmset guard.
+# --- REGION: https://yuruna.link/install/explained#outcome-buckets-and-the-facts-store
+# Every step lands in one of five buckets (Done/Skipped/Warned/Blocked/Failed)
+# and the closing report prints all five; the linked section explains why each
+# bucket exists and why none can be folded into another.
 $Script:Done    = [System.Collections.Generic.List[string]]::new()
 $Script:Skipped = [System.Collections.Generic.List[string]]::new()
 $Script:Warned  = [System.Collections.Generic.List[string]]::new()
@@ -655,11 +650,9 @@ $Script:Failed  = [System.Collections.Generic.List[string]]::new()
 $Script:Plan    = [System.Collections.Generic.List[string]]::new()
 $Script:StepNo  = 0
 
-# What later steps are allowed to assume. THREE-valued on purpose: 'ok', and the
-# two ways a fact can be absent -- 'declined' (nobody asked for it) and 'failed'
-# (it was attempted and did not work). A boolean collapses those two, and the
-# collapse prints "a prerequisite failed" over a run where the operator simply
-# chose not to have the thing.
+# What later steps are allowed to assume. THREE-valued ('ok'/'declined'/
+# 'failed') -- a boolean collapses the two absence kinds; rationale in the
+# REGION link above.
 $Script:Facts = @{}
 
 # The pool/stash mounts this machine holds against a server that is not itself,
@@ -1007,10 +1000,11 @@ function Get-FreeSpaceGb {
     }
 }
 
-function Test-DownloadAgentServiceEnabled {
+function Get-DownloadAgentServiceEnabledValue {
 <#
 .SYNOPSIS
-    $true unless test.config.yml turns the download-agent service off.
+    downloadAgentService.enabled as test.config.yml states it: $true, $false,
+    or $null when the file or the key says nothing.
 .DESCRIPTION
     Asked in two places -- by the headroom report, which has to know whether the
     agent's VM is part of this run's memory bill, and by the bring-up itself --
@@ -1018,24 +1012,26 @@ function Test-DownloadAgentServiceEnabled {
     about which services a run starts, and the report exists precisely to be
     believed about that.
 
-    An absent file and an absent key both read as ENABLED, which is the service's
-    own default: the file does not exist yet on the first run, and no config key
-    is not an opt-out.
+    Unstated is returned as $null, NOT coerced to an answer here: the default
+    depends on the mode (a lab runs the agent, a standalone host keeps the
+    memory for its test guests), and only the callers know which mode this run
+    is. An unreadable file also reads as unstated -- a parse error must not
+    flip an operator's intent either way.
 
     A hand-edited value can arrive as a string, and [bool]'false' is $true -- the
     one coercion that would turn an operator's opt-out into an opt-in.
 #>
     [CmdletBinding()]
-    [OutputType([bool])]
+    [OutputType([object])]
     param([Parameter(Mandatory)][string]$Path)
-    if (-not (Test-Path -LiteralPath $Path)) { return $true }
+    if (-not (Test-Path -LiteralPath $Path)) { return $null }
     try {
         Import-SetupModule (Join-Path $TestRoot 'modules/Test.Config.psm1')
         $value = Get-TestConfigValue -Config (Read-TestConfig -Path $Path -NoCache) -Path 'downloadAgentService.enabled'
         if ($value -is [bool]) { return $value }
         if ($null -ne $value) { return (-not ("$value".Trim() -match '^(?i:false|0|no|off)$')) }
     } catch { Write-SetupVerbose "downloadAgentService.enabled read: $($_.Exception.Message)" }
-    return $true
+    return $null
 }
 
 function Write-SetupMemoryHeadroom {
@@ -1070,15 +1066,15 @@ function Write-SetupMemoryHeadroom {
     )
     try {
         $keys = Select-SetupServiceVmKey -StorageKind $StorageKind -Lab:$Lab `
-            -DownloadAgentEnabled (Test-DownloadAgentServiceEnabled -Path $ConfigPath)
+            -DownloadAgentEnabled (Get-DownloadAgentServiceEnabledValue -Path $ConfigPath)
         $planned = @(foreach ($key in $keys) {
             $mb = Get-ServiceVmMemoryMb -RepoRoot $RepoRoot -HostFolder $HostFolderName -Key $key
             # The cache VM is the one service whose size this run chooses rather
-            # than inherits: a standalone host carries it beside the other two,
-            # so it is built from the smaller profile. Reading the builder's
-            # default here instead would warn about memory the run is not going
-            # to spend, which is the fastest way to teach an operator to ignore
-            # this warning.
+            # than inherits: a standalone host carries it beside the stash and
+            # its test guests, so it is built from the smaller profile. Reading
+            # the builder's default here instead would warn about memory the run
+            # is not going to spend, which is the fastest way to teach an
+            # operator to ignore this warning.
             if ($key -eq 'caching-proxy' -and -not $Lab) {
                 $mb = (Get-CachingProxyMemoryProfile -Standalone).VmMemoryMb
             }
@@ -3234,13 +3230,24 @@ if (-not $isLab) {
 })
 
 # --- REGION: 9b. download-agent service
-# Both modes: wherever there is a caching proxy there is an image pool worth
-# sharing. Non-critical on purpose -- with no agent every Get-Image falls back
-# to fetching from the origin, which is exactly the behavior without it.
-$downloadAgentEnabled = $true
-if (-not $WhatIfPreference) { $downloadAgentEnabled = Test-DownloadAgentServiceEnabled -Path $ConfigPath }
+# A lab runs it by default -- its whole point is sharing images across the
+# pool's hosts. A standalone host does not: every gigabyte a service VM holds
+# is one the test guests on the same machine cannot have, and with no agent
+# every Get-Image falls back to fetching from the origin (through the cache),
+# which is exactly the behavior without it. An explicit
+# downloadAgentService.enabled in the config overrides the mode default either
+# way, and the VM can always be started by hand
+# (test/Start-DownloadAgentServiceVM.ps1). Non-critical on purpose.
+$downloadAgentEnabled = $isLab
+$downloadAgentStated  = $null
+if (-not $WhatIfPreference) { $downloadAgentStated = Get-DownloadAgentServiceEnabledValue -Path $ConfigPath }
+if ($null -ne $downloadAgentStated) { $downloadAgentEnabled = [bool]$downloadAgentStated }
 if (-not $downloadAgentEnabled) {
-    Add-SkippedStep -Description 'Download-agent service (downloadAgentService.enabled is false)'
+    if ($null -ne $downloadAgentStated) {
+        Add-SkippedStep -Description 'Download-agent service (downloadAgentService.enabled is false)'
+    } else {
+        Add-SkippedStep -Description 'Download-agent service (standalone default: start it with test/Start-DownloadAgentServiceVM.ps1, or set downloadAgentService.enabled: true)'
+    }
 } else {
     # -Requires 'storage': the agent has nowhere to put the images without the
     # pool share, and whether that is a choice or a casualty is exactly what the

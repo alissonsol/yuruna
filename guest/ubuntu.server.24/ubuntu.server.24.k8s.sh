@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.08.06
+# Version: 2026.08.07
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 set -euo pipefail
@@ -245,15 +245,35 @@ fi
 sudo mkdir -p /etc/containerd/certs.d/docker.io \
               /etc/containerd/certs.d/registry.k8s.io \
               /etc/containerd/certs.d/public.ecr.aws \
-              /etc/containerd/certs.d/ghcr.io
+              /etc/containerd/certs.d/ghcr.io \
+              /etc/containerd/certs.d/mcr.microsoft.com
+# Every hosts.toml below names the cache TWICE, and both spellings earn
+# their place:
+#
+#   server = the cache -- containerd tries the [host] entries in order and
+#   then falls back to `server`, and `server` defaults to the upstream when
+#   left out, so naming the upstream (or omitting the key) means any mirror
+#   miss is quietly completed against the origin from the lab's shared
+#   egress IP. That is the path that converts an anonymous-pull throttle
+#   into a failed pull: the throttled origin answers 429 and the pull dies
+#   even though the cache holds -- or would shortly hold -- the layer.
+#   Pointing `server` at the cache leaves no upstream to fall back to, so a
+#   slow or briefly unhappy cache stays a retry against the cache.
+#
+#   [host] = the cache -- this form is what makes containerd append the
+#   `ns=<namespace>` query parameter, which is how zot learns WHICH
+#   upstream a repository belongs to. Drop the host entry and requests
+#   arrive namespace-less, leaving zot to probe its configured upstreams in
+#   order and spend rate-limited docker.io lookups on images that never
+#   lived there.
 sudo tee /etc/containerd/certs.d/docker.io/hosts.toml > /dev/null <<HOSTSEOF
-server = "https://docker.io"
+server = "http://${CACHE_HOST}:5000"
 
 [host."http://${CACHE_HOST}:5000"]
   capabilities = ["pull", "resolve"]
 HOSTSEOF
 sudo tee /etc/containerd/certs.d/registry.k8s.io/hosts.toml > /dev/null <<HOSTSEOF
-server = "https://registry.k8s.io"
+server = "http://${CACHE_HOST}:5000"
 
 [host."http://${CACHE_HOST}:5000"]
   capabilities = ["pull", "resolve"]
@@ -263,7 +283,7 @@ HOSTSEOF
 # whenever the upstream has an image-specific hiccup, instead of fronting
 # the upstream's failure.
 sudo tee /etc/containerd/certs.d/public.ecr.aws/hosts.toml > /dev/null <<HOSTSEOF
-server = "https://public.ecr.aws"
+server = "http://${CACHE_HOST}:5000"
 
 [host."http://${CACHE_HOST}:5000"]
   capabilities = ["pull", "resolve"]
@@ -275,11 +295,55 @@ HOSTSEOF
 # /etc/cni/net.d empty, so the node never leaves NotReady. zot's sync
 # extension already lists ghcr.io as an on-demand upstream.
 sudo tee /etc/containerd/certs.d/ghcr.io/hosts.toml > /dev/null <<HOSTSEOF
-server = "https://ghcr.io"
+server = "http://${CACHE_HOST}:5000"
 
 [host."http://${CACHE_HOST}:5000"]
   capabilities = ["pull", "resolve"]
 HOSTSEOF
+# The .NET base images (dotnet/sdk, dotnet/aspnet) live on
+# mcr.microsoft.com. Without this entry containerd bypasses zot and pulls
+# them straight from the upstream through squid's CONNECT port, which is
+# uncached: every guest re-downloads the same multi-hundred-megabyte layers,
+# and the cache's scheduled pre-warm of those two tags is never read. Routed
+# here the request carries ns=mcr.microsoft.com, so zot resolves it against
+# the MCR upstream instead of walking its list.
+sudo tee /etc/containerd/certs.d/mcr.microsoft.com/hosts.toml > /dev/null <<HOSTSEOF
+server = "http://${CACHE_HOST}:5000"
+
+[host."http://${CACHE_HOST}:5000"]
+  capabilities = ["pull", "resolve"]
+HOSTSEOF
+# A cache that is merely slow is fine -- containerd waits, and the pull
+# progress cap below bounds a genuine wedge. A cache that is DOWN is now
+# terminal for image pulls, since nothing else serves them, so surface that
+# here rather than letting it read as a mystery ImagePullBackOff later.
+if ! curl -fsS --max-time 15 -o /dev/null "http://${CACHE_HOST}:5000/v2/"; then
+    echo "ERROR: the caching proxy's registry did not answer at ${CACHE_HOST}:5000." >&2
+    echo "       containerd is configured to pull only from it -- reaching the" >&2
+    echo "       upstreams directly from a guest is rate limited and fails anyway." >&2
+    echo "       Check that the caching proxy VM is up and zot is serving:" >&2
+    echo "           curl -fsS http://${CACHE_HOST}:5000/v2/" >&2
+    exit 1
+fi
+# The gate above proves the registry process is alive, which it stays -- in
+# milliseconds -- however badly the pull-through behind it is stalled. What a
+# pull actually waits on is a MANIFEST request, since that re-runs the upstream
+# sync. The cache times that itself and publishes the result, so reading the
+# page costs nothing here; measuring it from this guest would spend one pull
+# from the upstream budget the whole lab shares, on every provisioning run.
+#
+# Advisory, never fatal: containerd waits out a slow cache and the pull progress
+# cap below bounds a genuine wedge, so a slow reading is not grounds to fail a
+# run that can survive it. Its value is having the cache's condition recorded in
+# THIS guest's log at provisioning time, so a pull that fails an hour later has
+# a before-picture instead of only an ImagePullBackOff.
+if cache_health=$(curl -fsS --max-time 5 "http://${CACHE_HOST}/cache-health" 2>/dev/null); then
+    echo "Cache health, as published by ${CACHE_HOST}:"
+    printf '%s\n' "$cache_health" | sed 's/^/  /'
+else
+    echo "Note: ${CACHE_HOST} publishes no cache-health page; only its /v2/ liveness was checked here,"
+    echo "      which stays green through a manifest stall."
+fi
 # Bound a stalled pull. containerd's default no-progress window is long enough
 # that a dead tunnel parks the pod at Init:n/m past every downstream wait
 # without ever handing kubelet an error to retry on -- the pull just hangs, so

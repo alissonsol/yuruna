@@ -35,6 +35,10 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("GET /api/hostinfo", s.handleHostInfo)
 	mux.HandleFunc("GET /api/board", s.handleBoard)
 	mux.HandleFunc("GET /api/hosts", s.handleHosts)
+	// Hardware facts fanned out from each host's status service; separate from
+	// /api/hosts so the page's periodic host-list reload does not pay (or
+	// trigger) the pool-wide fan-out.
+	mux.HandleFunc("GET /api/hosts/facts", s.handleHostFacts)
 	mux.HandleFunc("GET /api/state", s.handleState)
 	mux.HandleFunc("GET /api/diagnostics", s.handleDiagnostics)
 	// What each pool's members are currently doing. A read of the same

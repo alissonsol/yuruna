@@ -115,8 +115,7 @@ inside its Linux VM. That is unproven, and either PowerShell or Fido can
 be missing from an agent VM. When any of it fails the agent reports the
 family absent and the scripts fall through **without a warning** — an
 agent that does not hold Windows media is an ordinary state, not a fault.
-Only an agent that took the request and then broke warns. Run with
-`-Verbose` to see which path a run took.
+Only an agent that took the request and then broke warns.
 
 What this buys, when it works, is uneven: on Hyper-V and UTM it replaces
 a repeated multi-gigabyte pull, and on **KVM it is a capability that host
@@ -522,6 +521,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.06
+Last review: 2026.08.07
 
 Back to [Yuruna](../README.md)

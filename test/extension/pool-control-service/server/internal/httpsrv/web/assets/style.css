@@ -226,6 +226,19 @@ input, select { font: inherit; padding: .35rem .5rem; border: 1px solid var(--li
   word-break: break-all; cursor: pointer;
 }
 .id-toggle:hover { background: none; text-decoration: underline; }
+/* A sortable column header: the same idea as .id-toggle -- a real <button> for
+   the keyboard and the screen reader, stripped back to reading as the header
+   text it replaces. The arrow is drawn from aria-sort, which is also what is
+   announced, so the two cannot disagree. */
+th > button.sort {
+  padding: 0; border: none; background: none; cursor: pointer;
+  font: inherit; color: inherit; text-transform: inherit; letter-spacing: inherit;
+  text-align: left; white-space: nowrap;
+}
+th > button.sort:hover { background: none; color: var(--fg); text-decoration: underline; }
+th[aria-sort] > button.sort { color: var(--fg); }
+th[aria-sort="ascending"] > button.sort::after { content: " \25B2"; font-size: .7em; }
+th[aria-sort="descending"] > button.sort::after { content: " \25BC"; font-size: .7em; }
 /* The footnote a column header marks with an asterisk: one line under the
    table, so a hint that is the same for every row is stated once. */
 .footnote { color: var(--muted); font-size: .82rem; margin-top: .75rem; }

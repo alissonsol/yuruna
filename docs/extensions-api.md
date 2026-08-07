@@ -249,7 +249,7 @@ A session can also be unlocked by a **control proof** rather than the code. An
 operator who opens a service UI from the dashboard's *Extension hosts* table
 arrives holding one: the aggregator's `/go/stash` redirect mints it and leaves it
 in the URL fragment, and the page spends it on `POST /api/unlock-proof`. That
-saves going back to the dashboard to copy a code off a tile in order to act on a
+saves going back to the dashboard to copy a code off a tile to act on a
 page the dashboard just sent you to. The proof is the weakest of the three
 credentials by design — minted for one visit, valid for minutes, and redeemable
 for nothing but a session on the service it was carried to, whereas the
@@ -287,8 +287,7 @@ Three properties come with the gate:
   address. The aggregator's own audit cannot answer that question: from there,
   every operator in the lab is one source address.
 
-`POST /announce` is the deliberate exception and stays open: requiring the
-token would kill the beacon exactly where it is needed. It is contained instead
+`POST /announce` is the deliberate exception and stays open, contained
 by self-identity binding, a health probe, bounded state, and being
 telemetry-only ([below](#post-announce-pool-aggregator-service)).
 
@@ -448,7 +447,7 @@ ambiguity (`-RequireSingle`).
 1. Create `test/extension/<newarea>/` with a `default.psm1` and a
    `<newarea>.config.yml`.
 2. Add the area to the
-   [capability matrix](capability-matrix.md) by simply existing —
+   [capability matrix](test-harness.md#capability-matrix-and-cycle-plan-gate) by existing —
    `Get-CapabilityExtensionArea` discovers areas by directory, not
    by a hardcoded list.
 3. Document the contract the area's `.psm1` files must export. Each

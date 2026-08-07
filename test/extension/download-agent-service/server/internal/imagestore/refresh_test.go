@@ -230,7 +230,7 @@ func TestDownloadVerifyPromoteCommitRoundTrip(t *testing.T) {
 	sha := sha256Hex(body)
 	srv := originServer(t, "img.iso", body, sha, "Thu, 23 Jul 2026 09:14:02 GMT")
 
-	a := newTestAgent(t, Options{PoolDir: t.TempDir(), AgentVersion: "2026.08.06"})
+	a := newTestAgent(t, Options{PoolDir: t.TempDir(), AgentVersion: "2026.08.07"})
 	id := ImageID{HostType: HostTypeKVM, ImageKey: KeyUbuntuServer26, Arch: ArchAMD64, Variant: VariantStable}
 	res := Resolved{
 		Family: FamilyUbuntuISO, UpstreamFilename: "img.iso",
@@ -711,7 +711,7 @@ func ubuntuFixture(t *testing.T, body []byte, daily bool, headSize int) http.Rou
 
 func TestRefreshRecordsTheProbedSizeAndTheResolvedVariant(t *testing.T) {
 	body := []byte("a stand-in for the ISO the daily tree does not carry today")
-	a := newTestAgent(t, Options{PoolDir: t.TempDir(), Transport: ubuntuFixture(t, body, false, 0), AgentVersion: "2026.08.06"})
+	a := newTestAgent(t, Options{PoolDir: t.TempDir(), Transport: ubuntuFixture(t, body, false, 0), AgentVersion: "2026.08.07"})
 	// daily was asked for; only stable resolves, so the fallback fires.
 	id := ImageID{HostType: HostTypeKVM, ImageKey: KeyUbuntuServer26, Arch: ArchAMD64, Variant: VariantDaily}
 

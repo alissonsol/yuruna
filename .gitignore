@@ -402,7 +402,7 @@ project/
 #   test/status/ssh/        Generated per-host ed25519 key pair injected
 #                           into every guest's cloud-init.
 # Only the committed UI files at the test/status/ root (index.html,
-# host.html, config.html, yuruna.common.css, yuruna.common.js,
+# diagnostics.html, config.html, yuruna.common.css, yuruna.common.js,
 # status.json.template) and the .gitkeep stay tracked.
 test/status/*/
 

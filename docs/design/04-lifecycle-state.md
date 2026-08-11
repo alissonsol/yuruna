@@ -9,7 +9,7 @@ Derived from `test/modules/Test.RunnerState.psm1` (`$script:StateEnum` and
 `$script:ValidTransition`, mirrored in
 [runner-outer-loop.md](../runner-outer-loop.md#runner-state-machine)),
 `test/modules/Test.RunnerOuterLoop.psm1` (every transition writer),
-`test/Invoke-TestCycleRunner.ps1`, the step plan in
+`test/modules/Invoke-TestCycleRunner.ps1`, the step plan in
 `test/modules/Test.RunnerInnerLoop.psm1`, and the kill side in
 `test/modules/Test.RunnerWatchdog.psm1`.
 
@@ -139,4 +139,4 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.07
+Last review: 2026.08.11

@@ -70,11 +70,11 @@ properties:
       startScript:
         type: string
         pattern: '^[A-Za-z0-9._-]+\.ps1$'
-        description: Script under test/ that builds and starts the VM.
+        description: Script name under test/service/ that builds and starts the VM.
       stopScript:
         type: string
         pattern: '^[A-Za-z0-9._-]+\.ps1$'
-        description: Script under test/ that stops it and clears the marker.
+        description: Script name under test/service/ that stops it and clears the marker.
       markerBaseUrlKey:
         type: string
         pattern: '^[A-Za-z0-9_]+$'

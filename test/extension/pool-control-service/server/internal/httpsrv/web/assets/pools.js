@@ -5,7 +5,7 @@
 (function () {
   // Header version + host id and the footer bar; its countdown re-reads pool
   // intent rather than reloading, so a half-typed new-pool id is not wiped.
-  const chrome = Y.initChrome({ refresh: load });
+  const chrome = Y.initChrome({ refresh: function () { load({ quiet: true }); } });
 
   // The three states an operator picks between, in the order the host's own
   // status page presents them: continue first, then the two pause depths.
@@ -107,7 +107,24 @@
     Y.notice('error', LABEL[action] + ': ' + res.applied + ' applied, ' + failed.length + ' failed — ' + detail);
   }
 
-  async function load() {
+  // quiet marks the countdown's read, which keeps the table it is refreshing on
+  // screen. Every other read replaces it and says so: this page waits on a CLI
+  // for pool intent and then on every member for its state.
+  async function load(opts) {
+    const quiet = !!(opts && opts.quiet);
+    const done = quiet ? function () { } : Y.busy(document.getElementById('pool-rows'), 'Loading pools…');
+    chrome.busy(true);
+    try {
+      await renderPools();
+    } finally {
+      // Also on the failure path: an indicator left turning over a read that
+      // already failed claims progress that is not happening.
+      done();
+      chrome.busy(false);
+    }
+  }
+
+  async function renderPools() {
     Y.clearNotice();
     let data;
     try { data = await Y.api('/api/state'); }
@@ -195,5 +212,7 @@
     } catch (e) { Y.notice('error', 'Create failed: ' + e.message); }
   });
 
-  document.addEventListener('DOMContentLoaded', load);
+  // Wrapped rather than passed straight to the listener: load() reads its first
+  // argument as options, and a DOM event is not one.
+  document.addEventListener('DOMContentLoaded', function () { load(); });
 })();

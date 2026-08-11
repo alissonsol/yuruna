@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.07
+.VERSION 2026.08.11
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456729
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -767,7 +767,7 @@ function Resolve-PortOrphan {
                 [Environment]::NewLine +
                 "        sudo lsof -nP -iTCP:$Port -sTCP:LISTEN      # names the root-owned holder" +
                 [Environment]::NewLine +
-                "        sudo pwsh test/Stop-StatusService.ps1       # stops it the way it was started"
+                "        sudo pwsh test/service/Stop-StatusService.ps1       # stops it the way it was started"
             })
             "  Resolve by ONE of:"
             "    - stop the other owner's status service (it may belong to another user account); or"

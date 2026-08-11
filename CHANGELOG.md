@@ -4,10 +4,21 @@ Yuruna uses [Calendar Versioning](https://calver.org/): `YYYY.MM.DD`.
 Tags are cut from the `main` branch; entries below summarize each
 tagged release.
 
+## 2026.08.11
+
+- **Scan for unregistered hosts.** Pool Control's new Scan page sweeps a CIDR
+  range you name and lists the Yuruna hosts it finds on the Hosts page and
+  dashboard as discovered — monitored, but never added to a pool automatically.
+
+ - **Also in this release.** Pages show loading progress and read hosts in
+   parallel; tables alternate banded rows in light and dark mode; IPv6
+   link-local browsers are no longer refused. Re-run the Start-*ServiceVM.ps1
+   scripts to deploy.
+   
 ## 2026.08.07
 
 - **Converting a standalone machine into a pool worker.** New
-  `test/Convert-ToPoolWorker.ps1` syncs the lab's configuration, then retires
+  `test/pool/Convert-ToPoolWorker.ps1` syncs the lab's configuration, then retires
   the four local service VMs that would otherwise keep winning over the lab's,
   drops their hosts-file aliases, and verifies the end state. `-WhatIf`
   previews.
@@ -15,12 +26,12 @@ tagged release.
 - **Pool Control is the only place hostnames appear.** Its Hosts table gains
   sortable **Hostname** and **Type** columns, read from each host's own record
   — the aggregator stays deliberately hostname-free. **Show hostnames** takes
-  the Lab token. Re-run `test/Start-PoolControlServiceVM.ps1`.
+  the Lab token. Re-run `test/service/Start-PoolControlServiceVM.ps1`.
 
 - **Also in this release.** Shared cycle results now travel as a `.zip`. The
   host dump page becomes **Diagnostics** (`host.html` → `diagnostics.html`). A
   converting host no longer keeps self-minted passwords. New
-  `test/Clear-LocalLabStorage.ps1` withdraws a former storage server's shares,
+  `test/lab/Clear-LocalLabStorage.ps1` withdraws a former storage server's shares,
   deleting no data.
 
 ## 2026.08.06
@@ -125,7 +136,7 @@ tagged release.
   comes from a new open read route, `GET /control/control-status`. Needs a
   caching-proxy rebuild. See [control-routes.md](docs/control-routes.md).
 - **A lab with no NAS sets up its storage in one command.**
-  `pwsh test/New-LocalLabStorage.ps1` creates the folders, accounts, SMB
+  `pwsh test/lab/New-LocalLabStorage.ps1` creates the folders, accounts, SMB
   shares, vault entries, mounts, and `networkStorage.*` config — idempotent
   and `-WhatIf`-able. A second lab on the same machine reuses it:
   `New-Lab.ps1` infers `-Root` and keeps existing share credentials. See
@@ -142,7 +153,7 @@ tagged release.
   rebuild. See [control-routes.md](docs/control-routes.md).
 - **Enrolling a host in the lab is one command and a glance at the dashboard.**
   Read the rotating code off the **Lab token** tile;
-  `pwsh test/Set-LabToken.ps1 -LabToken <code>` redeems it for the shared
+  `pwsh test/lab/Set-LabToken.ps1 -LabToken <code>` redeems it for the shared
   `lab-auth-token` and stores it in the host vault, replacing
   `Set-PoolAuthToken.ps1`. Needs a caching-proxy rebuild. See
   [control-routes.md](docs/control-routes.md).
@@ -380,6 +391,6 @@ LICENSEURI <https://yuruna.link/license>
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.07
+Last review: 2026.08.11
 
 Back to [Yuruna](README.md)

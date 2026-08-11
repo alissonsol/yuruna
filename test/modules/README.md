@@ -6,13 +6,21 @@ Cross-host harness modules. Each is a `.psm1` imported by
 sequence runs). Module list and per-module purpose:
 [Test harness — architecture](../../docs/test-harness.md#module-responsibilities).
 
-This folder also holds [`Invoke-TestRunnerInnerLoop.ps1`](Invoke-TestRunnerInnerLoop.ps1) —
-the single-cycle inner that the outer `Invoke-TestRunner.ps1` spawns
-once per cycle. It lives here (not in `test/`) so the entry-point
-folder contains only operator-facing scripts; the inner is an
-implementation detail and should not be invoked directly. The
-defensive single-instance guard inside it warns and exits if it
+This folder also holds the two scripts the outer `Invoke-TestRunner.ps1`
+spawns per cycle —
+[`Invoke-TestCycleRunner.ps1`](Invoke-TestCycleRunner.ps1) (the per-cycle
+child, launched in a fresh `pwsh` so an edit to cycle logic takes effect
+without restarting the runner) and
+[`Invoke-TestRunnerInnerLoop.ps1`](Invoke-TestRunnerInnerLoop.ps1) (the
+single-cycle inner). Both live here rather than in `test/` because they
+are implementation details and should not be invoked directly; the
+defensive single-instance guard inside the inner warns and exits if it
 detects an outer already running.
+
+Scripts under here take their `$TestRoot` from
+`Initialize-YurunaEntryPoint -InsideSubfolder`, which walks one level up —
+the same switch used by every script in the sibling `service/`, `pool/`
+and `check/` folders.
 
 ## Sequence engine and cycle planner
 
@@ -118,6 +126,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.07
+Last review: 2026.08.11
 
 Back to [Yuruna](../../README.md)

@@ -1,0 +1,109 @@
+<!doctype html>
+<!--
+  LICENSEURI https://yuruna.link/license
+  Copyright (c) 2019-2026 by Alisson Sol et al.
+-->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Scan &mdash; Yuruna Pool Control</title>
+  <link rel="stylesheet" href="/assets/style.css">
+</head>
+<body class="has-footer-bar">
+  <header class="app">
+    <div class="brand">
+      <span class="name"><a href="/">Yuruna Pool Control</a></span>
+      <span class="version" id="header-version"></span>
+    </div>
+    <span class="spacer"></span>
+    <span class="machine" id="machine"></span>
+    <div class="menu">
+      <button type="button" class="menu-button" id="menu-button" aria-haspopup="true" aria-expanded="false" aria-controls="menu-panel">
+        <span class="menu-icon" aria-hidden="true">&#9776;</span><span class="menu-label">Menu</span>
+      </button>
+      <nav class="menu-panel" id="menu-panel" aria-label="Pages" hidden>
+        <a href="/">Board</a>
+        <a href="/assign">Assign</a>
+        <a href="/hosts">Hosts</a>
+        <a href="/pools">Pools</a>
+        <a href="/test-sets">Test sets</a>
+        <a href="/scan" aria-current="page">Scan</a>
+        <a href="/diagnostics">Diagnostics</a>
+        <a class="menu-out" href="https://yuruna.link/pool-control">Guide</a>
+      </nav>
+    </div>
+  </header>
+  <main>
+    <h1>Scan a network for Yuruna hosts</h1>
+    <p class="muted">
+      Every address in the network is asked whether it is running a Yuruna host status service.
+      The ones that answer are added to the hosts this service monitors &mdash; whether or not they
+      belong to a pool, and whether or not they ever registered with the aggregator.
+      Scanning changes nothing on the hosts themselves.
+    </p>
+
+    <h2>Which network? (CIDR notation)</h2>
+    <p class="muted">
+      A network is written as an address and a prefix length: <code>192.168.7.0/24</code>.
+      The prefix length is how many leading bits the addresses share, so <code>/24</code> fixes the
+      first three numbers and scans the last one &mdash; <code>192.168.7.1</code> through
+      <code>192.168.7.254</code>, the 254 machines on that subnet. A smaller number covers more
+      addresses (<code>/23</code> is two subnets, <code>/16</code> is 65,536 addresses); a larger one
+      covers fewer (<code>/32</code> is a single machine). Entering an address inside the network is
+      fine &mdash; <code>192.168.7.34/24</code> means the same subnet as <code>192.168.7.0/24</code>.
+    </p>
+
+    <div id="notice" class="notice"></div>
+    <div class="row">
+      <label class="scan-field">
+        <span class="scan-label">Network</span>
+        <input type="text" id="cidr" name="cidr" inputmode="text" spellcheck="false" autocapitalize="off"
+               autocomplete="off" placeholder="192.168.7.0/24" aria-describedby="cidr-hint">
+      </label>
+      <button id="scan" class="primary">Scan</button>
+      <button id="use-default" type="button">Use this network</button>
+    </div>
+    <!-- Two lines with two jobs: the hint answers "is what I typed valid",
+         the note answers "what happens without me". Sharing one element would
+         mean whichever wrote last wins. -->
+    <div id="cidr-hint" class="hint"></div>
+    <div id="sweep-note" class="muted scan-note"></div>
+
+    <h2>Progress</h2>
+    <!-- aria-live on the summary, not on the address ticker below it: the
+         ticker changes several times a second, and announcing every address
+         would bury the one sentence that says how far the scan has got. -->
+    <div id="progress" class="muted" aria-live="polite">No scan has run yet.</div>
+    <div id="current" class="scan-current"></div>
+
+    <h2>Found and added</h2>
+    <p class="muted">Only hosts this scan added. A Yuruna host that was already monitored is counted above, not listed again.</p>
+    <table>
+      <thead>
+        <tr><th>Address</th><th>Host ID</th><th>Hostname</th><th>Type</th><th>Found</th></tr>
+      </thead>
+      <tbody id="found-rows"></tbody>
+    </table>
+
+    <h2>Monitored by discovery</h2>
+    <p class="muted">
+      Every host this service has found by scanning, newest sighting first on the right.
+      They also appear on the <a href="/hosts">Hosts</a> page, where they can be put into a pool.
+    </p>
+    <table>
+      <thead>
+        <tr><th>Address</th><th>Host ID</th><th>Hostname</th><th>Type</th><th>First seen</th><th>Last seen</th><th></th></tr>
+      </thead>
+      <tbody id="host-rows"></tbody>
+    </table>
+  </main>
+  <footer id="footer-bar">
+    <span id="footer-ips"><span class="label">IPs:</span><textarea id="footer-ip-list" readonly rows="1" spellcheck="false" inputmode="none" autocorrect="off" autocapitalize="off" aria-label="Server IP addresses">—</textarea></span>
+    <span>Loaded: <span id="last-loaded">—</span><span id="footer-busy" aria-hidden="true" hidden></span></span>
+    <span><a id="footer-refresh" href="#">Refresh</a>: <span id="countdown">60</span>s</span>
+  </footer>
+  <script src="/assets/common.js"></script>
+  <script src="/assets/scan.js"></script>
+</body>
+</html>

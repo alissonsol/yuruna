@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.07
+.VERSION 2026.08.11
 .GUID 42c4b1e7-5a8d-4f23-9b1c-7e3f8a2d4c61
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -77,6 +77,14 @@ $script:YurunaHostContract = @(
     'Get-VMScreenshot', 'Get-VMConsoleHandle',
     # Guest networking probes
     'Wait-VMIp', 'Get-VMIp', 'Get-VMMac',
+    # Update-GuestNeighborCache: the ACTIVE half of address discovery.
+    # Get-VMIp is a passive read on every host, and on a bridged network with
+    # no in-band guest agent a passive read answers only while the host's
+    # neighbour cache still holds the guest. Each driver owns how -- or
+    # whether -- its platform refreshes that cache, but every driver must
+    # answer the question, so a shared caller can ask without feature-testing
+    # for a function that exists on one host only.
+    'Update-GuestNeighborCache',
     # External / shared network
     'Get-ExternalNetwork', 'New-ExternalNetwork', 'Test-CacheVMOnExternalNetwork',
     # Host port mapping

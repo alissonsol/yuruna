@@ -31,7 +31,7 @@ order:
 
 ### Automatic provisioning
 
-`test/Start-CachingProxyServiceVM.ps1` auto-creates `yuruna-external`.
+`test/service/Start-CachingProxyServiceVM.ps1` auto-creates `yuruna-external`.
 On first invocation it:
 
 1. Resolves the host's default-route NIC (refuses Wi-Fi).
@@ -153,6 +153,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.07
+Last review: 2026.08.11
 
 Back to [Yuruna](../../../README.md)

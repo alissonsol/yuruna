@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"time"
 
+	"pool-control-service/internal/discovery"
 	"pool-control-service/internal/hostctl"
 	"pool-control-service/internal/intent"
 	"pool-control-service/internal/state"
@@ -65,6 +66,15 @@ type Options struct {
 	// an operator can act on -- "this service can prove control to no host" --
 	// names the file THIS daemon was launched with rather than the default.
 	AuthTokenFile string
+	// ScanCIDR is the network the discovery sweep walks. Empty means the /24
+	// around this service's own address, which is the network an operator means
+	// when they have not said otherwise.
+	ScanCIDR string
+	// ScanPort is the host status-service port probed on each address.
+	ScanPort int
+	// ScanInterval is the sweep cadence. Zero stops the timer and leaves the
+	// Scan page's manual run as the only way discovery happens.
+	ScanInterval time.Duration
 }
 
 // Server is the pool-control-service UI/API HTTP server.
@@ -79,8 +89,14 @@ type Server struct {
 	// hostctl drives the pause switches on the hosts themselves, for the
 	// pool-wide selector on the Pools page.
 	hostctl *hostctl.Client
-	httpSrv *http.Server
-	started time.Time
+	// discovered is this daemon's own list of Yuruna hosts found by scanning,
+	// and scan is what fills it. Local by design: the list has to survive an
+	// aggregator outage, since a host nobody registered is exactly the case it
+	// exists to cover.
+	discovered *discovery.Store
+	scan       *discovery.Engine
+	httpSrv    *http.Server
+	started    time.Time
 }
 
 // New builds a Server over the given intent API.
@@ -96,6 +112,17 @@ func New(api IntentAPI, opts Options) *Server {
 	// snapshot would hold a just-enrolled host off the page for the window.
 	s.pool = pool.New(pool.Options{BaseURL: opts.AggregatorURL, Timeout: aggregatorTimeout, CacheTTL: pool.NoCache})
 	s.hostctl = hostctl.New(hostctl.Options{})
+	// The discovered list lives beside the audit log, under the same state dir,
+	// and falls back to memory when there is none: a host-side launcher with no
+	// NAS still scans, it just re-discovers after a restart instead of reading
+	// the last answer back.
+	port := opts.ScanPort
+	if port <= 0 {
+		port = discovery.DefaultPort
+	}
+	s.opts.ScanPort = port
+	s.discovered = discovery.NewStore(discoveredHostsPath(opts.StateDir))
+	s.scan = discovery.NewEngine(s.discovered, discovery.NewHTTPProber(port), s.knownElsewhere)
 	s.httpSrv = &http.Server{
 		Addr:              opts.Addr,
 		Handler:           s.routes(),

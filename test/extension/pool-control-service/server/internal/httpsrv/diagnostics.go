@@ -15,18 +15,20 @@ import (
 	"time"
 )
 
-// The pool-admin CLIs the daemon shells out to. A missing script here means the
-// framework checkout the daemon was pointed at is incomplete or stale, which
-// otherwise surfaces only as a per-operation "file not found" from pwsh.
+// The pool-admin CLIs the daemon shells out to, each relative to <RepoDir>/test/.
+// A missing script here means the framework checkout the daemon was pointed at is
+// incomplete or stale, which otherwise surfaces only as a per-operation "file not
+// found" from pwsh. Paths rather than bare names so a CLI that moves to another
+// folder is one edit here rather than a silent per-operation failure.
 var poolAdminCLIs = []string{
-	"Get-PoolIntent.ps1",
-	"New-Pool.ps1",
-	"Remove-Pool.ps1",
-	"Set-PoolDesiredState.ps1",
-	"Add-HostToPool.ps1",
-	"Remove-HostFromPool.ps1",
-	"Set-PoolTestSet.ps1",
-	"Set-PoolTestSetDefinition.ps1",
+	"pool/Get-PoolIntent.ps1",
+	"pool/New-Pool.ps1",
+	"pool/Remove-Pool.ps1",
+	"pool/Set-PoolDesiredState.ps1",
+	"pool/Add-HostToPool.ps1",
+	"pool/Remove-HostFromPool.ps1",
+	"pool/Set-PoolTestSet.ps1",
+	"pool/Set-PoolTestSetDefinition.ps1",
 }
 
 // Check is one pass/fail probe with the evidence that produced it.

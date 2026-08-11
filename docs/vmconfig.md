@@ -29,7 +29,7 @@ Everything before that section covers the shared *guest* user-data.
 ## How user-data is rendered
 
 Three host platforms (Hyper-V, KVM, UTM) each install Ubuntu Server or
-Amazon Linux 2023 into a freshly-created VM via cloud-init's NoCloud
+Amazon Linux 2023 into a freshly created VM via cloud-init's NoCloud
 datasource. The seed ISO they generate carries a `user-data` file
 rendered per guest type from a shared base + a per-host overlay + a
 per-cycle replacement table. The rendering pipeline lives in
@@ -98,7 +98,7 @@ mid-autoinstall with a confusing diagnostic.
 | `host/vmconfig/ubuntu.server.hyperv.overlay.yml` | Per-host overlay: `hv_balloon` denylist + `hyperv_fb` framebuffer pin. |
 | `host/vmconfig/ubuntu.server.kvm.overlay.yml` | Per-host overlay: VT-blanking early-command + `consoleblank=0` + fb-safe GRUB cmdline. |
 | `host/vmconfig/ubuntu.server.utm.overlay.yml` | Per-host overlay: `network:` block pinning IPv4 DHCP and refusing IPv6 RA. |
-| `host/vmconfig/amazon.linux.2023.base.user-data` | The shared AL2023 base. Uses cloud-init `runcmd:` (the AL2023 cloud image boots from a prebuilt image rather than running an Ubuntu-style autoinstall), with its own anchor set. |
+| `host/vmconfig/amazon.linux.2023.base.user-data` | The shared AL2023 base. Uses cloud-init `runcmd:` (AL2023 boots a prebuilt cloud image rather than running an Ubuntu-style autoinstall), with its own anchor set. |
 | `host/vmconfig/amazon.linux.2023.hyperv.overlay.yml` | Per-host AL2023 overlay (Hyper-V). |
 | `host/vmconfig/amazon.linux.2023.kvm.overlay.yml` | Per-host AL2023 overlay (KVM): `consoleblank=0` runcmd. |
 | `host/vmconfig/amazon.linux.2023.utm.overlay.yml` | Per-host AL2023 overlay (UTM). |
@@ -239,7 +239,7 @@ sequence then loops on a wrong-password dialog. The deprecation warning
 is cosmetic. Cloud-init's default `chpasswd.expire: true` applies, so
 the first-login current/new/retype dialog still fires.
 
-Do NOT add any spaces after `ec2-user:` — it's part of the password.
+Do NOT add spaces after `ec2-user:` — they become part of the password.
 
 ### Unlocked account needs plain_text_passwd
 
@@ -857,7 +857,7 @@ no_proxy = YURUNA_STATUS_SERVICE_IP_PLACEHOLDER
 EOF
 ```
 
-Belt-and-braces for the host status-service probe. subiquity's
+Belt-and-suspenders for the host status-service probe. subiquity's
 `apt:proxy` (or AL2023's environment) can leak as `http_proxy` into the
 installed system. Without `no_proxy`, an in-guest `fetch-and-execute.sh`
 that lacks `--no-proxy` routes the `/livecheck` probe through the
@@ -1637,7 +1637,7 @@ caching-proxy-parser-service fails closed (the binary may not be present if the 
 
 pool-aggregator-service: read-only pool view. Soft-fail like the parser -- the binary may be absent if the build above failed; prometheus already has the pool-aggregator-service scrape job (it just reads 'down' until the daemon is up).
 
-The unit's `ExecStart` carries `-auth-token-file /etc/yuruna/lab-auth.token -host-ttl 24h -lab-token-rotate 60s`. The token file is the shared lab-auth-token (see "Lab auth token" above). `-lab-token-rotate` drives the lab-token exchange: the aggregator mints a 6-character lab connection token (lowercase a-z0-9), rotates it on that interval, surfaces it on the dashboard's "Lab token" tile (via the `yuruna_pool_lab_token` info gauge), and serves the open endpoint `POST /api/v1/lab-token` on :9400 (body `{"labToken":"<code>"}` -> 200 with the shared lab-auth-token; 400 malformed, 403 unknown/expired code, 429 per-IP throttle, 503 exchange disabled). A displayed code stays redeemable for about three rotations; `0` disables the tile and the exchange. Exchanges are counted in `yuruna_pool_lab_token_exchanges_total` and every attempt is audited (aggregator log + Loki, label src="lab-token"). A host enrolls with `pwsh test/Set-LabToken.ps1 -LabToken <code>`.
+The unit's `ExecStart` carries `-auth-token-file /etc/yuruna/lab-auth.token -host-ttl 24h -lab-token-rotate 60s`. The token file is the shared lab-auth-token (see "Lab auth token" above). `-lab-token-rotate` drives the lab-token exchange: the aggregator mints a 6-character lab connection token (lowercase a-z0-9), rotates it on that interval, surfaces it on the dashboard's "Lab token" tile (via the `yuruna_pool_lab_token` info gauge), and serves the open endpoint `POST /api/v1/lab-token` on :9400 (body `{"labToken":"<code>"}` -> 200 with the shared lab-auth-token; 400 malformed, 403 unknown/expired code, 429 per-IP throttle, 503 exchange disabled). A displayed code stays redeemable for about three rotations; `0` disables the tile and the exchange. Exchanges are counted in `yuruna_pool_lab_token_exchanges_total` and every attempt is audited (aggregator log + Loki, label src="lab-token"). A host enrolls with `pwsh test/lab/Set-LabToken.ps1 -LabToken <code>`.
 
 How long a host stays in that view after its last contact is `-host-ttl` in the unit's `ExecStart` (default `24h`): change it and run `systemctl daemon-reload && systemctl restart pool-aggregator-service` -- no rebuild. The `daemon-reload` is load-bearing; without it systemd restarts from its cached copy of the unit and the old value silently stays in force (the same trap [caching.md](caching.md) documents for the squid units). A non-positive value falls back to 24h. A binary that predates the flag exits immediately on it and `Restart=on-failure` turns that into a crash loop, so re-provision such a proxy first.
 
@@ -1981,6 +1981,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.07
+Last review: 2026.08.11
 
 Back to [Yuruna](../README.md)

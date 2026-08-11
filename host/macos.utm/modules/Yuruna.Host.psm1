@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.07
+.VERSION 2026.08.11
 .GUID 42a2b3c4-d5e6-4f78-9012-3a4b5c6d7e91
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -3486,7 +3486,37 @@ function Get-VMMac {
         Write-Verbose "Get-VMMac on host.macos.utm: no MacAddress in the bundle for '$VMName'."
         return $null
     }
+    # Canonical form for the whole harness, so a MAC read on one host compares
+    # equal to the same MAC read on another. The `arp -an` notation this host
+    # needs is produced at the point of use by ConvertTo-UtmArpMacAddress.
+    $canonical = ConvertTo-YurunaMacAddress -MacAddress ([string]$bundleNetwork.MacAddress)
+    if ($canonical) { return $canonical }
     return ([string]$bundleNetwork.MacAddress).ToUpperInvariant()
+}
+
+<#
+.SYNOPSIS
+    Refresh the host neighbour cache so a passive MAC lookup can succeed.
+.DESCRIPTION
+    Contract verb, and deliberately a no-op here. This driver's bridged rung
+    already escalates to its own ICMP sweep from inside Get-VMIp, where the
+    cooldown memo and the running-state check bound it. Sweeping again from
+    outside would duplicate that work while bypassing both guards, so the
+    honest implementation is to decline and say why.
+.PARAMETER VMName
+    Accepted for contract symmetry; unused.
+#>
+function Update-GuestNeighborCache {
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([bool])]
+    param(
+        [Parameter(Mandatory)][string]$VMName,
+        [int]$CooldownSeconds = 60
+    )
+    $null = $CooldownSeconds
+    if (-not $PSCmdlet.ShouldProcess($VMName, 'Refresh the neighbour cache')) { return $false }
+    Write-Verbose "Update-GuestNeighborCache on host.macos.utm: no external sweep -- Get-VMIp's bridged rung runs its own bounded, memoized sweep for '$VMName'."
+    return $false
 }
 
 <#
@@ -4245,7 +4275,7 @@ Export-ModuleMember -Function `
     Test-VMConsoleOpen, Restart-VMConsole, `
     Get-Image, Get-ImagePath, `
     Send-Text, Send-Key, Send-Click, Get-VMScreenshot, Get-VMConsoleHandle, `
-    Wait-VMIp, Get-VMIp, Get-VMMac, Resolve-UtmGuestIpByMac, `
+    Wait-VMIp, Get-VMIp, Get-VMMac, Update-GuestNeighborCache, Resolve-UtmGuestIpByMac, `
     Get-ExternalNetwork, New-ExternalNetwork, Test-CacheVMOnExternalNetwork, `
     Add-PortMap, Remove-PortMap, Get-BestHostIp, Get-GuestReachableHostIp, `
     Test-CachingProxyServiceAvailable, Get-CachingProxyServiceVmIp, Get-HostLanPrefix, Test-MacUplinkNotBridgeable, Resolve-UtmNetworkMode, `
@@ -4274,7 +4304,7 @@ $null = Assert-YurunaHostContractCoverage -HostType 'macos.utm' -ExportedFunctio
     'Test-VMConsoleOpen','Restart-VMConsole',
     'Get-Image','Get-ImagePath',
     'Send-Text','Send-Key','Send-Click','Get-VMScreenshot','Get-VMConsoleHandle',
-    'Wait-VMIp','Get-VMIp','Get-VMMac',
+    'Wait-VMIp','Get-VMIp','Get-VMMac','Update-GuestNeighborCache',
     'Get-ExternalNetwork','New-ExternalNetwork','Test-CacheVMOnExternalNetwork',
     'Add-PortMap','Remove-PortMap','Get-BestHostIp','Get-GuestReachableHostIp',
     'Test-CachingProxyServiceAvailable','Get-CachingProxyServiceVmIp','Get-HostLanPrefix',

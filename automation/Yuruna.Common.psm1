@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.07
+.VERSION 2026.08.11
 .GUID 4288bcbc-ede3-4dda-bb77-b9782c7615ad
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -606,6 +606,56 @@ function Test-IpAddress {
     process {
         return ((Test-Ipv4Address $Address) -or (Test-Ipv6Address $Address))
     }
+}
+
+function Select-YurunaRoutableAddress {
+<#
+.SYNOPSIS
+    Pick the address a host should actually dial out of a candidate list.
+.DESCRIPTION
+    One definition of "an address worth returning", because guest address
+    discovery asks the same question from many places -- three sources in the
+    libvirt driver, two stages in the Hyper-V driver, the standalone fallbacks
+    in the SSH module -- and every copy of the rule is another place for it to
+    drift. Drift here is not cosmetic: an unfiltered answer hands a caller
+    169.254.x or ::1 as though it were the guest, and the connect failure that
+    follows names the address rather than the discovery that produced it.
+
+    The rule has two halves. IPv4 is preferred over IPv6 whenever both are
+    offered, because the port-map forwarders bind v4 sockets -- but a v6 address
+    is still returned when no v4 exists, so a v6-only guest resolves rather than
+    reading as absent. And loopback and link-local are rejected in both
+    families: they are syntactically fine and provably not the guest.
+
+    Order within a family is preserved, so a caller that has already sorted its
+    candidates by preference keeps that ordering.
+.PARAMETER Address
+    Candidate addresses, in the caller's own preference order. Blanks and
+    non-addresses are ignored rather than rejected, so a caller can pass raw
+    parse output without pre-cleaning it.
+.OUTPUTS
+    [string] the chosen address, or $null when no candidate qualifies.
+#>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([AllowEmptyCollection()][AllowNull()][string[]]$Address)
+    if (-not $Address) { return $null }
+    $v4 = @()
+    $v6 = @()
+    foreach ($candidate in $Address) {
+        if ([string]::IsNullOrWhiteSpace($candidate)) { continue }
+        $trimmed = $candidate.Trim()
+        if (Test-Ipv4Address $trimmed) {
+            if ($trimmed -notmatch '^(127\.|169\.254\.)') { $v4 += $trimmed }
+            continue
+        }
+        if (Test-Ipv6Address $trimmed) {
+            if ($trimmed -inotmatch '^(::1$|fe80:)') { $v6 += $trimmed }
+        }
+    }
+    if ($v4.Count) { return [string]$v4[0] }
+    if ($v6.Count) { return [string]$v6[0] }
+    return $null
 }
 
 function ConvertTo-Sha512CryptHash {
@@ -2000,4 +2050,4 @@ function Select-NameByPrefix {
     return $matched.ToArray()
 }
 
-Export-ModuleMember -Function New-YurunaTimestampedBackup, Get-HostProxyBackupPath, ConvertTo-ProxyHostPort, Get-PortMapStatePath, Test-IsAdministrator, Get-PwshApplicationPath, Get-SudoPwshArgumentList, Invoke-YurunaSudo, Test-YurunaCanPrompt, Assert-YurunaPromptable, Get-CachingProxyServicePort, Get-CachingProxyMemoryProfile, Test-Ipv4Address, Test-Ipv6Address, Format-IpUrlHost, Test-IpAddress, ConvertTo-Sha512CryptHash, ConvertTo-YurunaMacAddress, ConvertTo-Ipv4UInt32, Get-HostIpv4Subnet, Get-Ipv4OnLinkVerdict, Get-PoolFacingIpv4Segment, Get-Ipv4PoolSegmentVerdict, Test-TcpConnectOutcome, Get-TcpOutcomeExplanation, Select-DhcpLeaseIpAddress, Select-StaleDhcpLeaseBlock, Remove-DhcpLeaseBlockText, Get-UtmGuestSeedHostname, ConvertTo-MemoryStartupBytes, Get-GuestBuilderMemoryMb, Get-ServiceVmMemoryMb, Select-SetupServiceVmKey, Get-ServiceVmMemoryVerdict, Get-HostPhysicalMemoryMb, Select-NameByPrefix, Get-YurunaServiceVmName
+Export-ModuleMember -Function New-YurunaTimestampedBackup, Get-HostProxyBackupPath, ConvertTo-ProxyHostPort, Get-PortMapStatePath, Test-IsAdministrator, Get-PwshApplicationPath, Get-SudoPwshArgumentList, Invoke-YurunaSudo, Test-YurunaCanPrompt, Assert-YurunaPromptable, Get-CachingProxyServicePort, Get-CachingProxyMemoryProfile, Test-Ipv4Address, Test-Ipv6Address, Format-IpUrlHost, Test-IpAddress, Select-YurunaRoutableAddress, ConvertTo-Sha512CryptHash, ConvertTo-YurunaMacAddress, ConvertTo-Ipv4UInt32, Get-HostIpv4Subnet, Get-Ipv4OnLinkVerdict, Get-PoolFacingIpv4Segment, Get-Ipv4PoolSegmentVerdict, Test-TcpConnectOutcome, Get-TcpOutcomeExplanation, Select-DhcpLeaseIpAddress, Select-StaleDhcpLeaseBlock, Remove-DhcpLeaseBlockText, Get-UtmGuestSeedHostname, ConvertTo-MemoryStartupBytes, Get-GuestBuilderMemoryMb, Get-ServiceVmMemoryMb, Select-SetupServiceVmKey, Get-ServiceVmMemoryVerdict, Get-HostPhysicalMemoryMb, Select-NameByPrefix, Get-YurunaServiceVmName

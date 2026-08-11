@@ -102,8 +102,13 @@
   // Hardware columns sort on their raw numbers; every other column is a string
   // on the wire, so one comparison serves them all -- lowercased, because a
   // hostname's capitalisation is not a sort order anyone means to ask for.
+  //
+  // A discovered host that could not name itself has no id to sort on, so it
+  // sorts on the address it answered at -- otherwise every such row would herd
+  // to one end of the table as a blank, away from the machines beside it.
   function sortValue(h, key) {
     if (FACT_KEY[key]) return factValue(h, key);
+    if (key === 'hostId') return String(h.hostId || h.address || '').toLowerCase();
     return String(h[key] || '').toLowerCase();
   }
 
@@ -131,8 +136,34 @@
     });
   }
 
+  // The first column for a host this service found by scanning rather than one
+  // the aggregator reported.
+  //
+  // The id is TEXT here, not the usual link. A pool host's id links through the
+  // aggregator's /go/host, which resolves the host's current address from what
+  // it has registered -- and a discovered host is by definition one that
+  // registered nothing, so that link can only ever land on a "no such host".
+  // The address is the way in instead: it is where this service just got an
+  // answer, so it is the one address known to work.
+  function hostCell(h) {
+    if (!h.discovered) return Y.hostLink(h.hostId, h.pool, goBaseUrl);
+    const box = Y.el('span', { class: 'discovered-host' });
+    if (h.hostId) box.appendChild(Y.el('span', { class: 'mono', text: Y.shortHost(h.hostId), title: h.hostId }));
+    const seen = h.lastSeen ? ', last seen ' + new Date(h.lastSeen).toLocaleString() : '';
+    if (h.baseUrl) {
+      box.appendChild(Y.el('a', {
+        class: 'mono', href: h.baseUrl, target: '_blank', rel: 'noopener',
+        title: 'Open this host’s own status page at ' + h.baseUrl + ' (found by a network scan' + seen + ')'
+      }, h.address));
+    } else {
+      box.appendChild(Y.el('span', { class: 'mono', text: h.address, title: 'Found by a network scan' + seen }));
+    }
+    box.appendChild(Y.el('span', { class: 'badge discovered', text: 'discovered', title: 'Found by scanning the network; it belongs to no pool and has not registered with the aggregator.' }));
+    return box;
+  }
+
   function rowEl(h) {
-    const sel = Y.el('select', { 'aria-label': 'Pool for host ' + h.hostId });
+    const sel = Y.el('select', { 'aria-label': 'Pool for host ' + (h.hostId || h.address) });
     sel.appendChild(Y.el('option', { value: '', text: '(none)' }));
     for (const p of pools) {
       const o = Y.el('option', { value: p, text: p + (p === targetPoolId ? ' — auto-enrolment target' : '') });
@@ -159,11 +190,19 @@
       }
     });
 
+    // Pool membership is recorded against a host id, so a discovered host that
+    // has not reported one cannot be put in a pool yet -- the picker says so
+    // rather than failing on the far side of a confirm dialog.
+    if (!h.hostId) {
+      sel.disabled = true;
+      sel.title = 'This host has not reported an id, so it cannot be assigned to a pool yet.';
+    }
+
     const control = Y.el('span', { text: h.control, title: CONTROL_HINT[h.control] || '' });
     const f = facts[h.hostId];
     const factErr = f && !f.ok ? (f.error || '') : '';
     return Y.el('tr', {}, [
-      Y.el('td', {}, [Y.hostLink(h.hostId, h.pool, goBaseUrl)]),
+      Y.el('td', {}, [hostCell(h)]),
       Y.el('td', {}, [hostnameCell(h.hostname)]),
       Y.el('td', {}, [typeCell(h.type)]),
       Y.el('td', {}, [factCell(fmtBytes(factValue(h, 'memory')), factErr)]),
@@ -212,7 +251,14 @@
     }
   }
 
-  async function load() {
+  // quiet marks a read the operator did not ask for (the countdown's), which
+  // keeps the rows it is refreshing on screen and signals in the footer. Every
+  // other read replaces the table, so it says so: this one fans out to every
+  // host in the lab and a silent machine holds it up for seconds.
+  async function load(opts) {
+    const quiet = !!(opts && opts.quiet);
+    const done = quiet ? function () { } : Y.busy(document.getElementById('host-rows'), 'Loading hosts…');
+    chrome.busy(true);
     try {
       // The hostname column turns on a session, and arriving from the dashboard
       // brings one in the URL fragment -- so wait for that exchange to settle
@@ -236,17 +282,27 @@
       }
     } catch (e) {
       Y.notice('error', e.message);
+    } finally {
+      done();
+      chrome.busy(false);
     }
   }
 
   // Silent on failure by design: the table is fully usable without hardware
   // facts, and the columns' em-dash tooltips already say a host did not report.
+  // It shows in the footer rather than over the table for the same reason: the
+  // rows are already readable while these columns fill in.
   async function loadFacts() {
+    chrome.busy(true);
     try {
       const d = await Y.api('/api/hosts/facts');
       facts = d.hosts || {};
-      render();
+      // Only a repaint of rows that exist. On first load these two reads race,
+      // and painting an empty table here would take down the wait indicator the
+      // host read is still under -- leaving a blank page mid-fetch.
+      if (hosts.length) render();
     } catch (e) { /* facts keep their last value */ }
+    finally { chrome.busy(false); }
   }
 
   document.getElementById('refresh').addEventListener('click', function () {
@@ -264,7 +320,7 @@
   // Header version + host id and the footer bar; its countdown re-reads the host
   // list rather than reloading, so a pending pool choice in a row survives. The
   // countdown deliberately does NOT re-fetch hardware facts (see `facts`).
-  const chrome = Y.initChrome({ refresh: load });
+  const chrome = Y.initChrome({ refresh: function () { load({ quiet: true }); } });
   load();
   loadFacts();
 })();

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.07
+.VERSION 2026.08.11
 .GUID 42a3b4c5-d6e7-4f89-8a01-2b3c4d5e6f70
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -59,7 +59,7 @@
 
 $here    = Split-Path -Parent $PSCommandPath
 $testDir = Split-Path -Parent $here
-$startCp = Join-Path $testDir 'Start-CachingProxyServiceVM.ps1'
+$startCp = Join-Path $testDir 'service/Start-CachingProxyServiceVM.ps1'
 
 function Assert-True { param($Condition, [string]$Because = '') if (-not $Condition) { throw "Expected true. $Because" } }
 

@@ -1,8 +1,7 @@
 # Yuruna definitions
 
-This file collects generic and yuruna-specific terms in one place, so
-definitions stay consistent across the framework, guest scripts, and
-docs.
+This file collects generic and yuruna-specific terms so definitions
+stay consistent across the framework, guest scripts, and docs.
 
 Source files reference an entry with a single line of the form:
 
@@ -424,7 +423,7 @@ The elapsed-time origin is kept in **microseconds** so the arithmetic stays
 integer: the shell has no floats, and forking a helper per output line to get
 them would be its own kind of slow. The origin is read from `EPOCHREALTIME`
 (bash ≥ 5); where the shell does not provide it, the sink degrades to a plain
-`tee` and the log simply carries no stamps.
+`tee` and the log carries no stamps.
 
 Source: [`automation/fetch-and-execute.sh`](../automation/fetch-and-execute.sh).
 
@@ -898,7 +897,7 @@ the host and accepts a 2-vCPU guest as the honest small-host sizing —
 threads the clamp evaluates identically to the baseline.
 
 **Failure mode.** If the host has fewer than 4 cores total, `New-VM.ps1`
-exits with a non-zero error code rather than silently provisioning an
+exits non-zero rather than silently provisioning an
 under-sized guest that will time out later in the cycle. The operator
 must either run on a larger host or edit the specific guest's
 `New-VM.ps1` to override the policy.
@@ -1095,8 +1094,8 @@ data lands fresh.
 
 `Yuruna.getHostInfo()` (in
 [`test/status/yuruna.common.js`](../test/status/yuruna.common.js))
-returns a Promise that resolves to a single object aggregating every
-piece of host-level data the status pages need. Three sources are
+returns a Promise that resolves to a single object aggregating the
+host-level data the status pages need. Three sources are
 fetched in parallel; the result is cached for the lifetime of the
 page so additional consumers do not re-fetch.
 
@@ -1172,9 +1171,8 @@ Round trip:
    (`pwsh -NoProfile -ExecutionPolicy Bypass -WorkingDirectory
    <repoRoot> -File <script>`), captures both stdout and stderr
    through `Out-String`, writes the result to
-   `[System.IO.Path]::GetTempPath()/yuruna-hostinfo.txt` (overwriting
-   any previous run), and returns the captured text as
-   `text/plain; no-store`.
+   `[System.IO.Path]::GetTempPath()/yuruna-hostinfo.txt`, and returns
+   the captured text as `text/plain; no-store`.
 3. The page renders the text inside a `<pre>` with
    `white-space: pre-wrap` so the diagnostic's column-aligned tables
    keep their layout while still wrapping on narrow viewports.
@@ -1199,7 +1197,7 @@ same `/control/host-diagnostic` request, which regenerates it.
 seconds; an asynchronous request (trigger + poll) would double the
 moving parts for nothing at Yuruna's single-operator scale.
 The endpoint blocks the server's request loop for the duration of the
-run — acceptable because the polling dashboard re-tries on the next
+run — acceptable because the polling dashboard retries on the next
 60 s tick.
 
 **Why the hostname is the click target.** It is the same string the
@@ -1364,9 +1362,8 @@ Page-specific behavior:
   (`[{ name, status, folderUrl }]`), each wrapped in an `<a href>` to
   that sequence's results folder — the driven guest's per-VM folder
   for a 1:1 sequence, or the cycle folder when a sequence fans out to
-  more than one guest. `status` is the worst of the sequence's guests
-  (`fail > running > pass > skipped > pending`), matching the Latest
-  Cycle sequence-card badge. Rows without `sequenceSummary` — older
+  more than one guest. `status` is the worst of the sequence's guests,
+  matching the Latest Cycle sequence-card badge. Rows without `sequenceSummary` — older
   rows, and the legacy `guestSequence` path, which has no sequences —
   carry only `guestSummary`, so the renderer falls back to one badge
   per guest: `guestSummary[k]` is either a bare string ("pass"/"fail",
@@ -1605,7 +1602,7 @@ runtime-only files live under `<runtimeDir>/` (typically
 | `runner.heartbeat` | `<runtimeDir>` | C# `Yuruna.HeartbeatWriter` timer in [Invoke-TestRunnerInnerLoop.ps1](../test/modules/Invoke-TestRunnerInnerLoop.ps1) | overwritten every 30 s | Process-level proof of life. Stays fresh even when the runspace is wedged inside a long SSH/OCR call. |
 | `runner.stepHeartbeat` | `<runtimeDir>` | runspace-side touch at the top of every step in [Test.SequenceEngine.psm1](../test/modules/Test.SequenceEngine.psm1); outer pre-wipes + force-touches before each spawn | overwritten per step | Runspace-level proof of life. Mtime older than `testCycle.stepTimeoutSeconds` means the inner is wedged inside a step → outer watchdog kills it. |
 | `.test.config.snapshot.json` | `<runtimeDir>` | `Publish-TestConfigSnapshot` in [Test.Config.psm1](../test/modules/Test.Config.psm1), auto-fired by every `Read-TestConfig` parse | overwritten on next parse | Cross-process parsed-config snapshot (envelope: sourcePath, sourceMtime, sourceHash, publishedAt, publisherPid, config). `Read-TestConfigOrSnapshot` validates the envelope's mtime+hash against the live YAML and uses the snapshot when both still match, avoiding a redundant YAML parse in the inner. |
-| `.caching-proxy-service.env.json` | `<runtimeDir>` | atomic temp→rename in [test/Start-CachingProxyServiceVM.ps1](../test/Start-CachingProxyServiceVM.ps1) | wiped by `Remove-TestVMFiles.ps1` | Cleared `*_proxy` env-var snapshot so a re-invocation of Start-CachingProxyServiceVM can restore them without operator re-typing. |
+| `.caching-proxy-service.env.json` | `<runtimeDir>` | atomic temp→rename in [test/service/Start-CachingProxyServiceVM.ps1](../test/service/Start-CachingProxyServiceVM.ps1) | wiped by `Remove-TestVMFiles.ps1` | Cleared `*_proxy` env-var snapshot so a re-invocation of Start-CachingProxyServiceVM can restore them without operator re-typing. |
 | `yuruna-caching-proxy-service.yml` | `<runtimeDir>` | `Save-CachingProxyServiceState` in [Test.CachingProxyService.psm1](../test/modules/Test.CachingProxyService.psm1) (temp-file + Move-Item + `.backup` rotation) | merged on next save | Cache-VM password + IP. Has a `.backup` sibling rotated on each successful write; `Read-CachingProxyServiceState` falls back to the backup when the main is corrupt and rotates the bad copy to `.corrupt.<UTC>` for forensics. |
 
 Conventions:
@@ -2009,8 +2006,8 @@ the canonical enum.
 
 `Initialize-RunnerState` reads the prior `runner.state.json` at outer
 startup. If the prior `current` is not `idle` AND the prior `runId`
-differs from the new outer's, the previous runner crashed mid-
-lifecycle. The startup emits TWO synthetic transitions on the NDJSON
+differs from the new outer's, the previous runner crashed
+mid-lifecycle. The startup emits TWO synthetic transitions on the NDJSON
 stream:
 
 1. `<prior-state> -> fault`  (the crash boundary)
@@ -2099,6 +2096,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.07
+Last review: 2026.08.11
 
 Back to [Yuruna](../README.md)

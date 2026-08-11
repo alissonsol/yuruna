@@ -16,12 +16,22 @@ import (
 // footer module (assets/common.js initFooter) from this one endpoint, so the
 // footer needs no page-specific data shape — and it is intentionally cheap so
 // the footer's periodic poll stays trivial.
-func (s *Server) handleHostInfo(w http.ResponseWriter, _ *http.Request) {
+//
+// canDelete/clientIp answer, for THIS caller, the source gate the delete
+// handler applies (deleteauth.go). Without them a page can only offer a Delete
+// button and let the operator discover the refusal by pressing it — the daemon
+// knows the answer while it is rendering the list, so it says so. Telling a
+// caller its own source address discloses nothing it could not learn by other
+// means; the set that WOULD be allowed stays in the daemon's log.
+func (s *Server) handleHostInfo(w http.ResponseWriter, r *http.Request) {
+	src := clientIP(r)
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok":          true,
 		"localHostId": s.localHostID,
 		"version":     s.version,
 		"serverIps":   serverIPLines(),
+		"clientIp":    src,
+		"canDelete":   s.deleteAllowed(src),
 	})
 }
 

@@ -284,7 +284,7 @@ snippet from that README (`RSACryptoServiceProvider.FromXmlString` +
 dashed, operator-labelled edges. `tools/Update-YurunaReleasePins.ps1`
 regenerates `install/install.sha256`, signs it, self-verifies against
 `install/keys/yuruna-release-signing.pub.pem`, and gates the release on
-`test/Test-AsciiNoBom.ps1`.
+`tools/Test-AsciiNoBom.ps1`.
 
 The manifest and signature are **per release tag**, so they are expected to be
 stale against a moving `main`: the verified-install path only works from
@@ -440,4 +440,4 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.07
+Last review: 2026.08.11

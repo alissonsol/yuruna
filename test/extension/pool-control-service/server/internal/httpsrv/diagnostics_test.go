@@ -79,9 +79,7 @@ func TestDiagnosticsRepoDirDetectsMissingCLIs(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Only one of the CLIs present -- the rest must be reported missing.
-	if err := os.WriteFile(filepath.Join(dir, "test", "Get-PoolIntent.ps1"), []byte("#\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	writeCLI(t, dir, poolAdminCLIs[0])
 	s := New(&fakeIntent{}, Options{Version: "test", RepoDir: dir})
 
 	c := checkByName(t, s.collectDiagnostics(context.Background()), "repo-dir")
@@ -93,16 +91,24 @@ func TestDiagnosticsRepoDirDetectsMissingCLIs(t *testing.T) {
 	}
 }
 
+// writeCLI plants one pool-admin CLI in a fake checkout. The list entries carry
+// their subdirectory, so the parent has to be made rather than assumed.
+func writeCLI(t *testing.T, repoDir, cli string) {
+	t.Helper()
+	path := filepath.Join(repoDir, "test", cli)
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("#\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
 // A complete checkout passes, so the check is not merely always-failing.
 func TestDiagnosticsRepoDirPassesWhenComplete(t *testing.T) {
 	dir := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(dir, "test"), 0o755); err != nil {
-		t.Fatal(err)
-	}
 	for _, cli := range poolAdminCLIs {
-		if err := os.WriteFile(filepath.Join(dir, "test", cli), []byte("#\n"), 0o644); err != nil {
-			t.Fatal(err)
-		}
+		writeCLI(t, dir, cli)
 	}
 	s := New(&fakeIntent{}, Options{Version: "test", RepoDir: dir})
 
@@ -162,7 +168,7 @@ func TestDiagnosticsCarriesRawIntentProbe(t *testing.T) {
 		OK:       false,
 		Exit:     1,
 		Stdout:   `{"ok":false,"error":"No intent store URL."}`,
-		Argv:     []string{"/usr/bin/pwsh", "-NoProfile", "-File", "/repo/test/Get-PoolIntent.ps1"},
+		Argv:     []string{"/usr/bin/pwsh", "-NoProfile", "-File", "/repo/test/pool/Get-PoolIntent.ps1"},
 		Duration: "1.2s",
 	}}
 	d := New(f, Options{Version: "test"}).collectDiagnostics(context.Background())

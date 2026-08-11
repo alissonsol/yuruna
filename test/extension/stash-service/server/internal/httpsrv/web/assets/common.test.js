@@ -6,10 +6,14 @@
   built-in assert + vm modules with a minimal shim.
 
   Covers:
-    - pathTail guards a missing/non-string permalink and rawURL/downloadURL propagate
-      the null, so a malformed row drops its link instead of crashing every row's render;
+    - pathTail guards a missing/non-string permalink and rawURL/downloadURL/stashApiURL
+      propagate the null, so a malformed row drops its link (and never issues a DELETE at
+      a guessed path) instead of crashing every row's render;
     - Y.api bounds the fetch with an AbortController + timeout and clears it in finally;
-    - humanSize returns an empty string for a non-finite size instead of 'NaN B'.
+    - humanSize returns an empty string for a non-finite size instead of 'NaN B';
+    - hostInfo shares one /api/hostinfo read between callers, never rejects, and
+      does not memoize a failure;
+    - the footer countdown parks while a page reports itself paused.
 */
 'use strict';
 const fs = require('fs');
@@ -62,6 +66,9 @@ assert.ok(Y && typeof Y.api === 'function', 'Y with api should be exposed after 
   assert.strictEqual(Y.rawURL({ hostId: 'h1', permalink: '/s/h1/2026/07/06/abc' }), '/raw/h1/2026/07/06/abc', 'rawURL(valid) unchanged');
   assert.strictEqual(Y.downloadURL(null), null, 'downloadURL(null) -> null');
   assert.strictEqual(Y.downloadURL({ hostId: 'h1', permalink: '/s/h1/2026/07/06/abc' }), '/download/h1/2026/07/06/abc', 'downloadURL(valid) unchanged');
+  assert.strictEqual(Y.stashApiURL(null), null, 'stashApiURL(null) -> null');
+  assert.strictEqual(Y.stashApiURL({ hostId: 'h', permalink: 42 }), null, 'stashApiURL(non-string permalink) -> null');
+  assert.strictEqual(Y.stashApiURL({ hostId: 'h1', permalink: '/s/h1/2026/07/06/abc' }), '/api/stashes/h1/2026/07/06/abc', 'stashApiURL(valid) targets the REST endpoint');
 
   // (3a) api aborts a never-resolving request once the timeout fires.
   fetchImpl = function (p, o) {
@@ -79,9 +86,28 @@ assert.ok(Y && typeof Y.api === 'function', 'Y with api should be exposed after 
   assert.strictEqual(timersSet - setBefore, 1, 'api arms exactly one timeout');
   assert.strictEqual(timersCleared - clearBefore, 1, 'api clears its timeout on success');
 
+  // (3c) hostInfo is shared and non-rejecting: every consumer of the host facts
+  // (header, footer, and a page deciding whether to offer delete) costs one
+  // request between them, a failed read resolves to {} rather than throwing, and
+  // that failure is NOT memoized -- controls derived from it must be able to
+  // come back without a page reload.
+  let hostinfoCalls = 0;
+  fetchImpl = function () { hostinfoCalls++; return Promise.reject(new Error('daemon down')); };
+  assert.deepStrictEqual(await Y.hostInfo(), {}, 'a failed hostInfo read resolves to {}');
+  fetchImpl = function () {
+    hostinfoCalls++;
+    return Promise.resolve({ ok: true, json: function () { return Promise.resolve({ ok: true, canDelete: true, clientIp: '10.0.0.9' }); } });
+  };
+  const facts = await Y.hostInfo();
+  assert.strictEqual(facts.canDelete, true, 'hostInfo returns the parsed body');
+  assert.strictEqual((await Y.hostInfo()).clientIp, '10.0.0.9', 'a later caller gets the same answer');
+  assert.strictEqual(hostinfoCalls, 2, 'the failure was retried; the success is shared');
+
   // (4) Source-structure guards (non-tautological -- each fails if its guard is removed from common.js).
   assert.match(source, /function pathTail\(view\)[\s\S]*?typeof view\.permalink !== 'string'/, 'pathTail guards a non-string permalink');
   assert.match(source, /rawURL\(view\)[\s\S]*?tail === null \? null/, 'rawURL propagates pathTail null');
+  assert.match(source, /stashApiURL\(view\)[\s\S]*?tail === null \? null/, 'stashApiURL propagates pathTail null');
+  assert.match(source, /if \(paused && paused\(\)\)[\s\S]*?return;[\s\S]*?countdown = Math\.max/, 'a paused page parks the countdown before it ticks down to a refresh');
   assert.match(source, /async api\(path, opts\)[\s\S]*?new AbortController\(\)/, 'api bounds the fetch with an AbortController');
   assert.match(source, /humanSize\(n\)[\s\S]*?Number\.isFinite\(v\)/, 'humanSize guards non-finite sizes');
 

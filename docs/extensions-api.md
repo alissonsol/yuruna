@@ -140,7 +140,7 @@ service:
   vmName: yuruna-stash-service        # the VM this host creates; absent = hosted elsewhere
   healthPort: 80                      # the port a CONSUMER connects to
   healthPath: /healthz
-  startScript: Start-StashServiceVM.ps1
+  startScript: Start-StashServiceVM.ps1   # a NAME; the harness resolves it under test/service/
   stopScript: Stop-StashServiceVM.ps1
   markerBaseUrlKey: stashBaseUrl      # this area's own marker key, kept for older readers
   beaconInterval: 15m
@@ -558,7 +558,7 @@ an enrolling host has no reason to trust that CA yet — so nothing else
 on the path can answer the exchange and plant a token the host would
 then honor for control proofs. It also keeps the shared token off the
 wire in the clear when the proxy runs plain HTTP (no TLS leaf).
-`pwsh test/Set-LabToken.ps1 -LabToken <code>` is the client
+`pwsh test/lab/Set-LabToken.ps1 -LabToken <code>` is the client
 (`Unprotect-LabTokenEnvelope` opens the envelope; a seal that does not
 authenticate is refused, never stored); `-lab-token-rotate 0` disables
 the exchange and the dashboard tile.

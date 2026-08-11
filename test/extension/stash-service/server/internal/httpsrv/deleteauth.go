@@ -34,12 +34,25 @@ func parseHostIPs(s string) []net.IP {
 	return out
 }
 
+// parseSourceIP parses a request's source address for the gate below. The zone
+// suffix an IPv6 source carries (fe80::1%eth0 -- what a browser that reached the
+// daemon over a link-local address produces) is stripped first: net.ParseIP
+// rejects a zoned literal outright, and the nil would fail the gate closed for a
+// caller that may well be this very VM. An IPv4-mapped v6 form (::ffff:10.0.0.1)
+// needs no such handling -- net.IP.Equal already matches it against its IPv4 twin.
+func parseSourceIP(addr string) net.IP {
+	if i := strings.IndexByte(addr, '%'); i >= 0 {
+		addr = addr[:i]
+	}
+	return net.ParseIP(addr)
+}
+
 // deleteAllowed reports whether a DELETE from clientIP (the request's source
 // address, as clientIP(r) extracts it) may proceed: true for the VM itself
 // (loopback or a local interface address) or a configured host IP; false for
 // every other LAN peer and for an unparseable address (fail closed).
 func (s *Server) deleteAllowed(clientIP string) bool {
-	ip := net.ParseIP(clientIP)
+	ip := parseSourceIP(clientIP)
 	if ip == nil {
 		return false
 	}
@@ -52,6 +65,32 @@ func (s *Server) deleteAllowed(clientIP string) bool {
 		}
 	}
 	return isLocalInterfaceIP(ip)
+}
+
+// allowedDeleteSources renders the permitted set as one phrase for the daemon's
+// log. Log-only on purpose: an operator diagnosing a refusal needs to see the
+// address the daemon was launched to trust next to the one it actually saw,
+// while the HTTP refusal tells a caller nothing but its own address -- a LAN
+// peer must not be able to read the lab's addressing out of a 403.
+func (s *Server) allowedDeleteSources() string {
+	parts := []string{"loopback", "this VM's own interface addresses"}
+	if len(s.deleteHostIPs) == 0 {
+		parts = append(parts, "no host IP configured (--host-ip empty)")
+	}
+	for _, h := range s.deleteHostIPs {
+		parts = append(parts, h.String())
+	}
+	return strings.Join(parts, ", ")
+}
+
+// sourceLabel renders a source address for a human. A connection whose
+// RemoteAddr carried no usable address still has to read as something in a
+// sentence, and the empty string would leave the message dangling.
+func sourceLabel(clientIP string) string {
+	if strings.TrimSpace(clientIP) == "" {
+		return "an unknown address"
+	}
+	return clientIP
 }
 
 // isLocalInterfaceIP reports whether ip is one of this VM's own interface

@@ -39,10 +39,21 @@
     return dl;
   }
 
-  function actions(v) {
+  // gate carries what /api/hostinfo says about THIS browser: the daemon accepts
+  // a delete only from the stash VM itself or the host IP it was launched with,
+  // and which of its own addresses reached the daemon is not something a browser
+  // can see. Without it this page would offer a button whose refusal is only
+  // discoverable by pressing it.
+  function actions(v, gate) {
     const box = Y.el('div', { class: 'actions' });
     box.append(Y.el('a', { class: 'btn primary', href: Y.downloadURL(v), download: v.originalFilename || v.id, text: 'Download' }));
-    if (v.local) {
+    if (v.local && !gate.canDelete) {
+      box.append(Y.el('button', { class: 'btn destructive', disabled: 'disabled', title: 'This browser may not delete on this host' }, 'Delete'));
+      box.append(Y.el('span', { class: 'muted' },
+        ' This browser reaches the stash service from '
+        + (gate.clientIp || 'an address the daemon could not read')
+        + '; only the stash VM itself or the host IP it was launched with may delete.'));
+    } else if (v.local) {
       box.append(Y.el('button', { class: 'btn destructive', onclick: () => confirmDelete(v) }, 'Delete'));
     } else {
       const btn = Y.el('button', { class: 'btn destructive', disabled: 'disabled', title: 'Owned by host ' + v.hostId }, 'Delete');
@@ -148,6 +159,7 @@
 
   async function load() {
     try {
+      const info = await Y.hostInfo();
       const data = await Y.api(apiPath());
       const v = data.stash;
       state.inlineTextCap = data.inlineTextCap || 0;
@@ -157,7 +169,7 @@
       detail.className = '';
       Y.replace(detail,
         Y.el('h1', { text: v.originalFilename || v.id }),
-        actions(v),
+        actions(v, { canDelete: !!info.canDelete, clientIp: info.clientIp || '' }),
         await renderViewer(v),
         Y.el('div', { class: 'card' }, meta(v)),
       );

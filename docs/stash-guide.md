@@ -111,9 +111,31 @@ or status.
 Open the stash and click **Delete** (you'll be asked to confirm).
 **Deletion is permanent.**
 
+From the **Stashes** list you can also delete without opening anything:
+
+- Each row has its own **Delete** button. It deletes that stash
+  **straight away, with no confirmation**, and the row disappears — the
+  rest of the page stays exactly as it was.
+- Tick the checkboxes on the rows you want (or **All**, which ticks every
+  row on screen) and use **Delete selected** above the table. That one
+  asks you to confirm, then deletes them all and reloads the list.
+
 You can only delete stashes **owned by the host you're viewing**. A stash
 from another host shows a **disabled** Delete and names its owner; open that
-host's stash UI to delete it there.
+host's stash UI to delete it there. In the list, rows from another host
+carry no checkbox and no Delete button at all.
+
+Delete also depends on **where you are browsing from**. Anyone on the lab
+network can browse and create, but only the stash VM itself and the host it
+was deployed from may delete. From any other machine no Delete control is
+shown at all — instead the page names the address the service saw your
+browser as. That address is the one that has to be allowed: either open the
+UI from the deploying host, or have the stash VM rebuilt knowing it.
+
+That can also happen from the right machine when the VM was built with a
+stale address — a host with several networks, or one whose address changed
+since. The address in the message is what the service actually saw, so it is
+what the VM has to be told about.
 
 ---
 
@@ -132,6 +154,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.07
+Last review: 2026.08.11
 
 Back to [Yuruna](../README.md)

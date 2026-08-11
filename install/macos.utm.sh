@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.08.07
+# Version: 2026.08.11
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 # Yuruna macOS UTM bootstrap installer.
@@ -471,7 +471,7 @@ if is_service_vm_running; then
   warn "  every running service VM -- guests that consume the caching proxy, the stash"
   warn "  service or pool-control then fail -- and it would also let the orphaned-bundle"
   warn "  sweep delete the cache VM's multi-GB squid spool. To upgrade UTM later: stop"
-  warn "  the services (pwsh test/Stop-CachingProxyServiceVM.ps1, test/Stop-StashServiceVM.ps1)"
+  warn "  the services (pwsh test/service/Stop-CachingProxyServiceVM.ps1, test/service/Stop-StashServiceVM.ps1)"
   warn "  or quit UTM manually, then re-run this installer."
   PRESERVE_SERVICE_VM=1
 fi

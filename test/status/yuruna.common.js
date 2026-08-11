@@ -1,7 +1,7 @@
 /*
   LICENSEURI https://yuruna.link/license
   Copyright (c) 2019-2026 by Alisson Sol et al.
-  Version: 2026.08.07
+  Version: 2026.08.11
 
   Shared helpers for the Yuruna status pages. Mounted on window.Yuruna.
   --- REGION: https://yuruna.link/definition#defining-the-status-page-browser-baseline
@@ -10,7 +10,7 @@
 (function() {
   'use strict';
 
-  var VERSION = '2026.08.07';
+  var VERSION = '2026.08.11';
 
   // --- REGION: https://yuruna.link/control-proof
   // A Grafana deep-link routes through the caching-proxy service's /go/host, which appends a
@@ -440,7 +440,7 @@
     if (reason === 'host-token-missing') {
       return 'This host has no lab-auth-token, so remote control is loopback-only. ' +
              'Open this page as http://localhost:' + window.location.port + '/ on the host, ' +
-             'or enroll it: pwsh test/Set-LabToken.ps1 -LabToken <code from the dashboard’s Lab token tile>. ' +
+             'or enroll it: pwsh test/lab/Set-LabToken.ps1 -LabToken <code from the dashboard’s Lab token tile>. ' +
              'See https://yuruna.link/control-proof';
     }
     if (reason === 'proof-expired') {
@@ -452,7 +452,7 @@
     }
     if (reason === 'proof-invalid') {
       return 'The control proof was rejected. It may have been minted with a different ' +
-             'lab-auth-token than this host holds; re-enrolling with test/Set-LabToken.ps1 realigns them.';
+             'lab-auth-token than this host holds; re-enrolling with test/lab/Set-LabToken.ps1 realigns them.';
     }
     if (reason === 'verifier-unavailable') {
       return 'The host could not load its control-proof verifier; check the status service log.';
@@ -622,7 +622,7 @@
         '(<code>http://localhost:&lt;port&gt;</code>), or one opened through the <b>Yuruna hosts ' +
         'dashboard</b> link (which grants a short-lived token). To drive it from another machine, ' +
         'open it via the dashboard; if this host was never enrolled, run ' +
-        '<code>pwsh test/Set-LabToken.ps1 -LabToken &lt;code&gt;</code> with the code from the ' +
+        '<code>pwsh test/lab/Set-LabToken.ps1 -LabToken &lt;code&gt;</code> with the code from the ' +
         'dashboard’s <b>Lab token</b> tile — see ' +
         '<a href="https://yuruna.link/control-routes" target="_blank" rel="noopener">control-route setup</a>.';
       n.hidden = false;
@@ -1640,7 +1640,7 @@
           '— drawn as a single gray bar. ' +
           'This usually means the detached status-service process predates the ' +
           'per-step timing in <code>/control/perf-aggregates</code>. Restart it with: ' +
-          '<code>pwsh test/Stop-StatusService.ps1 ; pwsh test/Start-StatusService.ps1</code>' +
+          '<code>pwsh test/service/Stop-StatusService.ps1 ; pwsh test/Start-StatusService.ps1</code>' +
           ', then reload this page.';
         body.insertBefore(warn, body.firstChild);
       }

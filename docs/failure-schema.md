@@ -97,14 +97,14 @@ authoritative one durable:
 
 Schema-versioned (`schemaVersion` = `1`), written through the atomic,
 no-BOM state-file primitive. Fields: `timestamp`, `failureClass`,
-`severity`, `recommendation` (one of the canonical recovery vocabulary),
+`severity`, `recommendation` (from the canonical recovery vocabulary),
 `rationale`, `actions` (string[]), `handledBy`, `autoApply`, `source`, plus
 `outerFailureClass` when the dispatcher routed past a `retry_exhausted`
 wrapper, and the correlation fields (`vmName`, `guestKey`, `hostType`,
 `stepNumber`, `actionVerb`, `sequenceName`) the failure carried.
 
 `autoApply` is **always `false` today**: the dispatcher records what should
-happen, it never performs the action. Acting on the recommendation is a
+happen; it never performs the action. Acting on the recommendation is a
 separate, default-off capability gated behind a per-cycle attempt cap, a
 class allow-list, and enough human review of these records first — which is
 why the decision is persisted ahead of any actor that consumes it.
@@ -151,12 +151,13 @@ so the contract stays satisfied and a remediator stays null-safe.
 ## `degradation` event (non-failure observability)
 
 The same `cycle.events.ndjson` stream also carries `degradation` events —
-emitted by `Send-YurunaDegradation` (Test.Log.psm1) when the harness falls
+emitted by `Send-YurunaDegradation` (`Test.Log.psm1`) when the harness falls
 back from a primary mechanism to a lesser alternative and **continues** the
 cycle degraded. It is deliberately distinct from the `*_failed` /
 `*_unavailable` events (a capability that broke): a degradation reports a
-capability that was unavailable and *worked around*, so a degraded-but-
-passing cycle is queryable instead of reading as a clean pass. Fields:
+capability that was unavailable and *worked around*, so a
+degraded-but-passing cycle is queryable instead of reading as a clean pass.
+Fields:
 `event` = `degradation`, `timestamp`, `dependency` (the subsystem, e.g.
 `keystroke-mechanism`), `primary` (preferred mechanism), `fallback`
 (alternative taken), `reason`, and `severity` (`soft` by nature). The emit is
@@ -202,8 +203,8 @@ to disable. Each attempt emits a `warm_resume` event: `event` = `warm_resume`,
 because it resumed stays queryable, never a silent pass.
 
 Soundness rests on the runner running each workload sequence as a **single
-file** (`Invoke-SequenceByName` → `Invoke-Sequence`), so `resumeFromStep` (file-
-local) maps directly onto `Invoke-Sequence -StartStep` (file-local). This is
+file** (`Invoke-SequenceByName` → `Invoke-Sequence`), so `resumeFromStep`
+(file-local) maps directly onto `Invoke-Sequence -StartStep` (file-local). This is
 the "warm / no unbuilt baseline" case the [`repro`](#repro) note calls out —
 Invoke-TestSequence's chain runner concatenates baselines and is *not* this
 case, which is why `repro.command` still omits `-StartStep`.
@@ -374,6 +375,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.07
+Last review: 2026.08.11
 
 Back to [Yuruna](../README.md)

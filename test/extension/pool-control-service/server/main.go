@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"pool-control-service/internal/config"
+	"pool-control-service/internal/discovery"
 	"pool-control-service/internal/httpsrv"
 	"pool-control-service/internal/intent"
 	"pool-control-service/internal/state"
@@ -43,6 +44,9 @@ func main() {
 	authTokenFile := flag.String("auth-token-file", config.DefaultAuthTokenFile, "file holding the lab auth token accepted as a bearer on the mutating routes (empty or missing leaves the dashboard's lab token as the only way in)")
 	autoEnrol := flag.Bool("auto-enrol", false, "enable the auto-enrolment sweep (adds lab-token-ready hosts to the target pool); OFF by default")
 	autoEnrolInterval := flag.Duration("auto-enrol-interval", 60*time.Second, "how often the auto-enrolment sweep runs when --auto-enrol is set")
+	scanCIDR := flag.String("scan-cidr", "", "network to sweep for Yuruna hosts, in CIDR notation (empty = the /24 around this service's own address)")
+	scanPort := flag.Int("scan-port", discovery.DefaultPort, "host status-service port probed on each address during a scan")
+	scanInterval := flag.Duration("scan-interval", discovery.DefaultInterval, "how often the discovery sweep runs (0 disables the timer; the Scan page still scans on demand)")
 	flag.Parse()
 
 	log.SetFlags(log.LstdFlags | log.LUTC | log.Lmicroseconds)
@@ -62,6 +66,7 @@ func main() {
 		PwshPath: *pwshPath, RepoDir: *repoDir, StateDir: *stateDir,
 		AggregatorURL: *aggregatorURL, HostID: *hostID, IntentGitURL: *intentGitURL,
 		AuthToken: authToken, AuthTokenFile: *authTokenFile,
+		ScanCIDR: *scanCIDR, ScanPort: *scanPort, ScanInterval: *scanInterval,
 	})
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -78,6 +83,20 @@ func main() {
 		Enabled:  *autoEnrol,
 		Interval: *autoEnrolInterval,
 	})
+
+	// Network discovery, on its own ticker for the same reason: the sweep is how
+	// a host that registered with nobody becomes visible, and gating it on a NAS
+	// would mean the deployment least likely to have one also never looks.
+	if *scanInterval > 0 {
+		where := *scanCIDR
+		if where == "" {
+			where = discovery.DefaultCIDR() + " (this service's own network)"
+		}
+		log.Printf("pool-control-service discovery: sweeping %s every %s, probing port %d", where, *scanInterval, *scanPort)
+	} else {
+		log.Printf("pool-control-service discovery: sweep disabled (--scan-interval 0); the Scan page still scans on demand")
+	}
+	go ui.RunDiscovery(ctx, *scanInterval)
 
 	// Continuous monitor: probe the intent store and refresh status.json (the
 	// heartbeat + intent-readable flag) under poolStorageNetworkPath so an operator (or a

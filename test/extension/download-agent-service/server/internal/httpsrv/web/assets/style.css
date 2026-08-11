@@ -6,6 +6,7 @@
 :root { color-scheme: light dark;
         --fg:#111827; --muted:#6b7280; --line:#e5e7eb; --accent:#2563eb; --bg:#fff; --err:#b00020; --ok:#1a7f37; --warn:#9a6700;
         --btn-bg:#f6f8fa; --btn-hover:#eef1f4; --track:#eef1f4;
+        --band-odd:#f6f8fa; --band-even:#ffffff;
         --ok-bg:#e8f5ec; --ok-line:#b7e0c2; --warn-bg:#fff8e1; --warn-line:#f0dca0;
         --err-bg:#fde8ea; --err-line:#f3b6bd; --info-bg:#e8f0fb; --info-line:#bcd3f0; --neutral-bg:#f3f4f6;
         --chrome-bg:#111827; --chrome-fg:#f9fafb; --chrome-muted:#9ca3af; --chrome-line:#374151;
@@ -16,6 +17,7 @@
 @media (prefers-color-scheme: dark) {
   :root { --fg:#e5e7eb; --muted:#94a3b8; --line:#1f2937; --accent:#74b8ff; --bg:#0b1220; --err:#fca5a5; --ok:#4ade80; --warn:#fcd34d;
           --btn-bg:#111827; --btn-hover:#1f2937; --track:#1f2937;
+          --band-odd:#111827; --band-even:#0b1220;
           --ok-bg:#14532d; --ok-line:#166534; --warn-bg:#78350f; --warn-line:#92400e;
           --err-bg:#7f1d1d; --err-line:#991b1b; --info-bg:#1e3a8a; --info-line:#1d4ed8; --neutral-bg:#1f2937;
           --chrome-bg:#030712; --chrome-muted:#94a3b8; --chrome-line:#1f2937;
@@ -206,6 +208,17 @@ table { border-collapse: collapse; width: 100%; margin-top: .5rem; }
 th, td { text-align: left; padding: .5rem .6rem; border-bottom: 1px solid var(--line); vertical-align: top; }
 th { color: var(--muted); font-weight: 600; font-size: .82rem; text-transform: uppercase; letter-spacing: .03em; }
 tfoot td { font-weight: 600; border-bottom: none; border-top: 2px solid var(--line); }
+/* Banded rows. The image table is wide enough that the eye loses its row
+   between the first and the last column; the alternating background is what
+   carries it across. The pair is a token, and the same two values in every
+   Yuruna UI, so one service cannot band its tables in a shade of its own --
+   each daemon embeds its own stylesheet (//go:embed cannot reach outside its
+   module), so the values are duplicated and must move together.
+   Scoped to tbody: the totals row in tfoot stays outside the alternation and
+   keeps reading as a summary. A cell that paints its own background still
+   wins, because a td's background paints over its tr's. */
+tbody tr:nth-child(odd) { background: var(--band-odd); }
+tbody tr:nth-child(even) { background: var(--band-even); }
 /* A sortable header is a real button wearing the header's own typography, so
    the column still reads as a label while being reachable by keyboard. */
 th button.th-sort { font: inherit; color: inherit; text-transform: inherit; letter-spacing: inherit; background: none; border: 0; border-radius: 0; padding: 0; cursor: pointer; text-align: left; }

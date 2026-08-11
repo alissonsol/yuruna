@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.08.07
+# Version: 2026.08.11
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 set -euo pipefail
@@ -605,4 +605,3 @@ echo -e "\e[1;33m║                                                            
 echo -e "\e[1;33m║  New terminals will activate the docker group automatically        ║\e[0m"
 echo -e "\e[1;33m║  via the .bashrc snippet. A full logout/login also works.          ║\e[0m"
 echo -e "\e[1;33m╚════════════════════════════════════════════════════════════════════╝\e[0m"
-

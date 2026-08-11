@@ -39,6 +39,7 @@ func (s *Server) routes() http.Handler {
 	// /api/hosts so the page's periodic host-list reload does not pay (or
 	// trigger) the pool-wide fan-out.
 	mux.HandleFunc("GET /api/hosts/facts", s.handleHostFacts)
+	mux.HandleFunc("GET /api/scan", s.handleScanStatus)
 	mux.HandleFunc("GET /api/state", s.handleState)
 	mux.HandleFunc("GET /api/diagnostics", s.handleDiagnostics)
 	// What each pool's members are currently doing. A read of the same
@@ -59,6 +60,11 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("DELETE /api/pool/host", s.gate.Require(s.handleRemoveHost))
 	mux.HandleFunc("POST /api/pool/move-host", s.gate.Require(s.handleMoveHost))
 	mux.HandleFunc("POST /api/pool/testset", s.gate.Require(s.handleAssign))
+	// Scanning is gated with the changes, not with the reads: it adds hosts to
+	// what this daemon monitors, and it aims a burst of connection attempts at
+	// a network the caller names.
+	mux.HandleFunc("POST /api/scan", s.gate.Require(s.handleScanStart))
+	mux.HandleFunc("POST /api/scan/forget", s.gate.Require(s.handleScanForget))
 	mux.HandleFunc("POST /api/testset", s.gate.Require(s.handleSetTestSet))
 	mux.HandleFunc("DELETE /api/testset", s.gate.Require(s.handleDeleteTestSet))
 
@@ -68,6 +74,7 @@ func (s *Server) routes() http.Handler {
 	// serving a 401 body a browser cannot act on.
 	mux.HandleFunc("GET /pools", s.servePage("pools.html"))
 	mux.HandleFunc("GET /test-sets", s.servePage("test-sets.html"))
+	mux.HandleFunc("GET /scan", s.servePage("scan.html"))
 	mux.HandleFunc("GET /diagnostics", s.servePage("diagnostics.html"))
 	mux.HandleFunc("GET /hosts", s.servePage("hosts.html"))
 	// Assign lives at /assign, not "/": the root slot serves the board.

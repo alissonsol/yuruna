@@ -245,7 +245,7 @@ Every `-interval` (default 30s) it:
    a-z0-9) and exposes it as `yuruna_pool_lab_token{pool,token}` — an info
    gauge carrying the current code — which drives the dashboard's **Lab token**
    stat tile. A host redeems the displayed code at `POST /api/v1/lab-token`
-   (via `test/Set-LabToken.ps1`) and receives the shared **lab-auth-token**,
+   (via `test/lab/Set-LabToken.ps1`) and receives the shared **lab-auth-token**,
    the bearer that gates `/ingest` and the other token-gated pool routes; a
    displayed code stays redeemable for about three rotations, so the tile never
    shows a code that is already dead. The reply is **sealed under the redeemed
@@ -370,9 +370,9 @@ the leaf is absent.
 | `/go/cycle?host=<hostId>&t=<epochMs>` | GET | none | dashboard timeline click → 302 to that host's cycle-results folder. Resolves the host's **current** IP from the live view (so the link survives a host IP change) and the cycle covering `t` (current cycle in-memory, else the host's `/log/` listing, else the Loki transition feed); degrades to the host's status root when the folder can't be resolved |
 | `/go/host?host=<hostId>` | GET | none | dashboard timeline click → 302 to that host's status-page **root**. Same `host` uuid → **current** IP resolution as `/go/cycle` (survives a host IP change), but always lands on the status page rather than a cycle folder — the IP-free state-timeline rows can't carry the IP, so the link resolves it here |
 | `/go/stash?host=<hostId>&area=<area>` | GET | none | 302 to that host's extension-service UI (default `area=stash-service`, the stash-service VM), resolved through the same source merge as the dashboard cell — the service's own live announce first, the host's `extensionTargets` when nothing is announcing (see 5c-i). For IP-free, hostId-only consumers — the dashboard table itself links directly via the `target` label. Unknown host/target → 404 |
-| `/api/v1/lab-token` | POST | none (per-IP throttled) | lab-token exchange: body `{"labToken":"<6 chars>"}` → `200 {"ok":true,"v":1,"salt":…,"nonce":…,"ciphertext":…,"tag":…}` — redeems the dashboard's **Lab token** code for the shared lab-auth-token, sealed under that code so only the redeemer can open it (called by `test/Set-LabToken.ps1`). `400` malformed, `403` unknown/expired code, `429` per-IP throttle, `503` disabled (`-lab-token-rotate 0`). Every attempt audited (aggregator log + Loki, `src="lab-token"`) |
+| `/api/v1/lab-token` | POST | none (per-IP throttled) | lab-token exchange: body `{"labToken":"<6 chars>"}` → `200 {"ok":true,"v":1,"salt":…,"nonce":…,"ciphertext":…,"tag":…}` — redeems the dashboard's **Lab token** code for the shared lab-auth-token, sealed under that code so only the redeemer can open it (called by `test/lab/Set-LabToken.ps1`). `400` malformed, `403` unknown/expired code, `429` per-IP throttle, `503` disabled (`-lab-token-rotate 0`). Every attempt audited (aggregator log + Loki, `src="lab-token"`) |
 | `/ingest` | POST | Bearer | runner-side push of NDJSON events (supplements pull); the bearer is the shared lab-auth-token (`-auth-token-file`). `503` when the proxy holds no token — a failure state, since the proxy build mints one |
-| `/api/v1/forget-host?hostId=<42-hex>` | POST | Bearer | operator eviction: drop one hostId from the in-memory view NOW (all per-host maps → gone from the next `/metrics` scrape) instead of waiting out the configured host TTL (`-host-ttl`). Same token as `/ingest`; 503 when no token, 400 on a malformed id. JSON `{forgotten, hostId, wasPresent}`. A still-reachable host is re-discovered on the next poll — stop/drain it first. Called by `test/Remove-PoolHost.ps1` |
+| `/api/v1/forget-host?hostId=<42-hex>` | POST | Bearer | operator eviction: drop one hostId from the in-memory view NOW (all per-host maps → gone from the next `/metrics` scrape) instead of waiting out the configured host TTL (`-host-ttl`). Same token as `/ingest`; 503 when no token, 400 on a malformed id. JSON `{forgotten, hostId, wasPresent}`. A still-reachable host is re-discovered on the next poll — stop/drain it first. Called by `test/pool/Remove-PoolHost.ps1` |
 | `/announce` | POST | none (self-identity-bound) | extension-presence beacon (stash service et al., point 5c): the advertised URL derives from / must match the sender's address, so an announcer can only advertise itself, and must be an address the pool could route to (`400` for loopback/link-local/multicast/non-URL); the handler confirms a newly announced address against `/healthz` before it is resolvable (point 5c-ii). Telemetry-only, bounded, disabled (503) when `-announce-ttl` is `0` |
 
 ## Deploy + verify
@@ -491,7 +491,7 @@ dashboard's 30s refresh, with no Grafana or dashboard action.
   route that SUPPLEMENTS pull (closing the trailing-event gap; Loki dedups the overlap).
   The bearer is the shared `lab-auth-token`, minted and stored in the building
   host's vault at proxy build when none exists — so push is enabled once the
-  proxy is built and hosts enroll (`test/Set-LabToken.ps1` redeems the
+  proxy is built and hosts enroll (`test/lab/Set-LabToken.ps1` redeems the
   dashboard's Lab token code). `/metrics`, `/healthz`, `/api/v1/pool-status`
   stay open + unauthenticated for the
   hostname-free dashboard + the local Prometheus scrape. Still trusted-LAN posture

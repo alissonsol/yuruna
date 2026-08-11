@@ -144,6 +144,7 @@ view, delete). The JSON API it consumes:
 | DELETE | `/api/stashes/{hostId}/{…}` | delete — **source-IP-restricted** to the VM or the deploying host (`--host-ip`), then **local host only** (foreign hostId → 403) |
 | POST | `/api/refresh` | force a pool-index rescan |
 | GET | `/api/host?host=<id>` | best-effort hostId→stash-UI resolution (pool-aggregator-service) |
+| GET | `/api/hostinfo` | host id, version, this daemon's own IPs, plus `clientIp`/`canDelete` — the source gate's answer for the calling browser |
 
 Flags (defaults): `--http-addr` (`0.0.0.0:80`, empty disables the UI),
 `--pool-window-days` (`30`), `--pool-refresh-secs` (`60`),
@@ -151,7 +152,17 @@ Flags (defaults): `--http-addr` (`0.0.0.0:80`, empty disables the UI),
 (`0.0.0.0:22`, dev override when the OS sshd holds :22), `--host-id` (empty)
 and `--presence-interval` (`15m`, `0` disables) for the presence beacon
 (§4.7), and `--host-ip` (empty) — the deploying host's IP, the one non-VM
-source allowed to `DELETE` stashes (reads/writes stay open; UI §8.4). The bring-up stamps the framework version via
+source allowed to `DELETE` stashes (reads/writes stay open; UI §8.4).
+
+Diagnosing a refused delete: the source gate is answered per browser by
+`/api/hostinfo` (`canDelete`, plus the `clientIp` the daemon saw), which is
+how the UI decides whether to render a Delete control at all; a refusal names
+that same address in its 403 and logs it next to the set that would have been
+allowed (`journalctl -u stash-service | grep 'delete refused'`). The launch
+line records the configured set once at startup (`grep 'delete authz'`). The
+address a browser is seen as is `ip route get <vm-ip>` on the browsing
+machine — a multi-homed or re-addressed host is the usual reason a baked
+`--host-ip` stops matching. The bring-up stamps the framework version via
 `-ldflags "-X main.version=<v>"` (shown in the UI header); ad-hoc dev builds
 show `vdev`.
 
@@ -171,7 +182,10 @@ unreachable aggregator never affects stash operation.
 The UI is pool-wide: this host's live index merged with every other host's
 on-share sidecars (bounded to the recent window in memory, with an
 on-demand deep scan for older queries). Delete only touches this host's
-own stashes; a remote stash shows a disabled Delete pointing at its owner.
+own stashes; a remote stash shows a disabled Delete pointing at its owner
+on its own page, and no delete control at all in the list. The list adds
+a per-row Delete plus a checkbox selection driving **Delete selected**,
+which is N single `DELETE` calls — there is no bulk endpoint (ui §8.5).
 
 ## Tests
 
@@ -201,6 +215,12 @@ Coverage focuses on the spec-driven pure-logic bits:
 - `internal/httpsrv/` — create→list→get→raw→delete round-trip, remote-host
   delete 403, pool-wide remote-sidecar aggregation, html-served-as-text,
   multi-file archive + listing, static pages (ui §3–§9).
+
+The front-end has two framework-free unit files run by hand (there is no JS
+runner in the repo — `node internal/httpsrv/web/assets/common.test.js` and
+`node internal/httpsrv/web/assets/index.test.js`, exit 0 = pass). They cover
+the shared helpers' URL/timeout guards and the list page's selection +
+delete surface (ui §8.5) against a minimal DOM/fetch shim.
 
 The legacy SCP wire protocol and the live SFTP path are exercised against
 a real `scp`/`sftp` client only in the in-VM end-to-end (host `:22` is
@@ -235,6 +255,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.07
+Last review: 2026.08.11
 
 Back to [Yuruna](../../../../README.md)

@@ -50,8 +50,8 @@ The step is non-critical -- a failed agent build never fails setup.
 To bring it up or rebuild it by hand:
 
 ```powershell
-pwsh test/Start-DownloadAgentServiceVM.ps1 [-VMName yuruna-download-agent-service]
-pwsh test/Stop-DownloadAgentServiceVM.ps1   # tears the VM down; the pool is untouched
+pwsh test/service/Start-DownloadAgentServiceVM.ps1 [-VMName yuruna-download-agent-service]
+pwsh test/service/Stop-DownloadAgentServiceVM.ps1   # tears the VM down; the pool is untouched
 ```
 
 `Start-DownloadAgentServiceVM.ps1`, in order:
@@ -469,7 +469,7 @@ held only live credentials.
 | Row appears but the deep-link is dead from other machines | Shared-NAT Mac whose `:8082` forward did not install | Re-run the start script once the VM has an address; prefer a bridged host for the agent |
 | Unlock says `503 lab-token-unavailable` | The daemon could not reach the aggregator to check the code, so it refused rather than guessing | Check the caching-proxy VM and the aggregator (`journalctl -u pool-aggregator-service`). Until it answers, drive the agent with the `Authorization: Bearer <lab-auth-token>` API routes |
 | Unlock refuses a code you just read | The code rotated more than about three minutes ago, or the tile is stale | Re-read the tile and retry. If the tile itself reads "collector down", fix the aggregator first |
-| UI actions return `503 auth-unconfigured` | The VM was built with no aggregator URL and no lab-auth token, so neither gate exists | Set a lab token with `test/Set-LabToken.ps1`, then rebuild the agent VM so the seed carries the aggregator URL |
+| UI actions return `503 auth-unconfigured` | The VM was built with no aggregator URL and no lab-auth token, so neither gate exists | Set a lab token with `test/lab/Set-LabToken.ps1`, then rebuild the agent VM so the seed carries the aggregator URL |
 | UI actions return "read-only" / show a `leaseHolder` | Another agent on the same NAS holds the lease | Expected. Use that agent's UI, or stop it -- the lease expires after three scan intervals |
 | An entry is stale and refuses to refresh | The origin is unreachable directly | The pool keeps serving the previous verified generation. Nothing to do but restore origin reachability; the next scan retries |
 | `guest.windows.11` never appears in the pool, or stays `absent` after a Force refresh | Best-effort family: no PowerShell, no Fido, or Fido could not mint a URL under Linux pwsh | Open the **Diagnostics** page: the family card carries the exact failure, the last resolver run shows both output streams, and the gated Resolver test reruns the resolve on demand. A VM built before this family (or before the platform-gate patch) needs a Stop/Start rebuild. Hosts are unaffected either way: Hyper-V and UTM run Fido themselves, KVM stays manual |
@@ -499,6 +499,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.07
+Last review: 2026.08.11
 
 Back to [Yuruna](../README.md)

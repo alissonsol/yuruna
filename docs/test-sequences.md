@@ -1,9 +1,9 @@
 # Sequence actions and host contracts
 
-Authoritative reference for the actions you can use in sequence files
+Authoritative reference for the actions available in sequence files
 under [`test/sequences/`](../test/sequences/) and `project/<...>/test/`,
-plus the per-host [Yuruna.Host](../host) contract functions that
-back the ones with non-trivial cross-host divergence.
+plus the per-host [Yuruna.Host](../host) contract functions
+backing those with non-trivial cross-host divergence.
 
 - Source of truth for action names is the `Register-SequenceAction`
   registry in
@@ -38,7 +38,7 @@ failure (with retry-wrapping as documented under `retry`).
   at sequence start. Each entry can reference any variable declared
   above it plus the built-ins; the resolved value is stored and reused
   on every later `${name}` reference. This is the "stable value across
-  multiple steps" path — when a "New password:" must be typed and then
+  multiple steps" path — when a "New password:" must be typed, then
   re-typed at "Retype:", assign the `${ext:...}` call to a sequence
   variable so both prompts see the same string.
 - **Inline `${ext:area.Method(args)}` references in a step's args** are
@@ -56,7 +56,7 @@ failure (with retry-wrapping as documented under `retry`).
   standalone-invocation fallback for `Invoke-TestSequence.ps1` runs with no
   cascade context.
 - **`${hostname}` defaults to the VM name** — that is what the guest is
-  actually called when nothing pins it (`New-VM` falls back to
+  called when nothing pins it (`New-VM` falls back to
   `-VMName` for cloud-init's `local-hostname`), so a sequence can match
   the shell prompt on `${hostname}` unconditionally; the sequence's own
   `variables:` block or the planner cascade overwrites it when
@@ -66,7 +66,7 @@ failure (with retry-wrapping as documented under `retry`).
 
 Four sequence `variables:` are also forwarded to the per-guest `New-VM.ps1`
 when it declares the matching parameter (a "declare-or-drop" rule — a guest
-that does not take the parameter simply ignores it, logged on the Verbose
+that does not take the parameter ignores it, logged on the Verbose
 stream). They cascade top-down like any other variable, so a top-level
 sequence sets the value for its whole chain:
 
@@ -98,7 +98,7 @@ log directory (`$env:YURUNA_LOG_DIR`):
 | File | What it carries |
 |---|---|
 | `last_failure.json` | Schema-v2 record of the failed step (`stepNumber`, `action`, `description`, `vmName`, `guestKey`, `failureClass`, `severity`, `suggestedRecoveries`, `actionVerb`, `context`). The parent runner reads it; `Send-Notification`'s `-EventData` payload is built from it. See [`test/modules/Test.SequenceEngine.psm1`](../test/modules/Test.SequenceEngine.psm1) for the writer and [`test/modules/Test.Notify.psm1`](../test/modules/Test.Notify.psm1) for the consumer. |
-| `failure_screenshot_<VM>.png` | Last VM screenshot captured at time of failure. Present for every failing step that has a host-IO backend. |
+| `failure_screenshot_<VM>.png` | Last VM screenshot at failure time. Present for every failing step that has a host-IO backend. |
 | `failure_ocr_<VM>.txt` | Last OCR text. Written only by `waitForText` family failures. |
 
 The per-cycle `manifest.json` ([`Stop-LogFile`](../test/modules/Test.Log.psm1)) enumerates every artifact in the cycle folder with `kind`, `sizeBytes`, `sha256`, and `modifiedUtc` — a single well-known entry point for autonomous remediators.
@@ -117,7 +117,7 @@ Top-level keys in a sequence YAML, complementing `description:`,
 Declares that this sequence is a CONSUMER of a disk snapshot produced
 by an earlier sequence in its `resource:` chain (typically a sibling
 `.baseline.yml` that ends in [`saveDiskSnapshot`](#savedisksnapshot)).
-The runner uses it for two related decisions:
+The runner uses it for two decisions:
 
 1. **VM-name override.** The runtime VM name becomes `id` (instead of
    the default `test-<guestKey>`). Because [`saveDiskSnapshot`](#savedisksnapshot)
@@ -144,7 +144,7 @@ anything templated into cloud-init / `/etc/passwd` / ssh keys) MUST
 match the value the snapshot-producing sequence used. On the cold path,
 the cascade hands this sequence's variables down to the prereqs and
 everything aligns; on the warm path the prereqs don't re-run, so a
-mismatched variable here will reference state that doesn't exist on
+mismatched variable here references state that doesn't exist on
 disk (e.g. a [`passwdPrompt`](#passwdprompt) for a username the
 snapshot's `/etc/passwd` never had). When redefining a baked-in
 variable, delete the persisted VM + snapshot to force a cold rebuild.
@@ -176,7 +176,7 @@ steps:
 ### Where snippets live
 
 Snippets are defined in a `_snippets.yml` library — a map of
-`name → [steps]` — sitting beside the sequences:
+`name → [steps]` — beside the sequences:
 
 - **Framework:** `test/sequences/_snippets.yml`
 - **Project:** `project/<…>/test/_snippets.yml` (any example's test tree)
@@ -220,7 +220,7 @@ broken or missing snippet reference is caught before a cycle starts.
 
 #### firstLoginPrime
 
-The bundled gui snippet. Wakes a freshly-rebooted agetty before a
+The bundled gui snippet. Wakes a freshly rebooted agetty before a
 username is typed: the first keystroke into a cold `login:` prompt is
 swallowed while the tty input layer drains, so on KVM (one
 `virsh send-key` per char, no lead-in) the leading character of the
@@ -252,10 +252,10 @@ a real snapshot name such as the workload's `requiresSnapshot` /
 [`loadDiskSnapshot`](#loaddisksnapshot) `id`.
 
 - **Manual** — operator deletes the marker file. Always resumes in
-  place. The VM stays exactly as it was when the break fired, so the
-  operator's mid-pause edits carry forward. Use this when you want to
-  inspect or fix something on the live guest before continuing.
-- **UI Continue** — operator clicks the **Continue** button rendered on
+  place. The VM stays as it was when the break fired, so the
+  operator's mid-pause edits carry forward. Use it to inspect or fix
+  the live guest before continuing.
+- **UI Continue** — operator clicks the **Continue** button on
   the status page (`http://localhost:8080/status/`) for the running
   guest's card. The button POSTs to `/control/break-continue`; the
   action consumes the flag and resumes. By default this also resumes in
@@ -282,8 +282,8 @@ into a no-op for unattended runs.
 #### Programmatic Continue (matches the UI button)
 
 The UI button has a one-to-one programmatic equivalent — useful for CI
-hooks, scripted iteration loops, or remote-debug sessions that don't
-have a browser handy. All three paths produce the same on-disk state
+hooks, scripted iteration loops, or remote-debug sessions with no
+browser handy. All three paths produce the same on-disk state
 (`<runtimeDir>/control.break-continue` exists), which the running
 sequence's `break` handler polls for:
 
@@ -308,13 +308,13 @@ the step opted in.
 
 Login after a snapshot-restore is **the sequence author's
 responsibility** — the guest boots fresh from the snapshot disk and
-will be sitting at the login prompt, so place
+sits at the login prompt, so place
 [`passwdPrompt`](#passwdprompt) / [`sshWaitReady`](#sshwaitready) /
 similar steps after the break.
 
 | Parameter | Type | Notes |
 |---|---|---|
-| `reason` | string | Optional. Written into the marker file so the operator knows why we stopped. |
+| `reason` | string | Optional. Written into the marker file so the operator knows why the sequence stopped. |
 | `id` | string | Optional. Label shown in the marker file and the status UI. Restores only when `restoreOnContinue` is set; then it must name a snapshot, typically from a `saveDiskSnapshot` step earlier in the same sequence. |
 | `restoreOnContinue` | boolean | Optional, default `false`. When true AND `id` names an existing snapshot, UI Continue rewinds the disk and restarts the VM before resuming. |
 
@@ -382,7 +382,7 @@ Revert the VM to a previously saved disk-only snapshot via the
 the VM so the next step interacts with a live guest. The host driver
 stops the VM first if running, restores the disk, and the sequence
 engine then calls [`Start-VM`](#other-contract-surface) (Hyper-V / KVM / UTM all
-implement the contract). No RAM-state is restored — guest boots fresh
+implement the contract). No RAM state is restored — guest boots fresh
 from the snapshot disk, so re-DHCP and SSH re-handshake are expected
 (gate downstream consumers on `sshWaitReady`, and on-screen consumers
 on `waitForText` for the login prompt).
@@ -404,7 +404,7 @@ Windows.11 is a no-op reminder (TODO). Uses the `Send-Text` and
 | Parameter | Type | Notes |
 |---|---|---|
 | `text` | string | Optional override of the typed command. Default `bash /usr/local/lib/yuruna/yuruna-network.sh release` (Ubuntu / Amazon only). |
-| `charDelayMs` | number | Default `50`. Character typing delay in milliseconds. |
+| `charDelayMs` | number | Per-character delay; default `50`. |
 
 ### passwdPrompt
 
@@ -753,7 +753,7 @@ See [Test harness — architecture](test-harness.md#yurunahost-contract) for the
 
 Below are the contract functions whose **per-host behavior diverges in
 operationally significant ways** — where a sequence author needs to
-know what actually happens on each host.
+know what happens on each host.
 
 ### `Save-VMDiskSnapshot` + `Rename-VM`
 
@@ -907,6 +907,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.07
+Last review: 2026.08.11
 
 Back to [Yuruna](../README.md)

@@ -4,7 +4,7 @@
 // Package intent is the pool-control-service write/read layer. Rather than reimplement
 // the git-clone + YAML + schema-validation + commit/push/rebase-retry logic, it
 // SHELLS OUT to the battle-tested PowerShell pool-admin CLIs under <repo>/test/
-// (New-Pool.ps1, Set-PoolTestSet.ps1, ...). That reuses one authoritative
+// (pool/New-Pool.ps1, pool/Set-PoolTestSet.ps1, ...). That reuses one authoritative
 // implementation of the intent contract and keeps this service thin.
 package intent
 
@@ -18,7 +18,7 @@ import (
 )
 
 // Runner invokes the pool-admin CLIs via pwsh. RepoDir is the yuruna framework
-// checkout (the CLIs live at RepoDir/test/*.ps1). IntentGitUrl, when set, is
+// checkout (the CLIs live at RepoDir/test/pool/). IntentGitUrl, when set, is
 // forwarded as -IntentGitUrl so the service is not bound to test.config.yml.
 type Runner struct {
 	Pwsh         string
@@ -107,6 +107,8 @@ func cliErrorFromStdout(stdout string) string {
 
 // exec runs `pwsh -NoProfile -File <RepoDir>/test/<script> <args...>` and, when
 // IntentGitUrl is set, appends -IntentGitUrl. It never blocks on prompts.
+// script is relative to test/ and names its subfolder ("pool/Set-PoolTestSet.ps1"),
+// so a CLI that changes folders is one edit at the call site.
 func (r *Runner) exec(ctx context.Context, script string, args ...string) Result {
 	full := append([]string{"-NoProfile", "-NonInteractive", "-File", r.RepoDir + "/test/" + script}, args...)
 	// Resolved per invocation, not captured at construction: the operator fix for
@@ -157,7 +159,7 @@ func (r *Runner) exec(ctx context.Context, script string, args ...string) Result
 
 // State runs Get-PoolIntent.ps1 (read-only) which emits a single JSON object
 // {ok, pools, testSets} on stdout. Returned verbatim so the handler can relay it.
-func (r *Runner) State(ctx context.Context) Result { return r.exec(ctx, "Get-PoolIntent.ps1") }
+func (r *Runner) State(ctx context.Context) Result { return r.exec(ctx, "pool/Get-PoolIntent.ps1") }
 
 func (r *Runner) NewPool(ctx context.Context, poolID, displayName, desiredState string) Result {
 	args := []string{"-PoolId", poolID}
@@ -167,7 +169,7 @@ func (r *Runner) NewPool(ctx context.Context, poolID, displayName, desiredState 
 	if desiredState != "" {
 		args = append(args, "-DesiredState", desiredState)
 	}
-	return r.exec(ctx, "New-Pool.ps1", args...)
+	return r.exec(ctx, "pool/New-Pool.ps1", args...)
 }
 
 func (r *Runner) RemovePool(ctx context.Context, poolID string, force bool) Result {
@@ -175,7 +177,7 @@ func (r *Runner) RemovePool(ctx context.Context, poolID string, force bool) Resu
 	if force {
 		args = append(args, "-Force")
 	}
-	return r.exec(ctx, "Remove-Pool.ps1", args...)
+	return r.exec(ctx, "pool/Remove-Pool.ps1", args...)
 }
 
 func (r *Runner) SetDesiredState(ctx context.Context, poolID, state string) Result {
@@ -183,26 +185,26 @@ func (r *Runner) SetDesiredState(ctx context.Context, poolID, state string) Resu
 	// takes, while New-Pool.ps1 (which sets the same field as one of several
 	// properties) names it -DesiredState. A mismatch here is invisible until an
 	// operator flips a pool and pwsh rejects the parameter at bind time.
-	return r.exec(ctx, "Set-PoolDesiredState.ps1", "-PoolId", poolID, "-State", state)
+	return r.exec(ctx, "pool/Set-PoolDesiredState.ps1", "-PoolId", poolID, "-State", state)
 }
 
 func (r *Runner) AddHost(ctx context.Context, poolID, hostID string) Result {
-	return r.exec(ctx, "Add-HostToPool.ps1", "-PoolId", poolID, "-HostId", hostID)
+	return r.exec(ctx, "pool/Add-HostToPool.ps1", "-PoolId", poolID, "-HostId", hostID)
 }
 
 func (r *Runner) RemoveHost(ctx context.Context, poolID, hostID string) Result {
-	return r.exec(ctx, "Remove-HostFromPool.ps1", "-PoolId", poolID, "-HostId", hostID)
+	return r.exec(ctx, "pool/Remove-HostFromPool.ps1", "-PoolId", poolID, "-HostId", hostID)
 }
 
 // AssignTestSet copies a library test-set's triple into the pool's inline testSet.
 func (r *Runner) AssignTestSet(ctx context.Context, poolID, name, frameworkURL, projectURL string) Result {
-	return r.exec(ctx, "Set-PoolTestSet.ps1", "-PoolId", poolID, "-Name", name, "-FrameworkUrl", frameworkURL, "-ProjectUrl", projectURL)
+	return r.exec(ctx, "pool/Set-PoolTestSet.ps1", "-PoolId", poolID, "-Name", name, "-FrameworkUrl", frameworkURL, "-ProjectUrl", projectURL)
 }
 
 func (r *Runner) SetTestSetDef(ctx context.Context, name, frameworkURL, projectURL string) Result {
-	return r.exec(ctx, "Set-PoolTestSetDefinition.ps1", "-Name", name, "-FrameworkUrl", frameworkURL, "-ProjectUrl", projectURL)
+	return r.exec(ctx, "pool/Set-PoolTestSetDefinition.ps1", "-Name", name, "-FrameworkUrl", frameworkURL, "-ProjectUrl", projectURL)
 }
 
 func (r *Runner) DeleteTestSetDef(ctx context.Context, name string) Result {
-	return r.exec(ctx, "Set-PoolTestSetDefinition.ps1", "-Name", name, "-Delete")
+	return r.exec(ctx, "pool/Set-PoolTestSetDefinition.ps1", "-Name", name, "-Delete")
 }

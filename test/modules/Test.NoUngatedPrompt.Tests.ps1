@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.07
+.VERSION 2026.08.11
 .GUID 42f3a1c8-7b2d-4e59-8c04-1d6ea9b73f52
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -123,7 +123,7 @@ either direction.
         Reason = 'Interactive-by-design operator tool: it deletes VM disk images and asks per file. Nothing in the harness starts it.'
     }
     @{
-        File = 'test/Move-CachingProxyService.ps1'; Function = ''; Max = 2
+        File = 'test/service/Move-CachingProxyService.ps1'; Function = ''; Max = 2
         Reason = 'Interactive-by-design operator tool for moving a service between addresses; it is invoked by hand and by nothing else.'
     }
     @{
@@ -175,7 +175,7 @@ long as each caller keeps its half.
         Reason = 'The password pair for the same tool, reached only when no password was supplied on the command line.'
     }
     @{
-        File = 'test/Set-LabToken.ps1'; Function = ''; Max = 1
+        File = 'test/lab/Set-LabToken.ps1'; Function = ''; Max = 1
         Reason = @'
 Suppressed by the script's own -NonInteractive switch, checked immediately above
 the read, and setup.ps1 passes it. Same call-site-contract caveat as the config

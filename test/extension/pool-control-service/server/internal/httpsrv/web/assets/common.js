@@ -168,6 +168,73 @@
     }
   };
 
+  // --- waiting -------------------------------------------------------------
+
+  // How long a container that ALREADY holds rows keeps them before the wait
+  // indicator replaces them. A read that answers in 50 ms would otherwise blink
+  // the table out and back, which reads as a glitch rather than as progress;
+  // a read that is actually slow is announced long before anyone concludes the
+  // page is stuck.
+  const BUSY_GRACE_MS = 250;
+
+  // Y.busy paints "still working" into a container and returns the function
+  // that takes it back down. Every slow read on every page goes through it, so
+  // one wait looks like every other one.
+  //
+  //   const done = Y.busy(el, 'Loading pools…');
+  //   try { ...render... } finally { done(); }
+  //
+  // done() must run on the FAILURE path too, or a read that never lands leaves
+  // a spinner turning forever -- which claims progress that is not happening.
+  //
+  // A read that FAILED gets back what the indicator replaced: the rows are
+  // stale, not wrong, and the page's notice already says the refresh did not
+  // land. The originals go back, not copies of them, so the controls in those
+  // rows keep the handlers they were built with. When the caller did repaint,
+  // there is nothing to undo and done() leaves its work alone.
+  //
+  // An empty container shows the indicator at once -- there is nothing to lose,
+  // and that first paint is the wait an operator is actually staring at.
+  Y.busy = function (container, message) {
+    if (!container) return function () { };
+    const inner = Y.el('div', { class: 'loading', role: 'status' }, [
+      Y.el('span', { class: 'spinner', 'aria-hidden': 'true' }),
+      Y.el('span', { class: 'loading-text', text: message || 'Loading…' })
+    ]);
+    // A <tbody> may only hold rows, so there the indicator travels in one that
+    // spans the table; every other container takes it directly.
+    const node = container.tagName === 'TBODY' ? busyRow(container, inner) : inner;
+    const previous = [];
+    let timer = null;
+    const paint = function () {
+      timer = null;
+      while (container.firstChild) previous.push(container.removeChild(container.firstChild));
+      container.appendChild(node);
+    };
+    if (container.firstElementChild) timer = setTimeout(paint, BUSY_GRACE_MS);
+    else paint();
+    return function () {
+      if (timer) { clearTimeout(timer); timer = null; }
+      if (node.parentNode !== container) return;
+      container.removeChild(node);
+      for (const n of previous) container.appendChild(n);
+      previous.length = 0;
+    };
+  };
+
+  // The indicator row for a table, spanning every column so it sits under the
+  // middle of the table rather than squeezed into the first one. The column
+  // count comes from the header; a table without one gets a single wide cell,
+  // which still renders.
+  function busyRow(tbody, inner) {
+    const table = tbody.closest ? tbody.closest('table') : null;
+    const head = table ? table.querySelector('thead tr') : null;
+    const cols = head ? head.children.length : 1;
+    return Y.el('tr', { class: 'loading-row' }, [
+      Y.el('td', { colspan: String(cols) }, [inner])
+    ]);
+  }
+
   Y.notice = function (kind, msg) {
     const n = document.getElementById('notice');
     if (!n) return;
@@ -262,10 +329,11 @@
   // Page-agnostic — every fact comes from /api/hostinfo, so a page adds the
   // chrome by carrying the markup and calling this once.
   //
-  // Returns { markLoaded, stamp }. markLoaded stamps the "Loaded" time AND
+  // Returns { markLoaded, stamp, busy }. markLoaded stamps the "Loaded" time AND
   // restarts the countdown, which suits a page whose data only moves when it
   // fetches. stamp only writes the time: a page polling faster than the
   // countdown would otherwise keep resetting it, pinning the number forever.
+  // busy(true/false) is the quiet half of Y.busy -- see below.
   //
   // Mirrors the stash service's footer and the status pages' (yuruna.common.js).
   Y.initChrome = function (opts) {
@@ -294,6 +362,21 @@
       if (el) el.textContent = new Date().toLocaleTimeString();
     };
     const markLoaded = function () { stamp(); countdown = interval; };
+
+    // The footer's activity dot: what a refresh the operator did NOT ask for
+    // signals with. A background poll keeps the numbers it is refreshing on
+    // screen, so it has no room for Y.busy's indicator -- and a wall display
+    // that blanked every half minute would read as failing, not as refreshing.
+    //
+    // Depth-counted: a page whose load runs two reads at once (the host list
+    // and the hardware fan-out) must not have the first one to finish declare
+    // the page idle.
+    let busyDepth = 0;
+    const busy = function (on) {
+      busyDepth = Math.max(0, busyDepth + (on ? 1 : -1));
+      const el = $('footer-busy');
+      if (el) el.hidden = busyDepth === 0;
+    };
 
     Y.hostInfo().then(function (d) {
       const ver = $('header-version');
@@ -330,7 +413,7 @@
       }
     }
 
-    return { markLoaded: markLoaded, stamp: stamp };
+    return { markLoaded: markLoaded, stamp: stamp, busy: busy };
   };
 
   // initMenu wires the header's page menu: the button toggles the panel, and a

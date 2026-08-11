@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.07
+.VERSION 2026.08.11
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456707
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -359,7 +359,7 @@ if (-not $gate.passed) {
 # the call-op argv) so the function reads no caller-scope variables
 # implicitly. ShutdownState is reference-shared with the Ctrl+C handler
 # above; flipping ['Requested'] there ends the loop here.
-$CycleScript = Join-Path $TestRoot 'Invoke-TestCycleRunner.ps1'
+$CycleScript = Join-Path $ModulesDir 'Invoke-TestCycleRunner.ps1'
 if (-not (Test-Path -LiteralPath $CycleScript)) {
     # Not fatal: the loop falls back to running the cycle in-process, which behaves
     # identically except that an edit then needs a runner restart to take effect.

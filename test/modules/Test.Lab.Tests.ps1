@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.07
+.VERSION 2026.08.11
 .GUID 42d1e7b3-5a94-4c26-b0f8-3e17a9d5c082
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -134,7 +134,7 @@ Describe 'New-Lab writes a usable lab vault' {
     # collide with anything on the machine, and touch no real vault entry.
     $u1 = "pester-cred-a-$stamp"
     $u2 = "pester-cred-b-$stamp"
-    $labScript = Join-Path $testRoot 'New-Lab.ps1'
+    $labScript = Join-Path $testRoot 'lab/New-Lab.ps1'
     # Invoked through -Command, not -File: with -File every argument arrives as a
     # literal string, so a comma-separated -User would bind as ONE name.
     & pwsh -NoProfile -Command "& `"$labScript`" -Name `"$labName`" -Root `"$work`" -User `"$u1`",`"$u2`"" 2>&1 | Out-Null

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.07
+.VERSION 2026.08.11
 .GUID 426d4f21-8a35-49be-b7e0-3d18f52a9c6b
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -32,7 +32,7 @@
                        to this machine. Brings up only the caching proxy (its
                        smaller profile) and the stash service; further service
                        VMs are started by hand when wanted (e.g.
-                       test/Start-DownloadAgentServiceVM.ps1), or opted into
+                       test/service/Start-DownloadAgentServiceVM.ps1), or opted into
                        the run with their config key.
       Lab              a beacon that other machines join: shared storage, the
                        caching proxy, the stash, download-agent and
@@ -1525,7 +1525,7 @@ function Invoke-ServiceVMReset {
         [Parameter(Mandatory)][string]$Service,
         [Parameter(Mandatory)][string]$StopScript
     )
-    $stopPath = Join-Path $TestRoot $StopScript
+    $stopPath = Join-Path $TestRoot (Join-Path 'service' $StopScript)
     [void](Invoke-SetupStep -Name "Stop and remove any existing $Service VM (clean slate for the start)" -Action {
         [void](Invoke-RepoScript -Path $stopPath)
     })
@@ -1655,7 +1655,7 @@ function Invoke-ServiceVMEnsure {
     # PSReviewUnusedParameter cannot follow a use that happens only inside a
     # scriptblock handed to another command, so a parameter used only there
     # reads to the analyzer as unused.
-    $startPath = Join-Path $TestRoot $StartScript
+    $startPath = Join-Path $TestRoot (Join-Path 'service' $StartScript)
     $startArgs = $StartArguments
 
     if ($Requires.Count -gt 0) {
@@ -1691,6 +1691,73 @@ function Invoke-ServiceVMEnsure {
     [void](Invoke-SetupStep -Name "Start the $Service VM" -Critical:$Critical -Provides $RosterKey -Action {
         [void](Invoke-RepoScript -Path $startPath -Arguments $startArgs)
     })
+}
+
+function Test-NetworkSubnetConnectivity {
+<#
+.SYNOPSIS
+    Verify network connectivity to the local /24 subnet before running setup.
+.DESCRIPTION
+    Checks whether the machine can communicate with IP addresses in its local /24
+    subnet. On Linux, it probes active firewall rules (such as `ufw`) to verify that
+    outgoing traffic to the local network is not blocked. If connectivity is restricted,
+    it provides short troubleshooting advice and a helpful documentation link.
+#>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param(
+        [string]$DocumentationUrl = 'https://yuruna.link/docs/network#local-Subnet-Connectivity'
+    )
+
+    Write-SetupDetail 'Checking machine network subnet connectivity...'
+    $hasSubnetAccess = $true
+
+    if ($IsLinux) {
+        if (Get-Command ufw -ErrorAction SilentlyContinue) {
+            $ufwStatus = & sudo ufw status 2>$null
+            if ($LASTEXITCODE -eq 0 -and $ufwStatus -match 'Status:\s*active') {
+                # Look for outbound DENY/REJECT rules targeting /24 subnets
+                $denyRules = @($ufwStatus | Where-Object { $_ -match '\bDENY OUT\b|\bREJECT OUT\b' })
+                if ($denyRules.Count -gt 0) {
+                    # Verify if any DENY OUT rule matches a /24 subnet (e.g. 192.168.7.0/24)
+                    foreach ($rule in $denyRules) {
+                        if ($rule -match '\b(?:\d{1,3}\.){3}\d{1,3}/24\b') {
+                            $hasSubnetAccess = $false
+                            break
+                        }
+                    }
+                }
+            }
+        }
+    } elseif ($IsWindows) {
+        try {
+            $blockedOutbound = Get-NetFirewallRule -Direction Outbound -Enabled True -Action Block -ErrorAction SilentlyContinue
+            if ($blockedOutbound) {
+                Write-SetupDetail 'Windows Firewall contains active outbound block rules. Ensure local /24 subnet traffic is permitted.'
+            }
+        } catch {
+            Write-SetupVerbose "Windows Firewall check: $($_.Exception.Message)"
+        }
+    }
+
+    if (-not $hasSubnetAccess) {
+        Write-SetupWarning "Network connectivity check failed: Outbound traffic to the local /24 subnet is restricted by firewall rules."
+        Write-SetupMessage ""
+        Write-SetupMessage "To enable service VM communication, allow traffic to your local network subnet."
+        if ($IsLinux) {
+            Write-SetupMessage "  Linux (ufw) suggested commands:"
+            Write-SetupMessage "    sudo ufw allow out to x.y.z.0/24"
+            Write-SetupMessage "    sudo ufw reload"
+        } elseif ($IsWindows) {
+            Write-SetupMessage "  Windows PowerShell (elevated) suggested command:"
+            Write-SetupMessage "    New-NetFirewallRule -DisplayName 'Allow Local Subnet' -Direction Outbound -Action Allow -RemoteAddress LocalSubnet"
+        }
+        Write-SetupMessage "  For detailed instructions, see: $DocumentationUrl"
+        Write-SetupMessage ""
+        return $false
+    }
+
+    return $true
 }
 
 function Get-ConfiguredPoolNetworkPath {
@@ -2646,6 +2713,12 @@ if (-not $WhatIfPreference) {
 }
 
 # --- REGION: 1. preflight checks
+[void](Invoke-SetupStep -Name 'Preflight: network subnet connectivity check' -Critical -Action {
+    if (-not (Test-NetworkSubnetConnectivity -DocumentationUrl 'https://yuruna.link/docs/network-troubleshooting')) {
+        throw "Machine network firewall rules restrict outbound /24 subnet traffic. Adjust firewall rules and re-run setup."
+    }
+})
+
 # This is the one place a missing hypervisor can stop the run cheaply and
 # legibly. Without the probe the run gets through host settings, storage, the
 # hosts aliases and the proxy teardown before dying inside a child -- having
@@ -2832,7 +2905,7 @@ if ($runTests) {
         # running this again, so both belong in the warned bucket; a hard failure
         # here would leave the run with no path to green on a perfectly usable
         # host. Every other non-zero is a real failure and still throws.
-        $code = Invoke-RepoScript -Path (Join-Path $TestRoot 'Enable-TestAutomation.ps1') `
+        $code = Invoke-RepoScript -Path (Join-Path $TestRoot 'lab/Enable-TestAutomation.ps1') `
             -Arguments @('-SkipPoolStorage') -TolerateFailure
         if ($code -eq 2) {
             Add-UnmetCondition -Reason 'applied, and some host condition still needs the operator (the log names each one)'
@@ -2976,7 +3049,7 @@ if ($storageKind -eq 'none') {
         return $true
     } -Action {
         $storageArgs = Get-LocalLabStorageArgument -LabName $labName -LocalRoot $storageLocalRoot
-        [void](Invoke-RepoScript -Path (Join-Path $TestRoot 'New-LocalLabStorage.ps1') -Arguments $storageArgs)
+        [void](Invoke-RepoScript -Path (Join-Path $TestRoot 'lab/New-LocalLabStorage.ps1') -Arguments $storageArgs)
     })
 } else {
     # NOT critical on its own: an unreachable NAS is ordinary -- it is down, or a
@@ -3023,7 +3096,7 @@ if ($storageKind -eq 'none') {
             }
             [void](Invoke-SetupStep -Name 'Fall back to local pool and stash shares (New-LocalLabStorage)' -Critical -Provides 'storage' -Action {
                 $storageArgs = Get-LocalLabStorageArgument -LabName $labName -LocalRoot $storageLocalRoot
-                [void](Invoke-RepoScript -Path (Join-Path $TestRoot 'New-LocalLabStorage.ps1') -Arguments $storageArgs)
+                [void](Invoke-RepoScript -Path (Join-Path $TestRoot 'lab/New-LocalLabStorage.ps1') -Arguments $storageArgs)
             })
             $storageKind = 'local'
         } else {
@@ -3237,7 +3310,7 @@ if (-not $isLab) {
 # which is exactly the behavior without it. An explicit
 # downloadAgentService.enabled in the config overrides the mode default either
 # way, and the VM can always be started by hand
-# (test/Start-DownloadAgentServiceVM.ps1). Non-critical on purpose.
+# (test/service/Start-DownloadAgentServiceVM.ps1). Non-critical on purpose.
 $downloadAgentEnabled = $isLab
 $downloadAgentStated  = $null
 if (-not $WhatIfPreference) { $downloadAgentStated = Get-DownloadAgentServiceEnabledValue -Path $ConfigPath }
@@ -3246,7 +3319,7 @@ if (-not $downloadAgentEnabled) {
     if ($null -ne $downloadAgentStated) {
         Add-SkippedStep -Description 'Download-agent service (downloadAgentService.enabled is false)'
     } else {
-        Add-SkippedStep -Description 'Download-agent service (standalone default: start it with test/Start-DownloadAgentServiceVM.ps1, or set downloadAgentService.enabled: true)'
+        Add-SkippedStep -Description 'Download-agent service (standalone default: start it with test/service/Start-DownloadAgentServiceVM.ps1, or set downloadAgentService.enabled: true)'
     }
 } else {
     # -Requires 'storage': the agent has nowhere to put the images without the
@@ -3276,8 +3349,8 @@ if ($isLab) {
                 }
             } catch { Write-SetupVerbose "metrics read over ${scheme}: $($_.Exception.Message)" }
         }
-        if (-not $code) { throw "could not read the lab token from ${proxyIp}:9400/metrics; the dashboard's 'Lab token' tile shows it, and 'pwsh test/Set-LabToken.ps1 -LabToken <code> -CachingProxyService $proxyIp -BounceStatusService' finishes this step" }
-        [void](Invoke-RepoScript -Path (Join-Path $TestRoot 'Set-LabToken.ps1') `
+        if (-not $code) { throw "could not read the lab token from ${proxyIp}:9400/metrics; the dashboard's 'Lab token' tile shows it, and 'pwsh test/lab/Set-LabToken.ps1 -LabToken <code> -CachingProxyService $proxyIp -BounceStatusService' finishes this step" }
+        [void](Invoke-RepoScript -Path (Join-Path $TestRoot 'lab/Set-LabToken.ps1') `
             -Arguments @($code, '-CachingProxyService', $proxyIp, '-BounceStatusService', '-NonInteractive'))
     })
 
@@ -3304,13 +3377,13 @@ if ($isLab) {
         # reset a pool the operator had set to 'paused' or 'drain' back to 'run'
         # each time. New-Pool seeds the bare store itself when the pool folder
         # carries none yet, so a NAS tier that never ran New-Lab works here too.
-        [void](Invoke-RepoScript -Path (Join-Path $TestRoot 'New-Pool.ps1') `
+        [void](Invoke-RepoScript -Path (Join-Path $TestRoot 'pool/New-Pool.ps1') `
             -Arguments @('-PoolId', 'default', '-IfMissing', '-IntentGitUrl', $script:intentGitUrl))
     })
 
     [void](Invoke-SetupStep -Name 'Validate the pool intent store' -Requires 'storage' -Action {
         if (-not $intentGitUrl) { throw 'no intent store URL was resolved' }
-        [void](Invoke-RepoScript -Path (Join-Path $TestRoot 'Test-PoolIntent.ps1') -Arguments @('-IntentGitUrl', $intentGitUrl))
+        [void](Invoke-RepoScript -Path (Join-Path $TestRoot 'pool/Test-PoolIntent.ps1') -Arguments @('-IntentGitUrl', $intentGitUrl))
     })
 
     # LAST of the lab steps, and after the intent store exists. The pool-control
@@ -3421,7 +3494,7 @@ if ($isLab) {
         Write-SetupMessage 'To join another machine: read the Lab token tile on the dashboard'
         Write-SetupMessage "  http://${proxyIp}:3000"
         Write-SetupMessage 'then run THERE (the code rotates every minute, so read it at the time):'
-        Write-SetupMessage "  pwsh test/Set-LabToken.ps1 -CachingProxyService $proxyIp -LabToken <code from the tile>"
+        Write-SetupMessage "  pwsh test/lab/Set-LabToken.ps1 -CachingProxyService $proxyIp -LabToken <code from the tile>"
     }
     if ($storageKind -eq 'local') {
         Write-SetupMessage ''

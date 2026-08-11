@@ -13,6 +13,7 @@ APT_PROXY_BLOCK_PLACEHOLDER
   packages:
     - console-setup
     - keyboard-configuration
+# === YURUNA_OVERLAY_HOST_AGENT_PKG ===
   identity:
     hostname: HOSTNAME_PLACEHOLDER
     username: USERNAME_PLACEHOLDER
@@ -142,6 +143,7 @@ APT_PROXY_BLOCK_PLACEHOLDER
     # glob exits non-zero and aborts the late-command phase (the whole install).
     - chmod -x /target/etc/update-motd.d/* 2>/dev/null || true
     - mkdir -p /target/etc/default && test -f /target/etc/default/motd-news && sed -i 's/^ENABLED=1/ENABLED=0/' /target/etc/default/motd-news || echo 'ENABLED=0' > /target/etc/default/motd-news
+# === YURUNA_OVERLAY_LATE_HOST_AGENT ===
     - mkdir -p /target/etc/default/grub.d
 # === YURUNA_OVERLAY_GRUB_PRE_CONSOLE_QUIET ===
     # --- REGION: https://yuruna.link/vmconfig#console-quiet

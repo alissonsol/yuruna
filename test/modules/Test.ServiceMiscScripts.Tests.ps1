@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.07
+.VERSION 2026.08.11
 .GUID 42d7e8f9-a0b1-4c23-8d45-6e7f8a9b0c1d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -50,7 +50,7 @@ $here    = Split-Path -Parent $PSCommandPath
 $testDir = Split-Path -Parent $here   # .../test
 
 $removeVmFiles = Join-Path $testDir 'Remove-TestVMFiles.ps1'
-$winRtOcr      = Join-Path $testDir 'Test-WinRtOcr.ps1'
+$winRtOcr      = Join-Path $testDir 'check/Test-WinRtOcr.ps1'
 $utmDriver     = Join-Path (Split-Path -Parent $testDir) 'host/macos.utm/modules/Yuruna.Host.psm1'
 
 function Assert-True { param($Condition, [string]$Because = '') if (-not $Condition) { throw "Expected true. $Because" } }

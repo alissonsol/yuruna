@@ -44,7 +44,7 @@ one accepted by `raw.githubusercontent.com` for private repo reads.
 Likely the best path for command-line use and environments like Linux.
 
 - Go to GitHub -> Settings -> Developer Settings -> Personal Access Tokens -> Tokens (classic).
-- Generate a token with repo, workflow, and read:org scope
+- Generate a token with repo, workflow, and read:org scopes
 - Linux environment
   - Edit `~/.bashrc` to add this line:
     ```
@@ -82,8 +82,8 @@ Likely the best path for command-line use and environments like Linux.
     - For Windows, run under PowerShell: `windows.hyper-v.ps1`
 
   - Other scripts for convenience.
-    - `test/Enable-TestAutomation.ps1`: Change host settings to avoid screen savers and other disruptions for long test cycles.
-    - `test/Sync-HostConfiguration.ps1`: Copy host configuration (`test.config.yml`) parameters from another host.
+    - `test/lab/Enable-TestAutomation.ps1`: Change host settings to avoid screen savers and other disruptions for long test cycles.
+    - `test/lab/Sync-HostConfiguration.ps1`: Copy host configuration (`test.config.yml`) parameters from another host.
     - `test/Test-CachingProxyService.ps1`: Test the connectivity to the caching-proxy service.
     - `test/Test-Config.ps1`: Test if the host configuration has valid values.
 
@@ -126,6 +126,13 @@ No assistance is provided for migrating changes made in the public repositories 
        repositories:
          frameworkUrl: https://github.com/alissonsol/yurunadev
          projectUrl: file:///Users/[username]/git/yuruna-project
+      ```
+
+    - Example for Linux
+      ```
+       repositories:
+         frameworkUrl: https://github.com/alissonsol/yurunadev
+         projectUrl: file:///home/[username]/git/yuruna-project
       ```
 
 #### `repositories.ghToken` — reading a private framework/project repo
@@ -237,9 +244,11 @@ the empty `ghToken: ""` in the template is.
         projectUrl: git://server-name-or-ip/project-folder
         ```
         This suits a small group on a local network. Remember to commit changes!
-      - For testing changes on a single machine, point directly to the local folder.
+      - For testing changes on a single machine, point directly to the local folder
+        with a `file://` URL in the form your platform uses (see the per-platform
+        examples above).
         ```
-        projectUrl: file:///c:/git/yuruna-project
+        projectUrl: file:///<absolute-path-to>/yuruna-project
         ```
         Remember to commit changes!
 
@@ -248,7 +257,7 @@ the empty `ghToken: ""` in the template is.
   Test steps assume a PowerShell terminal (with Administrator permissions in Windows).
 
   - Start the Yuruna caching-proxy service
-    - Locally: `test/Start-CachingProxyServiceVM.ps1`
+    - Locally: `test/service/Start-CachingProxyServiceVM.ps1`
     - For a remote cache: set `vmStart.cachingProxyIp` in `test/test.config.yml` (probed first), or `$env:YURUNA_CACHING_PROXY_SERVICE_IP = 'x.y.z.a'` when the config key is empty
     - Test: `test/Test-CachingProxyService.ps1`
   - Single test loop: `test/Invoke-TestProject.ps1`
@@ -291,7 +300,7 @@ workarounds collected during development live in [Yuruna Workarounds](docs/worka
   scoped `[Diagnostics.CodeAnalysis.SuppressMessageAttribute(... ,
   Justification = '...')]` carrying a one-line reason, not a blanket exclusion.
 - **Commit hook** — a repo-tracked `tools/githooks/pre-commit` runs the
-  ASCII/no-BOM gate (`test/Test-AsciiNoBom.ps1`) and blocks a commit that
+  ASCII/no-BOM gate (`tools/Test-AsciiNoBom.ps1`) and blocks a commit that
   would put a BOM or non-ASCII byte into a byte-parsed bootstrap script
   (`irm|iex` / `curl|bash`) or first-run guest script. The install scripts
   activate it automatically via `.gitconfig.yuruna`; on a clone set up by
@@ -352,6 +361,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.07
+Last review: 2026.08.11
 
 Back to [Yuruna](README.md)

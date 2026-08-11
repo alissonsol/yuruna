@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.07
+.VERSION 2026.08.11
 .GUID 42d5e8a2-b1c4-4f09-a6d3-7e8f0a1b2c3d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -66,6 +66,13 @@ function Initialize-SequenceFailureStateStore {
     # field always renders as a JSON array, same guard as the inner-recovery slot.
     $Store['WaitForTextOcrTail']        = $null
     $Store['WaitForTextPatternsSought'] = [string[]]@()
+    # Set by the ssh verbs when host-side discovery never produced an address
+    # and the bare VM name was dialed as the last route left. The verb registry
+    # classifies those verbs by their COMMON failure -- a guest command that
+    # exited non-zero -- but a step that never reached the guest is a different
+    # fault with a different owner, so the class is corrected from this signal
+    # rather than from the registry default.
+    $Store['StepGuestAddressUnresolved'] = $null
 }
 
 $script:SeqFailReg = New-YurunaRegistry -Name 'SequenceFailureState'
@@ -164,6 +171,15 @@ function New-SequenceFailureRecord {
         # benefit from one.
         if ($matchedFailPattern) {
             $failureClass = 'pattern_matched_failure'
+            [string[]]$suggested = @('pause_and_inspect')
+        }
+        # A step that never resolved an address never reached the guest, so the
+        # registry's script_error is describing a script that did not run. The
+        # correction is ordered after the pattern match on purpose: a matched
+        # failure pattern is evidence the guest DID run and announced its own
+        # failure, which outranks an address signal left over from the attempt.
+        elseif ($fail.StepGuestAddressUnresolved) {
+            $failureClass = 'ip_not_discovered'
             [string[]]$suggested = @('pause_and_inspect')
         }
         $label = $fail.LastFailureLabel

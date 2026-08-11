@@ -3,6 +3,11 @@
 // Shared helpers for the stash UI. Vanilla JS, no framework. Untrusted stash
 // content is ALWAYS placed via textContent / safe DOM APIs, never innerHTML (§7.4).
 
+// Backs Y.hostInfo below: one in-flight/settled promise for the life of the
+// page, so the three consumers of /api/hostinfo (header, footer, and a page
+// deciding whether delete is on offer) cost one request between them.
+let hostInfoPromise = null;
+
 const Y = {
   // el builds an element with attributes + text/children, escaping by
   // construction (text goes through textContent).
@@ -96,7 +101,32 @@ const Y = {
   rawURL(view) { const tail = pathTail(view); return tail === null ? null : '/raw/' + view.hostId + tail; },
   downloadURL(view) { const tail = pathTail(view); return tail === null ? null : '/download/' + view.hostId + tail; },
 
+  // The REST endpoint for one listed stash (GET / DELETE). Same null propagation:
+  // a malformed permalink yields no URL at all rather than a DELETE aimed at a
+  // guessed path -- the caller must not destroy a stash it could not address.
+  stashApiURL(view) { const tail = pathTail(view); return tail === null ? null : '/api/stashes/' + view.hostId + tail; },
+
   shortHost(h) { return h ? h.slice(0, 8) : '?'; },
+
+  // hostInfo reads /api/hostinfo once and hands every later caller the same
+  // answer: these are facts about the daemon and about this browser's route to
+  // it, and neither changes under a loaded page. Never rejects -- a failed read
+  // resolves to {} so a caller reads a missing field rather than wrapping the
+  // call in a catch of its own. Note what {} means for canDelete: a daemon that
+  // could not be asked leaves the delete controls off, which is the safe way to
+  // be wrong -- the page offers no control it cannot vouch for.
+  hostInfo() {
+    if (!hostInfoPromise) {
+      hostInfoPromise = Y.api('/api/hostinfo')
+        .then((d) => d || {})
+        // Only success is memoized. A failure that stuck would hold the delete
+        // controls off for the life of the page over one unlucky moment at
+        // load; releasing it lets the next read (a refresh, a re-render) pick
+        // the answer up as soon as the daemon is back.
+        .catch(() => { hostInfoPromise = null; return {}; });
+    }
+    return hostInfoPromise;
+  },
 
   notice(parent, kind, text) {
     const n = Y.el('div', { class: 'notice ' + kind, text });
@@ -115,10 +145,17 @@ const Y = {
   // The countdown is opt-in through the markup: a page that carries no
   // #countdown starts no tick and is never reloaded from under the operator,
   // which is what a page holding an unsaved form needs.
+  //
+  // opts.paused is the finer-grained form of the same protection: a page that
+  // normally auto-refreshes can park the countdown for as long as a refresh
+  // would destroy transient state the operator built by hand (an in-progress
+  // selection, a half-finished action). The displayed number freezes where it
+  // stands and resumes ticking once the predicate goes false.
   initFooter(opts) {
     opts = opts || {};
     const interval = opts.intervalSeconds > 0 ? opts.intervalSeconds : 60;
     const refresh = typeof opts.refresh === 'function' ? opts.refresh : () => location.reload();
+    const paused = typeof opts.paused === 'function' ? opts.paused : null;
     const $ = (id) => document.getElementById(id);
     let countdown = interval;
 
@@ -139,7 +176,9 @@ const Y = {
     // Stamp here, not only from a page's data load: a page with no feed of its
     // own would otherwise show the em-dash forever. stamp, not markLoaded --
     // arriving host facts must not restart a countdown a caller is running.
-    Y.api('/api/hostinfo').then((d) => { renderIps(d && d.serverIps); stamp(); }).catch(() => renderIps(''));
+    // A failed read leaves the time at its placeholder: an unreachable daemon
+    // must not be stamped as a successful load.
+    Y.hostInfo().then((d) => { renderIps(d.serverIps); if (d.ok) stamp(); });
 
     const markLoaded = () => {
       stamp();
@@ -156,6 +195,8 @@ const Y = {
       setInterval(() => {
         const el = $('countdown');
         if (document.hidden) { el.textContent = '...'; return; }
+        if (paused && paused()) { el.title = 'Auto-refresh paused'; return; }
+        el.title = '';
         countdown = Math.max(0, countdown - 1);
         el.textContent = countdown;
         if (countdown === 0) { countdown = interval; refresh(); }
@@ -172,13 +213,12 @@ const Y = {
   // leaves the slots empty rather than blocking the page: they are decoration,
   // and every page here works without them.
   initHeader() {
-    Y.api('/api/hostinfo').then((d) => {
-      if (!d) return;
+    Y.hostInfo().then((d) => {
       const ver = document.getElementById('header-version');
       if (ver && d.version) ver.textContent = 'v' + d.version;
       const machine = document.getElementById('machine');
       if (machine && d.localHostId) machine.textContent = 'Host: ' + Y.shortHost(d.localHostId);
-    }).catch(() => { /* decoration only */ });
+    });
   },
 
   // initMenu wires the header's page menu: the button toggles the panel, and a

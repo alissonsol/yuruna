@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.07
+.VERSION 2026.08.11
 .GUID 42b8c9d0-e1f2-4a34-9567-89b0c1d2e3f4
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -128,7 +128,7 @@ function Resolve-BaseImageName {
         services.
     .PARAMETER HostScriptDir
         Absolute path to the directory holding the Remove-OrphanedVMFiles.ps1
-        script (e.g. `c:\git\yuruna\host\windows.hyper-v`). The leaf becomes
+        script (e.g. `&lt;repo-root&gt;/host/windows.hyper-v`). The leaf becomes
         `&lt;short&gt;`; subdirectories matching `guest.*` enumerate the guests.
     .OUTPUTS
         [hashtable] @{ HostFolder = 'host.&lt;short&gt;'; BaseImageNames = @(...) }

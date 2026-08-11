@@ -97,19 +97,31 @@
     health.textContent = d.health ? JSON.stringify(d.health, null, 2) : '(persistence disabled)';
   }
 
-  async function refresh() {
+  // quiet marks the countdown's run, which keeps the last report on screen.
+  // Every other run replaces it and says so: each check is a live probe of a
+  // dependency, and the ones worth waiting for are the ones timing out.
+  async function refresh(opts) {
+    const quiet = !!(opts && opts.quiet);
+    const done = quiet ? function () { } : Y.busy(document.getElementById('check-rows'), 'Running checks…');
+    chrome.busy(true);
     try {
       render(await load());
       chrome.markLoaded();
     } catch (err) {
       Y.notice('error', 'Could not collect diagnostics: ' + err.message);
+    } finally {
+      // Also on the failure path: an indicator left turning over a probe that
+      // already failed claims progress that is not happening -- on the one page
+      // that has to stay readable during an outage.
+      done();
+      chrome.busy(false);
     }
   }
 
-  document.getElementById('refresh').addEventListener('click', refresh);
+  document.getElementById('refresh').addEventListener('click', function () { refresh(); });
   // Header version + host id and the footer bar. Re-running the checks is this
   // page's refresh -- it is the page an operator leaves open during an outage,
   // so the countdown re-probes rather than reloading.
-  const chrome = Y.initChrome({ refresh: refresh });
+  const chrome = Y.initChrome({ refresh: function () { refresh({ quiet: true }); } });
   refresh();
 })();

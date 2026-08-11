@@ -102,14 +102,14 @@ The **download-agent service** VM (`yuruna-download-agent-service`) keeps guest
 images on the pool share fresh, so the lab pulls an image from its origin once
 instead of once per host. It needs the **pool** tier below configured — that
 share is where the Download pool lives — and it is brought up by
-`install/setup.ps1` or `pwsh test/Start-DownloadAgentServiceVM.ps1`. Operator
+`install/setup.ps1` or `pwsh test/service/Start-DownloadAgentServiceVM.ps1`. Operator
 guide: [download-agent.md](download-agent.md); the service section of
 [pool-admin.md](pool-admin.md#download-agent-service).
 
 | Key | Type | Meaning |
 |---|---|---|
 | `autoSeed` | bool | Pre-download the stable image families for the host types the pool aggregator reports, instead of waiting for a host to ask. Default `true`; `false` leaves the pool demand-driven and manual. |
-| `enabled` | bool | Master switch for the setup bring-up. `false` makes `install/setup.ps1` skip the agent's reset+start pair, so a re-run neither rebuilds nor starts it; `true` brings it up in either mode. An absent key resolves by mode: a **lab** runs the agent (sharing images across the pool's hosts is its whole point), a **standalone** host does not — its memory goes to the test guests instead. Running `test/Start-DownloadAgentServiceVM.ps1` by hand still starts it — asking for it explicitly overrides the setup default. |
+| `enabled` | bool | Master switch for the setup bring-up. `false` makes `install/setup.ps1` skip the agent's reset+start pair, so a re-run neither rebuilds nor starts it; `true` brings it up in either mode. An absent key resolves by mode: a **lab** runs the agent (sharing images across the pool's hosts is its whole point), a **standalone** host does not — its memory goes to the test guests instead. Running `test/service/Start-DownloadAgentServiceVM.ps1` by hand still starts it — asking for it explicitly overrides the setup default. |
 | `freshnessSeconds` | int | How long an image stays fresh after its last successful **direct** origin check. Default `86400` (24 h). |
 | `prefetchLeadSeconds` | int | The scanner acts on an image whose freshness expires within this window, rather than waiting for it to go stale. Default `7200` (2 h). |
 | `scanIntervalSeconds` | int | How often the agent walks the pool looking for work. Default `900` (15 min). |
@@ -127,7 +127,7 @@ fast, and ephemeral; optional Network-Attached Storage shares are the durable ti
 `networkStorage` carries the paths/credentials for two **independent** tiers: the
 **pool** (cycle-output replication, keys `pool*`; its on/off switch is the pool
 behavior `pool.networkReplicate`) and the **stash** (the stash service's own
-durable store, keys `stash*`). They use **separate NAS shares and separate NAS
+durable store, keys `stash*`). They use **separate NAS shares and
 accounts** — the stash does not reuse the pool's share or credential.
 
 When `pool.networkReplicate` is true, each cycle's pool output is copied to
@@ -205,7 +205,7 @@ literal and the mount silently fails. The macOS/Linux mount point needs no quoti
 The **stash service** uses an **isolated** storage tier: its own NAS share, its
 own NAS account (the `stash*` keys), and **no replicate flag** — the stash daemon
 writes files directly. All three `stash*` keys must be set for the stash store to
-be active; leave them empty to leave the stash store off. The reader is
+be active; leave them empty to keep it off. The reader is
 `Get-YurunaStashStorageConfig` (the pool tier's reader is
 `Get-YurunaPoolStorageConfig`).
 
@@ -241,7 +241,7 @@ accounts**, you set **two** passwords: one for `poolStorageNetworkUser` and one 
 persists across cycles.
 
 **Already done for local storage.** If the shares live on this machine and were
-created by `pwsh test/New-LocalLabStorage.ps1`, both passwords are already
+created by `pwsh test/lab/New-LocalLabStorage.ps1`, both passwords are already
 generated, mapped to a `vaultKey`, and stored — there is nothing to do here.
 The rest of this section is for a NAS or a separate file server, whose accounts
 and passwords are owned by that device.
@@ -251,7 +251,7 @@ the pool account has no usable credential, the validator asks for the
 `poolStorageNetworkUser` password (typed twice, not echoed), maps the `vaultKey` in
 `users.yml`, stores the password, and re-checks — so the run ends with the gate
 satisfied instead of a failure to act on later. Run non-interactively (the
-unattended runner, a redirected stdin) it never prompts and just reports the
+unattended runner, a redirected stdin), it never prompts and just reports the
 failure. The `stashStorageNetworkUser` password is still set by hand, below.
 
 **Recommended (fail-safe):** map a `vaultKey` so the harness never silently
@@ -333,7 +333,7 @@ ask; the section says so and skips.
 ## pool — optional multi-host pool intent (default-off)
 
 Joins this host to a **pool**: it PULLs the slow-changing pool intent (membership
-+ `desiredState`) from a LAN git repo on the caching-proxy-service each cycle, and the
++ `desiredState`) from a LAN git repo on the caching-proxy service each cycle, and the
 pool-aggregator service labels its telemetry by the pool it belongs to. **Default-off** —
 with `enabled: false` (or no `pool` block) the host behaves exactly as a single
 host. Creating pools + assigning test sequences (the operator guide): [pool-admin.md](pool-admin.md).
@@ -345,7 +345,7 @@ host. Creating pools + assigning test sequences (the operator guide): [pool-admi
 | `localClonePath` | string | Where to keep the pulled clone. Empty ⇒ `<runtime>/pool-intent` (default). |
 | `pullTimeoutSeconds` | int | Wall-clock cap on each bounded git fetch. Default `30`. |
 
-There is **no `poolId` here** — membership is the single source of truth in the
+There is **no `poolId` here** — the single source of truth for membership is the
 intent store's `pools.yml` `members[]` (the operator assigns this host's stable
 `hostId` via `Add-HostToPool.ps1`); the runner finds its own pool by locating its
 `hostId` there. An unreachable intent store degrades gracefully: the host keeps
@@ -395,6 +395,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.07
+Last review: 2026.08.11
 
 Back to [Yuruna](../README.md)

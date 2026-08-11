@@ -314,7 +314,7 @@ lifetime of the runner) > `logLevel` in `test.config.yml` >
 shows pass/fail, per-guest step status (New-VM, Start-VM,
 New-VM.Resource, Start-GuestOS, Screenshots, Start-GuestWorkload),
 history, and clickable cycle-start timestamps. Stop
-the detached server with `pwsh test/Stop-StatusService.ps1`.
+the detached server with `pwsh test/service/Stop-StatusService.ps1`.
 
 ## Adding a test sequence
 
@@ -330,6 +330,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.07
+Last review: 2026.08.11
 
 Back to [Yuruna](../README.md)

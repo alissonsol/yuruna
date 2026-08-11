@@ -12,7 +12,7 @@ downloadAgentService:
   # here: unstated resolves by mode -- a lab runs the agent (sharing images
   # across the pool's hosts is its whole point), a standalone host does not
   # (the memory goes to its test guests instead; start it by hand with
-  # test/Start-DownloadAgentServiceVM.ps1 when wanted). State true or false
+  # test/service/Start-DownloadAgentServiceVM.ps1 when wanted). State true or false
   # to override the mode default.
   # How long an image stays fresh after its last successful origin check.
   freshnessSeconds: 86400

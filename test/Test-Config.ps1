@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.07
+.VERSION 2026.08.11
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456709
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -1788,7 +1788,7 @@ Sent: $((Get-Date).ToUniversalTime().ToString("yyyy-MM-dd HH:mm:ss")) UTC
 
 Write-Section "Bootstrap script encoding (ASCII, no BOM)"
 
-$asciiGate = Join-Path $TestRoot "Test-AsciiNoBom.ps1"
+$asciiGate = Join-Path $RepoRoot "tools/Test-AsciiNoBom.ps1"
 if (-not (Test-Path -LiteralPath $asciiGate)) {
     Write-Info "Test-AsciiNoBom.ps1 not found at ${asciiGate}; encoding gate skipped."
 } else {

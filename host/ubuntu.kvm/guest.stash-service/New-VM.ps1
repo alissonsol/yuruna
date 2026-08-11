@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.07
+.VERSION 2026.08.11
 .GUID 42f4e5f6-a7b8-4c9d-0123-4e5f6a7b8c81
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -181,7 +181,7 @@ if ($networkName -eq 'default') {
     # network (disk growth freezes), and qemu-guest-agent, itself installed over that
     # network, never comes up. The IP wait below would then burn its whole budget for
     # nothing. Detect it HERE and stop with the remediation. The bridge lifecycle is
-    # owned by test/Start-CachingProxyServiceVM.ps1 (New-YurunaExternalNetwork self-heals or
+    # owned by test/service/Start-CachingProxyServiceVM.ps1 (New-YurunaExternalNetwork self-heals or
     # rebuilds the uplink); this guest script only consumes the network, so it must
     # not flap host networking itself -- it points at the owner instead. Same brif
     # check as Test-YurunaBridgeHasUplink; inlined via direct virsh (the module's
@@ -203,7 +203,7 @@ physical LAN uplink (only guest tap ports are attached). A guest on it can never
 obtain a DHCP lease -- this is the silent 20-minute 'no IP' wait, not a slow boot.
 
 Heal the bridge, then re-run this script:
-    test/Start-CachingProxyServiceVM.ps1
+    test/service/Start-CachingProxyServiceVM.ps1
 (it owns the 'yuruna-external' bridge lifecycle and self-heals or rebuilds the
 uplink NIC). Nothing was created; the stash-service VM was not started.
 "@

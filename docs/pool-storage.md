@@ -12,7 +12,7 @@ This document is the **architecture + operations** reference. For
 `test.config.yml` parameters (and how to set the SMB password in the
 vault) see [test-config.md](test-config.md).
 
-**No NAS?** `pwsh test/New-LocalLabStorage.ps1` turns the machine you are
+**No NAS?** `pwsh test/lab/New-LocalLabStorage.ps1` turns the machine you are
 standing at into its own pool and stash server — folders, storage accounts,
 shares, vault entries, mounts, and config, in one idempotent command on Windows,
 macOS, or Ubuntu. The shares are local but are consumed **as if they were
@@ -20,7 +20,7 @@ remote** (a loopback host alias per tier, mounted over SMB by the same
 `Connect-YurunaPoolStorage` used below), so everything on this page applies
 unchanged and moving to real hardware later only changes what the alias
 resolves to. Later labs on that machine need only
-`pwsh test/New-Lab.ps1 -Name <lab-name>`, which reuses the storage root and the
+`pwsh test/lab/New-Lab.ps1 -Name <lab-name>`, which reuses the storage root and the
 share credentials already there instead of minting a second, conflicting set.
 It is for **local** storage only: a NAS owns its own accounts and permissions,
 which have to be created on the device itself. See
@@ -521,6 +521,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.07
+Last review: 2026.08.11
 
 Back to [Yuruna](../README.md)

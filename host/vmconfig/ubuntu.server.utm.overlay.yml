@@ -14,3 +14,11 @@
 # === YURUNA_OVERLAY_EARLY_COMMANDS ===
 # === YURUNA_OVERLAY_GRUB_PRE_CONSOLE_QUIET ===
 # === YURUNA_OVERLAY_GRUB_POST_CONSOLE_QUIET ===
+# === YURUNA_OVERLAY_HOST_AGENT_PKG ===
+  # Empty: this host reads the guest agent through `utmctl ip-address`, which
+  # UTM wires to its own bundled channel, and falls back to the shared-NAT
+  # lease file and a bundle-MAC ARP match. Installing the agent from this
+  # seed would not change which of those three answers, so the package set
+  # of a currently-healthy guest stays untouched.
+# === YURUNA_OVERLAY_LATE_HOST_AGENT ===
+    # Empty: nothing to enable -- see the package section above.

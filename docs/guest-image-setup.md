@@ -80,8 +80,8 @@ things can come back:
 **What an operator sees when there is no agent: nothing new.** The hooks
 are guarded twice — the client module must be loaded *and* an endpoint
 must resolve to a healthy agent — and no lab is required to run one. A
-missing module, an agent VM that was never started, an agent that is
-down, one whose pool share is unmounted, a request that fails a checksum
+missing module, an agent VM that was never started or is down, one
+whose pool share is unmounted, a request that fails a checksum
 or runs out its deadline: each falls through to the resolve /
 skip-if-same-source / publisher-download path below, with the same
 output, sentinel, and exit codes. Failures of an agent that *did*
@@ -219,7 +219,7 @@ The harness considers a guest ready when:
    `Get-VMState`, polled by `Wait-VMRunning`).
 2. The guest's IP is discoverable (`Wait-VMIp` / `Get-VMIp`; KVP on
    Hyper-V — an External vSwitch puts a third party in charge of DHCP,
-   so KVP can be 5-15 min late and an active-probe of the subnet may
+   so KVP can be 5-15 min late and an active probe of the subnet may
    be needed; `virsh domifaddr` on KVM).
 3. SSH completes a real handshake — `Wait-SshReady`, not just TCP/22
    (a TCP-only check races a half-up sshd in the moments after a
@@ -261,7 +261,7 @@ or settings-panel glitch needs a clean reboot to clear (the symptom in
 
 ## Guest workloads
 
-`<GUEST>.update.sh` is one member of a family: every optional software
+`<GUEST>.update.sh` is one of a family: every optional software
 workload ships as a sibling script in the same `guest/<GUEST>/` folder and
 installs the same way, by fetching and running one script inside the
 booted guest. The fetcher honors `YurunaCacheContent`. See
@@ -326,7 +326,7 @@ After reboot, configure:
 openclaw onboard --install-daemon
 ```
 
-**Careful: you are about to give AI some privileged access to your accounts!**
+**Careful: you are about to give AI privileged access to your accounts!**
 
 ![OpenClaw onboarding consent screen — list of accounts and capabilities the agent is about to be granted access to](images/001.openclaw.config.png)
 
@@ -381,7 +381,7 @@ feature availability, and
 
 The stash, pool-control, caching-proxy and download-agent service VMs all boot
 the **same** Ubuntu server cloud image: same release, same arch, same publisher
-URL. They differ only in cloud-init and in how large their disk needs to be. One
+URL. They differ only in cloud-init and required disk size. One
 artifact per host type therefore serves all of them — a per-service copy would be
 byte-identical, costing an extra download and an extra full-size disk each. The
 nominal size is deliberately **not** baked into the shared artifact (see
@@ -521,6 +521,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.07
+Last review: 2026.08.11
 
 Back to [Yuruna](../README.md)

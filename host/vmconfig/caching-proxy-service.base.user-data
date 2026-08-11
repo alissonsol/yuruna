@@ -134,6 +134,39 @@ write_files:
           Require ip 172.16.0.0/12
           Require ip 192.168.0.0/16
       </Directory>
+  # --- REGION: https://yuruna.link/vmconfig/caching-proxy-service#squidclient-and-apache2
+  - path: /etc/apache2/conf-available/yuruna-landing.conf
+    permissions: '0644'
+    owner: root:root
+    content: |
+      # :80 bare is the address an operator types from memory; unconfigured it
+      # answers with Ubuntu's stock apache2 placeholder, which says nothing
+      # about this VM. Send it to the pool dashboard Grafana already serves.
+      #
+      # ONLY the document root is redirected. Every other published path on
+      # :80 has a consumer that needs its actual content: the two CA certs
+      # (guest provisioning fetches yuruna-squid-ca.crt), squid-meta and
+      # zot-meta (Prometheus scrapes both by explicit metrics_path against
+      # localhost:80), cache-health, the *-status breadcrumbs, and
+      # /pool-intent.git.
+      #
+      # In <Directory> rather than at server level because mod_rewrite rules
+      # are NOT inherited into <VirtualHost> blocks, and Ubuntu serves :80
+      # from the stock 000-default.conf vhost -- a server-level RewriteRule
+      # here would parse cleanly and then silently never fire. Directory
+      # sections merge into the vhost normally, and this path is the vhost's
+      # own DocumentRoot. In this context the match is relative to the
+      # directory, so the empty string is the request for '/'.
+      #
+      # %{SERVER_NAME}, never a literal address: this VM takes its IP from
+      # DHCP. Under the default UseCanonicalName Off it resolves to the host
+      # the client actually used with the port stripped, so the redirect stays
+      # on the same box whether it was reached by IP, by name, or through a
+      # port-forward from the hypervisor host.
+      <Directory /var/www/html>
+          RewriteEngine On
+          RewriteRule ^(index\.html)?$ http://%{SERVER_NAME}:3000/d/yuruna-pool/yuruna-hosts [R=302,L]
+      </Directory>
   # --- REGION: https://yuruna.link/vmconfig/caching-proxy-service#squid-drop-in-config-approach
   - path: /etc/squid/conf.d/yuruna.conf
     permissions: '0644'
@@ -1531,7 +1564,7 @@ write_files:
             "id": 18,
             "type": "stat",
             "title": "Lab token",
-            "description": "The lab connection token AND the collector's health, in one tile. Blue = the 6-character code a joining host redeems for the shared lab-auth-token (pwsh test/Set-LabToken.ps1 -LabToken <code>). It rotates every minute (aggregator -lab-token-rotate); a displayed code stays redeemable for about three, so read it right before enrolling. Driven by yuruna_pool_lab_token (the code rides as the 'token' label). Red 'Collector down' = the pool-aggregator-service -- the service on this proxy that polls every host and feeds this whole dashboard -- has stopped reporting: no code can be minted, and every other panel here may be stale. The tile links to the fix. Detected as absent(yuruna_pool_collector_up): the collector exports that gauge as a constant 1, so its disappearance from a scrape IS the outage, and exactly one of the two queries ever returns a series. Grey 'off' = the collector is up but the exchange is disabled: the aggregator holds no lab-auth-token, or rotation is off (-lab-token-rotate 0).",
+            "description": "The lab connection token AND the collector's health, in one tile. Blue = the 6-character code a joining host redeems for the shared lab-auth-token (pwsh test/lab/Set-LabToken.ps1 -LabToken <code>). It rotates every minute (aggregator -lab-token-rotate); a displayed code stays redeemable for about three, so read it right before enrolling. Driven by yuruna_pool_lab_token (the code rides as the 'token' label). Red 'Collector down' = the pool-aggregator-service -- the service on this proxy that polls every host and feeds this whole dashboard -- has stopped reporting: no code can be minted, and every other panel here may be stale. The tile links to the fix. Detected as absent(yuruna_pool_collector_up): the collector exports that gauge as a constant 1, so its disappearance from a scrape IS the outage, and exactly one of the two queries ever returns a series. Grey 'off' = the collector is up but the exchange is disabled: the aggregator holds no lab-auth-token, or rotation is off (-lab-token-rotate 0).",
             "gridPos": { "h": 4, "w": 4, "x": 20, "y": 0 },
             "datasource": { "type": "prometheus", "uid": "yuruna-prometheus" },
             "targets": [
@@ -3088,6 +3121,20 @@ runcmd:
   # yields a trust store that silently never gained the certificate.
   - install -m 0644 /etc/squid/ssl_cert/ca.pem /usr/local/share/ca-certificates/yuruna-squid-ca.crt
   - update-ca-certificates
+  # --- REGION: https://yuruna.link/vmconfig/caching-proxy-service#squidclient-and-apache2
+  - |
+    # rewrite is not among Ubuntu's default-enabled apache2 modules, and a
+    # RewriteEngine directive from an unloaded module is a hard parse error
+    # that stops apache2 from STARTING -- which would take :80 down with it,
+    # and :80 is where every guest's provisioning fetches the squid CA cert.
+    # A cosmetic landing redirect must not be able to cost that, so the conf
+    # is kept only if the module took AND the whole config still tests clean;
+    # otherwise it is rolled back and the stock page stays.
+    a2enmod rewrite && a2enconf yuruna-landing || true
+    if ! apache2ctl configtest >/dev/null 2>&1; then
+      a2disconf yuruna-landing >/dev/null 2>&1 || true
+      echo "== YURUNA: :80 landing redirect DISABLED (apache config test failed); serving the stock page =="
+    fi
   - systemctl enable apache2
   - systemctl restart apache2
   # --- REGION: https://yuruna.link/vmconfig/caching-proxy-service#pre-warm-the-cache

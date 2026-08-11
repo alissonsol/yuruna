@@ -251,7 +251,7 @@ credentials plus per-event-code `subscribers` such as `cycle.failure`,
 `test/status/extension/notification/`.
 
 `LAB_VAULT` is a second, differently-shaped vault document written by
-`test/New-Lab.ps1` as `lab.<Name>.vault.yml` into that same authentication
+`test/lab/New-Lab.ps1` as `lab.<Name>.vault.yml` into that same authentication
 folder. It is **not** interchangeable with `vault.yml`: `vault.schema.yml` is
 `additionalProperties: false` with `required: [users]`, so a `lab:` node cannot
 be added to it; `lab.vault.schema.yml` requires `[schemaVersion, lab, users]`.
@@ -377,4 +377,4 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.07
+Last review: 2026.08.11

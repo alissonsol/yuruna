@@ -72,14 +72,14 @@ For what a lab is and how hosts join one, see [docs/lab-operator.md](../docs/lab
 
 ### Putting a machine back
 
-[test/Disable-TestAutomation.ps1](../test/Disable-TestAutomation.ps1) restores the
+[test/lab/Disable-TestAutomation.ps1](../test/lab/Disable-TestAutomation.ps1) restores the
 host settings `Enable-TestAutomation` changed, from the capture Enable wrote
 before it changed anything:
 
 ```
-pwsh test/Disable-TestAutomation.ps1 -WhatIf        # show what would be restored
-pwsh test/Disable-TestAutomation.ps1
-pwsh test/Disable-TestAutomation.ps1 -StopServices  # also stop the service VMs
+pwsh test/lab/Disable-TestAutomation.ps1 -WhatIf        # show what would be restored
+pwsh test/lab/Disable-TestAutomation.ps1
+pwsh test/lab/Disable-TestAutomation.ps1 -StopServices  # also stop the service VMs
 ```
 
 It reverses settings only. Packages, PSGallery modules, macOS TCC grants, the
@@ -180,7 +180,7 @@ pass the tag directly: `-YurunaBranch 2026.06.20` /
 ## Verified install (signed release)
 
 > Available for published release **tags**. The signing artifacts
-> (`install.sha256.sig`, `install/keys/`) first ship in release `2026.08.07`;
+> (`install.sha256.sig`, `install/keys/`) first ship in release `2026.08.11`;
 > until that tag is cut, use the convenience one-liners above.
 
 A tagged release publishes, next to each installer:
@@ -200,7 +200,7 @@ SHA-256(DER public key) = 14fce044df5de1ebbac6fdeae8d4f87abac618393f06e32748b7ef
 **Windows Hyper-V** (PowerShell 5.1+; uses .NET, no extra tooling):
 
 ```
-$base='https://raw.githubusercontent.com/alissonsol/yuruna/refs/tags/2026.08.07'; $t=Join-Path $env:TEMP 'yuruna-install'; New-Item -ItemType Directory -Force $t|Out-Null
+$base='https://raw.githubusercontent.com/alissonsol/yuruna/refs/tags/2026.08.11'; $t=Join-Path $env:TEMP 'yuruna-install'; New-Item -ItemType Directory -Force $t|Out-Null
 'install/windows.hyper-v.ps1','install/install.sha256','install/install.sha256.sig','install/keys/yuruna-release-signing.pub.xml'|%{ irm "$base/$_" -OutFile (Join-Path $t (Split-Path $_ -Leaf)) }
 $k=New-Object System.Security.Cryptography.RSACryptoServiceProvider; $k.FromXmlString((Get-Content "$t\yuruna-release-signing.pub.xml" -Raw))
 if(-not $k.VerifyData([IO.File]::ReadAllBytes("$t\install.sha256"),'SHA256',[IO.File]::ReadAllBytes("$t\install.sha256.sig"))){throw 'SIGNATURE INVALID -- do not run'}
@@ -211,7 +211,7 @@ $h=(Get-FileHash "$t\windows.hyper-v.ps1" -Algorithm SHA256).Hash.ToLower(); if(
 **macOS UTM / Ubuntu KVM** (uses `openssl`, present on both):
 
 ```
-BASE='https://raw.githubusercontent.com/alissonsol/yuruna/refs/tags/2026.08.07'; S=install/macos.utm.sh   # or install/ubuntu.kvm.sh
+BASE='https://raw.githubusercontent.com/alissonsol/yuruna/refs/tags/2026.08.11'; S=install/macos.utm.sh   # or install/ubuntu.kvm.sh
 t=$(mktemp -d); for f in "$S" install/install.sha256 install/install.sha256.sig install/keys/yuruna-release-signing.pub.pem; do curl -fsSL "$BASE/$f" -o "$t/$(basename "$f")"; done
 openssl dgst -sha256 -verify "$t/yuruna-release-signing.pub.pem" -signature "$t/install.sha256.sig" "$t/install.sha256" || { echo 'SIGNATURE INVALID -- do not run'; exit 1; }
 grep -qF "$(sha256sum "$t/$(basename "$S")" | cut -d' ' -f1)" "$t/install.sha256" || { echo 'INSTALLER HASH MISMATCH -- do not run'; exit 1; }
@@ -244,6 +244,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.07
+Last review: 2026.08.11
 
 Back to [Yuruna](../README.md)

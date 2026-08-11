@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.07
+.VERSION 2026.08.11
 .GUID 42d7c1e9-8b04-4a3f-9c62-7e15b0d4a933
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -70,7 +70,7 @@ if (-not (Get-Command -Name 'Describe' -ErrorAction SilentlyContinue)) {
     function It       { param([string]$Name, [scriptblock]$Test)    & $Test; Write-Output "    [pass] $Name" }
 }
 
-$StashScriptPath = Join-Path $repoRoot 'test/Start-StashServiceVM.ps1'
+$StashScriptPath = Join-Path $repoRoot 'test/service/Start-StashServiceVM.ps1'
 $StashSource     = Get-Content -Raw -LiteralPath $StashScriptPath
 $SetupSource     = Get-Content -Raw -LiteralPath (Join-Path $repoRoot 'install/setup.ps1')
 

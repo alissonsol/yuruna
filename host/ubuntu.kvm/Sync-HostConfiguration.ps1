@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.07
+.VERSION 2026.08.11
 .GUID 42e8a1b2-c3d4-4e5f-9012-cd0123456822
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -141,3 +141,66 @@ Import-Module (Join-Path $RepoRoot 'test/modules/Test.ConfigServiceSync.psm1') -
 Sync-HostConfiguration -ReferenceHost $ReferenceHost -StatusPort $StatusPort -RepoRoot $RepoRoot `
     -SharedToken $SharedToken -NonInteractive:$NonInteractive -SkipValidation:$SkipValidation -NoPool:$NoPool `
     -AllowStaleReference:$AllowStaleReference -RequireReferenceCredential:$RequireReferenceCredential
+
+# --- REGION: guest address-discovery readiness
+# Which of this driver's discovery rungs can answer AT ALL is decided by host
+# configuration, not by the harness: the lease rung needs libvirt to be the DHCP
+# server for the guest network, and the agent rung needs qemu-guest-agent inside
+# the guest. When both are structurally silent, discovery rests entirely on a
+# passive read of the host neighbour cache -- which decays, so lookups start
+# missing intermittently, and a miss surfaces to the operator as an ssh
+# name-resolution error that says nothing about any of this.
+#
+# Reporting it here turns that from something diagnosed across many failed
+# cycles into a line of setup output.
+Write-Output ''
+Write-Output 'Guest address discovery on this host:'
+$networkName = ''
+try {
+    Import-Module (Join-Path $RepoRoot 'host/ubuntu.kvm/modules/Yuruna.Host.psm1') -Force -DisableNameChecking -Global -ErrorAction Stop
+    $networkName = [string](Get-ExternalNetwork)
+} catch {
+    Write-Output "  could not load the host driver to check: $($_.Exception.Message)"
+}
+if ($networkName) {
+    $netXml = (& virsh --connect qemu:///system net-dumpxml $networkName 2>&1) -join "`n"
+    $isNat  = ($netXml -match '<dhcp>')
+    Write-Output "  guest network            : $networkName"
+    if ($isNat) {
+        Write-Output '  virsh --source lease     : available (libvirt serves DHCP on this network)'
+    } else {
+        Write-Output '  virsh --source lease     : SILENT -- this network has no <dhcp>, so libvirt owns no leases'
+    }
+    $seed = Join-Path $RepoRoot 'host/vmconfig/ubuntu.server.kvm.overlay.yml'
+    # "attempted", not "available". The seed installs the agent from a
+    # failure-tolerant late command, so its presence here says the build TRIES,
+    # not that this guest ended up with it -- and reporting a rung as available
+    # when it may be silent is the failure this whole section exists to prevent.
+    # Only the guest itself can settle it: virsh domifaddr --source agent.
+    $hasAgent = (Test-Path -LiteralPath $seed) -and ((Get-Content -LiteralPath $seed -Raw) -match 'qemu-guest-agent')
+    if ($hasAgent) {
+        Write-Output '  virsh --source agent     : attempted (seed installs qemu-guest-agent best-effort; confirm per guest)'
+    } else {
+        Write-Output '  virsh --source agent     : SILENT -- the guest seed does not install qemu-guest-agent'
+    }
+    # Get-HostIpv4Prefix is module-private, so it has to be invoked inside the
+    # driver's own scope. Called bare from here it raises CommandNotFound, the
+    # catch swallows it, and the report claims the refresh rung is unavailable on
+    # every host -- the one line of this whole section that would always lie.
+    $prefix = $null
+    try {
+        $driverModule = Get-Module Yuruna.Host
+        if ($driverModule) { $prefix = & $driverModule { Get-HostIpv4Prefix } }
+    } catch { $prefix = $null }
+    if ($prefix) {
+        $sweep = if ($prefix.Length -ge 24) { 'available' } else { "REFUSED -- /$($prefix.Length) is wider than /24" }
+        Write-Output "  neighbour cache + refresh: $sweep (host $($prefix.Address)/$($prefix.Length))"
+    } else {
+        Write-Output '  neighbour cache + refresh: unavailable -- no default-route IPv4 on this host'
+    }
+    if (-not $isNat -and -not $hasAgent) {
+        Write-Warning ('Both on-demand discovery rungs are silent on this host, so guest addresses come only from the ' +
+                       'host neighbour cache. That cache decays, so lookups will miss intermittently. Install ' +
+                       'qemu-guest-agent in the guest seed, or put guests on a libvirt-managed network.')
+    }
+}

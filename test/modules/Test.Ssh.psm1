@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.07
+.VERSION 2026.08.11
 .GUID 422c9a3d-41bb-4e8c-9b64-5f7a1d0c9a12
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -196,10 +196,18 @@ function Get-GuestAddress {
 .SYNOPSIS
 Resolves a yuruna VM name to an address that ssh can actually reach.
 .DESCRIPTION
-VM names are not registered in the host's DNS resolver on either Hyper-V
-Default Switch or UTM on macOS, so `ssh user@vm-name` fails with "could
-not resolve hostname". This helper returns an IPv4 when discoverable,
-or the VMName as a fallback so the caller's retry loop can try again.
+VM names are not registered in the host's DNS resolver on Hyper-V Default
+Switch, UTM on macOS, or libvirt/KVM, so `ssh user@vm-name` fails with "could
+not resolve hostname". This helper returns an IPv4 when discoverable, or the
+VMName as a sentinel meaning "nothing answered".
+
+That sentinel is truthy and shaped like a hostname, so it is indistinguishable
+from a real answer unless the caller tests for it. Every caller must, and the
+test needs both halves -- `-eq $VMName` AND `-not (Test-IpAddress ...)` --
+because a caller is allowed to pass an address as the VMName, and for that
+caller the name comparison alone reports a good address as unresolved.
+Wait-GuestIp wraps this function with exactly that test on a bounded poll and
+is the intended entry point for anyone who can afford to wait.
 
 The authoritative IP-discovery logic lives in the host driver's
 `Get-VMIp` (host/<host>/modules/Yuruna.Host.psm1). This function
@@ -239,13 +247,10 @@ System.String. An IPv4 address if one was discovered, otherwise the VMName.
     if ($IsWindows -and (Get-Command Get-VMNetworkAdapter -ErrorAction SilentlyContinue)) {
         try {
             $addrs = (Get-VMNetworkAdapter -VMName $VMName -ErrorAction Stop).IPAddresses
-            # Accept v4 or v6 from KVP. SSH happily handles either; the
-            # link-local/loopback exclusion drops fe80: and ::1 even
-            # though Hyper-V rarely emits those in the KVP list.
-            $ipPick = $addrs |
-                Where-Object { Test-IpAddress $_ } |
-                Where-Object { $_ -notmatch '^(127\.|169\.254\.)' -and $_ -inotmatch '^(::1$|fe80:)' } |
-                Select-Object -First 1
+            # Accept v4 or v6 from KVP -- ssh handles either. The shared selector
+            # owns which one wins and which are provably not the guest, so this
+            # site does not carry its own copy of that rule.
+            $ipPick = Select-YurunaRoutableAddress -Address @($addrs)
             if ($ipPick) { return [string]$ipPick }
         } catch {
             Write-Debug "Get-VMNetworkAdapter failed for ${VMName}: $_"
@@ -255,11 +260,7 @@ System.String. An IPv4 address if one was discovered, otherwise the VMName.
         try {
             $output = & utmctl ip-address $VMName 2>&1
             if ($LASTEXITCODE -eq 0) {
-                $ipPick = ($output -split "`r?`n") |
-                    ForEach-Object { $_.Trim() } |
-                    Where-Object { Test-IpAddress $_ } |
-                    Where-Object { $_ -notmatch '^(127\.|169\.254\.)' -and $_ -inotmatch '^(::1$|fe80:)' } |
-                    Select-Object -First 1
+                $ipPick = Select-YurunaRoutableAddress -Address @($output -split "`r?`n")
                 if ($ipPick) { return [string]$ipPick }
             }
         } catch {
@@ -725,8 +726,17 @@ registered for that guest key would send the login to an account the VM never
 had. The overrides live in the global scope and outlive the module re-import a
 standalone bring-up script performs, so an earlier cycle in the same shell
 session can otherwise leak its username into this call.
+.PARAMETER AddressWaitSeconds
+How long to keep re-resolving when the first lookup produced no address. Host
+address discovery rests on caches that age out and daemons that publish late,
+so a lookup that misses now commonly answers a second or two later. 0 disables
+the wait, which is what a caller already inside its own poll loop wants.
 .OUTPUTS
-System.Collections.Hashtable with keys: success (bool), exitCode (int), output (string).
+System.Collections.Hashtable with keys: success (bool), exitCode (int),
+output (string), addressResolved (bool). addressResolved is $false when every
+probe declined and the bare VM name was dialed as the last route left; the
+caller needs it to tell "the guest command failed" from "the guest was never
+reached", which look identical in exit status alone.
 #>
     [CmdletBinding()]
     [OutputType([hashtable])]
@@ -735,13 +745,42 @@ System.Collections.Hashtable with keys: success (bool), exitCode (int), output (
         [string]$GuestKey,
         [string]$Command,
         [int]$TimeoutSeconds = 900,
-        [string]$User
+        [string]$User,
+        [int]$AddressWaitSeconds = 20
     )
     # Not $user: PowerShell variable names are case-insensitive, so that would
     # be the same storage as the $User parameter and read as a self-assignment.
     $loginUser = if ($User) { $User } else { Get-GuestSshUser -GuestKey $GuestKey }
     $keyPath = Get-YurunaSshPrivateKeyPath
     $address = Get-GuestAddress -VMName $VMName
+    # Get-GuestAddress answers with the VM name when nothing discovered an
+    # address. That sentinel is truthy and shaped like a hostname, so on its own
+    # it reaches ssh as a target and fails inside getaddrinfo -- a resolver error
+    # naming nothing about the real fault, and one no guest-side change can fix.
+    # Discovery misses are typically sub-second, so re-resolve on a bounded loop
+    # rather than spending the step on a stale cache.
+    #
+    # The Test-IpAddress clause carries the whole predicate: -VMName is
+    # documented as accepting an address, and for such a caller the sentinel
+    # comparison is true on a perfectly good address. Testing the shape as well
+    # is what keeps that case out of the wait.
+    $addressResolved = -not ($address -eq $VMName -and -not (Test-IpAddress $address))
+    if (-not $addressResolved -and $AddressWaitSeconds -gt 0) {
+        Write-Debug "Invoke-GuestSsh: no address discovered for '$VMName'; re-resolving for up to ${AddressWaitSeconds}s"
+        $resolved = Wait-GuestIp -VMName $VMName -TimeoutSeconds $AddressWaitSeconds -PollSeconds 2
+        if ($resolved) {
+            $address         = $resolved
+            $addressResolved = $true
+        }
+    }
+    # Still unresolved: dial the name anyway rather than failing here. On a host
+    # whose guests share an L2 segment the name can still be answered by a
+    # broadcast responder that this process cannot query directly, so the attempt
+    # is occasionally the thing that works. What must not happen is reporting the
+    # resulting resolver error as though the guest had run something.
+    if (-not $addressResolved) {
+        Write-Warning "Invoke-GuestSsh: no host-side probe discovered an address for '$VMName'; dialing the bare name as the last route left."
+    }
     $target  = "$loginUser@$address"
     Write-Debug "Invoke-GuestSsh: target=$target command=$Command timeout=${TimeoutSeconds}s"
 
@@ -774,7 +813,7 @@ System.Collections.Hashtable with keys: success (bool), exitCode (int), output (
         $proc = [System.Diagnostics.Process]::Start($psi)
     } catch {
         Write-Warning "Invoke-GuestSsh: Process.Start('ssh') threw: $($_.Exception.Message)"
-        return @{ success = $false; exitCode = -1; output = "Process.Start('ssh') failed: $($_.Exception.Message)" }
+        return @{ success = $false; exitCode = -1; output = "Process.Start('ssh') failed: $($_.Exception.Message)"; addressResolved = $addressResolved }
     }
     # Read both streams asynchronously to avoid the classic full-pipe deadlock; read .Result
     # only after WaitForExit confirms the streams are closed.
@@ -786,19 +825,35 @@ System.Collections.Hashtable with keys: success (bool), exitCode (int), output (
         try { $proc.Kill($true) } catch { Write-Verbose "Invoke-GuestSsh Process.Kill failed: $($_.Exception.Message)" }
         $proc.Dispose()
         return @{
-            success  = $false
-            exitCode = -1
-            output   = "Timed out after ${TimeoutSeconds}s"
+            success         = $false
+            exitCode        = -1
+            output          = "Timed out after ${TimeoutSeconds}s"
+            addressResolved = $addressResolved
         }
     }
     $stdoutText = $stdoutTask.Result
     $stderrText = $stderrTask.Result
     $exit       = [int]$proc.ExitCode
     $proc.Dispose()
+    $output = ("$stdoutText$stderrText").TrimEnd()
+    # A failure with no address behind it gets its own exit code and says so in
+    # the first line. ssh reports every one of these as 255, the same code it
+    # uses for auth and host-key faults, so the code alone sends a reader toward
+    # the guest. -1 is already the timeout above, hence -2.
+    if (-not $addressResolved -and $exit -ne 0) {
+        $preface = "No host-side probe discovered an address for '$VMName'; the bare VM name was dialed and could not be resolved. This is a host address-discovery failure, not a guest error -- the command never ran."
+        return @{
+            success         = $false
+            exitCode        = -2
+            output          = if ($output) { "$preface`n$output" } else { $preface }
+            addressResolved = $false
+        }
+    }
     return @{
-        success  = ($exit -eq 0)
-        exitCode = $exit
-        output   = ("$stdoutText$stderrText").TrimEnd()
+        success         = ($exit -eq 0)
+        exitCode        = $exit
+        output          = $output
+        addressResolved = $addressResolved
     }
 }
 
@@ -1028,8 +1083,20 @@ as unresolved and how to resolve it.
         $lines += '  arp -an                       # the entry with that MAC (leading zeros dropped per octet) is the guest'
     } elseif ($IsWindows) {
         $lines += "  Get-VMNetworkAdapter -VMName '$vm' | Select-Object -ExpandProperty IPAddresses"
+        $lines += "  Get-VM '$vm' | Get-VMNetworkAdapter | Select-Object -ExpandProperty MacAddress"
+        $lines += '  Get-NetNeighbor -AddressFamily IPv4  # the entry with that MAC is the guest'
     } else {
-        $lines += "  virsh -c qemu:///system domifaddr --source arp '$vm'"
+        # Three lines rather than one, because the first two are silent by
+        # construction on a bridged guest with no in-band agent: the lease source
+        # needs libvirt to be the DHCP server, and the agent source needs
+        # qemu-guest-agent inside the guest. When both say nothing, the MAC from
+        # the domain XML matched in the host neighbour table is the identity that
+        # still holds -- and a FAILED entry there carries no address at all,
+        # which is why it can look like the guest does not exist.
+        $lines += "  virsh -c qemu:///system domifaddr --source agent '$vm'   # silent unless qemu-guest-agent is installed"
+        $lines += "  virsh -c qemu:///system domifaddr --source arp '$vm'     # passive: only while the host has a neighbour entry"
+        $lines += "  virsh -c qemu:///system dumpxml '$vm' | grep -o `"mac address='[^']*'`""
+        $lines += '  ip -4 neigh show              # the entry with that MAC is the guest; FAILED/INCOMPLETE carry no address'
     }
     $lines += "  ssh $User@<the-address-you-found> '$Command'"
     return ($lines -join [Environment]::NewLine)
@@ -1043,11 +1110,16 @@ match the VM bundle's MAC against the host ARP table.
 .DESCRIPTION
 Ordinary discovery -- Get-GuestAddress, i.e. guest agent, DHCP lease file,
 hypervisor KVP -- can stay silent for a guest that is demonstrably on the
-network. A bridged UTM guest has no lease on this host and no agent, and a lease
-keyed on a name that a rebuilt VM reuses is discarded rather than trusted. The
-bundle's MAC is the identity that stays true through all of that: it is written
-into the bundle at build time and is what the guest puts on the wire, so an ARP
-entry carrying it is this VM and no other.
+network. A bridged guest has no lease on this host and, without an in-band
+agent, nothing to ask; a lease keyed on a name that a rebuilt VM reuses is
+discarded rather than trusted. The MAC is the identity that stays true through
+all of that: it is fixed when the VM is defined and is what the guest puts on
+the wire, so a neighbour entry carrying it is this VM and no other.
+
+Rungs, cheapest first: the ordinary lookup; then warming the host's neighbour
+cache through the driver and repeating it, which is the portable rung and works
+on all three hosts; then UTM's Shared-NAT subnet, which is the one candidate a
+host-subnet sweep cannot reach.
 
 Deliberately a DIAGNOSTIC path, not a poll: identifying the guest costs an ICMP
 sweep of each candidate /24, which is far too expensive to repeat every few
@@ -1081,10 +1153,27 @@ System.String. An IPv4 address, or '' when the guest could not be identified.
     try { $address = [string](Get-GuestAddress -VMName $VMName) } catch { Write-Verbose "Resolve-GuestDiagnosticAddress: Get-GuestAddress: $($_.Exception.Message)" }
     if ($address -and $address -ne $VMName) { return $address }
 
-    # Identifying a guest by bundle MAC is host-driver work and already exists
-    # there; a second implementation here would be a second thing to keep
-    # correct. Absent driver (non-UTM host, or Initialize-YurunaHost never ran)
-    # simply means this rung is unavailable.
+    # The portable rung, and the one that works on every host: ask the driver to
+    # warm the host's neighbour cache, then re-run the ordinary lookup. Every
+    # driver's address discovery includes a MAC-keyed read of that cache, so
+    # warming it is exactly what turns a silent lookup into an answering one --
+    # and both halves are contract verbs, so this needs no per-host branch.
+    #
+    # This used to gate on a UTM-only function, which made the whole resolver a
+    # no-op on the other two hosts: they returned '' unconditionally and the
+    # second-chance probe built on top of this could never recover anything.
+    if (Get-Command Update-GuestNeighborCache -ErrorAction SilentlyContinue) {
+        try {
+            $null = Update-GuestNeighborCache -VMName $VMName -Confirm:$false
+        } catch { Write-Verbose "Resolve-GuestDiagnosticAddress: Update-GuestNeighborCache: $($_.Exception.Message)" }
+        try { $address = [string](Get-GuestAddress -VMName $VMName) } catch { Write-Verbose "Resolve-GuestDiagnosticAddress: post-warm Get-GuestAddress: $($_.Exception.Message)" }
+        if ($address -and $address -ne $VMName -and (Test-IpAddress $address)) { return $address }
+    }
+
+    # UTM's Shared-NAT subnet is the one candidate no host-subnet sweep reaches,
+    # because the guest is not on this host's LAN at all. That rung stays
+    # UTM-specific by nature, so it is tried last and its absence is now just a
+    # missing rung rather than the end of the function.
     $byMac = Get-Command Resolve-UtmGuestIpByMac -ErrorAction SilentlyContinue
     if (-not $byMac) { return '' }
     if (-not $BundlePath) { $BundlePath = "$HOME/yuruna/guest.nosync/$VMName.utm" }

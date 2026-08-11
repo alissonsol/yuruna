@@ -156,12 +156,12 @@ Hyper-V dashboards populate.
 runner host (:8090, deliberately clear of :8080) and needs a local `go` toolchain.
 
 A dashboard correction does **not** require rebuilding the cache VM:
-`test/Sync-PoolDashboardOnProxy.ps1` pushes the canonical
+`test/pool/Sync-PoolDashboardOnProxy.ps1` pushes the canonical
 `grafana-pool-dashboard.json` onto a running proxy from the host that holds the
 harness SSH key, rewriting the `AGGREGATOR_BASE_PLACEHOLDER` from the guest's own
 address and letting Grafana's 30-second file provider pick it up without a
 restart. A warm squid cache likewise survives a VM replacement:
-`test/Move-CachingProxyService.ps1` hands it to the successor through a temporary
+`test/service/Move-CachingProxyService.ps1` hands it to the successor through a temporary
 parent-child cache hierarchy rather than refetching it.
 
 `%% planned` **Each dashed edge has its own gate — there is no single pool
@@ -190,4 +190,4 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.07
+Last review: 2026.08.11

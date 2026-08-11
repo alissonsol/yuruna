@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.07
+.VERSION 2026.08.11
 .GUID 42c9e4a7-1b83-4d56-9e07-3a5c8b1d4e26
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -431,7 +431,7 @@ function Get-PoolWorkerReadinessVerdict {
     foreach ($share in @($ServedShare)) {
         $s = "$share".Trim()
         if (-not $s) { continue }
-        [void]$problem.Add("This machine still publishes the SMB share '$s', which is the share its configuration now mounts from the lab. Serving it keeps a second copy of the tier alive behind the same name, and its live session decides where a mount of that name actually lands. Withdraw it with test/Clear-LocalLabStorage.ps1 (no data is deleted).")
+        [void]$problem.Add("This machine still publishes the SMB share '$s', which is the share its configuration now mounts from the lab. Serving it keeps a second copy of the tier alive behind the same name, and its live session decides where a mount of that name actually lands. Withdraw it with test/lab/Clear-LocalLabStorage.ps1 (no data is deleted).")
     }
 
     [void]$checked.Add('the lab''s storage is mounted here')
@@ -553,10 +553,14 @@ function Invoke-PoolWorkerServiceTeardown {
                 Message = "the VM '$($item.VMName)' exists but no Stop script could be derived from '$($item.StartScript)'; remove it with the host's own tooling" })
             continue
         }
-        $script = Join-Path $TestRoot $item.StopScript
+        # The roster and the extension configs name the stop script; the service
+        # lifecycle scripts themselves live in test/service/, so the folder is
+        # the harness's to supply rather than something every config repeats.
+        $serviceDir = Join-Path $TestRoot 'service'
+        $script     = Join-Path $serviceDir $item.StopScript
         if (-not (Test-Path -LiteralPath $script)) {
             [void]$results.Add([pscustomobject]@{ Key = $item.Key; DisplayName = $item.DisplayName
-                Action = 'unretirable'; ExitCode = -1; Message = "$($item.StopScript) not found in $TestRoot" })
+                Action = 'unretirable'; ExitCode = -1; Message = "$($item.StopScript) not found in $serviceDir" })
             continue
         }
         if (-not $PSCmdlet.ShouldProcess($item.VMName, "Retire the $($item.DisplayName) VM and delete its files")) {
@@ -902,7 +906,7 @@ function Clear-PoolWorkerSupersededMount {
 <#
 .SYNOPSIS
     Stops this machine serving its own pool and stash storage, by running
-    test/Clear-LocalLabStorage.ps1. No data is deleted.
+    test/lab/Clear-LocalLabStorage.ps1. No data is deleted.
 .DESCRIPTION
     Delegated rather than reimplemented: that script owns withdrawing the SMB
     shares, deleting the accounts scoped to them, dropping the Windows loopback
@@ -922,7 +926,7 @@ function Invoke-PoolWorkerShareWithdrawal {
     [CmdletBinding(SupportsShouldProcess)]
     [OutputType([pscustomobject])]
     param([Parameter(Mandatory)][string]$TestRoot)
-    $script = Join-Path $TestRoot 'Clear-LocalLabStorage.ps1'
+    $script = Join-Path $TestRoot 'lab/Clear-LocalLabStorage.ps1'
     if (-not (Test-Path -LiteralPath $script)) {
         return [pscustomobject]@{ Action = 'missing'; ExitCode = -1
             Message = "Clear-LocalLabStorage.ps1 not found in $TestRoot; withdraw the shares and accounts by hand" }

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.07
+.VERSION 2026.08.11
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456712
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -1323,30 +1323,24 @@ function Save-GuestDiagnostic {
         return @{ success=$false; outPath=$null; mechanism='none'; attempted=$attempted; exitCode=0; bytes=0L; skipped=$true; reason="no SSH user mapping for guest '$GuestKey'" }
     }
 
-    # Pre-flight (Hyper-V External vSwitch only): actively probe the LAN
-    # subnet to populate the host's ARP cache. On the External vSwitch
-    # the host is NOT the DHCP server, so passive ARP discovery never
-    # finds the guest -- KVP-only discovery via hv_kvp_daemon can take
-    # 5-15 min to publish (memory note:
-    # hyperv_external_vswitch_arp_discovery). Wait-SshReady will then
-    # spin for its entire budget hitting "Could not resolve hostname"
-    # because Get-GuestAddress falls back to the VMName when no IP is
-    # discoverable. The probe itself is a parallel ICMP sweep over the
-    # /24, ~5 s elapsed; subsequent Get-VMIp calls find the guest in
-    # the now-populated neighbor cache. Guarded on Get-Command so the
-    # call is a no-op on the other host drivers, which do not export it
-    # -- not because they never need a populated ARP cache (a bridged
-    # UTM guest needs one just as much), but because they escalate to
-    # their own sweep from inside Get-VMIp, where it is bounded and
-    # memoized. A second, unbounded sweep from out here would duplicate
-    # that work and defeat its budget.
-    if (Get-Command Invoke-YurunaExternalArpProbe -ErrorAction SilentlyContinue) {
-        try {
-            Write-Verbose "  Diagnostics: pre-probing Yuruna-External /24 to populate ARP cache (KVP can be 5-15 min late)..."
-            Invoke-YurunaExternalArpProbe
-        } catch {
-            Write-Debug "Save-GuestDiagnostic: ARP probe threw: $($_.Exception.Message)"
-        }
+    # Pre-flight: ask the driver to warm the host's neighbour cache before any
+    # address lookup. Wherever the host is not the DHCP server for the guest
+    # network -- an External vSwitch, a bridge-forward libvirt network -- there
+    # is no in-band source to ask, and a passive cache read finds the guest only
+    # while it happens to be talking to us. Without this, address resolution
+    # hands back the VM name and Wait-SshReady spends its whole budget on
+    # "Could not resolve hostname", which names nothing about the real fault.
+    # (memory note: hyperv_external_vswitch_arp_discovery)
+    #
+    # A contract verb rather than a probe-by-name: every driver answers, and
+    # each decides what warming means for it. A driver whose Get-VMIp already
+    # escalates internally declines here, so its own bounded, memoized sweep
+    # is not duplicated by an unbounded one from out here.
+    try {
+        Write-Verbose '  Diagnostics: warming the host neighbour cache before address lookup...'
+        $null = Update-GuestNeighborCache -VMName $VMName
+    } catch {
+        Write-Debug "Save-GuestDiagnostic: Update-GuestNeighborCache threw: $($_.Exception.Message)"
     }
 
     # Pre-flight: real-handshake Wait-SshReady gate (mid-reboot races,

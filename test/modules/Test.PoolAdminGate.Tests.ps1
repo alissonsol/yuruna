@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.07
+.VERSION 2026.08.11
 .GUID 42d0e1f2-a3b4-4c56-9890-bd1e2f3a4b52
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -32,7 +32,7 @@
 $here          = Split-Path -Parent $PSCommandPath
 $adminPath     = Join-Path $here 'Test.PoolAdmin.psm1'
 $syncPath      = Join-Path $here 'Test.PoolSync.psm1'
-$poolIntentPs1 = Join-Path (Split-Path -Parent $here) 'Test-PoolIntent.ps1'
+$poolIntentPs1 = Join-Path (Split-Path -Parent $here) 'pool/Test-PoolIntent.ps1'
 Import-Module $syncPath  -Force   # exports Invoke-PoolSyncGit (mocked below)
 Import-Module $adminPath -Force
 

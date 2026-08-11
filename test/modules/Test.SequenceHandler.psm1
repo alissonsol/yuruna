@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.07
+.VERSION 2026.08.11
 .GUID 42a1b2c3-d4e5-4f67-8901-bc012345672a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -1182,6 +1182,10 @@ Register-SequenceAction -Name 'sshExec' -HostIORequirement @() -OcrRequired $fal
         $timeout = $c.Step.timeoutSeconds ? [int]$c.Step.timeoutSeconds : $c.DefaultTimeoutSeconds
         $masked  = ($c.Step.sensitive -and -not $c.ShowSensitive) ? '***' : $cmd
         Write-Debug "      sshExec: $masked"
+        # Cleared before the attempt, set only on the unresolved-address failure
+        # below, so a successful step never leaves the signal behind for a later
+        # step's failure record to pick up.
+        $script:Fail.StepGuestAddressUnresolved = $null
         $result  = Invoke-GuestSsh -VMName $c.VMName -GuestKey $c.GuestKey -Command $cmd -TimeoutSeconds $timeout
         Write-Debug "      sshExec output: $($result.output)"
         [void](Publish-GuestRetryMarker -Output $result.output -GuestKey $c.GuestKey -VmName $c.VMName)
@@ -1190,6 +1194,7 @@ Register-SequenceAction -Name 'sshExec' -HostIORequirement @() -OcrRequired $fal
                 Write-Debug "      sshExec exit=$($result.exitCode) (allowFailure=true)"
                 return $true
             }
+            if (-not $result.addressResolved) { $script:Fail.StepGuestAddressUnresolved = $true }
             Write-Warning "      sshExec failed (exit=$($result.exitCode)): $masked"
             if ($result.output) { Write-Warning "      output: $($result.output)" }
             return $false
@@ -1207,10 +1212,12 @@ Register-SequenceAction -Name 'sshFetchAndExecute' -HostIORequirement @() -OcrRe
         $cmd     = (Get-FetchExecuteEnvPrefix -CommandLine $cmd -RepoRoot $c.RepoRoot) + $cmd
         $timeout = $c.Step.timeoutSeconds ? [int]$c.Step.timeoutSeconds : $c.DefaultTimeoutSeconds
         Write-Debug "      sshFetchAndExecute: $cmd"
+        $script:Fail.StepGuestAddressUnresolved = $null
         $result  = Invoke-GuestSsh -VMName $c.VMName -GuestKey $c.GuestKey -Command $cmd -TimeoutSeconds $timeout
         Write-Debug "      sshFetchAndExecute output: $($result.output)"
         [void](Publish-GuestRetryMarker -Output $result.output -GuestKey $c.GuestKey -VmName $c.VMName)
         if (-not $result.success) {
+            if (-not $result.addressResolved) { $script:Fail.StepGuestAddressUnresolved = $true }
             Write-Warning "      sshFetchAndExecute failed (exit=$($result.exitCode)): $cmd"
             if ($result.output) { Write-Warning "      output: $($result.output)" }
             return $false

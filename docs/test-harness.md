@@ -10,15 +10,24 @@ architecture and [Yuruna Test ...](../test/README.md) for operator usage.
 | `Invoke-TestRunner.ps1`                            | Continuous test loop (the daily driver) |
 | `New-LocalTestUser.ps1`                            | Create a local OS user (Windows / macOS / Ubuntu), optionally with a password and machine-administrator rights, and register it in the default authentication `users.yml` |
 | `Remove-TestVMFiles.ps1`                           | Purge test VMs and per-VM artifacts |
-| `Repair-CachingProxyServiceForwarder.ps1`                 | macOS/UTM: verify the caching-proxy-service VM is reachable on the LAN and refresh the `yuruna-caching-proxy-service` state file |
-| `Start-CachingProxyServiceVM.ps1` / `Stop-CachingProxyServiceVM.ps1` | Expose the Squid VM to remote clients |
-| `Start-StatusService.ps1` / `Stop-StatusService.ps1` | Detached HTTP status UI |
+| `service/Repair-CachingProxyServiceForwarder.ps1`  | macOS/UTM: verify the caching-proxy-service VM is reachable on the LAN and refresh the `yuruna-caching-proxy-service` state file |
+| `service/Start-CachingProxyServiceVM.ps1` / `service/Stop-CachingProxyServiceVM.ps1` | Expose the Squid VM to remote clients |
+| `Start-StatusService.ps1` / `service/Stop-StatusService.ps1` | Detached HTTP status UI |
 | `Test-CachingProxyService.ps1`                            | Preflight a local or remote cache |
 | `Test-Config.ps1`                                  | Validate `test.config.yml` + optional notification send |
 | `Invoke-TestProject.ps1`                                 | One-shot variant: wipe + re-clone `<RepoRoot>/project`, run a single cycle |
 | `Invoke-TestSequence.ps1`                                | Dev helper: single sequence, any start/stop step |
-| `Test-TesseractOcr.ps1`                            | OCR sanity check via Tesseract (open-source; independent of WinRT) |
-| `Test-WinRtOcr.ps1`                                | OCR sanity check via WinRT — also demonstrates the modern-pwsh "closed access" issue |
+| `check/Test-TesseractOcr.ps1`                      | OCR sanity check via Tesseract (open-source; independent of WinRT) |
+| `check/Test-WinRtOcr.ps1`                          | OCR sanity check via WinRT — also demonstrates the modern-pwsh "closed access" issue |
+
+`test/` itself holds the eight entry points an operator reaches for daily. The
+rest are grouped by what they act on: `test/lab/` (standing a lab up on this
+host — the four host-neutral entry points, lab creation, local storage, token
+enrolment), `test/pool/` (the pool-admin CLI and the sample intent files),
+`test/service/` (service VM and host-service lifecycle, plus the caching-proxy
+operations), `test/check/` (standalone sanity checks), `test/modules/` (harness
+internals, not invoked directly). The repo-wide encoding gate lives at
+`tools/Test-AsciiNoBom.ps1`.
 
 ## Cycle
 
@@ -44,7 +53,7 @@ gui), selecting how the harness drives the guest:
   `test/status/ssh/` that cloud-init injects into each guest.
 
 Sequences live flat under `sequences/<name>.yml`; an SSH variant is a
-distinct `<name>.ssh.yml` sequence selected by its own name.
+distinct `<name>.ssh.yml` selected by its own name.
 
 ## Module responsibilities
 
@@ -190,7 +199,7 @@ list). To override, drop a sibling `<name>.psm1` next to
   runtime state); template (`transports.yml.template`) ships in-tree
   under `test/extension/notification/`.
 
-Override track and log directories via `$env:YURUNA_RUNTIME_DIR` and
+Override runtime and log directories via `$env:YURUNA_RUNTIME_DIR` and
 `$env:YURUNA_LOG_DIR` before launch; the status service remaps the URL
 prefixes.
 
@@ -543,9 +552,8 @@ use. `Assert-HostConditionSet`, `Test-ElevationRequired`, and
    automatically.
 
 Related registries: [Component registry login](authentication.md#component-registry-login)
-— same eviction-safe global-anchor pattern, hand-rolled in
-`automation/Yuruna.CredentialProvider.psm1` rather than on
-`New-YurunaRegistry`; [Host I/O registry](host-io.md) — the older
+— same eviction-safe global-anchor pattern, hand-rolled rather than
+built on `New-YurunaRegistry`; [Host I/O registry](host-io.md) — the older
 two-level registry that established the pattern. Per-platform deep
 dives: [macOS host](host-macos.md), [Hyper-V host](host-hyperv.md).
 
@@ -720,6 +728,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.07
+Last review: 2026.08.11
 
 Back to [Yuruna](../README.md)

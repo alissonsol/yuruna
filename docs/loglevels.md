@@ -90,7 +90,7 @@ each in its own pwsh, and some of those start the per-guest builders:
 
 ```
 setup.ps1 -logLevel Debug
-  └─ test/Start-CachingProxyServiceVM.ps1        Use-LogLevelFromEnv
+  └─ test/service/Start-CachingProxyServiceVM.ps1        Use-LogLevelFromEnv
        └─ host/<platform>/guest.<x>/New-VM.ps1   Use-LogLevelFromEnv
 ```
 
@@ -135,6 +135,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.07
+Last review: 2026.08.11
 
 Back to [Yuruna](../README.md)

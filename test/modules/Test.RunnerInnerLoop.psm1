@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.07
+.VERSION 2026.08.11
 .GUID 42d15e27-b2c3-4d4e-9f50-6b7c8d9e0f1a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -3359,16 +3359,16 @@ function Invoke-GuestProvisionIteration {
         # budget; the actual address shows up in later runner output
         # (New-VM.Resource / extension scripts) once the guest is fully up.
         #
-        # On Hyper-V's External vSwitch the host is NOT the DHCP server,
-        # so KVP-only discovery via hv_kvp_daemon can be 5-15 min late
-        # (memory: feedback_hyperv_external_vswitch_arp_discovery.md).
-        # Active-probe the /24 first so subsequent ARP/KVP lookups see
-        # the guest. The function is exported only on the Hyper-V host
-        # driver; Get-Command-guarded so KVM/UTM cycles are unaffected.
-        if (Get-Command Invoke-YurunaExternalArpProbe -ErrorAction SilentlyContinue) {
-            try { Invoke-YurunaExternalArpProbe } catch {
-                Write-Verbose "Invoke-YurunaExternalArpProbe (pre-Wait-VMIp) threw: $($_.Exception.Message)"
-            }
+        # Where the host is not the DHCP server for the guest network, address
+        # discovery has no in-band source to ask and falls back to reading a
+        # host-side cache that holds the guest only while it happens to be
+        # talking to us. Warming that cache first is what makes the lookup below
+        # answer on the first attempt instead of the fifth.
+        # (memory: feedback_hyperv_external_vswitch_arp_discovery.md)
+        # A contract verb, so every driver answers: each decides for itself
+        # whether a sweep is the right move and bounds its own cost.
+        try { $null = Update-GuestNeighborCache -VMName $VMName } catch {
+            Write-Verbose "Update-GuestNeighborCache (pre-Wait-VMIp) threw: $($_.Exception.Message)"
         }
         $guestIp = Wait-VMIp -VMName $VMName -TimeoutSeconds 30
         $ipSuffix = if ($guestIp) { " ==> IP: $guestIp" } else { " ==> IP: (pending)" }

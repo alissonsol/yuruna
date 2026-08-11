@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.07
+.VERSION 2026.08.11
 .GUID 42b8e6a4-3d17-4c92-8f05-6a1b9d2e7c40
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -226,6 +226,99 @@ function Invoke-WaitVmIp {
         Start-Sleep -Seconds $PollSeconds
     }
     Write-Verbose "Invoke-WaitVmIp: no IP for '$VMName' within ${TimeoutSeconds}s (resolver returned no address)."
+    return $null
+}
+
+function Invoke-ResolveVmIp {
+    <#
+    .SYNOPSIS
+        Run an ordered list of address-discovery rungs and return the first
+        answer, narrating every decline.
+    .DESCRIPTION
+        Each host driver has its own set of places a guest address can come from,
+        but the logic AROUND those places is the same everywhere and was
+        previously written out once per driver: try them cheapest-first, take the
+        first usable answer, and -- the part that kept getting missed -- say why
+        each one declined.
+
+        That narration is the reason this exists. A discovery chain that returns
+        $null silently is indistinguishable at the call site from "this guest does
+        not exist", and the caller downstream turns that into an ssh target built
+        from the VM name, which fails as a name-resolution error naming nothing
+        about the real cause. Diagnosing it then means reading the driver to work
+        out which rungs could even have answered on this host.
+
+        Rungs are scriptblocks so a driver keeps only its own probe bodies, and
+        so a test can substitute pre-captured output for any of them. Each is
+        invoked as `& $probe $VMName $State` and returns an address or nothing. A
+        rung that throws is treated as a decline and narrated with its message:
+        one broken probe must not take the chain down when a later rung could
+        still answer.
+
+        Everything a probe needs arrives in -State; a probe must NOT close over
+        its driver's local variables. Two rules collide here. A scriptblock
+        invoked with `&` runs in the session state where it was DEFINED, which is
+        what lets a driver's probe call that driver's private functions from
+        inside this module -- but a driver function's locals are not in that
+        session state, so a probe that reads them gets nothing. Binding them with
+        GetNewClosure() fixes the variables and breaks the command resolution
+        instead, because the closure carries the calling scope rather than the
+        module's. Passing state explicitly is the only shape where both work.
+    .PARAMETER VMName
+        Guest whose address is wanted; passed to every rung.
+    .PARAMETER Rung
+        Ordered [pscustomobject]/hashtable entries with Name and Probe keys.
+        Name appears in the narration; Probe is the scriptblock.
+    .PARAMETER State
+        Per-lookup values handed to every probe as its second argument -- the
+        guest MAC, the host subnet, pre-captured command output in a test.
+    .PARAMETER Context
+        Free-form label for the summary line, e.g. the host tag. Optional.
+    .OUTPUTS
+        [string] the first address a rung produced, or $null when all declined.
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        [Parameter(Mandatory)][string]$VMName,
+        [Parameter(Mandatory)][AllowEmptyCollection()][object[]]$Rung,
+        [hashtable]$State = @{},
+        [string]$Context = ''
+    )
+    # A common -Verbose sets $VerbosePreference only in the scope of the cmdlet
+    # that received it, and this function lives in a different module from its
+    # callers -- so without this, every narration line below is silently dropped
+    # for a caller who asked for it. The narration is the entire reason this
+    # function exists: a discovery chain that declines without saying why leaves
+    # the caller unable to tell "no address yet" from "no such guest".
+    if (-not $PSBoundParameters.ContainsKey('Verbose')) {
+        $inherited = $PSCmdlet.GetVariableValue('VerbosePreference')
+        if ($null -ne $inherited) { $VerbosePreference = $inherited }
+    }
+    $tried = @()
+    foreach ($entry in @($Rung)) {
+        $name  = [string]$entry.Name
+        $probe = $entry.Probe
+        if (-not $probe) {
+            Write-Verbose "Invoke-ResolveVmIp: rung '$name' has no probe; skipping."
+            continue
+        }
+        $tried += $name
+        $answer = $null
+        try {
+            $answer = & $probe $VMName $State
+        } catch {
+            Write-Verbose "Invoke-ResolveVmIp: rung '$name' threw for '$VMName': $($_.Exception.Message)"
+            continue
+        }
+        if ($answer) {
+            Write-Verbose "Invoke-ResolveVmIp: rung '$name' answered $answer for '$VMName'."
+            return [string]$answer
+        }
+        Write-Verbose "Invoke-ResolveVmIp: rung '$name' declined for '$VMName'."
+    }
+    $where = if ($Context) { " on $Context" } else { '' }
+    Write-Verbose "Invoke-ResolveVmIp: every rung declined for '$VMName'$where (tried: $($tried -join ', ')); each said why above."
     return $null
 }
 
@@ -522,4 +615,4 @@ function Get-HostOwnIpVerdict {
     return 'nonlocal'
 }
 
-Export-ModuleMember -Function Invoke-PerGuestNewVm, Write-GetImageLine, Invoke-WaitVmIp, Invoke-GetImage, Invoke-CachingProxyServiceAvailableProbe, Test-HostOwnIpAddress, Get-HostOwnIpVerdict
+Export-ModuleMember -Function Invoke-PerGuestNewVm, Write-GetImageLine, Invoke-WaitVmIp, Invoke-ResolveVmIp, Invoke-GetImage, Invoke-CachingProxyServiceAvailableProbe, Test-HostOwnIpAddress, Get-HostOwnIpVerdict

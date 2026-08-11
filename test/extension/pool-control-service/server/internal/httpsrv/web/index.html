@@ -28,6 +28,7 @@
         <a href="/hosts">Hosts</a>
         <a href="/pools">Pools</a>
         <a href="/test-sets">Test sets</a>
+        <a href="/scan">Scan</a>
         <a href="/diagnostics">Diagnostics</a>
         <a class="menu-out" href="https://yuruna.link/pool-control">Guide</a>
       </nav>
@@ -47,12 +48,12 @@
     <p class="footnote">
       * A pool's members are meant to be configured alike. To copy one peer's
       configuration onto another host, run on that host:
-      <code>pwsh test/Sync-HostConfiguration.ps1 -ReferenceHost &lt;peer-ip&gt;</code>
+      <code>pwsh test/lab/Sync-HostConfiguration.ps1 -ReferenceHost &lt;peer-ip&gt;</code>
     </p>
   </main>
   <footer id="footer-bar">
     <span id="footer-ips"><span class="label">IPs:</span><textarea id="footer-ip-list" readonly rows="1" spellcheck="false" inputmode="none" autocorrect="off" autocapitalize="off" aria-label="Server IP addresses">—</textarea></span>
-    <span>Loaded: <span id="last-loaded">—</span></span>
+    <span>Loaded: <span id="last-loaded">—</span><span id="footer-busy" aria-hidden="true" hidden></span></span>
     <span><a id="footer-refresh" href="#">Refresh</a>: <span id="countdown">60</span>s</span>
   </footer>
   <script src="/assets/common.js"></script>

@@ -146,9 +146,28 @@
   // each pass, because the 30 s poll below would otherwise keep resetting the
   // 60 s countdown and it would never reach zero. refreshOnVisible is off -- the
   // board already reloads on that event.
-  const chrome = Y.initChrome({ intervalSeconds: 60, refresh: load, refreshOnVisible: false });
+  const chrome = Y.initChrome({
+    intervalSeconds: 60, refreshOnVisible: false,
+    refresh: function () { load({ quiet: true }); }
+  });
 
-  async function load() {
+  // load({quiet}) distinguishes a read the operator is waiting on -- the first
+  // paint, a period switch -- from one they did not ask for. The board's read
+  // fans out to every host in the lab and the first one of the day is slow
+  // enough to look like a stuck page, so the wait an operator is watching gets
+  // the indicator. A poll keeps its numbers on screen and signals in the footer
+  // instead: a wall display that blanked every half minute would read as
+  // failing rather than as refreshing.
+  async function load(opts) {
+    const quiet = !!(opts && opts.quiet);
+    let done = function () { };
+    if (!quiet) {
+      // The empty-state line is an ANSWER ("no pools yet"), so it must not sit
+      // under the indicator claiming one before the read has landed.
+      $('empty').hidden = true;
+      done = Y.busy($('cards'), 'Loading pools…');
+    }
+    chrome.busy(true);
     try {
       const d = await Y.api('/api/board?range=' + encodeURIComponent(state.range));
       chrome.stamp();
@@ -166,7 +185,25 @@
       render();
     } catch (e) {
       Y.notice && Y.notice('error', e.message);
+      // A failed poll leaves the cards it could not refresh alone -- they are
+      // stale, not wrong, and the footer time says how stale.
+      if (!quiet) showLoadError(e.message);
+    } finally {
+      done();
+      chrome.busy(false);
     }
+  }
+
+  // This page carries no notice area, so a read that failed says so where the
+  // cards would have been. Without it the wait ends in a blank board that looks
+  // exactly like the wait did.
+  function showLoadError(msg) {
+    const host = $('cards');
+    host.textContent = '';
+    host.appendChild(Y.el('p', {
+      class: 'muted load-error',
+      text: 'Could not load the board: ' + msg + '. Retrying on the next refresh.'
+    }));
   }
 
   for (const btn of document.querySelectorAll('.periods button')) {
@@ -182,9 +219,9 @@
   // polling. The endpoint behind this is memoized server-side.
   function startTimer() {
     if (timer) clearInterval(timer);
-    timer = setInterval(() => { if (!document.hidden) load(); }, 30000);
+    timer = setInterval(() => { if (!document.hidden) load({ quiet: true }); }, 30000);
   }
-  document.addEventListener('visibilitychange', () => { if (!document.hidden) load(); });
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) load({ quiet: true }); });
 
   (async function init() {
     for (const b of document.querySelectorAll('.periods button')) {

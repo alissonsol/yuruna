@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.07
+.VERSION 2026.08.11
 .GUID 42c2a1aa-2e97-414a-9393-0d097d2e2a2c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -28,7 +28,7 @@
 
 [CmdletBinding()]
 param(
-    [string]$YurunaDir    = (Join-Path $HOME 'git\yuruna'),
+    [string]$YurunaDir    = (Join-Path $HOME 'git/yuruna'),
     [string]$YurunaRepo   = 'https://github.com/alissonsol/yuruna.git',
     [string]$YurunaBranch = 'main',
     # Freeze the checkout at the current release instead of tracking 'main':

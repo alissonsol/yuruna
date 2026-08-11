@@ -69,8 +69,8 @@ the local machine.
     | `host.macos.utm`       | [`host/macos.utm/Enable-TestAutomation.ps1`](../host/macos.utm/Enable-TestAutomation.ps1) |
     | `host.ubuntu.kvm`      | [`host/ubuntu.kvm/Enable-TestAutomation.ps1`](../host/ubuntu.kvm/Enable-TestAutomation.ps1) |
 
-    You may be asked the administrator (sudo) password (multiple times,
-    depending on the operating system).
+    You may be asked for the administrator (sudo) password (multiple
+    times, depending on the operating system).
 
     Each variant configures the host-side settings that would otherwise
     interrupt a long run — display timeout, machine inactivity lock, lock
@@ -179,7 +179,7 @@ path is a smoke test for an operator-initiated run, not a cycle event;
 delivering an email on every outer relaunch would flood the
 `subscribers["config.smoke"]` list.
 
-Bypass with `-NoConfigGate` for ad-hoc runs and for dev iteration against
+Bypass with `-NoConfigGate` for ad-hoc runs and dev iteration against
 an in-progress edit:
 
 ```
@@ -214,6 +214,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.07
+Last review: 2026.08.11
 
 Back to [Yuruna](../README.md)

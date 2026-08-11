@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.07
+.VERSION 2026.08.11
 .GUID 42a2b3c4-d5e6-4f78-9012-3a4b5c6d7e90
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -149,7 +149,7 @@ function CreateIso {
 
 # --- REGION: caching-proxy-service IP discovery (shared by producer + consumers)
 # Single source of truth for KVP+ARP discovery shared by guest.caching-proxy-service/
-# New-VM.ps1, ubuntu.server.24/New-VM.ps1, and test/Start-CachingProxyServiceVM.ps1.
+# New-VM.ps1, ubuntu.server.24/New-VM.ps1, and test/service/Start-CachingProxyServiceVM.ps1.
 # Guards against the regression class where a KVP-only summary reports
 # "(discovery failed)" even though the ARP fallback has already found the
 # cache and it is serving -- by routing all three callers through the same
@@ -190,6 +190,12 @@ function Get-CacheVmCandidateIp {
     # downstream port-forwarders here are netsh portproxy v4tov4; v6
     # entries are kept too so callers that handle v6 (SSH, generic TCP)
     # still see them. Loopback/link-local on either family is excluded.
+    #
+    # Kept as an inline filter rather than routed through
+    # Select-YurunaRoutableAddress: this site needs the whole surviving LIST of
+    # candidates to rank against ARP results below, and the shared helper
+    # deliberately answers with one address. The rejection rule it applies is the
+    # same one; change both together.
     $kvpIps = @($VM | Get-VMNetworkAdapter |
         ForEach-Object { $_.IPAddresses } |
         Where-Object { Test-IpAddress $_ } |
@@ -1153,7 +1159,7 @@ function Repair-YurunaExternalSwitch {
     sees the actual LAN client IP at TCP level -- no PROXY-protocol
     forwarder needed and no Defender per-program filtering layer to
     fight (which is what blocked the user-mode forwarder path on
-    Hyper-V hosts; see test/Start-CachingProxyServiceVM.ps1 for the long note).
+    Hyper-V hosts; see test/service/Start-CachingProxyServiceVM.ps1 for the long note).
 
     Picks the NIC carrying the default IPv4 route (the one with actual
     LAN connectivity, by definition). An uplink that can't carry a
@@ -3876,7 +3882,10 @@ function Get-VMIp {
         # Prefer IPv4 (downstream Add-PortMap uses netsh portproxy v4tov4),
         # but fall back to a routable IPv6 if no v4 is available so v6-only
         # guests don't return $null. Loopback/link-local excluded.
-        $ipv4 = $addrs | Where-Object { (Test-Ipv4Address $_) -and ($_ -notmatch '^(127\.|169\.254\.)') } | Select-Object -First 1
+        # v4-before-v6 and the loopback/link-local rejection are the shared
+        # selector's job, so KVP, the neighbour stage below, and the other two
+        # drivers cannot drift apart on what counts as a usable address.
+        $ipv4 = Select-YurunaRoutableAddress -Address @($addrs | Where-Object { Test-Ipv4Address $_ })
         if ($ipv4) { return [string]$ipv4 }
 
         # KVP empty -- try the host's ARP cache for an entry matching
@@ -3885,19 +3894,21 @@ function Get-VMIp {
         $vmMac = ($vmAdapter | Select-Object -First 1).MacAddress
         if ($vmMac -match '^[0-9A-Fa-f]{12}$' -and $vmMac -ne '000000000000') {
             $vmMacDashed = (($vmMac -replace '(..)(?!$)', '$1-')).ToUpper()
-            $arpIp = Get-NetNeighbor -AddressFamily IPv4 -ErrorAction SilentlyContinue |
+            # The MAC and the NUD state are this stage's own conditions; which of
+            # the surviving addresses is usable is the shared rule's.
+            $arpCandidate = @(Get-NetNeighbor -AddressFamily IPv4 -ErrorAction SilentlyContinue |
                 Where-Object {
                     $_.LinkLayerAddress -eq $vmMacDashed -and
-                    (Test-Ipv4Address $_.IPAddress) -and
-                    $_.State -ne 'Unreachable' -and
-                    $_.IPAddress -notmatch '^(127\.|169\.254\.)'
+                    $_.State -ne 'Unreachable'
                 } |
-                Select-Object -First 1 |
-                ForEach-Object { $_.IPAddress }
+                ForEach-Object { [string]$_.IPAddress })
+            $arpIp = Select-YurunaRoutableAddress -Address $arpCandidate
             if ($arpIp) { return [string]$arpIp }
         }
 
-        $ipv6 = $addrs | Where-Object { (Test-Ipv6Address $_) -and ($_ -inotmatch '^(::1$|fe80:)') } | Select-Object -First 1
+        # Reached only when no v4 qualified above, so the shared selector's
+        # v4-first preference is a no-op here and it returns the v6 answer.
+        $ipv6 = Select-YurunaRoutableAddress -Address @($addrs)
         if ($ipv6) { return [string]$ipv6 }
     } catch {
         Write-Debug "Get-VMIp: Get-VMNetworkAdapter failed for ${VMName}: $_"
@@ -3916,10 +3927,40 @@ function Get-VMMac {
     $vm = Hyper-V\Get-VM -Name $VMName -ErrorAction SilentlyContinue
     if (-not $vm) { return $null }
     $mac = ($vm | Hyper-V\Get-VMNetworkAdapter | Select-Object -First 1).MacAddress
-    if ($mac -match '^[0-9A-Fa-f]{12}$') {
-        return ($mac -replace '(.{2})(?!$)', '$1:').ToUpper()
-    }
+    # Canonical form for the whole harness, so a MAC read on one host compares
+    # equal to the same MAC read on another. Platform-native notations are
+    # produced at the point of use, never stored.
+    $canonical = if ($mac) { ConvertTo-YurunaMacAddress -MacAddress $mac } else { $null }
+    if ($canonical) { return $canonical }
     return $mac
+}
+
+<#
+.SYNOPSIS
+    Refresh the host neighbour cache so a passive MAC lookup can succeed.
+.DESCRIPTION
+    Contract verb; on this host it is the existing External-vSwitch ARP sweep
+    under the shared name. Hyper-V's own discovery leans on KVP first, so the
+    sweep is the second stage rather than the only one -- but a caller that
+    needs the neighbour cache warm should not have to know that.
+.PARAMETER VMName
+    Accepted for contract symmetry. The sweep covers the whole switch subnet,
+    so it warms the cache for every guest at once rather than per VM.
+#>
+function Update-GuestNeighborCache {
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([bool])]
+    param(
+        [Parameter(Mandatory)][string]$VMName,
+        [int]$CooldownSeconds = 60
+    )
+    $null = $VMName
+    $null = $CooldownSeconds
+    if (-not $PSCmdlet.ShouldProcess('Yuruna-External subnet', 'ICMP sweep to populate the neighbour cache')) {
+        return $false
+    }
+    Invoke-YurunaExternalArpProbe
+    return $true
 }
 
 # --- REGION: Networking
@@ -4373,7 +4414,7 @@ Export-ModuleMember -Function `
     Test-VMConsoleOpen, Restart-VMConsole, `
     Get-Image, Get-ImagePath, `
     Send-Text, Send-Key, Send-Click, Get-VMScreenshot, Get-VMConsoleHandle, `
-    Wait-VMIp, Get-VMIp, Get-VMMac, `
+    Wait-VMIp, Get-VMIp, Get-VMMac, Update-GuestNeighborCache, `
     Get-ExternalNetwork, New-ExternalNetwork, Test-CacheVMOnExternalNetwork, Repair-YurunaExternalSwitch, `
     Add-PortMap, Remove-PortMap, Get-BestHostIp, Get-GuestReachableHostIp, `
     Test-CachingProxyServiceAvailable, Get-CachingProxyServiceVmIp, `
@@ -4406,7 +4447,7 @@ $null = Assert-YurunaHostContractCoverage -HostType 'windows.hyper-v' -ExportedF
     'Test-VMConsoleOpen','Restart-VMConsole',
     'Get-Image','Get-ImagePath',
     'Send-Text','Send-Key','Send-Click','Get-VMScreenshot','Get-VMConsoleHandle',
-    'Wait-VMIp','Get-VMIp','Get-VMMac',
+    'Wait-VMIp','Get-VMIp','Get-VMMac','Update-GuestNeighborCache',
     'Get-ExternalNetwork','New-ExternalNetwork','Test-CacheVMOnExternalNetwork',
     'Add-PortMap','Remove-PortMap','Get-BestHostIp','Get-GuestReachableHostIp',
     'Test-CachingProxyServiceAvailable','Get-CachingProxyServiceVmIp',

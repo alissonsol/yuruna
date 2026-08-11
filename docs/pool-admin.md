@@ -57,7 +57,7 @@ Run the commands below from the repo root.
 ## Step 1 — Create the pool
 
 ```powershell
-pwsh test/New-Pool.ps1 -PoolId lab -DisplayName 'Lab pool' -IntentGitUrl <writable-url>
+pwsh test/pool/New-Pool.ps1 -PoolId lab -DisplayName 'Lab pool' -IntentGitUrl <writable-url>
 ```
 
 - `-PoolId` is a short, lowercase, DNS-safe name (`a-z 0-9 -`). It becomes the **permanent
@@ -70,7 +70,7 @@ pwsh test/New-Pool.ps1 -PoolId lab -DisplayName 'Lab pool' -IntentGitUrl <writab
 Run once per host:
 
 ```powershell
-pwsh test/Add-HostToPool.ps1 -PoolId lab -HostId 42abcdef0123456789abcdef01234567 -IntentGitUrl <writable-url>
+pwsh test/pool/Add-HostToPool.ps1 -PoolId lab -HostId 42abcdef0123456789abcdef01234567 -IntentGitUrl <writable-url>
 ```
 
 - `-HostId` is the host's `runtime/host.uuid` (`42` + 30 hex). The pool dashboard's
@@ -92,7 +92,7 @@ Register the pair in the intent store's test-set library (`test-sets.yml`, the
 store behind the pool-control service "Test sets" page):
 
 ```powershell
-pwsh test/Set-PoolTestSetDefinition.ps1 -Name smoke -FrameworkUrl <framework-url> -ProjectUrl <project-url> -IntentGitUrl <writable-url>
+pwsh test/pool/Set-PoolTestSetDefinition.ps1 -Name smoke -FrameworkUrl <framework-url> -ProjectUrl <project-url> -IntentGitUrl <writable-url>
 ```
 
 - The library keeps the UI and CLI views consistent; for CLI-only use it is
@@ -102,7 +102,7 @@ pwsh test/Set-PoolTestSetDefinition.ps1 -Name smoke -FrameworkUrl <framework-url
 ## Step 4 — Assign the test-set to the pool
 
 ```powershell
-pwsh test/Set-PoolTestSet.ps1 -PoolId lab -Name smoke -FrameworkUrl <framework-url> -ProjectUrl <project-url> -IntentGitUrl <writable-url>
+pwsh test/pool/Set-PoolTestSet.ps1 -PoolId lab -Name smoke -FrameworkUrl <framework-url> -ProjectUrl <project-url> -IntentGitUrl <writable-url>
 ```
 
 - A pool holds **exactly one** `testSet`; assigning replaces the previous one (a
@@ -115,8 +115,8 @@ pwsh test/Set-PoolTestSet.ps1 -PoolId lab -Name smoke -FrameworkUrl <framework-u
 ## Step 5 — Verify
 
 ```powershell
-pwsh test/Test-PoolIntent.ps1             # schema-validates pools.yml (+ guests.compatibility.yml); host-in-one-pool invariant
-pwsh test/Get-PoolStatus.ps1 -PoolId lab  # shows members, desiredState, and the assigned test-set
+pwsh test/pool/Test-PoolIntent.ps1             # schema-validates pools.yml (+ guests.compatibility.yml); host-in-one-pool invariant
+pwsh test/pool/Get-PoolStatus.ps1 -PoolId lab  # shows members, desiredState, and the assigned test-set
 ```
 
 There is nothing to "deploy": each runner picks up the new intent on its **next cycle** (it
@@ -127,8 +127,8 @@ your `poolId`), or directly: `curl -sk https://<proxy>:9400/api/v1/pool-status`.
 ## Step 6 — Operate the pool
 
 ```powershell
-pwsh test/Set-PoolDesiredState.ps1 -PoolId lab -State paused -IntentGitUrl <writable-url>   # run | paused | drain
-pwsh test/Remove-HostFromPool.ps1  -PoolId lab -HostId 42<...30 hex...> -IntentGitUrl <writable-url>
+pwsh test/pool/Set-PoolDesiredState.ps1 -PoolId lab -State paused -IntentGitUrl <writable-url>   # run | paused | drain
+pwsh test/pool/Remove-HostFromPool.ps1  -PoolId lab -HostId 42<...30 hex...> -IntentGitUrl <writable-url>
 ```
 
 - **run** — cycle normally.
@@ -151,7 +151,7 @@ kept for the aggregator's host TTL after last contact — 24h by default, set wi
 `example/nested.host` run, a decommissioned box, an id that will never return — use:
 
 ```powershell
-pwsh test/Remove-PoolHost.ps1 -HostId 42<...30 hex...>          # add -WhatIf to preview
+pwsh test/pool/Remove-PoolHost.ps1 -HostId 42<...30 hex...>          # add -WhatIf to preview
 ```
 
 It (1) reads `networkStorage.poolStorageLocalPath` from `test.config.yml` and deletes
@@ -169,6 +169,8 @@ ago, unless `-Force`. Run it on a host with the pool share mounted.
 
 ## Command summary
 
+Every command below lives in `test/pool/`.
+
 | Command | Does | Key parameters |
 |---|---|---|
 | `New-Pool.ps1` | create a pool | `-PoolId` (req), `-DisplayName`, `-DesiredState` |
@@ -179,7 +181,9 @@ ago, unless `-Force`. Run it on a host with the pool share mounted.
 | `Set-PoolTestSetDefinition.ps1` | upsert/delete a library test-set | `-Name` (req), `-FrameworkUrl`, `-ProjectUrl`, `-Delete` |
 | `Set-PoolDesiredState.ps1` | run / pause / drain | `-PoolId` (req), `-State` (req) |
 | `Get-PoolStatus.ps1` | read members + the assigned test-set (intent) | `-PoolId` |
+| `Get-PoolIntent.ps1` | dump the whole intent store as JSON (what the dashboard reads) | — |
 | `Test-PoolIntent.ps1` | validate the intent files | — |
+| `Convert-ToPoolWorker.ps1` | turn a standalone machine into a worker of an existing lab | `-ReferenceHost` (req), `-SharedToken`, `-KeepCachingProxy` |
 
 All mutating commands support `-WhatIf` (preview) and `-Confirm`, validate against the
 schemas **before** writing, and `git commit` + `push` for you. `-IntentGitUrl` defaults to
@@ -187,7 +191,7 @@ schemas **before** writing, and `git commit` + `push` for you. `-IntentGitUrl` d
 (non-zero exit): a change committed locally but not pushed is not durable, and a later admin
 command discards it — recover by re-running from a writable location (on the proxy: a `file://`
 or local path to the bare repo), or delete the admin clone dir to discard the local change and
-re-clone from the remote. Every command has full help: e.g. `Get-Help test/Set-PoolTestSet.ps1 -Full`.
+re-clone from the remote. Every command has full help: e.g. `Get-Help test/pool/Set-PoolTestSet.ps1 -Full`.
 
 ## Pool control service
 
@@ -203,9 +207,10 @@ so the UI and the command line cannot diverge.
 - **Pools** (`/pools`) &mdash; create a pool (mints its stable `poolGuid`, the
   dashboard "Pool ID"), drive every member's **Pool Status** (below), add/remove
   hosts (a host belongs to at most one pool), delete an empty pool.
-- **Hosts** (`/hosts`) &mdash; every host the aggregator knows, not just pool
-  members, so a host that was never auto-enrolled is visible along with the
-  reason. Columns: **Host ID** (links to that host's status page),
+- **Hosts** (`/hosts`) &mdash; every host the aggregator knows *and* every host
+  the network scan found, not just pool members, so a host that was never
+  auto-enrolled &mdash; or never registered at all &mdash; is visible along with
+  the reason. Columns: **Host ID** (links to that host's status page),
   **Hostname**, **Type** (the host type without its `host.` prefix, e.g.
   `ubuntu.kvm`), **Control** (the wire value: `ready` / `none` / `mismatch` /
   `skew`), **Project access**, and the **Pool** picker, which *moves* the host.
@@ -215,6 +220,8 @@ so the UI and the command line cannot diverge.
   renders unattended too, so the name arrives only once the browser is
   unlocked (below). **Show hostnames** prompts for the Lab token; arriving from
   the dashboard link unlocks the page on its own.
+- **Scan** (`/scan`) &mdash; sweep a network for Yuruna hosts and add the ones
+  that answer to the monitored list, pool member or not (below).
 - **Test sets** (`/test-sets`) &mdash; CRUD the named-triple library
   (`test-sets.yml`). GH_TOKEN is **never** stored here &mdash; it stays host-local.
 
@@ -273,7 +280,7 @@ A small Go daemon (`test/extension/pool-control-service/server`, module `pool-co
 
 - Serves the embedded static pages + a JSON API (`/api/state`, `/api/pool`,
   `/api/pool/testset`, `/api/testset`, ...). Strict page CSP; XSS-safe DOM.
-- **Shells out to the PowerShell pool-admin CLIs** (`New-Pool.ps1`,
+- **Shells out to the PowerShell pool-admin CLIs** in `test/pool/` (`New-Pool.ps1`,
   `Set-PoolTestSet.ps1`, `Add-HostToPool.ps1`, `Remove-Pool.ps1`,
   `Set-PoolTestSetDefinition.ps1`, `Get-PoolIntent.ps1`) rather than reimplementing
   git + YAML + schema validation + commit/push in Go &mdash; one authoritative
@@ -326,8 +333,8 @@ they give up.
 **Default &mdash; on its own VM:**
 
 ```powershell
-pwsh test/Start-PoolControlServiceVM.ps1 [-VMName yuruna-pool-control-service]
-# stop (and tear down the VM) with test/Stop-PoolControlServiceVM.ps1
+pwsh test/service/Start-PoolControlServiceVM.ps1 [-VMName yuruna-pool-control-service]
+# stop (and tear down the VM) with test/service/Stop-PoolControlServiceVM.ps1
 ```
 
 Like Start-CachingProxyServiceVM / Start-StashServiceVM, this brings the service up on a
@@ -353,8 +360,8 @@ key and prints them, so a failed build shows you the reason instead of a dead UR
 **Host-side (proof / fallback):**
 
 ```powershell
-pwsh test/Start-PoolControlServiceVM.ps1 -HostSideProof [-Port 8090] [-AggregatorUrl <url>]
-# UI at http://<host>:8090/ ; stop with test/Stop-PoolControlServiceVM.ps1
+pwsh test/service/Start-PoolControlServiceVM.ps1 -HostSideProof [-Port 8090] [-AggregatorUrl <url>]
+# UI at http://<host>:8090/ ; stop with test/service/Stop-PoolControlServiceVM.ps1
 ```
 
 `-HostSideProof` builds + runs the daemon directly on this host instead of a VM.
@@ -389,6 +396,61 @@ Once on, each tick does exactly this and no more:
 Failure is **bounded, not atomic**. Each host is its own CLI run, commit and
 push, so a failure partway through leaves the earlier hosts enrolled. Enrolment
 is idempotent and resumable, so the next tick finishes the job.
+
+### Network scan — finding hosts nobody registered
+
+A host reaches the pool's pages by registering with the aggregator. A machine
+that is running a Yuruna status service but has never enrolled is therefore
+invisible to every pool UI, even while it sits on the same subnet answering
+probes. The **Scan** page asks the network instead.
+
+**What it does.** Every address in the network you give it is asked for
+`/livecheck` on the host status-service port (8080 by default,
+`--scan-port`). An address counts as a Yuruna host only when that answer
+*identifies itself* as `yuruna-status-service` &mdash; a 200 from some other web
+server on the same port is not enough. Each host that answers is then asked for
+its own registration record, which is where its host id, hostname and type come
+from; a host that will not name itself is still recorded, by address.
+
+**What it does not do.** Nothing on the scanned hosts changes, and pool intent
+is never written: a discovered host is **monitored, not enrolled**. It appears
+on the Hosts page marked `discovered`, in no pool, with its hardware and control
+columns blank &mdash; those come from reads the pool does for its *members*.
+Its **address** is the link to its status page, and its host id is plain text:
+a pool host's id links through the aggregator's `/go/host`, which resolves what
+that host registered, and a discovered host registered nothing &mdash; so the
+address, where the scan just got an answer, is the one way in that works.
+Putting it in a pool stays your decision, made with that row's Pool picker.
+(A host that never reported an id cannot be put in a pool at all, because
+membership is recorded against the id; its picker says so.)
+
+**The range, in CIDR notation.** An address and a prefix length:
+`192.168.7.0/24` is the 254 machines whose first three numbers are `192.168.7`.
+A larger prefix length covers fewer addresses (`/32` is one machine); a smaller
+one covers more. Typing an address inside the network is fine &mdash;
+`192.168.7.34/24` means the same subnet. The field says how many addresses your
+entry covers before you press Scan, and refuses anything over **4096 addresses**
+(narrower than `/20`): a mistyped `/8` is one keystroke from `/24` and would put
+sixteen million connection attempts onto the lab network.
+
+**The sweep.** The same scan runs on its own every **15 minutes**
+(`--scan-interval`, `0` turns the timer off and leaves the page's button as the
+only way to scan). With no `--scan-cidr` it sweeps the `/24` around the
+service's own address, re-derived each time so a service that changed subnet
+sweeps the one it is on now. A sweep that lands while you are running a scan is
+skipped rather than queued.
+
+**What the page shows.** The addresses being probed as they go by, how far the
+run has got, and then only the hosts it **added** &mdash; a Yuruna host that was
+already monitored is counted, not listed again. Below that is everything
+discovery has ever found, with first- and last-seen times and a **Forget**
+button for a machine that has been retired. Starting a scan and forgetting a
+host both need the Lab token; reading the page does not.
+
+The list is this service's own, kept beside the audit log under `--state-dir`
+(`discovered-hosts.json`), so it survives an aggregator outage &mdash; which is
+the case it exists for. With no state dir it lives in memory and is rebuilt by
+the next sweep.
 
 ## Download-agent service
 
@@ -455,7 +517,7 @@ typing its address, or bookmarked, or the proof expired while the tab sat open.
 
 The board's **Unlock actions** prompt takes the rotating 6-character **Lab
 token** the Yuruna hosts dashboard already displays on its own tile — the same
-code `test/Set-LabToken.ps1` redeems to enroll a host. Read it off the tile,
+code `test/lab/Set-LabToken.ps1` redeems to enroll a host. Read it off the tile,
 type it in, and that browser stays unlocked for a week. Nothing is provisioned
 and nothing is stored on the agent VM.
 
@@ -475,8 +537,8 @@ routes answer `503` — never an ungated write.
 ### Running it
 
 ```powershell
-pwsh test/Start-DownloadAgentServiceVM.ps1 [-VMName yuruna-download-agent-service]
-# stop (and tear down the VM) with test/Stop-DownloadAgentServiceVM.ps1
+pwsh test/service/Start-DownloadAgentServiceVM.ps1 [-VMName yuruna-download-agent-service]
+# stop (and tear down the VM) with test/service/Stop-DownloadAgentServiceVM.ps1
 ```
 
 Like the pool-control service, the daemon is built **inside** the guest (no host
@@ -533,6 +595,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.07
+Last review: 2026.08.11
 
 Back to [Yuruna](../README.md)

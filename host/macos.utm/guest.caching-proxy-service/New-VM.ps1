@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.07
+.VERSION 2026.08.11
 .GUID 42f1b2c3-d4e5-4f67-8901-a2b3c4d5e6f9
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -289,7 +289,7 @@ try {
 # the runner's bearer header.
 if ($labAuthToken -match '[\r\n''"]') {
     Write-Warning ("lab-auth-token in this host's vault contains a newline or quote character, which would corrupt the baked token file; building with an EMPTY token. " +
-        "Re-enroll this host (pwsh test/Set-LabToken.ps1) or store a clean value, then rebuild.")
+        "Re-enroll this host (pwsh test/lab/Set-LabToken.ps1) or store a clean value, then rebuild.")
     $labAuthToken = ''
     $labTokenReadFailed = $true
 }
@@ -298,7 +298,7 @@ if ($labAuthToken -match '[\r\n''"]') {
 # show no Lab token on the dashboard, and turn every joining host's remote
 # control into a 403). The building host becomes the lab's first enrolled
 # member; every other host receives the same value through the dashboard's
-# Lab token (pwsh test/Set-LabToken.ps1).
+# Lab token (pwsh test/lab/Set-LabToken.ps1).
 if ([string]::IsNullOrEmpty($labAuthToken) -and -not $labTokenReadFailed) {
     $labAuthToken = [Convert]::ToHexString([System.Security.Cryptography.RandomNumberGenerator]::GetBytes(24)).ToLowerInvariant()
     Import-Module (Join-Path $_repoRootForExt 'test/modules/Test.ConfigServiceSync.psm1') -Global -Force -DisableNameChecking

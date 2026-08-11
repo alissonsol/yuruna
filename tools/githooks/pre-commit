@@ -16,7 +16,7 @@
 # authoritative backstop for the published artifact.
 
 repo_root=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
-gate="$repo_root/test/Test-AsciiNoBom.ps1"
+gate="$repo_root/tools/Test-AsciiNoBom.ps1"
 [ -f "$gate" ] || exit 0
 
 if ! command -v pwsh >/dev/null 2>&1; then
@@ -26,7 +26,7 @@ fi
 
 if ! pwsh -NoProfile -ExecutionPolicy Bypass -File "$gate" -Quiet; then
     echo "" >&2
-    echo "pre-commit: ASCII/BOM gate failed (see test/Test-AsciiNoBom.ps1 output above)." >&2
+    echo "pre-commit: ASCII/BOM gate failed (see tools/Test-AsciiNoBom.ps1 output above)." >&2
     echo "  A BOM or non-ASCII byte in a bootstrap / first-run script breaks first-install." >&2
     echo "  Fix the flagged file(s), or bypass with 'git commit --no-verify' (discouraged)." >&2
     exit 1
@@ -51,8 +51,51 @@ fi
 # nothing fails -- the code reads the current name and quietly uses a default.
 # Warn rather than block: an archived artifact or a migration note may legitimately
 # quote the old spelling, and only the author can tell those apart.
+#
+# The retired SCRIPT PATHS below matter more than they look: several consumers
+# treat a missing script as "skip with a warning" rather than an error -- the
+# ASCII gate above, Test-Config.ps1's copy of it, and the runner's per-cycle
+# child. A stale path there does not fail, it silently stops running the thing.
 # Format: <retired>|<current>
 retired_names='
+test/Test-AsciiNoBom.ps1|tools/Test-AsciiNoBom.ps1
+test/Invoke-TestCycleRunner.ps1|test/modules/Invoke-TestCycleRunner.ps1
+test/Start-CachingProxyServiceVM.ps1|test/service/Start-CachingProxyServiceVM.ps1
+test/Stop-CachingProxyServiceVM.ps1|test/service/Stop-CachingProxyServiceVM.ps1
+test/Start-DownloadAgentServiceVM.ps1|test/service/Start-DownloadAgentServiceVM.ps1
+test/Stop-DownloadAgentServiceVM.ps1|test/service/Stop-DownloadAgentServiceVM.ps1
+test/Start-PoolControlServiceVM.ps1|test/service/Start-PoolControlServiceVM.ps1
+test/Stop-PoolControlServiceVM.ps1|test/service/Stop-PoolControlServiceVM.ps1
+test/Start-StashServiceVM.ps1|test/service/Start-StashServiceVM.ps1
+test/Stop-StashServiceVM.ps1|test/service/Stop-StashServiceVM.ps1
+test/Start-ConfigService.ps1|test/service/Start-ConfigService.ps1
+test/Stop-ConfigService.ps1|test/service/Stop-ConfigService.ps1
+test/Stop-StatusService.ps1|test/service/Stop-StatusService.ps1
+test/Set-PoolDesiredState.ps1|test/pool/Set-PoolDesiredState.ps1
+test/Set-PoolTestSet.ps1|test/pool/Set-PoolTestSet.ps1
+test/Test-PoolIntent.ps1|test/pool/Test-PoolIntent.ps1
+test/Sync-PoolDashboardOnProxy.ps1|test/pool/Sync-PoolDashboardOnProxy.ps1
+test/Test-TesseractOcr.ps1|test/check/Test-TesseractOcr.ps1
+test/Test-WinRtOcr.ps1|test/check/Test-WinRtOcr.ps1
+test/Add-HostToPool.ps1|test/pool/Add-HostToPool.ps1
+test/Get-PoolIntent.ps1|test/pool/Get-PoolIntent.ps1
+test/Get-PoolStatus.ps1|test/pool/Get-PoolStatus.ps1
+test/New-Pool.ps1|test/pool/New-Pool.ps1
+test/Remove-Pool.ps1|test/pool/Remove-Pool.ps1
+test/Remove-PoolHost.ps1|test/pool/Remove-PoolHost.ps1
+test/Remove-HostFromPool.ps1|test/pool/Remove-HostFromPool.ps1
+test/Set-PoolTestSetDefinition.ps1|test/pool/Set-PoolTestSetDefinition.ps1
+test/Convert-ToPoolWorker.ps1|test/pool/Convert-ToPoolWorker.ps1
+test/Move-CachingProxyService.ps1|test/service/Move-CachingProxyService.ps1
+test/Repair-CachingProxyServiceForwarder.ps1|test/service/Repair-CachingProxyServiceForwarder.ps1
+test/Clear-LocalLabStorage.ps1|test/lab/Clear-LocalLabStorage.ps1
+test/New-Lab.ps1|test/lab/New-Lab.ps1
+test/New-LocalLabStorage.ps1|test/lab/New-LocalLabStorage.ps1
+test/Set-LabToken.ps1|test/lab/Set-LabToken.ps1
+test/Enable-TestAutomation.ps1|test/lab/Enable-TestAutomation.ps1
+test/Disable-TestAutomation.ps1|test/lab/Disable-TestAutomation.ps1
+test/Sync-HostConfiguration.ps1|test/lab/Sync-HostConfiguration.ps1
+test/Remove-OrphanedVMFiles.ps1|test/lab/Remove-OrphanedVMFiles.ps1
 status server|status service
 stash appliance|stash service
 HostConfigService|ConfigService

@@ -9,7 +9,6 @@ sequence — run it top to bottom, or let
 [A.0](#a0-shortcut-the-standalone-setup-script) run its middle
 (A.3–A.7). [Section B: Deep dive](#section-b-deep-dive) explains each
 step; read it when a step needs judgment or fails.
-
 For a lab — several machines sharing one caching-proxy service,
 NAS-backed storage, and pool-control service — complete A.1–A.2 on
 each machine, then continue with the
@@ -99,7 +98,7 @@ is quick.
 Elevated ([B.5](#b5-enable-test-automation)):
 
 ```
-pwsh test/Enable-TestAutomation.ps1
+pwsh test/lab/Enable-TestAutomation.ps1
 ```
 
 On Windows, sign out and back in if it reports display-scaling
@@ -131,14 +130,14 @@ command creates the folders, accounts, shares, mounts, and config
 ([B.7](#b7-local-shares-for-pool-and-stash-storage)):
 
 ```
-pwsh test/New-LocalLabStorage.ps1
+pwsh test/lab/New-LocalLabStorage.ps1
 ```
 
 It asks only where storage should live (suggesting a per-OS default),
 writes `networkStorage.*` and both vault entries, and calls `New-Lab`
 for you. Add `-EnableReplication` to archive finished cycles to the
 pool share. A later lab on the same machine needs only
-`pwsh test/New-Lab.ps1 -Name <lab-name>` — it reuses the folders and
+`pwsh test/lab/New-Lab.ps1 -Name <lab-name>` — it reuses the folders and
 accounts already here.
 
 *[A.0](#a0-shortcut-the-standalone-setup-script) runs this when you
@@ -150,7 +149,7 @@ create accounts there. Create the folders and the lab vault here, then
 grant the share permissions on the device itself:
 
 ```
-pwsh test/New-Lab.ps1 -Name <lab-name> -Root <storage-root>
+pwsh test/lab/New-Lab.ps1 -Name <lab-name> -Root <storage-root>
 ```
 
 `<lab-name>` is lowercase (letters, digits, hyphens); `<storage-root>`
@@ -178,7 +177,7 @@ Elevated on Windows, unelevated on macOS
 ([B.8](#b8-start-the-caching-proxy-service--dashboards)):
 
 ```
-pwsh test/Start-CachingProxyServiceVM.ps1
+pwsh test/service/Start-CachingProxyServiceVM.ps1
 ```
 
 Set `vmStart.cachingProxyIp` in `test.config.yml` to the proxy VM's
@@ -192,7 +191,7 @@ including writing the IP.*
 Elevated on Windows ([B.9](#b9-start-the-stash-service)):
 
 ```
-pwsh test/Start-StashServiceVM.ps1
+pwsh test/service/Start-StashServiceVM.ps1
 ```
 
 *Run for you by [A.0](#a0-shortcut-the-standalone-setup-script),
@@ -499,7 +498,7 @@ clones and seeds the config.
 ### B.5 Enable test automation
 
 ```
-pwsh test/Enable-TestAutomation.ps1
+pwsh test/lab/Enable-TestAutomation.ps1
 ```
 
 Explicit opt-in that turns this machine into a test host: display
@@ -531,7 +530,7 @@ and the next step takes many minutes.
 
 Durable storage ([pool-storage.md](pool-storage.md),
 [stash-guide.md](stash-guide.md)) is backed by two SMB3 shares. On a
-single machine both live here, and **`test/New-LocalLabStorage.ps1`
+single machine both live here, and **`test/lab/New-LocalLabStorage.ps1`
 sets up the whole tier in one idempotent, `-WhatIf`-able command**;
 commands: [A.5](#a5-create-pool-and-stash-storage). It suggests a
 storage root of `/srv/yuruna` (Ubuntu), `/Users/Shared/yuruna`
@@ -590,7 +589,7 @@ chowning to the share account would trigger.
 
 **It is for local storage only.** A NAS or separate file server owns
 its own accounts — create them **on that device**. Use
-`test/New-Lab.ps1` for the folders and lab vault, share them there,
+`test/lab/New-Lab.ps1` for the folders and lab vault, share them there,
 then fill `networkStorage.*` and store the share passwords in the host
 vault
 ([Setting the SMB passwords in the vault](test-config.md#setting-the-smb-passwords-in-the-vault)).
@@ -601,7 +600,7 @@ the host vault is what the harness reads. Set
 ### B.8 Start the caching-proxy service + dashboards
 
 ```
-pwsh test/Start-CachingProxyServiceVM.ps1
+pwsh test/service/Start-CachingProxyServiceVM.ps1
 ```
 
 Builds the `yuruna-caching-proxy-service` VM and exposes ports 80 (CA cert),
@@ -613,7 +612,7 @@ survives framework reinstalls. Details: [caching.md](caching.md#caching-proxy-se
 ### B.9 Start the stash service
 
 ```
-pwsh test/Start-StashServiceVM.ps1
+pwsh test/service/Start-StashServiceVM.ps1
 ```
 
 Brings up the `yuruna-stash-service` VM — the shared drop box for files
@@ -650,7 +649,7 @@ status dashboard at `http://<host>:8080/` — no separate
 ## Putting the machine back
 
 ```
-pwsh test/Disable-TestAutomation.ps1
+pwsh test/lab/Disable-TestAutomation.ps1
 ```
 
 The reverse of [B.5](#b5-enable-test-automation). It forwards whatever
@@ -745,6 +744,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.07
+Last review: 2026.08.11
 
 Back to [Yuruna](../README.md)

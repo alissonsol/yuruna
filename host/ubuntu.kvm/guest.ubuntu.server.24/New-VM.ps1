@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.07
+.VERSION 2026.08.11
 .GUID 42a2b3c4-d5e6-4f78-9012-3a4b5c6d7e95
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -411,6 +411,13 @@ $installArgs = @(
     '--cdrom',   $baseImageFile,
     '--disk',    "path=$seedImg,device=cdrom,readonly=on",
     '--network', "network=$networkName,model=virtio",
+    # Pinned rather than left to the default. virt-install adds this channel on
+    # its own for this argument shape today, so the line changes nothing now --
+    # but qemu-guest-agent in the seed is useless without it, and a future
+    # default change would remove the host's only on-demand way to ask this
+    # guest for its address, leaving discovery on a decaying ARP cache with no
+    # sign of what broke.
+    '--channel', 'unix,target_type=virtio,name=org.qemu.guest_agent.0',
     '--graphics','vnc,listen=127.0.0.1',
     # Force paravirtual virtio video instead of the q35+UEFI default
     # (bochs-display). The bochs DRM driver in the resolute live-server

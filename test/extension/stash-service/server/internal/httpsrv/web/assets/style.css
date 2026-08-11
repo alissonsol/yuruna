@@ -12,6 +12,8 @@
   --bg-elevated: #ffffff;
   --bg-hover: #f3f4f6;
   --bg-code: #f3f4f6;
+  --band-odd: #f6f8fa;
+  --band-even: #ffffff;
   --fg-primary: #111827;
   --fg-muted: #6b7280;
   --fg-faint: #9ca3af;
@@ -54,6 +56,8 @@
     --bg-elevated: #111827;
     --bg-hover: #1f2937;
     --bg-code: #1f2937;
+    --band-odd: #111827;
+    --band-even: #0b1220;
     --fg-primary: #e5e7eb;
     --fg-muted: #94a3b8;
     --fg-faint: #64748b;
@@ -309,16 +313,48 @@ h2 { font-size: 1rem; margin: 1.75rem 0 .25rem; }
 .btn.destructive { background: var(--destructive-bg); color: var(--destructive-fg); border-color: var(--destructive-hover-bg); }
 .btn.destructive:hover { background: var(--destructive-hover-bg); }
 .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+/* For a button living inside a table row, where the --touch-min height of a
+   standalone .btn would nearly double the height of every row. */
+.btn.compact { min-height: 0; padding: 0.3rem 0.6rem; font-size: 0.8rem; }
 
-/* Horizontal-scroll container: 8 columns overflow narrow phone viewports,
+/* Row count on the left, bulk action on the right, directly above the table. */
+.list-head { display: flex; flex-wrap: wrap; align-items: center; margin-bottom: 0.5rem; }
+.list-head > * + * { margin-left: 0.5rem; }
+/* An auto margin rather than flex-growing the status text: the action stays
+   flush with the table's right edge both inline and once a narrow viewport
+   wraps it onto a line of its own. */
+.list-head .list-action { margin-left: auto; }
+
+/* Horizontal-scroll container: the columns overflow narrow phone viewports,
    and without a wrapper the whole page scrolls sideways. */
 .table-wrap { overflow-x: auto; }
 table.stashes { width: 100%; border-collapse: collapse; background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
 table.stashes th, table.stashes td { text-align: left; padding: 0.5rem 0.6rem; border-bottom: 1px solid var(--border); font-size: 0.9rem; }
 table.stashes th { color: var(--fg-muted); font-weight: 600; }
+/* Banded rows. A stash row is a run of near-identical mono text across eight
+   columns, and the alternating background is what keeps the eye on one row
+   from the name to the size. The pair is a token, and the same two values in
+   every Yuruna UI, so one service cannot band its tables in a shade of its own
+   -- each daemon embeds its own stylesheet (//go:embed cannot reach outside its
+   module), so the values are duplicated and must move together.
+   Scoped to tbody: a header row is not part of the alternation. The hover rule
+   below still shows through, because it paints the td and a td's background
+   paints over its tr's. */
+tbody tr:nth-child(odd) { background: var(--band-odd); }
+tbody tr:nth-child(even) { background: var(--band-even); }
 table.stashes tr:hover td { background: var(--bg-hover); cursor: pointer; }
 table.stashes .mono { font-family: var(--mono); }
 table.stashes .num { text-align: right; white-space: nowrap; }
+/* Selection and per-row action columns: as narrow as their content, and never
+   the column that wraps when the table is squeezed. */
+table.stashes th.pick, table.stashes td.pick,
+table.stashes td.row-actions { width: 1px; white-space: nowrap; }
+table.stashes th.pick input, table.stashes td.pick input { width: 1.15rem; height: 1.15rem; vertical-align: middle; }
+/* Default cursor over the controls: the surrounding row is clickable (it opens
+   the stash), these cells are not. */
+table.stashes tr:hover td.pick, table.stashes tr:hover td.row-actions { cursor: default; }
+.pick-all { display: inline-flex; align-items: center; cursor: pointer; }
+.pick-all input { margin-right: 0.35rem; }
 
 .badge { display: inline-block; padding: 0.05rem 0.45rem; border-radius: 999px; font-size: 0.72rem; font-weight: 600; font-family: var(--mono); }
 .badge.complete { background: var(--pass-bg); color: var(--pass-fg); }

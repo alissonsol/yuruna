@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.07
+.VERSION 2026.08.11
 .GUID 42b5c6d7-e8f9-4a01-b234-5c6d7e8f9a02
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -297,17 +297,17 @@ same /24 the host is on. If it doesn't answer:
   * LAN may not be /24 (the scan assumes a single contiguous /24).
 
 Fix:
-  test/Start-CachingProxyServiceVM.ps1   (rebuilds and re-discovers; safe to re-invoke)
+  test/service/Start-CachingProxyServiceVM.ps1   (rebuilds and re-discovers; safe to re-invoke)
 
 To intentionally skip the cache:
-  test/Stop-CachingProxyServiceVM.ps1     (guest will then WARN and download direct).
+  test/service/Stop-CachingProxyServiceVM.ps1     (guest will then WARN and download direct).
 =========================================================================
 "@
     $Host.UI.WriteLine([ConsoleColor]::Red, $Host.UI.RawUI.BackgroundColor, $detail)
     exit 1
 } elseif ($squidStatus) {
     Write-Warning "  yuruna-caching-proxy-service VM exists (status: $squidStatus) but is not started. Guest will download directly (expect occasional 429s)."
-    Write-Warning "  To enable caching: test/Start-CachingProxyServiceVM.ps1"
+    Write-Warning "  To enable caching: test/service/Start-CachingProxyServiceVM.ps1"
 } else {
     if (-not $utmctl) {
         Write-Warning "  utmctl not found -- can't query UTM directly, and nothing answers on the LAN /24 either."
@@ -315,7 +315,7 @@ To intentionally skip the cache:
         Write-Warning "  No yuruna-caching-proxy-service VM registered with UTM and nothing answers on the LAN /24."
     }
     Write-Warning "  Guest will download directly -- expect 429 rate-limit failures on linux-firmware under load."
-    Write-Warning "  To enable caching, run: test/Start-CachingProxyServiceVM.ps1"
+    Write-Warning "  To enable caching, run: test/service/Start-CachingProxyServiceVM.ps1"
 }
 }
 

@@ -4,6 +4,7 @@
 package httpsrv
 
 import (
+	"context"
 	"net/http"
 	"net/url"
 	"sort"
@@ -218,19 +219,42 @@ func (s *Server) handleBoard(w http.ResponseWriter, r *http.Request) {
 	// Discovery: read each reporting host's registration DIRECTLY. The
 	// aggregator decodes that record into a closed struct and would discard
 	// testSets[] at unmarshal, so relaying through it is not an option.
+	//
+	// Fanned out under one shared read budget, like every other pool-wide read
+	// here. Served one host at a time, a lab holding a few unreachable machines
+	// makes this wait out each connect timeout in turn -- and the board's first
+	// paint is blocked on exactly this read.
+	ids := make([]string, 0, len(baseURLOf))
+	for hid, burl := range baseURLOf {
+		if burl != "" {
+			ids = append(ids, hid)
+		}
+	}
+	// Sorted, so two hosts declaring the same test-set name resolve to the same
+	// winner on every read: the merge below is last-writer-wins, and map order
+	// is not an order.
+	sort.Strings(ids)
+	regCtx, cancelRegs := context.WithTimeout(r.Context(), hostReadBudget)
+	defer cancelRegs()
+	regs := eachMember(ids, func(hostID string) *hostRegistration {
+		var reg hostRegistration
+		if err := s.pool.GetURL(regCtx, strings.TrimSuffix(baseURLOf[hostID], "/")+"/runtime/host.registration.json", &reg); err != nil {
+			// A host that did not answer offers nothing; its pool still renders,
+			// with the numbers the aggregator already reported for it.
+			return nil
+		}
+		return &reg
+	})
+
 	offers := map[string]boardOffer{}
 	accessDenied := map[string]bool{} // hostId -> cannot read its assigned project
 	labelFor := map[string]string{}   // library key -> human label
-	for hid, burl := range baseURLOf {
-		if burl == "" {
-			continue
-		}
-		var reg hostRegistration
-		if err := s.pool.GetURL(r.Context(), strings.TrimSuffix(burl, "/")+"/runtime/host.registration.json", &reg); err != nil {
+	for i, reg := range regs {
+		if reg == nil {
 			continue
 		}
 		if reg.ProjectAccess != nil && reg.ProjectAccess.Status == "denied" {
-			accessDenied[hid] = true
+			accessDenied[ids[i]] = true
 		}
 		slug := projectSlug(reg.ProjectURL)
 		if slug == "" {
@@ -350,6 +374,23 @@ type boardHost struct {
 	Control string `json:"control"`
 	Access  string `json:"access"`
 	Pool    string `json:"pool"`
+	// Discovered marks a host this daemon found by scanning the network rather
+	// than one the aggregator reported. Such a host is monitored, not enrolled:
+	// it belongs to no pool, and its hardware/control columns are blank because
+	// those come from reads the pool does for its members.
+	Discovered bool `json:"discovered,omitempty"`
+	// Address is where a discovered host answered, and the only identity it has
+	// when its registration record could not be read.
+	Address string `json:"address,omitempty"`
+	// BaseURL is that host's own status service, which for a discovered host is
+	// the ONLY way in: the aggregator's /go/host redirect resolves hosts it
+	// knows about, and a host that never registered is not one of them. Carried
+	// from the probe rather than rebuilt in the page, so the link points at the
+	// port the daemon actually got an answer on.
+	BaseURL string `json:"baseUrl,omitempty"`
+	// LastSeen is when a sweep last confirmed a discovered host, which is the
+	// only liveness signal this page has for one.
+	LastSeen string `json:"lastSeen,omitempty"`
 }
 
 // hostTypeLabel drops the "host." prefix a host serializes its type with, for
@@ -397,28 +438,52 @@ func (s *Server) handleHosts(w http.ResponseWriter, r *http.Request) {
 
 	hostnamesVisible := s.gate.Authed(r)
 
-	seen := map[string]bool{}
-	rows := make([]boardHost, 0, len(status.Hosts))
+	// Access, hostname and the type fallback come from each host's own
+	// registration record, so building this table is a pool-wide fan-out: one
+	// shared read budget and bounded concurrency, or the page waits out every
+	// silent host's timeout in turn before it can paint a single row.
+	ids := make([]string, 0, len(status.Hosts))
+	baseOf := make(map[string]string, len(status.Hosts))
 	for _, h := range status.Hosts {
+		ids = append(ids, h.HostID)
+		baseOf[h.HostID] = strings.TrimSuffix(strings.TrimSpace(h.BaseURL), "/")
+	}
+	regCtx, cancelRegs := context.WithTimeout(r.Context(), hostReadBudget)
+	defer cancelRegs()
+	regs := eachMember(ids, func(hostID string) *hostRegistration {
+		if baseOf[hostID] == "" {
+			return nil
+		}
+		var reg hostRegistration
+		if err := s.pool.GetURL(regCtx, baseOf[hostID]+"/runtime/host.registration.json", &reg); err != nil {
+			return nil
+		}
+		return &reg
+	})
+
+	seen := map[string]bool{}
+	seenBase := map[string]bool{}
+	rows := make([]boardHost, 0, len(status.Hosts))
+	for i, h := range status.Hosts {
 		seen[h.HostID] = true
+		if b := strings.TrimSuffix(strings.TrimSpace(h.BaseURL), "/"); b != "" {
+			seenBase[b] = true
+		}
 		row := boardHost{HostID: h.HostID, Type: h.HostType(), Control: h.Control, Pool: poolOf[h.HostID]}
 		if row.Control == "" {
 			row.Control = "unknown"
 		}
-		if h.BaseURL != "" {
-			var reg hostRegistration
-			if err := s.pool.GetURL(r.Context(), strings.TrimSuffix(h.BaseURL, "/")+"/runtime/host.registration.json", &reg); err == nil {
-				if reg.ProjectAccess != nil {
-					row.Access = reg.ProjectAccess.Status
-				}
-				if hostnamesVisible {
-					row.Hostname = strings.TrimSpace(reg.Hostname)
-				}
-				// A host whose status.json the aggregator could not read still
-				// names its own type here, and the two values have one source.
-				if row.Type == "" {
-					row.Type = hostTypeLabel(reg.HostType)
-				}
+		if reg := regs[i]; reg != nil {
+			if reg.ProjectAccess != nil {
+				row.Access = reg.ProjectAccess.Status
+			}
+			if hostnamesVisible {
+				row.Hostname = strings.TrimSpace(reg.Hostname)
+			}
+			// A host whose status.json the aggregator could not read still
+			// names its own type here, and the two values have one source.
+			if row.Type == "" {
+				row.Type = hostTypeLabel(reg.HostType)
 			}
 		}
 		rows = append(rows, row)
@@ -428,9 +493,18 @@ func (s *Server) handleHosts(w http.ResponseWriter, r *http.Request) {
 	for hid, pid := range poolOf {
 		if !seen[hid] {
 			rows = append(rows, boardHost{HostID: hid, Control: "unknown", Pool: pid})
+			seen[hid] = true
 		}
 	}
-	sort.Slice(rows, func(i, j int) bool { return rows[i].HostID < rows[j].HostID })
+	// Hosts this daemon found by scanning the network. They are here, and not on
+	// a page of their own, because "which machines does this lab have" is one
+	// question: a host that answers on the subnet but registered with nobody is
+	// the one an operator most needs to see next to the ones that did.
+	rows = append(rows, discoveredRows(s.discovered.List(), seen, seenBase)...)
+	// Address, not host id, for the discovered rows that have no id: sorting on
+	// an empty string would herd them all to one end regardless of where they
+	// live on the network.
+	sort.Slice(rows, func(i, j int) bool { return hostSortKey(rows[i]) < hostSortKey(rows[j]) })
 
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok": true, "hosts": rows, "pools": pools,

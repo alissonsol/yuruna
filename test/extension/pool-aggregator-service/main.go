@@ -63,8 +63,8 @@ const (
 	// together collapse onto one query, and terminal cycle counts move far more
 	// slowly than this anyway.
 	poolStatsCacheTTL = 30 * time.Second
-	maxProbe           = 8          // bounded concurrent probes per tick
-	logTailBytes       = 512 * 1024 // bytes scanned from EOF for recent client IPs
+	maxProbe          = 8          // bounded concurrent probes per tick
+	logTailBytes      = 512 * 1024 // bytes scanned from EOF for recent client IPs
 	// How long the per-cycle dedup set (seen/seenAt/counted, keyed hostId|cycleStartUtc)
 	// is kept past the host row it belongs to. A host that is reaped and then
 	// re-appears -- a reboot, a flapping probe -- would otherwise re-report a
@@ -225,7 +225,7 @@ type hostStatus struct {
 	// host's own (separately authenticated) status page. The field is retained
 	// (not deleted) to document that status.json carries a hostname we drop.
 	Hostname       string `json:"-"`
-	CycleStartUtc        string `json:"cycleStartUtc"`
+	CycleStartUtc  string `json:"cycleStartUtc"`
 	OverallStatus  string `json:"overallStatus"`
 	StartedAt      string `json:"startedAt"`
 	FinishedAt     string `json:"finishedAt"`
@@ -462,7 +462,7 @@ var (
 // changes (a new cycle = a new file).
 type eventCursor struct {
 	cycleStartUtc string
-	offset  int64 // bytes of the events file already shipped
+	offset        int64 // bytes of the events file already shipped
 }
 
 // presenceTarget is one host whose last-known address pollOnce beacons to Loki
@@ -1222,7 +1222,7 @@ func fetchCurrentAction(client *http.Client, base string) (bool, error) {
 // served by the status service at /yuruna-repo/VERSION -- the SAME source the
 // host's own status pages read for their header (their getHostInfo() fetches
 // yuruna-repo/VERSION via JS, so the version is not embedded in the HTML). A tiny
-// plain-text file (one CalVer line, e.g. "2026.08.07"), so it is lighter than any
+// plain-text file (one CalVer line, e.g. "2026.08.11"), so it is lighter than any
 // status HTML page and fetchable server-side without a JS engine. Returns
 // ("", err) on any failure; the caller keeps the prior version on a transient
 // miss (the version is stable across polls). The value is capped + first-line
@@ -1801,7 +1801,7 @@ func (s *poolState) rehydrateFromLoki(lokiPushURL, pool string, window time.Dura
 		for _, v := range st.Values {
 			var e struct {
 				HostId        string `json:"hostId"`
-				CycleStartUtc       string `json:"cycleStartUtc"`
+				CycleStartUtc string `json:"cycleStartUtc"`
 				OverallStatus string `json:"overallStatus"`
 				FailureClass  string `json:"failureClass"`
 				BaseUrl       string `json:"baseUrl"`
@@ -3298,7 +3298,7 @@ func (s *poolState) handleExtensionHosts(w http.ResponseWriter, r *http.Request)
 }
 
 // validForgetHostID mirrors the runner-side 42-prefixed 32-hex host.uuid shape
-// (test/Remove-PoolHost.ps1, Remove-HostFromPool.ps1) so the forget endpoint
+// (test/pool/Remove-PoolHost.ps1, Remove-HostFromPool.ps1) so the forget endpoint
 // rejects a typo instead of scanning the maps for a key that cannot exist.
 func validForgetHostID(id string) bool {
 	if len(id) != 32 || id[0] != '4' || id[1] != '2' {
@@ -3484,7 +3484,7 @@ func (s *poolState) lookupCycleAt(pool, hostID string, t time.Time) (folderURL, 
 				FinishedAt     string `json:"finishedAt"`
 				CycleFolderUrl string `json:"cycleFolderUrl"`
 				BaseUrl        string `json:"baseUrl"`
-				CycleStartUtc        string `json:"cycleStartUtc"`
+				CycleStartUtc  string `json:"cycleStartUtc"`
 			}
 			if json.Unmarshal([]byte(v[1]), &e) != nil {
 				continue
@@ -3824,7 +3824,7 @@ func sealLabToken(code, token string) (map[string]string, error) {
 
 // handleLabToken (POST /api/v1/lab-token) exchanges the dashboard-displayed lab
 // connection token for the shared lab-auth-token, so enrolling a host is "read
-// the 6-char code off the Yuruna hosts dashboard, run test/Set-LabToken.ps1"
+// the 6-char code off the Yuruna hosts dashboard, run test/lab/Set-LabToken.ps1"
 // instead of SSHing into the proxy for the secret. Posture: the route is open
 // -- the code IS the credential; whoever can view the dashboard may enroll a
 // host -- verified constant-time against the retained codes (current + recent
@@ -5068,7 +5068,7 @@ func main() {
 	// /api/v1/forget-host: operator-driven manual eviction of a hostId from the view
 	// (POST, bearer-gated like /ingest, 503 when no token) -- drops it from /metrics
 	// + the dashboard NOW instead of after the host TTL. Called by
-	// test/Remove-PoolHost.ps1.
+	// test/pool/Remove-PoolHost.ps1.
 	mux.HandleFunc("/api/v1/forget-host", state.handleForgetHost)
 	// /announce: extension-presence beacon target (stash service et al). Open by
 	// design with self-identity binding -- see handleAnnounce; self-gates on

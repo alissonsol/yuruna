@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"log"
 	"mime/multipart"
 	"net"
 	"net/http"
@@ -570,10 +571,18 @@ func (s *Server) handleDelete(w http.ResponseWriter, r *http.Request) {
 	// local interface IP) or the deploying host IP (--host-ip). Checked before
 	// the ownership branch so an unauthorized peer gets a generic refusal that
 	// does not disclose the stash's owning host.
-	if !s.deleteAllowed(clientIP(r)) {
+	//
+	// The refusal names the address the daemon saw. A caller cannot observe
+	// which of its own addresses reached the daemon, and that one fact is what
+	// separates "wrong machine" from "the host IP baked into this VM is stale
+	// or belongs to another interface" -- without it the message is unactionable.
+	// The log line carries the other half, the set that would have been allowed.
+	if src := clientIP(r); !s.deleteAllowed(src) {
+		log.Printf("delete refused: request from %s; permitted: %s", sourceLabel(src), s.allowedDeleteSources())
 		writeJSON(w, http.StatusForbidden, map[string]any{
-			"ok":    false,
-			"error": "delete is permitted only from this VM or its host",
+			"ok":       false,
+			"error":    "delete is permitted only from this VM or its host; this request reached the daemon from " + sourceLabel(src),
+			"clientIp": src,
 		})
 		return
 	}

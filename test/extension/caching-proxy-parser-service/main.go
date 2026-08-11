@@ -262,6 +262,11 @@ const indexHTML = `<!doctype html>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Squid cache — recent 100 requests</title>
 <style>
+  /* Banded rows, the same two values every Yuruna UI bands its tables with.
+     Only the dark pair is defined: this page paints a dark surface outright
+     rather than following prefers-color-scheme, so the light pair would band
+     a dark table in white. */
+  :root { --band-odd: #111827; --band-even: #0b1220; }
   body { font: 12px Menlo, Consolas, monospace; background: #111827; color: #e5e7eb;
          margin: 0; padding: 12px; }
   h1 { font-size: 14px; margin: 0 0 8px; color: #9ca3af; font-weight: 600; }
@@ -272,6 +277,11 @@ const indexHTML = `<!doctype html>
   th { color: #6b7280; font-weight: 600; position: sticky; top: 0; background: #111827; }
   td.url { white-space: normal; word-break: break-all; max-width: 50ch; }
   td.ua  { color: #6b7280; max-width: 30ch; overflow: hidden; text-overflow: ellipsis; }
+  /* Scoped to tbody so the sticky header keeps its own opaque background. The
+     hover rule below still shows through: it paints the td, and a td's
+     background paints over its tr's. */
+  tbody tr:nth-child(odd) { background: var(--band-odd); }
+  tbody tr:nth-child(even) { background: var(--band-even); }
   tr:hover td { background: #1f2937; }
   .ok   { color: #10b981; } /* 2xx / 3xx */
   .red  { color: #f87171; } /* 4xx / 5xx */

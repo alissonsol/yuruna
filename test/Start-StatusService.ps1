@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.07
+.VERSION 2026.08.11
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456740
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -24,7 +24,7 @@
     Launches a detached pwsh process that serves the test/status/ directory
     over HTTP. The server keeps running even if the caller exits.
     A PID file ($env:YURUNA_RUNTIME_DIR/server.pid) is written so
-    Stop-StatusService.ps1 can shut it down later.
+    service/Stop-StatusService.ps1 can shut it down later.
 
 .PARAMETER Port
     TCP port to listen on. Defaults to the value in test.config.yml,
@@ -143,7 +143,7 @@ if (Test-Path $PidFile) {
         }
         if ($currentSha -and $persistedSha -and ($currentSha -eq $persistedSha)) {
             Write-Output "Status service is already running on the current framework SHA (PID $oldPid, port $Port, sha $($currentSha.Substring(0,[Math]::Min(12,$currentSha.Length))))."
-            Write-Output "Stop with: .\Stop-StatusService.ps1"
+            Write-Output "Stop with: .\service\Stop-StatusService.ps1"
             exit 0
         }
         # SHA differs (or either side is unknown). Tear down + fall
@@ -705,7 +705,7 @@ Import-Module (Join-Path `$repoRoot 'test/modules/Test.SingleInstance.psm1') -Fo
 # legitimate runner states outlast ANY threshold: a
 # prompt-for-confirmation pausing the runner for hours, or a single
 # waitForText with timeoutSeconds:3600. UI must stay up, so the ONLY
-# stop path is Stop-StatusService.ps1 (kills server.pid). A truly
+# stop path is service/Stop-StatusService.ps1 (kills server.pid). A truly
 # orphaned server must be killed manually -- deliberate trade-off.
 # Log per-iteration exceptions so we can see why the server died. On
 # Windows, Start-Process -WindowStyle Hidden has no stderr redirection,
@@ -3280,4 +3280,4 @@ if ($fw.Changed) {
     }
 }
 
-Write-Output "Stop with: .\Stop-StatusService.ps1"
+Write-Output "Stop with: .\service\Stop-StatusService.ps1"

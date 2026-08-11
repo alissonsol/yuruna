@@ -79,7 +79,7 @@ see item 5 in the 403 table below.
 **2. Enroll the host.**
 
 ```
-pwsh test/Set-LabToken.ps1 -LabToken <code> -BounceStatusService
+pwsh test/lab/Set-LabToken.ps1 -LabToken <code> -BounceStatusService
 ```
 
 The script redeems the code at the aggregator's `POST /api/v1/lab-token` and stores the
@@ -115,26 +115,25 @@ effect immediately instead of at the next cycle; `-WhatIf` previews without touc
 vault. The vault writes are sub-second; the restart is the slow part (it re-asserts the
 caching-proxy-service port map and waits for the port to answer), so expect tens of
 seconds there. It is bounded: if the restart has not finished in 180 s the script says so
-and leaves it running, and the token is stored either way — it simply takes effect at the
-next cycle instead.
+and leaves it running; the token is stored either way and takes effect at the next cycle.
 
 Bringing a **new** host into the pool? Enroll it first, then sync its config — the sync
 reads the just-stored token from this host's own vault to fetch credentials:
 
 ```
-pwsh test/Set-LabToken.ps1 -LabToken <code> -CachingProxyService <proxy> -BounceStatusService
-pwsh test/Sync-HostConfiguration.ps1 -ReferenceHost <host>
+pwsh test/lab/Set-LabToken.ps1 -LabToken <code> -CachingProxyService <proxy> -BounceStatusService
+pwsh test/lab/Sync-HostConfiguration.ps1 -ReferenceHost <host>
 ```
 
 (`Sync-HostConfiguration.ps1 -SharedToken '<raw-token>' -PersistSharedToken` is the
 host-to-host path for a lab whose aggregator is unreachable: it takes the raw shared token
 from an operator who already holds it and stores it the same way.)
 
-**3. Drive the host from the dashboard.** Open the *Yuruna hosts* dashboard on the caching
-proxy and follow the host's link — the **Control** cell in the *Pool hosts* table, or the
-timeline's "open host status page" — both route through the aggregator's `/go/host`
-redirect. Arriving that way is what carries the proof; typing the host's URL by hand does
-not. Host ID cells are plain text in **every** table: exactly one cell per row grants
+**3. Drive the host from the dashboard.** Open the *Yuruna hosts* dashboard on the
+caching-proxy service and follow the host's link — the **Control** cell in the *Pool
+hosts* table, or the timeline's "open host status page" — both route through the
+aggregator's `/go/host` redirect. Arriving that way is what carries the proof; typing the
+host's URL by hand does not. Host ID cells are plain text in **every** table: exactly one cell per row grants
 control, and it is the one that tells you whether control is on offer.
 
 The Pool control service's own tables link host ids at the same redirect. **Every browser
@@ -142,10 +141,9 @@ link to `/go/*` is plain http, even where the aggregator has a TLS leaf** — th
 lands on a host's plain-http status page, so https protects nothing the next hop does not
 already carry in clear, while putting a proxy-CA interstitial in front of every host link
 (an operator's browser has no reason to trust that CA). The aggregator answers both
-protocols on the same port, so server-to-server callers keep their TLS. Cloud-init
-substitutes a plain-http base into the dashboard for this reason, and `goBaseURL` in the
-pool-control daemon downgrades the configured URL for the same reason before the UI builds
-a link from it.
+protocols on the same port, so server-to-server callers keep their TLS. For the same
+reason, cloud-init substitutes a plain-http base into the dashboard, and `goBaseURL` in
+the pool-control daemon downgrades the configured URL before the UI builds a link from it.
 
 **The Control cell answers "is this host enrolled?" before you click.** It reads:
 
@@ -203,10 +201,10 @@ message, and the status pages render it in place of a bare `HTTP 403`:
 2. **You typed the host URL instead of following the dashboard link.** The proof lives in that
    tab's `sessionStorage` and is per-origin: arriving on one of the host's addresses and then
    switching to another loses it. Re-enter through the dashboard host link. A minted proof
-   lasts about 15 minutes; the config page shows a countdown and warns before it lapses.
+   lasts about 15 minutes.
 3. **The host has no `lab-auth-token` vault entry** (or an empty vault key) — non-loopback
    control is refused by design until the host is enrolled. Read the current Lab token off
-   the dashboard and run `pwsh test/Set-LabToken.ps1 -LabToken <code> -BounceStatusService`
+   the dashboard and run `pwsh test/lab/Set-LabToken.ps1 -LabToken <code> -BounceStatusService`
    ([Enabling remote control on a host](#enabling-remote-control-on-a-host) above).
 4. **The host's token does not match the proxy's** — typically a host enrolled against a
    proxy since rebuilt with a new token. Re-enroll: read the current Lab token off the
@@ -410,6 +408,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.07
+Last review: 2026.08.11
 
 Back to [Yuruna](../README.md)

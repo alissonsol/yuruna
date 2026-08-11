@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.07
+.VERSION 2026.08.11
 .GUID 42f6a2c8-1d3e-4b90-8a7f-2e3d4c5b6a7e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -246,7 +246,7 @@ Describe 'Windows drive-letter YAML round-trip' {
 Describe 'Yuruna control proof (status-service control-route auth)' {
     # The proof the pool-aggregator service mints (Go) and the status service verifies (PowerShell)
     # to gate the mutating /control/* routes. The golden vector is shared with the Go test
-    # (pool-aggregator-service/control_proof_test.go) so the two mints cannot drift.
+    # (test/extension/pool-aggregator-service/control_proof_test.go) so the two mints cannot drift.
     It 'mints the shared golden wire (must equal the Go controlProofFor vector)' {
         Assert-Equal -Expected '1900000000.0l+y7qrGppfHhBxHwLiLx702JdmA5KuxcFOmENJnZDs=' `
             -Actual (Get-YurunaControlProof -Token 'yuruna-net1-golden-token' -ExpiryUnixSeconds 1900000000)
@@ -285,7 +285,7 @@ Describe 'Yuruna control tag (dashboard Control column)' {
     # publishes and the pool-aggregator service compares with its own, to tell
     # "this host is enrolled here" from "this host is enrolled against a proxy
     # that has since been rebuilt". The golden vector is shared with the Go test
-    # (pool-aggregator-service/control_state_test.go) so the two derivations
+    # (test/extension/pool-aggregator-service/control_state_test.go) so the two derivations
     # cannot drift -- a drift would read as the whole pool being onsite-only.
     It 'derives the shared golden tag (must equal the Go controlTagFor vector)' {
         Assert-Equal -Expected 'cCF1hq19qKkDIatix94HUWPtVrMYO3lw5YZetYYqLF4=' `

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.07
+.VERSION 2026.08.11
 .GUID 42ab19c1-07c0-4d84-be69-80c4f1c780a8
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -26,7 +26,7 @@
 # needs, so a new entry point ("Test-DockerCycle.ps1",
 # "Invoke-K8sRunner.ps1") doesn't have to copy-paste:
 #
-#   $TestRoot   = $PSScriptRoot                # or one level up for the inner
+#   $TestRoot   = $PSScriptRoot                # or one level up in a subfolder
 #   $RepoRoot   = Split-Path -Parent $TestRoot
 #   $ModulesDir = Join-Path $TestRoot 'modules'
 #   ...
@@ -42,10 +42,12 @@ function Initialize-YurunaEntryPoint {
         Return the canonical path bundle for any entry-point script.
     .PARAMETER ScriptRoot
         Caller passes $PSScriptRoot verbatim.
-    .PARAMETER InsideModulesDir
-        Set when the caller lives under test/modules/ rather than test/
-        (today: Invoke-TestRunnerInnerLoop.ps1). Walks one more level up
-        to reach TestRoot.
+    .PARAMETER InsideSubfolder
+        Set when the caller lives one level below test/ -- test/modules/,
+        test/service/, test/pool/, test/check/ -- rather than in test/
+        itself. Walks one more level up to reach TestRoot; ModulesDir is
+        always <TestRoot>/modules regardless of which subfolder the
+        caller sits in.
     .PARAMETER ConfigPath
         Optional override; when null, defaults to <TestRoot>/test.config.yml.
     .OUTPUTS
@@ -55,16 +57,11 @@ function Initialize-YurunaEntryPoint {
     [OutputType([System.Collections.Specialized.OrderedDictionary])]
     param(
         [Parameter(Mandatory)][string]$ScriptRoot,
-        [switch]$InsideModulesDir,
+        [switch]$InsideSubfolder,
         [string]$ConfigPath
     )
-    if ($InsideModulesDir) {
-        $modulesDir = $ScriptRoot
-        $testRoot   = Split-Path -Parent $modulesDir
-    } else {
-        $testRoot   = $ScriptRoot
-        $modulesDir = Join-Path $testRoot 'modules'
-    }
+    $testRoot   = if ($InsideSubfolder) { Split-Path -Parent $ScriptRoot } else { $ScriptRoot }
+    $modulesDir = Join-Path $testRoot 'modules'
     $repoRoot     = Split-Path -Parent $testRoot
     $sequencesDir = Join-Path $testRoot 'sequences'
     $statusDir    = Join-Path $testRoot 'status'

@@ -831,7 +831,7 @@ script's whole purpose was achieved. A host that could not open its
 runtime dir must still be told its daemon never started.
 
 Source:
-[`test/Start-StashServiceVM.ps1`](../test/Start-StashServiceVM.ps1).
+[`test/service/Start-StashServiceVM.ps1`](../test/service/Start-StashServiceVM.ps1).
 
 ### Why Set-HostAlias writes the hosts file via a staged sibling swap?
 
@@ -1460,6 +1460,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.07
+Last review: 2026.08.11
 
 Back to [Yuruna](../README.md)

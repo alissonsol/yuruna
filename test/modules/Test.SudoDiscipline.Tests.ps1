@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.07
+.VERSION 2026.08.11
 .GUID 42c1a7d4-3b28-4e60-9f15-6d0c83b7ae21
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -69,7 +69,7 @@ $ScopedFile = @(
     'test/modules/Test.HostCondition.Mac.psm1'
     'test/modules/Test.HostAutomationState.psm1'
     'test/modules/Test.LocalLabStorage.psm1'
-    'test/New-LocalLabStorage.ps1'
+    'test/lab/New-LocalLabStorage.ps1'
     # Called straight out of the storage step's step 8, so its sudo calls run
     # inside the same captured child as everything above. A scan that stops at
     # the scripts and skips the module one of them calls is a scan that cannot
@@ -84,8 +84,8 @@ $ScopedFile = @(
     # setup step graph, so they are governed by the same contract as the storage
     # scripts -- and a scan that names only the storage half would have gone on
     # passing while these two held the one shape it exists to catch.
-    'test/Start-CachingProxyServiceVM.ps1'
-    'test/Stop-CachingProxyServiceVM.ps1'
+    'test/service/Start-CachingProxyServiceVM.ps1'
+    'test/service/Stop-CachingProxyServiceVM.ps1'
     # Elevates to take the status-service port back from a holder this account
     # cannot stop. Every service bring-up in the graph above reaches it through
     # Start-StatusService.ps1, so its sudo runs inside those same captured
@@ -114,7 +114,7 @@ credential every -n call downstream depends on.
 '@
     }
     @{
-        File = 'test/New-LocalLabStorage.ps1'; Function = ''; Max = 1
+        File = 'test/lab/New-LocalLabStorage.ps1'; Function = ''; Max = 1
         Reason = @'
 The elevation banner, reached only after `sudo -n -v` failed AND
 Test-YurunaCanPrompt confirmed a person can see and answer the question. The
@@ -147,7 +147,7 @@ run spends the timestamp this obtains, so -n here would leave nothing to spend.
 '@
     }
     @{
-        File = 'test/Start-CachingProxyServiceVM.ps1'; Function = ''; Max = 1
+        File = 'test/service/Start-CachingProxyServiceVM.ps1'; Function = ''; Max = 1
         Reason = @'
 The else arm of the no-prompt branch: the captured path probes `sudo -n -v` and
 warns, and this is only reached when the environment says a person is present.
@@ -156,7 +156,7 @@ run nothing else.
 '@
     }
     @{
-        File = 'test/Stop-CachingProxyServiceVM.ps1'; Function = ''; Max = 1
+        File = 'test/service/Stop-CachingProxyServiceVM.ps1'; Function = ''; Max = 1
         Reason = @'
 Same shape as the start script's: reached only when the run is not captured, to
 stop a root-owned forwarder a previous run left behind. The captured path probes

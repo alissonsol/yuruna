@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.07
+.VERSION 2026.08.11
 .GUID 42a2b3c4-d5e6-4f78-9012-3a4b5c6d7e8f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -46,6 +46,9 @@ $script:HostFolder     = Join-Path $script:RepoRoot 'host/ubuntu.kvm'
 $script:VirshUri       = 'qemu:///system'
 $script:VmRootDir      = Join-Path $HOME 'yuruna/vms'
 $script:PortMapDir     = Join-Path $HOME 'yuruna/portmap'
+# Last neighbour-cache sweep per VM. Module-scoped so a polling caller cannot
+# turn its poll interval into a sweep interval; see Update-GuestNeighborCache.
+$script:NeighborSweepMemo = @{}
 
 <#
 .SYNOPSIS
@@ -875,41 +878,308 @@ function Wait-VMIp {
 
 <#
 .SYNOPSIS
+    Return this host's own IPv4 and its prefix length, or $null.
+.DESCRIPTION
+    The prefix bounds the neighbour sweep below. It is read rather than
+    assumed because a sweep is only defensible on a /24: at /16 it is 65k
+    probes against the operator's LAN, which is a scan, not a lookup.
+.PARAMETER AddrLine
+    Pre-captured `ip -o -4 addr show` text. The live command runs when this is
+    not bound; supplying it keeps the parsing testable with no host state.
+#>
+function Get-HostIpv4Prefix {
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param([string[]]$AddrLine)
+    $hostIp = Get-BestHostIp
+    if (-not $hostIp) { return $null }
+    if (-not $PSBoundParameters.ContainsKey('AddrLine')) {
+        $AddrLine = @(& ip -o -4 addr show 2>$null)
+        if ($LASTEXITCODE -ne 0) { return $null }
+    }
+    foreach ($line in @($AddrLine)) {
+        if ($line -match '\binet\s+(\d+\.\d+\.\d+\.\d+)/(\d+)' -and $Matches[1] -eq $hostIp) {
+            return @{
+                Address = $hostIp
+                Length  = [int]$Matches[2]
+                Prefix  = ($hostIp -replace '\.\d+$', '')
+            }
+        }
+    }
+    return $null
+}
+
+<#
+.SYNOPSIS
+    Pick the best address out of `virsh domifaddr` rows, or $null.
+.DESCRIPTION
+    Selection order matters as much as the parse. libvirt reports EVERY
+    interface the source knows about, and on a Kubernetes node that includes
+    the CNI bridge, the flannel overlay device and the docker bridge -- all of
+    them routable-looking, none of them reachable from this host. Taking the
+    first row would hand back 10.244.x or 172.17.0.1 and convert a loud
+    resolution failure into a silent connect timeout, which is strictly worse
+    to diagnose.
+
+    So: rows whose MAC is the domain's own NIC win outright, then rows on this
+    host's subnet, then first-match as the legacy behaviour. v4 before v6
+    throughout, because the port-map forwarders bind v4 sockets; v6 is returned
+    only when no v4 exists, so a v6-only guest still resolves.
+.PARAMETER Line
+    `virsh domifaddr` output rows.
+.PARAMETER Mac
+    The domain's NIC MAC, lowercase colon-separated. Optional: when absent the
+    MAC-affinity pass is skipped and the remaining preferences still apply.
+.PARAMETER HostPrefix
+    First three octets of this host's IPv4, e.g. '192.168.7'.
+#>
+function Select-VirshDomifaddrIp {
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        [string[]]$Line,
+        [string]$Mac,
+        [string]$HostPrefix
+    )
+    # Rows look like:
+    #   vnet0      52:54:00:1a:b2:c3    ipv4         192.168.122.42/24
+    #   vnet0      52:54:00:1a:b2:c3    ipv6         2001:db8::1234/64
+    # The MAC column repeats only on the first row of a multi-address
+    # interface; a continuation row carries '-' there and inherits the MAC
+    # above it, so the last seen MAC is carried forward.
+    $rows = @()
+    $currentMac = ''
+    foreach ($l in @($Line)) {
+        if ($l -match '^\s*(\S+)\s+(\S+)\s+(ipv4|ipv6)\s+(\S+)/\d+') {
+            $rowMac = $Matches[2]
+            if ($rowMac -ne '-') { $currentMac = $rowMac.ToLowerInvariant() }
+            $rows += @{
+                Mac    = $currentMac
+                Family = $Matches[3]
+                Ip     = $Matches[4]
+            }
+        }
+    }
+    if (-not $rows.Count) { return $null }
+
+    $wantMac = if ($Mac) { $Mac.ToLowerInvariant() } else { '' }
+    # Whether a single address is usable is the shared rule's call, so this
+    # driver cannot drift from the other two on loopback/link-local. The family
+    # loop below stays here because THIS site also has to apply MAC affinity and
+    # host-subnet preference within a family, which the shared helper knows
+    # nothing about.
+    $isUsable = { param($r) [bool](Select-YurunaRoutableAddress -Address @($r.Ip)) }
+    foreach ($family in @('ipv4', 'ipv6')) {
+        $candidates = @($rows | Where-Object { $_.Family -eq $family -and (& $isUsable $_) })
+        if (-not $candidates.Count) { continue }
+        if ($wantMac) {
+            $byMac = @($candidates | Where-Object { $_.Mac -eq $wantMac })
+            if ($byMac.Count) { $candidates = $byMac }
+        }
+        if ($family -eq 'ipv4' -and $HostPrefix) {
+            $onSubnet = @($candidates | Where-Object { $_.Ip.StartsWith("$HostPrefix.") })
+            if ($onSubnet.Count) { return [string]$onSubnet[0].Ip }
+        }
+        return [string]$candidates[0].Ip
+    }
+    return $null
+}
+
+<#
+.SYNOPSIS
+    Read this host's neighbour table for an entry matching a guest MAC.
+.DESCRIPTION
+    The direct analogue of the Hyper-V driver's MAC-keyed neighbour stage, and
+    the reason it exists here: `virsh domifaddr --source arp` asks libvirt to
+    match the same table, but libvirt sees an entry only while the kernel is
+    publishing a link-layer address for it. FAILED and INCOMPLETE entries carry
+    no lladdr, so a guest that is up and serving traffic disappears from that
+    source for as long as the entry sits in either state. Reading the table
+    here lets STALE -- which is a valid, resolvable entry, merely unverified --
+    keep answering, and confines the rejection to the two states that genuinely
+    carry no address.
+.PARAMETER Mac
+    Guest MAC, any case, colon-separated.
+.PARAMETER NeighborLine
+    Pre-captured `ip -4 neigh show` text; the live command runs when unbound.
+#>
+function Get-KvmNeighborIp {
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        [string]$Mac,
+        [string[]]$NeighborLine
+    )
+    if (-not $Mac) { return $null }
+    if (-not $PSBoundParameters.ContainsKey('NeighborLine')) {
+        $NeighborLine = @(& ip -4 neigh show 2>$null)
+        if ($LASTEXITCODE -ne 0) { return $null }
+    }
+    $wantMac = $Mac.ToLowerInvariant()
+    # NUD states that carry a usable lladdr. FAILED and INCOMPLETE are excluded
+    # because the kernel has no address for them; PERMANENT/NOARP are included
+    # because a statically configured entry is as good as a probed one.
+    $usableState = @('REACHABLE', 'STALE', 'DELAY', 'PROBE', 'PERMANENT', 'NOARP')
+    foreach ($line in @($NeighborLine)) {
+        if ($line -notmatch '^\s*(\d+\.\d+\.\d+\.\d+)\s') { continue }
+        $ip = $Matches[1]
+        if (-not (Test-Ipv4Address $ip) -or $ip -match '^(127\.|169\.254\.)') { continue }
+        if ($line -notmatch '(?i)\blladdr\s+([0-9a-f:]{17})\b') { continue }
+        if ($Matches[1].ToLowerInvariant() -ne $wantMac) { continue }
+        $state = if ($line -match '\b(INCOMPLETE|REACHABLE|STALE|DELAY|PROBE|FAILED|PERMANENT|NOARP)\b') { $Matches[1] } else { '' }
+        if ($state -and $usableState -notcontains $state) { continue }
+        return [string]$ip
+    }
+    return $null
+}
+
+<#
+.SYNOPSIS
+    Refresh the host neighbour cache so a passive MAC lookup can succeed.
+.DESCRIPTION
+    Contract verb. `--source arp` and the neighbour rung above are both passive
+    reads: they answer only for addresses the kernel already has an entry for,
+    and nothing in a normal cycle makes a guest talk to this host often enough
+    to keep one alive. This is the active half -- one bounded ICMP sweep of the
+    host's own subnet, which populates the cache for everything answering on it.
+
+    Three guards, in cost order, because the sweep is the expensive thing here:
+    a per-VM cooldown so a polling caller cannot turn its poll interval into a
+    sweep interval; a running-state check so a stopped or absent domain never
+    pays for one; and a /24 ceiling, since a wider prefix turns this from a
+    lookup into a scan of the operator's network.
+.PARAMETER VMName
+    Guest whose cooldown slot this sweep consumes.
+.PARAMETER CooldownSeconds
+    Minimum gap between sweeps for one VM.
+#>
+function Update-GuestNeighborCache {
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([bool])]
+    param(
+        [Parameter(Mandatory)][string]$VMName,
+        [int]$CooldownSeconds = 60
+    )
+    $now  = Get-Date
+    $last = $script:NeighborSweepMemo[$VMName]
+    if ($last -and ($now - $last).TotalSeconds -lt $CooldownSeconds) {
+        Write-Verbose "Update-GuestNeighborCache: '$VMName' swept $([int]($now - $last).TotalSeconds)s ago; inside the ${CooldownSeconds}s cooldown, skipping."
+        return $false
+    }
+    $state = Get-VMState -VMName $VMName
+    if ($state -ne 'running') {
+        Write-Verbose "Update-GuestNeighborCache: '$VMName' is '$state', not running; no sweep."
+        return $false
+    }
+    $prefix = Get-HostIpv4Prefix
+    if (-not $prefix) {
+        Write-Verbose 'Update-GuestNeighborCache: this host has no default-route IPv4; no sweep.'
+        return $false
+    }
+    if ($prefix.Length -lt 24) {
+        Write-Verbose "Update-GuestNeighborCache: host subnet is /$($prefix.Length), wider than /24; refusing to sweep $([Math]::Pow(2, 32 - $prefix.Length)) addresses."
+        return $false
+    }
+    if (-not (Get-Command ping -ErrorAction SilentlyContinue)) {
+        Write-Verbose 'Update-GuestNeighborCache: ping is not installed; no sweep.'
+        return $false
+    }
+    if (-not $PSCmdlet.ShouldProcess("$($prefix.Prefix).0/$($prefix.Length)", 'ICMP sweep to populate the neighbour cache')) {
+        return $false
+    }
+    $script:NeighborSweepMemo[$VMName] = $now
+    Write-Verbose "Update-GuestNeighborCache: sweeping $($prefix.Prefix).0/$($prefix.Length) for '$VMName'."
+    # One echo request per address, one second of patience, 64 in flight. The
+    # replies are irrelevant -- the point is the ARP exchange each probe forces,
+    # which is what lands in the neighbour table.
+    $sweepPrefix = $prefix.Prefix
+    1..254 | ForEach-Object -Parallel {
+        $null = & ping -c 1 -W 1 "$using:sweepPrefix.$_" 2>$null
+    } -ThrottleLimit 64
+    return $true
+}
+
+<#
+.SYNOPSIS
     Return the guest's host-side IPv4, or null if not yet discoverable.
+.DESCRIPTION
+    Rungs are tried cheapest-first and every decline is narrated, because a
+    silent $null here is indistinguishable at the call site from "this guest
+    does not exist" -- and the caller turns that into an ssh target built from
+    the VM name, which fails as a name-resolution error naming nothing about
+    the real cause.
+
+    Which rungs can answer is a property of the host's configuration, not of
+    this code: `lease` needs libvirt to be the DHCP server, so it is silent for
+    a guest on a bridge-forward network with no <dhcp> element; `agent` needs
+    qemu-guest-agent inside the guest. Where both are silent the arp and
+    neighbour rungs are the whole of discovery, and they are passive reads of a
+    cache that decays -- hence the active refresh as the last resort.
 #>
 function Get-VMIp {
     [CmdletBinding()]
     [OutputType([string])]
     param([Parameter(Mandatory)][string]$VMName)
-    # `virsh domifaddr` queries libvirt's lease database (dnsmasq for the
-    # 'default' network). Three sources to try, in order of reliability:
-    #   1) lease  -- the default; works for libvirt-managed networks
-    #   2) agent  -- needs qemu-guest-agent installed in the guest
-    #   3) arp    -- last resort; passive ARP cache scan
-    # Two-pass per source: prefer routable v4, fall back to routable v6.
-    # Downstream Add-PortMap uses pwsh forwarders that today bind v4
-    # sockets, so v4 stays preferred; v6 is returned only when no v4 is
-    # available so v6-only guests don't surface as $null.
-    foreach ($source in @('lease', 'agent', 'arp')) {
-        $lines = Invoke-Virsh -VirshArgs @('domifaddr', $VMName, '--source', $source)
-        if ($LASTEXITCODE -ne 0) { continue }
-        # Output rows look like:
-        #   vnet0      52:54:00:1a:b2:c3    ipv4         192.168.122.42/24
-        #   vnet0      52:54:00:1a:b2:c3    ipv6         2001:db8::1234/64
-        foreach ($l in $lines) {
-            if ($l -match '^\s*\S+\s+\S+\s+ipv4\s+(\d+\.\d+\.\d+\.\d+)/\d+') {
-                $ip = $Matches[1]
-                if ((Test-Ipv4Address $ip) -and ($ip -notmatch '^(127\.|169\.254\.)')) { return $ip }
-            }
+    # virsh runs several times below and each call rewrites $LASTEXITCODE.
+    # Restoring it keeps this lookup from changing the meaning of a caller's
+    # own exit-code check further down its script.
+    $entryExitCode = $LASTEXITCODE
+    try {
+        $mac = Get-VMMac -VMName $VMName
+        if (-not $mac) {
+            Write-Verbose "Get-VMIp: no MAC in the domain XML for '$VMName'; MAC-affinity and the neighbour rung are unavailable for this lookup."
         }
-        foreach ($l in $lines) {
-            if ($l -match '^\s*\S+\s+\S+\s+ipv6\s+([0-9A-Fa-f:]+)/\d+') {
-                $ip = $Matches[1]
-                if ((Test-Ipv6Address $ip) -and ($ip -inotmatch '^(::1$|fe80:)')) { return $ip }
+        $prefixInfo = Get-HostIpv4Prefix
+        $hostPrefix = if ($prefixInfo) { $prefixInfo.Prefix } else { '' }
+
+        # Rung bodies only. The shared runner owns the ordering, first-answer-wins
+        # and the per-rung narration, so those cannot drift between this driver
+        # and the other two.
+        #
+        # Each probe reads what it needs from the $State bag rather than from this
+        # function's locals, and none of them is a closure. Both halves matter:
+        # the runner invokes a probe with `&`, which runs it in the session state
+        # where it was defined -- this module, so Invoke-Virsh and the private
+        # selectors below resolve -- while GetNewClosure() would bind the locals
+        # at the cost of that resolution, because the closure carries the calling
+        # scope instead of the module's.
+        $state = @{ Mac = $mac; HostPrefix = $hostPrefix }
+        $virshProbe = {
+            param($vm, $s, $source)
+            $lines = Invoke-Virsh -VirshArgs @('domifaddr', $vm, '--source', $source)
+            $rc = $LASTEXITCODE
+            if ($rc -ne 0) {
+                # Separating this from "answered, but with nothing usable" is the
+                # whole point: a non-zero exit means the question could not be
+                # asked -- libvirtd refusing, the domain gone -- and the captured
+                # text is the only evidence of which. Thrown so the runner
+                # narrates the reason instead of recording a bare decline.
+                throw "virsh exit $rc -- $((@($lines) -join ' | '))"
             }
+            Select-VirshDomifaddrIp -Line $lines -Mac $s.Mac -HostPrefix $s.HostPrefix
         }
+        $rungs = @(
+            @{ Name = 'virsh lease'; Probe = { param($vm, $s) & $s.VirshProbe $vm $s 'lease' } }
+            @{ Name = 'virsh agent'; Probe = { param($vm, $s) & $s.VirshProbe $vm $s 'agent' } }
+            @{ Name = 'virsh arp';   Probe = { param($vm, $s) & $s.VirshProbe $vm $s 'arp' } }
+            @{ Name = 'host neighbour table'; Probe = { param($vm, $s) $null = $vm; Get-KvmNeighborIp -Mac $s.Mac } }
+            # Last, and the only rung that costs anything: warm the cache, then
+            # read it again. Update-GuestNeighborCache applies its own cooldown,
+            # running-state and prefix-width guards, so a repeated lookup does
+            # not repeat the sweep.
+            @{ Name = 'neighbour table after refresh'; Probe = {
+                    param($vm, $s)
+                    if (-not (Update-GuestNeighborCache -VMName $vm)) { return $null }
+                    Get-KvmNeighborIp -Mac $s.Mac
+                } }
+        )
+        $state['VirshProbe'] = $virshProbe
+        return Invoke-ResolveVmIp -VMName $VMName -Rung $rungs -State $state -Context $script:HostTag
+    } finally {
+        # Only restore a value that existed. Writing $null into $LASTEXITCODE
+        # when nothing had run yet would invent a state the shell never had.
+        if ($null -ne $entryExitCode) { $global:LASTEXITCODE = $entryExitCode }
     }
-    return $null
 }
 
 <#
@@ -926,6 +1196,12 @@ function Get-VMMac {
     # First <interface ...><mac address='xx:xx:..'/> wins -- harness VMs
     # have a single NIC by convention.
     if ($joined -match "<mac\s+address='([0-9a-fA-F:]{17})'") {
+        # Canonical form for the whole harness, so a MAC read on one host
+        # compares equal to the same MAC read on another. Consumers that need a
+        # platform notation (the kernel's lowercase neighbour table here)
+        # normalize at the point of comparison, not in storage.
+        $canonical = ConvertTo-YurunaMacAddress -MacAddress $Matches[1]
+        if ($canonical) { return $canonical }
         return $Matches[1].ToLower()
     }
     return $null
@@ -960,7 +1236,7 @@ function Get-ExternalNetwork {
     foreach ($c in $candidates) {
         if ($active -contains $c) { return $c }
         if ($defined -contains $c) {
-            Write-Warning "libvirt network '$c' is defined but not active -- skipping it. Start it with 'virsh -c qemu:///system net-start $c', or re-run test/Start-CachingProxyServiceVM.ps1 to rebuild/heal it."
+            Write-Warning "libvirt network '$c' is defined but not active -- skipping it. Start it with 'virsh -c qemu:///system net-start $c', or re-run test/service/Start-CachingProxyServiceVM.ps1 to rebuild/heal it."
         }
     }
     return 'default'
@@ -3052,7 +3328,7 @@ Export-ModuleMember -Function `
     Test-VMConsoleOpen, Restart-VMConsole, `
     Get-Image, Get-ImagePath, `
     Send-Text, Send-Key, Send-Click, Get-VMScreenshot, Get-VMConsoleHandle, `
-    Wait-VMIp, Get-VMIp, Get-VMMac, `
+    Wait-VMIp, Get-VMIp, Get-VMMac, Update-GuestNeighborCache, `
     Get-ExternalNetwork, New-ExternalNetwork, New-YurunaExternalNetwork, Get-YurunaExternalNetworkPlan, Test-CacheVMOnExternalNetwork, `
     Add-PortMap, Remove-PortMap, Get-BestHostIp, Get-GuestReachableHostIp, Resolve-GuestHostBinding, `
     Test-CachingProxyServiceAvailable, Get-CachingProxyServiceVmIp, `
@@ -3069,7 +3345,7 @@ $null = Assert-YurunaHostContractCoverage -HostType 'ubuntu.kvm' -ExportedFuncti
     'Test-VMConsoleOpen','Restart-VMConsole',
     'Get-Image','Get-ImagePath',
     'Send-Text','Send-Key','Send-Click','Get-VMScreenshot','Get-VMConsoleHandle',
-    'Wait-VMIp','Get-VMIp','Get-VMMac',
+    'Wait-VMIp','Get-VMIp','Get-VMMac','Update-GuestNeighborCache',
     'Get-ExternalNetwork','New-ExternalNetwork','New-YurunaExternalNetwork','Get-YurunaExternalNetworkPlan','Test-CacheVMOnExternalNetwork',
     'Add-PortMap','Remove-PortMap','Get-BestHostIp','Get-GuestReachableHostIp',
     'Test-CachingProxyServiceAvailable','Get-CachingProxyServiceVmIp',

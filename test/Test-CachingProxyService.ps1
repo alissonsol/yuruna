@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.07
+.VERSION 2026.08.11
 .GUID 42a1b2c3-d4e5-4f67-8901-bc012345674a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -352,7 +352,7 @@ if ($SetHostProxy) {
         Set-HostProxy @setParams
         Write-Output ""
         Write-Output "Host proxy is now http://${resolvedHost}:${httpPort}."
-        Write-Output "Run 'pwsh test/Stop-CachingProxyServiceVM.ps1' to wipe the host proxy when you're done."
+        Write-Output "Run 'pwsh test/service/Stop-CachingProxyServiceVM.ps1' to wipe the host proxy when you're done."
     } catch {
         Write-Output ""
         Write-Output "[FAIL] -SetHostProxy threw: $($_.Exception.Message)"

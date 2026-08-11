@@ -16,7 +16,7 @@ up a test machine.
   why it is ordered that way. The installers stop at packages and the clone;
   [`install/setup.ps1`](../install/README.md#guided-setup) takes a machine from
   there to a working standalone host or lab, and
-  [`test/Disable-TestAutomation.ps1`](operator.md#putting-the-machine-back)
+  [`test/lab/Disable-TestAutomation.ps1`](operator.md#putting-the-machine-back)
   puts it back.
 - **[operator.md](operator.md)** — bring-up runbook for a single test
   machine: OS baseline to a passing cycle, the test user, and the
@@ -228,6 +228,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.07
+Last review: 2026.08.11
 
 Back to [Yuruna](../README.md)

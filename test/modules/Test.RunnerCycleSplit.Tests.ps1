@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.07
+.VERSION 2026.08.11
 .GUID 42b9d4e1-7c53-4a08-8bd6-0f92e5a37c14
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -39,7 +39,7 @@
 
 $ErrorActionPreference = 'Stop'
 $testRoot   = Split-Path -Parent $PSScriptRoot
-$cycleFile  = Join-Path $testRoot 'Invoke-TestCycleRunner.ps1'
+$cycleFile  = Join-Path $PSScriptRoot 'Invoke-TestCycleRunner.ps1'
 $outerFile  = Join-Path $testRoot 'Invoke-TestRunner.ps1'
 $loopModule = Join-Path $PSScriptRoot 'Test.RunnerOuterLoop.psm1'
 
@@ -267,7 +267,7 @@ Describe 'The cycle result travels out of band' {
         # bare in a statement block. An assignment, a pipe, a return, or a
         # [void](...) around it all re-create the pipe and re-wedge every Hyper-V
         # host in the pool after exactly one passing cycle.
-        $cycleScript = Join-Path (Split-Path -Parent $PSScriptRoot) 'Invoke-TestCycleRunner.ps1'
+        $cycleScript = Join-Path $PSScriptRoot 'Invoke-TestCycleRunner.ps1'
         $ast = [System.Management.Automation.Language.Parser]::ParseFile($cycleScript, [ref]$null, [ref]$null)
         $calls = @($ast.FindAll({ param($n)
             $n -is [System.Management.Automation.Language.CommandAst] -and
@@ -286,7 +286,7 @@ Describe 'The cycle result travels out of band' {
         $captured -join '; ' | Should -Be ''
     }
     It 'reads the outcome back through the module instead' {
-        $cycleScript = Join-Path (Split-Path -Parent $PSScriptRoot) 'Invoke-TestCycleRunner.ps1'
+        $cycleScript = Join-Path $PSScriptRoot 'Invoke-TestCycleRunner.ps1'
         (Get-Content -LiteralPath $cycleScript -Raw) | Should -Match 'Get-LastOuterCycleResult'
     }
     It 'records the result of the cycle it just ran' {

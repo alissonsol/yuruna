@@ -184,7 +184,7 @@ func (e *Error) Error() string {
 // pool operator reading a list of failed members is not left holding a bare
 // 403 per host.
 var reasonText = map[string]string{
-	"host-token-missing":   "the host holds no lab token (enrol it: pwsh test/Set-LabToken.ps1)",
+	"host-token-missing":   "the host holds no lab token (enrol it: pwsh test/lab/Set-LabToken.ps1)",
 	"proof-invalid":        "the host holds a different lab token (re-enrol it against this lab)",
 	"proof-expired":        "the host's clock is behind this service's (fix time sync on the host)",
 	"proof-missing":        "the host received no control proof",

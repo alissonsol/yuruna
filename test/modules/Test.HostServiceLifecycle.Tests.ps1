@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.07
+.VERSION 2026.08.11
 .GUID 42b6c7d8-e9f0-4a12-8b34-5c6d7e8f9a01
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -54,10 +54,10 @@
 $here    = Split-Path -Parent $PSCommandPath
 $testDir = Split-Path -Parent $here   # .../test
 
-$stopHostConfig  = Join-Path $testDir 'Stop-ConfigService.ps1'
-$stopStatus      = Join-Path $testDir 'Stop-StatusService.ps1'
-$startHostConfig = Join-Path $testDir 'Start-ConfigService.ps1'
-$startStash      = Join-Path $testDir 'Start-StashServiceVM.ps1'
+$stopHostConfig  = Join-Path $testDir 'service/Stop-ConfigService.ps1'
+$stopStatus      = Join-Path $testDir 'service/Stop-StatusService.ps1'
+$startHostConfig = Join-Path $testDir 'service/Start-ConfigService.ps1'
+$startStash      = Join-Path $testDir 'service/Start-StashServiceVM.ps1'
 
 function Assert-True { param($Condition, [string]$Because = '') if (-not $Condition) { throw "Expected true. $Because" } }
 
@@ -163,14 +163,19 @@ function Get-AssignedValueText {
     $out
 }
 
-# Every service VM bring-up and teardown in test/, discovered rather than listed
-# so a service added later is held to the same invariant without a second edit.
+# Every service VM bring-up and teardown in test/service/, discovered rather than
+# listed so a service added later is held to the same invariant without a second
+# edit. An empty result would make this Describe vacuously pass, so the count is
+# asserted below -- a folder rename must fail loudly, not silently stop checking.
 $serviceVmScriptCases = @(
-    Get-ChildItem -LiteralPath $testDir -Filter '*ServiceVM.ps1' -File -ErrorAction SilentlyContinue |
+    Get-ChildItem -LiteralPath (Join-Path $testDir 'service') -Filter '*ServiceVM.ps1' -File -ErrorAction SilentlyContinue |
         Where-Object { $_.Name -like 'Start-*' -or $_.Name -like 'Stop-*' } |
         Sort-Object Name |
         ForEach-Object { @{ Name = $_.Name; Path = $_.FullName } }
 )
+if ($serviceVmScriptCases.Count -lt 8) {
+    throw "Expected at least 8 Start-/Stop-*ServiceVM.ps1 scripts under $(Join-Path $testDir 'service'), found $($serviceVmScriptCases.Count). The discovery glob is pointed at the wrong folder."
+}
 
 Describe 'service VM scripts leave ErrorActionPreference at the inherited value' {
     foreach ($case in $serviceVmScriptCases) {

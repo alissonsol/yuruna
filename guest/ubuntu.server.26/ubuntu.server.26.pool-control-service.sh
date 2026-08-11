@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Version: 2026.08.07
+# Version: 2026.08.11
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 #
@@ -58,6 +58,18 @@ PRESENCE_INTERVAL="${POOL_CONTROL_PRESENCE_INTERVAL:-15m}"
 # unlocking with the dashboard's Lab token is then the only way in, and a change
 # with neither is refused rather than running ungated.
 AUTH_TOKEN_FILE="${POOL_CONTROL_AUTH_TOKEN_FILE:-/etc/yuruna/lab-auth.token}"
+# Network discovery: the sweep that finds Yuruna hosts nobody registered and adds
+# them to the monitored list. An empty CIDR leaves the daemon to derive the /24
+# around its own address, which is right whenever the service shares a subnet
+# with the hosts -- set it only when they are somewhere else. '-' (not ':-') on
+# the interval so an operator who exports an empty value to disable the timer
+# gets it: ':-' would substitute the default back and turn the sweep on again.
+SCAN_CIDR="${POOL_CONTROL_SCAN_CIDR:-}"
+SCAN_PORT="${POOL_CONTROL_SCAN_PORT:-8080}"
+SCAN_INTERVAL="${POOL_CONTROL_SCAN_INTERVAL-15m}"
+# "No sweep" is spelled 0 to the daemon; an empty duration would be a flag parse
+# error, which turns an operator's off switch into a service that will not start.
+[ -n "$SCAN_INTERVAL" ] || SCAN_INTERVAL=0
 
 # Aggregator URL + host id + host ip from the shared env files (same as stash).
 AGGREGATOR_URL="$(sed -n 's/^YURUNA_AGGREGATOR_URL=//p' /etc/yuruna/pool.env 2>/dev/null | head -1 || true)"
@@ -357,6 +369,9 @@ POOL_CONTROL_INTENT_GIT_URL=$INTENT_GIT_URL
 POOL_CONTROL_STATE_DIR=$STATE_DIR
 POOL_CONTROL_PRESENCE_INTERVAL=$PRESENCE_INTERVAL
 POOL_CONTROL_AUTH_TOKEN_FILE=$AUTH_TOKEN_FILE
+POOL_CONTROL_SCAN_CIDR=$SCAN_CIDR
+POOL_CONTROL_SCAN_PORT=$SCAN_PORT
+POOL_CONTROL_SCAN_INTERVAL=$SCAN_INTERVAL
 EOF
 
 sudo tee /etc/systemd/system/pool-control-service.service >/dev/null <<EOF
@@ -373,7 +388,7 @@ Wants=network-online.target
 Type=simple
 User=$SERVICE_USER
 EnvironmentFile=/etc/yuruna/pool-control-service.env
-ExecStart=/usr/local/bin/pool-control-service --http-addr=\${POOL_CONTROL_HTTP_ADDR} --repo-dir=\${POOL_CONTROL_REPO_DIR} --pwsh=\${POOL_CONTROL_PWSH} --aggregator-url=\${POOL_CONTROL_AGGREGATOR_URL} --host-id=\${POOL_CONTROL_HOST_ID} --intent-git-url=\${POOL_CONTROL_INTENT_GIT_URL} --state-dir=\${POOL_CONTROL_STATE_DIR} --presence-interval=\${POOL_CONTROL_PRESENCE_INTERVAL} --auth-token-file=\${POOL_CONTROL_AUTH_TOKEN_FILE}
+ExecStart=/usr/local/bin/pool-control-service --http-addr=\${POOL_CONTROL_HTTP_ADDR} --repo-dir=\${POOL_CONTROL_REPO_DIR} --pwsh=\${POOL_CONTROL_PWSH} --aggregator-url=\${POOL_CONTROL_AGGREGATOR_URL} --host-id=\${POOL_CONTROL_HOST_ID} --intent-git-url=\${POOL_CONTROL_INTENT_GIT_URL} --state-dir=\${POOL_CONTROL_STATE_DIR} --presence-interval=\${POOL_CONTROL_PRESENCE_INTERVAL} --auth-token-file=\${POOL_CONTROL_AUTH_TOKEN_FILE} --scan-cidr=\${POOL_CONTROL_SCAN_CIDR} --scan-port=\${POOL_CONTROL_SCAN_PORT} --scan-interval=\${POOL_CONTROL_SCAN_INTERVAL}
 Restart=on-failure
 RestartSec=5
 AmbientCapabilities=CAP_NET_BIND_SERVICE

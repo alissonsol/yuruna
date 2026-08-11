@@ -5,9 +5,27 @@
 (function () {
   // Header version + host id and the footer bar; its countdown re-reads pool
   // intent rather than reloading, so an in-progress test-set choice survives.
-  const chrome = Y.initChrome({ refresh: load });
+  const chrome = Y.initChrome({ refresh: function () { load({ quiet: true }); } });
 
-  async function load() {
+  // quiet marks the countdown's read, which keeps the table it is refreshing on
+  // screen. Every other read replaces it and says so: pool intent is read by
+  // running a CLI on the server, which is not instant.
+  async function load(opts) {
+    const quiet = !!(opts && opts.quiet);
+    const tbody = document.getElementById('pool-rows');
+    const done = quiet ? function () { } : Y.busy(tbody, 'Loading pools…');
+    chrome.busy(true);
+    try {
+      await renderPools(tbody);
+    } finally {
+      // Also on the failure path: an indicator left turning over a read that
+      // already failed claims progress that is not happening.
+      done();
+      chrome.busy(false);
+    }
+  }
+
+  async function renderPools(tbody) {
     Y.clearNotice();
     let data;
     try { data = await Y.api('/api/state'); }
@@ -18,7 +36,6 @@
     const goBaseUrl = (await Y.hostInfo()).goBaseUrl || '';
     const pools = data.pools || [];
     const testSets = data.testSets || [];
-    const tbody = document.getElementById('pool-rows');
     tbody.textContent = '';
 
     if (pools.length === 0) {
@@ -58,18 +75,27 @@
       const memCell = Y.el('td', {}, [Y.el('div', { text: members.length + ' host(s)' })]);
       for (const m of members) memCell.appendChild(Y.el('div', {}, [Y.hostLink(m, p.poolId, goBaseUrl)]));
 
-      const fwProj = ts ? (ts.frameworkUrl + '  /  ' + ts.projectUrl) : '(none)';
+      // Framework and project on their own lines: the pair is two URLs, and one
+      // run-on line of both is read by scanning for the separator between them.
+      const fwProj = ts
+        ? Y.el('td', { class: 'mono' }, [
+          Y.el('div', { text: ts.frameworkUrl }),
+          Y.el('div', { text: ts.projectUrl })
+        ])
+        : Y.el('td', { class: 'mono', text: '(none)' });
       tbody.appendChild(Y.el('tr', {}, [
         Y.el('td', { text: p.poolId }),
         Y.el('td', {}, [Y.idCell(p.poolGuid)]),
         Y.el('td', {}, [sel, ' ', assignBtn]),
-        Y.el('td', { class: 'mono', text: fwProj }),
+        fwProj,
         memCell,
         Y.el('td', { text: p.desiredState || 'run' })
       ]));
     }
   }
 
-  document.getElementById('refresh').addEventListener('click', load);
-  document.addEventListener('DOMContentLoaded', load);
+  // Wrapped rather than passed straight to the listener: load() reads its first
+  // argument as options, and a DOM event is not one.
+  document.getElementById('refresh').addEventListener('click', function () { load(); });
+  document.addEventListener('DOMContentLoaded', function () { load(); });
 })();

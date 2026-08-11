@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.07
+.VERSION 2026.08.11
 .GUID 42d7f3b9-5c1e-4a80-9e2d-7f8a9b0c1d2e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -718,7 +718,7 @@ function Get-ConfigSyncCredentialReadiness {
             return @{ Ready = $true; Status = 403; Error = $null }
         }
         503 {
-            return @{ Ready = $false; Status = 503; Error = "$ReferenceHost has no shared lab-auth-token configured, so it cannot serve credentials to a peer. Enroll BOTH hosts with the Lab token shown on the Yuruna hosts dashboard (on ${ReferenceHost}: pwsh test/Set-LabToken.ps1 -LabToken <dashboard-code> -BounceStatusService), then re-run this sync." }
+            return @{ Ready = $false; Status = 503; Error = "$ReferenceHost has no shared lab-auth-token configured, so it cannot serve credentials to a peer. Enroll BOTH hosts with the Lab token shown on the Yuruna hosts dashboard (on ${ReferenceHost}: pwsh test/lab/Set-LabToken.ps1 -LabToken <dashboard-code> -BounceStatusService), then re-run this sync." }
         }
         404 {
             return @{ Ready = $false; Status = 404; Error = "$ReferenceHost cannot serve the credential for '$User' ($ServerError)." }
@@ -1024,7 +1024,7 @@ function Sync-ConfigSyncVaultCredential {
             continue
         }
         if (-not $token -and $RequireReferenceValue) {
-            Write-Warning "vault: no shared lab-auth-token is available, so the '$user' credential cannot be fetched from $ReferenceHost. Enroll this host (pwsh test/Set-LabToken.ps1 -LabToken <dashboard-code>) or pass -SharedToken."
+            Write-Warning "vault: no shared lab-auth-token is available, so the '$user' credential cannot be fetched from $ReferenceHost. Enroll this host (pwsh test/lab/Set-LabToken.ps1 -LabToken <dashboard-code>) or pass -SharedToken."
             & $record $user $resolvedKey 'no-token' "no shared lab-auth-token available to fetch the credential from $ReferenceHost"
             continue
         }
@@ -1051,7 +1051,7 @@ function Sync-ConfigSyncVaultCredential {
                 # Serviceable, but we have no token and cannot (or were told not to)
                 # get one. Only worth flagging when the entry is missing; an entry
                 # that already exists is kept quietly below.
-                Write-Warning "vault: $ReferenceHost can serve the '$user' credential but this host has no shared lab-auth-token to unlock it; pass -SharedToken, or enroll this host with the dashboard's Lab token (pwsh test/Set-LabToken.ps1 -LabToken <dashboard-code>)."
+                Write-Warning "vault: $ReferenceHost can serve the '$user' credential but this host has no shared lab-auth-token to unlock it; pass -SharedToken, or enroll this host with the dashboard's Lab token (pwsh test/lab/Set-LabToken.ps1 -LabToken <dashboard-code>)."
             }
         } else {
             Write-Warning "vault: the '$user' credential cannot be fetched from the reference host -- $($capability.Error)"

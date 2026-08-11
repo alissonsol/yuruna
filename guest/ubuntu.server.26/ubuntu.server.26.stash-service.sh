@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.08.07
+# Version: 2026.08.11
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 #
@@ -94,6 +94,19 @@ AGGREGATOR_URL="${STASH_AGGREGATOR_URL:-$AGGREGATOR_URL_SEED}"
 # STASH_HOST_IP export wins for a dev launch off the seed.
 HOST_IP_SEED=$(sed -nE 's/^YURUNA_STATUS_SERVICE_IP=(.*)$/\1/p' /etc/yuruna/host.env 2>/dev/null | head -n1 || true)
 HOST_IP="${STASH_HOST_IP:-$HOST_IP_SEED}"
+# Said out loud during bring-up, not only in the summary below: the seed value
+# is the guest-reachable HOST address, while the gate compares against the
+# SOURCE address a browser arrives from. On a multi-homed host, or one
+# re-addressed since the seed was baked, those differ and every delete from
+# the host is then refused -- a build-time line is the cheapest place to
+# notice, since the symptom only appears later and only on a click.
+if [ -n "$HOST_IP" ]; then
+  if [ -n "${STASH_HOST_IP:-}" ]; then HOST_IP_FROM="STASH_HOST_IP"; else HOST_IP_FROM="/etc/yuruna/host.env"; fi
+  echo "Delete authorization: this VM plus host IP $HOST_IP (from $HOST_IP_FROM)."
+else
+  echo "WARNING: no host IP resolved (STASH_HOST_IP unset, /etc/yuruna/host.env carries none)."
+  echo "         Only this VM will be able to DELETE stashes; a browser on the host gets 403."
+fi
 # Presence beacon (§4.7): the daemon self-announces to the aggregator on
 # boot, every PRESENCE_INTERVAL, and at shutdown, so the pool dashboard's
 # Extension hosts row exists without the owning host's status service. The
@@ -328,6 +341,13 @@ if [ -n "$HTTP_ADDR" ]; then
   echo "  UI/API     : http://<vm-ip>:${HTTP_ADDR##*:}  (browse / create / delete; docs/stash-guide.md)"
 else
   echo "  UI/API     : disabled (STASH_HTTP_ADDR empty)"
+fi
+if [ -n "$HOST_IP" ]; then
+  echo "  Delete from: this VM, or $HOST_IP -- any other source is refused"
+  echo "               (on the browsing machine, 'ip route get <vm-ip>' shows the address it will be seen as)"
+else
+  echo "  Delete from: this VM only -- no host IP was resolved"
+  echo "               (re-run with STASH_HOST_IP=<address> to allow the browsing host)"
 fi
 echo "  systemd    : sudo systemctl status stash-service.service"
 echo "  logs       : sudo journalctl -u stash-service.service -f"

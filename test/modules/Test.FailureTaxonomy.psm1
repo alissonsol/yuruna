@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.07
+.VERSION 2026.08.11
 .GUID 42b7e3c5-9a14-4d28-8f63-1e0a2b4c6d80
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -49,8 +49,17 @@ $script:FailureClassEnum = @(
     # absent from the transient fast-retry allow-lists: retrying against a
     # bridge with no carrier can only spend the cycle budget, so it routes to
     # the operator like elevation_required does.
+    # ip_not_discovered: no host-side probe could name an address for the guest,
+    # so the step never reached it. Distinct from network_timeout, which means a
+    # real address was found and the path to it failed, and distinct from
+    # host_network_degraded, which is unrecoverable and routes to the operator.
+    # This one is the recoverable lateness class: hypervisor address discovery
+    # rests on caches that age out and daemons that publish late, so the same
+    # call usually answers seconds later. It therefore belongs in the transient
+    # fast-retry allow-lists, and must never be reported as script_error -- the
+    # guest script never ran, and sending a reader to debug it wastes the cycle.
     'bootstrap_sync', 'plan_invalid', 'elevation_required', 'project_access_denied',
-    'host_network_degraded', 'unknown'
+    'host_network_degraded', 'ip_not_discovered', 'unknown'
 )
 $script:SeverityEnum = @('hard', 'soft', 'unknown')
 

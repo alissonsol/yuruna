@@ -54,9 +54,7 @@ write_files:
     content: |
       username=POOL_NAS_NETWORK_USER_PLACEHOLDER
       password=POOL_NAS_PASSWORD_PLACEHOLDER
-  # Host coordinates: YURUNA_HOST_ID is the daemon --host-id; IP/PORT are the
-  # status service the framework fetch below reads. Empty IP/PORT falls back to
-  # the public github mirror.
+  # Host coordinates: daemon --host-id plus status-service IP/PORT for the framework fetch; empty IP/PORT falls back to the public github mirror.
   - path: /etc/yuruna/host.env
     permissions: '0644'
     owner: root:root

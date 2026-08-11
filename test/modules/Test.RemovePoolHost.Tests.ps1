@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.07
+.VERSION 2026.08.11
 .GUID 42b8d1f3-6a4c-4e29-9b57-0d3e2f6a8c15
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -18,7 +18,7 @@
 
 <#
 .SYNOPSIS
-    Functional Pester coverage for test/Remove-PoolHost.ps1: it deletes a stale
+    Functional Pester coverage for test/pool/Remove-PoolHost.ps1: it deletes a stale
     host's NAS records (identity + replicated cycles) resolved from
     test.config.yml, refuses a recently-seen record without -Force, resolves the
     GUID-dashed hostId form the dashboard displays, and rejects a malformed hostId.

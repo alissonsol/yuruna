@@ -48,13 +48,22 @@
       </select>
       <button class="btn" id="refresh" title="Rescan the stash share for other hosts' stashes">Refresh</button>
     </div>
-    <div id="status" class="muted"></div>
+    <div id="msg"></div>
+    <!-- Kept apart from #msg, which every load clears and every failure
+         replaces: this note states a standing condition of the page, not the
+         outcome of the last action. -->
+    <div id="delete-note"></div>
+    <div class="list-head">
+      <div id="status" class="muted"></div>
+      <button class="btn destructive list-action" id="delete-selected" disabled>Delete selected</button>
+    </div>
     <div class="table-wrap">
     <table class="stashes">
       <thead>
         <tr>
+          <th class="pick"><label class="pick-all"><input type="checkbox" id="pick-all" disabled><span>All</span></label></th>
           <th></th><th>ID</th><th>Name</th><th>Host</th><th>User</th>
-          <th class="num">Size</th><th>Created</th><th>Status</th>
+          <th class="num">Size</th><th>Created</th><th>Status</th><th></th>
         </tr>
       </thead>
       <tbody id="rows"></tbody>

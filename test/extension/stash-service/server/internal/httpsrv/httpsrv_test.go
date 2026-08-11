@@ -218,6 +218,7 @@ func TestDeleteAuthzUnit(t *testing.T) {
 	}{
 		{"127.0.0.1", true},      // the VM itself (localhost UI/CLI)
 		{"::1", true},            // IPv6 loopback
+		{"::1%lo", true},         // the same, zoned as an IPv6 source arrives
 		{"198.51.100.10", true},  // configured host IP
 		{"198.51.100.11", true},  // second configured host IP
 		{"203.0.113.50", false},  // an arbitrary LAN peer
@@ -229,6 +230,15 @@ func TestDeleteAuthzUnit(t *testing.T) {
 		if got := ui.deleteAllowed(c.ip); got != c.want {
 			t.Fatalf("deleteAllowed(%q) = %v, want %v", c.ip, got, c.want)
 		}
+	}
+
+	// An IPv6 source arrives with the zone it came in on attached
+	// (fe80::1%eth0). The gate must compare the address and ignore the zone,
+	// or every browse that resolves to a link-local address is refused.
+	const zoned = "fe80::1%eth0"
+	ui.deleteHostIPs = parseHostIPs("fe80::1")
+	if !ui.deleteAllowed(zoned) {
+		t.Fatalf("deleteAllowed(%q) = false, want true: the zone must not defeat the match", zoned)
 	}
 }
 
@@ -268,6 +278,28 @@ func TestDeleteForbiddenFromForeignIP(t *testing.T) {
 	// the owning host id.
 	if strings.Contains(rec.Body.String(), "ownerHostId") {
 		t.Fatalf("foreign-IP refusal leaked ownership: %s", rec.Body.String())
+	}
+	// It must name the address the daemon saw, though: a caller cannot observe
+	// which of its own addresses arrived here, so a refusal that withholds it
+	// cannot be acted on.
+	if !strings.Contains(rec.Body.String(), foreign) {
+		t.Fatalf("refusal does not name the source address it saw: %s", rec.Body.String())
+	}
+	// And the hostinfo endpoint must refuse the same caller in advance, so the
+	// page can withhold the control instead of offering a doomed button.
+	infoReq := httptest.NewRequest(http.MethodGet, "/api/hostinfo", nil)
+	infoReq.RemoteAddr = foreign + ":44446"
+	infoRec := httptest.NewRecorder()
+	ui.routes().ServeHTTP(infoRec, infoReq)
+	var info struct {
+		ClientIP  string `json:"clientIp"`
+		CanDelete bool   `json:"canDelete"`
+	}
+	if err := json.Unmarshal(infoRec.Body.Bytes(), &info); err != nil {
+		t.Fatalf("hostinfo decode: %v", err)
+	}
+	if info.CanDelete || info.ClientIP != foreign {
+		t.Fatalf("hostinfo for a foreign caller = %+v, want canDelete=false and its own address", info)
 	}
 	g, _ := http.Get(ts.URL + "/api/stashes/" + tail(created.Permalink))
 	g.Body.Close()
@@ -563,17 +595,27 @@ func postFile(t *testing.T, base, name, body string) string {
 // TestHostInfo covers the footer's host-facts endpoint: ok=true, the local
 // hostId, and a serverIps STRING (newline-separated lines, possibly empty in a
 // sandboxed CI with no non-loopback interface — the contract is the shape, not
-// a specific address).
+// a specific address). Also the caller-facing pair the UI needs to decide
+// whether to offer a Delete control at all: this test's requests come from
+// loopback, which is exactly the case the delete gate permits.
 func TestHostInfo(t *testing.T) {
 	ts, _, _ := newTestUI(t)
 	var info struct {
 		OK          bool   `json:"ok"`
 		LocalHostID string `json:"localHostId"`
 		ServerIps   string `json:"serverIps"`
+		ClientIP    string `json:"clientIp"`
+		CanDelete   bool   `json:"canDelete"`
 	}
 	getJSON(t, ts.URL+"/api/hostinfo", &info)
 	if !info.OK || info.LocalHostID != testHostID {
 		t.Fatalf("hostinfo: %+v", info)
+	}
+	if net.ParseIP(info.ClientIP) == nil {
+		t.Fatalf("hostinfo clientIp = %q, want the caller's source address", info.ClientIP)
+	}
+	if !info.CanDelete {
+		t.Fatalf("hostinfo canDelete = false for a loopback caller, which the delete gate permits")
 	}
 	// Every reported line must be a comma-list of parseable IPs (no stray
 	// whitespace, no link-local/loopback leaking through).

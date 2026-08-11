@@ -95,7 +95,15 @@
     display: grid; grid-template-columns: repeat(auto-fill, minmax(20rem, 1fr));
     grid-gap: 0 0.25rem; gap: 0 0.25rem;
   }
+  /* The wait indicator is not a card: it spans the track, so it sits under the
+     middle of the board rather than in the first column. */
+  #cards .loading { grid-column: 1 / -1; }
 }
+
+/* The board is the one page with no notice area, so a read that failed has to
+   say so where the cards would have been -- otherwise the wait ends in a blank
+   page that looks exactly like the wait itself. */
+.load-error { padding: 2rem 1rem; text-align: center; }
 
 /* Only the colours with no token behind them are restated here. Everything
    keyed off --bg / --line / --fg follows the scheme from style.css, which every

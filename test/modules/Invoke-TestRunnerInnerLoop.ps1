@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.07
+.VERSION 2026.08.11
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456706
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -99,7 +99,7 @@ Resolve-LogLevel
 # only legitimate caller). $PSScriptRoot is therefore test/modules/, and
 # $TestRoot has to walk one level up to reach test/.
 Import-Module (Join-Path $PSScriptRoot 'Test.Prelude.psm1') -Global -Force
-$paths          = Initialize-YurunaEntryPoint -ScriptRoot $PSScriptRoot -InsideModulesDir -ConfigPath $ConfigPath
+$paths          = Initialize-YurunaEntryPoint -ScriptRoot $PSScriptRoot -InsideSubfolder -ConfigPath $ConfigPath
 $ModulesDir     = $paths.ModulesDir
 $TestRoot       = $paths.TestRoot
 $RepoRoot       = $paths.RepoRoot
@@ -657,8 +657,8 @@ if (Get-Command Clear-StaleControlState -ErrorAction SilentlyContinue) {
 }
 
 # Re-import Test.CachingProxyService with -Global -Force AFTER Initialize-YurunaHost.
-# Yuruna.Host.psm1 imports Test.CachingProxyService non-globally during its
-# module-load (line 46 in each host driver); per the eviction pattern,
+# Yuruna.Host.psm1 force-imports Test.CachingProxyService during its
+# module-load; per the eviction pattern,
 # that nested -Force pulls Test.CachingProxyService out of the global session,
 # so Invoke-CachingProxyServiceProbe stops resolving from this script even
 # though the Inner-kind bootstrap import above ran first. -Global -Force

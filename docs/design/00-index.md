@@ -36,9 +36,9 @@ visualize it rather than restate it.
 | 1 | Repo layout: `automation/ global/ guest/ host/ install/ test/ tools/`, `yuruna-project/{book,example,template,test}` |
 | 2 | `automation/Yuruna.*.psm1`, `automation/yuruna.ps1`, `host/Yuruna.Host.Contract.psm1`, `host/modules/`, `host/vmconfig/`, `guest/*/`, `install/setup.ps1`, `install/keys/`, `tools/`, `test/modules/`, `test/sequences/`, `test/schemas/`, `test/extension/`, `global/resources/`, `yuruna-project/{example,template,book}` |
 | 3 | `automation/Set-*.ps1`, `automation/Yuruna.{Component,Workload,DeploymentKind,GitHubSource}.psm1`, `automation/fetch-and-execute.sh`, `test/modules/{Test.RunnerOuterLoop,Test.RunnerInnerLoop,Test.SequenceEngine,Test.SequenceHandler,Test.Notify,Test.PoolStorage,Test.HostIdentity}.psm1`, `host/modules/Yuruna.DownloadAgent.psm1`, `host/*/guest.*/Get-Image.ps1`, `host/vmconfig/*.base.user-data`, `test/extension/*/server/internal/` |
-| 4 | `test/modules/{Test.RunnerState,Test.RunnerOuterLoop,Test.RunnerInnerLoop,Test.RunnerWatchdog}.psm1`, `test/Invoke-TestCycleRunner.ps1`; [runner-outer-loop.md](../runner-outer-loop.md#runner-state-machine) |
-| 5 | `yuruna-project/.../config/<cloud>/*.yml`, `yuruna-project/test/test.runner.yml`, `automation/Yuruna.{Resource,Component,Workload,Validation,DeploymentKind,VariableExpansion}.psm1`, `automation/Import.Yaml.psm1`, `test/test.config.yml.template`, `test/schemas/`, `test/Test-Config.ps1`, `test/New-Lab.ps1`, `test/pool/examples/`, `test/modules/{Test.Capability,Test.ExtensionService,Test.SequencePlanner,Test.PoolPlanner}.psm1` |
-| 6 | `test/Invoke-TestRunner.ps1`, `test/Start-{StatusService,ConfigService}.ps1`, `test/Start-{CachingProxyServiceVM,StashServiceVM,PoolControlServiceVM,DownloadAgentServiceVM}.ps1`, `test/Sync-PoolDashboardOnProxy.ps1`, `test/Move-CachingProxyService.ps1`, `host/vmconfig/*.base.user-data`, `test/extension/{pool-aggregator-service,pool-control-service,stash-service,download-agent-service}`, `test/modules/{Test.PoolSync,Test.PoolStorage,Test.ExtensionService,Test.VMUtility}.psm1` |
+| 4 | `test/modules/{Test.RunnerState,Test.RunnerOuterLoop,Test.RunnerInnerLoop,Test.RunnerWatchdog}.psm1`, `test/modules/Invoke-TestCycleRunner.ps1`; [runner-outer-loop.md](../runner-outer-loop.md#runner-state-machine) |
+| 5 | `yuruna-project/.../config/<cloud>/*.yml`, `yuruna-project/test/test.runner.yml`, `automation/Yuruna.{Resource,Component,Workload,Validation,DeploymentKind,VariableExpansion}.psm1`, `automation/Import.Yaml.psm1`, `test/test.config.yml.template`, `test/schemas/`, `test/Test-Config.ps1`, `test/lab/New-Lab.ps1`, `test/pool/examples/`, `test/modules/{Test.Capability,Test.ExtensionService,Test.SequencePlanner,Test.PoolPlanner}.psm1` |
+| 6 | `test/Invoke-TestRunner.ps1`, `test/Start-{StatusService,ConfigService}.ps1`, `test/Start-{CachingProxyServiceVM,StashServiceVM,PoolControlServiceVM,DownloadAgentServiceVM}.ps1`, `test/pool/Sync-PoolDashboardOnProxy.ps1`, `test/service/Move-CachingProxyService.ps1`, `host/vmconfig/*.base.user-data`, `test/extension/{pool-aggregator-service,pool-control-service,stash-service,download-agent-service}`, `test/modules/{Test.PoolSync,Test.PoolStorage,Test.ExtensionService,Test.VMUtility}.psm1` |
 
 ## The ≤7 rule — grouping decisions
 
@@ -116,4 +116,4 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.07
+Last review: 2026.08.11

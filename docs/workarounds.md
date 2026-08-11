@@ -197,10 +197,10 @@ The trap fires in both directions:
 always pass `-Global` when a script that may be invoked from a module
 context imports a shared module.
 
-Sites that depend on this ordering: `test/Start-CachingProxyServiceVM.ps1`,
-`test/Stop-CachingProxyServiceVM.ps1`, `test/Repair-CachingProxyServiceForwarder.ps1`,
+Sites that depend on this ordering: `test/service/Start-CachingProxyServiceVM.ps1`,
+`test/service/Stop-CachingProxyServiceVM.ps1`, `test/service/Repair-CachingProxyServiceForwarder.ps1`,
 `test/Test-CachingProxyService.ps1`, `test/Start-StatusService.ps1`,
-`test/Remove-TestVMFiles.ps1`, `test/Set-LabToken.ps1`.
+`test/Remove-TestVMFiles.ps1`, `test/lab/Set-LabToken.ps1`.
 
 Symptoms when the re-import is missing are silent, because the
 surrounding `try` usually swallows the resolution error:
@@ -312,6 +312,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.07
+Last review: 2026.08.11
 
 Back to [Yuruna](../README.md)

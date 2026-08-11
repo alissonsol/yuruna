@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.07
+.VERSION 2026.08.11
 .GUID 42e1f2a3-b4c5-4d67-8901-aabbccddee01
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -32,7 +32,7 @@
     Both are fetched and verified by the verified two-step install path (see
     install/README.md) against the bundled public key in install/keys/.
 
-    The ASCII/no-BOM gate (test/Test-AsciiNoBom.ps1) runs FIRST and hard-fails
+    The ASCII/no-BOM gate (tools/Test-AsciiNoBom.ps1) runs FIRST and hard-fails
     the release if a byte-parsed bootstrap script carries a BOM or a non-ASCII
     byte -- the authoritative backstop the per-cycle gate and the pre-commit
     hook point at for the published artifact.
@@ -111,7 +111,7 @@ $installDir   = Join-Path $RepoRoot 'install'
 $versionFile  = Join-Path $RepoRoot 'VERSION'
 $sha256File   = Join-Path $installDir 'install.sha256'
 $sigFile      = Join-Path $installDir 'install.sha256.sig'
-$asciiGate    = Join-Path $RepoRoot 'test/Test-AsciiNoBom.ps1'
+$asciiGate    = Join-Path $RepoRoot 'tools/Test-AsciiNoBom.ps1'
 
 # The three bootstrap installers, repo-relative, in a stable order so the
 # manifest is deterministic across runs.
@@ -167,7 +167,7 @@ Write-Information "Release version (from VERSION): $version" -InformationAction 
 # never reach a published release.
 if (Test-Path -LiteralPath $asciiGate) {
     & (Get-Process -Id $PID).Path -NoProfile -ExecutionPolicy Bypass -File $asciiGate -Quiet
-    if ($LASTEXITCODE -ne 0) { throw "ASCII/no-BOM gate failed (test/Test-AsciiNoBom.ps1). Release aborted." }
+    if ($LASTEXITCODE -ne 0) { throw "ASCII/no-BOM gate failed (tools/Test-AsciiNoBom.ps1). Release aborted." }
     Write-Information "ASCII/no-BOM gate: PASS" -InformationAction Continue
 } else {
     Write-Warning "Test-AsciiNoBom.ps1 not found at $asciiGate; ASCII gate SKIPPED."

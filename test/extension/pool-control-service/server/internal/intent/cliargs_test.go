@@ -15,7 +15,10 @@ import (
 	"testing"
 )
 
-// scriptsDir is where the pool-admin CLIs live relative to this package.
+// scriptsDir is the test/ directory relative to this package. The script names
+// this file joins onto it come from intent.go's own exec calls, which carry the
+// test/-relative subfolder ("pool/New-Pool.ps1"), so a CLI that moves folders
+// needs no edit here -- only the presence probe below names a path directly.
 const scriptsDir = "../../../../.."
 
 // paramNameRE picks the parameter variables out of a PowerShell param() block.
@@ -33,7 +36,9 @@ var paramNameRE = regexp.MustCompile(`\$([A-Za-z_][A-Za-z0-9_]*)`)
 // across the CLIs (-State vs -DesiredState), so the mismatch is easy to
 // reintroduce by analogy.
 func TestRunnerFlagsMatchScriptParameters(t *testing.T) {
-	if _, err := os.Stat(filepath.Join(scriptsDir, "Get-PoolIntent.ps1")); err != nil {
+	// A skip here silently retires the only check that catches Go/PowerShell
+	// parameter drift, so this path has to track the CLIs when they move.
+	if _, err := os.Stat(filepath.Join(scriptsDir, "pool/Get-PoolIntent.ps1")); err != nil {
 		t.Skipf("pool-admin CLIs not present next to this package: %v", err)
 	}
 

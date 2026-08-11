@@ -55,7 +55,7 @@ Elevated, on each lab machine
 ([B.1](#b1-enable-test-automation-every-machine)):
 
 ```
-pwsh test/Enable-TestAutomation.ps1
+pwsh test/lab/Enable-TestAutomation.ps1
 ```
 
 On Windows, sign out and back in if it reports display-scaling
@@ -76,14 +76,14 @@ or on the shared-services machine if there is no NAS
 macOS and Ubuntu run it **without** `sudo`:
 
 ```
-pwsh test/New-LocalLabStorage.ps1
+pwsh test/lab/New-LocalLabStorage.ps1
 ```
 
 It asks only where storage should live (suggesting a per-OS default),
 calls `New-Lab`, and writes `networkStorage.*` and the vault entries —
 then skip to the last paragraph of this step.
 A later lab on the same machine needs only
-`pwsh test/New-Lab.ps1 -Name <lab-name>` — it reuses the folders and
+`pwsh test/lab/New-Lab.ps1 -Name <lab-name>` — it reuses the folders and
 accounts already here.
 
 **Storage on a NAS or a separate file server** — create the folders
@@ -91,7 +91,7 @@ and the lab vault here, then create the accounts and grant the share
 permissions **on that device**:
 
 ```
-pwsh test/New-Lab.ps1 -Name <lab-name> -Root <storage-root>
+pwsh test/lab/New-Lab.ps1 -Name <lab-name> -Root <storage-root>
 ```
 
 `<lab-name>` is lowercase (letters, digits, hyphens); `<storage-root>`
@@ -132,7 +132,7 @@ On the shared-services machine; elevated on Windows, unelevated on
 macOS ([B.3](#b3-start-the-caching-proxy-service--dashboards)):
 
 ```
-pwsh test/Start-CachingProxyServiceVM.ps1
+pwsh test/service/Start-CachingProxyServiceVM.ps1
 ```
 
 Note the proxy VM's IP the script prints — every machine's
@@ -154,7 +154,7 @@ Elevated on Windows, unelevated on macOS; needs the A.2 configuration
 on this machine ([B.4](#b4-start-the-stash-service)):
 
 ```
-pwsh test/Start-StashServiceVM.ps1
+pwsh test/service/Start-StashServiceVM.ps1
 ```
 
 **Guided path** — `install/setup.ps1` starts it once storage is
@@ -166,8 +166,8 @@ Elevated on Windows, unelevated on macOS
 ([B.5](#b5-start-the-pool-control-service)):
 
 ```
-pwsh test/Start-PoolControlServiceVM.ps1
-pwsh test/Set-LabToken.ps1 -LabToken <code>
+pwsh test/service/Start-PoolControlServiceVM.ps1
+pwsh test/lab/Set-LabToken.ps1 -LabToken <code>
 ```
 
 `<code>` is the current "Lab token" tile value
@@ -192,7 +192,7 @@ On the machine that will run cycles first: edit
 validate, and run ([B.6](#b6-configure-the-first-machine)):
 
 ```
-pwsh test/Set-LabToken.ps1 -LabToken <code>
+pwsh test/lab/Set-LabToken.ps1 -LabToken <code>
 pwsh test/Test-Config.ps1
 pwsh test/Invoke-TestProject.ps1
 pwsh test/Invoke-TestRunner.ps1
@@ -217,8 +217,8 @@ are never touched. It runs no cycles — `Invoke-TestProject.ps1` and
 On each remaining machine ([B.7](#b7-each-additional-machine)):
 
 ```
-pwsh test/Set-LabToken.ps1 -LabToken <code>
-pwsh test/Sync-HostConfiguration.ps1 -ReferenceHost <ip-or-name>
+pwsh test/lab/Set-LabToken.ps1 -LabToken <code>
+pwsh test/lab/Sync-HostConfiguration.ps1 -ReferenceHost <ip-or-name>
 pwsh test/Invoke-TestProject.ps1
 ```
 
@@ -226,7 +226,7 @@ The sync copies the reference host's config converted for this host
 and finishes by running `Test-Config.ps1`.
 
 If the machine was previously a **standalone host**, run
-`pwsh test/Convert-ToPoolWorker.ps1 -ReferenceHost <ip-or-name>` in
+`pwsh test/pool/Convert-ToPoolWorker.ps1 -ReferenceHost <ip-or-name>` in
 place of the sync. It does the same sync and then retires the local
 services the lab now provides — which otherwise keep winning the
 lookup and quietly serve this host's cycles
@@ -298,13 +298,13 @@ Parameters, re-run semantics, and what makes a run fail are shared
 with the standalone path:
 [operator.md B.0](operator.md#b0-the-guided-setup-script). To put a
 machine back, see
-[test/Disable-TestAutomation.ps1](../test/Disable-TestAutomation.ps1)
+[test/lab/Disable-TestAutomation.ps1](../test/lab/Disable-TestAutomation.ps1)
 ([B.1](#b1-enable-test-automation-every-machine)).
 
 ### B.1 Enable test automation (every machine)
 
 ```
-pwsh test/Enable-TestAutomation.ps1
+pwsh test/lab/Enable-TestAutomation.ps1
 ```
 
 Run on each lab machine. Explicit opt-in that turns it into a test
@@ -315,7 +315,7 @@ profile. Idempotent; supports `-WhatIf`. On Windows, sign out and back
 in if it reports display-scaling changes — OCR needs 100% scaling.
 Details: `host/<platform>/Enable-TestAutomation.ps1`.
 
-**Putting a machine back** — `pwsh test/Disable-TestAutomation.ps1` is
+**Putting a machine back** — `pwsh test/lab/Disable-TestAutomation.ps1` is
 the inverse; full breakdown:
 [operator.md](operator.md#putting-the-machine-back). On a lab machine,
 `-StopServices` also stops the caching-proxy, stash and pool-control
@@ -327,14 +327,14 @@ the runtime directory** — the normal state of a cycling lab host, so
 stop the runner first — and it knows nothing about **enrolment**: the
 `pool.*` keys and lab auth token stay where they are. To leave a pool,
 use the pool admin commands ([pool-admin.md](pool-admin.md)); to drop
-a host from the dashboard, `test/Remove-PoolHost.ps1`.
+a host from the dashboard, `test/pool/Remove-PoolHost.ps1`.
 
 ### B.2 Lab storage: pool and stash shares (ideally on a NAS)
 
 Durable network tiers ([pool-storage.md](pool-storage.md),
 [stash-guide.md](stash-guide.md)) are backed by two SMB3 shares —
 `yuruna.pool` and `yuruna.stash` — on a NAS if you have one, otherwise
-on the machine hosting the shared services. `test/New-Lab.ps1` creates
+on the machine hosting the shared services. `test/lab/New-Lab.ps1` creates
 the folders, the lab vault, and the seeded pool-intent repository in
 one idempotent step, run where the storage lives; commands:
 [A.2](#a2-create-lab-storage).
@@ -351,7 +351,7 @@ true` on hosts that should archive cycles
 ([test-config.md](test-config.md)).
 
 **When the storage lives on the machine you are standing at,
-`test/New-LocalLabStorage.ps1` does the whole step instead** — the
+`test/lab/New-LocalLabStorage.ps1` does the whole step instead** — the
 accounts, SMB server, shares, vault entries, mounts, and the six
 `networkStorage.*` keys, on top of the `New-Lab` call. Idempotent,
 `-WhatIf`-able, `-EnableReplication` for `pool.networkReplicate`.
@@ -393,7 +393,7 @@ them on the device, then point `networkStorage.*` at it as above.
 ### B.3 Start the caching-proxy service + dashboards
 
 ```
-pwsh test/Start-CachingProxyServiceVM.ps1
+pwsh test/service/Start-CachingProxyServiceVM.ps1
 ```
 
 One proxy serves the whole lab. Builds the
@@ -410,7 +410,7 @@ framework reinstalls. Details:
 ### B.4 Start the stash service
 
 ```
-pwsh test/Start-StashServiceVM.ps1
+pwsh test/service/Start-StashServiceVM.ps1
 ```
 
 Brings up the `yuruna-stash-service` VM — the lab-wide drop box for
@@ -433,7 +433,7 @@ warns when the VM's mode no longer matches the host's uplink.
 ### B.5 Start the pool control service
 
 ```
-pwsh test/Start-PoolControlServiceVM.ps1
+pwsh test/service/Start-PoolControlServiceVM.ps1
 ```
 
 Brings up the `yuruna-pool-control-service` VM — operator UI + API for
@@ -448,7 +448,7 @@ download-agent `:8082`). Cloud-init builds the daemon inside the guest
 ([B.2](#b2-lab-storage-pool-and-stash-shares-ideally-on-a-nas))
 first. The UI is on port 80 (`http://<pool-control-service-vm-ip>/`),
 also linked in the Grafana "Yuruna hosts" dashboard's Extension hosts
-table. Enroll this host with `test/Set-LabToken.ps1 -LabToken <code>`
+table. Enroll this host with `test/lab/Set-LabToken.ps1 -LabToken <code>`
 (the "Lab token" tile value); the script fetches the shared
 `lab-auth-token` into the host vault. `install/setup.ps1` does this
 for the beacon — but **auto-enrolment stays off** until an
@@ -466,7 +466,7 @@ Each service VM has its own administrator account and vault key — see
 
 On the machine that will run cycles first (any of them):
 
-1. **Enroll in the lab** — `pwsh test/Set-LabToken.ps1 -LabToken
+1. **Enroll in the lab** — `pwsh test/lab/Set-LabToken.ps1 -LabToken
    <code>` (current "Lab token" tile value); already done for the
    shared-services machine in
    [B.5](#b5-start-the-pool-control-service). Without the token the
@@ -490,14 +490,14 @@ On the machine that will run cycles first (any of them):
 1. **OS baseline, preflight, install, test user** — operator guide
    through [A.2](operator.md#a2-create-the-test-user); reboot if the
    installer asks.
-2. **Enable test automation** — `pwsh test/Enable-TestAutomation.ps1`
+2. **Enable test automation** — `pwsh test/lab/Enable-TestAutomation.ps1`
    ([B.1](#b1-enable-test-automation-every-machine)).
 3. **Enroll in the lab, then sync configuration from an existing
    host:**
 
    ```
-   pwsh test/Set-LabToken.ps1 -LabToken <code>
-   pwsh test/Sync-HostConfiguration.ps1 -ReferenceHost <ip-or-name>
+   pwsh test/lab/Set-LabToken.ps1 -LabToken <code>
+   pwsh test/lab/Sync-HostConfiguration.ps1 -ReferenceHost <ip-or-name>
    ```
 
    `Set-LabToken.ps1` redeems the "Lab token" tile code at the
@@ -531,8 +531,8 @@ On the machine that will run cycles first (any of them):
    restarts every registered-but-stopped service VM. Use:
 
    ```
-   pwsh test/Set-LabToken.ps1 -LabToken <code>
-   pwsh test/Convert-ToPoolWorker.ps1 -ReferenceHost <ip-or-name>
+   pwsh test/lab/Set-LabToken.ps1 -LabToken <code>
+   pwsh test/pool/Convert-ToPoolWorker.ps1 -ReferenceHost <ip-or-name>
    ```
 
    It runs the sync above, then retires every local service VM
@@ -552,7 +552,7 @@ On the machine that will run cycles first (any of them):
    error nobody connects back to this step.
 
    Storage is reported, never deleted:
-   `pwsh test/Clear-LocalLabStorage.ps1` withdraws the SMB shares, the
+   `pwsh test/lab/Clear-LocalLabStorage.ps1` withdraws the SMB shares, the
    `yuruna-pool` / `yuruna-stash` accounts, and the loopback
    exemptions, then prints the sizes under the storage root and the
    exact command to reclaim them. Start with `-ReportOnly`.
@@ -562,7 +562,7 @@ On the machine that will run cycles first (any of them):
    `http://<pool-control-service-vm-ip>/` (linked as "Pool-control service" in the
    Grafana "Yuruna hosts" dashboard's Extension hosts table), add
    this host to a pool, and assign a test set. CLI equivalent:
-   `test/Add-HostToPool.ps1` + `test/Set-PoolTestSet.ps1`
+   `test/pool/Add-HostToPool.ps1` + `test/pool/Set-PoolTestSet.ps1`
    ([pool-admin.md](pool-admin.md)). Then start
    `pwsh test/Invoke-TestRunner.ps1`.
 
@@ -649,15 +649,15 @@ one. `GH_TOKEN` is never stored in pool intent; it stays host-local.
 Register both pairs in the intent store's test-set library:
 
 ```powershell
-pwsh test/Set-PoolTestSetDefinition.ps1 -Name testset1 -FrameworkUrl <framework-url> -ProjectUrl <project-a-url> -IntentGitUrl <intent-url>
-pwsh test/Set-PoolTestSetDefinition.ps1 -Name testset2 -FrameworkUrl <framework-url> -ProjectUrl <project-b-url> -IntentGitUrl <intent-url>
+pwsh test/pool/Set-PoolTestSetDefinition.ps1 -Name testset1 -FrameworkUrl <framework-url> -ProjectUrl <project-a-url> -IntentGitUrl <intent-url>
+pwsh test/pool/Set-PoolTestSetDefinition.ps1 -Name testset2 -FrameworkUrl <framework-url> -ProjectUrl <project-b-url> -IntentGitUrl <intent-url>
 ```
 
 ### 2. Create both pools
 
 ```powershell
-pwsh test/New-Pool.ps1 -PoolId poola -DisplayName 'Pool A' -IntentGitUrl <intent-url>
-pwsh test/New-Pool.ps1 -PoolId poolb -DisplayName 'Pool B' -IntentGitUrl <intent-url>
+pwsh test/pool/New-Pool.ps1 -PoolId poola -DisplayName 'Pool A' -IntentGitUrl <intent-url>
+pwsh test/pool/New-Pool.ps1 -PoolId poolb -DisplayName 'Pool B' -IntentGitUrl <intent-url>
 ```
 
 `-PoolId` is permanent — `New-Pool.ps1` mints a stable `poolGuid` for
@@ -670,17 +670,17 @@ A host belongs to **at most one pool**, which is what makes the split
 meaningful. Each `-HostId` is that host's `runtime/host.uuid`:
 
 ```powershell
-pwsh test/Add-HostToPool.ps1 -PoolId poola -HostId <host-1-uuid> -IntentGitUrl <intent-url>
-pwsh test/Add-HostToPool.ps1 -PoolId poola -HostId <host-2-uuid> -IntentGitUrl <intent-url>
-pwsh test/Add-HostToPool.ps1 -PoolId poolb -HostId <host-3-uuid> -IntentGitUrl <intent-url>
-pwsh test/Add-HostToPool.ps1 -PoolId poolb -HostId <host-4-uuid> -IntentGitUrl <intent-url>
+pwsh test/pool/Add-HostToPool.ps1 -PoolId poola -HostId <host-1-uuid> -IntentGitUrl <intent-url>
+pwsh test/pool/Add-HostToPool.ps1 -PoolId poola -HostId <host-2-uuid> -IntentGitUrl <intent-url>
+pwsh test/pool/Add-HostToPool.ps1 -PoolId poolb -HostId <host-3-uuid> -IntentGitUrl <intent-url>
+pwsh test/pool/Add-HostToPool.ps1 -PoolId poolb -HostId <host-4-uuid> -IntentGitUrl <intent-url>
 ```
 
 ### 4. Assign one test-set to each pool
 
 ```powershell
-pwsh test/Set-PoolTestSet.ps1 -PoolId poola -Name testset1 -FrameworkUrl <framework-url> -ProjectUrl <project-a-url> -IntentGitUrl <intent-url>
-pwsh test/Set-PoolTestSet.ps1 -PoolId poolb -Name testset2 -FrameworkUrl <framework-url> -ProjectUrl <project-b-url> -IntentGitUrl <intent-url>
+pwsh test/pool/Set-PoolTestSet.ps1 -PoolId poola -Name testset1 -FrameworkUrl <framework-url> -ProjectUrl <project-a-url> -IntentGitUrl <intent-url>
+pwsh test/pool/Set-PoolTestSet.ps1 -PoolId poolb -Name testset2 -FrameworkUrl <framework-url> -ProjectUrl <project-b-url> -IntentGitUrl <intent-url>
 ```
 
 A pool holds exactly one `testSet`; assigning replaces the previous
@@ -690,9 +690,9 @@ one. Members do not split the work: every `poola` member clones
 ### 5. Verify before the next cycle
 
 ```powershell
-pwsh test/Test-PoolIntent.ps1 -IntentGitUrl <intent-url>          # schema-validates the intent files
-pwsh test/Get-PoolStatus.ps1  -PoolId poola -IntentGitUrl <intent-url>
-pwsh test/Get-PoolStatus.ps1  -PoolId poolb -IntentGitUrl <intent-url>
+pwsh test/pool/Test-PoolIntent.ps1 -IntentGitUrl <intent-url>          # schema-validates the intent files
+pwsh test/pool/Get-PoolStatus.ps1  -PoolId poola -IntentGitUrl <intent-url>
+pwsh test/pool/Get-PoolStatus.ps1  -PoolId poolb -IntentGitUrl <intent-url>
 ```
 
 `Test-PoolIntent.ps1` also enforces the one-pool-per-host rule;
@@ -707,18 +707,18 @@ so assignments take effect next cycle with no restart.
 cycling:
 
 ```powershell
-pwsh test/Set-PoolDesiredState.ps1 -PoolId poolb -State paused -IntentGitUrl <intent-url>
-pwsh test/Set-PoolDesiredState.ps1 -PoolId poolb -State run    -IntentGitUrl <intent-url>
+pwsh test/pool/Set-PoolDesiredState.ps1 -PoolId poolb -State paused -IntentGitUrl <intent-url>
+pwsh test/pool/Set-PoolDesiredState.ps1 -PoolId poolb -State run    -IntentGitUrl <intent-url>
 ```
 
 To move a host from Pool A to Pool B, drain it first, let its current
 cycle finish, then remove and re-add:
 
 ```powershell
-pwsh test/Set-PoolDesiredState.ps1  -PoolId poola -State drain  -IntentGitUrl <intent-url>
-pwsh test/Remove-HostFromPool.ps1   -PoolId poola -HostId <host-2-uuid> -IntentGitUrl <intent-url>
-pwsh test/Add-HostToPool.ps1        -PoolId poolb -HostId <host-2-uuid> -IntentGitUrl <intent-url>
-pwsh test/Set-PoolDesiredState.ps1  -PoolId poola -State run    -IntentGitUrl <intent-url>
+pwsh test/pool/Set-PoolDesiredState.ps1  -PoolId poola -State drain  -IntentGitUrl <intent-url>
+pwsh test/pool/Remove-HostFromPool.ps1   -PoolId poola -HostId <host-2-uuid> -IntentGitUrl <intent-url>
+pwsh test/pool/Add-HostToPool.ps1        -PoolId poolb -HostId <host-2-uuid> -IntentGitUrl <intent-url>
+pwsh test/pool/Set-PoolDesiredState.ps1  -PoolId poola -State run    -IntentGitUrl <intent-url>
 ```
 
 Draining stops the runner process on every Pool A member, so restart
@@ -732,6 +732,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.07
+Last review: 2026.08.11
 
 Back to [Yuruna](../README.md)

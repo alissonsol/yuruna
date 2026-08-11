@@ -30,11 +30,11 @@ Guest provisioning scripts call `apt-get` (Ubuntu) and `dnf` (Amazon
 Linux 2023) to install workload dependencies, plus `curl` to fetch
 release tags, install scripts, GPG keys, and binaries from GitHub /
 filippo.io / dot.net / etc. All of these reach external mirrors and
-CDNs that occasionally fail on transient conditions that recover within
-seconds. Without a wrapper, a single flaky lookup aborts the whole
-script via `set -e` and the cycle wastes its remaining budget.
+CDNs that occasionally fail on transients that recover within seconds.
+Without a wrapper, a single flaky lookup aborts the whole script via
+`set -e` and the cycle wastes its remaining budget.
 
-**The failure modes that motivated this library.** Two examples:
+**Motivating failure modes.** Two examples:
 
 1. A remote macOS UTM host (dnf transient DNS):
 
@@ -64,9 +64,9 @@ on first-boot DHCP, `Hash Sum mismatch` from a half-refreshed mirror
 
 **Library.** All five retry wrappers live in
 [automation/yuruna-retry.sh](../automation/yuruna-retry.sh) — single
-source of truth. The library is deployed to every supported guest by
-cloud-init's `write_files:` (base64-encoded) at install time, landing
-at `/usr/local/lib/yuruna/yuruna-retry.sh` before any provisioning
+source of truth. cloud-init's `write_files:` deploys it
+(base64-encoded) to every supported guest at install time, landing at
+`/usr/local/lib/yuruna/yuruna-retry.sh` before any provisioning
 script runs. Guest scripts source it after their arch-detection block:
 
 ```
@@ -91,19 +91,19 @@ The library exports five functions:
    in `[delay/2, delay]` rather than exactly `delay` (base 10 s, 20 s,
    40 s, 80 s, 160 s; override via `YURUNA_RETRY_DELAY_SECONDS`), so parallel
    guests that failed in lock-step — a shared caching-proxy-service blip, a
-   mirror 429 burst — don't all wake and retry on the same instant and
-   re-form the thundering herd that caused the failure. The jitter
+   mirror 429 burst — don't all wake at the same instant and re-form
+   the thundering herd that caused the failure. The jitter
    never exceeds the base delay, so the ~5-min worst-case total is
    unchanged.
 3. Streams the wrapped command's stdout/stderr normally so the log
-   shows exactly what the wrapped tool is doing.
+   shows what the wrapped tool is doing.
 4. Prints `!! <name>: attempt N/5 failed (rc=…)` banners between
    attempts so the log makes the retry visible.
-5. After the final attempt returns the real exit code; `set -e` then
+5. Returns the real exit code after the final attempt; `set -e` then
    aborts the script with a diagnosable failure.
 6. **Transient/permanent gate** (`curl_retry` + `wget_try`): stops the
    ladder immediately on a deterministic **HTTP 404** (or other 4xx bar
-   429) and a malformed URL, instead of burning all 5 attempts on
+   429) or a malformed URL, instead of burning all 5 attempts on
    something that cannot succeed. curl (exit 22) and wget (exit 8) both
    collapse every HTTP error to one exit code, so on that code the gate
    re-probes the status (a bounded, output-discarding GET through the
@@ -125,10 +125,10 @@ The library exports five functions:
 For `curl_retry`, curl's own `--retry 3 --retry-connrefused` fires
 first (sub-30 s for transient 5xx + ECONNREFUSED). Combined budget:
 5 outer × 3 inner = 15 effective attempts — still bounded, sized for
-a one-shot provisioning script under `set -euo pipefail`. 4xx
-responses are not retried by curl's inner `--retry`, and the transient
-gate (item 6 above) also fails fast on them, so a
-deterministic 404 costs one attempt, not the full ~5-min ladder.
+a one-shot provisioning script under `set -euo pipefail`. curl's inner
+`--retry` does not retry 4xx, and the transient gate (item 6) fails
+fast on them, so a deterministic 404 costs one attempt, not the full
+~5-min ladder.
 
 **Call signature.** Generic — the wrapper takes the full command,
 including the caller's `sudo` and any options:
@@ -229,8 +229,8 @@ the transfer layer (curl/wget/git low-speed aborts, apt's own
 single source of truth for the pinned upstream dependency versions the guest
 provisioning scripts install. cloud-init deploys it (base64) to
 `/usr/local/lib/yuruna/` alongside `yuruna-retry.sh`, and the retry library
-sources it — so every guest script that sources the retry lib also sees the
-pins. Guest scripts reference the exported variables and **never** the version
+sources it — so every guest script that sources the retry library also sees
+the pins. Guest scripts reference the exported variables and **never** the version
 literals.
 
 | Variable | Pins | Consumed by |
@@ -343,7 +343,7 @@ resources) so the address returns to the pool immediately instead of
 lingering until lease expiry. It runs at end-of-sequence teardown so a
 churning test fleet does not exhaust a shared LAN's DHCP pool. It is
 best-effort across the DHCP clients a guest may run — a client that is
-not installed is simply skipped:
+not installed is skipped:
 
 - **systemd-networkd** (Ubuntu + Amazon Linux 2023): `networkctl down`
   per managed link. `SendRelease` defaults to yes, so bringing a link
@@ -420,7 +420,7 @@ relaxing egress (`project_sslbump_ca_gating_durable_fix`):
   `404`s when neither resolves so the guest fails with a clear diagnostic
   rather than a silent pass. By update time the cache has usually recovered
   (apt over `:3128` already succeeds), so this is the layer that turns the
-  confirmed flap-during-provisioning failure into a pass. Installing the CA
+  flap-during-provisioning failure into a pass. Installing the CA
   does not relax egress: HTTPS still flows through the auditable bump; the
   self-heal only supplies the trust anchor the bump already expects. The
   guest side is best-effort and non-fatal: a missing `host.env`, an
@@ -472,10 +472,10 @@ The caching-proxy-service `New-VM.ps1` scripts on all three drivers
 bake the Yuruna host's (status service) IP and port into the seed so
 the cache VM's cloud-init build block fetches collector/parser source
 from the LOCAL host working tree (`/yuruna-repo/`) instead of public
-github — a rebuild never waits on the private->public mirror.
+GitHub — a rebuild never waits on the private->public mirror.
 `$env:YURUNA_GUEST_REACHABLE_HOST_IP` overrides the resolved host IP
 on ubuntu.kvm and macos.utm (windows.hyper-v has no override); empty
-values make the build fall back to github.
+values make the build fall back to GitHub.
 `Start-CachingProxyServiceVM.ps1` ensures the status service the baked
 address points at is running.
 
@@ -750,7 +750,7 @@ Two bounds on that substitution:
 
 **What the runner does.** A degraded host is a *running* host. The
 cycle-start host-network gate classifies every External switch, warns
-naming the switch, the verdict and the remedy, and lets the cycle run;
+naming the switch, the verdict, and the remedy, and lets the cycle run;
 guests land on Default Switch NAT and the cycle passes. The gate
 refuses a cycle only on total loss — no viable External path AND no
 Default Switch address — the one state in which every guest is
@@ -846,8 +846,8 @@ MAC no longer matches, **so the host can come back on a different
 address — or, if the new adapter gets no lease at all, on none**. The
 NIC also drops for a few seconds while the binding changes. On a
 single-NIC host that adapter is the only management path, which is
-precisely why this is an operator action with eyes on the console and
-not something the runner does on its own.
+why this is an operator action with eyes on the console and not
+something the runner does on its own.
 
 ## KVM host bridge netplan: identity pins
 
@@ -870,12 +870,165 @@ identity/ownership pins so it behaves the same on every host:
   machine-id-derived DUID, so even with the cloned MAC a server keying
   leases on client-id would renumber the host.
 
+# Local Subnet Connectivity
+
+During `setup.ps1` execution, service VMs (such as the caching-proxy or stash service) must reach the host across the local subnet (typically a `/24`). If host-level firewall rules or network isolation block that traffic, the `setup.ps1` preflight fails.
+
+Follow the instructions below for your operating system.
+
+---
+
+## Ubuntu / Linux (UFW & iptables)
+
+### 1. Check Firewall Status
+
+Review active `ufw` rules:
+
+```bash
+sudo ufw status verbose
+
+```
+
+If `ufw` is active and contains outbound block rules (e.g., `DENY OUT` or `REJECT OUT` targeting a `/24` subnet such as `192.168.7.0/24`), service VMs on that subnet cannot reach the host.
+
+### 2. Allow Local Subnet Traffic
+
+Allow outbound and inbound traffic across your local `/24` subnet:
+
+```bash
+# Allow local subnet outbound traffic (replace 192.168.7.0/24 with your subnet)
+sudo ufw allow out to 192.168.7.0/24
+
+# If specific service ports are restricted, allow them explicitly
+sudo ufw allow 8888/tcp
+sudo ufw allow 8080/tcp
+
+# Reload firewall rules
+sudo ufw reload
+
+```
+
+### 3. Verify Connectivity
+
+Test reachability to the local network interface or router:
+
+```bash
+ping -c 3 192.168.7.1
+
+```
+
+---
+
+## Windows (Hyper-V & Windows Defender Firewall)
+
+### 1. Check Outbound Rules
+
+Open PowerShell as **Administrator** and inspect active outbound block rules:
+
+```powershell
+Get-NetFirewallRule -Direction Outbound -Enabled True -Action Block | Format-Table Name, DisplayName
+
+```
+
+### 2. Add Firewall Exception for Local Subnet
+
+Allow local subnet communication through Windows Defender Firewall:
+
+```powershell
+# Allow all outbound traffic to the local subnet
+New-NetFirewallRule -DisplayName "Yuruna Local Subnet Allow" `
+                    -Direction Outbound `
+                    -Action Allow `
+                    -RemoteAddress LocalSubnet `
+                    -Enabled True
+
+# Allow incoming connections on required service ports
+New-NetFirewallRule -DisplayName "Yuruna Service Ports" `
+                    -Direction Inbound `
+                    -Action Allow `
+                    -Protocol TCP `
+                    -LocalPort 8080, 8888 `
+                    -Enabled True
+
+```
+
+### 3. Verify Connectivity
+
+Test reachability from PowerShell:
+
+```powershell
+Test-Connection -TargetName 192.168.7.1 -Count 2
+
+```
+
+---
+
+## macOS (UTM & PF Firewall)
+
+### 1. Check Packet Filter (PF) Status
+
+Inspect whether the macOS `pf` firewall is active and blocking local traffic:
+
+```bash
+sudo pfctl -s info
+
+```
+
+View active rules:
+
+```bash
+sudo pfctl -s rules
+
+```
+
+### 2. Allow Local Traffic
+
+If custom anchor rules or `/etc/pf.conf` entries isolate local subnets, add a pass rule to your PF configuration:
+
+1. Open `/etc/pf.conf` in a text editor:
+```bash
+sudo nano /etc/pf.conf
+
+```
+
+
+2. Add a rule permitting local subnet traffic:
+```text
+pass out quick on en0 proto tcp from any to 192.168.7.0/24
+
+```
+
+
+3. Reload the PF ruleset:
+```bash
+sudo pfctl -f /etc/pf.conf
+sudo pfctl -e
+
+```
+
+### 3. Check macOS Application Firewall
+
+Ensure `socketfilterfw` is not blocking incoming service connections:
+
+```bash
+sudo /usr/libexec/ApplicationFirewall/socketfilterfw --getglobalstate
+
+```
+
+---
+
+## Related Links & Further Reading
+
+* [Ubuntu UFW Firewall Documentation](https://help.ubuntu.com/community/UFW)
+* [Microsoft Defender Firewall with Advanced Security](https://www.google.com/search?q=https://learn.microsoft.com/en-us/windows/security/operating-system-hardware-security/network-security/windows-firewall/)
+* [macOS PF Firewall Guide](https://support.apple.com/guide/mac-help/mh34041/mac)
+
 ---
 
 LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.07
+Last review: 2026.08.11
 
 Back to [Yuruna](../README.md)

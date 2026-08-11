@@ -11,6 +11,26 @@ copies debug artifacts to `test/status/log/`, sends a Resend
 notification, and either preserves the VM or cleans it up depending on
 `testCycle.stopOnFailure`.
 
+## Where the scripts are
+
+`test/` itself holds only the eight commands reached for daily —
+`Invoke-TestRunner.ps1`, `Invoke-TestProject.ps1`, `Invoke-TestSequence.ps1`,
+`Test-Config.ps1`, `Test-CachingProxyService.ps1`, `Start-StatusService.ps1`,
+`New-LocalTestUser.ps1`, `Remove-TestVMFiles.ps1`. Everything else is grouped
+by what it acts on:
+
+| Folder | Holds |
+|---|---|
+| [`lab/`](lab/) | standing a lab up on this host: the four host-neutral entry points, lab creation, local storage, token enrolment |
+| [`pool/`](pool/) | the pool-admin CLI — everything that reads or writes a lab's pool intent — and the sample intent files |
+| [`service/`](service/) | start/stop pairs for the service VMs and the host config/status services, plus the caching-proxy operations |
+| [`check/`](check/) | standalone host-capability checks (OCR engines) |
+| [`modules/`](modules/) | harness modules and the two per-cycle children; not invoked directly |
+
+Each folder has its own README. The repo-wide encoding gate lives outside
+`test/` at [`tools/Test-AsciiNoBom.ps1`](../tools/Test-AsciiNoBom.ps1), because
+it gates commits and releases rather than a host.
+
 ## Prerequisites
 
 Same as the host setup — see
@@ -25,10 +45,10 @@ copy of the script from `host/<host type>/`, so the same command works on
 every host:
 
 ```
-pwsh test/Enable-TestAutomation.ps1                        # prepare this host for unattended runs
-pwsh test/Disable-TestAutomation.ps1                       # ... and put those host settings back
-pwsh test/Sync-HostConfiguration.ps1 -ReferenceHost <host> # copy another pool host's test.config.yml
-pwsh test/Remove-OrphanedVMFiles.ps1                       # delete files left by VMs that are already gone
+pwsh test/lab/Enable-TestAutomation.ps1                        # prepare this host for unattended runs
+pwsh test/lab/Disable-TestAutomation.ps1                       # ... and put those host settings back
+pwsh test/lab/Sync-HostConfiguration.ps1 -ReferenceHost <host> # copy another pool host's test.config.yml
+pwsh test/lab/Remove-OrphanedVMFiles.ps1                       # delete files left by VMs that are already gone
 ```
 
 Arguments (`-WhatIf` among them) are forwarded to the per-host script, which
@@ -151,6 +171,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.07
+Last review: 2026.08.11
 
 Back to [Yuruna](../README.md)
